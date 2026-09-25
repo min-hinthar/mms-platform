@@ -7,6 +7,7 @@ import {
   padAddNotice,
   padAddVerdict,
   padAttemptOutcome,
+  padRetryVerdict,
   padSendNotice,
   padSlotNotice,
 } from "./pad-errors";
@@ -149,5 +150,53 @@ describe("padAttemptOutcome — the chain's answer in the add key's own words (P
     expect(padAttemptOutcome("refused")).toBe("definite");
     // Offline sent nothing: the next tap is a new add.
     expect(padAttemptOutcome("offline")).toBe("definite");
+  });
+});
+
+// ── Phase 2c · review fixes · pad2 ──
+describe("padRetryVerdict — a refused RETRY says nothing about the first attempt", () => {
+  const verdict = (code: StaffWriteCode) =>
+    padRetryVerdict(padAddVerdict({ ok: false, error: "server words", code }));
+
+  it("every definite refusal of a retry leaves the add UNKNOWN — never 'didn't go on'", () => {
+    // MUTATION (pad2/retry-refusal-read-as-definite): the retry's refusal read as definite — the
+    // ghost goes, the key is dropped, "{x} didn't go on" invites a new tap under a NEW key, and if
+    // the first attempt landed the table gets a second plate; red.
+    for (const code of EVERY_CODE.filter((c) => c !== "signin" && c !== "unconfirmed"))
+      expect(verdict(code).kind, code).toBe("unknown");
+  });
+
+  it("says WHY the retry could not run: the outage and the paying guest by name, the rest generic", () => {
+    // MUTATION (pad2/retry-outage-said-as-failed): the outage collapsed into the generic sentence —
+    // "That didn't go through" when the fix is the connection; red.
+    expect(verdict("outage")).toEqual({ kind: "unknown", retry: "pad.err.retry.outage" });
+    expect(verdict("paying")).toEqual({ kind: "unknown", retry: "pad.err.retry.paying" });
+    for (const code of ["closed", "no-cart", "sold_out", "gone", "failed", "invalid", "sentence"])
+      expect(verdict(code as StaffWriteCode), code).toEqual({
+        kind: "unknown",
+        retry: "pad.err.retry.failed",
+      });
+  });
+
+  it("each retry sentence says the dish MAY already be on, and never that it didn't go on", () => {
+    for (const k of [
+      "pad.err.retry.outage",
+      "pad.err.retry.paying",
+      "pad.err.retry.failed",
+    ] as const) {
+      expect(STAFF[k].en).toContain("may already be on the order");
+      expect(STAFF[k].en).not.toMatch(/didn’t go on/);
+    }
+  });
+
+  it("an ok, an unknown and a sign-in ask pass through unchanged", () => {
+    expect(padRetryVerdict({ kind: "ok" })).toEqual({ kind: "ok" });
+    expect(padRetryVerdict({ kind: "unknown" })).toEqual({ kind: "unknown" });
+    expect(verdict("signin")).toEqual({ kind: "refused", err: { kind: "signin" } });
+    expect(verdict("unconfirmed")).toEqual({ kind: "unknown" });
+  });
+
+  it("the chain reads an unknown retry as UNKNOWN — the options sheet keeps its key", () => {
+    expect(padAttemptOutcome(verdict("outage").kind)).toBe("unknown");
   });
 });

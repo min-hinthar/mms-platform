@@ -13,11 +13,15 @@ import {
   padAddNotice,
   padAddVerdict,
   padSentenceNotice,
+  // ── Phase 2c · review fixes · pad2 ──
+  padRetryVerdict,
+  padSlotNotice,
   type PadAddOutcome,
   type PadAddVerdict,
   type PadMsg,
   type PadNotice,
 } from "@/lib/pad-errors";
+import { padDishHold } from "@/lib/order-pad";
 
 /**
  * Phase 2c · pad — the order pad's SERIALIZED add chain (DESIGN-LANGUAGE §4 · §23 · §28).
@@ -96,6 +100,15 @@ export function usePadWrites({
   // Attempts that reached a definite end — a resend of one answers from here, sending nothing.
   const finals = useRef(new Map<string, "ok" | "refused">());
   const waiters = useRef(new Set<() => void>());
+  // ── Phase 2c · review fixes · pad2 ──
+  // Attempts sent AGAIN ("Try again", the sheet's same choice): a refusal of the retry is no verdict
+  // on the first attempt (`padRetryVerdict`).
+  const retried = useRef(new Set<string>());
+  // Attempts whose doubt was SAID (15s unanswered, or the sheet stopped waiting): a later ok is said
+  // too, so the region's last word about the dish is never "not confirmed".
+  const announced = useRef(new Set<string>());
+  // A retry's refusal, for the origin that asked to say it itself (the options sheet).
+  const retryRefusals = useRef(new Map<string, PadRefusal>());
   const wake = useCallback(() => {
     for (const w of [...waiters.current]) w();
   }, []);
@@ -115,6 +128,11 @@ export function usePadWrites({
       if (v.kind === "ok") {
         apply({ kind: "ok", key, seq: readsRef.current });
         finals.current.set(key, "ok");
+        // An add whose doubt was SAID (15s unanswered, "we couldn't confirm", the sheet giving up —
+        // every retry follows one of those) is said to be on when it lands (P6): the region's last
+        // word about it must not stay "not confirmed". Its origin says it itself while waiting.
+        if (announced.current.has(key) && !quiet.current.has(key))
+          cb.onNotice(padSlotNotice("news", "browse.added", { n: req.qty, x: cb.dishName(req) }));
         cb.onLanded();
         return;
       }
@@ -122,7 +140,12 @@ export function usePadWrites({
         // It may be on the order: the ghost stays, "Try again" resends THIS key, and the read
         // below shows the truth if it did land.
         apply({ kind: "rejected", key });
-        say(padAddNotice("pad.err.add.unconfirmed", cb.dishName(req)));
+        if (v.retry) {
+          const n = padSlotNotice("correction", v.retry, { x: cb.dishName(req) });
+          retryRefusals.current.set(key, { kind: "msg", msg: n.msg });
+          say(n);
+        } else say(padAddNotice("pad.err.add.unconfirmed", cb.dishName(req)));
+        announced.current.add(key);
         cb.onLanded();
         return;
       }
@@ -155,7 +178,10 @@ export function usePadWrites({
           resolved = true;
           clearTimeout(tapTimer);
           // The origin stops waiting here: whatever this attempt says LATER is the pad's to say.
-          if (o === "unconfirmed") quiet.current.delete(key);
+          if (o === "unconfirmed") {
+            quiet.current.delete(key);
+            announced.current.add(key); // its origin said "couldn't confirm" — a late ok is said (P6)
+          }
           resolveOutcome(o);
         };
         // Declared after `resolveOnce` reads it: every call to it runs later (a timer, the chain).
@@ -170,10 +196,24 @@ export function usePadWrites({
                 return;
               }
               let answered = false;
+              retryRefusals.current.delete(key); // this dispatch's answer is the one read after it
               const timer = setTimeout(() => {
                 if (answered) return;
                 apply({ kind: "timeout", key });
+                // ── Phase 2c · review fixes · pad2 ── said ONCE (P6): the ghost's "Checking…" and
+                // the Reload are aria-hidden or unannounced, and the last thing a screen-reader user
+                // heard was "Added". An origin still waiting is told by `resolveOnce` instead (the
+                // sheet's own line) — never both voices for one fact.
+                const originWaiting = quiet.current.has(key);
                 resolveOnce("unconfirmed");
+                if (!originWaiting) {
+                  announced.current.add(key);
+                  cbs.current.onNotice(
+                    padSlotNotice("correction", "pad.err.add.checking", {
+                      x: cbs.current.dishName(req),
+                    }),
+                  );
+                }
                 wake();
               }, ADD_UNCONFIRMED_MS);
               staffAddItem({
@@ -191,7 +231,10 @@ export function usePadWrites({
                     return padAddVerdict("threw");
                   },
                 )
-                .then((v) => {
+                .then((answer) => {
+                  // ── Phase 2c · review fixes · pad2 ── a retry's refusal is about the RETRY only
+                  // (P2): read before the ghost, the region AND the origin's outcome see it.
+                  const v = retried.current.has(key) ? padRetryVerdict(answer) : answer;
                   answered = true;
                   clearTimeout(timer);
                   handle(key, req, v);
@@ -234,9 +277,10 @@ export function usePadWrites({
     [apply, enqueue],
   );
 
-  /** "Try again" on a LOST add: the SAME key, so it cannot go on twice. */
+  /** "Try again" on a LOST add: the SAME key, so it cannot go on twice. The retry's ORIGIN says its
+   *  outcome — the ghost's is the pad's region; the sheet's (`quietRefusal`) is the sheet's own. */
   const resend = useCallback(
-    (key: string): Promise<PadAddOutcome> => {
+    (key: string, opts: { quietRefusal?: boolean } = {}): Promise<PadAddOutcome> => {
       const final = finals.current.get(key);
       if (final) return Promise.resolve(final); // it already ended — nothing to send again
       const p = stateRef.current.find((x) => x.key === key);
@@ -245,6 +289,10 @@ export function usePadWrites({
       // request — its own answer is coming.
       if (p.state === "landed") return Promise.resolve("ok");
       if (p.state !== "lost") return Promise.resolve("unconfirmed");
+      // ── Phase 2c · review fixes · pad2 ──
+      retried.current.add(key);
+      if (opts.quietRefusal) quiet.current.add(key);
+      else quiet.current.delete(key);
       apply({ kind: "retry", key });
       return enqueue(key);
     },
@@ -262,7 +310,7 @@ export function usePadWrites({
       req: PadAddRequest,
       opts: { quietRefusal?: boolean } = {},
     ): { key: string | null; done: Promise<PadAddOutcome> } =>
-      requests.current.has(key) ? { key, done: resend(key) } : add(req, { ...opts, key }),
+      requests.current.has(key) ? { key, done: resend(key, opts) } : add(req, { ...opts, key }),
     [add, resend],
   );
 
@@ -302,5 +350,31 @@ export function usePadWrites({
   /** The attempts in each state, read NOW (a tap reads the truth, not the last render). */
   const counts = useCallback((): PendingCounts => pendingCounts(stateRef.current), []);
 
-  return { pending, add, attempt, resend, commit, settled, blocker, counts, lastRefusal };
+  // ── Phase 2c · review fixes · pad2 ──
+  /** The add on this dish whose fate is unknown, read NOW — a new attempt at `key` refuses on it. */
+  const holdFor = useCallback(
+    (itemId: string, key: string | null = null): PendingAdd | null =>
+      padDishHold(stateRef.current, itemId, key),
+    [],
+  );
+  /** Why a RETRY could not run (its dish may already be on), for the origin that says it itself. */
+  const retryRefusal = useCallback(
+    (key: string | null): PadRefusal | null =>
+      key ? (retryRefusals.current.get(key) ?? null) : null,
+    [],
+  );
+
+  return {
+    pending,
+    add,
+    attempt,
+    resend,
+    commit,
+    settled,
+    blocker,
+    counts,
+    lastRefusal,
+    holdFor,
+    retryRefusal,
+  };
 }

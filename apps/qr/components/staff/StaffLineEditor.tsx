@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useId, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, useTransition, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
@@ -86,6 +87,9 @@ export function StaffLineEditor({
   // W3b kitchen note: null = editor closed; a string = the in-progress draft (may be "", which clears).
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [notePending, startNote] = useTransition();
+  // ── Phase 2c · review fixes · pad2 ── the note button, where focus goes when a save closes the
+  // editor under the finger (P7): the field and its Save unmount together.
+  const noteBtnRef = useRef<HTMLButtonElement>(null);
 
   function saveNote() {
     if (notePending) return; // §17 — the button says so with `aria-disabled`; the refusal is here
@@ -94,7 +98,12 @@ export function StaffLineEditor({
       try {
         const res = await setLineNotes(sessionId, { cartItemId: line.id, notes: value });
         if (!res.ok) onError(res.error);
-        else setNoteDraft(null); // the live re-fetch renders the saved note
+        else {
+          flushSync(() => setNoteDraft(null)); // the live re-fetch renders the saved note
+          // Only when focus FELL (it was on the field or its Save): a control the person moved to
+          // is never yanked.
+          if (document.activeElement === document.body) noteBtnRef.current?.focus();
+        }
       } catch {
         onError("Couldn’t save that note — check the connection and try again.");
       }
@@ -186,6 +195,9 @@ export function StaffLineEditor({
   // focus lands on when a NEIGHBOURING line is removed (`data-line-name`, §24: it cannot be
   // activated, so a repeated Enter can never remove this dish).
   const dish = <DishName lang={lang} name={line.name} nameMy={line.nameMy} />;
+  // ── Phase 2c · review fixes · pad2 ── ONE name for every control on the row (P12): the dish as it
+  // RENDERS — the same binding the stepper's Remove reads — never the English beside a Burmese one.
+  const dishLabel = dishVisible(lang, line.name, line.nameMy);
 
   // ── Terminal / settled-as-free states: a muted row, no controls ──────────────────────────────────────
   if (line.state === "voided") {
@@ -261,7 +273,7 @@ export function StaffLineEditor({
                 al(lang, {
                   kind: "verb",
                   verb: "table.line.verb.voidComp",
-                  subject: line.name,
+                  subject: dishLabel,
                 }).aria
               }
               style={{ ...lossBtn, opacity: disabled ? 0.5 : 1 }}
@@ -333,6 +345,7 @@ export function StaffLineEditor({
       <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
         <span style={priceCell}>{fmt(line.unitPriceCents * qty)}</span>
         <button
+          ref={noteBtnRef}
           className="staff-btn"
           type="button"
           onClick={() => {
@@ -349,12 +362,12 @@ export function StaffLineEditor({
               ? al(lang, {
                   kind: "verb",
                   verb: "table.line.verb.editNote",
-                  subject: line.name,
+                  subject: dishLabel,
                 }).aria
               : al(lang, {
                   kind: "verb",
                   verb: "table.line.verb.addNote",
-                  subject: line.name,
+                  subject: dishLabel,
                 }).aria
           }
           style={{ ...noteBtn, opacity: busy ? 0.5 : 1 }}
@@ -374,7 +387,7 @@ export function StaffLineEditor({
           soldOut={line.soldOut}
           // Phase 2c · pad (K25) — every name from the dictionary, as a unit (`labels` is
           // all-or-nothing), naming the dish as it RENDERS (Burmese-first under `my`).
-          labels={stepperLabels(lang, dishVisible(lang, line.name, line.nameMy))}
+          labels={stepperLabels(lang, dishLabel)}
           removeTone="var(--warn)"
         />
       </span>
@@ -382,7 +395,7 @@ export function StaffLineEditor({
         <span style={noteEditor}>
           {/* No echo: this label is `sr-only`, so a pair would announce the field twice. */}
           <label className="sr-only" htmlFor={noteId}>
-            <Chrome lang={lang} k="table.line.noteLabel" vars={{ x: line.name }} />
+            <Chrome lang={lang} k="table.line.noteLabel" vars={{ x: dishLabel }} />
           </label>
           <input
             id={noteId}

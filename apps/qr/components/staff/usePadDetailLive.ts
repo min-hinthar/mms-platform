@@ -50,8 +50,20 @@ export function usePadDetailLive({
   useEffect(() => {
     commitRef.current = onCommit;
   }, [onCommit]);
+  // ── Phase 2c · review fixes · pad2 ── the RAW read, watched apart from its 15s give-up (P5).
+  // Next runs Server Actions one at a time, so a read that timed out is still IN the queue (behind a
+  // hung add, usually): starting another only stacks a second abandoned call behind the first, every
+  // 5s. While the raw call is unanswered no new read starts; the asks it refused are owed ONE fresh
+  // read the moment it answers (`owed`, kicked through `kick` — the refresh itself, mirrored).
+  const rawPending = useRef(false);
+  const owed = useRef(false);
+  const kick = useRef<() => void>(() => {});
 
   const refresh = useCallback(async () => {
+    if (rawPending.current) {
+      owed.current = true;
+      return;
+    }
     if (inFlight.current) {
       rerun.current = true;
       return;
@@ -62,7 +74,17 @@ export function usePadDetailLive({
         rerun.current = false;
         const ticket = ++readsRef.current;
         try {
-          const res = await raceTimeout(getTableDetail(sessionId));
+          const raw = getTableDetail(sessionId);
+          rawPending.current = true;
+          const answered = () => {
+            rawPending.current = false;
+            if (owed.current && alive.current) {
+              owed.current = false;
+              kick.current();
+            }
+          };
+          raw.then(answered, answered);
+          const res = await raceTimeout(raw);
           if (!alive.current) return;
           if (res.kind === "detail") {
             setDetail(res.detail);
@@ -88,11 +110,16 @@ export function usePadDetailLive({
           if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
           console.error("[usePadDetailLive] refresh failed", e);
         }
-      } while (rerun.current && alive.current);
+      } while (rerun.current && alive.current && !rawPending.current);
+      // A rerun refused because the last read is still hung is owed to its answer, not dropped.
+      if (rerun.current && rawPending.current) owed.current = true;
     } finally {
       inFlight.current = false;
     }
   }, [sessionId, router, readsRef]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // The slow escalation tick while frozen (the ≥2min paper-flow wording needs a re-render).
   useEffect(() => {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObje
 import { staffFireCart, staffUndoFire } from "@/lib/staff-send";
 import {
   fireNotice,
+  sendHoldMsg,
   undoNotice,
   type SendNotice,
   type StaffSendHold,
@@ -246,16 +247,17 @@ export function useStaffSend({
     if (inFlight.current) return;
     if (undoTapHeld(armedAt.current, Date.now())) return; // the second half of a double-tap
     if (view.kind !== "send" || view.blocked) return; // aria-disabled; the hint says why
+    // The note field is found by the LINE within the order card (never by the #note- id, which the
+    // order pad may re-mint), so the allergy lands before the dish.
+    const focusNote = (h: StaffSendHold) => {
+      if (h?.kind !== "note") return;
+      Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-note-for]") ?? [])
+        .find((el) => el.dataset.noteFor === h.lineId)
+        ?.focus();
+    };
     const hold = getHold();
     if (hold) {
-      // DRAIN BEFORE FIRE. The note field is found by the LINE within the order card (never by
-      // the #note- id, which the order pad may re-mint), so the allergy lands before the dish.
-      if (hold.kind === "note") {
-        const field = Array.from(
-          rootRef.current?.querySelectorAll<HTMLElement>("[data-note-for]") ?? [],
-        ).find((el) => el.dataset.noteFor === hold.lineId);
-        field?.focus();
-      }
+      focusNote(hold); // DRAIN BEFORE FIRE
       return;
     }
     inFlight.current = true;
@@ -264,9 +266,22 @@ export function useStaffSend({
     setPhase("sending");
     void (async () => {
       try {
-        if (drain && !(await drain())) {
-          setPhase("idle"); // held: the pad's region names the add it is waiting on
-          return;
+        if (drain) {
+          if (!(await drain())) {
+            setPhase("idle"); // held: the pad's region names the add it is waiting on
+            return;
+          }
+          // ── Phase 2c · review fixes · pad2 ── the hold is read AGAIN after the drain (P3): the
+          // drain can take seconds, and a kitchen note typed on a draft line meanwhile would be fired
+          // past — the save after it refused by the draft-only guard, the allergy lost. The table page
+          // passes no drain, so nothing awaits between its one read and its fire.
+          const late = getHold();
+          if (late) {
+            setPhase("idle");
+            focusNote(late);
+            onNotice({ tone: "warn", msg: sendHoldMsg(late) });
+            return;
+          }
         }
         const res = await staffFireCart({ sessionId });
         if (res.ok) {

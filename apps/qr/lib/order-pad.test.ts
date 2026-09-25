@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ModGroup } from "./menu/modifiers";
 import type { TableLineView } from "./floor-types";
 import type { StaffLineEdit, StaffSendView } from "./staff-send-view";
+import type { PendingAdd } from "./pad-pending";
 import { STAFF } from "./i18n/staff";
 import {
   padAmountsSettled,
@@ -15,6 +16,10 @@ import {
   padSettleReason,
   padSettleStartPhase,
   padTileBlock,
+  // ── Phase 2c · review fixes · pad2 ──
+  padDishHold,
+  padNameSave,
+  padViewStatus,
   ticketGroups,
   ticketUnitsByItem,
   tileAction,
@@ -506,17 +511,20 @@ describe("padSendView — the Send while adds are in flight", () => {
 });
 
 describe("padTileBlock — when a tile tap is refused", () => {
+  const TILE = { settling: false, dishHeld: false };
   it("only an UNCONFIRMED add blocks the tiles (the hung request queues every later one)", () => {
-    expect(padTileBlock({ open: true, paying: false, pending: NONE })).toBeNull();
+    expect(padTileBlock({ open: true, paying: false, pending: NONE, ...TILE })).toBeNull();
     // A lost add answered — the queue is free, so tiles stay live.
-    expect(padTileBlock({ open: true, paying: false, pending: { ...NONE, lost: 1 } })).toBeNull();
-    expect(padTileBlock({ open: true, paying: false, pending: { ...NONE, unconfirmed: 1 } })).toBe(
-      "waiting",
-    );
+    expect(
+      padTileBlock({ open: true, paying: false, pending: { ...NONE, lost: 1 }, ...TILE }),
+    ).toBeNull();
+    expect(
+      padTileBlock({ open: true, paying: false, pending: { ...NONE, unconfirmed: 1 }, ...TILE }),
+    ).toBe("waiting");
   });
   it("a guest paying pauses adding; a closed order refuses", () => {
-    expect(padTileBlock({ open: true, paying: true, pending: NONE })).toBe("paying");
-    expect(padTileBlock({ open: false, paying: false, pending: NONE })).toBe("closed");
+    expect(padTileBlock({ open: true, paying: true, pending: NONE, ...TILE })).toBe("paying");
+    expect(padTileBlock({ open: false, paying: false, pending: NONE, ...TILE })).toBe("closed");
   });
 });
 
@@ -564,5 +572,92 @@ describe("padSettle — the settle gate: Take payment waits for everything to be
     expect(padSettleReason("unsent", { tab: true, note: null, blocker: null, unsent: 1 }).k).toBe(
       "table.send.settleBlocked.one",
     );
+  });
+});
+
+// ── Phase 2c · review fixes · pad2 ──
+describe("padDishHold — a dish whose add is UNKNOWN refuses a new add (a new key is a second plate)", () => {
+  const add = (over: Partial<PendingAdd> & { key: string }): PendingAdd => ({
+    itemId: "m1",
+    name: "Mohinga",
+    nameMy: null,
+    qty: 1,
+    state: "flying",
+    landedSeq: null,
+    ...over,
+  });
+  it("a LOST add on this dish holds it; so does an unconfirmed one", () => {
+    // MUTATION (pad2/dish-hold-ignores-lost): only `unconfirmed` holds — a lost Mohinga leaves the
+    // tile live, the re-tap mints a new key, and if the first landed the table gets two; red.
+    expect(padDishHold([add({ key: "a", state: "lost" })], "m1")?.key).toBe("a");
+    expect(padDishHold([add({ key: "a", state: "unconfirmed" })], "m1")?.key).toBe("a");
+  });
+  it("a flying or landed add is no hold — its answer is coming, or it is on", () => {
+    expect(padDishHold([add({ key: "a", state: "flying" })], "m1")).toBeNull();
+    expect(padDishHold([add({ key: "a", state: "landed", landedSeq: 3 })], "m1")).toBeNull();
+  });
+  it("only THIS dish — a lost Mohinga never holds the Tea", () => {
+    // MUTATION (pad2/dish-hold-by-any-dish): any dish's unknown add holds every tile — the whole
+    // pad stalls on one dish (what `pad/lost-add-blocks-the-tiles` forbids); red.
+    expect(padDishHold([add({ key: "a", state: "lost" })], "t1")).toBeNull();
+  });
+  it("a retry of the held attempt itself (its own key) is never refused by its own hold", () => {
+    // MUTATION (pad2/dish-hold-blocks-its-own-retry): the key is ignored — the options sheet's same
+    // choice again (the SAME key, the one safe retry) is refused by the very add it retries; red.
+    expect(padDishHold([add({ key: "a", state: "lost" })], "m1", "a")).toBeNull();
+    // …but a second unknown attempt on the dish still holds it.
+    const two = [add({ key: "a", state: "lost" }), add({ key: "b", state: "lost" })];
+    expect(padDishHold(two, "m1", "a")?.key).toBe("b");
+  });
+});
+
+describe("padTileBlock — the dish's own hold, and a Take payment on its way out", () => {
+  const base = { open: true, paying: false, pending: NONE, settling: false, dishHeld: false };
+  it("a held dish refuses its tile; the others stay live", () => {
+    // MUTATION (pad2/tile-held-dish-live): drop the clause — the tile reads live over a lost add; red.
+    expect(padTileBlock({ ...base, dishHeld: true })).toBe("held");
+    expect(padTileBlock(base)).toBeNull();
+  });
+  it("Take payment on its way out refuses every tile", () => {
+    // MUTATION (pad2/tile-live-while-settling): drop the clause — a dish tapped while the name saves
+    // or payment opens is added after the drain, and announced to a screen that is leaving; red.
+    expect(padTileBlock({ ...base, settling: true })).toBe("settling");
+  });
+  it("the pad-wide reasons outrank the dish's own", () => {
+    expect(padTileBlock({ ...base, paying: true, dishHeld: true })).toBe("paying");
+    expect(padTileBlock({ ...base, open: false, settling: true })).toBe("closed");
+  });
+});
+
+describe("padViewStatus — the phone's view button never says 'Adding…' over an answer that came", () => {
+  it("lost → the fix; unconfirmed → Checking; flying or unseen → Adding; nothing → nothing", () => {
+    // MUTATION (pad2/view-lost-said-adding): a lost add counted as on its way — "Adding…" over a
+    // dish whose answer came back and needs a hand; red.
+    expect(padViewStatus({ ...NONE, lost: 1 })).toBe("pad.bar.check");
+    // MUTATION (pad2/view-unconfirmed-said-adding): "Adding…" over 15s of silence; red.
+    expect(padViewStatus({ ...NONE, unconfirmed: 1 })).toBe("pad.ghost.checking");
+    expect(padViewStatus({ ...NONE, flying: 1 })).toBe("pad.ghost.adding");
+    expect(padViewStatus({ ...NONE, unseen: 1 })).toBe("pad.ghost.adding");
+    expect(padViewStatus(NONE)).toBeNull();
+  });
+  it("the most urgent wins: lost > unconfirmed > adding", () => {
+    expect(padViewStatus({ flying: 2, unseen: 1, unconfirmed: 1, lost: 1 })).toBe("pad.bar.check");
+    expect(padViewStatus({ flying: 2, unseen: 0, unconfirmed: 1, lost: 0 })).toBe(
+      "pad.ghost.checking",
+    );
+  });
+});
+
+describe("padNameSave — a counter name's Save is never a live-looking no-op", () => {
+  it("nothing typed and nothing saved: refused (the name is optional)", () => {
+    // MUTATION (pad2/name-empty-reads-saved): the empty field reads "Saved ✓" — a claim nothing
+    // backs; red.
+    expect(padNameSave("", "")).toBe("empty");
+    expect(padNameSave("   ", "")).toBe("empty");
+  });
+  it("the field equals the server's: saved; anything else saves — an emptied field CLEARS", () => {
+    expect(padNameSave(" Aye ", "Aye")).toBe("saved");
+    expect(padNameSave("", "Aye")).toBe("save");
+    expect(padNameSave("Bo", "Aye")).toBe("save");
   });
 });

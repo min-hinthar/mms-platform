@@ -1,5 +1,5 @@
 "use client";
-import { useId, type ReactNode, type RefObject } from "react";
+import { useId, useState, type ReactNode, type RefObject } from "react";
 import { Button, Field } from "@mms/ui";
 import type { TableDetail, TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
@@ -40,6 +40,9 @@ export type CounterNameField = {
   saving: boolean;
   /** The typed name is what the server holds (and it is not empty). */
   saved: boolean;
+  /** ── Phase 2c · review fixes · pad2 ── nothing typed and nothing saved: Save refuses and says why
+   *  (`padNameSave`) — never a live-looking button that does nothing. */
+  empty: boolean;
 };
 
 /**
@@ -166,7 +169,8 @@ export function StaffTicket({
                     size="lg"
                     busy={counterName.saving}
                     busyLabel={<Chrome lang={lang} k="browse.name.saving" />}
-                    {...(counterName.saved ? { "aria-disabled": true } : {})}
+                    {...(counterName.saved || counterName.empty ? { "aria-disabled": true } : {})}
+                    aria-describedby={counterName.empty ? `${ids}-name-why` : undefined}
                   >
                     {counterName.saved ? (
                       <Chrome lang={lang} k="browse.name.saved" />
@@ -174,6 +178,12 @@ export function StaffTicket({
                       <Chrome lang={lang} k="browse.name.save" />
                     )}
                   </Button>
+                  {/* The refusal's reason — spoken (a tap also says it through the pad's region). */}
+                  {counterName.empty && (
+                    <span id={`${ids}-name-why`} className="sr-only">
+                      <Chrome lang={lang} k="pad.name.empty" />
+                    </span>
+                  )}
                 </span>
               )}
             </Field>
@@ -285,19 +295,34 @@ function GhostRow({
   onResend: (key: string) => void;
 }) {
   const name = padDishName(lang, add.name, add.nameMy).lead;
+  // ── Phase 2c · review fixes · pad2 ── once tried, the SAME button stays (P7): busy while the
+  // retry is on its way, live again if it comes back lost. Swapped for a span, it unmounted under
+  // the finger and focus fell to <body>.
+  const [tried, setTried] = useState(false);
   return (
     <li className="pad-ghost mms-rise" data-state={add.state}>
       <span className="pad-ghost-text" aria-hidden="true">
         <span className="staff-qty">{add.qty}×</span> <span lang={name.lang}>{name.text}</span>
       </span>
-      {add.state === "lost" ? (
+      {add.state === "lost" || tried ? (
         <Button
           variant="secondary"
           size="sm"
+          busy={add.state !== "lost"}
+          busyLabel={
+            add.state === "unconfirmed" ? (
+              <Chrome lang={lang} k="pad.ghost.checking" />
+            ) : (
+              <Chrome lang={lang} k="pad.ghost.adding" />
+            )
+          }
           aria-label={
             al(lang, { kind: "verb", verb: "pad.ghost.verb.retry", subject: name.text }).aria
           }
-          onClick={() => onResend(add.key)}
+          onClick={() => {
+            setTried(true);
+            onResend(add.key);
+          }}
         >
           <Chrome lang={lang} k="pad.ghost.verb.retry" />
         </Button>

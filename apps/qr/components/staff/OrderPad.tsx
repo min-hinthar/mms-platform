@@ -35,6 +35,10 @@ import {
   ticketUnitsByItem,
   tileAction,
   unsavedNoteFrom,
+  // ── Phase 2c · review fixes · pad2 ──
+  padDishHold,
+  padNameSave,
+  padViewStatus,
   type PadCatalogItem,
   type PadLineWrites,
   type PadReasonCtx,
@@ -143,6 +147,9 @@ export function OrderPad({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const tilesRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
+  // ── Phase 2c · review fixes · pad2 ── Take payment's phase as a TAP reads it (the state is what
+  // renders): a tile, the options sheet and the drain decide from this, never from the last render.
+  const phaseRef = useRef<PadSettlePhase>("idle");
 
   const { shown, leaving, notify } = usePadNotices();
   // A refusal, said once through the one region — the same sentence its hint carries.
@@ -204,7 +211,6 @@ export function OrderPad({
   const open = detail.cartId != null && !detail.settled;
   const paying = detail.paymentInFlight;
   const canWrite = open && !paying;
-  const tileBlock = padTileBlock({ open, paying, pending: counts });
   const blocker = pendingBlocker(writes.pending);
   // A dish on the ticket, named as the console renders it (a hold names a LINE by its id).
   const lineDish = (lineId: string, fallback: string) => {
@@ -272,6 +278,12 @@ export function OrderPad({
     choice: { modifierIds: string[]; qty: number; notes?: string },
   ) {
     setSheetError(null);
+    // ── Phase 2c · review fixes · pad2 ── nothing goes on while Take payment is on its way out (P4).
+    const leaving = padSettleBusyKey(phaseRef.current);
+    if (leaving) {
+      setSheetError({ kind: "msg", msg: { k: leaving } });
+      return;
+    }
     const intent = JSON.stringify([
       item.id,
       [...choice.modifierIds].sort(),
@@ -281,6 +293,13 @@ export function OrderPad({
     // Phase 2a's rule, READ (never restated): the held key when this is a retry of the same intent
     // after an unknown outcome, else a new one. The chain sends a key it already holds again.
     const key = keyForAttempt(heldKey.current, intent, () => crypto.randomUUID());
+    // ── Phase 2c · review fixes · pad2 ── a NEW key for a dish whose add is unknown is a second plate
+    // if the first landed (P1): refused, naming the fix. The held attempt's own key passes.
+    const dishHold = writes.holdFor(item.id, key);
+    if (dishHold) {
+      setSheetError({ kind: "msg", msg: sendHoldMsg(addHold(dishHold, dishName(dishHold))) });
+      return;
+    }
     startTransition(async () => {
       const r = writes.attempt(
         key,
@@ -305,7 +324,8 @@ export function OrderPad({
           padSlotNotice("claim", "browse.added", { n: choice.qty, x: dishName(itemName(item)) }),
         );
       } else if (unknown) {
-        setSheetError({ kind: "unconfirmed" });
+        // A retry refused before the ledger says why it could not run (P2); else the sheet's own line.
+        setSheetError(writes.retryRefusal(r.key) ?? { kind: "unconfirmed" });
       } else if (outcome === "offline") {
         setSheetError({
           kind: "msg",
@@ -338,12 +358,34 @@ export function OrderPad({
         notify(padSlotNotice("correction", "pad.soldOut", { x }));
         return;
       }
+      // ── Phase 2c · review fixes · pad2 ── decided AT THE TAP, from refs: the adds and Take
+      // payment as they are now (a tap between two renders reads the truth, not the last paint).
+      const dishHold = writes.holdFor(id);
+      const tileBlock = padTileBlock({
+        open,
+        paying,
+        pending: writes.counts(),
+        settling: phaseRef.current !== "idle",
+        dishHeld: dishHold !== null,
+      });
       if (tileBlock === "closed") {
         notify(padSlotNotice("correction", "pad.settled.note"));
         return;
       }
       if (tileBlock === "paying") {
         notify(padSlotNotice("correction", "pad.paused"));
+        return;
+      }
+      if (tileBlock === "settling") {
+        // What Take payment is doing — the reason nothing more goes on (P4).
+        const leaving = padSettleBusyKey(phaseRef.current);
+        if (leaving) say({ k: leaving });
+        return;
+      }
+      if (tileBlock === "held" && dishHold) {
+        // A new tap is a new add key — a second plate if the first landed. The fix is the ghost's
+        // Try again (the SAME key) or a reload (P1).
+        say(sendHoldMsg(addHold(dishHold, dishName(dishHold))));
         return;
       }
       if (tileBlock === "waiting") {
@@ -554,6 +596,8 @@ export function OrderPad({
   const [savedName, setSavedName] = useState((initialName ?? "").trim());
   const [savingName, setSavingName] = useState(false);
   const nameDirty = name.trim() !== savedName;
+  // ── Phase 2c · review fixes · pad2 ── Save is never a live-looking no-op (P11).
+  const nameSave = padNameSave(name, savedName);
   const saveName = useCallback(async (): Promise<boolean> => {
     const value = name.trim();
     setSavingName(true);
@@ -616,8 +660,13 @@ export function OrderPad({
       .find((el) => el.dataset.noteFor === lineId)
       ?.focus();
   };
+  // Take payment's phase: the ref a tap reads and the state that renders, moved together.
+  const toPhase = (p: PadSettlePhase) => {
+    phaseRef.current = p;
+    setSettlePhase(p);
+  };
   const stopSettle = () => {
-    setSettlePhase("idle");
+    toPhase("idle");
     settleInFlight.current = false;
   };
   const onSettle = async () => {
@@ -650,7 +699,7 @@ export function OrderPad({
     haptic("commit");
     const nameToSave = counterOrder && nameDirty && !skipName.current;
     // Busy in the phase it is actually in: it waits for a dish only while one is on its way.
-    setSettlePhase(padSettleStartPhase({ flying: writes.counts().flying, saveName: nameToSave }));
+    toPhase(padSettleStartPhase({ flying: writes.counts().flying, saveName: nameToSave }));
     await writes.settled();
     const b = writes.blocker();
     if (b) {
@@ -659,10 +708,20 @@ export function OrderPad({
       return;
     }
     if (nameToSave) {
-      setSettlePhase("saving");
+      toPhase("saving");
       if (!(await saveName())) {
         skipName.current = true;
         notify(padSlotNotice("correction", "pad.nameNotSaved"));
+        stopSettle();
+        return;
+      }
+      // ── Phase 2c · review fixes · pad2 ── drain AGAIN (P4): the name save was a round trip. No
+      // tile or sheet can add while Take payment runs (they refuse on its phase), but the CHAIN is
+      // the truth, not the doors — anything in it lands, or is named, before the page leaves.
+      await writes.settled();
+      const again = writes.blocker();
+      if (again) {
+        say(sendHoldMsg(addHold(again, dishName(again))));
         stopSettle();
         return;
       }
@@ -678,7 +737,7 @@ export function OrderPad({
     // The table page's payment section takes it from here (the one money path — never a second
     // copy of the cash / reader / hand-off flow on this screen). Busy until the route changes, or
     // until SETTLE_OPEN_RESET_MS says the push never landed.
-    setSettlePhase("opening");
+    toPhase("opening");
     router.push(`/staff/table/${sessionId}?settle=1`);
   };
   // A push that never lands (dropped, or a page restored from the back-forward cache) must not leave
@@ -687,6 +746,7 @@ export function OrderPad({
     if (settlePhase !== "opening") return;
     const reset = () => {
       settleInFlight.current = false;
+      phaseRef.current = "idle";
       setSettlePhase("idle");
     };
     const id = setTimeout(reset, SETTLE_OPEN_RESET_MS);
@@ -709,6 +769,23 @@ export function OrderPad({
         preventScroll: true,
       });
   }, [dockKey]);
+  // ── Phase 2c · review fixes · pad2 ── the focus CATCH-ALL (WCAG 2.4.3, P7) — FloorDetailLive's
+  // rule on the pad: any read or any add's answer can unmount the control that held focus (a ghost
+  // leaving, a row changing, a note editor closing). When focus FELL to <body> after real focus on
+  // the pad, it goes to the ticket's heading (the menu's search circle when the phone shows the
+  // menu and the heading is hidden) — edge-triggered, so an idle touch device never gets focus
+  // planted by the 5s poll, and a control the user moved to is never yanked. Declared AFTER the
+  // dock's own restore, which wins when both run.
+  const padHadFocus = useRef(false);
+  const pendingNow = writes.pending;
+  useEffect(() => {
+    if (document.activeElement === document.body && padHadFocus.current) {
+      headingRef.current?.focus({ preventScroll: true });
+      if (document.activeElement === document.body)
+        searchBtnRef.current?.focus({ preventScroll: true });
+    }
+    padHadFocus.current = document.activeElement !== document.body;
+  }, [detail, pendingNow]);
   // The phone's dock publishes its MEASURED height, so the one Toast rides above it whatever the
   // labels wrap to (from the tablet tier the dock is not at the bottom, and CSS zeroes the offset).
   useCtaDock(dockRef, true);
@@ -805,7 +882,8 @@ export function OrderPad({
     ) : null;
 
   const shownMsg: PadMsg | null = shown ? shown.msg : null;
-  const anyPending = counts.flying + counts.unseen + counts.unconfirmed + counts.lost > 0;
+  // ── Phase 2c · review fixes · pad2 ── what the adds ARE, never "Adding…" over a lost one (P8).
+  const viewStatus = padViewStatus(counts);
 
   return (
     <>
@@ -831,7 +909,14 @@ export function OrderPad({
         lock={hasPin}
         live={live.degraded ? "not_updating" : "live"}
       />
-      <div className="pad-shell" data-view={view} data-counter={counterOrder || undefined}>
+      <div
+        className="pad-shell"
+        data-view={view}
+        data-counter={counterOrder || undefined}
+        onFocusCapture={() => {
+          padHadFocus.current = true;
+        }}
+      >
         <div className="pad-tools" data-search={searchOpen ? "open" : undefined}>
           <button
             ref={searchBtnRef}
@@ -966,7 +1051,13 @@ export function OrderPad({
                         })}
                         confirmed={confirmedBy.get(i.id) ?? 0}
                         pending={pendingBy.get(i.id) ?? 0}
-                        block={tileBlock}
+                        block={padTileBlock({
+                          open,
+                          paying,
+                          pending: counts,
+                          settling: settlePhase !== "idle",
+                          dishHeld: padDishHold(writes.pending, i.id) !== null,
+                        })}
                         popKey={pops[i.id] ?? 0}
                         settleKey={settles[i.id] ?? 0}
                         onMain={onMain}
@@ -998,11 +1089,15 @@ export function OrderPad({
                   value: name,
                   onChange: setName,
                   onSave: () => {
-                    if (savingName || !nameDirty) return;
+                    if (savingName) return;
+                    // Nothing typed and nothing saved: refused, and the tap says why (§17).
+                    if (nameSave === "empty") say({ k: "pad.name.empty" });
+                    if (nameSave !== "save") return;
                     void saveName();
                   },
                   saving: savingName,
-                  saved: !nameDirty && savedName !== "",
+                  saved: nameSave === "saved",
+                  empty: nameSave === "empty",
                 }
               : null
           }
@@ -1039,10 +1134,10 @@ export function OrderPad({
                   k={plural(detail.itemCount, "pad.bar.order.one", "pad.bar.order.many")}
                   vars={{ n: detail.itemCount }}
                 />
-                {anyPending && (
+                {viewStatus && (
                   <>
                     {" · "}
-                    <Chrome lang={lang} k="pad.ghost.adding" />
+                    <Chrome lang={lang} k={viewStatus} />
                   </>
                 )}
               </span>
