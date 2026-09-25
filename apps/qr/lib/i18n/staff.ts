@@ -596,15 +596,9 @@ export const STAFF = {
   "browse.back.table": { en: "← Table {id}", my: "← စားပွဲ {id}" },
   "browse.title.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
   "browse.title.add": { en: "Add items", my: "ပစ္စည်း ထည့်ရန်" },
-  "browse.sub.counter": {
-    en: "Walk-up or phone order — review and take payment from the order page.",
-    my: "လမ်းလျှောက်လာ ဒါမှမဟုတ် ဖုန်းအော်ဒါ — အော်ဒါ စာမျက်နှာမှာ စစ်ပြီး ငွေရှင်းပါ။",
-  },
-  "browse.sub.table": {
-    en: "Ordering for table {id}. Tap to add — it lands on the table’s order instantly.",
-    my: "စားပွဲ {id} အတွက် မှာနေပါတယ်။ နှိပ်လိုက်တာနဲ့ စားပွဲရဲ့ အော်ဒါထဲ ချက်ချင်း ရောက်ပါမယ်။",
-  },
-  "browse.review": { en: "Review order & take payment →", my: "အော်ဒါ စစ်ပြီး ငွေရှင်း →" },
+  // Phase 2c · pad — `browse.sub.*` and `browse.review` retired with their last reader (the old add
+  // page's paragraph and its "Review order" link): the order pad's ticket and Take payment ARE the
+  // review, on the same screen.
 
   // ── the staff menu browser: the counter order's name strip ─────────────────
   "browse.name.label": { en: "Name for the order", my: "အော်ဒါအတွက် နာမည်" },
@@ -626,18 +620,13 @@ export const STAFF = {
   // ── the staff menu browser: search, filters, list ──────────────────────────
   "browse.search.placeholder": { en: "Search the menu…", my: "မီနူး ရှာရန်…" },
   "browse.cat.all": { en: "All", my: "အားလုံး" }, // the category filter, NOT the KDS station chip
-  // The row's sold-out FLAG, a statement about the dish. `browse.add.verb.soldOut` is the disabled
-  // BUTTON's own word — two keys for one idea, the way floor.unregistered/…Sticker are, so a K15
-  // correction to the badge cannot silently reword the control.
-  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
-  "browse.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // the same state word as kds.86.done
+  // Phase 2c · pad — `browse.soldOut` (the old list row's flag) retired with its last reader: the
+  // pad's tile shows the mark `browse.add.verb.soldOut` below.
   "browse.verb.choose": { en: "Choose…", my: "ရွေးရန်…" },
   // {n} is a prose count (Burmese numerals); {x} is the dish name, verbatim.
   "browse.added": { en: "Added {n} × {x}.", my: "{x} {n} ခု ထည့်ပြီးပြီ။" },
-  "browse.empty": {
-    en: "Nothing matches — clear the search or pick another category.",
-    my: "ကိုက်တာ မရှိပါ — ရှာတာကို ရှင်းပါ ဒါမှမဟုတ် တခြား အမျိုးအစား ရွေးပါ။",
-  },
+  // Phase 2c · pad — `browse.empty` retired with the old browser; the pad names the search it
+  // could not match (`pad.search.none`).
 
   // ── the staff menu browser: names with no visible text to pair with ────────
   // The ellipsis is not decoration: the placeholder IS visible text in the control, so the name has
@@ -646,9 +635,10 @@ export const STAFF = {
   "browse.a11y.categories": { en: "Filter by category", my: "အမျိုးအစား အလိုက် စစ်ထုတ်" },
   "browse.a11y.items": { en: "Menu items", my: "မီနူး ပစ္စည်းများ" },
 
-  // ── the add-to-table button (StaffAddButton) ───────────────────────────────
+  // ── the add verbs (Phase 2c · the order pad's tile marks; StaffAddButton is gone) ───────
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
-  "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
+  // Phase 2c · pad — `browse.add.verb.added` retired with StaffAddButton (its optimistic "Added ✓");
+  // the pad claims an add with a ghost and a spoken line, never a check on the button.
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
   "browse.add.verb.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // ကုန်သွား is the LOSS reason
   // This console's OWN failure sentence — not a server-authored string, so it is a dictionary key
@@ -2743,8 +2733,8 @@ export const STAFF = {
   "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
   "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
-  // The add page's bridge to the Send (removed with `browse.review` by the 2c order pad).
-  "browse.reviewUnsent": { en: "Review · {n} not sent →", my: "စစ်ရန် · {n} ခု မပို့ရသေး →" },
+  // Phase 2c · pad — the add page's interim bridge to the Send (`browse.reviewUnsent`) is retired:
+  // the order pad carries the Send itself (OPEN-ITEMS P2ai).
 
   // ── Phase 2a · register ──
   // A secure-tab close whose Server Action REJECTED (the connection dropped): the off-session charge

@@ -1,32 +1,28 @@
-import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { publicClient, serviceClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
-import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
+import { OrderPad, type PadCatalog } from "@/components/staff/OrderPad";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
-import { Chrome } from "@/components/staff/Chrome";
-import { readStaffLang } from "@/lib/staff-lang-server";
-import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
-import { staffOwedSendUnits } from "@/lib/staff-send-view";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
 
 /**
- * The staff order screen (S1.3, grown up in W6a): the same public-RLS catalog read as the diner menu —
- * now WITH the modifier embed — searched and filtered client-side, adding to THIS session's open cart
- * via staffAddItem (server re-derives the price, cardinality enforced). Counter (`reg-`) orders get a
- * name-capture strip; the header speaks "table" only when there is one.
+ * The ORDER PAD (Phase 2c · pad, DESIGN-LANGUAGE §28) — a server adding to a table, or the counter
+ * building a walk-up / phone order, on a tablet or a phone. The page is the pad's APP SHELL: it reads
+ * the table (the gate, the outage, the closed and settled exits are unchanged) and the catalog, and
+ * hands both to `OrderPad`, which owns the live order from then on.
  *
- * P2 — the language control is mounted HERE, in the header beside the exit, rather than by
- * `app/staff/layout.tsx` (a layout strip would steal height from the measured surfaces beneath it).
- * `check-staff-lang.mjs` rule 4 holds this page to that mount.
+ * The catalog is the same public-RLS read as the diner menu, WITH the modifier embed and now the
+ * category's slug and sort, and it binds its error: an unreadable menu is an OUTAGE the pad says out
+ * loud ("the order still works"), never an empty menu that reads as "nothing matches".
+ *
+ * P2 — the language control reaches this page through `OrderPad` → `StaffBar` (`check-staff-lang`
+ * rule 4 walks that import).
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
   const caller = await requireStaffPage();
@@ -45,111 +41,55 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const detail = res.detail;
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
-  // W6a: a counter order is a register-minted (`reg-`) session — table-less by design. Its header and
-  // back-link speak the counter's language, and it captures the customer name (the expo call-out).
+  // W6a: a counter order is a register-minted (`reg-`) session — table-less by design. It captures
+  // the customer name (the expo call-out).
   const counterOrder = detail.label.startsWith("reg-");
   const svc = serviceClient();
+  // Advisory: an unread name leaves the field empty (the order still works; the name is optional).
   const { data: cartRow } = counterOrder
     ? await svc.from("qr_carts").select("customer_name").eq("id", detail.cartId).maybeSingle()
     : { data: null };
 
   const db = publicClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("menu_items")
     .select(
-      "id,name_en,name_my,base_price_cents,image_url,is_sold_out,menu_categories(name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
+      "id,name_en,name_my,base_price_cents,is_sold_out,menu_categories(slug,name,sort_order),item_modifier_groups(modifier_groups(id,slug,name,name_my,selection_type,min_select,max_select,modifier_options(id,slug,name,name_my,price_delta_cents,sort_order,is_active,allergens)))",
     )
     .eq("is_active", true)
     .order("name_en");
-  const raw = data ?? [];
 
-  const items: StaffMenuItem[] = raw.map((i) => ({
-    id: i.id,
-    nameEn: i.name_en,
-    nameMy: i.name_my,
-    priceCents: i.base_price_cents,
-    // W16d — containment (next/image throws at render on a non-allowlisted host; this page passed
-    // the raw DB value straight through, one bad row from crashing the register mid-service).
-    imageUrl: safeImageUrl(i.image_url),
-    // Same honesty rule as the diner menu: a required choice with no active options is unaddable —
-    // show it sold-out rather than an item whose every add the server refuses.
-    soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
-    category: i.menu_categories?.name ?? "Menu",
-    groups: shapeModifierGroups(i.item_modifier_groups),
-  }));
-  const categories = [
-    ...new Map(
-      raw.map((i) => [i.menu_categories?.name ?? "Menu", i.menu_categories?.sort_order ?? 999]),
-    ).entries(),
-  ]
-    .sort((a, b) => a[1] - b[1])
-    .map(([name]) => name);
-
-  // Phase 2a · send — what the bridge may call "not sent": only what STAFF own at a host table (the
-  // diners' own round in progress is theirs to send — a count there teaches staff to fire it), every
-  // sendable dish at a hostless one. The floor's one reading of that rule (`staffOwedSendUnits`).
-  const owedUnits = staffOwedSendUnits(detail.hostPresent, detail.send);
-  // A4·2 — a counter order's way back up is the counter's one screen (the register is a zone of it).
-  const backHref = counterOrder ? "/staff?floor=1" : `/staff/table/${id}`;
-  const lang = await readStaffLang();
+  const catalog: PadCatalog =
+    error || !data
+      ? { kind: "outage" }
+      : {
+          kind: "ok",
+          items: data.map((i) => ({
+            id: i.id,
+            nameEn: i.name_en,
+            nameMy: i.name_my,
+            priceCents: i.base_price_cents,
+            // Same honesty rule as the diner menu: a required choice with no active options is
+            // unaddable — show it sold out rather than a dish whose every add the server refuses.
+            soldOut: !!i.is_sold_out || requiredChoiceUnavailable(i.item_modifier_groups),
+            category: i.menu_categories?.name ?? "Menu",
+            categorySlug: i.menu_categories?.slug ?? "menu",
+            categorySort: i.menu_categories?.sort_order ?? 999,
+            groups: shapeModifierGroups(i.item_modifier_groups),
+          })),
+        };
 
   return (
-    <main className="staff-main">
-      {/* A sub-page: the leading slot is the way back UP — the table, or the register for a
-          counter order — never the doors. The arrow lives INSIDE the dictionary value. The bar is
-          the ONLY sticky element (the first draft nested it in the page's own sticky wrapper and
-          paid the notch inset twice); a counter order's "Review order" rides its trailing slot so
-          it stays reachable while the menu scrolls — the job the old pinned header did. */}
-      <StaffBar
-        lang={lang}
-        title={counterOrder ? "browse.title.counter" : "browse.title.add"}
-        leading={
-          counterOrder
-            ? { kind: "back", href: backHref, k: "floor.back" }
-            : { kind: "back", href: backHref, k: "browse.back.table", vars: { id: detail.label } }
-        }
-        trailing={
-          counterOrder ? (
-            <Link href={`/staff/table/${id}`} className="staff-back staff-press">
-              <Chrome lang={lang} k="browse.review" />
-            </Link>
-          ) : owedUnits > 0 ? (
-            // Phase 2a · send — an interim BRIDGE (the 2c order pad replaces it with its own Send):
-            // "Start a table" lands here, and nothing told a table its dishes were unsent. Labelled for
-            // what it DOES; it lands focused on the Send, one tap away, under the tagged lines. N is
-            // what staff own of the table's one count (`owedUnits` above), refreshed after every add
-            // (router.refresh() — both add surfaces).
-            <Link href={`/staff/table/${id}?send=1`} className="staff-back staff-press">
-              <Chrome lang={lang} k="browse.reviewUnsent" vars={{ n: owedUnits }} />
-            </Link>
-          ) : undefined
-        }
-        lock={hasPin}
+    // An APP SHELL (§17): the bar on top, the pad's panes scrolling beneath it.
+    <main className="staff-main pad-main">
+      <OrderPad
+        sessionId={id}
+        initialDetail={detail}
+        catalog={catalog}
+        counterOrder={counterOrder}
+        initialName={cartRow?.customer_name ?? null}
+        hasPin={hasPin}
       />
-      <div className="staff-col" style={wrap}>
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s4)" }}>
-          {counterOrder ? (
-            <Chrome lang={lang} k="browse.sub.counter" echo="stack" />
-          ) : (
-            <Chrome lang={lang} k="browse.sub.table" vars={{ id: detail.label }} echo="stack" />
-          )}
-        </p>
-
-        <StaffMenuBrowser
-          sessionId={id}
-          items={items}
-          categories={categories}
-          counterOrder={counterOrder}
-          initialName={cartRow?.customer_name ?? null}
-        />
-      </div>
     </main>
   );
 }
-
-const wrap: CSSProperties = {
-  maxWidth: 640,
-  margin: "0 auto",
-  // the 96px the old header cleared beneath the browser stays: nothing measured says it was idle
-  paddingBottom: 96,
-};

@@ -15,6 +15,7 @@ import { tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 import type { StaffLang } from "@/lib/staff-lang";
 // ── Phase 2c · pad ──
 import { haptic } from "@/lib/haptics";
@@ -31,7 +32,10 @@ export type StaffSheetFailure =
   | { kind: "server"; message: string }
   /** The outcome is UNKNOWN — the action threw, or the write answered `unconfirmed`: the add may
    *  have LANDED, so the sentence sends staff to the order, never to "try again". */
-  | { kind: "unconfirmed" };
+  | { kind: "unconfirmed" }
+  /** ── Phase 2c · pad ── the order pad's own refusal, a dictionary key naming the dish (or a server
+   *  sentence), rendered through `<MsgText>`. */
+  | { kind: "msg"; msg: StaffMsg };
 
 /**
  * The staff modifier sheet (W6a — closes K17). Same pure selection model as the diner ItemSheet
@@ -317,6 +321,8 @@ export function StaffModSheet({
             <>{error}</>
           ) : error.kind === "server" ? (
             <OutageText lang={lang} error={error.message} />
+          ) : error.kind === "msg" ? (
+            <MsgText lang={lang} msg={error.msg} />
           ) : (
             <Chrome lang={lang} k="browse.add.unconfirmed" />
           )}

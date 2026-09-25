@@ -35,6 +35,10 @@ const BANNED: readonly RegExp[] = [
   /\bexpo\b/i,
   /\bthe pass\b/i,
   /\bauthori[sz]/i,
+  // ── Phase 2c · pad ── "Take payment" (never settle) and "Running bill" (never tab) in visible
+  // copy. The pad's Take payment and its "Close bill" are the strings that would regress first.
+  /\bsettl(e|es|ed|ing|ement)\b/i,
+  /\btabs?\b/i,
 ];
 
 /** key → why its English legitimately matches a banned pattern. Empty is the goal, not a rule. */
@@ -156,6 +160,10 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "at the pass",
         "authorized",
         "Authorise",
+        "Settle · $12.00",
+        "settled",
+        "Close tab",
+        "open tabs",
       ];
       for (const h of hits)
         expect(
@@ -175,6 +183,10 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "author",
         "1860",
         "Table 186",
+        "Table 7",
+        "tablet",
+        "unsettling",
+        "stable",
       ];
       for (const m of misses)
         expect(
