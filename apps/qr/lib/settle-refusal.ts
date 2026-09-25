@@ -48,3 +48,12 @@ export function settleRefusal(result: Exclude<SettleTakeover, "acquired">): stri
  */
 export const UNSENT_SETTLE_REFUSAL =
   "Some dishes haven’t gone to the kitchen — send them first (or remove them if the guest has left), then take payment.";
+
+/** The refusal's shape — one arm of every staff settle's code union (`SettleCashRefusal`,
+ *  `SettleCardResult`). `units` is the server's own count of the dine-in dishes still to send (the
+ *  table page's `detail.send.sendable`, read fresh under the freeze), so the sentence can name it. */
+export type UnsentRefusal = { ok: false; error: string; code: "unsent"; units: number };
+
+export function unsentRefusal(units: number): UnsentRefusal {
+  return { ok: false, error: UNSENT_SETTLE_REFUSAL, code: "unsent", units };
+}
