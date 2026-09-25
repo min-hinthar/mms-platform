@@ -3070,6 +3070,31 @@ export const STAFF = {
     en: "This order has closed — the payment most likely went through. Find it on the floor before taking payment again.",
     my: "ဒီအော်ဒါ ပိတ်သွားပါပြီ — ငွေရှင်းတာ ဖြစ်သွားပုံရပါတယ်။ ထပ်ငွေမယူခင် ခန်းမမှာ ရှာကြည့်ပါ။",
   }, // K15-HIGH — read while a settle's outcome is unknown; a misread takes the money twice
+  // ── Phase 2c · gate ──
+  // The settle gate (owner decision 3): every settle door refuses while dine-in dishes are unsent,
+  // and the refusal NAMES THE FIX. One sentence per door, said by the table page (its note under the
+  // settle buttons, its one region on a refused tap), every settle control on a server `unsent`, and
+  // the order pad's Take payment — {n} is `detail.send.sendable` (Burmese digits under `my`). The
+  // running-bill variant (`.tab`) is where the guest may have left, so removing is offered with the
+  // send. Every MY value is a Claude-authored K15 draft pending Min's native check; the words are
+  // grounded: မပို့ရသေး (table.line.notSent), ငွေရှင်း (table.detail.settle.title), ဖျက်
+  // (table.line.a11y.remove — "Remove"), ဟင်း · ခု (the pad's dish and count words).
+  "table.send.settleBlocked.one": {
+    en: "{n} dish hasn’t gone to the kitchen — send it first, then take payment.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — အရင်ပို့ပြီးမှ ငွေရှင်းပါ။",
+  }, // K15-HIGH — why payment is refused; misread, a dish is charged that nobody cooks
+  "table.send.settleBlocked.many": {
+    en: "{n} dishes haven’t gone to the kitchen — send them first, then take payment.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — အရင်ပို့ပြီးမှ ငွေရှင်းပါ။",
+  }, // K15-HIGH — why payment is refused; misread, a dish is charged that nobody cooks
+  "table.send.settleBlocked.tab.one": {
+    en: "{n} dish hasn’t gone to the kitchen — send it, or remove it if the guest has left.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — ပို့ပါ၊ ဒါမှမဟုတ် ဧည့်သည် ပြန်သွားပြီဆိုရင် ဖျက်ပါ။",
+  }, // K15-HIGH — a running bill with dishes nobody sent; misread, a guest who left is charged for them
+  "table.send.settleBlocked.tab.many": {
+    en: "{n} dishes haven’t gone to the kitchen — send them, or remove them if the guest has left.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — ပို့ပါ၊ ဒါမှမဟုတ် ဧည့်သည် ပြန်သွားပြီဆိုရင် ဖျက်ပါ။",
+  }, // K15-HIGH — a running bill with dishes nobody sent; misread, a guest who left is charged for them
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3104,6 +3129,9 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.send.togoAtPay.one", "table.send.togoAtPay.many"],
   // ── Phase 2c · pad ──
   ["pad.bar.order.one", "pad.bar.order.many"],
+  // ── Phase 2c · gate ──
+  ["table.send.settleBlocked.one", "table.send.settleBlocked.many"],
+  ["table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many"],
 ];
 
 /**
@@ -3260,6 +3288,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.inflight.unsure",
   "settle.cash.keepChangeTip",
   "settle.cash.unknownClosed",
+  // ── Phase 2c · gate ──
+  "table.send.settleBlocked.one",
+  "table.send.settleBlocked.many",
+  "table.send.settleBlocked.tab.one",
+  "table.send.settleBlocked.tab.many",
 ]);
 
 /**
