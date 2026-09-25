@@ -34,6 +34,7 @@ export function StaffSendButton({
   statusRef,
   hold,
   hostName,
+  bare = false,
 }: {
   lang: StaffLang;
   ctl: SendState;
@@ -43,6 +44,10 @@ export function StaffSendButton({
   hold: StaffSendHold;
   /** The diner host's display name, for the "sends from their phone" hint. */
   hostName: string | null;
+  /** ── Phase 2c · pad ── a count is a claim only from a view that has SEEN the cart: while an add
+   *  is still in flight the order pad's Send reads "Send to kitchen" with no count. The table page
+   *  never passes it. */
+  bare?: boolean;
 }) {
   const ids = useId();
   const { display, phase } = ctl;
@@ -91,6 +96,8 @@ export function StaffSendButton({
     <Chrome lang={lang} k="table.send.paying" echo="stack" />
   ) : held && hold.kind === "note" ? (
     <Chrome lang={lang} k="table.send.hold.note" vars={{ x: hold.name }} echo="stack" />
+  ) : held && hold.kind === "add" ? (
+    <Chrome lang={lang} k="table.send.hold.add" vars={{ x: hold.name }} echo="stack" />
   ) : held ? (
     <Chrome lang={lang} k="table.send.hold.writing" echo="stack" />
   ) : null;
@@ -148,6 +155,8 @@ export function StaffSendButton({
               <Chrome lang={lang} k="table.send.undoLeft" vars={{ n: ctl.remainingSec }} />
             </span>
           </span>
+        ) : view && bare ? (
+          <Chrome lang={lang} k="table.send.cta.bare" echo="stack" />
         ) : view ? (
           <Chrome
             lang={lang}

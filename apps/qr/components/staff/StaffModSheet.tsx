@@ -16,6 +16,9 @@ import { ts } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import type { StaffLang } from "@/lib/staff-lang";
+// ── Phase 2c · pad ──
+import { haptic } from "@/lib/haptics";
+import { catalogNameMy } from "@/lib/ticket-names";
 
 /**
  * P2 — the add refusal, tagged by ORIGIN. `staffAddItem`'s own sentence goes through
@@ -52,6 +55,7 @@ export function StaffModSheet({
   error,
   onAdd,
   lang = "en",
+  itemNameMy = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -80,6 +84,13 @@ export function StaffModSheet({
    * slice (`lib/kiosk/strings.ts` owns those words, not the staff dictionary).
    */
   lang?: StaffLang;
+  /**
+   * ── Phase 2c · pad ── the dish's catalog Burmese. Under `lang === "my"` the title, each group's
+   * legend and each option chip LEAD with the Burmese (a chip leads ONLY — no second script in a
+   * 44px chip), every Burmese run wrapped `.chrome-my` because this sheet portals outside
+   * `.stx-root`. The kiosk passes neither prop, so its path is exactly what it was.
+   */
+  itemNameMy?: string | null;
 }) {
   const qtyLabelId = useId();
   const [sel, setSel] = useState<Selection>(() => initialSelection(groups));
@@ -103,7 +114,19 @@ export function StaffModSheet({
       open={open}
       onOpenChange={onOpenChange}
       busy={pending}
-      title={itemName}
+      title={
+        lang === "my" && catalogNameMy(itemNameMy, itemName) !== null ? (
+          // The Burmese leads; the catalog English echoes beneath (the Chrome stack's own classes).
+          <span className="chrome-pair">
+            <span lang="my" className="chrome-my">
+              {catalogNameMy(itemNameMy, itemName)}
+            </span>
+            <span className="chrome-en">{itemName}</span>
+          </span>
+        ) : (
+          itemName
+        )
+      }
       closeLabel={sheetCloseLabel(lang)}
     >
       {/* The Sheet renders its title visibly — no duplicate heading here. The title is the DISH's
@@ -116,7 +139,17 @@ export function StaffModSheet({
                 role="group" of its own: two nested groups with one name announced the same words
                 twice and put a hand-built name on a DOM element that had no business owning one. */}
             <legend style={legend}>
-              {g.name}
+              {lang === "my" && catalogNameMy(g.nameMy, g.name) !== null ? (
+                <>
+                  <span lang="my" className="chrome-my">
+                    {catalogNameMy(g.nameMy, g.name)}
+                  </span>
+                  {" · "}
+                  <span lang="en">{g.name}</span>
+                </>
+              ) : (
+                g.name
+              )}
               {g.minSelect >= 1 ? (
                 <span style={reqTag}>
                   {" · "}
@@ -143,12 +176,25 @@ export function StaffModSheet({
                     className="staff-chip"
                     aria-pressed={chosen}
                     style={optBtn}
-                    onClick={() =>
-                      setSel((s) => ({ ...s, [g.id]: toggleOption(g, s[g.id] ?? [], o.id) }))
-                    }
+                    onClick={() => {
+                      // Phase 2c · pad — a reversible pick; the lit cap moving is its visible half.
+                      haptic("pick");
+                      setSel((s) => ({ ...s, [g.id]: toggleOption(g, s[g.id] ?? [], o.id) }));
+                    }}
                   >
-                    {/* The option's own catalog name — data, not chrome. */}
-                    <span>{o.name}</span>
+                    {/* The option's own catalog name — data, not chrome. Under a Burmese console
+                        it LEADS in Burmese where the catalog has it, else stays English, marked. */}
+                    {lang === "my" ? (
+                      catalogNameMy(o.nameMy, o.name) !== null ? (
+                        <span lang="my" className="chrome-my">
+                          {catalogNameMy(o.nameMy, o.name)}
+                        </span>
+                      ) : (
+                        <span lang="en">{o.name}</span>
+                      )
+                    ) : (
+                      <span>{o.name}</span>
+                    )}
                     {o.priceDeltaCents !== 0 && (
                       <span style={delta}>
                         {o.priceDeltaCents > 0 ? "+" : "−"}$
@@ -230,6 +276,7 @@ export function StaffModSheet({
           aria-busy={pending || undefined}
           onClick={() => {
             if (!valid || pending) return; // §17 — the refusal, on the button's own predicate
+            haptic("commit"); // Phase 2c · pad — at the TAP; the busy "Adding…" is its visible half
             onAdd({
               modifierIds: selectedIds(groups, sel),
               qty,

@@ -148,7 +148,11 @@ export type StaffLineEdit = {
 export type StaffSendHold =
   | null
   | { kind: "note"; lineId: string; name: string }
-  | { kind: "writing" };
+  | { kind: "writing" }
+  // ── Phase 2c · pad ── an add whose fate is unknown (it may already be on the order): the order
+  // pad holds its Send until the add is confirmed, resent or reloaded. Never produced on the table
+  // page (`sendHoldFrom` reads line edits only).
+  | { kind: "add"; name: string };
 
 /**
  * DRAIN BEFORE FIRE (DESIGN-LANGUAGE §4). `setLineNotes` is draft-guarded, so a note typed but not

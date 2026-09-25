@@ -2965,18 +2965,17 @@ export const STAFF = {
     my: "{x} အတွက် အဖြေ စောင့်နေပါတယ်",
   },
   // The line editor's stepper names (K25 for this control) — `Stepper`'s `labels`. Aria-only: the
-  // controls show only − + ✕ glyphs.
-  "table.line.a11y.less": { en: "One fewer {x}", my: "{x} တစ်ခု လျှော့" }, // grounded: browse.mod.a11y.less
-  "table.line.a11y.more": { en: "One more {x}", my: "{x} တစ်ခု ထပ်ထည့်" }, // grounded: browse.mod.a11y.more
-  "table.line.a11y.remove": {
-    en: "Remove {x} from the order",
-    my: "{x} ကို အော်ဒါထဲက ဖျက်",
-  }, // K15-HIGH — takes the dish off the order; grounded: table.detail.line.voided (ဖျက်)
+  // controls show only − + ✕ glyphs. The English is the primitive's own default wording, so an
+  // English console announces exactly what it did before; the Burmese is new.
+  "table.line.a11y.less": { en: "Decrease {x} quantity", my: "{x} တစ်ခု လျှော့" }, // grounded: browse.mod.a11y.less
+  "table.line.a11y.more": { en: "Increase {x} quantity", my: "{x} တစ်ခု ထပ်ထည့်" }, // grounded: browse.mod.a11y.more
+  // The same words as the loss sheet's own title for taking a dish off (one word per concept).
+  "table.line.a11y.remove": { en: "Remove {x}", my: "“{x}” ဖျက်" }, // K15-HIGH — takes the dish off the order; grounded: table.loss.title.void
   "table.line.a11y.soldOut": {
     en: "{x} is sold out — can’t add more",
     my: "{x} ကုန်သွားပြီ — ထပ်မထည့်နိုင်ပါ",
   },
-  "table.line.a11y.max": { en: "At the most for {x}", my: "{x} အများဆုံး ဖြစ်ပြီ" }, // grounded: browse.mod.a11y.moreMax
+  "table.line.a11y.max": { en: "Maximum {n} {x}", my: "{x} အများဆုံး {n} ခု" }, // grounded: browse.mod.a11y.moreMax
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

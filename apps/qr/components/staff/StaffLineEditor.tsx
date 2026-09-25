@@ -1,11 +1,15 @@
 "use client";
-import { useEffect, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useId, useState, useTransition, type CSSProperties } from "react";
 import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import { Stepper, useSheetSubject } from "@mms/ui";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
-import { al } from "@/lib/staff-labels";
+import { al, dishVisible } from "@/lib/staff-labels";
+// ── Phase 2c · pad ──
+import { tf } from "@/lib/i18n/fill";
+import { padDishName } from "@/lib/order-pad";
+import type { StaffLang } from "@/lib/staff-lang";
 import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -35,6 +39,9 @@ export function StaffLineEditor({
   disabled,
   onError,
   onEditState,
+  onRemove,
+  rowProps,
+  leaving = false,
 }: {
   sessionId: string;
   line: TableLineView;
@@ -45,6 +52,17 @@ export function StaffLineEditor({
    *  is draft-guarded: a note still in the field when its line fires is lost — and the note is
    *  where an allergy lives). `null` = this line left the list. */
   onEditState?: (lineId: string, edit: StaffLineEdit | null) => void;
+  /**
+   * ── Phase 2c · pad ── the ORDER PAD's ticket owns a removal (qty → 0): it moves focus to the
+   * neighbouring dish BEFORE the write, leaves the row as a ghost while the list closes over it, and
+   * brings it back in place on a refusal (§24, `useLineMotion`). When set, the stepper's Remove calls
+   * this instead of writing here. The table page passes nothing and keeps its own write.
+   */
+  onRemove?: () => void;
+  /** `useLineMotion`'s row attributes (the line id, and on a ghost `inert` + `aria-hidden`). */
+  rowProps?: Record<string, unknown>;
+  /** A ghost: drawn as last painted, fading, and it never writes. */
+  leaving?: boolean;
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -56,6 +74,10 @@ export function StaffLineEditor({
   // render site whether it has an authored Burmese twin. Localizing it here would mean guessing on
   // this side of the boundary for a sentence the server owns.
   const lang = useStaffLang();
+  // Phase 2c · pad — minted per editor, so two editors of one line (the pad and a table page open
+  // side by side, a test rendering both) never share an id. The Send's note hold finds the field by
+  // `data-note-for`, never by this id.
+  const noteId = useId();
   const [pending, startTransition] = useTransition();
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
   const [seenServerQty, setSeenServerQty] = useState(line.qty);
@@ -86,7 +108,17 @@ export function StaffLineEditor({
     setOptimisticQty(null);
   }
   const qty = optimisticQty ?? line.qty;
-  const busy = pending || disabled;
+  // A ghost (`leaving`) is busy: the stepper and the note refuse, so it never writes — even where
+  // `inert` is unsupported (Safari < 15.5).
+  const busy = pending || disabled || leaving;
+  // Phase 2c · pad — the qty digit pops when it CHANGES (never on first paint, so a ticket opening
+  // does not pop every row). React's guarded set-during-render; `.mms-pop` is RM-escorted.
+  const [paintedQty, setPaintedQty] = useState(qty);
+  const [qtyPops, setQtyPops] = useState(0);
+  if (qty !== paintedQty) {
+    setPaintedQty(qty);
+    setQtyPops((n) => n + 1);
+  }
 
   // Phase 2a · send — reported from an effect (never during render), and withdrawn on unmount so a
   // removed line, or a list that went read-only, cannot keep holding the Send.
@@ -104,6 +136,10 @@ export function StaffLineEditor({
   useEffect(() => () => onEditState?.(line.id, null), [onEditState, line.id]);
 
   function setQty(next: number) {
+    if (next <= 0 && onRemove) {
+      onRemove(); // the ticket owns the removal (focus, ghost, write, return on refusal)
+      return;
+    }
     setOptimisticQty(next);
     startTransition(async () => {
       try {
@@ -130,16 +166,33 @@ export function StaffLineEditor({
       <span
         style={{ display: "block", color: "var(--t3)", fontSize: "var(--fs-sm)", marginTop: 1 }}
       >
-        {line.modifiers.join(" · ")}
+        {/* Phase 2c · pad — on a Burmese console each option leads in Burmese where the catalog has
+            it (per slot); an option with none stays English, marked. The English console is the
+            joined English, exactly as before. */}
+        {lang === "my"
+          ? line.modifiers.map((m, i) => {
+              const my = line.modifiersMy[i] ?? null;
+              return (
+                <span key={i}>
+                  {i > 0 ? " · " : null}
+                  {my !== null ? <span lang="my">{my}</span> : <span lang="en">{m}</span>}
+                </span>
+              );
+            })
+          : line.modifiers.join(" · ")}
       </span>
     ) : null;
+  // Phase 2c · pad — the dish's name, the console's tongue first (`padDishName`), inside the span
+  // focus lands on when a NEIGHBOURING line is removed (`data-line-name`, §24: it cannot be
+  // activated, so a repeated Enter can never remove this dish).
+  const dish = <DishName lang={lang} name={line.name} nameMy={line.nameMy} />;
 
   // ── Terminal / settled-as-free states: a muted row, no controls ──────────────────────────────────────
   if (line.state === "voided") {
     return (
-      <li style={{ ...row, opacity: 0.55 }}>
-        <span style={{ minWidth: 0, flex: 1, textDecoration: "line-through" }}>
-          {line.qty}× {line.name}
+      <li {...rowProps} className={ghostClass(leaving)} style={{ ...row, opacity: 0.55 }}>
+        <span style={{ ...nameCell, textDecoration: "line-through" }}>
+          {line.qty}× {dish}
           {mods}
         </span>
         <span style={badge}>
@@ -150,9 +203,9 @@ export function StaffLineEditor({
   }
   if (line.comped) {
     return (
-      <li style={row}>
-        <span style={{ minWidth: 0, flex: 1 }}>
-          {line.qty}× {line.name}
+      <li {...rowProps} className={ghostClass(leaving)} style={row}>
+        <span style={nameCell}>
+          {line.qty}× {dish}
           {mods}
           {line.bySeatName && (
             <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
@@ -172,9 +225,9 @@ export function StaffLineEditor({
   const postFire = line.state !== "draft";
   if (postFire) {
     return (
-      <li style={row}>
-        <span style={{ minWidth: 0, flex: 1 }}>
-          {line.qty}× {line.name}
+      <li {...rowProps} className={ghostClass(leaving)} style={row}>
+        <span style={nameCell}>
+          {line.qty}× {dish}
           <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
             {" · "}
             {/* S12's one vocabulary, now the dictionary's — no echo: a tag inside a dense row. */}
@@ -240,9 +293,16 @@ export function StaffLineEditor({
   // ── Draft: the qty stepper (shared @mms/ui Stepper; the red ✕ remove is the staff variant) + the
   // W3b kitchen-note editor (draft-only; the note freezes at fire so the board can't silently diverge).
   return (
-    <li style={{ ...row, flexWrap: "wrap" }}>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ fontWeight: "var(--fw-semibold)" }}>{qty}×</span> {line.name}
+    <li {...rowProps} className={ghostClass(leaving)} style={row}>
+      <span style={nameCell}>
+        <span
+          key={qtyPops}
+          className={qtyPops > 0 ? "staff-qty mms-pop" : "staff-qty"}
+          style={{ fontWeight: "var(--fw-semibold)" }}
+        >
+          {qty}×
+        </span>{" "}
+        {dish}
         {/* Phase 2a · send — the WORD marks what the kitchen has not got, never colour alone. Only a
             line the Send fires wears it: a to-go draft cooks at pay, so "not sent" there is no call
             to action. */}
@@ -312,22 +372,20 @@ export function StaffLineEditor({
           // The primitive maps this to `aria-disabled` + a refusal in its handlers (§17, K35).
           disabled={busy}
           soldOut={line.soldOut}
-          // STILL ENGLISH, deliberately. `Stepper` hardcodes its other two names ("Remove {name}",
-          // "Decrease {name} quantity") inside packages/ui, which this slice does not touch — so
-          // localizing only the one name a caller can reach would ship a control that announces two
-          // English names and one Burmese one. The primitive converts as a unit, or not at all.
-          soldOutLabel={`${line.name} is sold out — can’t add more`}
+          // Phase 2c · pad (K25) — every name from the dictionary, as a unit (`labels` is
+          // all-or-nothing), naming the dish as it RENDERS (Burmese-first under `my`).
+          labels={stepperLabels(lang, dishVisible(lang, line.name, line.nameMy))}
           removeTone="var(--warn)"
         />
       </span>
       {noteDraft !== null && (
         <span style={noteEditor}>
           {/* No echo: this label is `sr-only`, so a pair would announce the field twice. */}
-          <label className="sr-only" htmlFor={`note-${line.id}`}>
+          <label className="sr-only" htmlFor={noteId}>
             <Chrome lang={lang} k="table.line.noteLabel" vars={{ x: line.name }} />
           </label>
           <input
-            id={`note-${line.id}`}
+            id={noteId}
             // Phase 2a · send — the Send's note hold finds this field by the LINE, within the order
             // card, rather than by the id (which the order pad may re-mint with useId()).
             data-note-for={line.id}
@@ -360,8 +418,59 @@ export function StaffLineEditor({
   );
 }
 
+// ── Phase 2c · pad ──
+/** The dish name, the console's tongue first. On an English console with no Burmese it is the bare
+ *  English text, exactly as before; a lead in the OTHER tongue is marked, and the echo sits beneath. */
+function DishName({
+  lang,
+  name,
+  nameMy,
+}: {
+  lang: StaffLang;
+  name: string;
+  nameMy: string | null;
+}) {
+  const n = padDishName(lang, name, nameMy);
+  return (
+    <span data-line-name tabIndex={-1} className="staff-line-name">
+      {n.lead.lang === lang && lang === "en" ? (
+        n.lead.text
+      ) : (
+        <span lang={n.lead.lang}>{n.lead.text}</span>
+      )}
+      {n.echo && (
+        <span className="staff-line-echo" lang={n.echo.lang}>
+          {n.echo.text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The stepper's names, whole, in the device language (`Stepper`'s `labels`). */
+function stepperLabels(lang: StaffLang, x: string) {
+  return {
+    decrease: tf(lang, "table.line.a11y.less", { x }),
+    remove: tf(lang, "table.line.a11y.remove", { x }),
+    increase: tf(lang, "table.line.a11y.more", { x }),
+    soldOut: tf(lang, "table.line.a11y.soldOut", { x }),
+    // The editor leaves the primitive's default ceiling (99) in place; the name says the same number.
+    max: tf(lang, "table.line.a11y.max", { x, n: 99 }),
+  };
+}
+
+/** A ghost row fades with the house removal idiom (§24); a live row carries no class. */
+function ghostClass(leaving: boolean): string | undefined {
+  return leaving ? "mms-remove" : undefined;
+}
+
+// The name takes the row's free space from a 12rem basis, so in a narrow pane (the order pad's
+// ticket) the controls wrap under the name instead of squeezing it to a sliver.
+const nameCell: CSSProperties = { minWidth: 0, flex: "1 1 12rem" };
+
 const row: CSSProperties = {
   display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "var(--s3)",

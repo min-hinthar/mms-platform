@@ -99,6 +99,7 @@ export function useStaffSend({
   rootRef,
   onNotice,
   onRefresh,
+  drain,
 }: {
   sessionId: string;
   /** The table's send view, from the latest detail (`staffSendView`). */
@@ -117,6 +118,14 @@ export function useStaffSend({
   onNotice: (notice: SendNotice | null) => void;
   /** Re-read the detail NOW (not the 400ms debounce) so the line tags show the truth. */
   onRefresh: () => void;
+  /**
+   * ── Phase 2c · pad ── DRAIN the order pad's add chain before the fire: the tap is taken (the
+   * control goes busy, "Sending…"), every add still in flight is awaited, and only then does the
+   * send go out — so a dish tapped a beat before Send is in the round. Resolves `false` to hold the
+   * fire (an add whose fate is unknown): the pad says why in its own region. The table page has no
+   * add chain and passes nothing.
+   */
+  drain?: () => Promise<boolean>;
 }): StaffSendController {
   const [phase, setPhase] = useState<StaffSendPhase>("idle");
   const [batch, setBatch] = useState<string | null>(null);
@@ -255,6 +264,10 @@ export function useStaffSend({
     setPhase("sending");
     void (async () => {
       try {
+        if (drain && !(await drain())) {
+          setPhase("idle"); // held: the pad's region names the add it is waiting on
+          return;
+        }
         const res = await staffFireCart({ sessionId });
         if (res.ok) {
           const now = Date.now();
@@ -284,7 +297,7 @@ export function useStaffSend({
         onRefresh();
       }
     })();
-  }, [view, getHold, rootRef, sessionId, onNotice, onRefresh, ask]);
+  }, [view, getHold, rootRef, sessionId, onNotice, onRefresh, ask, drain]);
 
   const onUndo = useCallback(() => {
     if (inFlight.current || phase !== "undo" || batch === null) return;
