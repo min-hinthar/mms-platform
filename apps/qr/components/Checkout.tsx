@@ -13,7 +13,7 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
-import { COUNTER_PAY_REFUSAL_COPY } from "@/lib/counter-pay-state";
+import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, EmptyState, Icon, NumberFlow, Stepper } from "@mms/ui";
@@ -3721,7 +3721,13 @@ export function Checkout({
                 onClick={askCounter}
                 onRefusedTap={
                   sendBlocksPay && !payFrozen
-                    ? () => setStatus(COUNTER_PAY_REFUSAL_COPY.unsent)
+                    ? () =>
+                        // The host is told to send; a guest is told who does (the note's split).
+                        setStatus(
+                          counterUnsentTapCopy(
+                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
+                          ),
+                        )
                     : undefined
                 }
               />

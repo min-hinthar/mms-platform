@@ -55,8 +55,21 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
   settling: "The table’s splitting the bill right now — finish or cancel that first.",
   paying: "Someone’s paying on their phone — wait for that to finish.",
   empty: "Nothing to pay yet — add something first.",
-  unsent: "Send everything to the kitchen first — then pay at the counter.",
+  // Phase 2c · gate — the server returns this to WHOEVER asked, host or guest, so it orders nobody
+  // to send (only the host can); the Bill's own tap names who does (`counterUnsentTapCopy`).
+  unsent: "Everything has to go to the kitchen first — then pay at the counter.",
 };
+
+/**
+ * Phase 2c · gate — what a tap on the Bill's dimmed "Pay at the counter" says: the host is told the
+ * fix (they can send), a guest is told WHO sends (they cannot) — the unsent note's own split above
+ * the button. `sender` is null for the person who can send, else the name the note uses.
+ */
+export function counterUnsentTapCopy(sender: string | null): string {
+  return sender === null
+    ? "Send everything to the kitchen first — then pay at the counter."
+    : `${sender} sends everything to the kitchen first — then pay at the counter.`;
+}
 
 /**
  * Whether a `counter_requested_at` stamp counts as a live ask. There is no TTL by design: a family

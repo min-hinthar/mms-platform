@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { COUNTER_PAY_REFUSAL_COPY, counterAskLive, counterPayRefusal } from "./counter-pay-state";
+import {
+  COUNTER_PAY_REFUSAL_COPY,
+  counterAskLive,
+  counterPayRefusal,
+  counterUnsentTapCopy,
+} from "./counter-pay-state";
 
 /**
  * A1 — the "Pay at the counter" rules, pinned as VALUES.
@@ -72,9 +77,24 @@ describe("counterPayRefusal — the ask is refused while the table's dishes are 
     expect(counterPayRefusal({ ...base, unsentBlocks: true, mode: "pickup" })).toBe("not_dinein");
   });
 
-  it("names the fix in plain words", () => {
+  it("the server's sentence goes to EVERY member, so it tells nobody to do what only the host can", () => {
+    // Critic finding: "Send everything to the kitchen first" reached a guest who cannot send (the
+    // server returns it to whoever asked). True for both roles: nothing in it is an order to send.
     expect(COUNTER_PAY_REFUSAL_COPY.unsent).toBe(
+      "Everything has to go to the kitchen first — then pay at the counter.",
+    );
+    expect(COUNTER_PAY_REFUSAL_COPY.unsent).not.toMatch(/^Send\b/);
+  });
+
+  it("a tap on the dimmed counter button names the fix to the host and WHO sends to a guest", () => {
+    // The host can send: told to.
+    expect(counterUnsentTapCopy(null)).toBe(
       "Send everything to the kitchen first — then pay at the counter.",
+    );
+    // MUTATION (counter-pay-state/unsent-guest-told-to-send): the host's sentence for everyone — a
+    // guest is told to send dishes only the host can send; red.
+    expect(counterUnsentTapCopy("Aye")).toBe(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
     );
   });
 });

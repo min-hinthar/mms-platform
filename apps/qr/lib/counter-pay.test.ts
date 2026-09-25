@@ -292,7 +292,7 @@ describe("requestCounterPay — the ask waits for everything to be sent (the Bil
     expect(await requestCounterPay({ cartId: "c-1" })).toEqual({
       ok: false,
       reason: "unsent",
-      error: "Send everything to the kitchen first — then pay at the counter.",
+      error: "Everything has to go to the kitchen first — then pay at the counter.",
     });
     expect(cart!.counter_requested_at).toBeNull();
   });

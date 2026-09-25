@@ -1428,6 +1428,38 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
     );
   });
 
+  it("a GUEST's tap on the dimmed counter button says who sends — never tells them to send", async () => {
+    // Critic finding: the refusal told a guest to "Send everything to the kitchen" — only the host
+    // can; the note above already names the host.
+    mount({
+      splitContext: {
+        ...HOST,
+        myRole: "guest" as const,
+        members: [
+          { seat: "seat-host", name: "Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Me", role: "guest" as const },
+        ],
+      },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(document.body.textContent).toContain("Aye sends them — then the bill is ready to pay.");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
+    // a guest is told to send what only Aye can; red.
+    expect(document.body.textContent).toContain(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
   it("a fully sent table may still ask for the counter", async () => {
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
     const counter = screen.getByRole("button", { name: /Pay at the counter/i });
