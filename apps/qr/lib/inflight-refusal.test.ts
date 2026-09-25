@@ -127,3 +127,24 @@ describe("inFlightMsg — the refusal is a DICTIONARY key, bilingual, never a se
     }
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("the register's held attempt never invites a blind retry (review open question)", () => {
+  it("past the wait it sends staff to have the card payments checked — never 'try again'", () => {
+    // `closeSecureTab` keys each off-session PaymentIntent PER ATTEMPT (`pi_<cart>_close_<uuid>` —
+    // a stable key would cache a soft decline for 24h), so once the freeze lapses a retry mints a
+    // SECOND charge. A charge that landed with its webhook delayed past the freeze reads, on every
+    // staff surface, exactly like one that never landed — so "try again" there collects twice.
+    // MUTATION (by hand): restore "…if it hasn’t finished in {n} minutes, try again." — red.
+    const en = inFlightRefusal("register");
+    expect(en).not.toMatch(/try again/i);
+    expect(en).toMatch(/ask the owner to check the card payments before you take payment again/);
+    // The wait is still named ({n}, the freeze's lifetime).
+    expect(en).toContain(`${SETTLE_MINUTES} minutes`);
+    // Burmese: the old "ထပ်စမ်းပါ" ("try again") is gone; the owner (ပိုင်ရှင်) checks first.
+    const my = STAFF["settle.inflight.register"].my;
+    expect(my).not.toContain("ထပ်စမ်းပါ");
+    expect(my).toContain("ပိုင်ရှင်");
+    expect(my).toContain("{n}");
+  });
+});
