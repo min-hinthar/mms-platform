@@ -9371,6 +9371,23 @@ const MUTANTS = [
     find: "max(Number.MAX_SAFE_INTEGER).optional(),",
     replace: "max(10_000_000).optional(),",
   },
+  // ── Phase 2c · Codex round 3 ──
+  {
+    id: "staff-cart/codex3-setqty-edits-a-fired-line",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-setqty-draft.test.ts",
+    why: "Phase 2c · Codex round 3 (P1) — a quantity change is a draft edit. Without the state check a stepper tap queued behind a Send rewrites the line the kitchen just started cooking",
+    find: '  if (line.state !== "draft")\n',
+    replace: "  if (false)\n",
+  },
+  {
+    id: "cashsettle/codex3-moved-keeps-the-old-tip-base",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · Codex round 3 (P2) — a server figure arrives without its tip base, so the % chips wait for the page's read. Kept, '20%' is computed off the previous order beside the new amount due",
+    find: "            setTipBaseAtOpen(null);\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

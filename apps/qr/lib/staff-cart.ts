@@ -224,12 +224,22 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   // verdicts send staff chasing a phantom state instead of naming the outage.
   const { data: line, error: lineError } = await db
     .from("qr_cart_items")
-    .select("id")
+    .select("id,state")
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .maybeSingle();
   if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!line) return { ok: false, error: "That item isn’t on this table." };
+  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. The RPC guards only
+  // the open cart, so a stepper tap queued behind a Send (Next runs actions one at a time) would
+  // otherwise land on the just-fired line and the kitchen would cook a different quantity from the
+  // ticket. A sent dish changes through Remove / Make it free (the loss flow), never here. (The same
+  // guard inside the RPC — against another device's Send racing this read — needs a migration: filed.)
+  if (line.state !== "draft")
+    return {
+      ok: false,
+      error: "That dish already went to the kitchen — use Remove or Make it free instead.",
+    };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
   // diner path uses). 0 rows ⇒ the cart flipped paid/closed under us.

@@ -731,6 +731,32 @@ describe("CashSettleButton — the tip chips' base is frozen with the quote (Cod
   });
 });
 
+describe("CashSettleButton — a server `moved` figure withholds the % chips until the page's read (Codex round 3, P2)", () => {
+  it("no chip is computed off the previous order's base; the read that follows restores them", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "moved",
+      totalCents: 4265,
+      error: "The total changed — check the order, then take payment again.",
+    });
+    const { open, settle, rerender } = mount({ readTicket: 3, readsStarted: () => 3 });
+    const dialog = open();
+    expect(within(dialog).queryByRole("button", { name: /^20%/ })).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: keep the old base — "20% · $8.00" of the PREVIOUS order sits beside "Take $42.65"; red.
+    expect(within(dialog).queryByRole("button", { name: /^20%/ })).toBeNull();
+    // "None" stays: clearing a tip never needs a base.
+    expect(
+      within(dialog).getByRole("button", { name: STAFF["settle.cash.tipNone"].en }),
+    ).toBeTruthy();
+    // The page's next read (a later ticket) brings the matching base.
+    rerender({ readTicket: 4, readsStarted: () => 4, totalCents: 4265, tipBaseCents: 4050 });
+    expect(within(dialog).getByRole("button", { name: /^20%/ }).textContent).toContain("$8.10");
+  });
+});
+
 describe("CashSettleButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
   it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
     const english = "A payment started at the register on this table hasn’t finished.";

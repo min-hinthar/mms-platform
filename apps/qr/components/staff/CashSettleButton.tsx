@@ -310,6 +310,10 @@ export function CashSettleButton({
             // `raisedAt` — the page's read clock NOW (R1): only a read that starts after this may
             // settle the server's figure, whatever that read brings back.
             setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });
+            // Codex round 3 (P2) — the server's figure came without its tip base: the percentage
+            // chips are withheld until the page's read (the reconcile) supplies the matching base,
+            // never computed off the previous order's.
+            setTipBaseAtOpen(null);
             setError({ kind: "moved", from: quoted, to: res.totalCents });
             onChanged?.();
             return;
@@ -483,7 +487,8 @@ export function CashSettleButton({
                 arithmetic at the counter. They fill the field (they do not settle), so the amount
                 stays visible and adjustable before anything is recorded. */}
               <div role="group" aria-label={sx(lang, "settle.a11y.tipQuick")} style={tipChipRow}>
-                {tipPresets(shownTipBase ?? 0)
+                {/* Withheld while the base is unknown (a server figure awaiting its read) — "None" stays. */}
+                {(shownTipBase === null ? [] : tipPresets(shownTipBase))
                   .filter((p) => tipWithinAmountCap(Math.round((shownTipBase ?? 0) * p.rate)))
                   .map((p) => {
                     // The SAME base and the SAME rounding the diner and kiosk use, so an identical

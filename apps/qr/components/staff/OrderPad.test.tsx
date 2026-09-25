@@ -862,6 +862,26 @@ describe("Take payment says what it is actually doing while busy", () => {
     expect(setQty).not.toHaveBeenCalled();
   });
 
+  it("the counter name is read-only while Take payment saves it (Codex round 3, P2)", async () => {
+    const save = deferred<{ ok: true }>();
+    setName.mockReturnValueOnce(save.promise as never);
+    mount(counterPayable(), { counter: true });
+    const input = () => screen.getByLabelText(STAFF["browse.name.label"].en) as HTMLInputElement;
+    fireEvent.change(input(), { target: { value: "Aye" } });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    // MUTATION: leave it editable — "Aye" is marked saved while the field reads something else, and
+    // the page leaves with the visible call-out thrown away; red.
+    expect(input().readOnly).toBe(true);
+    await act(async () => {
+      save.resolve({ ok: true });
+    });
+    await flush();
+    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+  });
+
   it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
     addItem.mockReturnValueOnce(new Promise(() => {}));
     mount(counterPayable(), { counter: true });

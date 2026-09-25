@@ -268,6 +268,20 @@ a mutant, all KILLED. No migration.
 - **`quotedCents` admits every total an order can reach.** A $100,000 cap on a compare-only field
   refused every settle of a legitimately larger order as an invalid request.
 
+**Codex round 3 (on `7f16aed`: 2 × P1, 2 × P2) — per the two-round rule, fix-on-sight fixed, the rest filed:**
+
+- **P1 — a quantity change could land on a dish the kitchen had just started.** A stepper tap
+  queued behind a Send reached `staffSetQty` after the fire; the RPC guards only the open cart.
+  The action now refuses any line that is not a draft (a sent dish changes through Remove / Make it
+  free). The RPC-level guard (another device, the diner path) needs a migration: **P2dd**.
+- **P1 — the settle gate fails OPEN when its read fails.** Kept as designed and documented (it falls
+  back to firing the dishes at payment; a sustained outage refuses at the totals read). Filed for
+  the owner's call: **P2dc**.
+- **P2 — after a `moved` refusal the % tip chips used the previous order's base.** They are now
+  withheld ("None" stays) until the page's read supplies the matching base.
+- **P2 — the counter name could change while Take payment was saving it.** The field is read-only
+  during that save.
+
 ### Phase 2b — the kitchen ticket and the live console (2026-09-24)
 
 Built as two parallel worktree branches (`p2b/kitchen` · `p2b/feedback`) merged here, then the

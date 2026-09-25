@@ -155,6 +155,9 @@ export function StaffTicket({
                   <input
                     {...control}
                     value={counterName.value}
+                    // Codex round 3 (P2) — read-only while the name SAVES: a call-out changed during
+                    // the round trip would be marked saved as the old value and thrown away.
+                    readOnly={counterName.saving}
                     maxLength={40}
                     autoComplete="off"
                     enterKeyHint="done"
