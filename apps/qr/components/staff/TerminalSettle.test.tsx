@@ -272,4 +272,59 @@ describe("TerminalSettleButton — the settle gate (refused while dishes are uns
     // The page's ONE region says it; this line is shown, never a second announcement.
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  // ── the critic's findings (Phase 2c · gate, round 2) ──
+  const raced = { ok: false, code: "unsent", units: 2, error: "Some dishes haven’t gone." };
+  const said = (running: boolean) =>
+    tf("en", running ? "table.send.settleBlocked.tab.many" : "table.send.settleBlocked.many", {
+      n: 2,
+    });
+  const el = (p: { blocked?: boolean; gateLive?: boolean; running?: boolean }) => (
+    <StaffLangProvider lang="en">
+      <TerminalSettleButton sessionId="s1" totalCents={4210} onStarted={vi.fn()} {...p} />
+    </StaffLangProvider>
+  );
+
+  it("a raced line is DROPPED once the page reads the table blocked — it never comes back when the table clears", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    const { rerender } = render(el({}));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    expect(document.body.textContent).toContain(said(false));
+    // The page read the drafts: its note says it now.
+    rerender(el({ blocked: true }));
+    expect(document.body.textContent).not.toContain(said(false));
+    // Sent: the page reads the table clear again.
+    rerender(el({ blocked: false }));
+    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-page): clear only when the page's line
+    // retires — standalone (no page line) the hidden error comes back under a live trigger; red.
+    expect(document.body.textContent).not.toContain(said(false));
+  });
+
+  it("a raced line goes when the page's own gate line retires, even if the page never read the table blocked", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    const { rerender } = render(el({ gateLive: true }));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    expect(document.body.textContent).toContain(said(false));
+    rerender(el({ gateLive: false }));
+    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-gate): clear only on `blocked` — the
+    // dishes were removed before the page saw them, and the line says they are still there; red.
+    expect(document.body.textContent).not.toContain(said(false));
+    // …and a later gate line (another door refused) does not bring it back.
+    rerender(el({ gateLive: true }));
+    expect(document.body.textContent).not.toContain(said(false));
+  });
+
+  it("on a card-on-file running bill the raced line says the running bill's sentence", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    render(el({ running: true }));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    // MUTATION (terminal-ui/unsent-running-ignored): the table's sentence regardless — the reader
+    // says "send them first" under a note offering removal; red.
+    expect(document.body.textContent).toContain(said(true));
+  });
 });

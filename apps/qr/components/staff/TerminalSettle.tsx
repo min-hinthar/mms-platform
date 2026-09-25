@@ -66,6 +66,8 @@ export function TerminalSettleButton({
   blocked = false,
   blockedNoteId,
   onBlockedTap,
+  running = false,
+  gateLive,
 }: {
   sessionId: string;
   totalCents: number;
@@ -81,6 +83,14 @@ export function TerminalSettleButton({
   /** A refused tap (`null` — the page's count is the reading), or the server's `unsent` refusal
    *  (its count): the page says why in its one region and moves focus to the Send. */
   onBlockedTap?: (units: number | null) => void;
+  /** Phase 2c · gate — the bill is a card-on-file running bill (the page's ONE binding,
+   *  `settlePrimary(tab) === "secureTab"`): a raced refusal says the running bill's sentence, the
+   *  same one the page's note and region say — never a second sentence for the same fact. */
+  running?: boolean;
+  /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
+   *  retired (a send, a later read with nothing unsent, another setter): the raced line never
+   *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
+  gateLive?: boolean;
 }) {
   const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
@@ -88,6 +98,11 @@ export function TerminalSettleButton({
   // render before `busy`).
   const inFlight = useRef(false);
   const [error, setError] = useState<SettleError | null>(null);
+  // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
+  // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
+  // its note says it now) or its own line retired. Hidden, it came back under a live trigger once
+  // the dishes were sent, saying they had not been (critic finding).
+  if (error?.kind === "unsent" && (blocked || gateLive === false)) setError(null);
 
   async function start() {
     if (inFlight.current) return;
@@ -151,13 +166,14 @@ export function TerminalSettleButton({
       </p>
       {/* Phase 2c · gate — the settle gate's refusal is SHOWN here but SAID by the page's one polite
           region (the jump hands it up), so it carries no role of its own; once the page's note
-          under the triggers says the same (the page read the drafts), this line gives way to it. */}
-      {error?.kind === "unsent" && !blocked && (
+          under the triggers says the same (the page read the drafts), this line is dropped for it
+          (the render-time clear above). */}
+      {error?.kind === "unsent" && (
         <p style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           <Chrome
             lang={lang}
-            k={settleBlockedMsg(error.units, false).k}
-            vars={settleBlockedMsg(error.units, false).vars}
+            k={settleBlockedMsg(error.units, running).k}
+            vars={settleBlockedMsg(error.units, running).vars}
             echo={false}
           />
         </p>

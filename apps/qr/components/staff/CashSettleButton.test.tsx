@@ -846,4 +846,24 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     expect(onBlockedTap).toHaveBeenCalledWith(2);
     expect(document.activeElement).not.toBe(trigger);
   });
+  it("on a card-on-file running bill the sheet says the running bill's sentence (the page's note's)", async () => {
+    settleCash.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: "x" });
+    render(
+      <StaffLangProvider lang="en">
+        <CashSettleButton sessionId="s1" totalCents={4210} tipBaseCents={4000} running />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION (cashsettle/unsent-running-ignored): the table's sentence regardless; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      tf("en", "table.send.settleBlocked.tab.many", { n: 2 }),
+    );
+  });
 });

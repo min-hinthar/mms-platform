@@ -358,6 +358,11 @@ export function FloorDetailLive({
   // triggers' `blocked`, the note under them, and the region's line all read it. The same binding
   // the server refuses on (`staffSettleBlockedByUnsent` over `detail.send.sendable`).
   const settleBlocked = staffSettleBlockedByUnsent(detail.mode, detail.send.sendable);
+  // Which sentence the gate says on this bill — ONE binding for the note, the region line and every
+  // trigger's raced line (critic finding: a cash tap said the table's sentence under a note offering
+  // removal). A card-on-file running bill — the bill whose close renders (`settlePrimary`) — offers
+  // "remove them if the guest has left"; every other bill says "send them first".
+  const runningClose = settlePrimary(detail.tab) === "secureTab";
   // The gate's line in the ONE region (the settle rank): raised by a refused tap or a server
   // `unsent`, cleared by every other setter, and retired by a LATER read that shows nothing unsent.
   const [settleGate, setSettleGate] = useState<SettleGateNote | null>(null);
@@ -436,8 +441,14 @@ export function FloorDetailLive({
       const reduce =
         typeof window.matchMedia === "function" &&
         window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // Optional call: jsdom has no scrollIntoView (the SettledToday precedent).
-      target?.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
+      // Optional call: jsdom has no scrollIntoView (the SettledToday precedent). The Send is
+      // centred (the region line sits right under it); the order heading goes to the TOP — the
+      // lines to remove are BELOW it, and centring it spent half a phone screen on the card above
+      // (critic finding; the root's scroll-padding keeps it clear of the sticky bar).
+      target?.scrollIntoView?.({
+        block: target === orderHeadingRef.current ? "start" : "center",
+        behavior: reduce ? "auto" : "smooth",
+      });
       target?.focus({ preventScroll: true });
     },
     [send.controlRef, setSendNote, setSettleGate],
@@ -445,7 +456,7 @@ export function FloorDetailLive({
   const gateLine = settleGate
     ? settleBlockedMsg(
         settleGateUnits(settleGate, settleBlocked, detail.send.sendable),
-        settleGate.trigger === "tab",
+        runningClose,
       )
     : null;
 
@@ -1044,7 +1055,7 @@ export function FloorDetailLive({
             <h2 id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
               <Chrome lang={lang} k="table.detail.settle.title" />
             </h2>
-            {settlePrimary(detail.tab) === "secureTab" && (
+            {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
@@ -1053,6 +1064,7 @@ export function FloorDetailLive({
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("tab", units)}
+                gateLive={settleGate !== null}
               />
             )}
             <CashSettleButton
@@ -1078,6 +1090,7 @@ export function FloorDetailLive({
               blocked={settleBlocked}
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}
+              running={runningClose}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the
@@ -1091,6 +1104,8 @@ export function FloorDetailLive({
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("reader", units)}
+                running={runningClose}
+                gateLive={settleGate !== null}
               />
             )}
             {detail.tab === "trust" && (
@@ -1115,8 +1130,8 @@ export function FloorDetailLive({
                 <span>
                   <Chrome
                     lang={lang}
-                    k={settleBlockedMsg(detail.send.sendable, detail.tab === "secure").k}
-                    vars={settleBlockedMsg(detail.send.sendable, detail.tab === "secure").vars}
+                    k={settleBlockedMsg(detail.send.sendable, runningClose).k}
+                    vars={settleBlockedMsg(detail.send.sendable, runningClose).vars}
                     echo="stack"
                   />
                 </span>

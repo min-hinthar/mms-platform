@@ -52,6 +52,7 @@ export function CloseSecureTabButton({
   blocked = false,
   blockedNoteId,
   onBlockedTap,
+  gateLive,
 }: {
   sessionId: string;
   totalCents: number;
@@ -67,6 +68,10 @@ export function CloseSecureTabButton({
    *  count): the page says why in its one region and moves focus to the order's lines, where
    *  "remove them if the guest has left" is done. */
   onBlockedTap?: (units: number | null) => void;
+  /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
+   *  retired (a send, a later read with nothing unsent, another setter): the raced line never
+   *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
+  gateLive?: boolean;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -74,6 +79,11 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
+  // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
+  // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
+  // its note says it now) or its own line retired. Hidden, it came back once the dishes were
+  // removed, offering to remove them (critic finding).
+  if (error?.kind === "unsent" && (blocked || gateLive === false)) setError(null);
   // The QUOTE (lib/register-math `SettleQuote`) — frozen when the confirm OPENS, so "Charge $x"
   // charges the figure staff READ, never the prop the page's re-read moves under an open confirm (the
   // critic's finding, the cash sheet's twin). A server `moved` refusal replaces it with the server's
@@ -252,9 +262,9 @@ export function CloseSecureTabButton({
       <p id="secure-close-hint" style={hint}>
         <Chrome lang={lang} k="settle.card.hint" echo="stack" />
       </p>
-      {/* Phase 2c · gate — SHOWN here, SAID by the page's one region (no role of its own); it gives
-          way to the page's note once the page has read the drafts too. */}
-      {alertMsg?.kind === "unsent" && !blocked && (
+      {/* Phase 2c · gate — SHOWN here, SAID by the page's one region (no role of its own); it is
+          dropped for the page's note once the page has read the drafts too (the clear above). */}
+      {alertMsg?.kind === "unsent" && (
         <p style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           <Chrome
             lang={lang}

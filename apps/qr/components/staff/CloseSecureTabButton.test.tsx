@@ -294,4 +294,42 @@ describe("CloseSecureTabButton — the settle gate (refused while dishes are uns
     // The confirm's close does not steal focus back from the page's jump.
     expect(document.activeElement).toBe(document.getElementById("stand-in-order-h"));
   });
+  // ── the critic's findings (Phase 2c · gate, round 2) ──
+  const said = tf("en", "table.send.settleBlocked.tab.many", { n: 2 });
+  const el = (p: { blocked?: boolean; gateLive?: boolean }) => (
+    <StaffLangProvider lang="en">
+      <CloseSecureTabButton sessionId="s1" totalCents={4210} {...p} />
+    </StaffLangProvider>
+  );
+  async function raceIt() {
+    closeSecureTab.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: "x" });
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const charge = screen
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+  }
+
+  it("a raced line is DROPPED once the page reads the table blocked — it never comes back once the dishes are removed", async () => {
+    const { rerender } = render(el({}));
+    await raceIt();
+    expect(document.body.textContent).toContain(said);
+    rerender(el({ blocked: true }));
+    expect(document.body.textContent).not.toContain(said);
+    rerender(el({ blocked: false }));
+    // MUTATION (secure-close/unsent-raced-line-outlives-the-page): clear only when the page's line
+    // retires — the close offers to remove dishes that were just removed; red.
+    expect(document.body.textContent).not.toContain(said);
+  });
+
+  it("a raced line goes when the page's own gate line retires", async () => {
+    const { rerender } = render(el({ gateLive: true }));
+    await raceIt();
+    expect(document.body.textContent).toContain(said);
+    rerender(el({ gateLive: false }));
+    // MUTATION (secure-close/unsent-raced-line-outlives-the-gate): clear only on `blocked`; red.
+    expect(document.body.textContent).not.toContain(said);
+  });
 });

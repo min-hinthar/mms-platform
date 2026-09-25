@@ -93,6 +93,7 @@ export function CashSettleButton({
   blocked: gateBlocked = false,
   blockedNoteId,
   onBlockedTap,
+  running = false,
 }: {
   sessionId: string;
   totalCents: number;
@@ -137,6 +138,10 @@ export function CashSettleButton({
    *  (its count) once the sheet has closed: the page says why in its one region and moves focus to
    *  the fix (the Send). */
   onBlockedTap?: (units: number | null) => void;
+  /** Phase 2c · gate — the bill is a card-on-file running bill (the page's ONE binding,
+   *  `settlePrimary(tab) === "secureTab"`): a raced refusal in the sheet says the running bill's
+   *  sentence, the one the page's note and region say — never a second sentence for one fact. */
+  running?: boolean;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -690,8 +695,8 @@ export function CashSettleButton({
                   ) : alertMsg.kind === "unsent" ? (
                     <Chrome
                       lang={lang}
-                      k={settleBlockedMsg(alertMsg.units, false).k}
-                      vars={settleBlockedMsg(alertMsg.units, false).vars}
+                      k={settleBlockedMsg(alertMsg.units, running).k}
+                      vars={settleBlockedMsg(alertMsg.units, running).vars}
                       echo={false}
                     />
                   ) : (
