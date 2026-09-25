@@ -7572,9 +7572,10 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-cash-cas.test.ts",
     why: "Phase 2c · register — the moved refusal returns from INSIDE the try, so the freeze's `finally` releases it. Hoisted above the try (after the acquire), the refusal strands the table frozen for the whole TTL: no cash, no card, no edits (the settle/moved-refusal-strands-freeze shape)",
-    find: "  try {\n    // (The settle gate's unsent-dishes check sits HERE — after the freeze, before the totals.)\n",
+    // Re-anchored in Phase 2c · gate: the seam comment this found is now the gate's own check.
+    find: "  try {\n    // ── Phase 2c · gate ── the settle gate (owner decision 3)",
     replace:
-      '  if (quotedCents !== undefined) {\n    const early = await getCartTotals(cart.id, 0).catch(() => null);\n    if (early && quotedCents !== early.totalCents)\n      return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n  }\n  try {\n    // (The settle gate\'s unsent-dishes check sits HERE — after the freeze, before the totals.)\n',
+      '  if (quotedCents !== undefined) {\n    const early = await getCartTotals(cart.id, 0).catch(() => null);\n    if (early && quotedCents !== early.totalCents)\n      return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n  }\n  try {\n    // ── Phase 2c · gate ── the settle gate (owner decision 3)',
   },
   {
     id: "p2c-register/cash-settle-ignores-the-binding",
@@ -8307,6 +8308,81 @@ const MUTANTS = [
     why: "Phase 2c · pad — 15s with no answer keeps the options sheet's key. Released, the retry mints a NEW key while the first may still land: a second plate cooked and charged",
     find: '  return o === "unknown" || o === "unconfirmed" ? "unknown" : "definite";',
     replace: '  return o === "unknown" ? "unknown" : "definite";',
+  },
+  // ── Phase 2c · gate ──
+  // The settle gate (owner decision 3, 2026-09-24): every settle door refuses while dine-in dishes
+  // are unsent. Every id carries `unsent`, so `verify:slice --no-gate --only=unsent` runs the block.
+  {
+    id: "checkout-stage/staff-gate-exempts-a-hostless-unsent-table",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "Phase 2c · gate — the console can ALWAYS send, so the staff gate delegates with the host flag TRUE. Delegated with the diner's hostless exemption, a staff-started table (no host — the table the gate exists for) settles over its unsent dishes: charged for, then cooked after the guest has gone",
+    find: "  return payBlockedByUnsent(mode, sendableUnits, true);",
+    replace: "  return payBlockedByUnsent(mode, sendableUnits, false);",
+  },
+  {
+    id: "settle/cash-over-unsent",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/settle-unsent.test.ts",
+    why: "Phase 2c · gate — a cash settle over unsent dine-in dishes records them as paid and the after() fire cooks them once the table has paid: a dessert nobody sent, billed, then made for an empty table",
+    find: "    if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);\n",
+    replace: "",
+  },
+  {
+    id: "settle/tab-close-over-unsent",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/settle-unsent.test.ts",
+    why: "Phase 2c · gate — the running-bill close charges the card on file OFF-SESSION, for a guest who may have left. Without the gate the charge includes dishes nobody sent, and the webhook's fire cooks them afterwards",
+    find: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsentRefusal(unsentUnits);\n  }\n",
+    replace: "",
+  },
+  {
+    id: "settle/unsent-refusal-strands-freeze",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/settle-unsent.test.ts",
+    why: "Phase 2c · gate — the running-bill close has no blanket `finally` (its success arm HOLDS the freeze for the webhook), so its unsent refusal must release the freeze itself. Dropped, the table is frozen for the whole TTL: no cash, no card, no edits — and the Send the refusal points at is refused too",
+    find: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n    await releaseSettlementFor(cart.id, attempt);\n",
+    replace: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n",
+  },
+  {
+    id: "terminal/card-over-unsent",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "Phase 2c · gate — the reader is a settle door too. Without the gate a card-present PaymentIntent is minted for dishes the kitchen never got, the reader charges them, and the webhook's fire cooks them after the table has paid",
+    find: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsentRefusal(unsentUnits);\n  }\n",
+    replace: "",
+  },
+  {
+    id: "terminal/card-unsent-strands-freeze",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "Phase 2c · gate — settleCard has no blanket `finally` (success holds the freeze while the reader collects), so the unsent refusal releases THIS attempt's freeze itself. Dropped, the table is frozen for the TTL over a refusal that charged nothing",
+    find: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n    await releaseSettlementFor(cart.id, attemptId);\n",
+    replace: "  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {\n",
+  },
+  {
+    id: "counter-pay-state/unsent-ask-allowed",
+    file: "apps/qr/lib/counter-pay-state.ts",
+    suite: "lib/counter-pay-state.test.ts",
+    why: "Phase 2c · gate — 'Pay at the counter' is the Bill's other door. Without the rule a family is sent walking to the register while dishes nobody is cooking sit on their bill — the door the Pay button keeps shut — and the register's own settle gate then refuses them at the counter",
+    find: '  if (input.unsentBlocks) return "unsent";\n',
+    replace: "",
+  },
+  {
+    id: "counter-pay/unsent-not-read",
+    file: "apps/qr/lib/counter-pay.ts",
+    suite: "lib/counter-pay.test.ts",
+    why: "Phase 2c · gate — the rule is only as good as its input. Hardcoded false, the ask stamps a table holding unsent dishes and lights the floor for a payment the register must refuse",
+    find: "    unsentBlocks: payBlockedByUnsent(authz.mode, units, hostSeat != null),\n",
+    replace: "    unsentBlocks: false,\n",
+  },
+  {
+    id: "counter-pay/unsent-gates-a-hostless-table",
+    file: "apps/qr/lib/counter-pay.ts",
+    suite: "lib/counter-pay.test.ts",
+    why: "Phase 2c · gate — a hostless table (staff-started, diners by invite link) has nobody who can send, the Bill's own exemption. Read as always hosted, those diners can never ask for the counter and wait at a table the floor never flags",
+    find: "    unsentBlocks: payBlockedByUnsent(authz.mode, units, hostSeat != null),\n",
+    replace: "    unsentBlocks: payBlockedByUnsent(authz.mode, units, true),\n",
   },
 ];
 

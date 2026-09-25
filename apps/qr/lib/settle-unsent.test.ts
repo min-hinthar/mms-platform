@@ -177,9 +177,8 @@ describe("settleCash — refused while dine-in dishes are unsent", () => {
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
     expect(r).toEqual({ ok: false, code: "unsent", units: 2, error: UNSENT_SETTLE_REFUSAL });
     expect(cashRecorded()).toBe(false);
-    // UNDER the freeze, BEFORE the totals: the verdict cannot move before a charge, and a refusal
-    // costs no totals read. MUTATION (settle/cash-unsent-read-before-the-freeze): hoist the check
-    // above the acquire — a guest's add can land between the verdict and the charge; red.
+    // UNDER the freeze, BEFORE the totals — a SEQUENCE, not a count: read above the acquire, a
+    // guest's add could land between the verdict and the charge; and a refusal costs no totals read.
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();
   });
