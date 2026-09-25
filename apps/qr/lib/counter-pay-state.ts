@@ -18,7 +18,11 @@ export type CounterPayRefusal =
   /** A split-tender freeze is open — every payer's hold rides it; a cash settle would strand them. */
   | "settling"
   /** Nothing to settle: the ask on an empty table would light the floor for no reason. */
-  | "empty";
+  | "empty"
+  /** Phase 2c · gate — dishes the table can send have not gone to the kitchen. The register would
+   *  refuse the settle anyway (the staff gate), and a family walking up to pay for dishes nobody is
+   *  cooking is the Bill's own Pay rule (`payBlockedByUnsent`) broken at its other door. */
+  | "unsent";
 
 export type CounterPayInput = {
   /** The session mode as `assertCartMember` reports it (a `text` column, so `string`). */
@@ -26,6 +30,9 @@ export type CounterPayInput = {
   locked: boolean;
   settling: boolean;
   itemCount: number;
+  /** Phase 2c · gate — `payBlockedByUnsent(mode, kitchenDraftUnits, hostPresent)`: the SAME binding
+   *  the Bill's Pay button and create-intent read, computed by the caller (which owns the reads). */
+  unsentBlocks: boolean;
 };
 
 /**
@@ -38,6 +45,7 @@ export function counterPayRefusal(input: CounterPayInput): CounterPayRefusal | n
   if (input.settling) return "settling";
   if (input.locked) return "paying";
   if (input.itemCount <= 0) return "empty";
+  if (input.unsentBlocks) return "unsent";
   return null;
 }
 
@@ -47,6 +55,7 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
   settling: "The table’s splitting the bill right now — finish or cancel that first.",
   paying: "Someone’s paying on their phone — wait for that to finish.",
   empty: "Nothing to pay yet — add something first.",
+  unsent: "Send everything to the kitchen first — then pay at the counter.",
 };
 
 /**

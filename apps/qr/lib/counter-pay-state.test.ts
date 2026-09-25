@@ -8,7 +8,13 @@ import { COUNTER_PAY_REFUSAL_COPY, counterAskLive, counterPayRefusal } from "./c
  * separating two neighbouring cases: dine-in vs pickup with everything else equal, locked vs not
  * with everything else equal. A mutant that drops one rule therefore changes exactly one verdict.
  */
-const base = { mode: "dinein" as const, locked: false, settling: false, itemCount: 2 };
+const base = {
+  mode: "dinein" as const,
+  locked: false,
+  settling: false,
+  itemCount: 2,
+  unsentBlocks: false,
+};
 
 describe("counterPayRefusal", () => {
   it("a dine-in table with something on it may ask", () => {
@@ -43,10 +49,33 @@ describe("counterPayRefusal", () => {
   });
 
   it("every refusal has a diner-facing sentence", () => {
-    for (const r of ["not_dinein", "paying", "settling", "empty"] as const) {
+    for (const r of ["not_dinein", "paying", "settling", "empty", "unsent"] as const) {
       expect(COUNTER_PAY_REFUSAL_COPY[r].length).toBeGreaterThan(10);
       expect(COUNTER_PAY_REFUSAL_COPY[r]).not.toMatch(/_/); // never a code
     }
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("counterPayRefusal — the ask is refused while the table's dishes are unsent", () => {
+  it("unsent dishes refuse the ask; a sent table may ask", () => {
+    // MUTATION (counter-pay-state/unsent-ask-allowed): drop the rule — the family is told to walk to
+    // the register while dishes nobody is cooking sit on their bill, and the register's own settle
+    // gate then refuses them at the counter; red.
+    expect(counterPayRefusal({ ...base, unsentBlocks: true })).toBe("unsent");
+    expect(counterPayRefusal({ ...base, unsentBlocks: false })).toBeNull();
+  });
+
+  it("is named AFTER the wider states — a frozen or empty table says that first", () => {
+    expect(counterPayRefusal({ ...base, unsentBlocks: true, settling: true })).toBe("settling");
+    expect(counterPayRefusal({ ...base, unsentBlocks: true, locked: true })).toBe("paying");
+    expect(counterPayRefusal({ ...base, unsentBlocks: true, mode: "pickup" })).toBe("not_dinein");
+  });
+
+  it("names the fix in plain words", () => {
+    expect(COUNTER_PAY_REFUSAL_COPY.unsent).toBe(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
   });
 });
 
