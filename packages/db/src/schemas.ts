@@ -625,8 +625,10 @@ export const settleCashInput = z.object({
    * both. It is NEVER read into the RPC or any amount: the charge stays server-derived.
    *
    * Optional on purpose: a counter tablet left open across a deploy must still be able to settle
-   * (a required field would refuse every settle from the old bundle). `closeSecureTab` and the
-   * Terminal's `settleCard` parse this same schema; the field reaches them only as a compare.
+   * (a required field would refuse every settle from the old bundle). `closeSecureTab` parses this
+   * same schema and compares the field the same way (P2aa — the "Charge $x" confirm's quote). The
+   * Terminal's `settleCard` parses it too and IGNORES it — its button never sends one: the reader
+   * shows the server's own figure to the guest, who approves that amount on the device.
    */
   quotedCents: z.number().int().min(0).max(10_000_000).optional(),
 });
