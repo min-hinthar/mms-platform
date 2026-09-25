@@ -259,6 +259,7 @@ const settleIn = (over: Partial<PadSettleInput> = {}): PadSettleInput => ({
   unsavedNote: false,
   lines: QUIET,
   settlePhase: "idle",
+  unsentUnits: 0,
   ...over,
 });
 
@@ -394,10 +395,11 @@ describe("padSettleReason — one sentence per reason, read by the hint AND a re
     tab: false,
     note: null,
     blocker: null,
+    unsent: 0,
     ...over,
   });
   it("every reason has its sentence (the union is exhaustive by type)", () => {
-    const blocks: PadSettleBlock[] = ["paying", "note", "waiting", "empty"];
+    const blocks: PadSettleBlock[] = ["paying", "note", "waiting", "unsent", "empty"];
     for (const b of blocks) expect(STAFF[padSettleReason(b, ctx()).k], b).toBeDefined();
   });
   it("a paying guest names the running bill when there is one", () => {
@@ -515,5 +517,48 @@ describe("padTileBlock — when a tile tap is refused", () => {
   it("a guest paying pauses adding; a closed order refuses", () => {
     expect(padTileBlock({ open: true, paying: true, pending: NONE })).toBe("paying");
     expect(padTileBlock({ open: false, paying: false, pending: NONE })).toBe("closed");
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("padSettle — the settle gate: Take payment waits for everything to be sent", () => {
+  it("a table holding unsent dine-in dishes refuses Take payment with `unsent`", () => {
+    // MUTATION (pad/unsent-take-payment-live): drop the clause — Take payment opens the table's
+    // payment section over dishes nobody sent, where every door refuses; red.
+    expect(padSettle(settleIn({ unsentUnits: 2 }))).toMatchObject({
+      enabled: false,
+      block: "unsent",
+    });
+    expect(padSettle(settleIn({ unsentUnits: 0 })).block).toBeNull();
+  });
+
+  it("a counter order is never gated — it cooks when it is paid", () => {
+    // The mode rule is the binding's (`staffSettleBlockedByUnsent`), never restated here.
+    expect(padSettle(settleIn({ mode: "pickup", unsentUnits: 2 })).block).toBeNull();
+  });
+
+  it("precedence: paying > note > waiting > unsent > empty", () => {
+    // A guest paying, an unsaved note and a pending write each outrank it: the unsent count is
+    // stale while a write is still landing, and the note/payment are the more urgent fixes.
+    expect(padSettle(settleIn({ unsentUnits: 2, paying: true })).block).toBe("paying");
+    expect(padSettle(settleIn({ unsentUnits: 2, unsavedNote: true })).block).toBe("note");
+    // MUTATION (pad/unsent-outranks-waiting): check unsent BEFORE waiting — a lost add reads "send
+    // them first" while the fix is Try again on the dish; red.
+    expect(padSettle(settleIn({ unsentUnits: 2, pending: { ...NONE, lost: 1 } })).block).toBe(
+      "waiting",
+    );
+    expect(padSettle(settleIn({ unsentUnits: 2, sendBusy: true })).block).toBe("waiting");
+    // An empty ticket has nothing unsent by construction; the gate never names a dish there.
+    expect(padSettle(settleIn({ itemCount: 0, unsentUnits: 0 })).block).toBe("empty");
+  });
+
+  it("its sentence is the table page's own, counted — the fix is the Send", () => {
+    // MUTATION (pad/unsent-reason-uncounted): drop the count — the sentence reads "{n} dishes"; red.
+    expect(padSettleReason("unsent", { tab: false, note: null, blocker: null, unsent: 3 })).toEqual(
+      { k: "table.send.settleBlocked.many", vars: { n: 3 } },
+    );
+    expect(
+      padSettleReason("unsent", { tab: true, note: null, blocker: null, unsent: 1 }).k,
+    ).toBe("table.send.settleBlocked.one");
   });
 });
