@@ -181,6 +181,8 @@ export function CashSettleButton({
   const tenderedCents = parseMoneyCents(tendered);
   const tender = tenderState(dueCents, tenderedCents);
   const keepCents = changeAsTipCents(shownTotal, tenderedCents, tipCents);
+  // A tip is already typed: "Keep the change" names the tip the tap makes, not the change alone.
+  const keepNamesTip = tipCents > 0;
   // §22 — the ONE binding: Settle's aria-disabled, its aria-describedby and `confirm` read it.
   const blocked = cashSettleBlocked(tipOverlong ? null : tipCents, tender);
   const tipValid = blocked !== "tipCap";
@@ -566,8 +568,10 @@ export function CashSettleButton({
                 </p>
               )}
               {/* An ACTION (no aria-pressed): a FILL of the tip field — the new tip shows in the field
-                  and in Settle's label before anything is recorded. {m} is the change being kept, the
-                  readout's own figure. */}
+                  and in Settle's label before anything is recorded. With the tip field empty {m} is
+                  the change being kept (the readout's own figure, and the new tip); with a tip
+                  already typed it names the tip the tap MAKES (`keepNamesTip` — critic finding: "·
+                  $3.00" beside a field that became 5.00 read as a $3 tip). */}
               {keepCents != null && tender.kind === "change" && (
                 <button
                   type="button"
@@ -582,8 +586,8 @@ export function CashSettleButton({
                 >
                   <Chrome
                     lang={lang}
-                    k="settle.cash.keepChange"
-                    vars={{ m: fmt(tender.changeCents) }}
+                    k={keepNamesTip ? "settle.cash.keepChangeTip" : "settle.cash.keepChange"}
+                    vars={{ m: fmt(keepNamesTip ? keepCents : tender.changeCents) }}
                     echo={false}
                   />
                 </button>

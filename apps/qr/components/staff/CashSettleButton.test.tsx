@@ -717,3 +717,36 @@ describe("CashSettleButton — a refusal mid-payment is said in the device langu
     expect(screen.getByRole("dialog")).toBe(dialog);
   });
 });
+
+describe("CashSettleButton — keep the change names the tip it MAKES when a tip is already typed (critic finding)", () => {
+  it("tip $2 + change $5.90: the action reads 'make the tip $7.90', and the tap fills exactly that", async () => {
+    const { open, type, field } = mount();
+    const dialog = open();
+    type("cash-tip", "2");
+    type("cash-tendered", "50");
+    // Due $44.10; $50 handed over → change $5.90; keeping it makes the tip $2 + $5.90 = $7.90.
+    expect(document.getElementById("cash-readout")!.textContent).toBe(
+      `${STAFF["settle.cash.changeLabel"].en}$5.90`,
+    );
+    // MUTATION: label the change ($5.90) regardless — the cashier reads "$5.90" and the field
+    // becomes 7.90: a tip nobody named; red.
+    const keep = within(dialog).getByRole("button", {
+      name: STAFF["settle.cash.keepChangeTip"].en.replace("{m}", "$7.90"),
+    });
+    await act(async () => {
+      fireEvent.click(keep);
+    });
+    expect(field("cash-tip").value).toBe("7.90");
+  });
+
+  it("with no tip typed, the change IS the new tip — the plain 'Keep the change as tip · $x' stands", () => {
+    const { open, type } = mount();
+    const dialog = open();
+    type("cash-tendered", "50");
+    expect(
+      within(dialog).getByRole("button", {
+        name: STAFF["settle.cash.keepChange"].en.replace("{m}", "$7.90"),
+      }),
+    ).toBeTruthy();
+  });
+});

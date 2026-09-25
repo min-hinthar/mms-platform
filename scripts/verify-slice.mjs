@@ -7886,6 +7886,14 @@ const MUTANTS = [
     find: '          res.code === "inflight"\n',
     replace: "          false\n",
   },
+  {
+    id: "p2c-register/keep-change-names-the-change",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — with a tip already typed, 'Keep the change' names the tip the tap MAKES. Naming the change alone, the cashier reads '$5.90' and the field becomes 7.90 — a tip nobody named",
+    find: "  const keepNamesTip = tipCents > 0;\n",
+    replace: "  const keepNamesTip = false;\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

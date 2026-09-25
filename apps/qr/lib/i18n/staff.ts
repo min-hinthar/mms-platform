@@ -2899,6 +2899,13 @@ export const STAFF = {
     en: "A payment on this table is already going through — on a guest’s phone or at the register. Don’t take another payment until it finishes.",
     my: "ဒီစားပွဲမှာ ငွေရှင်းမှု တစ်ခု လုပ်နေဆဲပါ — ဧည့်သည့်ဖုန်းမှာ ဒါမှမဟုတ် ကောင်တာမှာ။ မပြီးမချင်း နောက်ထပ် ငွေ မယူပါနဲ့။",
   }, // K15-HIGH — a second payment now can collect twice
+  // Keep the change when a tip is ALREADY typed (critic finding): {m} is the tip the tap MAKES
+  // (old tip + change) — "Keep the change as tip · $3.00" beside a field that becomes 5.00 read as
+  // a $3 tip. With the tip field empty the change IS the new tip, and settle.cash.keepChange stands.
+  "settle.cash.keepChangeTip": {
+    en: "Keep the change — make the tip {m}",
+    my: "အကြွေကိုပါ ပေါင်းပြီး အပိုကြေး {m} ထားပါ",
+  }, // K15-HIGH — one tap records the change as the team's tip
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3075,6 +3082,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.inflight.phone",
   "settle.inflight.register",
   "settle.inflight.unsure",
+  "settle.cash.keepChangeTip",
 ]);
 
 /**
