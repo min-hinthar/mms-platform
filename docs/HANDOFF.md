@@ -236,8 +236,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 885 `verify:slice` mutants · 151 target modules (132 `apps/qr/lib`, 3 API routes,
-> **15** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
+> **Gate today:** 988 `verify:slice` mutants · 158 target modules (138 `apps/qr/lib`, 3 API routes,
+> **16** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
 > is the reusable lesson.** Codex round 1 and the blind pass independently found that the new
@@ -313,8 +313,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 885 `verify:slice` mutants · 151 target modules (132 `apps/qr/lib`, 3 API routes,
-> **15** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
+> **Gate today:** 988 `verify:slice` mutants · 158 target modules (138 `apps/qr/lib`, 3 API routes,
+> **16** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
 > message, twice). So #290's only independent review was the in-session blind pass, and the override
@@ -953,9 +953,9 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **885 `verify:slice` mutants** · **151 target modules** (132 under `apps/qr/lib`, 3 API routes,
-> 15 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3620 + 211 today)** ·
-> 100 tracked docs files ·
+> **988 `verify:slice` mutants** · **158 target modules** (138 under `apps/qr/lib`, 3 API routes,
+> 16 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3860 + 216 today)** ·
+> 102 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -1423,7 +1423,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (885 today)**, **1372 qr + 138 ui tests at the time (3620 + 211 today)**, 69 target modules at the time (132 under `apps/qr/lib` today, 151 in all), 97 local
+> **334 mutants at the time (988 today)**, **1372 qr + 138 ui tests at the time (3860 + 216 today)**, 69 target modules at the time (138 under `apps/qr/lib` today, 158 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2315,7 +2315,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 885 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3620 qr tests + 211 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 988 `verify:slice` mutants green · `pnpm check:docs` clean (102 files, 3860 qr tests + 216 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3037,7 +3037,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (885 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (988 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
