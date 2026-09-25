@@ -242,3 +242,195 @@ describe("Phase 2a · send — what the line says about the kitchen, and what it
     expect(report.mock.calls.at(-1)).toEqual(["l1", null]);
   });
 });
+
+// ── Phase 2c · pad ──
+describe("Phase 2c · pad — the line on the order pad's ticket", () => {
+  const burmese = {
+    ...line,
+    qty: 1,
+    sendable: true,
+    nameMy: "မုန့်ဟင်းခါး",
+    modifiers: ["Egg", "Extra spicy"],
+    modifiersMy: ["ကြက်ဥ", null],
+    menuItemId: "m1",
+    fulfillment: "dinein",
+  } as unknown as TableLineView;
+
+  function mountMany(
+    lines: { l: TableLineView; props?: Record<string, unknown> }[],
+    lang: "en" | "my",
+  ) {
+    return render(
+      <StaffLangProvider lang={lang}>
+        <ul>
+          {lines.map(({ l, props }, i) => (
+            <StaffLineEditor
+              key={i}
+              sessionId="s1"
+              line={l}
+              disabled={false}
+              onError={() => {}}
+              {...props}
+            />
+          ))}
+        </ul>
+      </StaffLangProvider>,
+    );
+  }
+
+  it("two editors of ONE line never share a note id (the id is minted, the hold finds data-note-for)", async () => {
+    mountMany([{ l: burmese }, { l: burmese }], "en");
+    for (const b of screen.getAllByRole("button", { name: /note/i }))
+      await act(async () => {
+        fireEvent.click(b);
+      });
+    const fields = [...document.querySelectorAll<HTMLInputElement>('[data-note-for="l1"]')];
+    expect(fields).toHaveLength(2);
+    // MUTATION: `id={`note-${line.id}`}` — two fields, one id, and each label names the first; red.
+    expect(fields[0]!.id).not.toBe(fields[1]!.id);
+    for (const f of fields) expect(document.querySelector(`label[for="${f.id}"]`)).not.toBeNull();
+  });
+
+  it("the stepper's names come from the dictionary, naming the dish as it renders (Burmese)", () => {
+    mountMany([{ l: burmese }], "my");
+    const names = [...document.querySelectorAll(".mms-stepper-btn")].map((b) =>
+      b.getAttribute("aria-label"),
+    );
+    // MUTATION: the English literal / the primitive's defaults — an English name on a Burmese
+    // console; red.
+    expect(names).toEqual(["“မုန့်ဟင်းခါး” ဖျက်", "မုန့်ဟင်းခါး တစ်ခု ထပ်ထည့်"]);
+  });
+
+  it("on a Burmese console the dish and its options lead in Burmese, the English echoes", () => {
+    mountMany([{ l: burmese }], "my");
+    const name = document.querySelector<HTMLElement>("[data-line-name]")!;
+    expect(name.tabIndex).toBe(-1);
+    expect(name.querySelector('[lang="my"]')?.textContent).toBe("မုန့်ဟင်းခါး");
+    expect(name.querySelector('.staff-line-echo[lang="en"]')?.textContent).toBe("Mohinga");
+    const li = screen.getByRole("listitem");
+    expect(li.querySelector('[lang="my"]:not([data-line-name] *)')).not.toBeNull();
+    // The option with no Burmese stays English, marked — never set in Padauk.
+    expect([...li.querySelectorAll('[lang="en"]')].map((e) => e.textContent)).toContain(
+      "Extra spicy",
+    );
+  });
+
+  it("an English console with no Burmese renders the bare name, exactly as before", () => {
+    mountMany([{ l: { ...line, nameMy: null, modifiersMy: [] } as TableLineView }], "en");
+    const name = document.querySelector<HTMLElement>("[data-line-name]")!;
+    expect(name.innerHTML).toBe("Mohinga");
+  });
+
+  it("with onRemove, the Remove hands the removal to the ticket and writes nothing itself", async () => {
+    const onRemove = vi.fn();
+    mountMany([{ l: burmese, props: { onRemove } }], "en");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Mohinga" }));
+    });
+    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(staffSetQty).not.toHaveBeenCalled();
+    // A qty CHANGE still writes here.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Increase Mohinga quantity" }));
+    });
+    expect(staffSetQty).toHaveBeenCalledWith("s1", { cartItemId: "l1", qty: 2 });
+  });
+
+  it("a ghost row never writes and fades with the house removal idiom", async () => {
+    mountMany([{ l: burmese, props: { leaving: true, rowProps: { "data-line-id": "l1" } } }], "en");
+    const li = screen.getByRole("listitem");
+    expect(li.className).toContain("mms-remove");
+    expect(li.getAttribute("data-line-id")).toBe("l1");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Increase Mohinga quantity" }));
+    });
+    expect(staffSetQty).not.toHaveBeenCalled();
+  });
+
+  it("the qty digit pops when the qty CHANGES — never on first paint", async () => {
+    const { rerender } = mountMany([{ l: burmese }], "en");
+    const digit = () => document.querySelector(".staff-qty")!;
+    expect(digit().className).not.toContain("mms-pop");
+    rerender(
+      <StaffLangProvider lang="en">
+        <ul>
+          <StaffLineEditor
+            key={0}
+            sessionId="s1"
+            line={{ ...burmese, qty: 2 } as TableLineView}
+            disabled={false}
+            onError={() => {}}
+          />
+        </ul>
+      </StaffLangProvider>,
+    );
+    expect(digit().className).toContain("mms-pop");
+    expect(digit().textContent).toBe("2×");
+  });
+});
+
+// ── Phase 2c · review fixes · pad2 ──
+describe("P12 — one name per row: every control names the dish as it renders", () => {
+  const burmese = {
+    ...line,
+    qty: 1,
+    sendable: true,
+    nameMy: "မုန့်ဟင်းခါး",
+    modifiers: [],
+    modifiersMy: [],
+    menuItemId: "m1",
+    fulfillment: "dinein",
+  } as unknown as TableLineView;
+  const mountMy = (l: TableLineView) =>
+    render(
+      <StaffLangProvider lang="my">
+        <ul>
+          <StaffLineEditor sessionId="s1" line={l} disabled={false} onError={() => {}} />
+        </ul>
+      </StaffLangProvider>,
+    );
+
+  it("a draft's note button and note field name the dish in Burmese, like its Remove", async () => {
+    mountMy(burmese);
+    const note = screen.getByRole("button", { name: /မှတ်ချက်/ });
+    // MUTATION: `subject: line.name` — the Remove says မုန့်ဟင်းခါး, the note button "Mohinga"; red.
+    expect(note.getAttribute("aria-label")).toBe(
+      `${STAFF["table.line.verb.addNote"].my} — မုန့်ဟင်းခါး`,
+    );
+    await act(async () => {
+      fireEvent.click(note);
+    });
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    expect(document.querySelector(`label[for="${field.id}"]`)?.textContent).toContain(
+      "မုန့်ဟင်းခါး",
+    );
+  });
+
+  it("a fired line's Remove-or-make-free names the dish in Burmese", () => {
+    mountMy({ ...burmese, state: "fired", sendable: false } as TableLineView);
+    const loss = screen.getByRole("button", { name: /ဖျက် \/ အခမဲ့/ });
+    expect(loss.getAttribute("aria-label")).toBe(
+      `${STAFF["table.line.verb.voidComp"].my} — မုန့်ဟင်းခါး`,
+    );
+  });
+});
+
+describe("P7 — a saved note hands focus back to its note button, never to <body>", () => {
+  it("Save closes the editor and focus lands on the note button", async () => {
+    mount();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note — Mohinga" }));
+    });
+    fireEvent.change(document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!, {
+      target: { value: "no peanuts" },
+    });
+    const save = screen.getByRole("button", { name: STAFF["table.line.save"].en });
+    save.focus();
+    await act(async () => {
+      fireEvent.click(save);
+    });
+    // MUTATION: the editor closes under the finger — the input and Save unmount, focus to <body>; red.
+    expect(save.isConnected).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Note — Mohinga" }));
+  });
+});

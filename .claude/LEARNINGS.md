@@ -2656,3 +2656,140 @@ chip and the loss sheet's segment), resolved by keeping the segment's parentheti
 says the same distinction. Before renaming a value, grep its surface for the NEW English. And keep
 the key: `kds.86` still names "Mark sold out" — a key is an address the tests, the glossary sheet
 and the K15 markers all hold, and renaming it would have moved nothing a reader sees.
+
+## #144
+
+**A per-attempt timeout that starts at DISPATCH strands anything queued behind a hang — Next runs
+Server Actions one at a time.** Phase 2c's order pad timed each add's "unconfirmed" from the moment
+its write was dispatched; an add queued behind a hung one never dispatched, so its 15s never started
+and the options sheet that was waiting on it stayed busy forever. Two clocks, two meanings: time the
+ORIGIN's wait (the sheet) from the tap, and the ghost's "Checking…" from its own dispatch. And when an
+origin stops waiting it must hand the outcome back — an attempt that was "quiet" because its sheet
+would speak for it is otherwise refused in silence once the sheet has given up (the fix was one line:
+drop the key from the quiet set on the unconfirmed resolution).
+
+## #145
+
+**A mutant's `find` is TEXT, and three ordinary edits break it without touching the logic.** (1) It
+is a SUBSTRING: `"    onChanged?.();\n"` also matched an 8-space occurrence and went AMBIGUOUS —
+anchor with trailing context. (2) A docblock inserted INSIDE a multi-line find's span (`…}\n}\n\nexport
+type X`) turns it STALE — put the note elsewhere, or re-anchor. (3) `pnpm format` reflows: a ternary
+written on one line was split by prettier and `floor/pad-togo-read-as-dinein` went STALE. Anchor on
+the FORMATTED source and run `check:mutant-anchors` (~1s) after every `pnpm format`, not 20 minutes
+into a `verify:slice` run.
+
+## #146
+
+**Navigating away is a drain point too.** The Send drained unsaved kitchen notes because the FIRE
+would lose them; the order pad's Take payment `router.push` loses them just as surely — the line
+editor unmounts with its draft — and a counter order had no Send to guard it at all, so the allergy
+line typed at the counter was silently dropped on the way to payment. Any control that LEAVES the
+screen must read the same local drafts a write would, and a hold on it is wider than the write's
+(every line, not only the sendable ones).
+
+## #147
+
+**`vi.clearAllMocks()` does not drain `mockReturnValueOnce` queues.** It clears calls and results,
+not queued implementations, so a test that fails before consuming its queued answer hands that answer
+to the NEXT test — one red cascades into unrelated reds that look like real failures (seen while
+red-running the pad's suite against the old code). Read the first failure only, or use
+`mockReset()` / `vi.resetAllMocks()` where queued answers must not leak.
+
+## #148
+
+**A new member of a shared reason union is audited at every EQUALITY consumer.** Adding
+`split_unreadable` to `PaymentInFlight` (a failed share read — still a refusal) type-checked
+everywhere and was fail-OPEN in exactly one place: `clearTable` compared `=== "split_in_progress"`,
+so the new reason would have fallen through to a clear of a table mid-payment. Truthiness consumers
+were fine; the one `===` was the hole, and the compiler cannot see it because a comparison against
+one member is always well-typed. Grep for `=== "<member>"` and `!== "<member>"` before widening,
+and prefer "refuse on ANY reason" where the union means "not safe".
+
+## #149
+
+**React 19 entangles pending async transitions GLOBALLY — across roots and across jsdom cases.** A
+`useTransition` action left pending by one case (a bare `new Promise(() => {})`) keeps every later
+case's `pending` true, so the register's moved-total case read "Taking payment…" only when it ran
+after a hanging one. Settle every hanging action in `afterEach` (the `hang()` helper in
+`CashSettleButton.test.tsx` keeps its resolver), or the suite's result depends on its order.
+
+## #150
+
+**A compare-and-swap is only as good as the quote it compares — freeze what the person READ when
+they started reading.** The register's server CAS was correct and still passed a moved total: the
+client read its quote from a live prop at TAP time, and the page's ~0.4s re-read had already moved
+it under the open sheet ("Take $42.10 · Change $7.90" became "$46.10 · $3.90" in silence, after $7.90
+had been handed back). Freeze at open; treat a later move as a DRIFT to be said with both figures,
+never a value to adopt silently. And a frozen value that adopts the SERVER's figure needs a
+reconcile: holding `{cents: 4265, basis: 4210}` works until the page catches up and then moves back
+to 4210, which reads like the stale basis again — collapse the basis the moment the live value
+reaches the quote (a guarded render-time set).
+
+## #151
+
+**A hidden error is not a cleared one.** A child rendering `error && !blocked` keeps the error in
+state while the parent's prop hides it; when the prop flips back the stale sentence is resurrected —
+the settle gate's raced "2 dishes haven’t gone to the kitchen" came back under a live trigger after
+the dishes were sent. Drop the state at render time the moment its fact is superseded (the guarded
+set-during-render pattern), and give the child the parent's LIVENESS (`gateLive`) when the parent may
+never show the blocked state at all — dishes removed before the page ever read them never flip
+`blocked`.
+
+## #152
+
+**Two test fakes that are not shaped like the real thing, both silent.** (1) `useRouter: () => ({ …
+})` returns a NEW object per render, so every `useCallback` keyed on the router changes each render
+and an effect's cleanup clears a 400ms debounced re-read on every render — the close's `onChanged`
+re-read never fired in the test while the 5s poll did. Real Next routers are stable: hoist the mock's
+object. (2) A fake read that answers every poll with the SAME `detail` object is a React bail-out,
+not a read — `seenDetail !== detail` supersede logic never trips. Answer each read with a fresh copy,
+as a real fetch does.
+
+## #153
+
+**Two ways a hand check destroys work.** (1) A manual red-check is `commit → mutate → git checkout --
+<file>`, never `edit → mutate → checkout`: the checkout restores the COMMITTED file, so an uncommitted
+addition to the same file goes with the mutation (the settle gate's `staffSettleBlockedByUnsent` was
+lost that way and rewritten from the transcript). (2) Never `import()` a script to syntax-check it —
+`scripts/verify-slice.mjs` has no main guard, so importing it RUNS it (the full gate and every mutant,
+rewriting modules in place). `node --check <file>` parses without running.
+
+## #154
+
+**A new gate turns "ready" fixtures into "blocked" ones — grep the fixtures NAMED for the state it
+gates.** The register's `SETTLEABLE` table fixture held two unsent dine-in drafts because nothing
+before the settle gate cared; five suites went red for a fixture reason, not a code one, and four
+`OrderPad.test` cases about Take payment's own life had to move to a table whose only dish is a to-go
+draft. A red that appears the moment a gate lands is first a question about what the fixture
+CLAIMS to be.
+
+## #155
+
+**A child's focus-restore effect runs AFTER the parent's synchronous jump.** `CloseSecureTabButton`
+restores focus to its trigger in a `[confirming]` effect; the page's jump to the order heading ran in
+the same async continuation as `setConfirming(false)`, moved focus first, and the child's effect
+pulled it back a frame later — a jump that visibly happened and then un-happened. A ref set BEFORE
+the close (`jumpOwnsFocus`) hands the restore over; `secure-close/unsent-close-steals-focus-back`
+pins it. Any "restore focus on close" effect needs a way to be told someone else owns focus now.
+
+## #156
+
+**A retry's refusal is about the RETRY, not the first attempt.** The pad resends a lost add under
+its SAME key so the add-key ledger dedupes it — but every definite refusal `staffAddItem` gives
+(the gate, the cart read, the payment mutex, pricing, the insert's "not open") is decided BEFORE
+that ledger is consulted, so a refused resend proves nothing about whether the first attempt
+committed. Read as definite, it dropped the ghost and said "Mohinga didn't go on" over a dish that
+may be on the order — and the next tap minted a new key: a second plate. Wherever an idempotency
+ledger sits after the refusal points, run a retry's answer through its own verdict
+(`padRetryVerdict` → still unknown, "may already be on") BEFORE the state machine AND before the
+origin's outcome: transforming it inside the handler alone left the options sheet resolving
+"refused" and dropping its held key.
+
+## #157
+
+**A `raceTimeout` frees the caller, not the queue.** Next runs Server Actions one at a time, so a
+read that timed out at 15s is still queued — and the 5s poll's "fresh" read queued behind it, then
+another, each abandoned in turn (three calls behind one hang in 45s). Watch the RAW promise apart
+from its timeout: start nothing while it is unanswered, and owe the refused asks ONE read when it
+answers (`usePadDetailLive`'s `rawPending` / `owed`). The same queue is why #144's queued add never
+started its dispatch clock.

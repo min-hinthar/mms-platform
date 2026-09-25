@@ -596,15 +596,9 @@ export const STAFF = {
   "browse.back.table": { en: "← Table {id}", my: "← စားပွဲ {id}" },
   "browse.title.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
   "browse.title.add": { en: "Add items", my: "ပစ္စည်း ထည့်ရန်" },
-  "browse.sub.counter": {
-    en: "Walk-up or phone order — review and take payment from the order page.",
-    my: "လမ်းလျှောက်လာ ဒါမှမဟုတ် ဖုန်းအော်ဒါ — အော်ဒါ စာမျက်နှာမှာ စစ်ပြီး ငွေရှင်းပါ။",
-  },
-  "browse.sub.table": {
-    en: "Ordering for table {id}. Tap to add — it lands on the table’s order instantly.",
-    my: "စားပွဲ {id} အတွက် မှာနေပါတယ်။ နှိပ်လိုက်တာနဲ့ စားပွဲရဲ့ အော်ဒါထဲ ချက်ချင်း ရောက်ပါမယ်။",
-  },
-  "browse.review": { en: "Review order & take payment →", my: "အော်ဒါ စစ်ပြီး ငွေရှင်း →" },
+  // Phase 2c · pad — `browse.sub.*` and `browse.review` retired with their last reader (the old add
+  // page's paragraph and its "Review order" link): the order pad's ticket and Take payment ARE the
+  // review, on the same screen.
 
   // ── the staff menu browser: the counter order's name strip ─────────────────
   "browse.name.label": { en: "Name for the order", my: "အော်ဒါအတွက် နာမည်" },
@@ -626,18 +620,13 @@ export const STAFF = {
   // ── the staff menu browser: search, filters, list ──────────────────────────
   "browse.search.placeholder": { en: "Search the menu…", my: "မီနူး ရှာရန်…" },
   "browse.cat.all": { en: "All", my: "အားလုံး" }, // the category filter, NOT the KDS station chip
-  // The row's sold-out FLAG, a statement about the dish. `browse.add.verb.soldOut` is the disabled
-  // BUTTON's own word — two keys for one idea, the way floor.unregistered/…Sticker are, so a K15
-  // correction to the badge cannot silently reword the control.
-  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
-  "browse.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // the same state word as kds.86.done
+  // Phase 2c · pad — `browse.soldOut` (the old list row's flag) retired with its last reader: the
+  // pad's tile shows the mark `browse.add.verb.soldOut` below.
   "browse.verb.choose": { en: "Choose…", my: "ရွေးရန်…" },
   // {n} is a prose count (Burmese numerals); {x} is the dish name, verbatim.
   "browse.added": { en: "Added {n} × {x}.", my: "{x} {n} ခု ထည့်ပြီးပြီ။" },
-  "browse.empty": {
-    en: "Nothing matches — clear the search or pick another category.",
-    my: "ကိုက်တာ မရှိပါ — ရှာတာကို ရှင်းပါ ဒါမှမဟုတ် တခြား အမျိုးအစား ရွေးပါ။",
-  },
+  // Phase 2c · pad — `browse.empty` retired with the old browser; the pad names the search it
+  // could not match (`pad.search.none`).
 
   // ── the staff menu browser: names with no visible text to pair with ────────
   // The ellipsis is not decoration: the placeholder IS visible text in the control, so the name has
@@ -646,9 +635,10 @@ export const STAFF = {
   "browse.a11y.categories": { en: "Filter by category", my: "အမျိုးအစား အလိုက် စစ်ထုတ်" },
   "browse.a11y.items": { en: "Menu items", my: "မီနူး ပစ္စည်းများ" },
 
-  // ── the add-to-table button (StaffAddButton) ───────────────────────────────
+  // ── the add verbs (Phase 2c · the order pad's tile marks; StaffAddButton is gone) ───────
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
-  "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
+  // Phase 2c · pad — `browse.add.verb.added` retired with StaffAddButton (its optimistic "Added ✓");
+  // the pad claims an add with a ghost and a spoken line, never a check on the button.
   // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
   "browse.add.verb.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // ကုန်သွား is the LOSS reason
   // This console's OWN failure sentence — not a server-authored string, so it is a dictionary key
@@ -822,8 +812,6 @@ export const STAFF = {
     en: "Paying by card? The guest closes the running bill from their phone — it’s paid when that payment goes through.",
     my: "ကတ်နဲ့ ရှင်းမလား။ ဧည့်သည်က သူ့ဖုန်းကနေ စာရင်းပိတ်ပါမယ် — ငွေရောက်တာနဲ့ ရှင်းပြီးပါမယ်။",
   },
-  "table.detail.handoff.paid": { en: "Paid · {m}", my: "ရှင်းပြီး · {m}" },
-  "table.detail.handoff.change": { en: "change {m}", my: "အကြွေ {m}" },
   "table.detail.handoff.callout": {
     en: "The number we call when it’s ready — it’s on the kitchen ticket and the ready board.",
     my: "လာယူဖို့ ခေါ်မယ့် နံပါတ် — မီးဖိုချောင် အော်ဒါစာရွက်နဲ့ အော်ဒါ ဘုတ်မှာ ပါပါတယ်။",
@@ -844,9 +832,7 @@ export const STAFF = {
     en: "Open a running bill for this table",
     my: "ဒီစားပွဲအတွက် စာရင်းဖွင့်",
   },
-  "table.detail.a11y.settle": { en: "Take payment for this table", my: "ဒီစားပွဲ ငွေရှင်း" },
   "table.detail.a11y.merge": { en: "Merge this table", my: "ဒီစားပွဲကို ပေါင်းစည်း" },
-  "table.detail.a11y.paid": { en: "Order paid", my: "အော်ဒါ ငွေရှင်းပြီး" },
 
   // ═══ P2 PR B · expo ═══════════════════════════════════════════════════════════
   // ── expo / bagging station: aria-only names (no visible text to contain) ───
@@ -1720,9 +1706,9 @@ export const STAFF = {
   "settle.cash.settling": { en: "Taking payment…", my: "ရှင်းနေပါတယ်…" },
   "settle.cash.settleAmount": { en: "Take {m}", my: "{m} ရှင်း" }, // K15-HIGH — the tap that takes the money
   "settle.cash.hint": {
-    en: "Includes sales tax. A cash tip is handled separately.",
-    my: "ရောင်းခွန် ပါဝင်ပါတယ်။ ငွေသား အပိုကြေးကို သီးခြား ကိုင်တွယ်ပါတယ်။",
-  }, // grounded: cart `rowTax` (ရောင်းခွန်)
+    en: "Includes sales tax. Add a cash tip in the next step.",
+    my: "ရောင်းခွန် ပါဝင်ပါတယ်။ ငွေသား အပိုကြေးကို နောက်တစ်ဆင့်မှာ ထည့်ပါ။",
+  }, // grounded: cart `rowTax` (ရောင်းခွန်) · Phase 2c: the old "handled separately" was false since W17c-2 (the tip is recorded); MY a K15 draft
 
   // ── cash settle: the tip the cashier was handed ──────────────────────────
   "settle.cash.tipLabel": { en: "Cash tip (optional)", my: "ငွေသား အပိုကြေး (ထည့်ချင်မှ)" },
@@ -1745,8 +1731,6 @@ export const STAFF = {
 
   // ── cash settle: the counter handoff (tendered → change) ─────────────────
   "settle.cash.tenderedLabel": { en: "Cash received (optional)", my: "လက်ခံရရှိငွေ (ထည့်ချင်မှ)" },
-  "settle.cash.change": { en: "Change: {m}", my: "ပြန်အမ်းငွေ: {m}" }, // K15-HIGH — money handed back across the counter
-  "settle.cash.notEnough": { en: "Not enough yet.", my: "ငွေ မလုံလောက်သေးပါ။" },
 
   // ── closing a secure tab against the card on file ────────────────────────
   "settle.card.trigger": {
@@ -2743,8 +2727,8 @@ export const STAFF = {
   "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
   "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
-  // The add page's bridge to the Send (removed with `browse.review` by the 2c order pad).
-  "browse.reviewUnsent": { en: "Review · {n} not sent →", my: "စစ်ရန် · {n} ခု မပို့ရသေး →" },
+  // Phase 2c · pad — the add page's interim bridge to the Send (`browse.reviewUnsent`) is retired:
+  // the order pad carries the Send itself (OPEN-ITEMS P2ai).
 
   // ── Phase 2a · register ──
   // A secure-tab close whose Server Action REJECTED (the connection dropped): the off-session charge
@@ -2824,6 +2808,333 @@ export const STAFF = {
     en: "{x} marked handed over.",
     my: "{x} ကို လွှဲပေးပြီး လို့ မှတ်ပြီးပြီ။",
   },
+  // ── Phase 2c · pad ──
+  // The order pad (app/staff/table/[id]/add) — tiles beside ONE ticket. The Send controller's
+  // strings stay `table.send.*` (the pad REUSES them); only pad-only strings are `pad.*`. Every MY
+  // value in this block is a Claude-authored K15 draft pending Min's native check, EXCEPT where a
+  // `grounded:` comment names its in-repo source. {x} is a dish name, verbatim; {n} a prose count
+  // (Burmese digits); {m} preformatted money and {id} a table number, both Latin.
+  "pad.a11y.skipToOrder": { en: "Skip to the order", my: "အော်ဒါဆီ တန်းသွား" },
+  // The tile corner's sr-only name — spice, add-ons, qty and a kitchen note, one corner away.
+  "pad.a11y.options": { en: "Options for {x}", my: "{x} အတွက် ရွေးချယ်စရာ" },
+  "pad.search.clear": { en: "Clear search", my: "ရှာတာ ရှင်း" },
+  "pad.search.none": { en: "No dish matches “{x}”.", my: "“{x}” နဲ့ ကိုက်တဲ့ ဟင်း မရှိပါ။" },
+  "pad.menu.outage": {
+    en: "The menu didn’t load — the order still works.",
+    my: "မီနူး မတက်လာပါ — အော်ဒါကတော့ ဆက်သုံးလို့ရပါတယ်။",
+  },
+  "pad.menu.retry": { en: "Try again", my: "ထပ်စမ်း" },
+  // The ticket (StaffTicket) — its heading names the section and is the focus fallback.
+  "pad.ticket.title": { en: "Order", my: "အော်ဒါ" }, // glossary: အော်ဒါ
+  "pad.ticket.empty": {
+    en: "Nothing on this order yet — tap a dish to add it.",
+    my: "ဒီအော်ဒါထဲ ဘာမှ မရှိသေးပါ — ဟင်းတစ်ခုကို နှိပ်ပြီး ထည့်ပါ။",
+  },
+  "pad.group.unsent": { en: "Not sent yet", my: "မပို့ရသေး" }, // grounded: table.line.notSent
+  "pad.group.togo": {
+    en: "To-go · goes to the kitchen when paid",
+    my: "ပါဆယ် · ငွေရှင်းမှ မီးဖိုချောင် ရောက်မယ်",
+  },
+  "pad.group.kitchen": { en: "In the kitchen", my: "မီးဖိုချောင်မှာ" },
+  "pad.group.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: table.line.state.served
+  // A ghost row's status — an add the server has not confirmed. Never a price (§23).
+  "pad.ghost.adding": { en: "Adding…", my: "ထည့်နေပါတယ်…" }, // grounded: browse.mod.adding
+  "pad.ghost.checking": { en: "Checking…", my: "စစ်နေပါတယ်…" },
+  // Tries the SAME add again (the same key), so it can never put the dish on twice. Never "send":
+  // on this console that word means the kitchen, and "send again" reads as "cook it twice".
+  "pad.ghost.verb.retry": { en: "Try again", my: "ထပ်စမ်း" }, // grounded: pad.menu.retry
+  "pad.reload": { en: "Reload the order", my: "အော်ဒါ ပြန်ဖွင့်" },
+  // The phone bar's view button.
+  "pad.bar.order.one": { en: "Order · {n} item", my: "အော်ဒါ · {n} ခု" },
+  "pad.bar.order.many": { en: "Order · {n} items", my: "အော်ဒါ · {n} ခု" },
+  "pad.bar.menu": { en: "Menu", my: "မီနူး" },
+  // Take payment — it NAVIGATES to the table's payment section (it charges nothing here), and
+  // names the server's tax-inclusive total only when nothing is pending.
+  "pad.settle": { en: "Take payment · {m}", my: "ငွေရှင်း · {m}" }, // K15-HIGH — the door to taking the money, with the amount
+  "pad.settle.tab": { en: "Close bill · {m}", my: "စာရင်းပိတ် · {m}" }, // K15-HIGH — closes a running bill; grounded: settle.cash.triggerTab
+  "pad.settle.bare": { en: "Take payment", my: "ငွေရှင်း" }, // K15-HIGH — the same door to taking the money, while its amount is withheld
+  // The busy label, by phase: it waits for a dish ONLY while one is still on its way.
+  "pad.settle.busy": {
+    en: "Waiting for the last dish…",
+    my: "နောက်ဆုံး ဟင်း ရောက်အောင် စောင့်နေပါတယ်…",
+  },
+  "pad.settle.savingName": { en: "Saving the name…", my: "နာမည် သိမ်းနေပါတယ်…" }, // grounded: browse.name.saving
+  "pad.settle.opening": { en: "Opening payment…", my: "ငွေရှင်းဖို့ ဖွင့်နေပါတယ်…" },
+  "pad.reason.empty": { en: "Add a dish first", my: "ဟင်း အရင် ထည့်ပါ" },
+  "pad.nameNotSaved": {
+    en: "The name didn’t save — tap Take payment again to go on without it.",
+    my: "နာမည် မသိမ်းရသေးပါ — နာမည်မပါဘဲ ဆက်သွားဖို့ ငွေရှင်း ကို ထပ်နှိပ်ပါ။",
+  },
+  "pad.done": { en: "Done · Table {id}", my: "ပြီးပြီ · စားပွဲ {id}" },
+  "pad.settled.note": {
+    en: "This order is paid — nothing more can go on it.",
+    my: "ဒီအော်ဒါ ငွေရှင်းပြီးပါပြီ — ထပ်ထည့်လို့ မရတော့ပါ။",
+  },
+  "pad.paused": {
+    en: "A guest is paying for this table — adding is paused.",
+    my: "ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ် — ထည့်တာ ခဏရပ်ထားပါတယ်။",
+  },
+  "pad.soldOut": {
+    en: "{x} is sold out — it can’t be added.",
+    my: "{x} ကုန်သွားပြီ — ထည့်လို့ မရပါ။",
+  }, // grounded: browse.add.verb.soldOut (ကုန်သွားပြီ)
+  // An add that did NOT go on, by name, and each one's unnamed FAMILY sentence — said instead when
+  // two dishes are refused for one cause (lib/notice-slot.ts rule 2).
+  "pad.err.add.paying": {
+    en: "{x} didn’t go on — a guest is paying for this table right now.",
+    my: "{x} မထည့်ရသေးပါ — ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ်။",
+  },
+  "pad.err.add.paying.family": {
+    en: "Some dishes didn’t go on — a guest is paying for this table right now.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ်။",
+  },
+  "pad.err.add.soldOut": {
+    en: "{x} just sold out — it isn’t on the order.",
+    my: "{x} ကုန်သွားပြီ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.soldOut.family": {
+    en: "Some dishes just sold out — they aren’t on the order.",
+    my: "ဟင်းတချို့ ကုန်သွားပြီ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.gone": {
+    en: "{x} is off the menu — it isn’t on the order.",
+    my: "{x} မီနူးမှာ မရှိတော့ပါ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.gone.family": {
+    en: "Some dishes are off the menu — they aren’t on the order.",
+    my: "ဟင်းတချို့ မီနူးမှာ မရှိတော့ပါ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.closed": {
+    en: "{x} didn’t go on — this order is closed or already paid.",
+    my: "{x} မထည့်ရသေးပါ — ဒီအော်ဒါ ပိတ်ပြီး (သို့) ငွေရှင်းပြီးသားပါ။",
+  },
+  "pad.err.add.closed.family": {
+    en: "Some dishes didn’t go on — this order is closed or already paid.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ဒီအော်ဒါ ပိတ်ပြီး (သို့) ငွေရှင်းပြီးသားပါ။",
+  },
+  "pad.err.add.outage": {
+    en: "{x} didn’t go on — we can’t reach the system. Try again.",
+    my: "{x} မထည့်ရသေးပါ — စနစ်နဲ့ ဆက်သွယ်မရပါ။ ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.outage.family": {
+    en: "Some dishes didn’t go on — we can’t reach the system.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — စနစ်နဲ့ ဆက်သွယ်မရပါ။",
+  },
+  "pad.err.add.failed": {
+    en: "{x} didn’t go on — try again.",
+    my: "{x} မထည့်ရသေးပါ — ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.failed.family": {
+    en: "Some dishes didn’t go on — try again.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.unconfirmed": {
+    en: "We couldn’t confirm {x} — check the order, or tap Try again. It won’t go on twice.",
+    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်စမ်း ကို နှိပ်ပါ။ နှစ်ခါ မထည့်ပါဘူး။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.add.unconfirmed.family": {
+    en: "We couldn’t confirm some dishes — check the order.",
+    my: "ဟင်းတချို့ ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ကြည့်ပါ။",
+  }, // K15-HIGH — adds that may have landed
+  "pad.err.add.offline": {
+    en: "You’re offline — {x} didn’t go on.",
+    my: "အင်တာနက် မရှိပါ — {x} မထည့်ရသေးပါ။",
+  },
+  "pad.err.add.offline.family": {
+    en: "You’re offline — some dishes didn’t go on.",
+    my: "အင်တာနက် မရှိပါ — ဟင်းတချို့ မထည့်ရသေးပါ။",
+  },
+  // The Send controller, reused by the pad (Phase 2a's namespace). BARE while an add is still in
+  // flight — a count is a claim only from a view that has seen the cart.
+  "table.send.cta.bare": { en: "Send to kitchen", my: "မီးဖိုချောင် ပို့" }, // K15-HIGH — the tap that starts cooking
+  // A Send or Take payment held by an add whose fate is unknown (it may already be on the order).
+  "table.send.hold.add": {
+    en: "Waiting to hear back about {x}",
+    my: "{x} အတွက် အဖြေ စောင့်နေပါတယ်",
+  },
+  // …and one whose answer came back LOST: nothing is coming, so it names the fix, never "waiting".
+  "table.send.hold.lost": {
+    en: "We couldn’t confirm {x} — tap Try again on it, or reload the order.",
+    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အဲဒီဟင်းမှာ ထပ်စမ်း ကို နှိပ်ပါ၊ ဒါမှမဟုတ် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-tap cooks and charges a second dish
+  // A removal whose answer was lost (it threw, or 15s passed): it may have landed — said as unknown.
+  "pad.err.remove.unknown": {
+    en: "We couldn’t confirm {x} was removed — the order shows what’s on it.",
+    my: "{x} ဖျက်ပြီးမပြီး မသေချာပါ — အော်ဒါထဲ ရှိနေတာကို ပြထားပါတယ်။",
+  }, // K15-HIGH — a dish that may still be on the order (cooked and charged)
+  // The line editor's stepper names (K25 for this control) — `Stepper`'s `labels`. Aria-only: the
+  // controls show only − + ✕ glyphs. The English is the primitive's own default wording, so an
+  // English console announces exactly what it did before; the Burmese is new.
+  "table.line.a11y.less": { en: "Decrease {x} quantity", my: "{x} တစ်ခု လျှော့" }, // grounded: browse.mod.a11y.less
+  "table.line.a11y.more": { en: "Increase {x} quantity", my: "{x} တစ်ခု ထပ်ထည့်" }, // grounded: browse.mod.a11y.more
+  // The same words as the loss sheet's own title for taking a dish off (one word per concept).
+  "table.line.a11y.remove": { en: "Remove {x}", my: "“{x}” ဖျက်" }, // K15-HIGH — takes the dish off the order; grounded: table.loss.title.void
+  "table.line.a11y.soldOut": {
+    en: "{x} is sold out — can’t add more",
+    my: "{x} ကုန်သွားပြီ — ထပ်မထည့်နိုင်ပါ",
+  },
+  "table.line.a11y.max": { en: "Maximum {n} {x}", my: "{x} အများဆုံး {n} ခု" }, // grounded: browse.mod.a11y.moreMax
+  // ── Phase 2c · register ──
+  // The cash moment (DESIGN-LANGUAGE §29), the paid card and the settle section. Every MY value in
+  // this block is a Claude-authored K15 draft pending Min's native check, EXCEPT where a `grounded:`
+  // comment names its in-repo source. "Change" (money handed back) is အကြွေ everywhere — ပြန်အမ်း is
+  // this console's REFUND verb (owner decision 5), so `settle.cash.change` (ပြန်အမ်းငွေ) is retired
+  // with its last reader. Money rides {m}/{old} (Latin); no value carries a digit.
+  // The settle section's heading — the `?settle=1` landing's focus target (it replaces the section's
+  // aria-only name, table.detail.a11y.settle, retired here). grounded: that key's ငွေရှင်း.
+  "table.detail.settle.title": { en: "Take payment", my: "ငွေရှင်း" },
+  // The quick-cash row: "Exact" and the group's name. grounded: settle.a11y.tipQuick (အမြန်ရွေး).
+  "settle.cash.exact": { en: "Exact", my: "အတိအကျ" },
+  "settle.a11y.cashQuick": { en: "Quick cash amounts", my: "ငွေသား အမြန်ရွေး" },
+  // The readout under the tender (dt · dd). grounded: the paid card's old "change" (အကြွေ), retired here.
+  "settle.cash.changeLabel": { en: "Change", my: "အကြွေ" }, // K15-HIGH — the money handed back across the counter
+  "settle.cash.shortLabel": { en: "Short", my: "လိုငွေ" }, // K15-HIGH — the drawer would be short by this
+  "settle.cash.shortHint": {
+    en: "Collect the rest, or correct the amount.",
+    my: "ကျန်ငွေ ထပ်ယူပါ၊ ဒါမှမဟုတ် ပမာဏ ပြင်ပါ။",
+  },
+  "settle.cash.exactNone": { en: "Exact — no change", my: "အတိအကျ — အကြွေ မပြန်ရပါ" }, // K15-HIGH — tells the cashier to hand nothing back
+  // A FILL, never a commit: the tap writes the change into the tip field above; {m} is the change
+  // being kept (the readout's own figure).
+  "settle.cash.keepChange": {
+    en: "Keep the change as tip · {m}",
+    my: "အကြွေကို အပိုကြေး ထား · {m}",
+  }, // K15-HIGH — one tap records the change as the team's tip
+  // The compare-and-swap refusal (`code: "moved"`): {old} is the figure the cashier read, {m} the
+  // one the server just derived. Shared by the cash sheet and the card-on-file close.
+  "settle.cash.moved": {
+    en: "The total changed from {old} to {m} — check the order, then take payment again.",
+    my: "စုစုပေါင်း {old} ကနေ {m} ပြောင်းသွားပါတယ် — အော်ဒါ စစ်ပြီးမှ ပြန်ရှင်းပါ။",
+  }, // K15-HIGH — nothing was recorded; the figure to collect is the new one
+  // P2ab — a cash settle whose response was LOST (the action rejected): it may have landed, so the
+  // write-outage twin ("that change wasn’t saved") would be false. settle.card.unknown's shape; the
+  // sheet re-reads the detail as it says this.
+  "settle.cash.unknown": {
+    en: "The connection dropped, so we don’t know if this payment was recorded. If the order shows paid in a moment, it went through — if it doesn’t, try again.",
+    my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ဒီငွေရှင်းတာ မှတ်ပြီးပြီလား မသိရပါ။ ခဏနေ အော်ဒါက ငွေရှင်းပြီး လို့ ပြရင် ရှင်းပြီးပါပြီ — မပြရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — read while a settle's outcome is unknown; a misread takes the money twice
+  // The paid card (HandoffCard). Its Total and Tip rows reuse floor.settled.row.total / .tip, and its
+  // Change row reuses settle.cash.changeLabel — one word per concept on every money surface.
+  "table.detail.handoff.title": { en: "Paid", my: "ငွေရှင်းပြီး" }, // grounded: settle.reader.paid
+  "table.detail.handoff.tendered": { en: "Cash received", my: "လက်ခံရရှိငွေ" }, // grounded: settle.cash.tenderedLabel
+  "table.detail.handoff.collect": { en: "Still to collect", my: "ထပ်ယူရန် ကျန်" }, // K15-HIGH — money the guest still owes
+  "table.detail.handoff.done": { en: "Back to the counter", my: "ကောင်တာကို ပြန်သွား" },
+  // The reader's status line, now spoken through the page's ONE region (P2r) instead of a second
+  // `role="status"` in the collect panel — and bilingual for the first time (they were English
+  // literals; the panel's own comment left them for the owner of this region change).
+  "settle.reader.status.waiting": {
+    en: "Waiting for the guest to tap or insert their card…",
+    my: "ဧည့်သည် ကတ်ကို ကပ်တာ ဒါမှမဟုတ် ထည့်တာကို စောင့်နေပါတယ်…",
+  },
+  "settle.reader.status.blind": {
+    en: "Can’t reach the card processor right now — the reader may still be live. Hold on, or cancel.",
+    my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ပါ။",
+  }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
+  "settle.reader.status.recording": { en: "Recording the order…", my: "အော်ဒါ မှတ်နေပါတယ်…" },
+  "settle.reader.status.recordingLong": {
+    en: "The charge went through, but the order isn’t recorded yet. Don’t charge again — note the amount and check Orders in a minute.",
+    my: "ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရသေးပါ။ ထပ်မဖြတ်ပါနဲ့ — ပမာဏကို မှတ်ထားပြီး တစ်မိနစ်အတွင်း အော်ဒါများ ကို စစ်ပါ။",
+  }, // K15-HIGH — the guest HAS paid; a second charge collects twice
+  "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
+  "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
+  // P2w (critic finding) — a staff settle refused while money is already moving on the table, ONE
+  // sentence per holder (lib/inflight-refusal `inFlightMsg`). They were English literals returned
+  // from the server; now the refusal carries a code and the holder, and these keys are what every
+  // settle control — and the table page's paying banner — renders. {n} is the freeze's lifetime in
+  // minutes (lib/lock-ttl), never a digit here. The phone sentence's first clause is grounded in
+  // table.detail.payingPhone.* (ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ်).
+  "settle.inflight.phone": {
+    en: "Someone’s already paying on their phone — wait for that to finish.",
+    my: "ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ် — ပြီးတဲ့အထိ စောင့်ပါ။",
+  }, // K15-HIGH — tells staff not to take money while a guest pays
+  // Phase 2c · review fixes · reg2 — the tail no longer says "try again": `closeSecureTab` keys each
+  // off-session PaymentIntent per ATTEMPT, so a retry after the freeze lapses mints a second charge,
+  // and a charge whose webhook is late reads exactly like one that never landed. Past the wait, the
+  // owner checks the card payments first. MY re-drafted (K15): ထပ်ငွေမယူခင် grounded in
+  // settle.cash.unknownClosed, ကတ်ငွေပေးချေမှု in settle.reader.status.blind, ပိုင်ရှင် in the
+  // cash-refund refusal ("tell the owner").
+  "settle.inflight.register": {
+    en: "A payment started at the register on this table hasn’t finished — don’t take cash or another card yet. If it went through, it finishes by itself shortly. If it still hasn’t finished in {n} minutes, ask the owner to check the card payments before you take payment again.",
+    my: "ဒီစားပွဲအတွက် ကောင်တာမှာ စထားတဲ့ ငွေရှင်းမှု မပြီးသေးပါ — ငွေသား ဒါမှမဟုတ် နောက်ကတ်တစ်ခု မယူပါနဲ့ဦး။ ငွေဖြတ်ပြီးသားဆိုရင် ခဏနေ အလိုလို ပြီးသွားပါမယ်။ {n} မိနစ်အတွင်း မပြီးရင် ထပ်ငွေမယူခင် ကတ်ငွေပေးချေမှုတွေကို ပိုင်ရှင်ကို စစ်ခိုင်းပါ။",
+  }, // K15-HIGH — a second payment now can collect twice
+  "settle.inflight.unsure": {
+    en: "A payment on this table is already going through — on a guest’s phone or at the register. Don’t take another payment until it finishes.",
+    my: "ဒီစားပွဲမှာ ငွေရှင်းမှု တစ်ခု လုပ်နေဆဲပါ — ဧည့်သည့်ဖုန်းမှာ ဒါမှမဟုတ် ကောင်တာမှာ။ မပြီးမချင်း နောက်ထပ် ငွေ မယူပါနဲ့။",
+  }, // K15-HIGH — a second payment now can collect twice
+  // Keep the change when a tip is ALREADY typed (critic finding): {m} is the tip the tap MAKES
+  // (old tip + change) — "Keep the change as tip · $3.00" beside a field that becomes 5.00 read as
+  // a $3 tip. With the tip field empty the change IS the new tip, and settle.cash.keepChange stands.
+  "settle.cash.keepChangeTip": {
+    en: "Keep the change — make the tip {m}",
+    my: "အကြွေကိုပါ ပေါင်းပြီး အပိုကြေး {m} ထားပါ",
+  }, // K15-HIGH — one tap records the change as the team's tip
+  // A COUNTER order closed while a cash settle's outcome was unknown (critic finding): settleCash
+  // closes a counter session only after a landed settle, so it most likely went through — said as
+  // "most likely", never as certain (staff clearing it from another tablet also closes it). "The
+  // floor" is ခန်းမ (grounded: floor.back).
+  "settle.cash.unknownClosed": {
+    en: "This order has closed — the payment most likely went through. Find it on the floor before taking payment again.",
+    my: "ဒီအော်ဒါ ပိတ်သွားပါပြီ — ငွေရှင်းတာ ဖြစ်သွားပုံရပါတယ်။ ထပ်ငွေမယူခင် ခန်းမမှာ ရှာကြည့်ပါ။",
+  }, // K15-HIGH — read while a settle's outcome is unknown; a misread takes the money twice
+  // ── Phase 2c · gate ──
+  // The settle gate (owner decision 3): every settle door refuses while dine-in dishes are unsent,
+  // and the refusal NAMES THE FIX. One sentence per door, said by the table page (its note under the
+  // settle buttons, its one region on a refused tap), every settle control on a server `unsent`, and
+  // the order pad's Take payment — {n} is `detail.send.sendable` (Burmese digits under `my`). The
+  // running-bill variant (`.tab`) is where the guest may have left, so removing is offered with the
+  // send. Every MY value is a Claude-authored K15 draft pending Min's native check; the words are
+  // grounded: မပို့ရသေး (table.line.notSent), ငွေရှင်း (table.detail.settle.title), ဖျက်
+  // (table.line.a11y.remove — "Remove"), ဟင်း · ခု (the pad's dish and count words).
+  "table.send.settleBlocked.one": {
+    en: "{n} dish hasn’t gone to the kitchen — send it first, then take payment.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — အရင်ပို့ပြီးမှ ငွေရှင်းပါ။",
+  }, // K15-HIGH — why payment is refused; misread, a dish is charged that nobody cooks
+  "table.send.settleBlocked.many": {
+    en: "{n} dishes haven’t gone to the kitchen — send them first, then take payment.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — အရင်ပို့ပြီးမှ ငွေရှင်းပါ။",
+  }, // K15-HIGH — why payment is refused; misread, a dish is charged that nobody cooks
+  "table.send.settleBlocked.tab.one": {
+    en: "{n} dish hasn’t gone to the kitchen — send it, or remove it if the guest has left.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — ပို့ပါ၊ ဒါမှမဟုတ် ဧည့်သည် ပြန်သွားပြီဆိုရင် ဖျက်ပါ။",
+  }, // K15-HIGH — a running bill with dishes nobody sent; misread, a guest who left is charged for them
+  "table.send.settleBlocked.tab.many": {
+    en: "{n} dishes haven’t gone to the kitchen — send them, or remove them if the guest has left.",
+    my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — ပို့ပါ၊ ဒါမှမဟုတ် ဧည့်သည် ပြန်သွားပြီဆိုရင် ဖျက်ပါ။",
+  }, // K15-HIGH — a running bill with dishes nobody sent; misread, a guest who left is charged for them
+  // ── Phase 2c · review fixes · pad2 ──
+  // Every MY value below is a Claude-authored K15 draft pending Min's native check; the words are
+  // grounded in the pad's own: စနစ်နဲ့ ဆက်သွယ်မရပါ (pad.err.add.outage), အော်ဒါကို စစ်ပါ
+  // (pad.err.add.unconfirmed), ထပ်စမ်း (pad.ghost.verb.retry), အော်ဒါ ပြန်ဖွင့် (pad.reload),
+  // စစ်နေ (pad.ghost.checking), အဖြေ (table.send.hold.add), ငွေရှင်းနေပါတယ် (pad.paused).
+  // A RETRY of an add whose outcome was unknown, refused before the add-key ledger: the refusal is
+  // about the retry only — the first attempt may have landed — so it says the dish MAY be on and why
+  // the retry could not run, never "didn't go on" (which invites a new tap, a new key, a second plate).
+  "pad.err.retry.outage": {
+    en: "We can’t reach the system — {x} may already be on the order. Check the order, or try again.",
+    my: "စနစ်နဲ့ ဆက်သွယ်မရပါ — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.retry.paying": {
+    en: "A guest is paying for this table — {x} may already be on the order. Check the order.",
+    my: "ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ် — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.retry.failed": {
+    en: "That didn’t go through — {x} may already be on the order. Check the order, or reload it.",
+    my: "မအောင်မြင်ပါ — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  // 15s with no answer: the ghost reads "Checking…" and the ticket offers "Reload the order" — said
+  // ONCE through the pad's one region, so a screen-reader user hears what a sighted one sees.
+  "pad.err.add.checking": {
+    en: "No answer yet about {x} — still checking. If it stays, reload the order.",
+    my: "{x} အတွက် အဖြေ မရသေးပါ — စစ်နေဆဲပါ။ ဒီအတိုင်း ကြာနေရင် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  // The phone's view button while an add's answer was lost: the fix, never "Adding…".
+  "pad.bar.check": { en: "Check the order", my: "အော်ဒါကို စစ်ပါ" },
+  // A counter order's name Save with nothing typed and nothing saved — why it refuses (the walk-up
+  // name is optional, owner decision).
+  "pad.name.empty": {
+    en: "Type a name to save — it’s optional.",
+    my: "သိမ်းဖို့ နာမည် ရိုက်ပါ — မထည့်လည်း ရပါတယ်။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2856,6 +3167,11 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.send.cta.one", "table.send.cta.many"],
   ["table.send.sent.one", "table.send.sent.many"],
   ["table.send.togoAtPay.one", "table.send.togoAtPay.many"],
+  // ── Phase 2c · pad ──
+  ["pad.bar.order.one", "pad.bar.order.many"],
+  // ── Phase 2c · gate ──
+  ["table.send.settleBlocked.one", "table.send.settleBlocked.many"],
+  ["table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many"],
 ];
 
 /**
@@ -2947,7 +3263,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "promo.err.locked",
   "promo.worth",
   "settle.card.chargeQ",
-  "settle.cash.change",
   "settle.cash.overCap",
   "settle.cash.settleAmount",
   "settle.cash.take",
@@ -2987,6 +3302,42 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.86.hint",
   // ── Phase 2b · feedback ──
   "shell.net.offline",
+  // ── Phase 2c · pad ──
+  "pad.settle",
+  "pad.settle.tab",
+  "pad.err.add.unconfirmed",
+  "pad.err.add.unconfirmed.family",
+  "table.send.cta.bare",
+  "table.line.a11y.remove",
+  "pad.settle.bare",
+  "table.send.hold.lost",
+  "pad.err.remove.unknown",
+  // ── Phase 2c · register ──
+  "settle.cash.changeLabel",
+  "settle.cash.shortLabel",
+  "settle.cash.exactNone",
+  "settle.cash.keepChange",
+  "settle.cash.moved",
+  "settle.cash.unknown",
+  "table.detail.handoff.collect",
+  "settle.reader.status.blind",
+  "settle.reader.status.recordingLong",
+  "settle.reader.status.canceled",
+  "settle.inflight.phone",
+  "settle.inflight.register",
+  "settle.inflight.unsure",
+  "settle.cash.keepChangeTip",
+  "settle.cash.unknownClosed",
+  // ── Phase 2c · gate ──
+  "table.send.settleBlocked.one",
+  "table.send.settleBlocked.many",
+  "table.send.settleBlocked.tab.one",
+  "table.send.settleBlocked.tab.many",
+  // ── Phase 2c · review fixes · pad2 ──
+  "pad.err.retry.outage",
+  "pad.err.retry.paying",
+  "pad.err.retry.failed",
+  "pad.err.add.checking",
 ]);
 
 /**

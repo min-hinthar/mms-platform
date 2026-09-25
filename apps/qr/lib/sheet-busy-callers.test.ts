@@ -118,7 +118,8 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     // only ever confirm a boolean was declared — the earlier version accepted `pending?: boolean`
     // and would have stayed green if a parent later handed it a hand-rolled flag, which is exactly
     // the stranding the prop doc warns about. The contract lives where the value is produced.
-    const parents = ["staff/StaffMenuBrowser.tsx", "kiosk/KioskMenu.tsx"];
+    // Phase 2c · pad — the order pad replaced the staff menu browser as the staff parent.
+    const parents = ["staff/OrderPad.tsx", "kiosk/KioskMenu.tsx"];
     for (const rel of parents) {
       const src = read(rel);
       expect(src).toMatch(/<StaffModSheet/);

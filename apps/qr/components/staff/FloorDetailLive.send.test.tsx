@@ -64,6 +64,11 @@ const draft = (id: string): TableLineView => ({
   notes: null,
   modifiers: [],
   refundedCents: 0,
+  // Phase 2c · pad — the line's dish, fulfillment and Burmese (the order pad's ticket reads them).
+  menuItemId: null,
+  fulfillment: "dinein",
+  nameMy: null,
+  modifiersMy: [],
 });
 
 function detail(over: Partial<TableDetail> = {}): TableDetail {
@@ -98,6 +103,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     nudgeSecure: null,
     lastActivityAt: new Date(T).toISOString(),
     paymentInFlight: false,
+    paymentHolder: null,
     hostPresent: false,
     send: { sendable: 3, staffAdded: 3, togoDraft: 0, inKitchen: false, foodDraft: true },
     serverNow: new Date(T).toISOString(),

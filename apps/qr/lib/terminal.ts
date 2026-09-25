@@ -7,6 +7,8 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
+import { inFlightRefusalFor } from "./inflight-read";
+import type { InFlightRefusal } from "./inflight-refusal";
 import {
   acquireSettlement,
   releaseSettlementFor,
@@ -15,9 +17,12 @@ import {
   settlementHeldBy,
 } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal } from "./settle-refusal";
+import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
+// ── Phase 2c · gate ──
+import { staffSettleBlockedByUnsent } from "./checkout-stage";
+import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * Stripe Terminal at the register (W6c — M6·P6.2). SERVER-DRIVEN: the S700 is commanded through the
@@ -73,7 +78,11 @@ function declineCopy(code: string | undefined): string {
 
 export type SettleCardResult =
   | { ok: true; paymentIntentId: string; totalCents: number }
-  | { ok: false; error: string };
+  | { ok: false; error: string; code?: undefined }
+  // Phase 2c · register (P2w) — money already moving on the cart, with who holds it.
+  | InFlightRefusal
+  // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
+  | UnsentRefusal;
 
 /**
  * Start a card-present settle: freeze the cart, mint the card_present PI, hand it to the reader.
@@ -98,11 +107,9 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // Phase 2c · register (P2w) — the refusal names who holds the money (lib/inflight-read).
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table (settleCash's rule, verbatim).
@@ -135,6 +142,19 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
       ok: false,
       error: settleRefusal(freeze),
     };
+
+  // ── Phase 2c · gate ── the settle gate (lib/staff-cart's rule, the same binding): under the freeze,
+  // before the totals, so no PaymentIntent is minted over dishes THIS READ saw unsent. Released here,
+  // scoped to THIS attempt (no blanket `finally` — the success path holds the freeze).
+  // ⚠️ Phase 2c · review (R7) — not a lock against a racing add: the add paths check the freeze with a
+  // read before their write and the insert RPC guards only `status = 'open'`, so a dish added after
+  // this read rides the PaymentIntent below (this path has no compare-and-swap) and is fired after
+  // the table pays. The real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
+  const unsentUnits = await kitchenDraftUnits(cart.id);
+  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+    await releaseSettlementFor(cart.id, attemptId);
+    return unsentRefusal(unsentUnits);
+  }
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success
   // path deliberately HOLDS the freeze, so no blanket finally). Releases are scoped to THIS

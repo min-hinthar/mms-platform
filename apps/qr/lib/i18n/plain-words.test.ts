@@ -35,6 +35,10 @@ const BANNED: readonly RegExp[] = [
   /\bexpo\b/i,
   /\bthe pass\b/i,
   /\bauthori[sz]/i,
+  // ── Phase 2c · pad ── "Take payment" (never settle) and "Running bill" (never tab) in visible
+  // copy. The pad's Take payment and its "Close bill" are the strings that would regress first.
+  /\bsettl(e|es|ed|ing|ement)\b/i,
+  /\btabs?\b/i,
 ];
 
 /** key → why its English legitimately matches a banned pattern. Empty is the goal, not a rule. */
@@ -156,6 +160,12 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "at the pass",
         "authorized",
         "Authorise",
+        "Settle · $12.00",
+        "settled",
+        "Close tab",
+        "open tabs",
+        "settle again",
+        "Settled",
       ];
       for (const h of hits)
         expect(
@@ -175,6 +185,13 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "author",
         "1860",
         "Table 186",
+        "Table 7",
+        "tablet",
+        "unsettling",
+        "table",
+        "Tablet",
+        "Take payment",
+        "stable",
       ];
       for (const m of misses)
         expect(
@@ -182,5 +199,19 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
           m,
         ).toBe(false);
     });
+  });
+});
+
+// ── Phase 2c · pad ──
+describe("one word per concept — on the staff console, 'send' is the kitchen's verb", () => {
+  it("no add's words say 'send': a retry read as 'send again' reads as 'cook it twice'", () => {
+    const staff = englishValues("staff.ts", read("staff.ts")).values;
+    // The keys whose subject is an ADD — the order pad's ghost row and its add refusals, and the
+    // add sentences the options sheet shares.
+    const adds = staff.filter((v) => /^(pad\.ghost\.|pad\.err\.add\.|browse\.add)/.test(v.key));
+    expect(adds.length).toBeGreaterThanOrEqual(10);
+    // MUTATION: the ghost's retry as "Send again" (it shipped that way) — next to "Send 3 to
+    // kitchen", a family member reads it as sending the dish to the kitchen a second time; red.
+    expect(adds.filter((v) => /\bsend\b/i.test(v.en)).map((v) => v.key)).toEqual([]);
   });
 });

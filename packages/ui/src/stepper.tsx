@@ -43,6 +43,7 @@ export function Stepper({
   incrementLabel,
   soldOutLabel,
   disabledLabel,
+  labels,
 }: {
   qty: number;
   /** Receives the next quantity (`qty ± 1`). The parent performs the mutation. */
@@ -75,6 +76,22 @@ export function Stepper({
    *  cart's "+" said "Add another Mohinga" through a payment freeze. Omit for a sub-second busy
    *  beat, where a renamed control would only chatter. */
   disabledLabel?: string;
+  /**
+   * ── Phase 2c · pad ── every name WHOLE, for a caller with its own dictionary (the staff line
+   * editor, Burmese-first). ALL-OR-NOTHING: the three base names come together, so a control can
+   * never announce one tongue on "−" and another on "+". `soldOut` / `max` are optional and fall
+   * back to `soldOutLabel` / the default. `max` is handed the REAL ceiling, so a caller's name can
+   * never state a number this control does not enforce. `disabledLabel` still wins while `disabled`
+   * (the reason a refused tap gives). A caller passing nothing — the diner cart — renders exactly
+   * as before.
+   */
+  labels?: {
+    decrease: string;
+    remove: string;
+    increase: string;
+    soldOut?: string;
+    max?: (max: number) => string;
+  };
 }) {
   const removing = qty <= min;
   const incDisabled = disabled || qty >= max || soldOut;
@@ -97,8 +114,8 @@ export function Stepper({
           disabled && disabledLabel
             ? disabledLabel
             : removing
-              ? `Remove ${name}`
-              : `Decrease ${name} quantity`
+              ? (labels?.remove ?? `Remove ${name}`)
+              : (labels?.decrease ?? `Decrease ${name} quantity`)
         }
         style={{ ...step(disabled), ...(removing && removeTone ? { color: removeTone } : null) }}
       >
@@ -128,10 +145,10 @@ export function Stepper({
           disabled && disabledLabel
             ? disabledLabel
             : soldOut
-              ? (soldOutLabel ?? `${name} is sold out`)
+              ? (labels?.soldOut ?? soldOutLabel ?? `${name} is sold out`)
               : qty >= max
-                ? `Maximum ${max} ${name}`
-                : (incrementLabel ?? `Increase ${name} quantity`)
+                ? (labels?.max?.(max) ?? `Maximum ${max} ${name}`)
+                : (labels?.increase ?? incrementLabel ?? `Increase ${name} quantity`)
         }
         style={{
           ...step(incDisabled),

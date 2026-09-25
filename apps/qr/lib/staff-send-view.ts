@@ -148,7 +148,13 @@ export type StaffLineEdit = {
 export type StaffSendHold =
   | null
   | { kind: "note"; lineId: string; name: string }
-  | { kind: "writing" };
+  | { kind: "writing" }
+  // ── Phase 2c · pad ── an add whose fate is unknown (it may already be on the order): the order
+  // pad holds its Send until the add is confirmed, tried again or reloaded. `unconfirmed` is still
+  // waiting on its answer; `lost` answered and may have landed — nothing is coming, so the words
+  // name the fix instead of asking anyone to wait. Never produced on the table page
+  // (`sendHoldFrom` reads line edits only).
+  | { kind: "add"; name: string; state: "unconfirmed" | "lost" };
 
 /**
  * DRAIN BEFORE FIRE (DESIGN-LANGUAGE §4). `setLineNotes` is draft-guarded, so a note typed but not
@@ -160,6 +166,34 @@ export function sendHoldFrom(edits: ReadonlyArray<StaffLineEdit>): StaffSendHold
   if (note) return { kind: "note", lineId: note.lineId, name: note.name };
   if (edits.some((e) => e.writing)) return { kind: "writing" };
   return null;
+}
+
+// ── Phase 2c · pad ──
+/** A dictionary line with its slots — structurally the staff `StaffMsg`'s keyed form. */
+export type StaffKeyMsg = { k: StaffKey; vars?: Record<string, string | number> };
+
+/** What a hold SAYS — one sentence per kind, read by the Send's hint and by the order pad's
+ *  refused-tap and drain notices, so the three can never word one hold two ways. */
+export function sendHoldMsg(hold: NonNullable<StaffSendHold>): StaffKeyMsg {
+  switch (hold.kind) {
+    case "note":
+      return { k: "table.send.hold.note", vars: { x: hold.name } };
+    case "writing":
+      return { k: "table.send.hold.writing" };
+    case "add":
+      return {
+        k: hold.state === "lost" ? "table.send.hold.lost" : "table.send.hold.add",
+        vars: { x: hold.name },
+      };
+  }
+}
+
+/** Why the Send refuses a tap right now, or null when it would go: a payment holding the cart
+ *  outranks a hold (it is the one nobody at the counter can clear). */
+export function sendRefusalMsg(view: StaffSendView, hold: StaffSendHold): StaffKeyMsg | null {
+  if (view.kind !== "send") return null;
+  if (view.blocked === "paying") return { k: "table.send.paying" };
+  return hold === null ? null : sendHoldMsg(hold);
 }
 
 /**
@@ -245,7 +279,9 @@ export type StaffUndoResult =
 
 /** A region line: a dictionary key (rendered through <MsgText>), or the outage sentence, whose
  *  Burmese twin `<OutageText>` supplies. Structurally the staff `StaffMsg`. */
-export type SendMsg = { k: StaffKey; vars?: Record<string, number> } | string;
+// ── Phase 2c · review fixes · pad2 ── `vars` may carry a dish name: the send controller says a hold
+// found AFTER the pad's drain (`sendHoldMsg` — "{x}" is the dish), not only counts.
+export type SendMsg = { k: StaffKey; vars?: Record<string, string | number> } | string;
 
 /** What the send slot hands the page's ONE region, or `signin` (the page goes to login). */
 export type SendNotice = { tone: "ok" | "warn"; msg: SendMsg } | "signin";
@@ -309,4 +345,53 @@ export function undoNotice(res: StaffUndoResult): SendNotice {
     case "failed":
       return warn("table.send.err.undoFailed");
   }
+}
+
+// ── Phase 2c · gate ──
+/** A settle door on the table page — the three triggers `settleBlockedTarget` routes. */
+export type SettleTrigger = Parameters<typeof settleBlockedTarget>[0];
+
+/**
+ * The settle gate's sentence (owner decision 3): what the table page's note, its region on a
+ * refused tap, every settle control on a server `unsent`, and the order pad's Take payment say.
+ * `running` picks the running-bill close's words — the guest may have left, so removing the dishes
+ * is offered beside sending them. `units` is the count (`detail.send.sendable`, or the server's own
+ * reading on a raced refusal) and rides `{n}`.
+ */
+export function settleBlockedMsg(units: number, running: boolean): StaffKeyMsg {
+  const k = running
+    ? plural(units, "table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many")
+    : plural(units, "table.send.settleBlocked.one", "table.send.settleBlocked.many");
+  return { k, vars: { n: units } };
+}
+
+/** The table page's settle-gate line in its ONE region: which door was tapped, the server's own
+ *  count when a raced refusal brought one (`null` on a pre-tap refusal — the detail's count is the
+ *  reading), and the last read STARTED when it was raised (`sendNote`'s `raisedAt` rule). */
+export type SettleGateNote = { trigger: SettleTrigger; units: number | null; raisedAt: number };
+
+/**
+ * The line's lifetime. It stands while the committed detail still shows the table blocked; it
+ * retires on the first detail from a read that STARTED after it was raised and shows nothing
+ * unsent (sent, or removed). A read already in the air when it was raised may predate the reading
+ * that refused — a raced server refusal whose drafts that read cannot yet see — so it never
+ * retires the line.
+ */
+export function settleGateAfterCommit(
+  note: SettleGateNote | null,
+  readTicket: number,
+  blocked: boolean,
+): SettleGateNote | null {
+  if (note === null || blocked) return note;
+  return readTicket > note.raisedAt ? null : note;
+}
+
+/** The count the line names: the live detail's once it shows the table blocked (the reading that
+ *  keeps moving), else the refusal's own reading from the server. */
+export function settleGateUnits(
+  note: SettleGateNote,
+  blocked: boolean,
+  detailUnits: number,
+): number {
+  return blocked || note.units === null ? detailUnits : note.units;
 }

@@ -306,6 +306,16 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // Phase 2b · feedback — the staff bar's offline row (`.staff-net`) sets its sentence in --tx on
     // a --warnb ground, in both themes (the KDS runs Night). Watched RED with light --warnb at #7a3a2a.
     { name: "tx on warnb", fg: tok(map, "--tx"), bg: tok(map, "--warnb") },
+    // ── Phase 2c · gate ── the settle gate's note (`.staff-settle-unsent`) sets its sentence in
+    // --warn at --fs-sm on the staff page's ground (`--pg`, under `.staff-main`'s 5% --tx rule
+    // lines — the worst pixel is ON a line), in both themes; the settle controls' own refusals under
+    // their triggers sit on the same ground.
+    { name: "warn on pg (the settle gate's note)", fg: tok(map, "--warn"), bg: pg },
+    {
+      name: "warn on a staff page rule line (5% tx over pg)",
+      fg: tok(map, "--warn"),
+      bg: mixOklab(tok(map, "--tx"), 0.05, pg),
+    },
     // ── M83 · the EMAIL pairs ────────────────────────────────────────────────────────────────
     // Every text×surface pair rendered by `apps/qr/emails/*`, asserted here as TOKEN pairs.
     //

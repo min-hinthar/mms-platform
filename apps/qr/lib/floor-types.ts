@@ -14,6 +14,7 @@ import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
 import type { RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
+import type { InFlightHolder } from "./inflight-refusal";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -118,6 +119,19 @@ export type TableLineView = {
    *  the line at full price there tells staff the guest paid for a dish the restaurant already
    *  returned the money for. */
   refundedCents: number;
+  // ── Phase 2c · pad ──
+  /** The dish this line is (`qr_cart_items.menu_item_id` — a soft ref: a grocery line carries a
+   *  barcode). The order pad's tile badge counts the confirmed units per dish from it. Null on a
+   *  settled record line (the pad never reads a settled record). */
+  menuItemId: string | null;
+  /** Where the line goes — the ticket groups a to-go draft at a dine-in table apart ("goes to the
+   *  kitchen when paid"). A settled record line reads "dinein" (a record is never re-grouped). */
+  fulfillment: "dinein" | "togo" | "grocery";
+  /** The catalog's Burmese name (`catalogNameMy`-validated) — advisory: a failed name read gives
+   *  null and the line renders its English snapshot, never an outage. */
+  nameMy: string | null;
+  /** Per-slot Burmese for `modifiers` (`pairModifiersMy`), each null where unknown. */
+  modifiersMy: (string | null)[];
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -218,6 +232,10 @@ export type TableDetail = {
   /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
    *  are all refused mid-payment. */
   paymentInFlight: boolean;
+  /** Phase 2c · register (P2w) — WHO holds the in-flight payment (lib/inflight-refusal): a guest's
+   *  phone, the register's own attempt, or unsure. Null when `paymentInFlight` is false. The
+   *  page's paying banner says the holder's sentence, never "their phone" by default. */
+  paymentHolder: InFlightHolder | null;
   /** Phase 2a · send — the session has a diner host (`host_seat` set): create-intent's binding for
    *  "someone at the table can send". Decides the Send's emphasis (owner decision #3). */
   hostPresent: boolean;

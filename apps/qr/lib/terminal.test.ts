@@ -94,15 +94,36 @@ vi.mock("./staff", () => ({
       caller: { uid: "staff-uid", staffId: "staff-row-id", role: "manager" },
     }),
 }));
+/** P2w — the cart's freeze owner, per case (a fresh freeze no seat owns is a register attempt). */
+let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
+  settle_at: null,
+  settle_by: null,
+};
+/** Phase 2c · gate — the session's mode, per case (a counter order by default). */
+let sessionMode: "pickup" | "dinein" = "pickup";
+/** Phase 2c · gate — what the unsent read answers: the dine-in dishes still to send. */
+let unsentUnits = 0;
+vi.mock("./unsent-read", () => ({
+  kitchenDraftUnits: (cartId: string) => {
+    log("unsent-read", { cartId });
+    return Promise.resolve(unsentUnits);
+  },
+}));
 vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
     Promise.resolve({
-      session: { id: "sess-1", status: "active", mode: "pickup", qr_code: "reg-XYZ" },
-      cart: { id: "cart-1", locked: false, locked_at: null, settle_at: null, tab_type: "none" },
+      session: {
+        id: "sess-1",
+        status: "active",
+        mode: sessionMode,
+        qr_code: sessionMode === "pickup" ? "reg-XYZ" : "t-4",
+      },
+      cart: { id: "cart-1", locked: false, locked_at: null, tab_type: "none", ...cartFreeze },
       unavailable: false,
     }),
 }));
-vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
+let inFlight: "mid_payment" | null = null;
+vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inFlight) }));
 vi.mock("./totals", () => ({
   getCartTotals: (cartId: string, tipRate: number) => {
     log("totals", { cartId, tipRate });
@@ -154,6 +175,14 @@ vi.mock("@mms/db/server", () => ({
     from: (table: string) => ({
       select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
         if (opts?.head) return { eq: () => Promise.resolve({ count: 2, error: null }) };
+        if (table === "session_members") {
+          // P2w — the freeze owner's seat read (two filters): no seat owns a register attempt.
+          const members: Record<string, unknown> = {
+            eq: () => members,
+            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          };
+          return members;
+        }
         return {
           eq: () => ({
             maybeSingle: () =>
@@ -178,6 +207,10 @@ function mintedAttempt(): string {
 }
 
 beforeEach(() => {
+  inFlight = null;
+  cartFreeze = { settle_at: null, settle_by: null };
+  sessionMode = "pickup";
+  unsentUnits = 0;
   calls = [];
   piCreateFails = false;
   processFails = null;
@@ -722,5 +755,57 @@ describe("cancelTerminal — scoped release, PI-verified reader clear", () => {
     piCancelFails = false;
     expect(r).toEqual({ ok: false, error: expect.stringMatching(/going through/) });
     expect(calls.map((c) => c.op)).not.toContain("releaseFor");
+  });
+});
+
+describe("settleCard — refused mid-payment, TRUTHFULLY and as a typed code (P2w, critic finding)", () => {
+  it("a freeze the register holds (another tablet's reader collect) is the register's — never 'their phone'", async () => {
+    inFlight = "mid_payment";
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-uuid" };
+    const r = await settleCard({ sessionId: SESSION });
+    // MUTATION: restore the fixed "their phone" refusal at this call site — red.
+    expect(r).toMatchObject({ ok: false, code: "inflight", holder: "register" });
+    if (r.ok) return;
+    expect(r.error).not.toMatch(/their phone/);
+    // Refused before any money work: no freeze, no totals, no PaymentIntent.
+    expect(calls.map((c) => c.op)).toEqual([]);
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("settleCard — the reader is a settle door too: refused while dine-in dishes are unsent", () => {
+  it("refuses with the typed code BEFORE any PaymentIntent, and releases THIS attempt's freeze", async () => {
+    // MUTATION (terminal/card-over-unsent): delete the check — a card-present PaymentIntent is minted
+    // for two dishes the kitchen never got, the reader charges them, and the webhook's fire cooks
+    // them after the table has paid; red.
+    sessionMode = "dinein";
+    unsentUnits = 2;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: false, code: "unsent", units: 2 });
+    const ops = calls.map((c) => c.op);
+    // Under the freeze, before the totals, and nothing on the wire to Stripe or the reader.
+    // MUTATION (terminal/card-unsent-read-before-the-freeze): check above the acquire; red.
+    // MUTATION (terminal/card-unsent-read-after-the-totals): read the totals first; red.
+    expect(ops).toEqual(["acquire", "unsent-read", "releaseFor"]);
+    // MUTATION (terminal/card-unsent-strands-freeze): drop the release — the reader's own table is
+    // frozen for the TTL (no cash, no Send) over a refusal that charged nothing; red.
+    const acq = calls.find((c) => c.op === "acquire")?.args as { uid: string };
+    const rel = calls.find((c) => c.op === "releaseFor")?.args as {
+      cartId: string;
+      attemptId: string;
+    };
+    expect(rel).toEqual({ cartId: "cart-1", attemptId: acq.uid });
+  });
+
+  it("a counter order is never gated — paying IS ordering there", async () => {
+    unsentUnits = 2; // cannot happen on a pickup cart (its lines are to-go); the MODE still decides
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: true, paymentIntentId: "pi_test_1" });
+  });
+
+  it("a fully sent table starts the reader", async () => {
+    sessionMode = "dinein";
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: true, paymentIntentId: "pi_test_1" });
   });
 });

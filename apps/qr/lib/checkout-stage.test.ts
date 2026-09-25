@@ -4,6 +4,7 @@ import {
   kitchenDraftQty,
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
+  staffSettleBlockedByUnsent,
   unsentFoodQty,
 } from "./checkout-stage";
 
@@ -105,5 +106,31 @@ describe("payBlockedByUnsent — a dine-in bill is payable only once everything 
     ];
     expect(kitchenDraftUnitsFromRows(rows)).toBe(2);
     expect(kitchenDraftUnitsFromRows([{ state: "draft", fulfillment: "togo", qty: 1 }])).toBe(0);
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("staffSettleBlockedByUnsent — the staff settle gate is the diner gate's counter half", () => {
+  it("blocks a dine-in settle with anything unsent, host or NO host — the console can always send", () => {
+    // MUTATION (checkout-stage/staff-gate-exempts-a-hostless-table): delegate with `hostPresent`
+    // false — the one table the gate exists for (staff-started, nobody else sends) settles over its
+    // unsent dishes, charges for them, and cooks them after the guest has gone; red.
+    expect(staffSettleBlockedByUnsent("dinein", 2)).toBe(true);
+    // The diner side exempts that same table (only the host sends there): the two gates differ
+    // EXACTLY on the hostless flag, which is the whole of this function.
+    expect(payBlockedByUnsent("dinein", 2, false)).toBe(false);
+  });
+
+  it("never blocks a counter order (paying IS ordering there) or a fully sent table", () => {
+    expect(staffSettleBlockedByUnsent("pickup", 2)).toBe(false);
+    expect(staffSettleBlockedByUnsent("scango", 2)).toBe(false);
+    expect(staffSettleBlockedByUnsent("dinein", 0)).toBe(false);
+    expect(staffSettleBlockedByUnsent(null, 2)).toBe(false);
+  });
+
+  it("is the diner rule with a host present — never a second statement of it", () => {
+    for (const mode of ["dinein", "pickup", "scango", null, undefined])
+      for (const n of [0, 1, 3])
+        expect(staffSettleBlockedByUnsent(mode, n)).toBe(payBlockedByUnsent(mode, n, true));
   });
 });

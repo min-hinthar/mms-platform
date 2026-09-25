@@ -15,15 +15,20 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
+import { inFlightRefusalFor } from "./inflight-read";
+import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal } from "./settle-refusal";
+import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
 import { maybeRenewSession } from "./authz";
+// ── Phase 2c · gate ──
+import { staffSettleBlockedByUnsent } from "./checkout-stage";
+import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -50,7 +55,30 @@ export type SettleCashResult =
        *  was recorded. */
       tipCents: number;
     }
-  | { ok: false; error: string };
+  | SettleCashRefusal;
+
+// ── Phase 2c · register ──
+/**
+ * A cash settle's refusal. `code` is decided by WHERE the refusal happened, never by message text:
+ *  - absent — every refusal that predates the code (gate, input, reads, freeze, the RPC); callers
+ *    render `error` through `<OutageText>` as before.
+ *  - `moved` — the compare-and-swap: the quote the cashier read (`quotedCents`) is not the total the
+ *    server just derived from the live lines. `totalCents` is that derived PRE-TIP total, so the sheet
+ *    can name both figures and re-quote the server's. Nothing was recorded.
+ *  - `inflight` — money is already moving on the cart (P2w): `holder` says who holds it (a guest's
+ *    phone, the register's own attempt, or unsure), and the component renders that holder's
+ *    `settle.inflight.*` key. Nothing was frozen.
+ *  - `unsent` — the settle gate (Phase 2c · gate): dine-in dishes have not gone to the kitchen.
+ *    `units` is the server's count of them, read under the freeze; the component renders
+ *    `table.send.settleBlocked.*` and jumps to the Send. Nothing was recorded; the freeze released.
+ * A union member per code, so each carries exactly the facts its sentence needs.
+ */
+export type SettleCashRefusal =
+  | { ok: false; error: string; code?: undefined }
+  | { ok: false; error: string; code: "moved"; totalCents: number }
+  | InFlightRefusal
+  | UnsentRefusal;
+export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
 // export from THIS "use server" module would mint a public POST endpoint around a service-role read.
@@ -196,12 +224,22 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   // verdicts send staff chasing a phantom state instead of naming the outage.
   const { data: line, error: lineError } = await db
     .from("qr_cart_items")
-    .select("id")
+    .select("id,state")
     .eq("id", cartItemId)
     .eq("cart_id", cart.id)
     .maybeSingle();
   if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!line) return { ok: false, error: "That item isn’t on this table." };
+  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. The RPC guards only
+  // the open cart, so a stepper tap queued behind a Send (Next runs actions one at a time) would
+  // otherwise land on the just-fired line and the kitchen would cook a different quantity from the
+  // ticket. A sent dish changes through Remove / Make it free (the loss flow), never here. (The same
+  // guard inside the RPC — against another device's Send racing this read — needs a migration: filed.)
+  if (line.state !== "draft")
+    return {
+      ok: false,
+      error: "That dish already went to the kitchen — use Remove or Make it free instead.",
+    };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
   // diner path uses). 0 rows ⇒ the cart flipped paid/closed under us.
@@ -257,11 +295,14 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
 /**
  * Settle the table order in CASH ("pay a human"). Re-derives the authoritative total server-side
  * (getCartTotals — the single tax engine), then records an idempotent cash order via
- * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). tip_cents=0:
- * a cash tip is in-hand / off-system (Min's call). W16a: the service charge is RETIRED — totals carry
- * serviceChargeCents = 0 (the RPC param stays for the order-snapshot contract; margin now lives in the
- * mode-derived line prices). Refused while a card payment / split is in flight (shared mutex) so cash
- * can't double-charge a table.
+ * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). The cash
+ * tip the cashier typed IS recorded (`p_tip_cents`, W17c-2 — the old "off-system" sentence here was
+ * false from that slice on). Phase 2c: an optional `quotedCents` — the pre-tip total the cashier was
+ * shown — is COMPARED inside the held freeze against the derived total and a mismatch refuses with
+ * `code: "moved"` before anything is recorded; it is never read into an amount. W16a: the service
+ * charge is RETIRED — totals carry serviceChargeCents = 0 (the RPC param stays for the order-snapshot
+ * contract; margin now lives in the mode-derived line prices). Refused while a card payment / split is
+ * in flight (shared mutex) so cash can't double-charge a table.
  */
 export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const gate = await staffGate();
@@ -269,17 +310,15 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents } = parsed.data;
+  const { sessionId, tipCents, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // P2w — the refusal names who holds the money (a guest's phone, or the register's own attempt).
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table: "nothing to settle" on a table holding a full order
@@ -326,6 +365,22 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
   // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
   try {
+    // ── Phase 2c · gate ── the settle gate (owner decision 3): a dine-in table pays only once every
+    // dish has gone to the kitchen — otherwise this settle charges for dishes nobody sent and the
+    // after() fire below cooks them once the table has paid. UNDER the freeze, BEFORE the totals (a
+    // refusal costs no totals read). The read fails OPEN (lib/unsent-read), which is today's
+    // settle-fires behaviour. Returned from INSIDE the try: the `finally` below releases this
+    // attempt's freeze.
+    // ⚠️ THE FREEZE DOES NOT STOP AN ADD LANDING AFTER THIS READ (Phase 2c · review, R7 — this
+    // comment used to claim "no add or fire can move the verdict before the RPC"). `staffAddItem`
+    // (and the diner's add) check the freeze with a READ before their write, and
+    // `mms_cart_item_insert_if_open` guards only `status = 'open'`, never `settle_at` — so an add
+    // whose check passed just before the acquire can insert a draft after this read. What catches it
+    // HERE is the compare-and-swap below: the new dish moves the live total off `quotedCents` and the
+    // settle refuses `moved` (whenever the sheet sent a quote). `settleCard` (lib/terminal) has no
+    // such compare; the real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
+    const unsentUnits = await kitchenDraftUnits(cart.id);
+    if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -338,6 +393,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
     }
+    // Phase 2c · register — the COMPARE-AND-SWAP. The cashier collected the figure they were shown;
+    // if the live lines now total something else (a qty step, a promo, a guest adding from their phone
+    // inside a poll window), recording `totals` would collect $X and book $Y. Refuse BEFORE the RPC,
+    // naming the server's figure so the sheet can show both. Compared against the PRE-tip total —
+    // the same quantity `detail.settleTotalCents` quotes — never total + tip. The quote is never read
+    // into an amount. Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    if (quotedCents !== undefined && quotedCents !== totals.totalCents)
+      return {
+        ok: false,
+        code: "moved",
+        totalCents: totals.totalCents,
+        error: "The total changed — check the order, then take payment again.",
+      };
     // W17c-2 — the cash tip is RECORDED now (it used to be hardcoded 0 and described as
     // "in-hand/off-system"). It is the one figure here a human supplies, because the server has
     // nothing to derive it from: only the person who took the cash knows what was left. Bounded by
@@ -518,7 +586,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   }
 }
 
-export type CloseSecureTabResult = { ok: true } | { ok: false; error: string };
+export type CloseSecureTabResult = { ok: true } | SettleCashRefusal; // P2aa: the cash settle's refusal union — `moved` is the "Charge $x" confirm's compare-and-swap
 
 /**
  * Close a SECURE tab off-session (S3.2): charge the saved card-on-file for the final total. Staff-
@@ -539,7 +607,8 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // Deliberately NOT destructuring `tipCents`: a secure-tab close settles the AUTHORIZED amount and
   // adds no tip (see the "final total, NO added tip" note below). Naming it here would read as if
   // tab-close tips were supported and merely forgotten.
-  const { sessionId } = parsed.data;
+  // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
+  const { sessionId, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -565,11 +634,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (!secure?.stripe_payment_method_id)
     return { ok: false, error: "No card on file for this tab — settle by cash or card instead." };
 
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // P2w — after an unknown-outcome close this path's OWN freeze is still held (by design, below), so
+  // the retry `settle.card.unknown` invites lands here. The sentence names who holds the money: a
+  // guest's phone, or the register's own attempt — never the phone when it is the register's.
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.
@@ -587,6 +656,18 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       error: settleRefusal(freeze),
     };
 
+  // ── Phase 2c · gate ── the settle gate, as on the cash settle: under the freeze, before the totals
+  // and long before any PaymentIntent. This close is the one where "the guest may have left", so a
+  // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
+  // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
+  // (R7: the freeze does not stop an add landing after this read — see settleCash; here too the
+  // compare-and-swap below is what refuses it, when the confirm sent its quote.)
+  const unsentUnits = await kitchenDraftUnits(cart.id);
+  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+    await releaseSettlementFor(cart.id, attempt);
+    return unsentRefusal(unsentUnits);
+  }
+
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the
   // table strands frozen until the 10-min TTL. (Unlike settleCash we can't use a blanket `finally` — the
   // success path below deliberately HOLDS the freeze for the async off-session fulfill — so guard the one
@@ -602,6 +683,20 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (amount <= 0) {
     await releaseSettlementFor(cart.id, attempt);
     return { ok: false, error: "There’s nothing on this table to settle." };
+  }
+  // Phase 2c · register (P2aa) — the COMPARE-AND-SWAP, as on the cash settle: the confirm quoted the
+  // last-polled total; `amount` is the live one. A mismatch refuses BEFORE any PaymentIntent exists,
+  // naming the server's figure, and releases this attempt's freeze here — this path has no blanket
+  // `finally` (its success arm deliberately HOLDS the freeze for the webhook). The quote is never
+  // read into `amount`.
+  if (quotedCents !== undefined && quotedCents !== amount) {
+    await releaseSettlementFor(cart.id, attempt);
+    return {
+      ok: false,
+      code: "moved",
+      totalCents: amount,
+      error: "The total changed — check the order, then take payment again.",
+    };
   }
 
   // ⚠️ HOISTED OUT OF THE TRY, and the reason is money (Codex round 1 on #275, P2). `getStripe()`

@@ -1,5 +1,8 @@
+"use client";
+import { usePathname } from "next/navigation";
 import { Skeleton } from "@mms/ui";
 import { LoadingLine } from "@/components/staff/LoadingLine";
+import { PadSkeleton } from "@/components/staff/PadSkeleton";
 
 /**
  * Instant skeleton for the table drill-down — the floor→table tap previously froze on the old view
@@ -10,6 +13,19 @@ import { LoadingLine } from "@/components/staff/LoadingLine";
  * view uses, every gap a `--s*` token. The one announced line is the dictionary's (`<LoadingLine>`).
  */
 export default function TableDetailLoading() {
+  // Phase 2c · pad — a CLIENT boundary on purpose. A register mint pushes to a NEW `[id]/add`, and
+  // the boundary Next shows for a new `[id]` is THIS one (the nearest loading.tsx above the segment
+  // that changed), so without the path check every walk-up and phone order opened on the table
+  // drill-down's skeleton. `usePathname()` already names the target during the fallback; the pad's
+  // own geometry is drawn when it ends in `/add`. (Browser-verify on a register mint — the fallback
+  // plan is a `(detail)` route group; see docs/p2c-notes/pad.md.)
+  const path = usePathname();
+  if (path?.endsWith("/add"))
+    return (
+      <main className="staff-main pad-main">
+        <PadSkeleton />
+      </main>
+    );
   return (
     <main className="staff-main">
       <LoadingLine what="what.table" />

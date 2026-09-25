@@ -1398,6 +1398,90 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
   });
 });
 
+// ── Phase 2c · gate ──
+describe("the Bill's other door — Pay at the counter keeps the 'Everything sent' rule", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+
+  it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    // MUTATION (checkout/unsent-counter-door-open): gate the button on the freeze alone — the family
+    // is sent to the register over dishes nobody is cooking, a door the Pay button keeps shut; red.
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(counter.hasAttribute("disabled")).toBe(false);
+    // The diner sees why while this button is the visible action (the note renders on the same
+    // Bill stage the button does).
+    expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
+  it("a GUEST's tap on the dimmed counter button says who sends — never tells them to send", async () => {
+    // Critic finding: the refusal told a guest to "Send everything to the kitchen" — only the host
+    // can; the note above already names the host.
+    mount({
+      splitContext: {
+        ...HOST,
+        myRole: "guest" as const,
+        members: [
+          { seat: "seat-host", name: "Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Me", role: "guest" as const },
+        ],
+      },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(document.body.textContent).toContain("Aye sends them — then the bill is ready to pay.");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
+    // a guest is told to send what only Aye can; red.
+    expect(document.body.textContent).toContain(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
+  it("a fully sent table may still ask for the counter", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+  });
+
+  it("a table with NO host is never gated at the counter either — nobody there could send", () => {
+    mount({
+      splitContext: { ...HOST, myRole: "guest" as const, members: [] },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(
+      screen.getByRole("button", { name: /Pay at the counter/i }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+});
+
 describe("Phase 1b — the bill says which table it is", () => {
   it("wears the table number at a dine-in table", () => {
     // MUTATION: drop the eyebrow — a shared-table bill stops naming its table; red.
@@ -1894,5 +1978,94 @@ describe("Phase 1c — a Remove that was a “−” a moment ago ignores the ta
     await press(`Remove ${ITEM.name}`);
     // MUTATION: arm on EVERY "−" (not just the morph) — the first Remove of a qty-1 line is eaten, red.
     expect(h.setQty).toHaveBeenCalledWith(LINE, 0);
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("a refused tap re-says its reason on every tap (review open question)", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+  /** Mutations inside the Bill's one polite region, from the moment this is called. */
+  function watchRegion(text: string) {
+    const region = screen.getAllByRole("status").find((r) => r.textContent === text)!;
+    expect(region).toBeTruthy();
+    const records: MutationRecord[] = [];
+    const obs = new MutationObserver((r) => records.push(...r));
+    obs.observe(region, { childList: true, subtree: true, characterData: true });
+    return {
+      region,
+      changes: () => {
+        records.push(...obs.takeRecords());
+        return records.length;
+      },
+      stop: () => obs.disconnect(),
+    };
+  }
+
+  it("a SECOND tap on the dimmed 'Pay at the counter' changes the region again — the same sentence is said twice", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    const said = "Send everything to the kitchen first — then pay at the counter.";
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    const w = watchRegion(said);
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    // MUTATION (p2c-reg2/checkout-refused-tap-not-renumbered): set the same string again — React
+    // skips a same-value state, nothing in the region changes, and a screen reader hears nothing
+    // for the second tap; red.
+    expect(w.changes()).toBeGreaterThan(0);
+    expect(w.region.textContent).toBe(said);
+    w.stop();
+  });
+
+  it("a refused tap is never masked by a standing pay error — it clears it, as every handler does", async () => {
+    // A failed counter ask leaves a pay error in the region; then a guest's dish lands unsent.
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    h.requestCounterPay.mockRejectedValueOnce(new Error("fetch failed"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
+    });
+    expect(regionText()).toContain("Couldn’t reach the counter just now");
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "draft" }] }));
+    await syncFromServer();
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    // MUTATION (p2c-reg2/checkout-refusal-under-a-pay-error): keep the pay error — the region
+    // renders `payError ?? status`, so the tap's reason is hidden behind a stale failure; red.
+    expect(regionText()).toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+    expect(regionText()).not.toContain("Couldn’t reach the counter just now");
+  });
+
+  it("the Pay button's own blocked tap re-says too — the same region, the same rule", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const pay = screen.getByRole("button", { name: /Send everything to the kitchen first/i });
+    const said = "Send everything to the kitchen first — then the bill is ready to pay.";
+    await act(async () => {
+      fireEvent.click(pay);
+    });
+    const w = watchRegion(said);
+    await act(async () => {
+      fireEvent.click(pay);
+    });
+    // MUTATION (p2c-reg2/checkout-region-not-keyed): the region's text is not keyed on the tap —
+    // the second tap changes nothing; red.
+    expect(w.changes()).toBeGreaterThan(0);
+    expect(w.region.textContent).toBe(said);
+    w.stop();
   });
 });

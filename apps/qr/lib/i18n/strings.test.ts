@@ -258,8 +258,9 @@ describe("the dictionary guards", () => {
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
     // like an identifier. `time` is the one cross-surface VOCABULARY beside `what`/`out`: the age
     // every surface's card prints through <RelativeTime> (counter-8), one set of words, not a screen.
+    // Phase 2c · pad — `pad` is the order pad's own surface (its Send strings stay `table.send.*`).
     const SURFACES =
-      /^(shell|out|what|time|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report)$/;
+      /^(shell|out|what|time|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report|pad)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

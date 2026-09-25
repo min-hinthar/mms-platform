@@ -37,3 +37,23 @@ export function settleRefusal(result: Exclude<SettleTakeover, "acquired">): stri
       return "Couldn’t check this table just now — try again in a moment.";
   }
 }
+
+// ── Phase 2c · gate ──
+/**
+ * The staff settle gate's refusal (`code: "unsent"`), named ONCE for its three doors — `settleCash`,
+ * `closeSecureTab` and the reader's `settleCard`. Plain words (never "settle", never "tab"): it names
+ * the fix. Every current client renders the dictionary sentence from the typed code
+ * (`table.send.settleBlocked.*`, which carries the count); this English is for a bundle older than
+ * the code.
+ */
+export const UNSENT_SETTLE_REFUSAL =
+  "Some dishes haven’t gone to the kitchen — send them first (or remove them if the guest has left), then take payment.";
+
+/** The refusal's shape — one arm of every staff settle's code union (`SettleCashRefusal`,
+ *  `SettleCardResult`). `units` is the server's own count of the dine-in dishes still to send (the
+ *  table page's `detail.send.sendable`, read fresh under the freeze), so the sentence can name it. */
+export type UnsentRefusal = { ok: false; error: string; code: "unsent"; units: number };
+
+export function unsentRefusal(units: number): UnsentRefusal {
+  return { ok: false, error: UNSENT_SETTLE_REFUSAL, code: "unsent", units };
+}

@@ -204,8 +204,9 @@ export function LossActionSheet({
       // ⚠️ The transport itself can reject — offline, a server-action version skew after a deploy —
       // and an unhandled rejection inside a transition scope surfaces as a THROW into the nearest
       // error boundary, taking the whole staff table page down instead of showing the outage copy
-      // every other failure reason gets. Both siblings (`RefundActionSheet`, `StaffMenuBrowser`)
-      // already wrap; this file was the one that did not. M82 adversarial pass, LOW.
+      // every other failure reason gets. Its sibling `RefundActionSheet` (and the order pad's add
+      // chain, `usePadWrites`) already wrap; this file was the one that did not. M82 adversarial
+      // pass, LOW.
       try {
         const res = await voidLine({
           sessionId,

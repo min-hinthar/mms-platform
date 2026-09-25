@@ -52,6 +52,8 @@ import { Camera, CameraOff, ScanBarcode } from "lucide-react";
 import { Ellipsis } from "lucide-react";
 // ── Phase 2b · feedback ── the muted speaker (lucide-react@0.562.0 ships VolumeOff)
 import { VolumeOff } from "lucide-react";
+// ── Phase 2c · pad ── the order pad's options corner (present in lucide-react@0.562.0)
+import { SlidersHorizontal } from "lucide-react";
 
 /**
  * The brand icon set (W2b) — retires functional emoji-as-chrome (🔍🗑🧾🪑♥💳🔥🥡🎁🛒📍…) with a
@@ -123,6 +125,8 @@ const ICONS = {
   more: Ellipsis,
   // ── Phase 2b · feedback ── the `volume` speaker, struck through: sound wanted but not running
   "volume-off": VolumeOff,
+  // ── Phase 2c · pad ── a dish tile's corner: spice, add-ons, qty and a kitchen note
+  sliders: SlidersHorizontal,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;
