@@ -540,7 +540,11 @@ describe("padSettle — the settle gate: Take payment waits for everything to be
   it("precedence: paying > note > waiting > unsent > empty", () => {
     // A guest paying, an unsaved note and a pending write each outrank it: the unsent count is
     // stale while a write is still landing, and the note/payment are the more urgent fixes.
+    // MUTATION (pad/unsent-outranks-paying): check unsent before paying — a guest mid-payment reads
+    // "send them first" while the Send is refused behind the same payment; red.
     expect(padSettle(settleIn({ unsentUnits: 2, paying: true })).block).toBe("paying");
+    // MUTATION (pad/unsent-outranks-note): check unsent before the unsaved note — the cashier is told
+    // to send while the Send is held on that very note (drain before fire); the fix is the note; red.
     expect(padSettle(settleIn({ unsentUnits: 2, unsavedNote: true })).block).toBe("note");
     // MUTATION (pad/unsent-outranks-waiting): check unsent BEFORE waiting — a lost add reads "send
     // them first" while the fix is Try again on the dish; red.

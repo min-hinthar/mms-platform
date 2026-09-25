@@ -784,6 +784,8 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
     expect(r).toMatchObject({ ok: false, code: "unsent", units: 2 });
     const ops = calls.map((c) => c.op);
     // Under the freeze, before the totals, and nothing on the wire to Stripe or the reader.
+    // MUTATION (terminal/card-unsent-read-before-the-freeze): check above the acquire; red.
+    // MUTATION (terminal/card-unsent-read-after-the-totals): read the totals first; red.
     expect(ops).toEqual(["acquire", "unsent-read", "releaseFor"]);
     // MUTATION (terminal/card-unsent-strands-freeze): drop the release — the reader's own table is
     // frozen for the TTL (no cash, no Send) over a refusal that charged nothing; red.

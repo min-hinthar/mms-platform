@@ -179,6 +179,8 @@ describe("settleCash — refused while dine-in dishes are unsent", () => {
     expect(cashRecorded()).toBe(false);
     // UNDER the freeze, BEFORE the totals — a SEQUENCE, not a count: read above the acquire, a
     // guest's add could land between the verdict and the charge; and a refusal costs no totals read.
+    // MUTATION (settle/cash-unsent-read-before-the-freeze): check above the acquire; red.
+    // MUTATION (settle/cash-unsent-read-after-the-totals): read the totals first; red.
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();
   });
@@ -221,6 +223,8 @@ describe("closeSecureTab — the running-bill close is gated too, before any Pay
     // MUTATION (settle/unsent-refusal-strands-freeze): drop the release — this path has no blanket
     // `finally`, so the refusal would strand the table frozen for the whole TTL: no cash, no card,
     // no edits, and the Send the refusal points at is refused too; red.
+    // MUTATION (settle/tab-close-unsent-read-before-the-freeze): check above the acquire; red.
+    // MUTATION (settle/tab-close-unsent-read-after-the-totals): read the totals first; red.
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();
   });

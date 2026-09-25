@@ -317,6 +317,8 @@ describe("requestCounterPay — the ask waits for everything to be sent (the Bil
   it("an unreadable host fails OPEN — the ask moves no money; the settle doors behind it refuse", async () => {
     // The host read errors while the count still answers: the gate reads "no host" and the ask
     // goes through (the register's settle gate and create-intent each refuse on their own).
+    // MUTATION (counter-pay/unsent-host-read-fails-closed): read an unreadable host as present — a
+    // read blip holds a family at the table over an ask that moves no money; red.
     readFails = true;
     items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
     expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);

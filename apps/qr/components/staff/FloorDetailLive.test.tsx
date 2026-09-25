@@ -587,6 +587,9 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     await act(async () => {
       fireEvent.click(settleButtons()[1]!);
     });
+    // MUTATION (floor-detail/unsent-reader-gate-not-passed): the reader handed `blocked={false}` —
+    // the tap starts a reader charge over unsent dishes and focus stays on it; red.
+    expect(settleCard).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(sendControl());
     expect(orderRegion().textContent).toBe(noteText(false));
   });
@@ -601,6 +604,8 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
       fireEvent.click(close!);
     });
     // No "Charge $x" confirm opened.
+    // MUTATION (floor-detail/unsent-close-gate-not-passed): the close handed `blocked={false}` — its
+    // confirm opens, one tap from an off-session charge over unsent dishes; red.
     expect(screen.queryByRole("button", { name: /^Charge \$/ })).toBeNull();
     expect(document.activeElement).toBe(document.getElementById("order-h"));
     expect(orderRegion().textContent).toBe(noteText(true));
@@ -738,7 +743,7 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
     await tick(5000);
     expect(document.getElementById("settle-unsent-note")).toBeNull();
-    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-page): drop the render-time clear — the
+    // MUTATION (terminal-ui/unsent-raced-line-never-dropped): drop the render-time clear — the
     // reader's raced line comes back under a live "Card on the reader", saying 2 dishes haven't gone
     // to the kitchen when they have; red.
     expect(saysUnsent(settleSection())).toBe(false);
@@ -786,7 +791,7 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     answer = () => Promise.resolve({ kind: "detail", detail: SECURE_SENT });
     await tick(5000);
     expect(document.getElementById("settle-unsent-note")).toBeNull();
-    // MUTATION (secure-close/unsent-raced-line-outlives-the-page): drop the render-time clear — the
+    // MUTATION (secure-close/unsent-raced-line-never-dropped): drop the render-time clear — the
     // close's raced line comes back offering to remove dishes that were just removed; red.
     expect(saysUnsent(settleSection())).toBe(false);
   });
@@ -797,8 +802,8 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     mountWith(SECURE_UNSENT, { terminalReady: true });
     // [close, cash, reader] — the close is the primary on a secure running bill.
     const [, cash] = settleButtons();
-    // MUTATION (floor-detail/unsent-note-variant-restated): the note's variant read off
-    // anything but the one binding (`runningClose`) — the note says the table's sentence; red.
+    // MUTATION (floor-detail/unsent-note-variant-ignored): the note's variant not read off the one
+    // binding (`runningClose`) — the note says the table's sentence on a running bill; red.
     expect(document.getElementById("settle-unsent-note")!.textContent).toBe(noteText(true));
     await act(async () => {
       fireEvent.click(cash!);
