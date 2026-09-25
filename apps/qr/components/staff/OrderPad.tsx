@@ -910,4 +910,3 @@ export function OrderPad({
 function itemName(i: PadCatalogItem) {
   return { name: i.nameEn, nameMy: i.nameMy };
 }
-

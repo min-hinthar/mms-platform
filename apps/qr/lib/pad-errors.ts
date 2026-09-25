@@ -145,4 +145,3 @@ export function padSentenceNotice(text: string): PadNotice {
     msg: text,
   };
 }
-
