@@ -217,7 +217,9 @@ describe("CloseSecureTabButton — a refusal mid-payment is said in the device l
 
 // ── Phase 2c · gate ──
 describe("CloseSecureTabButton — the settle gate (refused while dishes are unsent)", () => {
-  const triggerName = new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.10")}`);
+  const triggerName = new RegExp(
+    `^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.10")}`,
+  );
 
   it("blocked: aria-disabled (never native), read with the page's note first, and a tap opens NO confirm — it hands up once", () => {
     const onBlockedTap = vi.fn();
@@ -273,7 +275,9 @@ describe("CloseSecureTabButton — the settle gate (refused while dishes are uns
       </StaffLangProvider>,
     );
     fireEvent.click(screen.getAllByRole("button")[0]!);
-    const charge = screen.getAllByRole("button").find((b) => b.classList.contains("ui-btn-primary"))!;
+    const charge = screen
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
     await act(async () => {
       fireEvent.click(charge);
     });

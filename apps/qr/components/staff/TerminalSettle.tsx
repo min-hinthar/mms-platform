@@ -139,7 +139,9 @@ export function TerminalSettleButton({
         busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
         // Phase 2c · gate — the attribute (spread only when set) plus `start`'s own guard.
         {...(blocked ? { "aria-disabled": true } : {})}
-        aria-describedby={blocked && blockedNoteId ? `${blockedNoteId} terminal-hint` : "terminal-hint"}
+        aria-describedby={
+          blocked && blockedNoteId ? `${blockedNoteId} terminal-hint` : "terminal-hint"
+        }
         onClick={start}
       >
         <Chrome lang={lang} k="settle.reader.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />

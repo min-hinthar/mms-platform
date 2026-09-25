@@ -84,11 +84,11 @@ const rowsFor = (table: string): Row[] =>
       ? members
       : table === "table_sessions"
         ? sessions
-      : table === "qr_orders"
-        ? orders
-        : cart
-          ? [cart]
-          : [];
+        : table === "qr_orders"
+          ? orders
+          : cart
+            ? [cart]
+            : [];
 function builder(table: string, mode: "select" | "update", values: Row | null, head: boolean) {
   const filters: Filter[] = [];
   const api = {
