@@ -98,8 +98,9 @@ Measured with the prescribed greps at this head:
   (was 132 + 3 + 15 + 1 = 151). CLAUDE.md's list becomes SIXTEEN components — add
   `staff/TerminalSettle.tsx (Phase 2c)`.
 - **Mutants:** 885 → **918** (33 added, all in the one `// ── Phase 2c · register ──` block at the
-  end of MUTANTS). Every one KILLED (`verify:slice --no-gate --only=p2c-register` → 32 caught before
-  the last commit; `--only=cash-settle` → both binding mutants caught after it).
+  end of MUTANTS). Every one KILLED at the branch head: `verify:slice --no-gate --only=p2c-register`
+  → 33 caught, no orphans (`--only=p2a-register` → 9, `--only=staff-promo-ui` → 6 — the touched
+  files' earlier mutants, re-run).
 - **Mutants added (ids):** `p2c-register/ladder-ceil-offers-exact-twice`,
   `…/ladder-no-dedupe`, `…/ladder-offers-whole-dollar-plus-one`, `…/ladder-unsorted`,
   `…/tender-arms-swapped`, `…/tender-zero-reads-short`, `…/settle-blocked-ignores-short`,
