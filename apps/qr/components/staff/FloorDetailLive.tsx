@@ -50,6 +50,7 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
 // ── Phase 2c · register ──
 import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
+import { settleUnknownAfterRead } from "@/lib/register-math";
 import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
@@ -141,7 +142,14 @@ export function FloorDetailLive({
   // floor is HELD (a ref the button sets through `onOutcomeUnknown`, read by `refresh`) and the page
   // says so where the settle was (`closedAfterUnknown`), instead of yanking the cashier to the floor
   // mid-sheet with the promised "the order shows paid" never shown anywhere.
-  const settleUnknown = useRef(false);
+  //
+  // Phase 2c · review (R2) — the mark is WHEN the page learned the outcome was unknown (device ms),
+  // not a bare flag, and it ends: a committed read that STARTED after the settle could last land and
+  // still shows the cart open proves it never did (`settleUnknownAfterRead`, lib/register-math),
+  // and a reader collect that STARTS proves it too (see `setTerminalCollect`). Before, only a later
+  // answered CASH attempt cleared it, so a close hours later — cleared from another tablet, or paid
+  // on the reader — was said as "the payment most likely went through".
+  const settleUnknown = useRef<number | null>(null);
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
@@ -190,6 +198,11 @@ export function FloorDetailLive({
     (c: TerminalCollect | null) => {
       setTerminalCollectState(c);
       if (!c) setReaderStatus(null);
+      // Phase 2c · review (R2) — a reader collect STARTED: `settleCard` took the settle freeze on an
+      // OPEN cart, which a landed cash settle would have paid (and which a cash settle still holding
+      // its own freeze would have refused), so a lost cash settle before it can no longer land. Its
+      // close is the reader's, never "the payment most likely went through".
+      if (c) settleUnknown.current = null;
       try {
         if (c) sessionStorage.setItem(`mms-terminal-collect:${sessionId}`, JSON.stringify(c));
         else sessionStorage.removeItem(`mms-terminal-collect:${sessionId}`);
@@ -265,11 +278,18 @@ export function FloorDetailLive({
         // This read's ticket — committed WITH its detail (one batched render), so the send line can
         // tell a read that began after it from one already in the air (`sendNoteAfterCommit`).
         const ticket = ++reads.current;
+        // Phase 2c · review (R2) — when this read STARTED (the unknown-outcome bound reads it).
+        const startedAtMs = Date.now();
         try {
           // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
           const res = await raceTimeout(getTableDetail(sessionId));
           if (!alive.current) return;
           if (res.kind === "detail") {
+            // Phase 2c · review (R2) — an open cart read after the lost settle could last land.
+            settleUnknown.current = settleUnknownAfterRead(settleUnknown.current, {
+              startedAtMs,
+              cartOpen: res.detail.cartId != null && !res.detail.settled,
+            });
             setDetail(res.detail);
             setReadTicket(ticket);
             fails.current = 0;
@@ -283,7 +303,7 @@ export function FloorDetailLive({
             // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
             // Phase 2c · register: HELD while a counter cash settle's outcome is unknown — the close
             // is then most likely that settle landing (see `settleUnknown`); the page says so.
-            if (settleUnknown.current) setClosedAfterUnknown(true);
+            if (settleUnknown.current !== null) setClosedAfterUnknown(true);
             else if (!terminalFlowLive.current) {
               router.replace(STAFF_DOOR_TARGET.counter);
               router.refresh();
@@ -1089,7 +1109,7 @@ export function FloorDetailLive({
               onOutcomeUnknown={
                 isCounter
                   ? (unknown) => {
-                      settleUnknown.current = unknown;
+                      settleUnknown.current = unknown ? Date.now() : null;
                     }
                   : undefined
               }
