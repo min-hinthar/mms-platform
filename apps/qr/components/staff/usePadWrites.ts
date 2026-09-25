@@ -3,14 +3,17 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { staffAddItem } from "@/lib/staff-cart";
 import {
   pendingBlocker,
+  pendingCounts,
   pendingReduce,
   type PendingAdd,
+  type PendingCounts,
   type PendingEvent,
 } from "@/lib/pad-pending";
 import {
   padAddNotice,
   padAddVerdict,
   padSentenceNotice,
+  type PadAddOutcome,
   type PadAddVerdict,
   type PadMsg,
   type PadNotice,
@@ -29,7 +32,7 @@ import {
  * timeout only SURFACES that: the raw promise stays observed, the chain keeps waiting on it (tap
  * order holds), and a late answer resolves the ghost normally. The pad then offers a reload (which
  * aborts the queue; the reloaded ticket is the server's truth). An answer that says the write MAY
- * have committed, or an action that threw, is `lost`: the ghost stays and offers "Send again" under
+ * have committed, or an action that threw, is `lost`: the ghost stays and offers "Try again" under
  * the same key.
  *
  * `settled()` is the drain the Send and Take payment wait on: it resolves when the chain is idle,
@@ -50,9 +53,7 @@ export type PadAddRequest = {
   notes?: string;
 };
 
-/** What the caller learns: the verdict, or `unconfirmed` (15s with no answer), or `offline` (the
- *  tap never left). */
-export type PadAddOutcome = PadAddVerdict["kind"] | "unconfirmed" | "offline";
+export type { PadAddOutcome };
 
 /** A refusal said somewhere other than the pad's region (the options sheet's own, M82). */
 export type PadRefusal = { kind: "msg"; msg: PadMsg };
@@ -118,7 +119,7 @@ export function usePadWrites({
         return;
       }
       if (v.kind === "unknown") {
-        // It may be on the order: the ghost stays, "Send again" resends THIS key, and the read
+        // It may be on the order: the ghost stays, "Try again" resends THIS key, and the read
         // below shows the truth if it did land.
         apply({ kind: "rejected", key });
         say(padAddNotice("pad.err.add.unconfirmed", cb.dishName(req)));
@@ -205,18 +206,19 @@ export function usePadWrites({
   );
 
   /** A tap: claimed now, written in tap order. A tap made offline never leaves the device. A
-   *  `quietRefusal` attempt (the sheet's) keeps its refusal for its origin to show. */
+   *  `quietRefusal` attempt (the sheet's) keeps its refusal for its origin to show. The key is minted
+   *  here unless the caller already chose it (`attempt`, from 2a's `keyForAttempt`). */
   const add = useCallback(
     (
       req: PadAddRequest,
-      opts: { quietRefusal?: boolean } = {},
+      opts: { quietRefusal?: boolean; key?: string } = {},
     ): { key: string | null; done: Promise<PadAddOutcome> } => {
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         if (!opts.quietRefusal)
           cbs.current.onNotice(padAddNotice("pad.err.add.offline", cbs.current.dishName(req)));
         return { key: null, done: Promise.resolve("offline") };
       }
-      const key = crypto.randomUUID();
+      const key = opts.key ?? crypto.randomUUID();
       requests.current.set(key, req);
       if (opts.quietRefusal) quiet.current.add(key);
       apply({
@@ -232,7 +234,7 @@ export function usePadWrites({
     [apply, enqueue],
   );
 
-  /** "Send again" on a LOST add: the SAME key, so it cannot go on twice. */
+  /** "Try again" on a LOST add: the SAME key, so it cannot go on twice. */
   const resend = useCallback(
     (key: string): Promise<PadAddOutcome> => {
       const final = finals.current.get(key);
@@ -247,6 +249,21 @@ export function usePadWrites({
       return enqueue(key);
     },
     [apply, enqueue],
+  );
+
+  /**
+   * An attempt at a key the CALLER chose with Phase 2a's rule (`keyForAttempt`, lib/staff-add-key):
+   * a key this chain already holds is that attempt again (`resend` — never a second request while
+   * its own answer is still coming); a new key is a new add. The pad never restates the rule.
+   */
+  const attempt = useCallback(
+    (
+      key: string,
+      req: PadAddRequest,
+      opts: { quietRefusal?: boolean } = {},
+    ): { key: string | null; done: Promise<PadAddOutcome> } =>
+      requests.current.has(key) ? { key, done: resend(key) } : add(req, { ...opts, key }),
+    [add, resend],
   );
 
   /** What an attempt's refusal said (for the origin that asked to say it itself). */
@@ -282,5 +299,8 @@ export function usePadWrites({
   /** The first add whose fate is unknown, read NOW. */
   const blocker = useCallback((): PendingAdd | null => pendingBlocker(stateRef.current), []);
 
-  return { pending, add, resend, commit, settled, blocker, lastRefusal };
+  /** The attempts in each state, read NOW (a tap reads the truth, not the last render). */
+  const counts = useCallback((): PendingCounts => pendingCounts(stateRef.current), []);
+
+  return { pending, add, attempt, resend, commit, settled, blocker, counts, lastRefusal };
 }

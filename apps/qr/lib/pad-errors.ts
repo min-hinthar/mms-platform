@@ -2,6 +2,7 @@ import { STAFF, type StaffKey } from "./i18n/staff";
 import { fill } from "./i18n/fill";
 import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "./staff-outage";
 import type { StaffWriteCode } from "./staff-add-outcome";
+import { addAttemptOutcome, type AddAttemptOutcome } from "./staff-add-key";
 import type { NoticeKind, SlotNotice } from "./notice-slot";
 import type { SendNotice } from "./staff-send-view";
 
@@ -14,9 +15,13 @@ import type { SendNotice } from "./staff-send-view";
  *   • ok      — the add landed; its ghost waits for a read that started after it.
  *   • refused — a DEFINITE non-landing: the ghost goes, the dish is named, the settle cue plays.
  *   • unknown — the write may have committed (`unconfirmed`), or the action threw with its answer
- *               lost: the ghost STAYS and offers "Send again" under the SAME key — the ledger makes
+ *               lost: the ghost STAYS and offers "Try again" under the SAME key — the ledger makes
  *               that a no-op if the first landed. Never "didn't go on", which invites a new tap and
  *               a new key: a second plate, cooked and charged.
+ *
+ * ok / unknown / definite is Phase 2a's rule (`addAttemptOutcome`, `lib/staff-add-key.ts` — the
+ * add key's lifetime reads the same answer), READ here, never restated: this module only names
+ * which sentence a definite refusal is.
  *
  * The region is the diner's arbitrated slot (`lib/notice-slot.ts`, shipped in Phase 1c), reused
  * unchanged: `padSlotNotice` renders each notice's EN and MY through the dictionary so
@@ -49,9 +54,12 @@ const ADD_ERR = {
 
 export type PadAddErrKey = (typeof ADD_ERR)[keyof typeof ADD_ERR]["key"];
 
-/** Every code → its reading. A `Record` over the union, so a code added to `StaffWriteCode` without
- *  a reading here is a compile error, not a silent "try again". */
-const CODE: Record<StaffWriteCode, "signin" | "sentence" | "unknown" | keyof typeof ADD_ERR> = {
+/** A code `addAttemptOutcome` reads as DEFINITE — every code but the one that may have committed. */
+type DefiniteCode = Exclude<StaffWriteCode, "unconfirmed">;
+
+/** Every definite code → its reading. A `Record` over the union, so a code added to
+ *  `StaffWriteCode` without a reading here is a compile error, not a silent "try again". */
+const CODE: Record<DefiniteCode, "signin" | "sentence" | keyof typeof ADD_ERR> = {
   signin: "signin",
   sentence: "sentence",
   invalid: "failed",
@@ -62,7 +70,6 @@ const CODE: Record<StaffWriteCode, "signin" | "sentence" | "unknown" | keyof typ
   gone: "gone",
   outage: "outage",
   failed: "failed",
-  unconfirmed: "unknown",
 };
 
 export type PadAddRefusal =
@@ -75,17 +82,30 @@ export type PadAddVerdict =
   | { kind: "refused"; err: PadAddRefusal }
   | { kind: "unknown" };
 
-export function padAddVerdict(
-  res: { ok: true } | { ok: false; error: string; code?: StaffWriteCode } | "threw",
-): PadAddVerdict {
-  if (res === "threw") return { kind: "unknown" };
-  if (res.ok) return { kind: "ok" };
-  const reading = res.code === undefined ? "failed" : CODE[res.code];
-  if (reading === "unknown") return { kind: "unknown" };
+type AddRefusal = { ok: false; error: string; code?: StaffWriteCode };
+
+export function padAddVerdict(res: { ok: true } | AddRefusal | "threw"): PadAddVerdict {
+  const outcome = addAttemptOutcome(res);
+  if (outcome === "ok") return { kind: "ok" };
+  if (outcome === "unknown") return { kind: "unknown" };
+  // `addAttemptOutcome` says "definite" only of a refusal whose code is not `unconfirmed`.
+  const fail = res as AddRefusal & { code?: DefiniteCode };
+  const reading = fail.code === undefined ? "failed" : CODE[fail.code];
   if (reading === "signin") return { kind: "refused", err: { kind: "signin" } };
   if (reading === "sentence")
-    return { kind: "refused", err: { kind: "sentence", text: res.error } };
-  return { kind: "refused", err: { kind: "key", key: ADD_ERR[reading].key, code: res.code } };
+    return { kind: "refused", err: { kind: "sentence", text: fail.error } };
+  return { kind: "refused", err: { kind: "key", key: ADD_ERR[reading].key, code: fail.code } };
+}
+
+/** What the add chain answers its caller: the verdict, or `unconfirmed` (15s with no answer), or
+ *  `offline` (the tap never left the device). */
+export type PadAddOutcome = PadAddVerdict["kind"] | "unconfirmed" | "offline";
+
+/** The chain's answer in Phase 2a's words, for `heldAfter`: a key survives ONLY an outcome that may
+ *  have committed — an answer that said so, or 15s of none. Offline sent nothing: definite. */
+export function padAttemptOutcome(o: PadAddOutcome): AddAttemptOutcome {
+  if (o === "ok") return "ok";
+  return o === "unknown" || o === "unconfirmed" ? "unknown" : "definite";
 }
 
 const FAMILY: ReadonlyMap<StaffKey, StaffKey> = new Map(

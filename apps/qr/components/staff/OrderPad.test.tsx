@@ -311,7 +311,7 @@ describe("a refusal — definite, named, and set back down", () => {
 });
 
 describe("an unknown outcome — the SAME key, never a second plate", () => {
-  it("an answer that may have committed keeps the ghost and offers 'Send again' under the SAME key", async () => {
+  it("an answer that may have committed keeps the ghost and offers 'Try again' under the SAME key", async () => {
     addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
     mount();
     await act(async () => {
@@ -320,9 +320,14 @@ describe("an unknown outcome — the SAME key, never a second plate", () => {
     await flush();
     const key = (addItem.mock.calls[0]![0] as { addKey: string }).addKey;
     expect(ghosts()).toHaveLength(1);
-    const again = screen.getByRole("button", { name: /Send again/ });
-    // Send and Take payment wait on it.
+    // "Try again", never "Send again" — on this console "send" is the kitchen's word.
+    const again = screen.getByRole("button", { name: /^Try again — / });
+    // Send and Take payment wait on it — and say what fixes it, never "waiting": its answer came
+    // back, so nothing is coming (a family member would wait forever).
     expect(settleBtn().getAttribute("aria-disabled")).toBe("true");
+    const lost = STAFF["table.send.hold.lost"].en.replace("{x}", "Mohinga");
+    expect(document.getElementById("pad-settle-why")?.textContent).toBe(lost);
+    expect(document.body.textContent).not.toContain("Waiting to hear back");
     addItem.mockResolvedValueOnce({ ok: true });
     await act(async () => {
       fireEvent.click(again);
@@ -619,5 +624,305 @@ describe("a removal on the ticket — a ghost while it goes, back in place if re
     });
     await flush();
     expect(fire).not.toHaveBeenCalled();
+  });
+});
+
+describe("Take payment never drops a typed kitchen note (the allergy line)", () => {
+  const openNote = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note — Mohinga" }));
+    });
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    fireEvent.change(field, { target: { value: "no peanuts" } });
+    return field;
+  };
+
+  it("at a table: a note typed but not saved refuses the tap, says why, and takes focus to it", async () => {
+    mount(ONE());
+    const field = await openNote();
+    expect(settleBtn().getAttribute("aria-disabled")).toBe("true");
+    const why = STAFF["table.send.hold.note"].en.replace("{x}", "Mohinga");
+    expect(document.getElementById("pad-settle-why")?.textContent).toBe(why);
+    settleBtn().focus();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    // MUTATION: Take payment blind to the note — it navigates and the draft is thrown away; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+    expect(region().textContent).toBe(why);
+  });
+
+  it("at the counter (no Send guards it): the same refusal, on a line the Send would never fire", async () => {
+    mount(
+      detail({
+        label: "reg-ab12",
+        tableNumber: null,
+        mode: "pickup",
+        lines: [line({ id: "l1", sendable: false })],
+        itemCount: 1,
+        runningSubtotalCents: 1450,
+        settleTotalCents: 1581,
+        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: true },
+      }),
+      { counter: true },
+    );
+    const field = await openNote();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    expect(push).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+  });
+
+  it("a note typed WHILE Take payment waited on a dish is read again before it leaves", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    // The note editor is ON the ticket; staff type while the button waits.
+    const field = await openNote();
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    expect(push).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(field);
+    expect(settleBtn().getAttribute("aria-busy")).toBeNull();
+  });
+});
+
+describe("a refused tap says why — the phone bar has no room for the hint (§17)", () => {
+  it("Take payment on an empty order says 'Add a dish first' through the one region", async () => {
+    mount(detail());
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    // MUTATION: a silent refusal — a dimmed button that does nothing on screen; red.
+    expect(region().textContent).toBe(STAFF["pad.reason.empty"].en);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a Send held by a guest's payment says so when tapped", async () => {
+    mount(
+      detail({
+        lines: [line({ id: "l1" })],
+        itemCount: 1,
+        runningSubtotalCents: 1450,
+        paymentInFlight: true,
+        send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+      }),
+    );
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    expect(fire).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["table.send.paying"].en);
+  });
+});
+
+describe("Take payment says what it is actually doing while busy", () => {
+  it("nothing pending: 'Opening payment…' (never 'waiting for the last dish'), and a push that never lands frees it", async () => {
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(settleBtn().getAttribute("aria-busy")).toBe("true");
+    // MUTATION: one busy label for every phase — "Waiting for the last dish…" with no dish coming; red.
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle.opening"].en);
+    // The route never changed (a dropped push): the button comes back rather than sticking busy.
+    await flush(10_500);
+    expect(settleBtn().getAttribute("aria-busy")).toBeNull();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    expect(push).toHaveBeenCalledTimes(2);
+  });
+
+  it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
+    addItem.mockReturnValueOnce(new Promise(() => {}));
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle.busy"].en);
+  });
+});
+
+describe("the ticket's own writes withhold the amounts until a read shows them (§23)", () => {
+  it("a quantity change: '—' while it saves AND until a read that started after it commits", async () => {
+    const write = deferred<StaffWriteResult>();
+    setQty.mockReturnValueOnce(write.promise);
+    const read = deferred<TableDetailResult>();
+    mount(ONE());
+    await flush(400);
+    expect(receipt()).toBe("$14.50");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Increase Mohinga quantity" }));
+    });
+    // MUTATION: amounts blind to line writes — "$14.50" beside a quantity of 2; red.
+    expect(receipt()).toBe("—");
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle.bare"].en);
+    getTableDetail.mockReturnValueOnce(read.promise);
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush();
+    // Answered, but the read that shows it has not committed: still no figure.
+    expect(receipt()).toBe("—");
+    await act(async () => {
+      read.resolve({
+        kind: "detail",
+        detail: {
+          ...ONE(),
+          lines: [line({ id: "l1", qty: 2 })],
+          itemCount: 2,
+          runningSubtotalCents: 2900,
+          settleTotalCents: 3162,
+        },
+      });
+    });
+    await flush();
+    expect(receipt()).toBe("$29.00");
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$31.62"));
+  });
+});
+
+describe("no natively disabled button in any state (§17)", () => {
+  it("while a guest pays, and with a dish sold out", async () => {
+    mount(detail({ ...ONE(), paymentInFlight: true }), {
+      catalog: {
+        kind: "ok",
+        items: [...CATALOG.items, dish({ id: "s1", nameEn: "Samosa", soldOut: true })],
+      },
+    });
+    // MUTATION: a native `disabled` on the paused tiles, the paying Send or a sold-out tile; red.
+    expect(tile(/Samosa/).getAttribute("aria-disabled")).toBe("true");
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelectorAll("button[disabled]")).toHaveLength(0);
+  });
+});
+
+describe("the category rail during a search (the desktop register shows both)", () => {
+  it("tapping the chip chosen before the search picks it again — never 'All'", async () => {
+    mount();
+    const chip = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>(".pad-rail .staff-chip")].find(
+        (b) => b.textContent === name,
+      )!;
+    await act(async () => {
+      fireEvent.click(chip("Curries"));
+    });
+    expect(chip("Curries").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(document.querySelector<HTMLInputElement>(".pad-search-input")!, {
+      target: { value: "mo" },
+    });
+    expect(chip("Curries").getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      fireEvent.click(chip("Curries"));
+    });
+    // MUTATION: toggling the STORED choice — the retained slug toggles to null and "All" opens; red.
+    expect(chip("Curries").getAttribute("aria-pressed")).toBe("true");
+    expect(document.querySelectorAll(".pad-section")).toHaveLength(1);
+  });
+});
+
+describe("a removal whose answer is lost — said as unknown, never stranded", () => {
+  const TWO = () =>
+    detail({
+      lines: [line({ id: "l1" }), line({ id: "l2", name: "Tea", menuItemId: "t1", nameMy: null })],
+      itemCount: 2,
+      runningSubtotalCents: 2900,
+      settleTotalCents: 3162,
+      send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+    });
+
+  it("a removal that throws says it could not be confirmed — in the dictionary, by dish", async () => {
+    setQty.mockRejectedValueOnce(new Error("network"));
+    mount(TWO());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Mohinga" }));
+    });
+    await flush();
+    // MUTATION: the old literal English "Couldn’t update that…" — a definite failure for an
+    // unknown outcome, in English on a Burmese console; red.
+    expect(region().textContent).toBe(STAFF["pad.err.remove.unknown"].en.replace("{x}", "Mohinga"));
+  });
+
+  it("a removal in flight SAYS it holds the Send; hung past 15s it comes back, frees the Send, offers Reload", async () => {
+    setQty.mockReturnValueOnce(new Promise(() => {}));
+    mount(TWO());
+    await flush(400);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Mohinga" }));
+    });
+    // MUTATION: the hold kept in a ref only — a live-looking Send that ignores taps; red.
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector(".pad-dock .staff-send-hint")?.textContent).toBe(
+      STAFF["table.send.hold.writing"].en,
+    );
+    await flush(15_500);
+    // MUTATION: an un-raced removal — the Send held for as long as the request hangs; red.
+    expect(sendBtn().getAttribute("aria-disabled")).toBeNull();
+    expect(document.querySelector('[data-line-id="l1"]')?.className ?? "").not.toContain(
+      "mms-remove",
+    );
+    expect(region().textContent).toBe(STAFF["pad.err.remove.unknown"].en.replace("{x}", "Mohinga"));
+    expect(document.body.textContent).toContain(STAFF["pad.reload"].en);
+  });
+});
+
+describe("the options sheet's retry reads 2a's key rule", () => {
+  it("an unknown outcome keeps the key: the same choice again rides the SAME key; a new choice mints one", async () => {
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+        b.textContent?.includes("$14.50"),
+      )!;
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    expect(dialog.textContent).toContain(STAFF["browse.add.unconfirmed"].en);
+    const first = (addItem.mock.calls[0]![0] as { addKey: string }).addKey;
+    // The first may have landed: its ghost is LOST, so the retry sends it again, same key.
+    addItem.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    expect(addItem).toHaveBeenCalledTimes(2);
+    expect((addItem.mock.calls[1]![0] as { addKey: string }).addKey).toBe(first);
+  });
+});
+
+describe("the menu outage's Try again is never silent", () => {
+  it("still down after the re-read: the outage line comes through the one region", async () => {
+    mount(ONE(), { catalog: { kind: "outage" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["pad.menu.retry"].en }));
+    });
+    await flush();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    // MUTATION: a retry with no failure state — nothing on screen changes; red.
+    expect(region().textContent).toBe(STAFF["pad.menu.outage"].en);
   });
 });

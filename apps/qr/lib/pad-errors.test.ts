@@ -3,12 +3,18 @@ import { admitNotice, purgesDeferred } from "./notice-slot";
 import { STAFF } from "./i18n/staff";
 import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "./staff-outage";
 import type { StaffWriteCode } from "./staff-add-outcome";
-import { padAddNotice, padAddVerdict, padSendNotice, padSlotNotice } from "./pad-errors";
+import {
+  padAddNotice,
+  padAddVerdict,
+  padAttemptOutcome,
+  padSendNotice,
+  padSlotNotice,
+} from "./pad-errors";
 
 /**
  * Phase 2c · pad — what an add's answer MEANS on the pad, and what the one region says about it.
  * The two halves that must never be confused: a definite non-landing (the ghost goes, the dish is
- * named, a settle cue plays) and an UNKNOWN outcome (the ghost stays, "Send again" resends the SAME
+ * named, a settle cue plays) and an UNKNOWN outcome (the ghost stays, "Try again" resends the SAME
  * key — a new tap would be a new key, i.e. a second plate).
  */
 
@@ -130,5 +136,18 @@ describe("padSendNotice — the reused send controller's lines, into the pad's o
       msg: STAFF_WRITE_OUTAGE,
     });
     expect(padSendNotice("signin")).toBe("signin");
+  });
+});
+
+describe("padAttemptOutcome — the chain's answer in the add key's own words (Phase 2a)", () => {
+  it("a key survives only an outcome that may have committed", () => {
+    expect(padAttemptOutcome("ok")).toBe("ok");
+    expect(padAttemptOutcome("unknown")).toBe("unknown");
+    // MUTATION: 15s of no answer read as definite — the options sheet's retry mints a NEW key
+    // while the first may still land: a second plate; red.
+    expect(padAttemptOutcome("unconfirmed")).toBe("unknown");
+    expect(padAttemptOutcome("refused")).toBe("definite");
+    // Offline sent nothing: the next tap is a new add.
+    expect(padAttemptOutcome("offline")).toBe("definite");
   });
 });

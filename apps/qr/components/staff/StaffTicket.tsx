@@ -51,13 +51,14 @@ export type CounterNameField = {
  * Head: the "Order" heading (the section's name and the focus fallback) and, on a counter order,
  * the name the expo calls out. Body: the lines in groups (not sent · to-go · in the kitchen · served
  * · removed; headings only with two or more), each a `StaffLineEditor`, and the GHOSTS of adds still
- * in flight at the end of "Not sent yet" — "Adding…", "Checking…", or "Send again" (the SAME add
+ * in flight at the end of "Not sent yet" — "Adding…", "Checking…", or "Try again" (the SAME add
  * key, so it can never go on twice) — never a price. A removal leaves as a ghost while the list
  * closes over it, and a refused one comes back in place (`useLineMotion`, §24). Foot: the server's
- * pre-tax subtotal on a receipt row, "—" while anything is pending (amounts are never intent); the
- * pre-tax note; the frozen-feed line; "Reload the order" once an add has gone unanswered; and the
- * status row the pad hands in (to-go at pay · everything sent · counter at pay). The Send and Take
- * payment live in the pad's dock, one node each, placed by CSS per tier.
+ * pre-tax subtotal on a receipt row, "—" while anything is pending — an add, or a line write in
+ * flight or not yet read (amounts are never intent); the pre-tax note; the frozen-feed line; "Reload
+ * the order" once an add or a removal has gone unanswered; and the status row the pad hands in
+ * (to-go at pay · everything sent · counter at pay). The Send and Take payment live in the pad's
+ * dock, one node each, placed by CSS per tier.
  *
  * The ticket mounts NO live region: every outcome goes to the pad's one Toast.
  */
@@ -86,7 +87,7 @@ export function StaffTicket({
   sessionId: string;
   detail: TableDetail;
   pending: readonly PendingAdd[];
-  /** No add is pending: the subtotal may be named. */
+  /** Nothing is pending (`padAmountsSettled`): the subtotal may be named. */
   amountsSettled: boolean;
   degraded: StaffDegraded | null;
   nowMs: number;
@@ -272,7 +273,8 @@ export function StaffTicket({
 }
 
 /** An add still on its way. Its words are aria-hidden (the claim was SPOKEN at the tap); the one
- *  control it may carry — "Send again", on an add whose answer was lost — is named in full. */
+ *  control it may carry — "Try again", on an add whose answer was lost — is named in full. Never
+ *  "send": on this console that word is the kitchen's, and "send again" reads as "cook it twice". */
 function GhostRow({
   lang,
   add,
@@ -293,11 +295,11 @@ function GhostRow({
           variant="secondary"
           size="sm"
           aria-label={
-            al(lang, { kind: "verb", verb: "pad.ghost.verb.resend", subject: name.text }).aria
+            al(lang, { kind: "verb", verb: "pad.ghost.verb.retry", subject: name.text }).aria
           }
           onClick={() => onResend(add.key)}
         >
-          <Chrome lang={lang} k="pad.ghost.verb.resend" />
+          <Chrome lang={lang} k="pad.ghost.verb.retry" />
         </Button>
       ) : (
         <span className="pad-ghost-status" aria-hidden="true">

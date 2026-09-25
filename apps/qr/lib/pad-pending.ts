@@ -123,3 +123,13 @@ export function pendingUnitsByItem(s: readonly PendingAdd[]): ReadonlyMap<string
 export function pendingBlocker(s: readonly PendingAdd[]): PendingAdd | null {
   return s.find((p) => p.state === "unconfirmed" || p.state === "lost") ?? null;
 }
+
+/**
+ * The ticket's own writes (a qty change, a removal, a note) follow the landed ghost's rule: once a
+ * line write ANSWERS, the amounts stay withheld until a read that STARTED after the answer commits.
+ * `unreadSeq` is the last read started when the write answered (null: nothing unread). A read already
+ * in the air carries the old figures, so only a strictly later start clears it.
+ */
+export function unreadAfterCommit(unreadSeq: number | null, readStartSeq: number): number | null {
+  return unreadSeq !== null && unreadSeq < readStartSeq ? null : unreadSeq;
+}

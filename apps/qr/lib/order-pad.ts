@@ -2,9 +2,15 @@ import { needsChoice, type ModGroup } from "./menu/modifiers";
 import { browseRows, type BrowseRow } from "./menu-browse";
 import { catalogNameMy } from "./ticket-names";
 import type { TableDetail, TableLineView } from "./floor-types";
-import type { StaffSendView } from "./staff-send-view";
+import {
+  sendHoldMsg,
+  type StaffKeyMsg,
+  type StaffLineEdit,
+  type StaffSendView,
+} from "./staff-send-view";
 import type { PendingCounts } from "./pad-pending";
 import type { StaffLang } from "./staff-lang";
+import type { StaffKey } from "./i18n/staff";
 
 /**
  * Phase 2c · pad — the ORDER PAD's decisions, pure (DESIGN-LANGUAGE §28).
@@ -79,6 +85,16 @@ export function padCategories(items: readonly PadCatalogItem[]): PadCategory[] {
 }
 
 export type PadSection<T> = { key: string; title: string | null; items: T[] };
+
+/**
+ * A chip tap toggles against what is SHOWN, never what is stored: during a search no chip is lit
+ * (`padSections` reports `activeCat: null`), so any chip — the one chosen before the search
+ * included — picks its category. Toggling the stored choice instead opened "All" on the desktop
+ * register, where the rail stays beside the field while a search runs.
+ */
+export function padPickCat(activeCat: string | null, slug: string | null): string | null {
+  return slug === null || activeCat === slug ? null : slug;
+}
 
 /**
  * The tile pane. A non-empty search IGNORES the chip and matches English, raw Burmese and category
@@ -156,19 +172,48 @@ export const TICKET_GROUP_ORDER = GROUP_ORDER;
 
 // ── amounts, Send and Take payment ───────────────────────────────────────────────────────────────
 
-/** Every amount the pad names (the ticket's subtotal, Take payment's figure) is shown only when no
- *  add is pending — flying, landed but not yet read, unconfirmed or lost. One predicate, so the two
- *  can never disagree about whether a figure is current (§23: amounts are never intent). */
-export function padAmountsSettled(p: PendingCounts): boolean {
-  return p.flying + p.unseen + p.unconfirmed + p.lost === 0;
+/** The ticket's OWN writes (a qty change, a note, a removal), as the amounts read them. */
+export type PadLineWrites = {
+  /** Line writes still in flight. */
+  writing: number;
+  /** A line write answered, but no read that STARTED after its answer has committed yet — the
+   *  server's figures still predate it (the same rule as a landed add's ghost). */
+  unread: boolean;
+};
+
+/** Every amount the pad names (the ticket's subtotal, Take payment's figure) is shown only when
+ *  nothing is pending — no add flying, landed but not yet read, unconfirmed or lost, and no line
+ *  write in flight or unread. One predicate, so the two can never disagree about whether a figure
+ *  is current (§23: amounts are never intent; a quantity just changed beside the old total is one). */
+export function padAmountsSettled(p: PendingCounts, lines: PadLineWrites): boolean {
+  const adds = p.flying + p.unseen + p.unconfirmed + p.lost === 0;
+  return adds && lines.writing === 0 && !lines.unread;
+}
+
+/**
+ * The unsaved kitchen note Take payment waits on. WIDER than the Send's `sendHoldFrom`: ANY draft
+ * line's note, because Take payment LEAVES the pad — the editor unmounts and its draft goes with it
+ * — and a counter order's lines and a table's to-go drafts cook at payment, so there the note is
+ * lost with no Send to guard it. The note is where an allergy lives.
+ */
+export function unsavedNoteFrom(
+  edits: ReadonlyArray<StaffLineEdit>,
+): { lineId: string; name: string } | null {
+  const note = edits.find((e) => e.noteDirty);
+  return note ? { lineId: note.lineId, name: note.name } : null;
 }
 
 /**
  * Why Take payment refuses a tap. ⚠️ THE SETTLE GATE PLUGS IN HERE (owner decision, 2c commit B —
- * built by the gate area): it adds `"unsent"` to this union and ONE clause to `padSettle`, and the
- * pad renders the refusal from the value.
+ * built by the gate area): it adds `"unsent"` to this union, ONE clause to `padSettle`, and its
+ * sentence to `SETTLE_REASON` — a `Record` over this union, so the new member is a compile error
+ * until its sentence exists.
  */
-export type PadSettleBlock = "empty" | "waiting" | "paying";
+export type PadSettleBlock = "paying" | "note" | "waiting" | "empty";
+
+/** Take payment's life after a tap: waiting on a dish still on its way, saving a typed counter name,
+ *  then opening the table's payment section. */
+export type PadSettlePhase = "idle" | "draining" | "saving" | "opening";
 
 export type PadSettleInput = {
   mode: TableDetail["mode"];
@@ -183,7 +228,11 @@ export type PadSettleInput = {
   pending: PendingCounts;
   /** The send controller is mid-write (sending, bringing back). */
   sendBusy: boolean;
-  settlePhase: "idle" | "draining" | "saving";
+  /** A line's kitchen note is typed but not saved (`unsavedNoteFrom`). */
+  unsavedNote: boolean;
+  /** The ticket's own writes: one in flight holds Take payment; any hides its amount. */
+  lines: PadLineWrites;
+  settlePhase: PadSettlePhase;
 };
 
 export type PadSettle = {
@@ -202,19 +251,70 @@ export function padSettle(i: PadSettleInput): PadSettle {
   const inFlight = i.pending.flying + i.pending.unseen;
   const block: PadSettleBlock | null = i.paying
     ? "paying"
-    : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy
-      ? "waiting"
-      : i.itemCount === 0 && inFlight === 0
-        ? "empty"
-        : null;
+    : i.unsavedNote
+      ? "note"
+      : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0
+        ? "waiting"
+        : i.itemCount === 0 && inFlight === 0
+          ? "empty"
+          : null;
   return {
     variant,
     // A tap while an add FLIES is accepted: the pad drains the add chain, then goes.
     enabled: i.open && block === null && !busy,
     busy,
-    showAmount: i.settleTotalCents !== null && padAmountsSettled(i.pending),
+    showAmount: i.settleTotalCents !== null && padAmountsSettled(i.pending, i.lines),
     block,
   };
+}
+
+/** What a refused Take payment says: the dish on a hold, the running bill on a paying guest. */
+export type PadReasonCtx = {
+  /** The table runs a running bill. */
+  tab: boolean;
+  /** The dish whose note is unsaved, as the console renders it. */
+  note: string | null;
+  /** The add Take payment waits on: its dish, and whether its answer was lost or is still coming. */
+  blocker: { name: string; state: "unconfirmed" | "lost" } | null;
+};
+
+/** One sentence per reason. A `Record` over the union (never a ternary chain that falls through to
+ *  nothing), so a reason added to `PadSettleBlock` is a compile error until it can be said. The add
+ *  hold words are the Send's own (`sendHoldMsg`): one hold, one sentence, wherever it is said. */
+const SETTLE_REASON: { readonly [B in PadSettleBlock]: (c: PadReasonCtx) => StaffKeyMsg } = {
+  paying: (c) => ({ k: c.tab ? "table.detail.payingPhone.tab" : "table.detail.payingPhone.cash" }),
+  note: (c) => ({ k: "table.send.hold.note", vars: { x: c.note ?? "" } }),
+  waiting: (c) =>
+    c.blocker
+      ? sendHoldMsg({ kind: "add", name: c.blocker.name, state: c.blocker.state })
+      : { k: "table.send.hold.writing" },
+  empty: () => ({ k: "pad.reason.empty" }),
+};
+
+/** The sentence for a refused Take payment — its hint, and what a tap on it says (§17). */
+export function padSettleReason(block: PadSettleBlock, c: PadReasonCtx): StaffKeyMsg {
+  return SETTLE_REASON[block](c);
+}
+
+const SETTLE_BUSY: { readonly [P in Exclude<PadSettlePhase, "idle">]: StaffKey } = {
+  draining: "pad.settle.busy",
+  saving: "pad.settle.savingName",
+  opening: "pad.settle.opening",
+};
+
+/** What a busy Take payment says — the phase it is actually in, never "waiting for the last dish"
+ *  when no dish is on its way. */
+export function padSettleBusyKey(phase: PadSettlePhase): StaffKey | null {
+  return phase === "idle" ? null : SETTLE_BUSY[phase];
+}
+
+/** The phase a Take payment tap starts in: it WAITS only while an add is still on its way (the
+ *  drain returns at once otherwise), then saves a typed counter name, then opens payment. */
+export function padSettleStartPhase(i: {
+  flying: number;
+  saveName: boolean;
+}): Exclude<PadSettlePhase, "idle"> {
+  return i.flying > 0 ? "draining" : i.saveName ? "saving" : "opening";
 }
 
 /**

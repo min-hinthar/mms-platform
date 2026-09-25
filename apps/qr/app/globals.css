@@ -12737,8 +12737,8 @@ a.aisle-tile {
    a kit idiom (mms-pop / mms-settle / mms-rise / mms-remove / staff-press), escorted below. */
 .pad-main {
   --pad-ticket-w: 20rem;
-  /* the Toast rides above the phone's dock (primitives.css reads this) */
-  --cta-dock-h: 5rem;
+  /* The Toast rides above the phone's dock: `--cta-dock-h` is the dock's MEASURED height, published
+     on the root by `useCtaDock` (OrderPad) — never a guessed constant. */
   height: 100vh;
   height: 100dvh;
   display: grid;
@@ -12748,10 +12748,6 @@ a.aisle-tile {
 }
 .pad-main > .staff-bar {
   margin-bottom: 0;
-}
-/* The phone's order view grows the dock by the Take-payment row. */
-.pad-main:has(.pad-shell[data-view="order"]:not([data-counter])) {
-  --cta-dock-h: 9.5rem;
 }
 /* The skip link: the FIRST focusable element, visible only when a keyboard reaches it. */
 .pad-skip {
@@ -13257,6 +13253,14 @@ a.aisle-tile {
     clip-path: inset(50%);
     white-space: nowrap;
   }
+  /* The bar's slots are narrow (the primary about 12.75rem at 390px): the xl tap keeps its height,
+     not its 2rem gutters or its heading size, so "Send 3 to kitchen" and a stacked Burmese echo
+     each stay on one line. Unmeasured on a device (docs/p2c-notes/pad.md). */
+  .pad-dock .ui-btn-xl {
+    padding-inline: var(--s3);
+    font-size: var(--fs-lead);
+    text-wrap: balance;
+  }
 }
 
 /* The tablet tier: tiles beside the ticket, the rail WRAPPED (a touch device should not need swipes). */
@@ -13335,6 +13339,12 @@ a.aisle-tile {
   .pad-shell[data-view] .pad-dock {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas: "settle primary";
+  }
+  /* two xl taps side by side in a 20–24rem column: the same narrow-slot trim as the phone bar */
+  .pad-dock .ui-btn-xl {
+    padding-inline: var(--s3);
+    font-size: var(--fs-lead);
+    text-wrap: balance;
   }
   .pad-shell[data-counter][data-view] .pad-dock {
     grid-template-columns: minmax(0, 1fr);

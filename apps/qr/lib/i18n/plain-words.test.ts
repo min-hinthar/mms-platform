@@ -196,3 +196,17 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
     });
   });
 });
+
+// ── Phase 2c · pad ──
+describe("one word per concept — on the staff console, 'send' is the kitchen's verb", () => {
+  it("no add's words say 'send': a retry read as 'send again' reads as 'cook it twice'", () => {
+    const staff = englishValues("staff.ts", read("staff.ts")).values;
+    // The keys whose subject is an ADD — the order pad's ghost row and its add refusals, and the
+    // add sentences the options sheet shares.
+    const adds = staff.filter((v) => /^(pad\.ghost\.|pad\.err\.add\.|browse\.add)/.test(v.key));
+    expect(adds.length).toBeGreaterThanOrEqual(10);
+    // MUTATION: the ghost's retry as "Send again" (it shipped that way) — next to "Send 3 to
+    // kitchen", a family member reads it as sending the dish to the kitchen a second time; red.
+    expect(adds.filter((v) => /\bsend\b/i.test(v.en)).map((v) => v.key)).toEqual([]);
+  });
+});

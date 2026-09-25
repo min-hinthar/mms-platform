@@ -2,7 +2,7 @@
 import { useId } from "react";
 import { Button, Icon } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
-import type { StaffSendHold } from "@/lib/staff-send-view";
+import { sendRefusalMsg, type StaffSendHold } from "@/lib/staff-send-view";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import type { StaffSendController } from "./useStaffSend";
@@ -92,14 +92,11 @@ export function StaffSendButton({
   const held = live && !blocked && hold !== null;
   const noteId = `${ids}-note`;
   const reasonId = `${ids}-why`;
-  const reason = blocked ? (
-    <Chrome lang={lang} k="table.send.paying" echo="stack" />
-  ) : held && hold.kind === "note" ? (
-    <Chrome lang={lang} k="table.send.hold.note" vars={{ x: hold.name }} echo="stack" />
-  ) : held && hold.kind === "add" ? (
-    <Chrome lang={lang} k="table.send.hold.add" vars={{ x: hold.name }} echo="stack" />
-  ) : held ? (
-    <Chrome lang={lang} k="table.send.hold.writing" echo="stack" />
+  // Phase 2c · pad — the sentence is `sendRefusalMsg` (paying outranks a hold), the ONE wording the
+  // order pad also says when a refused Send is tapped; the table page renders exactly what it did.
+  const refusal = live ? sendRefusalMsg(view, hold) : null;
+  const reason = refusal ? (
+    <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
   ) : null;
   const note =
     live && view.note === "host" ? (

@@ -4,12 +4,13 @@ import {
   pendingCounts,
   pendingReduce,
   pendingUnitsByItem,
+  unreadAfterCommit,
   type PendingAdd,
 } from "./pad-pending";
 
 /**
  * Phase 2c · pad — the order pad's in-flight adds, as values. Every rule here is what decides
- * whether a ghost row says "Adding…", "Checking…" or offers "Send again", and when it leaves: a
+ * whether a ghost row says "Adding…", "Checking…" or offers "Try again", and when it leaves: a
  * ghost that lingers doubles the dish on screen, a ghost that leaves early hides a dish that may be
  * on the bill.
  */
@@ -116,5 +117,17 @@ describe("pendingCounts / pendingUnitsByItem / pendingBlocker", () => {
     // Flying and landed adds are not blockers — only the unknown ones hold Send and Settle.
     expect(pendingBlocker(run(tap("a"), { kind: "ok", key: "a", seq: 1 }))).toBeNull();
     expect(pendingBlocker(run(tap("a"), { kind: "rejected", key: "a" }))?.key).toBe("a");
+  });
+});
+
+describe("unreadAfterCommit — the ticket's own writes follow the ghost's rule", () => {
+  it("clears only on a read that STARTED after the write answered", () => {
+    // The write answered while read 4 was the last started: read 4 may predate it.
+    // MUTATION: `<=` — a poll already in the air when the qty write landed shows the OLD total and
+    // it is named beside the new quantity; red.
+    expect(unreadAfterCommit(4, 4)).toBe(4);
+    expect(unreadAfterCommit(4, 3)).toBe(4);
+    expect(unreadAfterCommit(4, 5)).toBeNull();
+    expect(unreadAfterCommit(null, 9)).toBeNull();
   });
 });

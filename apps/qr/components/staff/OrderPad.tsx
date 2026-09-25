@@ -7,29 +7,50 @@ import { tableDisplay, type TableDetail, type TableLineView } from "@/lib/floor-
 import { staffSetQty } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
 import { counterAskLive } from "@/lib/counter-pay-state";
+import { raceTimeout } from "@/lib/staff-outage";
+import { useCtaDock } from "@/lib/hooks/useCtaDock";
 import {
   sendHoldFrom,
+  sendHoldMsg,
+  sendRefusalMsg,
   staffSendView,
   type SendNotice,
+  type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendHold,
 } from "@/lib/staff-send-view";
-import { heldAfter, type HeldAddKey } from "@/lib/staff-add-key";
+import { heldAfter, keyForAttempt, type HeldAddKey } from "@/lib/staff-add-key";
 import {
   padAmountsSettled,
   padCategories,
   padDishName,
+  padPickCat,
   padSections,
   padSendView,
   padSettle,
+  padSettleBusyKey,
+  padSettleReason,
+  padSettleStartPhase,
   padTileBlock,
   ticketUnitsByItem,
   tileAction,
+  unsavedNoteFrom,
   type PadCatalogItem,
+  type PadLineWrites,
+  type PadReasonCtx,
+  type PadSettleInput,
+  type PadSettlePhase,
 } from "@/lib/order-pad";
-import { pendingCounts, pendingUnitsByItem } from "@/lib/pad-pending";
+import {
+  pendingBlocker,
+  pendingCounts,
+  pendingUnitsByItem,
+  unreadAfterCommit,
+  type PendingAdd,
+} from "@/lib/pad-pending";
 import {
   padAddNotice,
+  padAttemptOutcome,
   padSendNotice,
   padSentenceNotice,
   padSlotNotice,
@@ -50,10 +71,30 @@ import { StaffSendButton } from "./StaffSendButton";
 import { StaffModSheet, type StaffSheetFailure } from "./StaffModSheet";
 import { useStaffSend } from "./useStaffSend";
 import { usePadDetailLive } from "./usePadDetailLive";
-import { usePadWrites, type PadAddOutcome } from "./usePadWrites";
+import { usePadWrites } from "./usePadWrites";
 import { usePadNotices } from "./usePadNotices";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/** A Take payment whose navigation never lands (a dropped push) comes back to idle after this long,
+ *  so the button cannot stay busy for good. A starting value, unmeasured on a device. */
+const SETTLE_OPEN_RESET_MS = 10_000;
+
+/** The ticket's line editors, as the pad holds them: the Send's hold, the note Take payment waits
+ *  on, and how many line writes are in flight. */
+type LineState = {
+  send: StaffSendHold;
+  note: { lineId: string; name: string } | null;
+  writing: number;
+};
+const NO_LINES: LineState = { send: null, note: null, writing: 0 };
+
+/** An add whose fate is unknown, as the Send's hold names it. */
+const addHold = (p: PendingAdd, name: string): NonNullable<StaffSendHold> => ({
+  kind: "add",
+  name,
+  state: p.state === "lost" ? "lost" : "unconfirmed",
+});
 
 /** The catalog as the page read it: the dishes, or an outage (the ORDER still works). */
 export type PadCatalog = { kind: "ok"; items: PadCatalogItem[] } | { kind: "outage" };
@@ -104,6 +145,11 @@ export function OrderPad({
   const dockRef = useRef<HTMLDivElement>(null);
 
   const { shown, leaving, notify } = usePadNotices();
+  // A refusal, said once through the one region — the same sentence its hint carries.
+  const say = useCallback(
+    (m: StaffKeyMsg) => notify(padSlotNotice("correction", m.k, m.vars)),
+    [notify],
+  );
 
   // ── the add chain ──────────────────────────────────────────────────────────────────────────────
   const [soldLocal, setSoldLocal] = useState<ReadonlySet<string>>(() => new Set());
@@ -128,11 +174,26 @@ export function OrderPad({
     onSignin,
     onRefused,
   });
+  // The ticket's own writes (a qty change, a note, a removal) follow the landed ghost's rule: once
+  // one answers, the amounts wait for a read that STARTED after it (`unreadAfterCommit`).
+  const [lineUnreadSeq, setLineUnreadSeq] = useState<number | null>(null);
+  const markLineUnread = useCallback(() => {
+    setLineUnreadSeq(readsRef.current);
+    refreshRef.current();
+  }, []);
+  const { commit: commitAdds } = writes;
+  const onCommit = useCallback(
+    (readStartSeq: number) => {
+      commitAdds(readStartSeq);
+      setLineUnreadSeq((s) => unreadAfterCommit(s, readStartSeq));
+    },
+    [commitAdds],
+  );
   const live = usePadDetailLive({
     initial: initialDetail,
     sessionId,
     readsRef,
-    onCommit: writes.commit,
+    onCommit,
   });
   const { refresh } = live;
   useEffect(() => {
@@ -144,7 +205,12 @@ export function OrderPad({
   const paying = detail.paymentInFlight;
   const canWrite = open && !paying;
   const tileBlock = padTileBlock({ open, paying, pending: counts });
-  const blocker = writes.pending.find((p) => p.state === "unconfirmed" || p.state === "lost");
+  const blocker = pendingBlocker(writes.pending);
+  // A dish on the ticket, named as the console renders it (a hold names a LINE by its id).
+  const lineDish = (lineId: string, fallback: string) => {
+    const l = detail.lines.find((x) => x.id === lineId);
+    return l ? dishName(l) : fallback;
+  };
 
   // A frozen feed is said ONCE per freeze, through the one region ("Not updating" — the bar's own
   // word); the ticket's foot keeps the full frozen-board line after. Scheduled, never synchronous
@@ -166,6 +232,21 @@ export function OrderPad({
   const searching = q.trim() !== "";
   const confirmedBy = ticketUnitsByItem(detail.lines);
   const pendingBy = pendingUnitsByItem(writes.pending);
+
+  // The menu outage's "Try again": busy while the page re-reads, and — when the menu is STILL down
+  // after it — the outage line again through the one region, so a retry that changed nothing is
+  // never silent. Scheduled, never synchronous in the effect body.
+  const [retrying, startRetry] = useTransition();
+  const [retries, setRetries] = useState(0);
+  const saidRetry = useRef(0);
+  useEffect(() => {
+    if (retrying || retries === saidRetry.current) return;
+    const id = setTimeout(() => {
+      saidRetry.current = retries;
+      if (catalog.kind === "outage") notify(padSlotNotice("correction", "pad.menu.outage"));
+    }, 0);
+    return () => clearTimeout(id);
+  }, [retries, retrying, catalog.kind, notify]);
 
   // ── the phone's two views (menu | order); a tablet shows both, and CSS decides ────────────────
   const [view, setView] = useState<"menu" | "order">("menu");
@@ -197,30 +278,26 @@ export function OrderPad({
       choice.qty,
       choice.notes ?? "",
     ]);
-    const held = heldKey.current;
+    // Phase 2a's rule, READ (never restated): the held key when this is a retry of the same intent
+    // after an unknown outcome, else a new one. The chain sends a key it already holds again.
+    const key = keyForAttempt(heldKey.current, intent, () => crypto.randomUUID());
     startTransition(async () => {
-      let key: string | null;
-      let outcome: PadAddOutcome;
-      if (held !== null && held.intent === intent) {
-        key = held.key;
-        outcome = await writes.resend(held.key);
-      } else {
-        const r = writes.add(
-          {
-            itemId: item.id,
-            name: item.nameEn,
-            nameMy: item.nameMy,
-            qty: choice.qty,
-            modifierIds: choice.modifierIds,
-            notes: choice.notes,
-          },
-          { quietRefusal: true },
-        );
-        key = r.key;
-        outcome = await r.done;
-      }
-      const unknown = outcome === "unknown" || outcome === "unconfirmed";
-      heldKey.current = key && unknown ? heldAfter(intent, key, "unknown") : null;
+      const r = writes.attempt(
+        key,
+        {
+          itemId: item.id,
+          name: item.nameEn,
+          nameMy: item.nameMy,
+          qty: choice.qty,
+          modifierIds: choice.modifierIds,
+          notes: choice.notes,
+        },
+        { quietRefusal: true },
+      );
+      const outcome = await r.done;
+      const lifetime = padAttemptOutcome(outcome);
+      heldKey.current = heldAfter(intent, key, lifetime);
+      const unknown = lifetime === "unknown";
       if (outcome === "ok") {
         setSheetItem(null);
         // The origin (the sheet) is gone: the claim is DRAWN, not quiet (§23).
@@ -236,7 +313,7 @@ export function OrderPad({
         });
       } else {
         setSheetError(
-          writes.lastRefusal(key) ?? {
+          writes.lastRefusal(r.key) ?? {
             kind: "msg",
             msg: { k: "pad.err.add.failed", vars: { x: dishName(itemName(item)) } },
           },
@@ -270,11 +347,9 @@ export function OrderPad({
         return;
       }
       if (tileBlock === "waiting") {
-        notify(
-          padSlotNotice("correction", "table.send.hold.add", {
-            x: blocker ? dishName(blocker) : x,
-          }),
-        );
+        // The hung add is what holds the queue (`padTileBlock`): name it, in the Send's words.
+        const hung = writes.pending.find((p) => p.state === "unconfirmed");
+        say(sendHoldMsg(hung ? addHold(hung, dishName(hung)) : { kind: "writing" }));
         return;
       }
       if (opts || action === "choose") {
@@ -306,7 +381,13 @@ export function OrderPad({
 
   // ── line removals (the ticket's ghost; focus moved by the ticket BEFORE this) ──────────────────
   const [removing, setRemoving] = useState<ReadonlySet<string>>(() => new Set());
+  // Removals in flight: the REF is what a tap reads (the Send's hold); the state is what renders its
+  // hint. Both count down when the removal answers — or when 15s pass without an answer.
   const removals = useRef(0);
+  const [removalsLive, setRemovalsLive] = useState(0);
+  // Removals whose request is still hung after 15s: Next runs actions one at a time, so every later
+  // write waits behind it — the ticket offers "Reload the order" until it answers.
+  const [hungRemovals, setHungRemovals] = useState(0);
   // A removal the server confirmed leaves `removing` once the read no longer has the line.
   const lineIds = detail.lines.map((l) => l.id).join("\u0001");
   const [seenLineIds, setSeenLineIds] = useState(lineIds);
@@ -321,13 +402,26 @@ export function OrderPad({
     (line: TableLineView) => {
       setRemoving((prev) => new Set(prev).add(line.id));
       removals.current += 1;
+      setRemovalsLive((n) => n + 1);
       const back = () =>
         setRemoving((prev) => {
           const next = new Set(prev);
           next.delete(line.id);
           return next;
         });
-      staffSetQty(sessionId, { cartItemId: line.id, qty: 0 })
+      const raw = staffSetQty(sessionId, { cartItemId: line.id, qty: 0 });
+      // The raw request, watched on its own: after a 15s give-up it may still be holding the queue.
+      let answered = false;
+      let hung = false;
+      const onAnswer = () => {
+        answered = true;
+        if (!hung) return;
+        hung = false;
+        setHungRemovals((n) => n - 1);
+        refreshRef.current(); // the late answer: re-read what it did
+      };
+      raw.then(onAnswer, onAnswer);
+      raceTimeout(raw)
         .then(
           (res) => {
             if (!res.ok) {
@@ -336,19 +430,25 @@ export function OrderPad({
             }
           },
           (e: unknown) => {
-            // The answer was lost: the removal may have landed. Put the row back and re-read — the
-            // read is the truth (a line that is gone stays gone).
-            console.error("[OrderPad] staffSetQty threw", e);
+            // It threw, or 15s passed with no answer: the removal MAY have landed. Put the row back,
+            // say it as unknown (never "not removed"), and re-read — the read is the truth (a line
+            // that is gone stays gone). A request still hung holds the queue: offer the reload.
+            console.error("[OrderPad] staffSetQty threw or timed out", e);
             back();
-            notify(padSentenceNotice("Couldn’t update that — check the connection and try again."));
+            say({ k: "pad.err.remove.unknown", vars: { x: dishName(line) } });
+            if (!answered) {
+              hung = true;
+              setHungRemovals((n) => n + 1);
+            }
           },
         )
         .finally(() => {
           removals.current -= 1;
-          refreshRef.current();
+          setRemovalsLive((n) => n - 1);
+          markLineUnread(); // re-read now; the amounts wait for a read that started after this
         });
     },
-    [notify, sessionId],
+    [notify, say, sessionId, dishName, markLineUnread],
   );
 
   // ── the Send (the table page's controller, reused; owned HERE) ─────────────────────────────────
@@ -364,22 +464,47 @@ export function OrderPad({
   const sendable = detail.mode === "dinein" && open;
   const padSend = padSendView(sendRaw, { sendable, paying, pending: counts });
   const lineEdits = useRef(new Map<string, StaffLineEdit>());
-  const [lineHold, setLineHold] = useState<StaffSendHold>(null);
-  const onEditState = useCallback((lineId: string, edit: StaffLineEdit | null) => {
-    if (edit) lineEdits.current.set(lineId, edit);
-    else lineEdits.current.delete(lineId);
-    const next = sendHoldFrom([...lineEdits.current.values()]);
-    setLineHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
-  }, []);
-  const getHold = useCallback((): StaffSendHold => {
+  const [lineState, setLineState] = useState<LineState>(NO_LINES);
+  const onEditState = useCallback(
+    (lineId: string, edit: StaffLineEdit | null) => {
+      const was = lineEdits.current.get(lineId);
+      if (edit) lineEdits.current.set(lineId, edit);
+      else lineEdits.current.delete(lineId);
+      // A qty or note write just ANSWERED: its figures are unread until a later read commits.
+      if (was?.writing && !edit?.writing) markLineUnread();
+      const edits = [...lineEdits.current.values()];
+      const next: LineState = {
+        send: sendHoldFrom(edits),
+        note: unsavedNoteFrom(edits),
+        writing: edits.filter((e) => e.writing).length,
+      };
+      setLineState((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+    },
+    [markLineUnread],
+  );
+  // A hold as the pad SAYS it: a note names its dish Burmese-first, like every name on the pad.
+  const named = (h: StaffSendHold): StaffSendHold =>
+    h?.kind === "note" ? { ...h, name: lineDish(h.lineId, h.name) } : h;
+  const getHold = (): StaffSendHold => {
     const lines = sendHoldFrom([...lineEdits.current.values()]);
-    if (lines) return lines;
+    if (lines) return named(lines);
     if (removals.current > 0) return { kind: "writing" };
     const b = writes.blocker();
-    return b ? { kind: "add", name: dishName(b) } : null;
-  }, [writes, dishName]);
-  const renderedHold: StaffSendHold =
-    lineHold ?? (blocker ? { kind: "add", name: dishName(blocker) } : null);
+    return b ? addHold(b, dishName(b)) : null;
+  };
+  // What the Send's hint shows — the same order as `getHold`, from rendered state.
+  const renderedHold: StaffSendHold = lineState.send
+    ? named(lineState.send)
+    : removalsLive > 0
+      ? { kind: "writing" }
+      : blocker
+        ? addHold(blocker, dishName(blocker))
+        : null;
+  // The ticket's own writes, as the amounts and Take payment read them.
+  const lineWrites: PadLineWrites = {
+    writing: lineState.writing + removalsLive,
+    unread: lineUnreadSeq !== null,
+  };
   const onSendNotice = useCallback(
     (n: SendNotice | null) => {
       if (n === null) return; // the pad's slot is arbitrated; a new tap does not blank it
@@ -393,11 +518,11 @@ export function OrderPad({
     await writes.settled();
     const b = writes.blocker();
     if (b) {
-      notify(padSlotNotice("correction", "table.send.hold.add", { x: dishName(b) }));
+      say(sendHoldMsg(addHold(b, dishName(b))));
       return false;
     }
     return true;
-  }, [writes, notify, dishName]);
+  }, [writes, say, dishName]);
   const onRefresh = useCallback(() => refreshRef.current(), []);
   const send = useStaffSend({
     sessionId,
@@ -413,12 +538,16 @@ export function OrderPad({
   const sendBusy =
     send.phase === "sending" || send.phase === "undoing" || send.phase === "returning";
   // A note hold on the phone's MENU view: the note field is in the hidden order view, so the view
-  // flips first (synchronously) and the controller's focus lands on a field that exists.
-  const onSendTap = useCallback(() => {
+  // flips first (synchronously) and the controller's focus lands on a field that exists. A REFUSED
+  // tap says why, once, through the one region (§17): on a phone the hint under the Send is spoken
+  // only — the bar has no room for a sentence — so without this the tap did nothing on screen.
+  const onSendTap = () => {
     const h = getHold();
     if (h?.kind === "note") flushSync(() => setView("order"));
+    const why = send.phase === "idle" ? sendRefusalMsg(padSend.view, h) : null;
+    if (why) say(why);
     send.onSend();
-  }, [getHold, send]);
+  };
 
   // ── the counter order's name ───────────────────────────────────────────────────────────────────
   const [name, setName] = useState(initialName ?? "");
@@ -450,11 +579,12 @@ export function OrderPad({
   }, [name, sessionId, notify]);
 
   // ── Take payment ───────────────────────────────────────────────────────────────────────────────
-  const [settlePhase, setSettlePhase] = useState<"idle" | "draining" | "saving">("idle");
+  const [settlePhase, setSettlePhase] = useState<PadSettlePhase>("idle");
   const settleInFlight = useRef(false);
   // One tap past a failed name save goes on without it (a rushed counter is never blocked on a name).
   const skipName = useRef(false);
-  const settle = padSettle({
+  const tab = detail.tab !== "none";
+  const settleInput: PadSettleInput = {
     mode: detail.mode,
     open,
     paying,
@@ -462,35 +592,103 @@ export function OrderPad({
     settleTotalCents: detail.settleTotalCents,
     pending: counts,
     sendBusy,
+    unsavedNote: lineState.note !== null,
+    lines: lineWrites,
     settlePhase,
+  };
+  const settle = padSettle(settleInput);
+  // What a refused Take payment names: the note's dish, the add it waits on (lost or still coming).
+  const reasonCtx = (
+    note: { lineId: string; name: string } | null,
+    b: PendingAdd | null,
+  ): PadReasonCtx => ({
+    tab,
+    note: note ? lineDish(note.lineId, note.name) : null,
+    blocker: b ? { name: dishName(b), state: b.state === "lost" ? "lost" : "unconfirmed" } : null,
   });
+  // The field a note hold points at — in the order view, which a phone shows only after the flip.
+  const focusNote = (lineId: string) => {
+    flushSync(() => setView("order"));
+    Array.from(ticketRef.current?.querySelectorAll<HTMLElement>("[data-note-for]") ?? [])
+      .find((el) => el.dataset.noteFor === lineId)
+      ?.focus();
+  };
+  const stopSettle = () => {
+    setSettlePhase("idle");
+    settleInFlight.current = false;
+  };
   const onSettle = async () => {
-    if (settleInFlight.current || !settle.enabled) return; // aria-disabled; the hint says why
+    if (settleInFlight.current) return;
+    // Decided NOW, from what the tap sees (the in-flight guard is a ref read at tap time): the
+    // note being typed, the adds, the ticket's own writes.
+    const edits = [...lineEdits.current.values()];
+    const note = unsavedNoteFrom(edits);
+    const now = padSettle({
+      ...settleInput,
+      pending: writes.counts(),
+      unsavedNote: note !== null,
+      lines: { ...lineWrites, writing: edits.filter((e) => e.writing).length + removals.current },
+    });
+    if (!now.enabled) {
+      // Refused: say why, once (§17 — a phone shows the hint to nobody sighted), and on a note hold
+      // take the finger to the note: it is where an allergy lives, and leaving would drop it.
+      if (now.block) say(padSettleReason(now.block, reasonCtx(note, writes.blocker())));
+      if (now.block === "note" && note) focusNote(note.lineId);
+      return;
+    }
     settleInFlight.current = true;
     haptic("commit");
-    setSettlePhase("draining");
+    const nameToSave = counterOrder && nameDirty && !skipName.current;
+    // Busy in the phase it is actually in: it waits for a dish only while one is on its way.
+    setSettlePhase(padSettleStartPhase({ flying: writes.counts().flying, saveName: nameToSave }));
     await writes.settled();
     const b = writes.blocker();
     if (b) {
-      notify(padSlotNotice("correction", "table.send.hold.add", { x: dishName(b) }));
-      setSettlePhase("idle");
-      settleInFlight.current = false;
+      say(sendHoldMsg(addHold(b, dishName(b))));
+      stopSettle();
       return;
     }
-    if (counterOrder && nameDirty && !skipName.current) {
+    if (nameToSave) {
       setSettlePhase("saving");
       if (!(await saveName())) {
         skipName.current = true;
         notify(padSlotNotice("correction", "pad.nameNotSaved"));
-        setSettlePhase("idle");
-        settleInFlight.current = false;
+        stopSettle();
         return;
       }
     }
+    // A note typed while it waited is read again before leaving: the drain can take seconds.
+    const late = unsavedNoteFrom([...lineEdits.current.values()]);
+    if (late) {
+      say(padSettleReason("note", reasonCtx(late, null)));
+      focusNote(late.lineId);
+      stopSettle();
+      return;
+    }
     // The table page's payment section takes it from here (the one money path — never a second
-    // copy of the cash / reader / hand-off flow on this screen). Busy until the route changes.
+    // copy of the cash / reader / hand-off flow on this screen). Busy until the route changes, or
+    // until SETTLE_OPEN_RESET_MS says the push never landed.
+    setSettlePhase("opening");
     router.push(`/staff/table/${sessionId}?settle=1`);
   };
+  // A push that never lands (dropped, or a page restored from the back-forward cache) must not leave
+  // Take payment busy for good: it comes back to idle and a second tap goes again.
+  useEffect(() => {
+    if (settlePhase !== "opening") return;
+    const reset = () => {
+      settleInFlight.current = false;
+      setSettlePhase("idle");
+    };
+    const id = setTimeout(reset, SETTLE_OPEN_RESET_MS);
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) reset();
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      clearTimeout(id);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [settlePhase]);
 
   // ── focus: when a control in the dock turns into another (Undo → Done), focus stays in the dock ─
   const dockHadFocus = useRef(false);
@@ -501,26 +699,16 @@ export function OrderPad({
         preventScroll: true,
       });
   }, [dockKey]);
+  // The phone's dock publishes its MEASURED height, so the one Toast rides above it whatever the
+  // labels wrap to (from the tablet tier the dock is not at the bottom, and CSS zeroes the offset).
+  useCtaDock(dockRef, true);
 
   const table = tableDisplay(detail).text;
-  const tab = detail.tab !== "none";
   const settleReasonId = "pad-settle-why";
-  const settleReason =
-    settle.block === "paying" ? (
-      <Chrome
-        lang={lang}
-        k={tab ? "table.detail.payingPhone.tab" : "table.detail.payingPhone.cash"}
-        echo="stack"
-      />
-    ) : settle.block === "empty" ? (
-      <Chrome lang={lang} k="pad.reason.empty" echo="stack" />
-    ) : settle.block === "waiting" ? (
-      blocker ? (
-        <Chrome lang={lang} k="table.send.hold.add" vars={{ x: dishName(blocker) }} echo="stack" />
-      ) : (
-        <Chrome lang={lang} k="table.send.hold.writing" echo="stack" />
-      )
-    ) : null;
+  const settleWhy = settle.block
+    ? padSettleReason(settle.block, reasonCtx(lineState.note, blocker))
+    : null;
+  const busyKey = padSettleBusyKey(settlePhase);
   const settleNode = open ? (
     <div className="pad-settle">
       <Button
@@ -528,9 +716,9 @@ export function OrderPad({
         size="xl"
         block
         busy={settle.busy}
-        busyLabel={<Chrome lang={lang} k="pad.settle.busy" echo="stack" />}
+        busyLabel={busyKey ? <Chrome lang={lang} k={busyKey} echo="stack" /> : undefined}
         {...(!settle.enabled && !settle.busy ? { "aria-disabled": true } : {})}
-        aria-describedby={settleReason ? settleReasonId : undefined}
+        aria-describedby={settleWhy ? settleReasonId : undefined}
         onClick={() => void onSettle()}
       >
         {settle.showAmount && detail.settleTotalCents !== null ? (
@@ -544,9 +732,9 @@ export function OrderPad({
           <Chrome lang={lang} k="pad.settle.bare" echo="stack" />
         )}
       </Button>
-      {settleReason && (
+      {settleWhy && (
         <p id={settleReasonId} className="pad-hint">
-          {settleReason}
+          <Chrome lang={lang} k={settleWhy.k} vars={settleWhy.vars} echo="stack" />
         </p>
       )}
     </div>
@@ -714,7 +902,14 @@ export function OrderPad({
               <p>
                 <Chrome lang={lang} k="pad.menu.outage" echo="stack" />
               </p>
-              <Button variant="secondary" onClick={() => router.refresh()}>
+              <Button
+                variant="secondary"
+                busy={retrying}
+                onClick={() => {
+                  setRetries((n) => n + 1);
+                  startRetry(() => router.refresh());
+                }}
+              >
                 <Chrome lang={lang} k="pad.menu.retry" />
               </Button>
             </div>
@@ -780,10 +975,10 @@ export function OrderPad({
           sessionId={sessionId}
           detail={detail}
           pending={writes.pending}
-          amountsSettled={padAmountsSettled(counts)}
+          amountsSettled={padAmountsSettled(counts, lineWrites)}
           degraded={live.degraded}
           nowMs={live.nowMs}
-          showReload={counts.unconfirmed + counts.lost > 0}
+          showReload={counts.unconfirmed + counts.lost > 0 || hungRemovals > 0}
           onReload={() => window.location.reload()}
           headingRef={headingRef}
           rootRef={ticketRef}
@@ -902,7 +1097,8 @@ export function OrderPad({
     haptic("pick");
     setQ("");
     setSearchOpen(false);
-    setCat((c) => (slug === null ? null : c === slug ? null : slug));
+    // Against what is SHOWN (`activeCat` is null during a search), never the stored choice.
+    setCat(padPickCat(activeCat, slug));
     tilesRef.current?.scrollTo?.({ top: 0 });
   }
 }

@@ -2846,8 +2846,9 @@ export const STAFF = {
   // A ghost row's status — an add the server has not confirmed. Never a price (§23).
   "pad.ghost.adding": { en: "Adding…", my: "ထည့်နေပါတယ်…" }, // grounded: browse.mod.adding
   "pad.ghost.checking": { en: "Checking…", my: "စစ်နေပါတယ်…" },
-  // Resends the SAME add (the same key), so it can never put the dish on twice.
-  "pad.ghost.verb.resend": { en: "Send again", my: "ထပ်ပို့" },
+  // Tries the SAME add again (the same key), so it can never put the dish on twice. Never "send":
+  // on this console that word means the kitchen, and "send again" reads as "cook it twice".
+  "pad.ghost.verb.retry": { en: "Try again", my: "ထပ်စမ်း" }, // grounded: pad.menu.retry
   "pad.reload": { en: "Reload the order", my: "အော်ဒါ ပြန်ဖွင့်" },
   // The phone bar's view button.
   "pad.bar.order.one": { en: "Order · {n} item", my: "အော်ဒါ · {n} ခု" },
@@ -2857,11 +2858,14 @@ export const STAFF = {
   // names the server's tax-inclusive total only when nothing is pending.
   "pad.settle": { en: "Take payment · {m}", my: "ငွေရှင်း · {m}" }, // K15-HIGH — the door to taking the money, with the amount
   "pad.settle.tab": { en: "Close bill · {m}", my: "စာရင်းပိတ် · {m}" }, // K15-HIGH — closes a running bill; grounded: settle.cash.triggerTab
-  "pad.settle.bare": { en: "Take payment", my: "ငွေရှင်း" },
+  "pad.settle.bare": { en: "Take payment", my: "ငွေရှင်း" }, // K15-HIGH — the same door to taking the money, while its amount is withheld
+  // The busy label, by phase: it waits for a dish ONLY while one is still on its way.
   "pad.settle.busy": {
     en: "Waiting for the last dish…",
     my: "နောက်ဆုံး ဟင်း ရောက်အောင် စောင့်နေပါတယ်…",
   },
+  "pad.settle.savingName": { en: "Saving the name…", my: "နာမည် သိမ်းနေပါတယ်…" }, // grounded: browse.name.saving
+  "pad.settle.opening": { en: "Opening payment…", my: "ငွေရှင်းဖို့ ဖွင့်နေပါတယ်…" },
   "pad.reason.empty": { en: "Add a dish first", my: "ဟင်း အရင် ထည့်ပါ" },
   "pad.nameNotSaved": {
     en: "The name didn’t save — tap Take payment again to go on without it.",
@@ -2931,8 +2935,8 @@ export const STAFF = {
     my: "ဟင်းတချို့ မထည့်ရသေးပါ — ထပ်စမ်းပါ။",
   },
   "pad.err.add.unconfirmed": {
-    en: "We couldn’t confirm {x} — check the order, or send it again. It won’t go on twice.",
-    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်ပို့ပါ။ နှစ်ခါ မထည့်ပါဘူး။",
+    en: "We couldn’t confirm {x} — check the order, or tap Try again. It won’t go on twice.",
+    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်စမ်း ကို နှိပ်ပါ။ နှစ်ခါ မထည့်ပါဘူး။",
   }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
   "pad.err.add.unconfirmed.family": {
     en: "We couldn’t confirm some dishes — check the order.",
@@ -2954,6 +2958,16 @@ export const STAFF = {
     en: "Waiting to hear back about {x}",
     my: "{x} အတွက် အဖြေ စောင့်နေပါတယ်",
   },
+  // …and one whose answer came back LOST: nothing is coming, so it names the fix, never "waiting".
+  "table.send.hold.lost": {
+    en: "We couldn’t confirm {x} — tap Try again on it, or reload the order.",
+    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အဲဒီဟင်းမှာ ထပ်စမ်း ကို နှိပ်ပါ၊ ဒါမှမဟုတ် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-tap cooks and charges a second dish
+  // A removal whose answer was lost (it threw, or 15s passed): it may have landed — said as unknown.
+  "pad.err.remove.unknown": {
+    en: "We couldn’t confirm {x} was removed — the order shows what’s on it.",
+    my: "{x} ဖျက်ပြီးမပြီး မသေချာပါ — အော်ဒါထဲ ရှိနေတာကို ပြထားပါတယ်။",
+  }, // K15-HIGH — a dish that may still be on the order (cooked and charged)
   // The line editor's stepper names (K25 for this control) — `Stepper`'s `labels`. Aria-only: the
   // controls show only − + ✕ glyphs. The English is the primitive's own default wording, so an
   // English console announces exactly what it did before; the Burmese is new.
@@ -3138,6 +3152,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "pad.err.add.unconfirmed.family",
   "table.send.cta.bare",
   "table.line.a11y.remove",
+  "pad.settle.bare",
+  "table.send.hold.lost",
+  "pad.err.remove.unknown",
 ]);
 
 /**
