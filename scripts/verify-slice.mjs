@@ -7894,6 +7894,22 @@ const MUTANTS = [
     find: "  const keepNamesTip = tipCents > 0;\n",
     replace: "  const keepNamesTip = false;\n",
   },
+  {
+    id: "p2c-register/cash-unknown-never-handed-up",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — a lost cash-settle response is handed UP as unknown, so the page holds a counter order's closed-bounce (a landed counter settle closes the session behind it). Never handed up, the cashier is yanked to the floor mid-sheet and the promised 'order shows paid' never appears",
+    find: "          onOutcomeUnknown?.(true);\n",
+    replace: "",
+  },
+  {
+    id: "p2c-register/cash-unknown-never-cleared",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — any ANSWERED attempt makes the outcome known again. Never cleared, a later genuine close (the order cleared from another tablet) is held on this page with a 'most likely went through' it did not earn",
+    find: "        onOutcomeUnknown?.(false);\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

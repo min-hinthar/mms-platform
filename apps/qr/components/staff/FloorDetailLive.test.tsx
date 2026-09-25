@@ -471,3 +471,61 @@ describe("FloorDetailLive — a send line stays SHOWN while the reader's status 
     staffFireCart.mockReset();
   });
 });
+
+describe("FloorDetailLive — a counter settle whose response was LOST holds the closed-bounce (critic finding)", () => {
+  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  async function lostSettle() {
+    settleCash.mockRejectedValueOnce(new Error("fetch failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mountWith(COUNTER);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(ts("en", "settle.cash.unknown"));
+  }
+
+  it("the settle landed (settleCash's after() closed the counter session): the page stays, says so, and focuses the way back", async () => {
+    await lostSettle();
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(400);
+    // MUTATION (by hand): drop the hold — the page jumps to the floor mid-sheet and the promised
+    // "the order shows paid" never appears anywhere the cashier is looking; red.
+    expect(replace).not.toHaveBeenCalled();
+    const notice = screen.getByRole("region", { name: ts("en", "settle.cash.unknownClosed") });
+    expect(document.activeElement).toBe(notice);
+    const back = within(notice).getByRole("link");
+    expect(back.getAttribute("href")).toBe(STAFF_DOOR_TARGET.counter);
+    // The order is closed: nothing on it is writable any more (the settle section is gone).
+    expect(document.getElementById("settle-h")).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("a counter order closed WITHOUT an outstanding unknown settle still returns to the floor", async () => {
+    mountWith(COUNTER);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
+  it("a later KNOWN answer releases the hold (a refused retry), so a genuine close bounces again", async () => {
+    await lostSettle();
+    // The retry is refused outright — a known outcome.
+    settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    vi.restoreAllMocks();
+  });
+});

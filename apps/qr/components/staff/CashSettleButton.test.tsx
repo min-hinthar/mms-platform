@@ -750,3 +750,25 @@ describe("CashSettleButton — keep the change names the tip it MAKES when a tip
     ).toBeTruthy();
   });
 });
+
+describe("CashSettleButton — an unknown outcome is handed UP (critic finding: the counter's closed-bounce)", () => {
+  it("a rejected settle says unknown to the parent; the next answered attempt says known", async () => {
+    settleCash.mockRejectedValueOnce(new Error("fetch failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const onOutcomeUnknown = vi.fn();
+    const { open, settle } = mount({ onOutcomeUnknown });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: never hand the unknown up — the page bounces a landed counter settle to the floor
+    // mid-sheet (FloorDetailLive's hold never arms); red.
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: never clear it — a later GENUINE close (cleared from another tablet) is held too; red.
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+  });
+});

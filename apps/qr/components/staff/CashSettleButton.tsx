@@ -84,6 +84,7 @@ export function CashSettleButton({
   variant = "primary",
   onSettled,
   onChanged,
+  onOutcomeUnknown,
 }: {
   sessionId: string;
   totalCents: number;
@@ -113,6 +114,11 @@ export function CashSettleButton({
   /** The parent's own detail refresh (debounced). Replaces a `router.refresh()` that updated nothing
    *  this control reads — the detail lives in `FloorDetailLive`'s state, not the RSC payload. */
   onChanged?: () => void;
+  /** Whether a settle's outcome is UNKNOWN right now: `true` when the action rejected (the response
+   *  was lost — it may have landed), `false` the moment any later attempt gets an answer. The page
+   *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
+   *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
+  onOutcomeUnknown?: (unknown: boolean) => void;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -232,9 +238,12 @@ export function CashSettleButton({
           // no longer open once it has been paid).
           console.error("[CashSettleButton] settle rejected — outcome unknown", e);
           setError({ kind: "unknown" });
+          onOutcomeUnknown?.(true);
           onChanged?.();
           return;
         }
+        // An answer came back: whatever it says, the outcome is KNOWN again.
+        onOutcomeUnknown?.(false);
         if (!res.ok) {
           // The sheet stays open with the refusal inside it — the cashier reads why where they
           // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the

@@ -2906,6 +2906,14 @@ export const STAFF = {
     en: "Keep the change — make the tip {m}",
     my: "အကြွေကိုပါ ပေါင်းပြီး အပိုကြေး {m} ထားပါ",
   }, // K15-HIGH — one tap records the change as the team's tip
+  // A COUNTER order closed while a cash settle's outcome was unknown (critic finding): settleCash
+  // closes a counter session only after a landed settle, so it most likely went through — said as
+  // "most likely", never as certain (staff clearing it from another tablet also closes it). "The
+  // floor" is ခန်းမ (grounded: floor.back).
+  "settle.cash.unknownClosed": {
+    en: "This order has closed — the payment most likely went through. Find it on the floor before taking payment again.",
+    my: "ဒီအော်ဒါ ပိတ်သွားပါပြီ — ငွေရှင်းတာ ဖြစ်သွားပုံရပါတယ်။ ထပ်ငွေမယူခင် ခန်းမမှာ ရှာကြည့်ပါ။",
+  }, // K15-HIGH — read while a settle's outcome is unknown; a misread takes the money twice
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3083,6 +3091,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.inflight.register",
   "settle.inflight.unsure",
   "settle.cash.keepChangeTip",
+  "settle.cash.unknownClosed",
 ]);
 
 /**

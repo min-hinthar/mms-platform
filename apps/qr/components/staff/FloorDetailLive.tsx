@@ -17,7 +17,7 @@ import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
-import { Badge, Icon } from "@mms/ui";
+import { Badge, Icon, buttonClass } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
@@ -121,7 +121,16 @@ export function FloorDetailLive({
 
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
-  const canWrite = detail.cartId != null && !detail.paymentInFlight;
+  // Phase 2c · register (critic finding) — a COUNTER cash settle whose response was lost (it may
+  // have landed): `settleCash`'s after() closes the counter session behind a landed settle, so a
+  // `closed` read while the outcome is unknown most likely means it went through. The bounce to the
+  // floor is HELD (a ref the button sets through `onOutcomeUnknown`, read by `refresh`) and the page
+  // says so where the settle was (`closedAfterUnknown`), instead of yanking the cashier to the floor
+  // mid-sheet with the promised "the order shows paid" never shown anywhere.
+  const settleUnknown = useRef(false);
+  const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
+  const closedNoticeRef = useRef<HTMLElement>(null);
+  const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
   // P2w — who holds an in-flight payment (the banner below); a missing holder is unsure, never phone.
   const payingHolder = detail.paymentHolder ?? "unsure";
   const payingMsg = inFlightMsg(payingHolder);
@@ -191,6 +200,11 @@ export function FloorDetailLive({
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
     if (handoff) handoffRef.current?.focus();
   }, [handoff]);
+  useEffect(() => {
+    // The closed-after-unknown notice replaces the settle section (and the sheet inside it) — carry
+    // focus to it, the way the paid card takes it.
+    if (closedAfterUnknown) closedNoticeRef.current?.focus();
+  }, [closedAfterUnknown]);
 
   // Focus catch-all (WCAG 2.4.3): ANY detail refresh can unmount the control that held focus — a line
   // removal (stepper row gone), a void/comp (row swaps to the no-controls variant), an approval request
@@ -253,7 +267,10 @@ export function FloorDetailLive({
             // bouncing now would yank the collect panel / #CODE handoff card out from under the
             // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
             // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
-            if (!terminalFlowLive.current) {
+            // Phase 2c · register: HELD while a counter cash settle's outcome is unknown — the close
+            // is then most likely that settle landing (see `settleUnknown`); the page says so.
+            if (settleUnknown.current) setClosedAfterUnknown(true);
+            else if (!terminalFlowLive.current) {
               router.replace(STAFF_DOOR_TARGET.counter);
               router.refresh();
             }
@@ -974,6 +991,14 @@ export function FloorDetailLive({
               handoff={isCounter}
               onSettled={(h) => setHandoff({ ...h, isCounter, cartId: detail.cartId })}
               onChanged={onChange}
+              // Only a COUNTER session closes behind its settle; a table's landed settle shows paid.
+              onOutcomeUnknown={
+                isCounter
+                  ? (unknown) => {
+                      settleUnknown.current = unknown;
+                    }
+                  : undefined
+              }
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the
@@ -1020,6 +1045,30 @@ export function FloorDetailLive({
                 });
             }}
           />
+        )}
+        {/* Phase 2c · register (critic finding) — the counter order CLOSED while a cash settle's
+            outcome was unknown: most likely it landed. Said where the settle was, focused (the
+            sheet it replaced unmounted), named by its sentence; never a live region (the page has
+            ONE). The way back is the paid card's own link — it promises only the navigation. */}
+        {closedAfterUnknown && (
+          <section
+            ref={closedNoticeRef}
+            tabIndex={-1}
+            aria-labelledby="settle-closed-h"
+            className="card card-textured staff-settle-closed"
+            style={sectionCard}
+          >
+            {/* `echo={false}`: an aria-labelledby target — both scripts would be the name. */}
+            <p id="settle-closed-h" style={{ margin: 0 }}>
+              <Chrome lang={lang} k="settle.cash.unknownClosed" echo={false} />
+            </p>
+            <Link
+              href={STAFF_DOOR_TARGET.counter}
+              className={buttonClass({ variant: "primary", size: "xl", block: true })}
+            >
+              <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
+            </Link>
+          </section>
         )}
         {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
             named by its facts; never a status region. A table's card leaves once the next round's
