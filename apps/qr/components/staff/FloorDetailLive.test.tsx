@@ -1077,3 +1077,59 @@ describe("FloorDetailLive — a lost counter cash settle's 'most likely went thr
     vi.restoreAllMocks();
   });
 });
+
+describe("FloorDetailLive — the reader's money status is never masked by a stale refusal (R3)", () => {
+  it("a line-edit refusal standing in the region gives way when the reader starts speaking — and to each status after", async () => {
+    // A to-go draft keeps a stepper on screen without gating the settle (it cooks at payment).
+    const TOGO: TableDetail = {
+      ...SETTLEABLE,
+      lines: [{ ...line("l1", "Mohinga"), fulfillment: "togo" }],
+      itemCount: 1,
+      send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: false },
+    };
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...TOGO } });
+    staffSetQty.mockResolvedValue({ ok: false, error: "That line just changed." });
+    mountWith(TOGO, { terminalReady: true });
+    const inc = document
+      .getElementById("order-h")!
+      .closest("section")!
+      .querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    await act(async () => {
+      fireEvent.click(inc);
+    });
+    await tick(0);
+    expect(orderRegion().textContent).toBe("That line just changed.");
+    // The cashier moves on to the reader.
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_3", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    await tick(0);
+    // MUTATION (p2c-reg2/floor-reader-status-under-a-stale-refusal): the status leaves the refusal
+    // standing — it outranks the reader, so a screen-reader cashier never hears "Waiting for the
+    // guest…", nor later "The payment didn't go through" / "Don't charge again"; red.
+    expect(orderRegion().textContent).toBe(ts("en", "settle.reader.status.waiting"));
+    // The next status is heard too (the charge is declined).
+    terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: null });
+    await tick(5000);
+    expect(orderRegion().textContent).toBe(ts("en", "settle.reader.status.failed"));
+    expect(polite()).toHaveLength(1);
+  });
+});
+
+describe("FloorDetailLive — the programmatic focus landings keep the focus ring (R4)", () => {
+  it("neither the settle heading (?settle=1) nor the order heading (its fallback, the catch-all, the gate's jump) suppresses the outline inline", async () => {
+    mountWith(SETTLEABLE, { focusSettle: true });
+    await tick(0);
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
+    // An inline `outline: none` outranks the global `:focus-visible` rule, so a keyboard cashier
+    // landing here saw no ring at all (WCAG 2.4.7). The ring itself is globals.css's :focus-visible.
+    for (const id of ["settle-h", "order-h"]) {
+      const h = document.getElementById(id)!;
+      expect(h.style.outline).toBe("");
+      expect(h.style.outlineStyle).toBe("");
+    }
+  });
+});

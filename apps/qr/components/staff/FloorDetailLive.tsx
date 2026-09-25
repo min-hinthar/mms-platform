@@ -213,6 +213,16 @@ export function FloorDetailLive({
     // `setReaderStatus` is named for the React Compiler (the `setSendNote` note below): it IS stable.
     [sessionId, setReaderStatus],
   );
+  // Phase 2c · review (R3) — the reader's status is a SETTER of the one region, like every other: a
+  // change is the newer fact (a charge in progress, declined, landed-but-unrecorded — K15-HIGH money
+  // sentences), so it clears a standing `writeError`. That refusal (a line edit, a promo) outranks
+  // the settle line and nothing else ever expired it, so a screen-reader cashier who met one before
+  // starting the reader never heard the reader at all. A refusal raised DURING a collect still
+  // speaks, until the reader's next status.
+  const onReaderStatus = useCallback((s: ReaderStatus) => {
+    setReaderStatus(s);
+    setWriteError(null);
+  }, []);
   const handoffRef = useRef<HTMLElement>(null);
   // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
   // to the floor while the collect panel / handoff card IS the live surface — the cashier would
@@ -696,7 +706,10 @@ export function FloorDetailLive({
               id="order-h"
               ref={orderHeadingRef}
               tabIndex={-1}
-              style={{ ...sectionH, outline: "none" }}
+              // Phase 2c · review (R4) — no inline `outline: none`: it outranked the global
+              // `:focus-visible` ring on the catch-all's, `?settle=1`'s fallback and the settle
+              // gate's jump target. The browser shows the ring only for keyboard-origin focus.
+              style={sectionH}
             >
               {/* `echo={false}`: this heading names the region through aria-labelledby AND is the
                 focus target the catch-all restores to — an echo would put both scripts in both. */}
@@ -929,7 +942,9 @@ export function FloorDetailLive({
 
               writeError > settle line > degraded > send warn > send ok
 
-            - writeError — a line edit or promo refusal the person just caused.
+            - writeError — a line edit or promo refusal the person just caused. Every other setter
+              clears it, and so does each reader status change (Phase 2c · review, R3): the reader's
+              money sentences are the newer fact, never masked by a refusal from before the collect.
             - settle line — the settle gate's "send them first" warn (Phase 2c · gate: a refused
               settle tap, or a server `unsent`), rendered VISIBLY — it is the sentence beside the
               Send the tap just jumped to; else the reader's status while its collect panel is live
@@ -1172,7 +1187,7 @@ export function FloorDetailLive({
             sessionId={sessionId}
             collect={terminalCollect}
             isCounter={isCounter}
-            onStatus={setReaderStatus}
+            onStatus={onReaderStatus}
             onChanged={onChange}
             onDone={(h) => {
               setTerminalCollect(null);
@@ -1287,12 +1302,13 @@ const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 // Phase 2c · gate — the settle gate's note; every trigger's `aria-describedby` names it first.
 const SETTLE_UNSENT_NOTE_ID = "settle-unsent-note";
 // Phase 2c · register — the settle section's heading: the page's section-heading voice, and a focus
-// target (the `?settle=1` landing), so no outline of its own beyond the focus ring rule.
+// target (the `?settle=1` landing). Phase 2c · review (R4): it carries NO outline of its own — an
+// inline `outline: none` outranked the global `:focus-visible` ring, so a keyboard landing showed
+// nothing.
 const settleHeading: CSSProperties = {
   fontSize: "var(--fs-sm)",
   margin: 0,
   color: "var(--t2)",
-  outline: "none",
 };
 // P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const header: CSSProperties = { marginBottom: "var(--s5)" };
