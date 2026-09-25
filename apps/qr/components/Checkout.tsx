@@ -13,6 +13,7 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
+import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, EmptyState, Icon, NumberFlow, Stepper } from "@mms/ui";
@@ -3709,8 +3710,27 @@ export function Checkout({
             {/* A1 — the other door, quiet, under the one filled CTA: the register. Same freeze gate
                 as "Pay · $X" — a table mid-card-payment is not sent walking. Dine-in only; the
                 server refuses every other mode, so the button is not drawn there either. */}
+            {/* Phase 2c · gate — the counter is the Bill's other door, so it keeps the Pay CTA's
+                "Everything sent" rule too (`sendBlocksPay`); the unsent note above says why whenever
+                this button is on screen (both render only on the Bill stage of a dine-in table),
+                and a tap on it repeats the reason — the server refuses the ask the same way. */}
             {showPayControls && isDineIn && (
-              <PayAtCounterButton disabled={payFrozen} busy={counterBusy} onClick={askCounter} />
+              <PayAtCounterButton
+                disabled={payFrozen || sendBlocksPay}
+                busy={counterBusy}
+                onClick={askCounter}
+                onRefusedTap={
+                  sendBlocksPay && !payFrozen
+                    ? () =>
+                        // The host is told to send; a guest is told who does (the note's split).
+                        setStatus(
+                          counterUnsentTapCopy(
+                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
+                          ),
+                        )
+                    : undefined
+                }
+              />
             )}
             {counterAsk && (
               <PayAtCounterCard

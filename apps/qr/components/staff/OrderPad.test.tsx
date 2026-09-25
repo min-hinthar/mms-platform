@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
+import { tf } from "@/lib/i18n/fill";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 import type { StaffFireResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
@@ -157,6 +158,24 @@ const ONE = () =>
     settleTotalCents: 1581,
     send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
   });
+
+/**
+ * Phase 2c · gate — a table Take payment will LEAVE for: its one dish is a to-go draft (it cooks at
+ * payment, so nothing is unsent and the settle gate stays open). The drain / busy / note cases below
+ * are about Take payment's own life, not the gate — they ran on `ONE()`, whose dine-in draft the gate
+ * now refuses. The poll answers the same table, so a later read cannot close the gate under them.
+ */
+const payable = () => {
+  const d = detail({
+    lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
+    itemCount: 1,
+    runningSubtotalCents: 1450,
+    settleTotalCents: 1581,
+    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+  });
+  getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+  return d;
+};
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -463,7 +482,7 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
   it("Take payment is accepted while an add flies, drains it, then goes to the table's payment section", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
-    mount(ONE());
+    mount(payable());
     await act(async () => {
       fireEvent.click(mohinga());
     });
@@ -681,7 +700,7 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
   it("a note typed WHILE Take payment waited on a dish is read again before it leaves", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
-    mount(ONE());
+    mount(payable());
     await act(async () => {
       fireEvent.click(mohinga());
     });
@@ -732,7 +751,7 @@ describe("a refused tap says why — the phone bar has no room for the hint (§1
 
 describe("Take payment says what it is actually doing while busy", () => {
   it("nothing pending: 'Opening payment…' (never 'waiting for the last dish'), and a push that never lands frees it", async () => {
-    mount(ONE());
+    mount(payable());
     await act(async () => {
       fireEvent.click(settleBtn());
     });
@@ -751,7 +770,7 @@ describe("Take payment says what it is actually doing while busy", () => {
 
   it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
     addItem.mockReturnValueOnce(new Promise(() => {}));
-    mount(ONE());
+    mount(payable());
     await act(async () => {
       fireEvent.click(mohinga());
     });
@@ -925,5 +944,31 @@ describe("the menu outage's Try again is never silent", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
     // MUTATION: a retry with no failure state — nothing on screen changes; red.
     expect(region().textContent).toBe(STAFF["pad.menu.outage"].en);
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("the settle gate on the pad — Take payment waits for everything to be sent", () => {
+  it("a table holding an unsent dish: Take payment is aria-disabled with the reason, a tap says it once and takes the finger to the Send (the order view first)", async () => {
+    mount(ONE()); // one dine-in Mohinga, not sent
+    const take = settleBtn();
+    expect(take.getAttribute("aria-disabled")).toBe("true");
+    expect(take.hasAttribute("disabled")).toBe(false);
+    const why = tf("en", "table.send.settleBlocked.one", { n: 1 });
+    const hint = document.getElementById(take.getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).toBe(why);
+    // The pad opens on the menu view (the phone's first screen).
+    expect(document.querySelector(".pad-shell")!.getAttribute("data-view")).toBe("menu");
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION (pad/unsent-take-payment-live, the lib clause): the tap navigates to a payment
+    // section whose every door refuses; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(why);
+    // MUTATION (pad-ui/unsent-tap-leaves-focus): drop the jump — the cashier reads why with the
+    // finger still on a refused button and the Send somewhere else on the screen; red.
+    expect(document.querySelector(".pad-shell")!.getAttribute("data-view")).toBe("order");
+    expect(document.activeElement).toBe(sendBtn());
   });
 });

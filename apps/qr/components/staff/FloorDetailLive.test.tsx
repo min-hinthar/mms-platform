@@ -35,15 +35,17 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/useFloorRealtime", () => ({ useFloorRealtime: () => {} }));
 const staffSetQty = vi.fn();
 const settleCash = vi.fn();
+const closeSecureTab = vi.fn();
 vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (...a: unknown[]) => staffSetQty(...(a as [])),
   setLineNotes: vi.fn(),
   settleCash: (...a: unknown[]) => settleCash(...(a as [])),
-  closeSecureTab: vi.fn(),
+  closeSecureTab: (...a: unknown[]) => closeSecureTab(...(a as [])),
 }));
 const terminalStatus = vi.fn();
+const settleCard = vi.fn();
 vi.mock("@/lib/terminal", () => ({
-  settleCard: vi.fn(),
+  settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: vi.fn(),
 }));
@@ -151,6 +153,8 @@ afterEach(() => {
   getTableDetail.mockClear();
   staffSetQty.mockReset();
   settleCash.mockReset();
+  closeSecureTab.mockReset();
+  settleCard.mockReset();
   terminalStatus.mockReset();
   replace.mockReset();
   refresh.mockReset();
@@ -290,8 +294,16 @@ describe("FloorDetailLive — the running-bill nudge (blind review, 2026-09-24)"
 // ── Phase 2c · register ── the settle section, the paid card, and the view's ONE region (P2r).
 // Extended BEFORE the component changed (red against the Phase 2b table page), then made to pass.
 
-/** A table (or counter order) ready to settle: a quoted total, no payment in flight. */
-const SETTLEABLE: TableDetail = { ...DETAIL, settleTotalCents: 4210, settleTipBaseCents: 4000 };
+/** A table (or counter order) ready to settle: a quoted total, no payment in flight — and, since
+ *  Phase 2c · gate, every dish SENT (the settle gate refuses a table holding unsent dine-in drafts;
+ *  its own cases below build that table from `DETAIL`'s drafts). */
+const SETTLEABLE: TableDetail = {
+  ...DETAIL,
+  settleTotalCents: 4210,
+  settleTipBaseCents: 4000,
+  lines: DETAIL.lines.map((l) => ({ ...l, state: "fired", sendable: false })),
+  send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+};
 const mountWith = (
   initial: TableDetail,
   extra: { terminalReady?: boolean; focusSettle?: boolean } = {},
@@ -455,7 +467,8 @@ describe("FloorDetailLive — a send line stays SHOWN while the reader's status 
       "mms-terminal-collect:s1",
       JSON.stringify({ paymentIntentId: "pi_1", totalCents: 4210 }),
     );
-    mountWith(SETTLEABLE);
+    // Unsent drafts, so the Send is on the page (Phase 2c · gate: SETTLEABLE is fully sent).
+    mountWith({ ...SETTLEABLE, lines: DETAIL.lines, send: DETAIL.send });
     await tick(0);
     await tick(0);
     staffFireCart.mockResolvedValueOnce({ ok: false, reason: "failed" });
@@ -532,5 +545,337 @@ describe("FloorDetailLive — a counter settle whose response was LOST holds the
     await tick(5000);
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
     vi.restoreAllMocks();
+  });
+});
+
+// ── Phase 2c · gate ── the settle gate on the table page (owner decision 3).
+describe("FloorDetailLive — the settle gate: every settle door refuses while dishes are unsent", () => {
+  /** A settle-ready table still holding DETAIL's two unsent dine-in drafts. */
+  const UNSENT: TableDetail = { ...SETTLEABLE, lines: DETAIL.lines, send: DETAIL.send };
+  const sendControl = () => document.querySelector<HTMLButtonElement>(".staff-send button")!;
+  const noteText = (running: boolean) =>
+    tf("en", running ? "table.send.settleBlocked.tab.many" : "table.send.settleBlocked.many", {
+      n: 2,
+    });
+
+  it("a blocked Cash tap opens NO sheet, lands focus on the Send, and the ONE region says why — visibly", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    mountWith(UNSENT, { terminalReady: true });
+    const [cash, reader] = settleButtons();
+    // Rendered with their amounts, dimmed by the ATTRIBUTE (never native), the note read first.
+    expect(cash!.getAttribute("aria-disabled")).toBe("true");
+    expect(reader!.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelectorAll("main button[disabled]")).toHaveLength(0);
+    expect(cash!.getAttribute("aria-describedby")!.split(" ")[0]).toBe("settle-unsent-note");
+    await act(async () => {
+      fireEvent.click(cash!);
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(settleCash).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(sendControl());
+    const region = orderRegion();
+    expect(region.textContent).toBe(noteText(false));
+    // SHOWN, not only said: nothing of it is sr-only or aria-hidden.
+    expect(region.querySelector(".sr-only, [aria-hidden='true']")).toBeNull();
+    // Still exactly ONE polite region on the page.
+    expect(polite()).toHaveLength(1);
+  });
+
+  it("a blocked reader tap starts nothing and jumps to the Send too", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    mountWith(UNSENT, { terminalReady: true });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    // MUTATION (floor-detail/unsent-reader-gate-not-passed): the reader handed `blocked={false}` —
+    // the tap starts a reader charge over unsent dishes and focus stays on it; red.
+    expect(settleCard).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(sendControl());
+    expect(orderRegion().textContent).toBe(noteText(false));
+  });
+
+  it("a blocked RUNNING-BILL close focuses the order's lines (its heading) and offers removing them", async () => {
+    const SECURE: TableDetail = { ...UNSENT, tab: "secure" };
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE });
+    mountWith(SECURE);
+    const [close] = settleButtons();
+    expect(close!.textContent).toContain("card on file");
+    await act(async () => {
+      fireEvent.click(close!);
+    });
+    // No "Charge $x" confirm opened.
+    // MUTATION (floor-detail/unsent-close-gate-not-passed): the close handed `blocked={false}` — its
+    // confirm opens, one tap from an off-session charge over unsent dishes; red.
+    expect(screen.queryByRole("button", { name: /^Charge \$/ })).toBeNull();
+    expect(document.activeElement).toBe(document.getElementById("order-h"));
+    expect(orderRegion().textContent).toBe(noteText(true));
+  });
+
+  it("the note is the settle section's LAST child — the running bill's words on a secure bill — and it goes once everything is sent", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    mountWith(UNSENT, { terminalReady: true });
+    const section = document.getElementById("settle-h")!.closest("section")!;
+    const note = document.getElementById("settle-unsent-note")!;
+    expect(section.lastElementChild).toBe(note);
+    expect(note.textContent).toBe(noteText(false));
+    expect(note.getAttribute("role")).toBeNull();
+    cleanup();
+    mountWith({ ...UNSENT, tab: "secure" });
+    expect(document.getElementById("settle-unsent-note")!.textContent).toBe(noteText(true));
+    cleanup();
+    // A fully sent table: no note, no dimmed trigger.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    mountWith(SETTLEABLE, { terminalReady: true });
+    expect(document.getElementById("settle-unsent-note")).toBeNull();
+    for (const b of settleButtons()) expect(b.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a send outcome takes the region from the gate's line — even while a read in the air still shows the drafts", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    mountWith(UNSENT);
+    await act(async () => {
+      fireEvent.click(settleButtons()[0]!);
+    });
+    expect(orderRegion().textContent).toBe(noteText(false));
+    staffFireCart.mockResolvedValueOnce({
+      ok: true,
+      fired: 2,
+      undoUntil: new Date(Date.now() + 10_000).toISOString(),
+      serverNow: new Date().toISOString(),
+      undoBatch: "b",
+    });
+    // The read after the send still shows the drafts (it began before the fire landed).
+    await act(async () => {
+      fireEvent.click(sendControl());
+    });
+    await tick(0);
+    // MUTATION (floor-detail/unsent-line-outlives-the-send): keep the gate's line on a send
+    // outcome — it outranks "Sent", so the region keeps saying "haven't gone to the kitchen" over
+    // dishes the cashier just sent; red.
+    expect(orderRegion().textContent).toBe(tf("en", "table.send.sent.many", { n: 2 }));
+    // The next read has them in the kitchen: the note under the triggers goes too.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    await tick(5000);
+    expect(document.getElementById("settle-unsent-note")).toBeNull();
+    staffFireCart.mockReset();
+  });
+
+  it("the gate's line retires on a LATER read that shows nothing unsent (the dishes were removed)", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    mountWith(UNSENT);
+    await act(async () => {
+      fireEvent.click(settleButtons()[0]!);
+    });
+    expect(orderRegion().textContent).toBe(noteText(false));
+    // A read that STARTS after the tap: the table holds nothing unsent any more.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    await tick(5000);
+    // MUTATION (floor-detail/unsent-line-never-retires): drop the retire — the region keeps saying
+    // "2 dishes haven't gone to the kitchen" over a table with nothing unsent; red.
+    expect(orderRegion().textContent).toBe("");
+  });
+
+  it("a RACED server refusal (the page had not read the new dish): the sheet says it, and its close jumps to the Send once the page has read the drafts", async () => {
+    // The page reads a fully sent table; a guest's dish lands before the tap.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "unsent",
+      units: 2,
+      error: "Some dishes haven’t gone to the kitchen.",
+    });
+    mountWith(SETTLEABLE);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(noteText(false));
+    await tick(400); // the refusal re-reads the page: the drafts arrive, the Send appears
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    });
+    await tick(0);
+    expect(document.activeElement).toBe(sendControl());
+    expect(orderRegion().textContent).toBe(noteText(false));
+  });
+
+  // ── the critic's findings (Phase 2c · gate, round 2) ──
+  const settleSection = () => document.getElementById("settle-h")!.closest("section")!;
+  /** Any of the four gate sentences, in English — "haven’t gone to the kitchen" is in every one. */
+  const saysUnsent = (el: Element) => (el.textContent ?? "").includes("gone to the kitchen");
+  const refusal = (units: number) => ({
+    ok: false,
+    code: "unsent",
+    units,
+    error: "Some dishes haven’t gone to the kitchen.",
+  });
+
+  it("a RACED reader refusal's line never comes back once the dishes are sent — the page caught up, then the table cleared", async () => {
+    // The page reads a fully sent table; a guest's dish lands before the reader tap.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    settleCard.mockResolvedValueOnce(refusal(2));
+    mountWith(SETTLEABLE, { terminalReady: true });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    // Shown beside the reader until the page has read the drafts.
+    expect(saysUnsent(settleSection())).toBe(true);
+    // The next read sees the drafts: the page's note takes over (the triggers dim).
+    answer = () => Promise.resolve({ kind: "detail", detail: UNSENT });
+    await tick(5000);
+    expect(document.getElementById("settle-unsent-note")).not.toBeNull();
+    // The cashier sends them; the read after the send has everything in the kitchen.
+    staffFireCart.mockResolvedValueOnce({
+      ok: true,
+      fired: 2,
+      undoUntil: new Date(Date.now() + 10_000).toISOString(),
+      serverNow: new Date().toISOString(),
+      undoBatch: "b",
+    });
+    await act(async () => {
+      fireEvent.click(sendControl());
+    });
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    await tick(5000);
+    expect(document.getElementById("settle-unsent-note")).toBeNull();
+    // MUTATION (terminal-ui/unsent-raced-line-never-dropped): drop the render-time clear — the
+    // reader's raced line comes back under a live "Card on the reader", saying 2 dishes haven't gone
+    // to the kitchen when they have; red.
+    expect(saysUnsent(settleSection())).toBe(false);
+    expect(settleButtons()[1]!.getAttribute("aria-disabled")).toBeNull();
+    staffFireCart.mockReset();
+  });
+
+  it("a RACED reader refusal's line goes with the page's own line when a later read shows nothing unsent (removed before the page ever saw them)", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLEABLE });
+    settleCard.mockResolvedValueOnce(refusal(1));
+    mountWith(SETTLEABLE, { terminalReady: true });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    expect(orderRegion().textContent).toBe(tf("en", "table.send.settleBlocked.one", { n: 1 }));
+    // A read that STARTS after the refusal: the guest removed the dish; the page never saw it. (A
+    // fresh object, as every real read is — the same reference would be a React bail-out.)
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...SETTLEABLE } });
+    await tick(5000);
+    expect(orderRegion().textContent).toBe("");
+    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-gate): clear only on `blocked` — the page
+    // never read the table blocked, so the reader's line stands alone, saying a dish is unsent over
+    // a table with nothing unsent; red.
+    expect(saysUnsent(settleSection())).toBe(false);
+  });
+
+  it("a RACED running-bill close refusal's line never comes back once the dishes are removed", async () => {
+    const SECURE_SENT: TableDetail = { ...SETTLEABLE, tab: "secure" };
+    const SECURE_UNSENT: TableDetail = { ...UNSENT, tab: "secure" };
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE_SENT });
+    closeSecureTab.mockResolvedValueOnce(refusal(2));
+    mountWith(SECURE_SENT);
+    fireEvent.click(settleButtons()[0]!);
+    const charge = screen.getByRole("button", { name: /^Charge \$/ });
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE_UNSENT });
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+    expect(saysUnsent(settleSection())).toBe(true);
+    // The page reads the drafts (the poll; the test router is not stable across renders, so the
+    // close's debounced re-read is re-armed by every render here): the note takes over.
+    await tick(5000);
+    expect(document.getElementById("settle-unsent-note")).not.toBeNull();
+    // The guest has left: staff remove the two dishes; the next read has nothing unsent.
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE_SENT });
+    await tick(5000);
+    expect(document.getElementById("settle-unsent-note")).toBeNull();
+    // MUTATION (secure-close/unsent-raced-line-never-dropped): drop the render-time clear — the
+    // close's raced line comes back offering to remove dishes that were just removed; red.
+    expect(saysUnsent(settleSection())).toBe(false);
+  });
+
+  it("on a card-on-file running bill every gate line says ONE sentence — the running bill's, whichever door was tapped", async () => {
+    const SECURE_UNSENT: TableDetail = { ...UNSENT, tab: "secure" };
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE_UNSENT });
+    mountWith(SECURE_UNSENT, { terminalReady: true });
+    // [close, cash, reader] — the close is the primary on a secure running bill.
+    const [, cash] = settleButtons();
+    // MUTATION (floor-detail/unsent-note-variant-ignored): the note's variant not read off the one
+    // binding (`runningClose`) — the note says the table's sentence on a running bill; red.
+    expect(document.getElementById("settle-unsent-note")!.textContent).toBe(noteText(true));
+    await act(async () => {
+      fireEvent.click(cash!);
+    });
+    // Focus still goes to the Send (cash's fix), but the region says the note's words, not a second
+    // sentence for the same fact.
+    expect(document.activeElement).toBe(sendControl());
+    // MUTATION (floor-detail/unsent-region-variant-by-trigger): the region's variant from the tapped
+    // door — a cash tap says "send them first, then take payment" under a note offering removal; red.
+    expect(orderRegion().textContent).toBe(noteText(true));
+  });
+
+  it("a RACED refusal on a card-on-file running bill says the running bill's sentence beside the reader and inside the cash sheet", async () => {
+    const SECURE_SENT: TableDetail = { ...SETTLEABLE, tab: "secure" };
+    answer = () => Promise.resolve({ kind: "detail", detail: SECURE_SENT });
+    settleCard.mockResolvedValueOnce(refusal(2));
+    mountWith(SECURE_SENT, { terminalReady: true });
+    await act(async () => {
+      fireEvent.click(settleButtons()[2]!);
+    });
+    // MUTATION (floor-detail/unsent-reader-variant-not-passed): `running` not handed to the reader —
+    // its raced line says the table's sentence under the running bill's; red.
+    const readerLine = [...settleSection().querySelectorAll("p")].find(
+      (p) => saysUnsent(p) && p.id !== "settle-unsent-note",
+    );
+    expect(readerLine?.textContent).toBe(noteText(true));
+    expect(orderRegion().textContent).toBe(noteText(true));
+    cleanup();
+    settleCash.mockResolvedValueOnce(refusal(2));
+    mountWith(SECURE_SENT);
+    fireEvent.click(settleButtons()[1]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION (floor-detail/unsent-cash-variant-not-passed): `running` not handed to cash; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(noteText(true));
+  });
+
+  it("the jump puts the fix in view: the Send centred, the order heading at the TOP (its lines below it)", async () => {
+    const calls: { id: string; block: unknown }[] = [];
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown };
+    const had = Object.prototype.hasOwnProperty.call(proto, "scrollIntoView");
+    const prior = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: Element, o?: ScrollIntoViewOptions) {
+      calls.push({ id: this.id || this.className, block: o?.block });
+    };
+    try {
+      const SECURE: TableDetail = { ...UNSENT, tab: "secure" };
+      answer = () => Promise.resolve({ kind: "detail", detail: SECURE });
+      mountWith(SECURE);
+      const [close, cash] = settleButtons();
+      await act(async () => {
+        fireEvent.click(close!);
+      });
+      // MUTATION (floor-detail/unsent-lines-jump-centred): centre the heading too — on a phone with
+      // a long order half the screen above it is spent on the table card, and the reason below it
+      // is pushed further off; red.
+      expect(calls).toEqual([{ id: "order-h", block: "start" }]);
+      calls.length = 0;
+      await act(async () => {
+        fireEvent.click(cash!);
+      });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.block).toBe("center");
+      expect(calls[0]!.id).not.toBe("order-h");
+    } finally {
+      if (had) proto.scrollIntoView = prior;
+      else delete proto.scrollIntoView;
+    }
   });
 });

@@ -13600,3 +13600,20 @@ a.aisle-tile {
 .mms-sheet:has(.reg-settle-actions) {
   padding-bottom: 0;
 }
+
+/* ── Phase 2c · gate ── the settle gate's note (owner decision 3) ─────────────────────────────────
+   The settle section's LAST child: why the triggers above are dimmed, in warn ink beside an
+   aria-hidden alert glyph — the words carry the meaning, never the colour alone. Tokens only; NO
+   animation (it mounts and unmounts at the cashier's own tap), so no reduced-motion block is owed. */
+.staff-settle-unsent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  /* BODY leading, as the staff hints around it: the sentence wraps to two lines at 390px, and the
+     heading token (--lh-snug) packed them tight (critic finding). The Burmese echo sets its own
+     --lh-my (.chrome-my). */
+  line-height: var(--lh-normal);
+}

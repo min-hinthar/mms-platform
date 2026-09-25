@@ -19,13 +19,16 @@ import { inFlightRefusalFor } from "./inflight-read";
 import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal } from "./settle-refusal";
+import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
 import { maybeRenewSession } from "./authz";
+// ── Phase 2c · gate ──
+import { staffSettleBlockedByUnsent } from "./checkout-stage";
+import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -65,13 +68,16 @@ export type SettleCashResult =
  *  - `inflight` — money is already moving on the cart (P2w): `holder` says who holds it (a guest's
  *    phone, the register's own attempt, or unsure), and the component renders that holder's
  *    `settle.inflight.*` key. Nothing was frozen.
- * The settle gate (Phase 2c, second wave) adds its own arm here (`code: "unsent"`); a union member
- * per code, so each carries exactly the facts its sentence needs.
+ *  - `unsent` — the settle gate (Phase 2c · gate): dine-in dishes have not gone to the kitchen.
+ *    `units` is the server's count of them, read under the freeze; the component renders
+ *    `table.send.settleBlocked.*` and jumps to the Send. Nothing was recorded; the freeze released.
+ * A union member per code, so each carries exactly the facts its sentence needs.
  */
 export type SettleCashRefusal =
   | { ok: false; error: string; code?: undefined }
   | { ok: false; error: string; code: "moved"; totalCents: number }
-  | InFlightRefusal;
+  | InFlightRefusal
+  | UnsentRefusal;
 export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -349,7 +355,14 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
   // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
   try {
-    // (The settle gate's unsent-dishes check sits HERE — after the freeze, before the totals.)
+    // ── Phase 2c · gate ── the settle gate (owner decision 3): a dine-in table pays only once every
+    // dish has gone to the kitchen — otherwise this settle charges for dishes nobody sent and the
+    // after() fire below cooks them once the table has paid. UNDER the freeze (no add or fire can
+    // move the verdict before the RPC), BEFORE the totals (a refusal costs no totals read). The read
+    // fails OPEN (lib/unsent-read), which is today's settle-fires behaviour. Returned from INSIDE the
+    // try: the `finally` below releases this attempt's freeze.
+    const unsentUnits = await kitchenDraftUnits(cart.id);
+    if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -624,6 +637,16 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       ok: false,
       error: settleRefusal(freeze),
     };
+
+  // ── Phase 2c · gate ── the settle gate, as on the cash settle: under the freeze, before the totals
+  // and long before any PaymentIntent. This close is the one where "the guest may have left", so a
+  // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
+  // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
+  const unsentUnits = await kitchenDraftUnits(cart.id);
+  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+    await releaseSettlementFor(cart.id, attempt);
+    return unsentRefusal(unsentUnits);
+  }
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the
   // table strands frozen until the 10-min TTL. (Unlike settleCash we can't use a blanket `finally` — the

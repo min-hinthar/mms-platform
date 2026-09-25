@@ -53,6 +53,16 @@ import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register
 import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
+// ── Phase 2c · gate ──
+import { staffSettleBlockedByUnsent } from "@/lib/checkout-stage";
+import {
+  settleBlockedMsg,
+  settleBlockedTarget,
+  settleGateAfterCommit,
+  settleGateUnits,
+  type SettleGateNote,
+  type SettleTrigger,
+} from "@/lib/staff-send-view";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 // P2 — keys, not labels. The three modes already have dictionary entries on the floor card
@@ -344,6 +354,18 @@ export function FloorDetailLive({
   const [sendNote, setSendNote] = useState<
     ({ tone: "ok" | "warn"; msg: StaffMsg } & HeldSendNote) | null
   >(null);
+  // ── Phase 2c · gate ── the settle gate (owner decision 3): computed ONCE from the detail — the
+  // triggers' `blocked`, the note under them, and the region's line all read it. The same binding
+  // the server refuses on (`staffSettleBlockedByUnsent` over `detail.send.sendable`).
+  const settleBlocked = staffSettleBlockedByUnsent(detail.mode, detail.send.sendable);
+  // Which sentence the gate says on this bill — ONE binding for the note, the region line and every
+  // trigger's raced line (critic finding: a cash tap said the table's sentence under a note offering
+  // removal). A card-on-file running bill — the bill whose close renders (`settlePrimary`) — offers
+  // "remove them if the guest has left"; every other bill says "send them first".
+  const runningClose = settlePrimary(detail.tab) === "secureTab";
+  // The gate's line in the ONE region (the settle rank): raised by a refused tap or a server
+  // `unsent`, cleared by every other setter, and retired by a LATER read that shows nothing unsent.
+  const [settleGate, setSettleGate] = useState<SettleGateNote | null>(null);
   const [seenDetail, setSeenDetail] = useState(detail);
   const [detailSeq, setDetailSeq] = useState(0);
   if (seenDetail !== detail) {
@@ -351,15 +373,20 @@ export function FloorDetailLive({
     setDetailSeq((n) => n + 1);
     const next = sendNoteAfterCommit(sendNote, readTicket, sendViewFact(sendView));
     if (next !== sendNote) setSendNote(next);
+    // Phase 2c · gate — the settle gate's line lives while the table is blocked, and never retires
+    // on a read already in the air when it was raised (`settleGateAfterCommit`).
+    const gate = settleGateAfterCommit(settleGate, readTicket, settleBlocked);
+    if (gate !== settleGate) setSettleGate(gate);
   }
   const onWriteError = useCallback(
     (e: ReactNode) => {
       setWriteError(e);
       setSendNote(null);
+      setSettleGate(null); // Phase 2c · gate — every setter clears the others
       // `setSendNote` is named because the React Compiler cannot prove a setter stable once the render
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
-    [setSendNote],
+    [setSendNote, setSettleGate],
   );
   const onSendNotice = useCallback(
     (n: SendNotice | null) => {
@@ -372,8 +399,10 @@ export function FloorDetailLive({
       // baseline it (see `sendNoteAfterCommit`). Read in a callback, never during render.
       setSendNote(n ? { ...n, raisedAt: reads.current, against: null } : null);
       if (n) setWriteError(null);
+      // Phase 2c · gate — a send outcome is the newer fact ("Sent 2 items" after the jump to Send).
+      if (n) setSettleGate(null);
     },
-    [setSendNote],
+    [setSendNote, setSettleGate],
   );
   // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
   // the Send reads at tap time; the state re-renders only when the derived hold actually changes.
@@ -396,6 +425,41 @@ export function FloorDetailLive({
     onNotice: onSendNotice,
     onRefresh: refresh,
   });
+  // ── Phase 2c · gate ── a refused settle tap (or a server `unsent`): say why in the ONE region, at
+  // the settle rank, and take the cashier to the fix — the Send for cash or the reader; the order's
+  // lines (its heading) for the running-bill close, where the guest may have left and removing comes
+  // first (`settleBlockedTarget`). Scrolled into view (centred; `auto` under reduced motion), then
+  // focused without a second jump. `units` is the server's own count on a raced refusal, else null.
+  const onSettleBlocked = useCallback(
+    (trigger: SettleTrigger, units: number | null) => {
+      setSettleGate({ trigger, units, raisedAt: reads.current });
+      setWriteError(null);
+      setSendNote(null);
+      const target =
+        (settleBlockedTarget(trigger) === "send" ? send.controlRef.current : null) ??
+        orderHeadingRef.current;
+      const reduce =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      // Optional call: jsdom has no scrollIntoView (the SettledToday precedent). The Send is
+      // centred (the region line sits right under it); the order heading goes to the TOP — the
+      // lines to remove are BELOW it, and centring it spent half a phone screen on the card above
+      // (critic finding; the root's scroll-padding keeps it clear of the sticky bar).
+      target?.scrollIntoView?.({
+        block: target === orderHeadingRef.current ? "start" : "center",
+        behavior: reduce ? "auto" : "smooth",
+      });
+      target?.focus({ preventScroll: true });
+    },
+    [send.controlRef, setSendNote, setSettleGate],
+  );
+  const gateLine = settleGate
+    ? settleBlockedMsg(
+        settleGateUnits(settleGate, settleBlocked, detail.send.sendable),
+        runningClose,
+      )
+    : null;
+
   // `?send=1` — land on the thing the link promised: the Send; the status row if a colleague sent in
   // between; otherwise the order heading. Then drop the param so a reload does not re-focus.
   // Phase 2c · register — `?settle=1` (the order pad's Settle) is the SAME arrival with a second
@@ -842,10 +906,11 @@ export function FloorDetailLive({
               writeError > settle line > degraded > send warn > send ok
 
             - writeError — a line edit or promo refusal the person just caused.
-            - settle line — the reader's status while its collect panel is live (a charge in
-              progress; its own poll reads the processor, independent of the detail read `degraded`
-              describes). Rendered sr-only: the panel shows the same words. The settle gate's
-              "send them first" warn (Phase 2c, second wave) takes this rank too.
+            - settle line — the settle gate's "send them first" warn (Phase 2c · gate: a refused
+              settle tap, or a server `unsent`), rendered VISIBLY — it is the sentence beside the
+              Send the tap just jumped to; else the reader's status while its collect panel is live
+              (a charge in progress; its own poll reads the processor, independent of the detail
+              read `degraded` describes), rendered sr-only — the panel shows the same words.
             - degraded — the frozen-board signal. It outranks EVERY send line (2a's blind review,
               2b63b65: a "Couldn't send" standing for a whole outage would hide the paper escalation
               — S9). The bar's live mark says "Not updating" regardless.
@@ -859,9 +924,11 @@ export function FloorDetailLive({
               // Phase 2a · send — while the slot is mounted the line is reserved, so an outcome
               // appearing never pushes the settle triggers below it.
               minHeight:
-                writeError || degraded || sendNote || send.display.kind !== "none" ? 16 : 0,
+                writeError || gateLine || degraded || sendNote || send.display.kind !== "none"
+                  ? 16
+                  : 0,
               color:
-                writeError || degraded || sendNote?.tone === "warn"
+                writeError || gateLine || degraded || sendNote?.tone === "warn"
                   ? "var(--warn)"
                   : sendNote
                     ? "var(--t2)"
@@ -872,6 +939,23 @@ export function FloorDetailLive({
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
+            ) : gateLine ? (
+              // Phase 2c · gate — the settle rank, SHOWN and SAID. Outranked lines stay shown,
+              // unspoken: the frozen-board line below it (S9 — a frozen view never looks live).
+              <>
+                <MsgText lang={lang} msg={gateLine} />
+                {degraded ? (
+                  <span lang={lang} aria-hidden="true" style={{ display: "block" }}>
+                    {frozenBoardCopy(
+                      lang,
+                      detail.serverNow,
+                      nowMs - degraded.since,
+                      "what.order",
+                      degraded.cause,
+                    )}
+                  </span>
+                ) : null}
+              </>
             ) : readerStatus ? (
               <>
                 <span className="sr-only">
@@ -971,12 +1055,16 @@ export function FloorDetailLive({
             <h2 id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
               <Chrome lang={lang} k="table.detail.settle.title" />
             </h2>
-            {settlePrimary(detail.tab) === "secureTab" && (
+            {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
                 variant="primary"
                 onChanged={onChange}
+                blocked={settleBlocked}
+                blockedNoteId={SETTLE_UNSENT_NOTE_ID}
+                onBlockedTap={(units) => onSettleBlocked("tab", units)}
+                gateLive={settleGate !== null}
               />
             )}
             <CashSettleButton
@@ -999,6 +1087,10 @@ export function FloorDetailLive({
                     }
                   : undefined
               }
+              blocked={settleBlocked}
+              blockedNoteId={SETTLE_UNSENT_NOTE_ID}
+              onBlockedTap={(units) => onSettleBlocked("cash", units)}
+              running={runningClose}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the
@@ -1009,6 +1101,11 @@ export function FloorDetailLive({
                 totalCents={detail.settleTotalCents}
                 variant="secondary"
                 onStarted={setTerminalCollect}
+                blocked={settleBlocked}
+                blockedNoteId={SETTLE_UNSENT_NOTE_ID}
+                onBlockedTap={(units) => onSettleBlocked("reader", units)}
+                running={runningClose}
+                gateLive={settleGate !== null}
               />
             )}
             {detail.tab === "trust" && (
@@ -1020,6 +1117,24 @@ export function FloorDetailLive({
                   k={terminalReady ? "table.detail.trust.reader" : "table.detail.trust.phone"}
                   echo="stack"
                 />
+              </p>
+            )}
+            {/* Phase 2c · gate — WHY the triggers above are dimmed, before anyone taps: the section's
+                LAST child (the hint pattern — it unmounts after a Send without moving a trigger),
+                and the first thing each trigger's description reads. The running-bill close (the
+                guest may have left) offers removing them too. Warn ink plus the words; the glyph is
+                decorative. Never a live region — the page's one region speaks a refused tap. */}
+            {settleBlocked && (
+              <p id={SETTLE_UNSENT_NOTE_ID} className="staff-settle-unsent">
+                <Icon name="alert" size={16} style={{ marginTop: 2, flex: "none" }} />
+                <span>
+                  <Chrome
+                    lang={lang}
+                    k={settleBlockedMsg(detail.send.sendable, runningClose).k}
+                    vars={settleBlockedMsg(detail.send.sendable, runningClose).vars}
+                    echo="stack"
+                  />
+                </span>
               </p>
             )}
           </section>
@@ -1141,6 +1256,8 @@ const addLink: CSSProperties = {
 };
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
+// Phase 2c · gate — the settle gate's note; every trigger's `aria-describedby` names it first.
+const SETTLE_UNSENT_NOTE_ID = "settle-unsent-note";
 // Phase 2c · register — the settle section's heading: the page's section-heading voice, and a focus
 // target (the `?settle=1` landing), so no outline of its own beyond the focus ring rule.
 const settleHeading: CSSProperties = {

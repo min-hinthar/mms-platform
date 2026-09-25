@@ -17,9 +17,12 @@ import {
   settlementHeldBy,
 } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal } from "./settle-refusal";
+import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
+// ── Phase 2c · gate ──
+import { staffSettleBlockedByUnsent } from "./checkout-stage";
+import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * Stripe Terminal at the register (W6c — M6·P6.2). SERVER-DRIVEN: the S700 is commanded through the
@@ -77,7 +80,9 @@ export type SettleCardResult =
   | { ok: true; paymentIntentId: string; totalCents: number }
   | { ok: false; error: string; code?: undefined }
   // Phase 2c · register (P2w) — money already moving on the cart, with who holds it.
-  | InFlightRefusal;
+  | InFlightRefusal
+  // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
+  | UnsentRefusal;
 
 /**
  * Start a card-present settle: freeze the cart, mint the card_present PI, hand it to the reader.
@@ -137,6 +142,15 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
       ok: false,
       error: settleRefusal(freeze),
     };
+
+  // ── Phase 2c · gate ── the settle gate (lib/staff-cart's rule, the same binding): under the freeze,
+  // before the totals, so no PaymentIntent is ever minted over dishes the kitchen never got. Released
+  // here, scoped to THIS attempt (no blanket `finally` — the success path holds the freeze).
+  const unsentUnits = await kitchenDraftUnits(cart.id);
+  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+    await releaseSettlementFor(cart.id, attemptId);
+    return unsentRefusal(unsentUnits);
+  }
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success
   // path deliberately HOLDS the freeze, so no blanket finally). Releases are scoped to THIS

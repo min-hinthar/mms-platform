@@ -7,6 +7,9 @@ import {
   sendHoldMsg,
   sendRefusalMsg,
   settleBlockedTarget,
+  settleBlockedMsg,
+  settleGateAfterCommit,
+  settleGateUnits,
   staffOwedSendUnits,
   staffSendCounts,
   staffSendView,
@@ -341,5 +344,53 @@ describe("sendNoteAfterCommit — a send line lives until the fact it speaks to 
         dinerUnits: 0,
       }),
     ).toBe("send:3");
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("settleBlockedMsg — the settle gate names the fix, counted", () => {
+  it("a table says send them first; a running-bill close offers removing them too", () => {
+    // MUTATION (staff-send-view/unsent-tab-close-never-offers-remove): ignore `running` — a
+    // running-bill close (the guest may have left) is told only to send dishes nobody will eat; red.
+    expect(settleBlockedMsg(2, false)).toEqual({
+      k: "table.send.settleBlocked.many",
+      vars: { n: 2 },
+    });
+    expect(settleBlockedMsg(2, true)).toEqual({
+      k: "table.send.settleBlocked.tab.many",
+      vars: { n: 2 },
+    });
+    expect(settleBlockedMsg(1, false).k).toBe("table.send.settleBlocked.one");
+    expect(settleBlockedMsg(1, true).k).toBe("table.send.settleBlocked.tab.one");
+  });
+});
+
+describe("settleGateAfterCommit — the gate's region line lives until a LATER read clears it", () => {
+  const note = { trigger: "cash" as const, units: 3, raisedAt: 5 };
+  it("stands while the detail still shows the table blocked", () => {
+    expect(settleGateAfterCommit(note, 9, true)).toBe(note);
+  });
+  it("retires on a read that started after it and shows nothing unsent", () => {
+    expect(settleGateAfterCommit(note, 6, false)).toBeNull();
+  });
+  it("never retires on a read already in the air when it was raised", () => {
+    // MUTATION (staff-send-view/unsent-line-retired-by-an-older-read): drop the ticket check — a raced
+    // refusal's line vanishes on the stale poll that could not see the drafts, and the cashier is
+    // left at a focused Send with no sentence saying why; red.
+    expect(settleGateAfterCommit(note, 5, false)).toBe(note);
+    expect(settleGateAfterCommit(note, 4, false)).toBe(note);
+  });
+  it("no line, nothing to keep", () => {
+    expect(settleGateAfterCommit(null, 9, true)).toBeNull();
+  });
+});
+
+describe("settleGateUnits — the count the line names", () => {
+  it("the live detail's once it shows the table blocked; the server's own reading before that", () => {
+    // MUTATION (staff-send-view/unsent-line-counts-a-stale-reading): prefer the refusal's count —
+    // a guest's third dish, landed and read, is said as two; red.
+    expect(settleGateUnits({ trigger: "cash", units: 2, raisedAt: 1 }, true, 3)).toBe(3);
+    expect(settleGateUnits({ trigger: "cash", units: 2, raisedAt: 1 }, false, 0)).toBe(2);
+    expect(settleGateUnits({ trigger: "tab", units: null, raisedAt: 1 }, true, 4)).toBe(4);
   });
 });

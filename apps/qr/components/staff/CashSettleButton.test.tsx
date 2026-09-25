@@ -772,3 +772,98 @@ describe("CashSettleButton — an unknown outcome is handed UP (critic finding: 
     expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
   });
 });
+
+// ── Phase 2c · gate ──
+describe("CashSettleButton — the settle gate (owner decision 3: refused while dishes are unsent)", () => {
+  it("blocked: the trigger is aria-disabled (never native), read with the page's note first, and a tap opens NOTHING — it hands up once", () => {
+    const onBlockedTap = vi.fn();
+    const { trigger } = mount({ blocked: true, blockedNoteId: "settle-unsent-note", onBlockedTap });
+    const t = trigger();
+    expect(t.getAttribute("aria-disabled")).toBe("true");
+    expect(t.hasAttribute("disabled")).toBe(false);
+    expect(t.getAttribute("aria-describedby")).toBe("settle-unsent-note settle-hint");
+    fireEvent.click(t);
+    // MUTATION (cashsettle/unsent-trigger-opens-the-sheet): drop the handler's guard — the sheet
+    // opens and the cashier fills in a tender for a settle the server will refuse; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(null);
+    expect(settleCash).not.toHaveBeenCalled();
+  });
+
+  it("not blocked: no aria-disabled from the gate, and the trigger opens the sheet as before", () => {
+    // MUTATION (cashsettle/unsent-trigger-always-dimmed): spread aria-disabled regardless — every
+    // cash settle reads as refused to a screen reader; red.
+    const { trigger, open } = mount({ blocked: false, blockedNoteId: "settle-unsent-note" });
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+    expect(trigger().getAttribute("aria-describedby")).toBe("settle-hint");
+    expect(open()).toBeTruthy();
+  });
+
+  it("a server `unsent` refusal is said in the sheet in the device language, with ITS count — and the close hands the cashier to the fix, not back to the trigger", async () => {
+    const english = "Some dishes haven’t gone to the kitchen.";
+    settleCash.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: english });
+    const onBlockedTap = vi.fn();
+    const onChanged = vi.fn();
+    render(
+      <StaffLangProvider lang="my">
+        <CashSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          tipBaseCents={4000}
+          onBlockedTap={onBlockedTap}
+          onChanged={onChanged}
+        />
+      </StaffLangProvider>,
+    );
+    const trigger = screen.getAllByRole("button")[0]!;
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION (cashsettle/unsent-said-in-english): drop the `unsent` arm — the server's English
+    // passes through <OutageText> on a Burmese console; red.
+    const alert = within(dialog).getByRole("alert").textContent;
+    expect(alert).toBe(tf("my", "table.send.settleBlocked.many", { n: 2 }));
+    expect(alert).not.toContain(english);
+    // The page re-reads, so its note appears under the triggers.
+    expect(onChanged).toHaveBeenCalled();
+    // Nothing is handed up while the sheet is open (the page behind the modal is hidden).
+    expect(onBlockedTap).not.toHaveBeenCalled();
+    const cancel = within(dialog).getByRole("button", { name: /မလုပ်တော့|Cancel/ });
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await settleFocus();
+    // MUTATION (cashsettle/unsent-refusal-never-jumps): drop the jump on close — the cashier is back
+    // on a trigger the server just refused, with the Send somewhere above; red.
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(2);
+    expect(document.activeElement).not.toBe(trigger);
+  });
+  it("on a card-on-file running bill the sheet says the running bill's sentence (the page's note's)", async () => {
+    settleCash.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: "x" });
+    render(
+      <StaffLangProvider lang="en">
+        <CashSettleButton sessionId="s1" totalCents={4210} tipBaseCents={4000} running />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION (cashsettle/unsent-running-ignored): the table's sentence regardless; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      tf("en", "table.send.settleBlocked.tab.many", { n: 2 }),
+    );
+  });
+});

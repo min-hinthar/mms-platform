@@ -200,3 +200,131 @@ describe("TerminalSettleButton — a refusal mid-payment is said in the device l
     expect(alert).not.toContain(english);
   });
 });
+
+// ── Phase 2c · gate ──
+describe("TerminalSettleButton — the settle gate (refused while dishes are unsent)", () => {
+  it("blocked: aria-disabled (never native), read with the page's note first, and a tap starts NO reader — it hands up once", async () => {
+    const onBlockedTap = vi.fn();
+    render(
+      <StaffLangProvider lang="en">
+        <TerminalSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          onStarted={vi.fn()}
+          blocked
+          blockedNoteId="settle-unsent-note"
+          onBlockedTap={onBlockedTap}
+        />
+      </StaffLangProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: /Card on the reader/ });
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+    expect(trigger.getAttribute("aria-describedby")).toBe("settle-unsent-note terminal-hint");
+    await act(async () => {
+      fireEvent.click(trigger);
+    });
+    // MUTATION (terminal-ui/unsent-tap-starts-the-reader): drop `start`'s guard — the reader is
+    // driven, a freeze taken and a PaymentIntent asked for over dishes nobody sent; red.
+    expect(settleCard).not.toHaveBeenCalled();
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(null);
+  });
+
+  it("not blocked: no aria-disabled from the gate", () => {
+    // MUTATION (terminal-ui/unsent-trigger-always-dimmed): spread aria-disabled regardless; red.
+    render(
+      <StaffLangProvider lang="en">
+        <TerminalSettleButton sessionId="s1" totalCents={4210} onStarted={vi.fn()} />
+      </StaffLangProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: /Card on the reader/ });
+    expect(trigger.getAttribute("aria-disabled")).toBeNull();
+    expect(trigger.getAttribute("aria-describedby")).toBe("terminal-hint");
+  });
+
+  it("a server `unsent` refusal renders the dictionary sentence in Burmese with ITS count, hands the jump up once, and mounts no second alert", async () => {
+    const english = "Some dishes haven’t gone to the kitchen.";
+    settleCard.mockResolvedValueOnce({ ok: false, code: "unsent", units: 3, error: english });
+    const onBlockedTap = vi.fn();
+    render(
+      <StaffLangProvider lang="my">
+        <TerminalSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          onStarted={vi.fn()}
+          onBlockedTap={onBlockedTap}
+        />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    // MUTATION (terminal-ui/unsent-said-in-english): drop the `unsent` arm — the server's English
+    // passes through on a Burmese console; red.
+    const said = tf("my", "table.send.settleBlocked.many", { n: 3 });
+    expect(document.body.textContent).toContain(said);
+    expect(document.body.textContent).not.toContain(english);
+    // MUTATION (terminal-ui/unsent-refusal-never-jumps): drop the hand-up — the cashier is left on
+    // a refused reader button with the Send somewhere above; red.
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(3);
+    // The page's ONE region says it; this line is shown, never a second announcement.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+  // ── the critic's findings (Phase 2c · gate, round 2) ──
+  const raced = { ok: false, code: "unsent", units: 2, error: "Some dishes haven’t gone." };
+  const said = (running: boolean) =>
+    tf("en", running ? "table.send.settleBlocked.tab.many" : "table.send.settleBlocked.many", {
+      n: 2,
+    });
+  const el = (p: { blocked?: boolean; gateLive?: boolean; running?: boolean }) => (
+    <StaffLangProvider lang="en">
+      <TerminalSettleButton sessionId="s1" totalCents={4210} onStarted={vi.fn()} {...p} />
+    </StaffLangProvider>
+  );
+
+  it("a raced line is DROPPED once the page reads the table blocked — it never comes back when the table clears", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    const { rerender } = render(el({}));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    expect(document.body.textContent).toContain(said(false));
+    // The page read the drafts: its note says it now.
+    rerender(el({ blocked: true }));
+    expect(document.body.textContent).not.toContain(said(false));
+    // Sent: the page reads the table clear again.
+    rerender(el({ blocked: false }));
+    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-page): clear only when the page's line
+    // retires — standalone (no page line) the hidden error comes back under a live trigger; red.
+    expect(document.body.textContent).not.toContain(said(false));
+  });
+
+  it("a raced line goes when the page's own gate line retires, even if the page never read the table blocked", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    const { rerender } = render(el({ gateLive: true }));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    expect(document.body.textContent).toContain(said(false));
+    rerender(el({ gateLive: false }));
+    // MUTATION (terminal-ui/unsent-raced-line-outlives-the-gate): clear only on `blocked` — the
+    // dishes were removed before the page saw them, and the line says they are still there; red.
+    expect(document.body.textContent).not.toContain(said(false));
+    // …and a later gate line (another door refused) does not bring it back.
+    rerender(el({ gateLive: true }));
+    expect(document.body.textContent).not.toContain(said(false));
+  });
+
+  it("on a card-on-file running bill the raced line says the running bill's sentence", async () => {
+    settleCard.mockResolvedValueOnce(raced);
+    render(el({ running: true }));
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    // MUTATION (terminal-ui/unsent-running-ignored): the table's sentence regardless — the reader
+    // says "send them first" under a note offering removal; red.
+    expect(document.body.textContent).toContain(said(true));
+  });
+});

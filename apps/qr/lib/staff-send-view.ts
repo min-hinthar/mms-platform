@@ -344,3 +344,52 @@ export function undoNotice(res: StaffUndoResult): SendNotice {
       return warn("table.send.err.undoFailed");
   }
 }
+
+// ── Phase 2c · gate ──
+/** A settle door on the table page — the three triggers `settleBlockedTarget` routes. */
+export type SettleTrigger = Parameters<typeof settleBlockedTarget>[0];
+
+/**
+ * The settle gate's sentence (owner decision 3): what the table page's note, its region on a
+ * refused tap, every settle control on a server `unsent`, and the order pad's Take payment say.
+ * `running` picks the running-bill close's words — the guest may have left, so removing the dishes
+ * is offered beside sending them. `units` is the count (`detail.send.sendable`, or the server's own
+ * reading on a raced refusal) and rides `{n}`.
+ */
+export function settleBlockedMsg(units: number, running: boolean): StaffKeyMsg {
+  const k = running
+    ? plural(units, "table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many")
+    : plural(units, "table.send.settleBlocked.one", "table.send.settleBlocked.many");
+  return { k, vars: { n: units } };
+}
+
+/** The table page's settle-gate line in its ONE region: which door was tapped, the server's own
+ *  count when a raced refusal brought one (`null` on a pre-tap refusal — the detail's count is the
+ *  reading), and the last read STARTED when it was raised (`sendNote`'s `raisedAt` rule). */
+export type SettleGateNote = { trigger: SettleTrigger; units: number | null; raisedAt: number };
+
+/**
+ * The line's lifetime. It stands while the committed detail still shows the table blocked; it
+ * retires on the first detail from a read that STARTED after it was raised and shows nothing
+ * unsent (sent, or removed). A read already in the air when it was raised may predate the reading
+ * that refused — a raced server refusal whose drafts that read cannot yet see — so it never
+ * retires the line.
+ */
+export function settleGateAfterCommit(
+  note: SettleGateNote | null,
+  readTicket: number,
+  blocked: boolean,
+): SettleGateNote | null {
+  if (note === null || blocked) return note;
+  return readTicket > note.raisedAt ? null : note;
+}
+
+/** The count the line names: the live detail's once it shows the table blocked (the reading that
+ *  keeps moving), else the refusal's own reading from the server. */
+export function settleGateUnits(
+  note: SettleGateNote,
+  blocked: boolean,
+  detailUnits: number,
+): number {
+  return blocked || note.units === null ? detailUnits : note.units;
+}

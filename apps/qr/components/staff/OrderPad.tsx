@@ -595,6 +595,8 @@ export function OrderPad({
     unsavedNote: lineState.note !== null,
     lines: lineWrites,
     settlePhase,
+    // Phase 2c · gate — the server's unsent dine-in units; `padSettle` hands them to the gate.
+    unsentUnits: detail.send.sendable,
   };
   const settle = padSettle(settleInput);
   // What a refused Take payment names: the note's dish, the add it waits on (lost or still coming).
@@ -605,6 +607,7 @@ export function OrderPad({
     tab,
     note: note ? lineDish(note.lineId, note.name) : null,
     blocker: b ? { name: dishName(b), state: b.state === "lost" ? "lost" : "unconfirmed" } : null,
+    unsent: detail.send.sendable,
   });
   // The field a note hold points at — in the order view, which a phone shows only after the flip.
   const focusNote = (lineId: string) => {
@@ -634,6 +637,13 @@ export function OrderPad({
       // take the finger to the note: it is where an allergy lives, and leaving would drop it.
       if (now.block) say(padSettleReason(now.block, reasonCtx(note, writes.blocker())));
       if (now.block === "note" && note) focusNote(note.lineId);
+      // Phase 2c · gate — the fix is the Send: the order view first (on a phone the unsent dishes
+      // are listed there, right above the bar's Send), then the Send itself. Nothing jumps — the
+      // dock is on screen at every width.
+      if (now.block === "unsent") {
+        flushSync(() => setView("order"));
+        send.controlRef.current?.focus({ preventScroll: true });
+      }
       return;
     }
     settleInFlight.current = true;

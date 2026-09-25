@@ -59,6 +59,8 @@ let cart: Row | null = null;
 /** The cart's lines — the count EVALUATES the action's filters against these (state / comped). */
 let items: Row[] = [];
 let members: Row[] = [];
+/** Phase 2c · gate — the session rows the host read sees (`host_seat`). */
+let sessions: Row[] = [];
 let orders: Row[] = [];
 let countFails = false;
 let updateFails = false;
@@ -80,11 +82,13 @@ const rowsFor = (table: string): Row[] =>
     ? items
     : table === "session_members"
       ? members
-      : table === "qr_orders"
-        ? orders
-        : cart
-          ? [cart]
-          : [];
+      : table === "table_sessions"
+        ? sessions
+        : table === "qr_orders"
+          ? orders
+          : cart
+            ? [cart]
+            : [];
 function builder(table: string, mode: "select" | "update", values: Row | null, head: boolean) {
   const filters: Filter[] = [];
   const api = {
@@ -161,6 +165,7 @@ beforeEach(() => {
     { cart_id: "c-1", state: "draft", comped: false },
   ];
   members = [{ session_id: "s-1", seat_id: "u-1" }];
+  sessions = [{ id: "s-1", host_seat: null }];
   orders = [];
   countFails = false;
   updateFails = false;
@@ -271,6 +276,52 @@ describe("requestCounterPay", () => {
   it("a malformed request is refused before any read", async () => {
     expect(await requestCounterPay({})).toMatchObject({ ok: false, reason: "error" });
     expect(await requestCounterPay(null)).toMatchObject({ ok: false, reason: "error" });
+  });
+});
+
+// ── Phase 2c · gate ──
+describe("requestCounterPay — the ask waits for everything to be sent (the Bill's own rule)", () => {
+  it("a hosted table holding unsent dine-in dishes is refused as `unsent`, and nothing is stamped", async () => {
+    // MUTATION (counter-pay/unsent-not-read): hardcode `unsentBlocks: false` — the ask lights the
+    // floor for a table whose dishes nobody sent, a door the Bill's Pay button keeps shut; red.
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
+    items = [
+      { cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false },
+      { cart_id: "c-1", state: "fired", fulfillment: "dinein", qty: 1, comped: false },
+    ];
+    expect(await requestCounterPay({ cartId: "c-1" })).toEqual({
+      ok: false,
+      reason: "unsent",
+      error: "Everything has to go to the kitchen first — then pay at the counter.",
+    });
+    expect(cart!.counter_requested_at).toBeNull();
+  });
+
+  it("a table with NO host is never gated — nobody at the table can send", async () => {
+    // MUTATION (counter-pay/unsent-gates-a-hostless-table): read the host as always present — a
+    // staff-started table's diners (invite links, no host) can never ask for the counter; red.
+    sessions = [{ id: "s-1", host_seat: null }];
+    items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
+    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+  });
+
+  it("a to-go draft never blocks (it cooks at payment), and a sent table may ask", async () => {
+    sessions = [{ id: "s-1", host_seat: "u-1" }];
+    items = [
+      { cart_id: "c-1", state: "draft", fulfillment: "togo", qty: 1, comped: false },
+      { cart_id: "c-1", state: "served", fulfillment: "dinein", qty: 2, comped: false },
+    ];
+    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
+  });
+
+  it("an unreadable host fails OPEN — the ask moves no money; the settle doors behind it refuse", async () => {
+    // The host read errors while the count still answers: the gate reads "no host" and the ask
+    // goes through (the register's settle gate and create-intent each refuse on their own).
+    // MUTATION (counter-pay/unsent-host-read-fails-closed): read an unreadable host as present — a
+    // read blip holds a family at the table over an ask that moves no money; red.
+    readFails = true;
+    items = [{ cart_id: "c-1", state: "draft", fulfillment: "dinein", qty: 2, comped: false }];
+    expect((await requestCounterPay({ cartId: "c-1" })).ok).toBe(true);
   });
 });
 

@@ -7,6 +7,8 @@ import { openQuote, quoteDrift, reconcileQuote, type SettleQuote } from "@/lib/r
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2c · gate ──
+import { settleBlockedMsg } from "@/lib/staff-send-view";
 
 /**
  * The two error sources on this surface, kept APART (the TerminalSettle `SettleError` pattern).
@@ -24,7 +26,10 @@ type CloseError =
   | { kind: "moved"; from: number; to: number }
   // P2w (critic finding) — refused while money is already moving on the table: WHO holds it, said
   // through a dictionary key per holder (the server's English `error` is for older bundles).
-  | { kind: "inflight"; holder: InFlightHolder };
+  | { kind: "inflight"; holder: InFlightHolder }
+  // Phase 2c · gate — the settle gate refused the close (dishes the kitchen never got), with the
+  // server's count. Shown here in the running bill's words, SAID by the page's one region.
+  | { kind: "unsent"; units: number };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -44,12 +49,29 @@ export function CloseSecureTabButton({
   totalCents,
   variant = "primary",
   onChanged,
+  blocked = false,
+  blockedNoteId,
+  onBlockedTap,
+  gateLive,
 }: {
   sessionId: string;
   totalCents: number;
   variant?: Extract<ButtonVariant, "primary" | "secondary">;
   /** The parent's own detail refresh (debounced). */
   onChanged?: () => void;
+  /** Phase 2c · gate — the settle gate holds (read by the page): `aria-disabled`, described by the
+   *  page's note, and a tap opens NO confirm — it hands up (`onBlockedTap`). */
+  blocked?: boolean;
+  /** The page's note that says why — prepended to the trigger's description while blocked. */
+  blockedNoteId?: string;
+  /** A refused tap (`null` — the page's count is the reading), or the server's `unsent` refusal (its
+   *  count): the page says why in its one region and moves focus to the order's lines, where
+   *  "remove them if the guest has left" is done. */
+  onBlockedTap?: (units: number | null) => void;
+  /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
+   *  retired (a send, a later read with nothing unsent, another setter): the raced line never
+   *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
+  gateLive?: boolean;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -57,6 +79,11 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
+  // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
+  // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
+  // its note says it now) or its own line retired. Hidden, it came back once the dishes were
+  // removed, offering to remove them (critic finding).
+  if (error?.kind === "unsent" && (blocked || gateLive === false)) setError(null);
   // The QUOTE (lib/register-math `SettleQuote`) — frozen when the confirm OPENS, so "Charge $x"
   // charges the figure staff READ, never the prop the page's re-read moves under an open confirm (the
   // critic's finding, the cash sheet's twin). A server `moved` refusal replaces it with the server's
@@ -78,9 +105,14 @@ export function CloseSecureTabButton({
   // Move focus into the confirm group when it opens and back to the trigger when it closes (parity with
   // CashSettleButton, S1-audit S6). The guard skips first mount.
   const wasConfirming = useRef(false);
+  // Phase 2c · gate — the confirm closed over an `unsent` refusal: the page's jump already moved
+  // focus to the fix, so the close does not pull it back to the trigger. Set before the close.
+  const jumpOwnsFocus = useRef(false);
   useEffect(() => {
     if (confirming && !wasConfirming.current) confirmRef.current?.focus();
-    else if (!confirming && wasConfirming.current) triggerRef.current?.focus();
+    else if (!confirming && wasConfirming.current && !jumpOwnsFocus.current)
+      triggerRef.current?.focus();
+    jumpOwnsFocus.current = false;
     wasConfirming.current = confirming;
   }, [confirming]);
 
@@ -127,6 +159,17 @@ export function CloseSecureTabButton({
       }
       if (res.code === "inflight") {
         setError({ kind: "inflight", holder: res.holder });
+        return;
+      }
+      if (res.code === "unsent") {
+        // Phase 2c · gate — nothing charged (the freeze released on the server). The page says it
+        // in its one region and takes staff to the lines; the page re-reads so its note appears.
+        setError({ kind: "unsent", units: res.units });
+        if (onBlockedTap) {
+          jumpOwnsFocus.current = true;
+          onBlockedTap(res.units);
+        }
+        onChanged?.();
         return;
       }
       setError({ kind: "server", text: res.error });
@@ -195,8 +238,18 @@ export function CloseSecureTabButton({
           variant={variant}
           size="xl"
           block
-          aria-describedby="secure-close-hint"
+          // Phase 2c · gate — the attribute (spread only when set) plus the handler's guard.
+          {...(blocked ? { "aria-disabled": true } : {})}
+          aria-describedby={
+            blocked && blockedNoteId ? `${blockedNoteId} secure-close-hint` : "secure-close-hint"
+          }
           onClick={() => {
+            if (blocked) {
+              // Opens no confirm: the page says why and takes staff to the lines.
+              setError(null);
+              onBlockedTap?.(null);
+              return;
+            }
             // The quote FREEZES here: the live figure, or the server's a refusal handed back while
             // the page has not re-read yet (`openQuote`).
             setQuote(openQuote(reconciled, totalCents));
@@ -209,7 +262,19 @@ export function CloseSecureTabButton({
       <p id="secure-close-hint" style={hint}>
         <Chrome lang={lang} k="settle.card.hint" echo="stack" />
       </p>
-      {alertMsg && (
+      {/* Phase 2c · gate — SHOWN here, SAID by the page's one region (no role of its own); it is
+          dropped for the page's note once the page has read the drafts too (the clear above). */}
+      {alertMsg?.kind === "unsent" && (
+        <p style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+          <Chrome
+            lang={lang}
+            k={settleBlockedMsg(alertMsg.units, true).k}
+            vars={settleBlockedMsg(alertMsg.units, true).vars}
+            echo={false}
+          />
+        </p>
+      )}
+      {alertMsg && alertMsg.kind !== "unsent" && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {alertMsg.kind === "server" ? (
             <OutageText lang={lang} error={alertMsg.text} />

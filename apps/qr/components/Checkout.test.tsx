@@ -1398,6 +1398,90 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
   });
 });
 
+// ── Phase 2c · gate ──
+describe("the Bill's other door — Pay at the counter keeps the 'Everything sent' rule", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+
+  it("while a dish is unsent the counter button is aria-disabled, the note above says WHY, and a tap asks nothing — it repeats the reason", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    // MUTATION (checkout/unsent-counter-door-open): gate the button on the freeze alone — the family
+    // is sent to the register over dishes nobody is cooking, a door the Pay button keeps shut; red.
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(counter.hasAttribute("disabled")).toBe(false);
+    // The diner sees why while this button is the visible action (the note renders on the same
+    // Bill stage the button does).
+    expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
+  it("a GUEST's tap on the dimmed counter button says who sends — never tells them to send", async () => {
+    // Critic finding: the refusal told a guest to "Send everything to the kitchen" — only the host
+    // can; the note above already names the host.
+    mount({
+      splitContext: {
+        ...HOST,
+        myRole: "guest" as const,
+        members: [
+          { seat: "seat-host", name: "Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Me", role: "guest" as const },
+        ],
+      },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBe("true");
+    expect(document.body.textContent).toContain("Aye sends them — then the bill is ready to pay.");
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).not.toHaveBeenCalled();
+    // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
+    // a guest is told to send what only Aye can; red.
+    expect(document.body.textContent).toContain(
+      "Aye sends everything to the kitchen first — then pay at the counter.",
+    );
+    expect(document.body.textContent).not.toContain(
+      "Send everything to the kitchen first — then pay at the counter.",
+    );
+  });
+
+  it("a fully sent table may still ask for the counter", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    expect(counter.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    expect(h.requestCounterPay).toHaveBeenCalledTimes(1);
+  });
+
+  it("a table with NO host is never gated at the counter either — nobody there could send", () => {
+    mount({
+      splitContext: { ...HOST, myRole: "guest" as const, members: [] },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(
+      screen.getByRole("button", { name: /Pay at the counter/i }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+});
+
 describe("Phase 1b — the bill says which table it is", () => {
   it("wears the table number at a dine-in table", () => {
     // MUTATION: drop the eyebrow — a shared-table bill stops naming its table; red.

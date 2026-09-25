@@ -8,6 +8,9 @@ import {
   type StaffLineEdit,
   type StaffSendView,
 } from "./staff-send-view";
+// ── Phase 2c · gate ──
+import { settleBlockedMsg } from "./staff-send-view";
+import { staffSettleBlockedByUnsent } from "./checkout-stage";
 import type { PendingCounts } from "./pad-pending";
 import type { StaffLang } from "./staff-lang";
 import type { StaffKey } from "./i18n/staff";
@@ -204,12 +207,12 @@ export function unsavedNoteFrom(
 }
 
 /**
- * Why Take payment refuses a tap. ⚠️ THE SETTLE GATE PLUGS IN HERE (owner decision, 2c commit B —
- * built by the gate area): it adds `"unsent"` to this union, ONE clause to `padSettle`, and its
- * sentence to `SETTLE_REASON` — a `Record` over this union, so the new member is a compile error
- * until its sentence exists.
+ * Why Take payment refuses a tap. Phase 2c · gate — `"unsent"` is the settle gate (owner decision 3:
+ * every settle door refuses while dine-in dishes are unsent), read from the SAME binding the table
+ * page and the server refuse on (`staffSettleBlockedByUnsent`); its sentence is in `SETTLE_REASON`,
+ * a `Record` over this union.
  */
-export type PadSettleBlock = "paying" | "note" | "waiting" | "empty";
+export type PadSettleBlock = "paying" | "note" | "waiting" | "unsent" | "empty";
 
 /** Take payment's life after a tap: waiting on a dish still on its way, saving a typed counter name,
  *  then opening the table's payment section. */
@@ -233,6 +236,9 @@ export type PadSettleInput = {
   /** The ticket's own writes: one in flight holds Take payment; any hides its amount. */
   lines: PadLineWrites;
   settlePhase: PadSettlePhase;
+  /** Phase 2c · gate — the server's unsent dine-in units (`detail.send.sendable`), the count the
+   *  settle gate reads. Never restated: `padSettle` hands it to `staffSettleBlockedByUnsent`. */
+  unsentUnits: number;
 };
 
 export type PadSettle = {
@@ -255,9 +261,12 @@ export function padSettle(i: PadSettleInput): PadSettle {
       ? "note"
       : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0
         ? "waiting"
-        : i.itemCount === 0 && inFlight === 0
-          ? "empty"
-          : null;
+        : // Phase 2c · gate — AFTER waiting: while a write is pending the count is stale.
+          staffSettleBlockedByUnsent(i.mode, i.unsentUnits)
+          ? "unsent"
+          : i.itemCount === 0 && inFlight === 0
+            ? "empty"
+            : null;
   return {
     variant,
     // A tap while an add FLIES is accepted: the pad drains the add chain, then goes.
@@ -276,6 +285,8 @@ export type PadReasonCtx = {
   note: string | null;
   /** The add Take payment waits on: its dish, and whether its answer was lost or is still coming. */
   blocker: { name: string; state: "unconfirmed" | "lost" } | null;
+  /** Phase 2c · gate — the unsent dine-in units the settle gate names (`detail.send.sendable`). */
+  unsent: number;
 };
 
 /** One sentence per reason. A `Record` over the union (never a ternary chain that falls through to
@@ -289,6 +300,8 @@ const SETTLE_REASON: { readonly [B in PadSettleBlock]: (c: PadReasonCtx) => Staf
       ? sendHoldMsg({ kind: "add", name: c.blocker.name, state: c.blocker.state })
       : { k: "table.send.hold.writing" },
   empty: () => ({ k: "pad.reason.empty" }),
+  // Phase 2c · gate — the table page's own sentence (one fact, one sentence): the fix is the Send.
+  unsent: (c) => settleBlockedMsg(c.unsent, false),
 };
 
 /** The sentence for a refused Take payment — its hint, and what a tap on it says (§17). */

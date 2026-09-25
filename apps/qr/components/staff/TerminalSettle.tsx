@@ -7,6 +7,8 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2c · gate ──
+import { settleBlockedMsg } from "@/lib/staff-send-view";
 
 /**
  * P2 — the two error sources on this surface, kept APART.
@@ -23,7 +25,10 @@ import { useStaffLang } from "./StaffLangProvider";
 type SettleError =
   | { kind: "server"; text: string }
   | { kind: "local" }
-  | { kind: "inflight"; holder: InFlightHolder };
+  | { kind: "inflight"; holder: InFlightHolder }
+  // Phase 2c · gate — the settle gate refused the start (dishes the kitchen never got), with the
+  // server's count. Shown here, SAID by the page's one region (the jump hands it up).
+  | { kind: "unsent"; units: number };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -58,6 +63,11 @@ export function TerminalSettleButton({
   totalCents,
   variant = "secondary",
   onStarted,
+  blocked = false,
+  blockedNoteId,
+  onBlockedTap,
+  running = false,
+  gateLive,
 }: {
   sessionId: string;
   totalCents: number;
@@ -65,6 +75,22 @@ export function TerminalSettleButton({
    *  8): it sits BELOW cash as a secondary. The prop exists so that decision stays one line. */
   variant?: Extract<ButtonVariant, "primary" | "secondary">;
   onStarted: (c: TerminalCollect) => void;
+  /** Phase 2c · gate — the settle gate holds (read by the page): `aria-disabled`, described by the
+   *  page's note, and a tap starts NO reader — it hands up (`onBlockedTap`). */
+  blocked?: boolean;
+  /** The page's note that says why — prepended to the trigger's description while blocked. */
+  blockedNoteId?: string;
+  /** A refused tap (`null` — the page's count is the reading), or the server's `unsent` refusal
+   *  (its count): the page says why in its one region and moves focus to the Send. */
+  onBlockedTap?: (units: number | null) => void;
+  /** Phase 2c · gate — the bill is a card-on-file running bill (the page's ONE binding,
+   *  `settlePrimary(tab) === "secureTab"`): a raced refusal says the running bill's sentence, the
+   *  same one the page's note and region say — never a second sentence for the same fact. */
+  running?: boolean;
+  /** Phase 2c · gate — whether the page's one region still holds the gate's line. `false` once it
+   *  retired (a send, a later read with nothing unsent, another setter): the raced line never
+   *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
+  gateLive?: boolean;
 }) {
   const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
@@ -72,9 +98,20 @@ export function TerminalSettleButton({
   // render before `busy`).
   const inFlight = useRef(false);
   const [error, setError] = useState<SettleError | null>(null);
+  // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
+  // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
+  // its note says it now) or its own line retired. Hidden, it came back under a live trigger once
+  // the dishes were sent, saying they had not been (critic finding).
+  if (error?.kind === "unsent" && (blocked || gateLive === false)) setError(null);
 
   async function start() {
     if (inFlight.current) return;
+    if (blocked) {
+      // Phase 2c · gate — refused at the tap: no reader, no freeze; the page names the fix.
+      setError(null);
+      onBlockedTap?.(null);
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -85,8 +122,13 @@ export function TerminalSettleButton({
         setError(
           res.code === "inflight"
             ? { kind: "inflight", holder: res.holder }
-            : { kind: "server", text: res.error },
+            : res.code === "unsent"
+              ? { kind: "unsent", units: res.units }
+              : { kind: "server", text: res.error },
         );
+        // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
+        // the page says it in its one region and takes the cashier to the Send.
+        if (res.code === "unsent") onBlockedTap?.(res.units);
         return;
       }
       onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
@@ -110,7 +152,11 @@ export function TerminalSettleButton({
         block
         busy={busy}
         busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
-        aria-describedby="terminal-hint"
+        // Phase 2c · gate — the attribute (spread only when set) plus `start`'s own guard.
+        {...(blocked ? { "aria-disabled": true } : {})}
+        aria-describedby={
+          blocked && blockedNoteId ? `${blockedNoteId} terminal-hint` : "terminal-hint"
+        }
         onClick={start}
       >
         <Chrome lang={lang} k="settle.reader.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
@@ -118,7 +164,21 @@ export function TerminalSettleButton({
       <p id="terminal-hint" style={hint}>
         <Chrome lang={lang} k="settle.reader.hint" echo="stack" />
       </p>
-      {error && (
+      {/* Phase 2c · gate — the settle gate's refusal is SHOWN here but SAID by the page's one polite
+          region (the jump hands it up), so it carries no role of its own; once the page's note
+          under the triggers says the same (the page read the drafts), this line is dropped for it
+          (the render-time clear above). */}
+      {error?.kind === "unsent" && (
+        <p style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+          <Chrome
+            lang={lang}
+            k={settleBlockedMsg(error.units, running).k}
+            vars={settleBlockedMsg(error.units, running).vars}
+            echo={false}
+          />
+        </p>
+      )}
+      {error && error.kind !== "unsent" && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />

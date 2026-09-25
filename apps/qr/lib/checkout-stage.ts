@@ -86,3 +86,26 @@ export function kitchenDraftUnitsFromRows(
     .filter((r) => r.state === "draft" && r.fulfillment === "dinein")
     .reduce((a, r) => a + r.qty, 0);
 }
+
+// ── Phase 2c · gate ──
+/**
+ * The staff settle gate (owner decision 3, 2026-09-24: "every settle door refuses while dine-in
+ * dishes are unsent") — the COUNTER half of `payBlockedByUnsent`, and deliberately a delegation, not
+ * a copy: the rule is stated once, above, where its mutants live.
+ *
+ * The console can ALWAYS send (the table page's Send fires every dine-in draft, a diner's round
+ * included), so the hostless exemption does not apply at the register: `hostPresent` is `true` by
+ * construction here. A staff-started table with no host is exactly the table whose dishes nobody
+ * else will send — the case the gate exists for.
+ *
+ * Read by the three staff settle doors on the server (`settleCash`, `closeSecureTab`,
+ * `settleCard` — under the freeze, from `kitchenDraftUnits`), by the table page's pre-tap reason
+ * (`FloorDetailLive`, from `detail.send.sendable`) and by the order pad's Take payment (`padSettle`).
+ * `sendableUnits` is the same count on every side: `kitchenDraftUnitsFromRows`.
+ */
+export function staffSettleBlockedByUnsent(
+  mode: string | null | undefined,
+  sendableUnits: number,
+): boolean {
+  return payBlockedByUnsent(mode, sendableUnits, true);
+}
