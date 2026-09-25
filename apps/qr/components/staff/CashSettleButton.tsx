@@ -602,68 +602,79 @@ export function CashSettleButton({
                 </button>
               )}
             </div>
-            <div style={buttonRow}>
-              {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
-                  `disabled`, and not the primitive's `disabled` prop either, so the handler (and a
-                  mutant) is what refuses (K35's measure counts `disabled=` literally). Spread only
-                  when set: the primitive's own aria-disabled while busy must not be erased. */}
-              <Button
-                variant="secondary"
-                size="lg"
-                {...(pending ? { "aria-disabled": true } : {})}
-                onClick={() => {
-                  if (pending) return;
-                  setConfirming(false);
-                }}
-              >
-                <Chrome lang={lang} k="settle.cancel" echo={false} />
-              </Button>
-              {/* The dim rides `.ui-btn[aria-disabled="true"]`; the label stays a stated word. */}
-              <Button
-                ref={settleRef}
-                variant="primary"
-                size="xl"
-                style={{ flex: 1 }}
-                {...(blocked !== null ? { "aria-disabled": true } : {})}
-                busy={pending}
-                busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
-                aria-describedby={settleDescribedBy}
-                onClick={confirm}
-              >
-                <Chrome
-                  lang={lang}
-                  k="settle.cash.settleAmount"
-                  vars={{ m: fmt(dueCents) }}
-                  echo="stack"
-                />
-              </Button>
+            {/* Critic finding — the actions PIN to the sheet's bottom (`.reg-settle-actions`, the
+                `.item-cta-bar` pattern): the cash moment made the body tall (tip chips, four tender
+                tiles, the readout, keep-the-change), and on a 390px phone in Burmese Take fell
+                below the fold, under the decimal pad once a tender was typed. The ONE alert rides
+                the same band, right above the button it explains. */}
+            <div className="reg-settle-actions">
+              {/* The ONE alert on this control, inside the sheet where the tap was — a second copy
+                  under the trigger would mount at the start of the exit, under the sheet's own
+                  `aria-hidden`, unannounced (the blind pass); Cancel and the trigger clear it. */}
+              {alertMsg && (
+                <p
+                  id="cash-alert"
+                  role="alert"
+                  style={{ ...hint, margin: 0, color: "var(--warn)" }}
+                >
+                  {alertMsg.kind === "server" ? (
+                    <OutageText lang={lang} error={alertMsg.text} />
+                  ) : alertMsg.kind === "moved" ? (
+                    <Chrome
+                      lang={lang}
+                      k="settle.cash.moved"
+                      vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
+                      echo={false}
+                    />
+                  ) : alertMsg.kind === "inflight" ? (
+                    <Chrome
+                      lang={lang}
+                      k={inFlightMsg(alertMsg.holder).k}
+                      vars={inFlightMsg(alertMsg.holder).vars}
+                      echo={false}
+                    />
+                  ) : (
+                    <Chrome lang={lang} k="settle.cash.unknown" echo={false} />
+                  )}
+                </p>
+              )}
+              <div style={buttonRow}>
+                {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
+                    `disabled`, and not the primitive's `disabled` prop either, so the handler (and
+                    a mutant) is what refuses (K35's measure counts `disabled=` literally). Spread
+                    only when set: the primitive's own aria-disabled while busy must not be erased. */}
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  {...(pending ? { "aria-disabled": true } : {})}
+                  onClick={() => {
+                    if (pending) return;
+                    setConfirming(false);
+                  }}
+                >
+                  <Chrome lang={lang} k="settle.cancel" echo={false} />
+                </Button>
+                {/* The dim rides `.ui-btn[aria-disabled="true"]`; the label stays a stated word. */}
+                <Button
+                  ref={settleRef}
+                  variant="primary"
+                  size="xl"
+                  style={{ flex: 1 }}
+                  {...(blocked !== null ? { "aria-disabled": true } : {})}
+                  busy={pending}
+                  busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
+                  aria-describedby={settleDescribedBy}
+                  onClick={confirm}
+                >
+                  <Chrome
+                    lang={lang}
+                    k="settle.cash.settleAmount"
+                    vars={{ m: fmt(dueCents) }}
+                    echo="stack"
+                  />
+                </Button>
+              </div>
             </div>
-            {/* The ONE alert on this control, inside the sheet where the tap was — a second copy under
-                the trigger would mount at the start of the exit, under the sheet's own `aria-hidden`,
-                unannounced (the blind pass); Cancel and the trigger clear it. */}
-            {alertMsg && (
-              <p id="cash-alert" role="alert" style={{ ...hint, margin: 0, color: "var(--warn)" }}>
-                {alertMsg.kind === "server" ? (
-                  <OutageText lang={lang} error={alertMsg.text} />
-                ) : alertMsg.kind === "moved" ? (
-                  <Chrome
-                    lang={lang}
-                    k="settle.cash.moved"
-                    vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
-                    echo={false}
-                  />
-                ) : alertMsg.kind === "inflight" ? (
-                  <Chrome
-                    lang={lang}
-                    k={inFlightMsg(alertMsg.holder).k}
-                    vars={inFlightMsg(alertMsg.holder).vars}
-                    echo={false}
-                  />
-                ) : (
-                  <Chrome lang={lang} k="settle.cash.unknown" echo={false} />
-                )}
-              </p>
-            )}
           </div>
         </Sheet>
       )}

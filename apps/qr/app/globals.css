@@ -12883,3 +12883,25 @@ a.aisle-tile {
     grid-column: 1 / -1;
   }
 }
+
+/* Critic finding — the cash sheet's actions PIN to its bottom (the `.item-cta-bar` pattern): the
+   cash moment made the body tall, and on a 390px phone in Burmese Take fell below the fold — under
+   the decimal pad once a tender was typed (the Sheet lifts its bottom edge onto the keyboard via
+   --kb-inset, so a pinned band rides on top of the pad). Full-bleed over the sheet's side padding,
+   opaque in the sheet's own fill so the body scrolls cleanly under it; the home-bar inset rides here,
+   so the sheet's own bottom padding goes (the sticky viewport is the scroll container's CONTENT box —
+   R1's measured 24px band). The height a device shows is still to be MEASURED (OPEN-ITEMS). */
+.reg-settle-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: var(--s2);
+  margin: 0 -20px;
+  padding: var(--s3) 20px calc(var(--s3) + env(safe-area-inset-bottom, 0px));
+  background: var(--cd);
+  border-top: 1px solid var(--bd);
+}
+.mms-sheet:has(.reg-settle-actions) {
+  padding-bottom: 0;
+}
