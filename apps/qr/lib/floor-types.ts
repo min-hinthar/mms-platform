@@ -14,6 +14,7 @@ import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
 import type { RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
+import type { InFlightHolder } from "./inflight-refusal";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -218,6 +219,10 @@ export type TableDetail = {
   /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
    *  are all refused mid-payment. */
   paymentInFlight: boolean;
+  /** Phase 2c · register (P2w) — WHO holds the in-flight payment (lib/inflight-refusal): a guest's
+   *  phone, the register's own attempt, or unsure. Null when `paymentInFlight` is false. The
+   *  page's paying banner says the holder's sentence, never "their phone" by default. */
+  paymentHolder: InFlightHolder | null;
   /** Phase 2a · send — the session has a diner host (`host_seat` set): create-intent's binding for
    *  "someone at the table can send". Decides the Send's emphasis (owner decision #3). */
   hostPresent: boolean;

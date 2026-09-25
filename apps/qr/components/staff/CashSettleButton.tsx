@@ -14,6 +14,7 @@ import {
 import { centsToField, noteLabel, parseMoneyCents, sanitizeMoneyInput } from "@/lib/money-input";
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { haptic } from "@/lib/haptics";
+import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { Button, Sheet, type ButtonVariant } from "@mms/ui";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
@@ -25,11 +26,14 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /** What the sheet's ONE alert says. `server` is a sentence `settleCash` returned (through
  *  `<OutageText>`); `moved` names both figures — the compare-and-swap refusal, or the page's total
- *  moving off the frozen quote while the sheet is open; `unknown` is a REJECTED action — the
- *  response was lost, so the settle may have landed (P2ab). */
+ *  moving off the frozen quote while the sheet is open; `inflight` is the server refusing while money
+ *  is already moving on the table, with WHO holds it (P2w — a dictionary key per holder, never the
+ *  server's English); `unknown` is a REJECTED action — the response was lost, so the settle may
+ *  have landed (P2ab). */
 type SheetError =
   | { kind: "server"; text: string }
   | { kind: "moved"; from: number; to: number }
+  | { kind: "inflight"; holder: InFlightHolder }
   | { kind: "unknown" };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
@@ -239,6 +243,12 @@ export function CashSettleButton({
             setQuote({ cents: res.totalCents, basis });
             setError({ kind: "moved", from: quoted, to: res.totalCents });
             onChanged?.();
+            return;
+          }
+          if (res.code === "inflight") {
+            // P2w — said in the device language, naming who holds the money (the typed code; the
+            // English `error` is for a bundle older than it).
+            setError({ kind: "inflight", holder: res.holder });
             return;
           }
           setError({ kind: "server", text: res.error });
@@ -627,6 +637,13 @@ export function CashSettleButton({
                     lang={lang}
                     k="settle.cash.moved"
                     vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
+                    echo={false}
+                  />
+                ) : alertMsg.kind === "inflight" ? (
+                  <Chrome
+                    lang={lang}
+                    k={inFlightMsg(alertMsg.holder).k}
+                    vars={inFlightMsg(alertMsg.holder).vars}
                     echo={false}
                   />
                 ) : (

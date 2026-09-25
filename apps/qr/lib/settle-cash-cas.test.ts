@@ -24,16 +24,22 @@ vi.mock("./staff", () => ({
 }));
 const CART = "33333333-3333-4333-8333-333333333333";
 const SESSION = "22222222-2222-4222-8222-222222222222";
+/** P2w — the cart's freeze fields, per case (a fresh freeze no seat owns is the register's own). */
+let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
+  settle_at: null,
+  settle_by: null,
+};
 vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
     Promise.resolve({
       session: { id: SESSION, mode: "dinein" },
-      cart: { id: CART, tab_type: "none" },
+      cart: { id: CART, tab_type: "none", locked: false, locked_at: null, ...cartFreeze },
       unavailable: false,
     }),
   closeCounterStyleSession: () => Promise.resolve(),
 }));
-vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
+let inFlight: "mid_payment" | null = null;
+vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inFlight) }));
 /** Every acquire and release, in order, with its owner — so "the freeze taken is the freeze
  *  released" is a VALUE, not a count. */
 const lockCalls: { op: "acquire" | "release"; cartId: string; owner: string }[] = [];
@@ -83,6 +89,15 @@ const rpcCalls: string[] = [];
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => {
+      if (table === "session_members") {
+        // P2w — the freeze owner's seat read: no seat of this session owns a register attempt.
+        const members: Record<string, unknown> = {
+          select: () => members,
+          eq: () => members,
+          maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        };
+        return members;
+      }
       if (table === "qr_orders") {
         const order: Record<string, unknown> = {
           select: () => order,
@@ -110,6 +125,8 @@ const { settleCash } = await import("./staff-cart");
 const settled = () => rpcCalls.includes("mms_fulfill_cash_order");
 
 beforeEach(() => {
+  inFlight = null;
+  cartFreeze = { settle_at: null, settle_by: null };
   rpcCalls.length = 0;
   lockCalls.length = 0;
   totalsCalls.length = 0;
@@ -171,6 +188,21 @@ describe("settleCash — the quote the cashier read is compared inside the freez
   ])("a %s quote is refused at the schema — nothing is frozen, nothing settles", async (_w, q) => {
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: q });
     expect(r).toEqual({ ok: false, error: "Invalid request." });
+    expect(lockCalls).toEqual([]);
+    expect(settled()).toBe(false);
+  });
+});
+
+describe("settleCash — refused mid-payment, TRUTHFULLY and as a typed code (P2w, critic finding)", () => {
+  it("the register's own held freeze is refused as the register's — a code and a holder, never 'their phone'", async () => {
+    inFlight = "mid_payment";
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-uuid" };
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 3868 });
+    // MUTATION: restore the fixed "their phone" refusal at this call site — red.
+    expect(r).toMatchObject({ ok: false, code: "inflight", holder: "register" });
+    if (r.ok) return;
+    expect(r.error).not.toMatch(/their phone/);
+    // Refused BEFORE the freeze: nothing taken, nothing recorded.
     expect(lockCalls).toEqual([]);
     expect(settled()).toBe(false);
   });

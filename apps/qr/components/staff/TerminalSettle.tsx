@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
@@ -15,8 +16,14 @@ import { useStaffLang } from "./StaffLangProvider";
  * `kind: "local"` is copy THIS file authors for a thrown/rejected action — routing that through
  * `<OutageText>` would pass it through as English forever while looking converted, so it branches
  * to its own dictionary key instead.
+ *
+ * `kind: "inflight"` (Phase 2c · register, P2w) — the start was refused while money is already
+ * moving on the table; `holder` picks the `settle.inflight.*` key (never the server's English).
  */
-type SettleError = { kind: "server"; text: string } | { kind: "local" };
+type SettleError =
+  | { kind: "server"; text: string }
+  | { kind: "local" }
+  | { kind: "inflight"; holder: InFlightHolder };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -75,7 +82,11 @@ export function TerminalSettleButton({
       const res = await settleCard({ sessionId });
       setBusy(false);
       if (!res.ok) {
-        setError({ kind: "server", text: res.error });
+        setError(
+          res.code === "inflight"
+            ? { kind: "inflight", holder: res.holder }
+            : { kind: "server", text: res.error },
+        );
         return;
       }
       onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
@@ -111,6 +122,13 @@ export function TerminalSettleButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "inflight" ? (
+            <Chrome
+              lang={lang}
+              k={inFlightMsg(error.holder).k}
+              vars={inFlightMsg(error.holder).vars}
+              echo={false}
+            />
           ) : (
             <Chrome lang={lang} k="settle.reader.startFailed" echo={false} />
           )}

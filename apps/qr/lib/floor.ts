@@ -7,6 +7,7 @@ import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
+import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
 import { getCartTotals } from "./totals";
@@ -316,7 +317,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     db
       .from("qr_carts")
       .select(
-        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",
+        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",
       )
       .eq("session_id", sessionId)
       .eq("status", "open")
@@ -495,6 +496,25 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     !!cart &&
     (isFresh(cart.settle_at, SETTLE_TTL_MS) ||
       (cart.locked && isFresh(cart.locked_at, CART_LOCK_TTL_MS)));
+  // Phase 2c · register (P2w, critic finding) — WHO holds the money, so the page's banner stops
+  // telling staff "a guest is paying on their phone" over the register's own held freeze (the
+  // unknown-outcome card close, a card-on-file close waiting on its webhook, a reader collect seen
+  // from another tablet). The staff refusals' own rule (lib/inflight-refusal), fed from reads this
+  // function already made: the freeze's owner against the session's seats (`members` — an unread
+  // party is already an outage above), so no extra round trip. Null when nothing is in flight.
+  const paymentHolder =
+    paymentInFlight && cart
+      ? inFlightHolder({
+          reason: "mid_payment",
+          locked: cart.locked,
+          lockedAt: cart.locked_at,
+          settleAt: cart.settle_at,
+          settleByIsSeat: cart.settle_by
+            ? (members ?? []).some((m) => m.seat_id === cart.settle_by)
+            : null,
+          nowMs: Date.now(),
+        })
+      : null;
   // The authoritative all-in cash total (the single tax engine), so the Settle button shows the real
   // charge. Only when there's an open cart with items — one extra read on the (non-hot) detail path.
   // ⚠️ W10c pre-PR review — this read is now throw-on-unreadable (M30), and an escaping throw would
@@ -597,6 +617,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     nudgeSecure,
     lastActivityAt,
     paymentInFlight,
+    paymentHolder,
     // Phase 2a · send — create-intent's binding for "someone at the table can send".
     hostPresent: session.host_seat != null,
     send,
@@ -651,7 +672,9 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   const inFlight = await paymentInFlightReason(cart);
   if (inFlight === "mid_payment")
     return { ok: false, error: "This table is mid-payment — clear it once they’ve finished." };
-  if (inFlight === "split_in_progress")
+  // ANY other reason refuses (fail closed): `split_unreadable` — a failed share read — must never
+  // fall through to the clear. (Its sentence stays the split one: the read could not rule it out.)
+  if (inFlight)
     return { ok: false, error: "This table has a split payment in progress — settle it first." };
 
   // Cancel the open cart FIRST, then close the session: each is a status flip the diner-side guards

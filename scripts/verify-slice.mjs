@@ -3032,7 +3032,7 @@ const MUTANTS = [
     file: "apps/qr/lib/pay-guard.ts",
     suite: "lib/pay-guard.test.ts",
     why: "the shared money mutex — a dropped read error means an unreadable share table reads as 'no money in flight', green-lighting cash settle and clear-table over captured cards awaiting fulfillment",
-    find: '  if (error) {\n    console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });\n    return "split_in_progress";\n  }',
+    find: '  if (error) {\n    console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });\n    return "split_unreadable";\n  }',
     replace:
       '  if (error) console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });',
   },
@@ -5277,18 +5277,18 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-detail-promo.test.ts",
     why: "the drill-down's cart read is status-guarded, and dropping the guard is invisible in the projection: a SETTLED cart's `promo_code` and `id` reach the detail, `StaffPromoControl` renders (it is gated on `cartId != null`, never on status), and the console announces a live discount on a table with no open order \u2014 while every tap on it is answered `no_order` by `applyPromoForTable`, which goes through the real `openCartFor`. The suite's fake used to discard filters entirely, so this line had no coverage at all",
-    find: '      .select(\n        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
+    find: '      .select(\n        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
     replace:
-      '      .select(\n        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .maybeSingle(),',
+      '      .select(\n        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .maybeSingle(),',
   },
   {
     id: "floor/detail-reads-the-wrong-status",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-detail-promo.test.ts",
     why: "the sibling of `detail-reads-a-settled-cart`, and the one that proves the suite's fake is filter-AWARE rather than merely filter-carrying: deleting the guard and INVERTING it are different mutations, and a fake that recorded filters without evaluating them would catch neither. Inverted, the drill-down reads the SETTLED order instead of the open one \u2014 every live table reports no cart, the promo row and the whole settle panel vanish mid-service, and `getTableDetail` answers about an order that is already paid",
-    find: '      .select(\n        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
+    find: '      .select(\n        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
     replace:
-      '      .select(\n        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "paid")\n      .maybeSingle(),',
+      '      .select(\n        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "paid")\n      .maybeSingle(),',
   },
   {
     id: "floor/k21-phones-back-on-the-floor",
@@ -7725,9 +7725,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/secure-close-cas.test.ts",
     why: "Phase 2c · register (P2w) — the retry settle.card.unknown invites lands on the close's OWN held freeze. With the fixed sentence restored it is refused as 'Someone’s already paying on their phone' — false, and it sends staff to look for a guest who is not paying",
-    find: "  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };\n\n  // Atomically freeze",
+    find: "  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);\n\n  // Atomically freeze",
     replace:
-      '  if (inFlight)\n    return { ok: false, error: "Someone’s already paying on their phone — wait for that to finish." };\n\n  // Atomically freeze',
+      '  if (inFlight)\n    return { ok: false, code: "inflight", holder: "phone", error: "Someone’s already paying on their phone — wait for that to finish." };\n\n  // Atomically freeze',
   },
   // The QUOTE is frozen when a confirm opens (critic finding: the total moved under an open sheet).
   {
@@ -7793,6 +7793,98 @@ const MUTANTS = [
     why: "Phase 2c · register — a Charge tap while the figures disagree adopts the new total and charges nothing. Without the arm it sends the stale quote to an off-session charge",
     find: "    if (drift) {\n",
     replace: "    if (false) {\n",
+  },
+  // P2w as a typed code, said in the device language (critic findings 2, 4, 5).
+  {
+    id: "p2c-register/cash-refusal-blames-the-phone",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/settle-cash-cas.test.ts",
+    why: "Phase 2c · register (P2w) — a cash settle refused over the register's OWN held freeze (a reader collect, an unknown-outcome card close) names the register. With the fixed phone refusal restored, staff are sent to look for a guest who is not paying",
+    find: '  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);\n\n  const db = serviceClient();\n  // W10b — a failed count is not an EMPTY table: "nothing to settle"',
+    replace:
+      '  if (inFlight)\n    return { ok: false, code: "inflight", holder: "phone", error: "Someone’s already paying on their phone — wait for that to finish." };\n\n  const db = serviceClient();\n  // W10b — a failed count is not an EMPTY table: "nothing to settle"',
+  },
+  {
+    id: "p2c-register/reader-refusal-blames-the-phone",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "Phase 2c · register (P2w) — a reader start refused over a freeze the register holds (another tablet's collect) names the register. With the fixed phone refusal restored, the cashier is told a guest is paying on their phone",
+    find: "  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);\n",
+    replace:
+      '  if (inFlight)\n    return { ok: false, code: "inflight", holder: "phone", error: "Someone’s already paying on their phone — wait for that to finish." };\n',
+  },
+  {
+    id: "p2c-register/inflight-unreadable-read-as-phone",
+    file: "apps/qr/lib/inflight-refusal.ts",
+    suite: "lib/inflight-refusal.test.ts",
+    why: "Phase 2c · register (P2w) — pay-guard fails CLOSED on a failed share read; that refuses, but it is not evidence anyone is paying. Read as a split, a connection blip tells staff a guest is paying on their phone",
+    find: '  if (i.reason === "split_unreadable") return "unsure";\n',
+    replace: '  if (i.reason === "split_unreadable") return "phone";\n',
+  },
+  {
+    id: "p2c-register/inflight-key-collapsed",
+    file: "apps/qr/lib/inflight-refusal.ts",
+    suite: "lib/inflight-refusal.test.ts",
+    why: "Phase 2c · register (P2w) — one dictionary sentence per holder. Collapsed onto the phone key, the register's held freeze is refused (and bannered) as a guest's phone again, in both languages",
+    find: '  register: "settle.inflight.register",\n',
+    replace: '  register: "settle.inflight.phone",\n',
+  },
+  {
+    id: "p2c-register/pay-guard-unreadable-reads-as-split",
+    file: "apps/qr/lib/pay-guard.ts",
+    suite: "lib/pay-guard.test.ts",
+    why: "Phase 2c · register — a FAILED share read is its own reason (`split_unreadable`, still a refusal). Folded back into `split_in_progress`, every staff refusal over a transport error claims a guest's phone",
+    find: '    return "split_unreadable";\n',
+    replace: '    return "split_in_progress";\n',
+  },
+  {
+    id: "p2c-register/clear-unreadable-split-clears",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "Phase 2c · register — clearTable refuses on ANY in-flight reason. Matching only `split_in_progress`, the new `split_unreadable` falls through and a table is cleared over cards the failed read could not rule out",
+    find: '  if (inFlight)\n    return { ok: false, error: "This table has a split payment in progress — settle it first." };',
+    replace:
+      '  if (inFlight === "split_in_progress")\n    return { ok: false, error: "This table has a split payment in progress — settle it first." };',
+  },
+  {
+    id: "p2c-register/detail-holder-owner-never-a-seat",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "Phase 2c · register (P2w) — the page's banner reads the freeze owner against the session's seats. Read as never a seat, a guest's split on their phone is bannered as the register's own attempt",
+    find: "            ? (members ?? []).some((m) => m.seat_id === cart.settle_by)\n",
+    replace: "            ? false\n",
+  },
+  {
+    id: "p2c-register/detail-holder-dropped",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "Phase 2c · register (P2w) — the detail carries WHO holds the money. Dropped, the page's banner falls back and never names the register's own held charge",
+    find: "    paymentInFlight,\n    paymentHolder,\n",
+    replace: "    paymentInFlight,\n    paymentHolder: null,\n",
+  },
+  {
+    id: "p2c-register/cash-inflight-said-in-english",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register (P2w) — the in-flight refusal is a typed code rendered through its dictionary key. Rendered from the server's `error`, a Burmese-mode cashier is told not to take money in English",
+    find: '          if (res.code === "inflight") {\n',
+    replace: "          if (false) {\n",
+  },
+  {
+    id: "p2c-register/tab-close-inflight-said-in-english",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "Phase 2c · register (P2w) — the card-on-file close renders the in-flight refusal through its key. From `error`, the sentence stays English on a Burmese console",
+    find: '      if (res.code === "inflight") {\n',
+    replace: "      if (false) {\n",
+  },
+  {
+    id: "p2c-register/reader-inflight-said-in-english",
+    file: "apps/qr/components/staff/TerminalSettle.tsx",
+    suite: "components/staff/TerminalSettle.test.tsx",
+    why: "Phase 2c · register (P2w) — the reader's start renders the in-flight refusal through its key. From `error`, the sentence stays English on a Burmese console",
+    find: '          res.code === "inflight"\n',
+    replace: "          false\n",
   },
 ];
 

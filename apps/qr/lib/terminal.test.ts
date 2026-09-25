@@ -94,15 +94,21 @@ vi.mock("./staff", () => ({
       caller: { uid: "staff-uid", staffId: "staff-row-id", role: "manager" },
     }),
 }));
+/** P2w — the cart's freeze owner, per case (a fresh freeze no seat owns is a register attempt). */
+let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
+  settle_at: null,
+  settle_by: null,
+};
 vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
     Promise.resolve({
       session: { id: "sess-1", status: "active", mode: "pickup", qr_code: "reg-XYZ" },
-      cart: { id: "cart-1", locked: false, locked_at: null, settle_at: null, tab_type: "none" },
+      cart: { id: "cart-1", locked: false, locked_at: null, tab_type: "none", ...cartFreeze },
       unavailable: false,
     }),
 }));
-vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
+let inFlight: "mid_payment" | null = null;
+vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(inFlight) }));
 vi.mock("./totals", () => ({
   getCartTotals: (cartId: string, tipRate: number) => {
     log("totals", { cartId, tipRate });
@@ -154,6 +160,14 @@ vi.mock("@mms/db/server", () => ({
     from: (table: string) => ({
       select: (_cols: string, opts?: { count?: string; head?: boolean }) => {
         if (opts?.head) return { eq: () => Promise.resolve({ count: 2, error: null }) };
+        if (table === "session_members") {
+          // P2w — the freeze owner's seat read (two filters): no seat owns a register attempt.
+          const members: Record<string, unknown> = {
+            eq: () => members,
+            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+          };
+          return members;
+        }
         return {
           eq: () => ({
             maybeSingle: () =>
@@ -178,6 +192,8 @@ function mintedAttempt(): string {
 }
 
 beforeEach(() => {
+  inFlight = null;
+  cartFreeze = { settle_at: null, settle_by: null };
   calls = [];
   piCreateFails = false;
   processFails = null;
@@ -722,5 +738,19 @@ describe("cancelTerminal — scoped release, PI-verified reader clear", () => {
     piCancelFails = false;
     expect(r).toEqual({ ok: false, error: expect.stringMatching(/going through/) });
     expect(calls.map((c) => c.op)).not.toContain("releaseFor");
+  });
+});
+
+describe("settleCard — refused mid-payment, TRUTHFULLY and as a typed code (P2w, critic finding)", () => {
+  it("a freeze the register holds (another tablet's reader collect) is the register's — never 'their phone'", async () => {
+    inFlight = "mid_payment";
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-uuid" };
+    const r = await settleCard({ sessionId: SESSION });
+    // MUTATION: restore the fixed "their phone" refusal at this call site — red.
+    expect(r).toMatchObject({ ok: false, code: "inflight", holder: "register" });
+    if (r.ok) return;
+    expect(r.error).not.toMatch(/their phone/);
+    // Refused before any money work: no freeze, no totals, no PaymentIntent.
+    expect(calls.map((c) => c.op)).toEqual([]);
   });
 });

@@ -4,6 +4,7 @@ import { closeSecureTab } from "@/lib/staff-cart";
 import { Button, Card, type ButtonVariant } from "@mms/ui";
 import { sx } from "@/lib/staff-labels";
 import { openQuote, quoteDrift, reconcileQuote, type SettleQuote } from "@/lib/register-math";
+import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 
@@ -20,7 +21,10 @@ type CloseError =
   | { kind: "local" }
   // Phase 2c · register (P2aa) — the compare-and-swap refused, or the page's total moved off the
   // confirm's frozen figure while it was open: both figures, nothing charged.
-  | { kind: "moved"; from: number; to: number };
+  | { kind: "moved"; from: number; to: number }
+  // P2w (critic finding) — refused while money is already moving on the table: WHO holds it, said
+  // through a dictionary key per holder (the server's English `error` is for older bundles).
+  | { kind: "inflight"; holder: InFlightHolder };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -121,6 +125,10 @@ export function CloseSecureTabButton({
         onChanged?.();
         return;
       }
+      if (res.code === "inflight") {
+        setError({ kind: "inflight", holder: res.holder });
+        return;
+      }
       setError({ kind: "server", text: res.error });
       return;
     }
@@ -210,6 +218,13 @@ export function CloseSecureTabButton({
               lang={lang}
               k="settle.cash.moved"
               vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
+              echo={false}
+            />
+          ) : alertMsg.kind === "inflight" ? (
+            <Chrome
+              lang={lang}
+              k={inFlightMsg(alertMsg.holder).k}
+              vars={inFlightMsg(alertMsg.holder).vars}
               echo={false}
             />
           ) : (

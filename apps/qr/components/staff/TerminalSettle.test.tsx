@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
+import { tf } from "@/lib/i18n/fill";
+import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 
 /**
  * Phase 2c · register — the card reader's two halves after the register's Button conversion and the
@@ -172,5 +174,29 @@ describe("TerminalCollectPanel — shown here, said by the page's one region", (
     expect(back.classList.contains("ui-btn")).toBe(true);
     fireEvent.click(back);
     expect(onDone).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("TerminalSettleButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
+  it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
+    const english = "A payment started at the register on this table hasn’t finished.";
+    settleCard.mockResolvedValueOnce({
+      ok: false,
+      code: "inflight",
+      holder: "register",
+      error: english,
+    });
+    render(
+      <StaffLangProvider lang="my">
+        <TerminalSettleButton sessionId="s1" totalCents={4210} onStarted={vi.fn()} />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    // MUTATION: render `res.error` through <OutageText> — the English passes through verbatim; red.
+    const alert = screen.getByRole("alert").textContent;
+    expect(alert).toBe(tf("my", "settle.inflight.register", { n: SETTLE_MINUTES }));
+    expect(alert).not.toContain(english);
   });
 });

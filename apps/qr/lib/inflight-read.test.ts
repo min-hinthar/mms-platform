@@ -27,7 +27,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 const { inFlightRefusalFor, settleOwnerIsSeat } = await import("./inflight-read");
-const { inFlightRefusal } = await import("./inflight-refusal");
+const { inFlightRefusalOf } = await import("./inflight-refusal");
 
 const fresh = () => new Date(Date.now() - 1000).toISOString();
 beforeEach(() => {
@@ -54,7 +54,7 @@ describe("settleOwnerIsSeat", () => {
   });
 });
 
-describe("inFlightRefusalFor — the sentence a staff settle is refused with", () => {
+describe("inFlightRefusalFor — the typed refusal a staff settle returns (code + holder)", () => {
   it("a register-held freeze (the unknown-outcome card close) is never blamed on a guest's phone", async () => {
     answer = { data: null, error: null };
     const s = await inFlightRefusalFor(
@@ -62,7 +62,10 @@ describe("inFlightRefusalFor — the sentence a staff settle is refused with", (
       "mid_payment",
       "s1",
     );
-    expect(s).toBe(inFlightRefusal("register"));
+    // Deliberately rewritten (critic finding): a typed refusal the component renders as a
+    // bilingual key — `error` keeps the English for an older bundle.
+    expect(s).toEqual(inFlightRefusalOf("register"));
+    expect(s).toMatchObject({ ok: false, code: "inflight", holder: "register" });
   });
   it("a diner's split is their phone", async () => {
     answer = { data: { seat_id: "host" }, error: null };
@@ -71,6 +74,6 @@ describe("inFlightRefusalFor — the sentence a staff settle is refused with", (
       "mid_payment",
       "s1",
     );
-    expect(s).toBe(inFlightRefusal("phone"));
+    expect(s).toMatchObject({ ok: false, code: "inflight", holder: "phone" });
   });
 });

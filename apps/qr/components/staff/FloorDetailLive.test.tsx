@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
+import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -113,6 +114,7 @@ const DETAIL: TableDetail = {
   nudgeSecure: null,
   lastActivityAt: NOW,
   paymentInFlight: false,
+  paymentHolder: null,
   hostPresent: true,
   // Both drafts were staff-added (no seat), so the Send is primary even at a hosted table.
   send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
@@ -406,5 +408,33 @@ describe("FloorDetailLive — the paid card and the ONE polite region (P2r)", ()
     expect(panel.querySelector('[role="status"]')).toBeNull();
     expect(polite()).toHaveLength(1);
     expect(orderRegion().textContent).toBe(waiting);
+  });
+});
+
+describe("FloorDetailLive — the paying banner names WHO holds the money (P2w, critic finding)", () => {
+  const bannerOf = (over: Partial<TableDetail>) => {
+    const r = mountWith({ ...SETTLEABLE, paymentInFlight: true, ...over });
+    return r.container.textContent ?? "";
+  };
+  it("the register's own held freeze says the register's sentence — never 'a guest is paying on their phone'", () => {
+    // MUTATION: render the phone sentences from `paymentInFlight` alone — the unknown-outcome card
+    // close (which HOLDS its freeze) tells staff a guest is paying on their phone; red.
+    const text = bannerOf({ paymentHolder: "register" });
+    expect(text).toContain(tf("en", "settle.inflight.register", { n: SETTLE_MINUTES }));
+    expect(text).not.toContain(ts("en", "table.detail.payingPhone.cash"));
+  });
+  it("a guest's phone keeps its own two sentences (cash / running bill)", () => {
+    expect(bannerOf({ paymentHolder: "phone" })).toContain(
+      ts("en", "table.detail.payingPhone.cash"),
+    );
+    cleanup();
+    expect(bannerOf({ paymentHolder: "phone", tab: "trust" })).toContain(
+      ts("en", "table.detail.payingPhone.tab"),
+    );
+  });
+  it("a holder nobody could read (or none sent) is UNSURE — never the phone by default", () => {
+    const text = bannerOf({ paymentHolder: null });
+    expect(text).toContain(ts("en", "settle.inflight.unsure"));
+    expect(text).not.toContain(ts("en", "table.detail.payingPhone.cash"));
   });
 });

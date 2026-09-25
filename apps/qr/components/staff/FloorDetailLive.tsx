@@ -50,6 +50,7 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
 // ── Phase 2c · register ──
 import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
+import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
 
@@ -121,6 +122,9 @@ export function FloorDetailLive({
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
   const canWrite = detail.cartId != null && !detail.paymentInFlight;
+  // P2w — who holds an in-flight payment (the banner below); a missing holder is unsure, never phone.
+  const payingHolder = detail.paymentHolder ?? "unsure";
+  const payingMsg = inFlightMsg(payingHolder);
   const isCounter = detail.label.startsWith("reg-");
   // W6a review (confirmed HIGH): the settle handoff card must SURVIVE the settled detail state — the
   // settle button lives inside the open-cart conditional, and the realtime/poll refresh unmounts it
@@ -1018,18 +1022,28 @@ export function FloorDetailLive({
         )}
         {detail.paymentInFlight && terminalCollect == null && (
           <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
-            {/* Two whole sentences, not one with a spliced clause: the differing phrase sits in the
-              middle in English and at the end in Burmese, and a template with a hole there would
-              have to be reordered per tongue. */}
-            <Chrome
-              lang={lang}
-              k={
-                detail.tab !== "none"
-                  ? "table.detail.payingPhone.tab"
-                  : "table.detail.payingPhone.cash"
-              }
-              echo="stack"
-            />
+            {/* Phase 2c · register (P2w, critic finding) — the banner names WHO holds the money
+              (`detail.paymentHolder`, the staff refusals' own rule): a guest's phone keeps its two
+              sentences; the register's own held attempt, or a holder nobody can read, says the
+              SAME sentence the settle refusal says (`inFlightMsg`) — never "a guest is paying on
+              their phone" over the register's own charge. A missing holder is unsure, never phone.
+
+              The phone arm: two whole sentences, not one with a spliced clause — the differing
+              phrase sits in the middle in English and at the end in Burmese, and a template with a
+              hole there would have to be reordered per tongue. */}
+            {payingHolder === "phone" ? (
+              <Chrome
+                lang={lang}
+                k={
+                  detail.tab !== "none"
+                    ? "table.detail.payingPhone.tab"
+                    : "table.detail.payingPhone.cash"
+                }
+                echo="stack"
+              />
+            ) : (
+              <Chrome lang={lang} k={payingMsg.k} vars={payingMsg.vars} echo="stack" />
+            )}
           </p>
         )}
 

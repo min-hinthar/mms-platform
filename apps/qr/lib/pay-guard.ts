@@ -14,7 +14,10 @@ export function isFresh(ts: string | null, ttlMs: number): boolean {
   return ts != null && Date.now() - new Date(ts).getTime() < ttlMs;
 }
 
-export type PaymentInFlight = "mid_payment" | "split_in_progress";
+/** `split_unreadable` (Phase 2c · register, critic finding) — the share read FAILED: still a refusal
+ *  (fail closed), but not evidence that anyone is paying, so a caller's sentence must not claim
+ *  one. Every caller refuses on ANY truthy reason. */
+export type PaymentInFlight = "mid_payment" | "split_in_progress" | "split_unreadable";
 
 type CartPayState = {
   id: string;
@@ -66,7 +69,7 @@ export async function paymentInFlightReason(
     .not("stripe_payment_intent_id", "is", null);
   if (error) {
     console.error("[pay-guard] in-flight share read failed", { cartId: cart.id, error });
-    return "split_in_progress";
+    return "split_unreadable";
   }
   if ((count ?? 0) > 0) return "split_in_progress";
   return null;

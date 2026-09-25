@@ -16,6 +16,7 @@ import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
 import { inFlightRefusalFor } from "./inflight-read";
+import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
@@ -61,12 +62,16 @@ export type SettleCashResult =
  *  - `moved` — the compare-and-swap: the quote the cashier read (`quotedCents`) is not the total the
  *    server just derived from the live lines. `totalCents` is that derived PRE-TIP total, so the sheet
  *    can name both figures and re-quote the server's. Nothing was recorded.
+ *  - `inflight` — money is already moving on the cart (P2w): `holder` says who holds it (a guest's
+ *    phone, the register's own attempt, or unsure), and the component renders that holder's
+ *    `settle.inflight.*` key. Nothing was frozen.
  * The settle gate (Phase 2c, second wave) adds its own arm here (`code: "unsent"`); a union member
  * per code, so each carries exactly the facts its sentence needs.
  */
 export type SettleCashRefusal =
   | { ok: false; error: string; code?: undefined }
-  | { ok: false; error: string; code: "moved"; totalCents: number };
+  | { ok: false; error: string; code: "moved"; totalCents: number }
+  | InFlightRefusal;
 export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -297,7 +302,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
   // P2w — the refusal names who holds the money (a guest's phone, or the register's own attempt).
   const inFlight = await paymentInFlightReason(cart);
-  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table: "nothing to settle" on a table holding a full order
@@ -602,7 +607,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // the retry `settle.card.unknown` invites lands here. The sentence names who holds the money: a
   // guest's phone, or the register's own attempt — never the phone when it is the register's.
   const inFlight = await paymentInFlightReason(cart);
-  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.

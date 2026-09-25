@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { PaymentInFlight } from "./pay-guard";
-import { inFlightHolder, inFlightRefusal } from "./inflight-refusal";
+import { inFlightHolder, inFlightRefusalOf, type InFlightRefusal } from "./inflight-refusal";
 
 /**
  * Phase 2c · register (OPEN-ITEMS P2w) — the staff settle paths' refusal while money is moving on the
@@ -22,8 +22,8 @@ export async function inFlightRefusalFor(
   },
   reason: PaymentInFlight,
   sessionId: string,
-): Promise<string> {
-  return inFlightRefusal(
+): Promise<InFlightRefusal> {
+  return inFlightRefusalOf(
     inFlightHolder({
       reason,
       locked: cart.locked,

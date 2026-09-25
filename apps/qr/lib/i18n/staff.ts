@@ -2881,6 +2881,24 @@ export const STAFF = {
   }, // K15-HIGH — the guest HAS paid; a second charge collects twice
   "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
   "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
+  // P2w (critic finding) — a staff settle refused while money is already moving on the table, ONE
+  // sentence per holder (lib/inflight-refusal `inFlightMsg`). They were English literals returned
+  // from the server; now the refusal carries a code and the holder, and these keys are what every
+  // settle control — and the table page's paying banner — renders. {n} is the freeze's lifetime in
+  // minutes (lib/lock-ttl), never a digit here. The phone sentence's first clause is grounded in
+  // table.detail.payingPhone.* (ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ်).
+  "settle.inflight.phone": {
+    en: "Someone’s already paying on their phone — wait for that to finish.",
+    my: "ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ် — ပြီးတဲ့အထိ စောင့်ပါ။",
+  }, // K15-HIGH — tells staff not to take money while a guest pays
+  "settle.inflight.register": {
+    en: "A payment started at the register on this table hasn’t finished — don’t take cash or another card yet. If it went through, it finishes by itself shortly; if it hasn’t finished in {n} minutes, try again.",
+    my: "ဒီစားပွဲအတွက် ကောင်တာမှာ စထားတဲ့ ငွေရှင်းမှု မပြီးသေးပါ — ငွေသား ဒါမှမဟုတ် နောက်ကတ်တစ်ခု မယူပါနဲ့ဦး။ ငွေဖြတ်ပြီးသားဆိုရင် ခဏနေ အလိုလို ပြီးသွားပါမယ်၊ {n} မိနစ်အတွင်း မပြီးရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — a second payment now can collect twice
+  "settle.inflight.unsure": {
+    en: "A payment on this table is already going through — on a guest’s phone or at the register. Don’t take another payment until it finishes.",
+    my: "ဒီစားပွဲမှာ ငွေရှင်းမှု တစ်ခု လုပ်နေဆဲပါ — ဧည့်သည့်ဖုန်းမှာ ဒါမှမဟုတ် ကောင်တာမှာ။ မပြီးမချင်း နောက်ထပ် ငွေ မယူပါနဲ့။",
+  }, // K15-HIGH — a second payment now can collect twice
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3054,6 +3072,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.reader.status.blind",
   "settle.reader.status.recordingLong",
   "settle.reader.status.canceled",
+  "settle.inflight.phone",
+  "settle.inflight.register",
+  "settle.inflight.unsure",
 ]);
 
 /**

@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import { tf } from "@/lib/i18n/fill";
+import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 
 /**
  * Phase 2a · register — a secure-tab close whose Server Action REJECTS (the connection dropped
@@ -184,5 +186,31 @@ describe("CloseSecureTabButton — the confirm's figure is FROZEN when it opens 
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$46\.10/ }));
     });
     expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4610 });
+  });
+});
+
+describe("CloseSecureTabButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
+  it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
+    const english = "A payment on this table is already going through.";
+    closeSecureTab.mockResolvedValueOnce({
+      ok: false,
+      code: "inflight",
+      holder: "unsure",
+      error: english,
+    });
+    render(
+      <StaffLangProvider lang="my">
+        <CloseSecureTabButton sessionId="s1" totalCents={4210} onChanged={onChanged} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const buttons = screen.getAllByRole("button");
+    await act(async () => {
+      fireEvent.click(buttons[buttons.length - 1]!); // the confirm's Charge (Cancel comes first)
+    });
+    // MUTATION: render `res.error` through <OutageText> — the English passes through verbatim; red.
+    const alert = screen.getByRole("alert").textContent;
+    expect(alert).toBe(tf("my", "settle.inflight.unsure", { n: SETTLE_MINUTES }));
+    expect(alert).not.toContain(english);
   });
 });

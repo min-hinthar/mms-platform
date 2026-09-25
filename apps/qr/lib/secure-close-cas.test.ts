@@ -153,7 +153,8 @@ describe("closeSecureTab — the retry after an unknown outcome is refused TRUTH
     const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    // MUTATION: restore the fixed "their phone" sentence at this refusal — red.
+    // MUTATION: restore the fixed "their phone" refusal at this call site — red.
+    expect(r).toMatchObject({ code: "inflight", holder: "register" });
     expect(r.error).not.toMatch(/their phone/);
     expect(r.error).toMatch(/started at the register/);
     expect(created).toEqual([]);

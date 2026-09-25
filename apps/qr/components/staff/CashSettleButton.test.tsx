@@ -6,6 +6,8 @@ import { join } from "node:path";
 import ts from "typescript";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import { tf } from "@/lib/i18n/fill";
+import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 
 /**
  * K29(b) — the cash confirm is the shared sheet. What the move had to keep, and what it changed
@@ -682,5 +684,36 @@ describe("CashSettleButton — the quote is FROZEN when the sheet opens (critic 
     );
     expect(settle().textContent).toBe(take("$46.10"));
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("CashSettleButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
+  it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
+    const english = "A payment started at the register on this table hasn’t finished.";
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "inflight",
+      holder: "register",
+      error: english,
+    });
+    render(
+      <StaffLangProvider lang="my">
+        <CashSettleButton sessionId="s1" totalCents={4210} tipBaseCents={4000} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    // MUTATION: render `res.error` through <OutageText> — the English passes through verbatim; red.
+    const alert = within(dialog).getByRole("alert").textContent;
+    expect(alert).toBe(tf("my", "settle.inflight.register", { n: SETTLE_MINUTES }));
+    expect(alert).not.toContain(english);
+    // The sheet stays open with the reason inside it, like every refusal.
+    expect(screen.getByRole("dialog")).toBe(dialog);
   });
 });
