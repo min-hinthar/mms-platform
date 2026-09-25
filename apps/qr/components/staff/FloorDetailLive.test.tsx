@@ -879,3 +879,94 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     }
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("FloorDetailLive — a refusal's figure is settled by the page's NEXT read, not only by its figure (R1)", () => {
+  /** A promise the case resolves by hand — a detail read still in the air. */
+  function held() {
+    let resolve!: (r: TableDetailResult) => void;
+    const promise = new Promise<TableDetailResult>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+  const movedLine = (from: string, to: string) =>
+    tf("en", "settle.cash.moved", { old: from, m: to });
+  const moved = { ok: false, code: "moved", totalCents: 4265, error: "moved" };
+
+  // The guest adds a drink (the server refuses the $42.10 tap at $42.65) and removes it before the
+  // page re-reads. Read #1 is IN THE AIR when the refusal comes back — it may predate the drink, so
+  // it settles nothing; read #2 began after the refusal and reads $42.10 again: THAT is the truth.
+  it("the cash sheet: read #1 (in the air at the refusal) keeps the server's figure; read #2 says the move back", async () => {
+    let answerSettle!: (v: unknown) => void;
+    settleCash.mockImplementationOnce(() => new Promise((r) => (answerSettle = r)));
+    mountWith(SETTLEABLE);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = () =>
+      within(dialog)
+        .getAllByRole("button")
+        .find((b) => b.classList.contains("ui-btn-primary"))!;
+    const r1 = held();
+    const r2 = held();
+    let n = 0;
+    answer = () => (++n === 1 ? r1.promise : r2.promise);
+    await act(async () => {
+      fireEvent.click(take());
+    });
+    await tick(5000); // read #1 starts — in the air
+    await act(async () => {
+      answerSettle(moved);
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.10", "$42.65"));
+    await tick(400); // the refusal's re-read is queued behind read #1
+    await act(async () => {
+      r1.resolve({ kind: "detail", detail: { ...SETTLEABLE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-cash-reads-started-dropped): the page hands no read clock's
+    // "started" mark — the refusal is marked with the committed ticket, read #1 settles it, and a
+    // false "changed from $42.65 to $42.10" is said over the server's own figure; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.10", "$42.65"));
+    expect(take().textContent).toContain("$42.65");
+    await act(async () => {
+      r2.resolve({ kind: "detail", detail: { ...SETTLEABLE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-cash-read-ticket-dropped): the page hands no ticket — the quote
+    // sticks on $42.65 forever while the table is $42.10 again; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.65", "$42.10"));
+  });
+
+  it("the card-on-file close: read #1 keeps the trigger on the server's figure; read #2 puts $42.10 back", async () => {
+    let answerClose!: (v: unknown) => void;
+    closeSecureTab.mockImplementationOnce(() => new Promise((r) => (answerClose = r)));
+    const SECURE: TableDetail = { ...SETTLEABLE, tab: "secure" };
+    mountWith(SECURE);
+    const trigger = () => settleButtons()[0]!;
+    fireEvent.click(trigger());
+    const r1 = held();
+    const r2 = held();
+    let n = 0;
+    answer = () => (++n === 1 ? r1.promise : r2.promise);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
+    });
+    await tick(5000); // read #1 starts — in the air
+    await act(async () => {
+      answerClose(moved);
+    });
+    expect(trigger().textContent).toContain("$42.65");
+    await tick(400);
+    await act(async () => {
+      r1.resolve({ kind: "detail", detail: { ...SECURE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-close-reads-started-dropped): read #1 settles the refusal; red.
+    expect(trigger().textContent).toContain("$42.65");
+    await act(async () => {
+      r2.resolve({ kind: "detail", detail: { ...SECURE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-close-read-ticket-dropped): the trigger stays $42.65; red.
+    expect(trigger().textContent).toContain("$42.10");
+  });
+});

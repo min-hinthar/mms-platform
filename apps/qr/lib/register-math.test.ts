@@ -10,10 +10,12 @@ import {
   quickCashTenders,
   quoteDrift,
   reconcileQuote,
+  settleUnknownAfterRead,
   summarizeDay,
   tenderState,
 } from "./register-math";
 import { TIP_AMOUNT_MAX_CENTS } from "./tip";
+import { SETTLE_TTL_MS } from "./lock-ttl";
 
 describe("summarizeDay — the Z-report buckets", () => {
   it("buckets paid orders by tender and keeps refunded APART (never netted)", () => {
@@ -344,5 +346,81 @@ describe("the settle quote — frozen at open, never moved under the cashier (Ph
     const settled = { cents: 4210, basis: 4210 };
     expect(reconcileQuote(settled, 4210)).toBe(settled);
     expect(reconcileQuote(null, 4210)).toBeNull();
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("the settle quote after a refusal — settled by the page's NEXT read, not only by its figure (R1)", () => {
+  // The page's read clock: a refusal is raised when the last read STARTED was #3; a read that
+  // began after it (#4 onward) is the newer truth, whatever figure it brings back.
+  const refused = { cents: 4265, basis: 4210, raisedAt: 3 };
+
+  it("a read that started AFTER the refusal and reads the OLD figure settles the quote — the move back is a drift", () => {
+    // The guest added a drink (the server said $42.65) and removed it again before the page
+    // re-read: the re-read reads $42.10 — the basis. Indistinguishable from "no re-read yet" by the
+    // figure alone, so the quote used to stick on $42.65 and the sheet charged against a total that
+    // no longer existed. MUTATION (p2c-reg2/quote-refusal-outlives-a-later-read): drop the ticket
+    // rule — the quote stays {4265, basis 4210} and no drift is said; red.
+    const after = reconcileQuote(refused, 4210, 4);
+    expect(after).toEqual({ cents: 4265, basis: 4265 });
+    // The open sheet says it — both figures, the one the cashier reads and the live one.
+    expect(quoteDrift(after, 4210)).toEqual({ from: 4265, to: 4210 });
+    // A closed confirm re-opens on the live figure.
+    expect(openQuote(after, 4210)).toEqual({ cents: 4210, basis: 4210 });
+  });
+
+  it("a read already in the air when the refusal came back settles nothing — it may predate the move", () => {
+    // MUTATION (p2c-reg2/quote-settled-by-a-read-in-the-air): `>` → `>=` — read #3 began BEFORE the
+    // refusal and still reads the old figure; the quote drops the server's figure for a stale one
+    // and the next tap is refused again, with a false "changed" sentence in between; red.
+    expect(reconcileQuote(refused, 4210, 3)).toBe(refused);
+    expect(reconcileQuote(refused, 4210, 2)).toBe(refused);
+    expect(quoteDrift(refused, 4210)).toBeNull();
+  });
+
+  it("a later read that lands on a THIRD figure settles the quote too, and the drift names the figure shown", () => {
+    const after = reconcileQuote(refused, 4300, 4);
+    expect(after).toEqual({ cents: 4265, basis: 4265 });
+    expect(quoteDrift(after, 4300)).toEqual({ from: 4265, to: 4300 });
+  });
+
+  it("a quote no refusal raised has nothing to settle — the same object back", () => {
+    const frozen = { cents: 4210, basis: 4210 };
+    expect(reconcileQuote(frozen, 4610, 9)).toBe(frozen);
+    // A refusal from a caller with no read clock (no ticket) keeps the figure rule alone.
+    const clockless = { cents: 4265, basis: 4210 };
+    expect(reconcileQuote(clockless, 4210, 9)).toBe(clockless);
+    expect(reconcileQuote(null, 4210, 9)).toBeNull();
+  });
+});
+
+describe("a cash settle whose outcome is unknown — how long the page may say it most likely landed (R2)", () => {
+  // The flag is armed at the rejection (device ms); the settle can still land until the freeze it
+  // took lapses (`SETTLE_TTL_MS` — past it the system itself treats the attempt as abandoned).
+  const since = 1_000_000;
+  const open = (startedAtMs: number) => ({ startedAtMs, cartOpen: true });
+
+  it("a read that STARTED after the settle could last land, showing the cart still open, clears it", () => {
+    // MUTATION (p2c-reg2/unknown-never-cleared-by-a-read): return `since` — a counter order cleared
+    // from another tablet an hour later is still announced as "the payment most likely went
+    // through"; red.
+    expect(settleUnknownAfterRead(since, open(since + SETTLE_TTL_MS + 1))).toBeNull();
+  });
+
+  it("a read that started while the settle could still land leaves it armed — even at the boundary", () => {
+    // MUTATION (p2c-reg2/unknown-cleared-at-the-boundary): `>` → `>=`; red.
+    expect(settleUnknownAfterRead(since, open(since + SETTLE_TTL_MS))).toBe(since);
+    // MUTATION (p2c-reg2/unknown-cleared-by-any-open-read): drop the bound — the re-read right after
+    // the rejection (the settle may still be committing) clears it, and a landed settle's close
+    // bounces the cashier to the floor mid-sheet; red.
+    expect(settleUnknownAfterRead(since, open(since + 400))).toBe(since);
+  });
+
+  it("a read showing the cart PAID or gone never clears it — that is what a landed settle looks like", () => {
+    // MUTATION (p2c-reg2/unknown-cleared-by-a-paid-read): drop the `cartOpen` term; red.
+    expect(
+      settleUnknownAfterRead(since, { startedAtMs: since + SETTLE_TTL_MS + 1, cartOpen: false }),
+    ).toBe(since);
+    expect(settleUnknownAfterRead(null, open(since + SETTLE_TTL_MS + 1))).toBeNull();
   });
 });

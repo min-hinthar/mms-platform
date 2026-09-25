@@ -867,3 +867,49 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     );
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("CashSettleButton — a refusal's figure is settled by the page's NEXT read (R1)", () => {
+  const movedLine = (from: string, to: string) =>
+    STAFF["settle.cash.moved"].en.replace("{old}", from).replace("{m}", to);
+
+  it("add-then-remove before the re-read: the read that began AFTER the refusal brings $42.10 back — said as a drift, adopted by the tap, and quoted by the next", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "moved",
+      totalCents: 4265,
+      error: "The total changed — check the order, then take payment again.",
+    });
+    // The page's read clock: read #3 is the committed detail; read #4 is already in the air when
+    // the refusal comes back (it began BEFORE the server refused).
+    const { open, settle, rerender } = mount({ readTicket: 3, readsStarted: () => 4 });
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settle().textContent).toBe(take("$42.65"));
+    // Read #4 commits the OLD figure: it may predate the guest's drink, so it settles nothing.
+    // MUTATION (p2c-reg2/cash-refusal-raised-at-the-committed-read): mark the refusal with the
+    // COMMITTED ticket (#3) — read #4 then "settles" it and a false drift back to $42.10 is said
+    // over a table the server just priced at $42.65; red.
+    rerender({ readTicket: 4, readsStarted: () => 4, totalCents: 4210 });
+    expect(settle().textContent).toBe(take("$42.65"));
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.10", "$42.65"));
+    // Read #5 began after the refusal: the guest took the drink off again — $42.10 is the truth.
+    // MUTATION (p2c-reg2/cash-quote-ignores-the-read-clock): reconcile without the ticket — the
+    // sheet keeps quoting $42.65 (the basis looks like "no re-read yet") in silence; red.
+    rerender({ readTicket: 5, readsStarted: () => 5, totalCents: 4210 });
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.65", "$42.10"));
+    // The tap ADOPTS the figure now shown (nothing recorded); only the next tap takes payment.
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    expect(settle().textContent).toBe(take("$42.10"));
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenLastCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
+  });
+});

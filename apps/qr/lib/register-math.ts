@@ -1,5 +1,6 @@
 import { dayStartIso } from "./day-window";
 import { tipWithinAmountCap } from "./tip";
+import { SETTLE_TTL_MS } from "./lock-ttl";
 // Register money math (W6a) — pure, no I/O, mutation-tested via verify:slice. Three concerns:
 // the day summary (Z-report-lite buckets), the counter's change arithmetic, and (Phase 2c) what the
 // cashier counts at the drawer — the quick-cash notes, the tender's readout, keep-the-change and the
@@ -256,7 +257,15 @@ export function handoffRows(
  * reads what the refused tap read, until the page's re-read lands. Not optimistic — that figure is
  * what the server just derived — and the next tap is compared again regardless.
  */
-export type SettleQuote = { cents: number; basis: number };
+export type SettleQuote = {
+  cents: number;
+  basis: number;
+  /** Phase 2c · review (R1) — set when a server refusal raised this quote: the page's read clock at
+   *  that moment (the last detail read STARTED). A committed read with a LATER ticket began after
+   *  the refusal, so its figure — whatever it is — is the newer truth (`reconcileQuote`). Absent on
+   *  a quote frozen at open, and on a refusal from a caller with no read clock. */
+  raisedAt?: number;
+};
 
 /**
  * Opening a confirm freezes the live figure — unless the live figure still reads the basis of a quote
@@ -271,9 +280,24 @@ export function openQuote(prev: SettleQuote | null, liveCents: number): SettleQu
  * The live figure caught up with the quote (the re-read after a refusal landed): the quote's basis
  * becomes its own figure, so a LATER move back to the old figure reads as the move it is. Returns
  * the SAME object when nothing changes (a render-time adjustment must be able to tell).
+ *
+ * Phase 2c · review (R1) — the figure alone cannot tell "no re-read yet" from "a re-read that
+ * returned the basis": a guest who adds a drink (the server refuses at $42.65) and removes it
+ * before the page re-reads brings the live figure back to $42.10 — the basis — and the quote stuck
+ * on a total that no longer existed. So a refusal carries the page's read clock (`raisedAt`), and a
+ * committed read whose ticket is LATER (it began after the refusal) settles the quote too: its basis
+ * becomes its own figure, and a live figure that differs is then a drift the sheet says. A read
+ * already in the air when the refusal came back (ticket ≤ `raisedAt`) settles nothing — it may
+ * predate the move. `readTicket` defaults to 0: a caller with no read clock keeps the figure rule.
  */
-export function reconcileQuote(q: SettleQuote | null, liveCents: number): SettleQuote | null {
+export function reconcileQuote(
+  q: SettleQuote | null,
+  liveCents: number,
+  readTicket = 0,
+): SettleQuote | null {
   if (q && liveCents === q.cents && q.basis !== q.cents) return { cents: q.cents, basis: q.cents };
+  if (q && q.basis !== q.cents && q.raisedAt !== undefined && readTicket > q.raisedAt)
+    return { cents: q.cents, basis: q.cents };
   return q;
 }
 
@@ -288,4 +312,34 @@ export function quoteDrift(
 ): { from: number; to: number } | null {
   if (!q || liveCents === q.cents || liveCents === q.basis) return null;
   return { from: q.cents, to: liveCents };
+}
+
+// ── Phase 2c · review (R2) — a cash settle whose outcome is unknown ─────────────────────────────
+/**
+ * How long a cash settle whose response was lost may still LAND. `settleCash` holds the settle
+ * freeze from its acquire until its `finally`, and `mms_fulfill_cash_order` checks only
+ * `status = 'open'`, so nothing on the server bounds the function's own life (no `maxDuration` is
+ * configured — the platform default is the ceiling, and it cannot be measured from here). The one
+ * lifetime the system itself gives a settle attempt is its freeze's: past `SETTLE_TTL_MS` another
+ * settle may take the table (`acquireSettlement` treats the freeze as abandoned) and the console
+ * already tells staff a register attempt is over (`settle.inflight.register`'s {n} minutes). So
+ * that is the bound — ONE binding, never a second number. It errs LONG, deliberately: a bound too
+ * short lets a late-landing settle's close bounce the cashier to the floor mid-sheet (the money
+ * risk the hold exists for), while one too long only keeps a hedged "most likely" sentence armed.
+ */
+export const SETTLE_MAY_LAND_MS = SETTLE_TTL_MS;
+
+/**
+ * The page's "a cash settle's outcome is unknown" mark (`since`, device ms when the page learned
+ * the response was lost — later than the settle's start, so the bound only errs long) after a
+ * committed detail read. A read that STARTED after the settle could last land and still shows the
+ * cart OPEN proves it never landed: the mark clears (null), and a later `closed` is the ordinary
+ * close it looks like. A read that started earlier, or shows the cart paid or gone, proves nothing.
+ */
+export function settleUnknownAfterRead(
+  since: number | null,
+  read: { startedAtMs: number; cartOpen: boolean },
+): number | null {
+  if (since === null) return null;
+  return read.cartOpen && read.startedAtMs > since + SETTLE_MAY_LAND_MS ? null : since;
 }

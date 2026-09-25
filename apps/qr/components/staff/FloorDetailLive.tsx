@@ -126,6 +126,10 @@ export function FloorDetailLive({
   // Every detail read takes a ticket; the committed detail's ticket rides beside it (see `sendNote`).
   const reads = useRef(0);
   const [readTicket, setReadTicket] = useState(0);
+  // Phase 2c · review (R1) — the last read STARTED, for a settle refusal to mark itself with (read
+  // in the refusal's handler, never during render): only a read that begins after it may settle
+  // the server's figure.
+  const readsStarted = useCallback(() => reads.current, []);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -1064,6 +1068,8 @@ export function FloorDetailLive({
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("tab", units)}
+                readTicket={readTicket}
+                readsStarted={readsStarted}
                 gateLive={settleGate !== null}
               />
             )}
@@ -1090,6 +1096,8 @@ export function FloorDetailLive({
               blocked={settleBlocked}
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}
+              readTicket={readTicket}
+              readsStarted={readsStarted}
               running={runningClose}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
