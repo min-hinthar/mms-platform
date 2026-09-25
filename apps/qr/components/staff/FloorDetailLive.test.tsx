@@ -1065,6 +1065,22 @@ describe("FloorDetailLive — a lost counter cash settle's 'most likely went thr
     vi.restoreAllMocks();
   });
 
+  it("reads that show the order PAID never clear it, however late — that is a landed settle", async () => {
+    await lostThenCancel();
+    // The settle landed; the counter session's own close is late (its after() missed).
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...COUNTER, cartId: null, settled: true } });
+    await tick(SETTLE_TTL_MS + 5000);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2c-reg2/floor-unknown-cleared-by-a-paid-read): read every detail as an open cart —
+    // the paid reads clear the mark and the landed settle's close bounces the cashier to the floor
+    // with the #CODE never shown; red.
+    expect(unknownNotice()).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it("a close INSIDE that window is still held and said (the settle may have landed)", async () => {
     await lostThenCancel();
     await tick(60_000);
