@@ -10,7 +10,9 @@ Built as three worktree branches: `p2c/pad` and `p2c/register` in parallel off `
 (`f635dc8` · `07e34d7`), then `p2c/gate` off that merge (`97517ad`). Each area ran an independent
 critic round and fixed what it verified (below). No migration, no SQL, no prod DDL. Decided in pure
 `lib/` modules with mutants (171 new — pad 48 · register 55 · gate 68; 1056 total across 160 files).
-DESIGN-LANGUAGE §17, §28 and §29.
+DESIGN-LANGUAGE §17, §28 and §29. A blind review of the integrated head then returned three REJECTs;
+its findings were fixed in two more parallel branches off `97517ad` — `p2c/pad2` and `p2c/reg2`,
+merged `8c44651` · `a5a9120` (the last block below).
 
 **What staff and guests see first:**
 
@@ -140,6 +142,108 @@ DESIGN-LANGUAGE §17, §28 and §29.
   `format:check` clean. The full 1056-mutant run with the gate belongs to the integration step and
   is not recorded here. Nothing is device-measured — the pad, the cash sheet and the gate's note owe
   their 390 / 768 / 1024 screenshots in both languages (P2ca · P2ci · P2cs).
+
+**Blind review (3 lenses — money semantics · concurrency · a11y — 3× REJECT) — fixed:**
+
+Every finding was re-verified against the code before it was touched, then fixed red-first in one
+pass — the order pad on `p2c/pad2`, the register and the settle gate on `p2c/reg2` — each rule with
+a mutant, all KILLED. No migration.
+
+- **P1 — no second plate.** A dish whose add may already be on the order refuses a new add: its tile
+  is dimmed, and a tap on it, its options corner, its sheet's open or a new choice in an open sheet
+  says "We couldn’t confirm {x} — tap Try again on it, or reload the order." (`padDishHold`, the
+  tile's `held` block). The held attempt's own key still passes; a flying add is no hold, and no
+  other dish is held.
+- **P2 — a refused Try again keeps the dish in doubt.** A retry refused before the add-key ledger
+  (no connection, a guest paying, pricing, the gate) is no verdict on the first attempt: the ghost
+  stays under the same key and the pad says why the retry could not run and that the dish "may
+  already be on the order" — never "didn't go on" (`padRetryVerdict`). A retry's refusal is said by
+  its origin (the ghost's in the pad's region, the sheet's in the sheet).
+- **P3 — the Send re-checks a kitchen note typed while it drained:** no fire, the note's hold
+  sentence, the cursor in that note. The table page, which has no drain, is unchanged.
+- **P4 — nothing is added while Take payment is on its way out:** the tiles and the sheet's Add
+  refuse and say what Take payment is doing ("Waiting for the last dish…" · "Saving the name…" ·
+  "Opening payment…"); after a name save the chain drains again before the page opens.
+- **P5 — a hung detail read is never piled on:** no read starts while a timed-out one is still in
+  Next's queue, and exactly one fresh read follows its answer (each 5s poll used to queue another).
+- **P6 — a 15-second silence is said, and so is its end:** "No answer yet about {x} — still
+  checking. If it stays, reload the order." in the pad's region, then "Added 1 × {x}." when it
+  lands; a Try again that lands is said too, and so is a late add after the options sheet gave up
+  (closes P2cd).
+- **P7 — focus never drops to the page:** Try again keeps its button, busy ("Adding…" /
+  "Checking…"), through the retry; when a pad control leaves, focus goes to the order's heading; a
+  saved note hands focus to its note button (on the table page too).
+- **P8 — the phone's order button says what the adds are:** "Check the order" over a lost add,
+  "Checking…" over an unconfirmed one, "Adding…" only while one is on its way (`padViewStatus`).
+- **P9 — a tile's name keeps each language's voice:** named by its own runs (`aria-labelledby`, each
+  run with its `lang`), and the pending `+N` is in the name with its word.
+- **P10 — the order heading shows its keyboard focus ring;** a contract test refuses any `.pad-*`
+  rule that turns the outline off outside `:focus:not(:focus-visible)`.
+- **P11 — an empty walk-up-name Save says why:** dimmed, and a tap says "Type a name to save — it’s
+  optional." once, with no write; emptied over a saved name, Save clears it (`padNameSave`).
+- **P12 — every control on a ticket line names the dish the same way** — the stepper, Remove / Make
+  it free, the note button and the note field read one binding (`dishLabel`), so a Burmese console
+  no longer names the note button in English.
+- **P13 — the guards:** the one-region test runs the real `StaffBar`; the 15s, Try again, refused
+  retry and post-drain note cases now assert the region, focus and the fire.
+- **Open question — the options sheet hides the pad's Toast: rejected, not real.** Radix's modal
+  sweep (`aria-hidden`'s `hideOthers`) keeps every `[aria-live]` node, and the `@mms/ui` Toast
+  region is always mounted `aria-live="polite"`; pinned by a test, red-first by dropping the
+  attribute.
+- **Open question — reflow at 320×256: fixed as far as it can be unmeasured.** Below 20em tall the
+  pad scrolls as one page (the panes stop scrolling on their own, the dock follows the ticket);
+  pinned as CSS, not yet measured in a browser (P2cv).
+- **R1 — a refused total never sticks on the server's figure.** After "The total changed from $42.10
+  to $42.65", a guest who takes the dish off before the page re-reads now gets "The total changed
+  from $42.65 to $42.10" and the next tap switches back: any committed read that started after the
+  refusal settles the quote (`raisedAt`, the page's read clock); a read already in the air settles
+  nothing. Cash sheet and card-on-file "Charge" alike.
+- **R2 — a lost counter cash settle's "most likely went through" ends** once a read that started
+  after the settle could last land (`SETTLE_MAY_LAND_MS`, the freeze's 10 minutes) shows the order
+  open, or when the card reader starts to collect — so an order paid on the reader shows the
+  reader's paid card, and one closed from another tablet later goes back to the floor. Its
+  card-on-file half was rejected as unreachable: the mark is armed only on a counter order, and a
+  counter (pickup) session can never hold a secure running bill (`mms_tab_secure` is dine-in only).
+- **R3 — the card reader's status is always heard:** each status change clears a standing edit
+  refusal, so "Waiting for the guest to tap or insert their card…" and "The payment didn’t go
+  through." reach a screen reader after an earlier refusal.
+- **R4 — the page's focus landings show the keyboard ring:** the "Take payment" heading `?settle=1`
+  lands on and the order heading lost their inline `outline: none`.
+- **R5 — the settle gate's compare-and-swap suites answer the gate's read** (their fake sent it down
+  its fail-open path, unseen): now mocked explicitly, with unsent dishes under a moved quote
+  answering `unsent` before any totals read, freeze released, and four mutants.
+- **R6 — the counter's exemption is the mode's:** a pickup session holding dine-in drafts settles at
+  cash and at the running-bill close (the drafts are read and counted; only the mode exempts).
+- **R7 — the freeze comments say what is true:** the add RPCs guard only `status = 'open'`, never
+  `settle_at`, so an add racing the freeze can ride a reader charge and fire after pay — comments
+  corrected in `staff-cart.ts`, `terminal.ts` and `settle-unsent.test.ts`, the hole filed (P2cy, a
+  migration).
+- **Open question — a register payment left unfinished never invites a blind retry.**
+  `settle.inflight.register` now ends "If it still hasn’t finished in {n} minutes, ask the owner to
+  check the card payments before you take payment again." (Burmese too) — the running-bill close's
+  key is per attempt, so a retry after the wait could charge the card on file twice. "Check the
+  order" was rejected as the fix: with a late webhook the order shows unpaid. `settle.card.unknown`'s
+  "try again" stays filed (P2ck, widened).
+- **Open question — a second tap on a dimmed "Pay at the counter" (or Pay) says why again:** the
+  refusal renumbers the Bill's status text (a same-value state is a React no-op) and clears a
+  standing pay error.
+- **Open question — warn / --t3 / --t2 text on the dotted staff cards is contrast-pinned** on the
+  face at both ramp ends, both themes (lowest: light --t3 5.3731). The dot core under a glyph
+  measures below AA on every dotted card since W22a — a design call, filed (P2db), not asserted
+  either way.
+- **Mutate set.** The pad's three hooks under `components/` — `staff/usePadWrites.ts`,
+  `staff/useStaffSend.ts`, `staff/usePadDetailLive.ts` — join the components (18 → 21, 163 modules);
+  52 new mutants (pad2 22 · reg2 30), all KILLED by each branch's `--no-gate --only=` runs; one
+  re-anchored with its meaning kept (`p2c-register/cash-moved-figure-never-adopted`).
+- **Words (K15).** Six new staff keys — four K15-HIGH (`pad.err.retry.outage` · `.paying` ·
+  `.failed`, `pad.err.add.checking`; `STAFF_K15_HIGH` 104 → 108), plus `pad.bar.check` and
+  `pad.name.empty` — and `settle.inflight.register` re-drafted (HIGH, kept); every Burmese value a
+  Claude-authored draft.
+- **OPEN-ITEMS.** Closed P2cd; P2ch gains the reflow tier's 20em; P2ck widened; new **P2cv–P2db**
+  (two med: an add racing the settle freeze, a hung `settleCash` trapping the cash sheet).
+- **Gate after the fixes (measured):** 1108 `verify:slice` mutants across 163 target modules (138
+  lib · 3 API routes · 21 components · 1 `packages/db`) · 3993 qr + 228 ui tests · `check:docs` and
+  `format:check` clean. The full 1108-mutant run with the gate belongs to the integration step.
 
 ### Phase 2b — the kitchen ticket and the live console (2026-09-24)
 

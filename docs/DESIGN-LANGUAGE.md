@@ -951,13 +951,22 @@ built.
   (sr-only there: the panel shows it). A line outranked in what is SAID stays SHOWN (aria-hidden):
   under the reader's status the region still shows degraded, else the send line. A settle FAILURE
   is an assertive `role="alert"` inside its own control, mounted only while it holds a sentence —
-  never a second polite region.
+  never a second polite region. **Every line is a setter** and clears the ones above it that
+  describe an older moment — the reader's status too: each change of it (`onReaderStatus`; the panel
+  reports only a change of value) clears a standing writeError, so a refusal from before the collect
+  never masks a money sentence, and one raised during a collect speaks until the reader's next
+  status.
 - **A refusal while money is already moving names who holds it, in the device language.** The
   server answers a typed code (`code: "inflight"`, `holder: phone | register | unsure` —
   `lib/inflight-refusal.ts`) and every settle control renders the holder's `settle.inflight.*` key;
   the page's paying banner reads the same holder (`detail.paymentHolder`) and says the same
   sentence. A failed share read is `unsure`, never "their phone" (`split_unreadable` still refuses —
-  a new member of a shared reason union is audited at every `===` consumer, LEARNINGS #148).
+  a new member of a shared reason union is audited at every `===` consumer, LEARNINGS #148). **The
+  register's sentence never invites a blind retry:** it ends "If it still hasn’t finished in {n}
+  minutes, ask the owner to check the card payments before you take payment again." The running-bill
+  close's key is per ATTEMPT, so a retry after the freeze lapses mints a second off-session charge,
+  and a landed charge whose webhook is late reads exactly like one that never landed — "try again"
+  and "check the order" both send staff to that retry.
 - **Settle actions are `@mms/ui` Buttons** (cash trigger · Cancel · Take; the reader trigger ·
   Cancel · Back; the card-on-file trigger · Cancel · Charge). A refused control carries
   `aria-disabled` as a SPREAD plus its own handler guard — never the primitive's `disabled` prop, so
@@ -967,7 +976,20 @@ built.
   RSC payload.
 - **A refused tap is never silent.** Where a dimmed control's reason is not drawn (the pad's phone
   bar, §28), the tap says it once through the view's one region; where it is drawn, the tap says it
-  too, so one path serves every tier.
+  too, so one path serves every tier. **It re-says its reason on EVERY tap:** a same-value
+  `setState` is a React no-op and says nothing, so the region's text is keyed on a per-refusal number
+  (the diner's Bill: `sayRefusal` renumbers `statusSeq`) — a repeated sentence is a new node, a new
+  announcement — and the refusal clears a standing pay error in the same region, whose rule is that
+  each handler clears the other.
+- **A programmatic focus target shows the keyboard ring.** A heading or control the page lands
+  focus on (the settle section's `settle-h`, the order's `order-h`, the pad's ticket heading) never
+  carries an inline `outline: none`, and a stylesheet drops its outline only under
+  `:focus:not(:focus-visible)` — the global `:focus-visible` ring is how a keyboard user sees the
+  landing (`lib/pad-shell-contract.test.ts` refuses a bare outline-off on any `.pad-*` rule).
+- **An empty Save is refused, never a no-op.** Nothing typed and nothing saved is `aria-disabled`
+  with a stated reason (`aria-describedby`, sr-only) and a tap says it once through the view's
+  region; an emptied field over a saved value clears it (the pad's walk-up name, `padNameSave`:
+  `save` · `saved` · `empty`).
 - **The settle gate — the counter half of "Everything sent" (§22's binding; owner, 2026-09-24).**
   Every payment door — the cash sheet, the reader, the running-bill close, the order pad's Take
   payment and the diner's "Pay at the counter" — refuses while dine-in dishes are unsent. Staff
@@ -1333,7 +1355,11 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   `overscroll-behavior-y: contain` (axis-specific: the W22c overscroll contract refuses the
   shorthand; the chip rail contains its own `-x`). The first focusable is a skip BUTTON ("Skip to
   the order"): on a phone the order is the other view, so the jump flips the view first, then
-  focuses the ticket's `h2`.
+  focuses the ticket's `h2`. **The reflow tier** (`max-height: 20em` — 320×256, a laptop at 400%
+  zoom): the shell becomes a document — `.pad-main` takes its content's height, the panes stop
+  scrolling on their own (`.pad-ticket` takes the `overflow` shorthand: beside its hidden x-axis a
+  `visible` y-axis computes to `auto`), the dock follows the ticket, and the bar stays the only
+  sticky element (WCAG 1.4.10; unmeasured in a browser — OPEN-ITEMS P2cv).
 - **One ticket, one Send, one Take payment — placed by CSS.** `StaffTicket` renders exactly once (a
   pane beside the tiles from 48em, the order view on a phone), never a second copy in a sheet: no
   duplicated ids, focus or hooks. The dock (`.pad-dock`) holds the view button, `.pad-dock-primary`
@@ -1343,12 +1369,20 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   (`max-height: 52em`) side by side. In the phone bar and the short tier the xl taps keep 64px but
   trim to `--s3` gutters and `--fs-lead`. The dock publishes its MEASURED height as `--cta-dock-h`
   (`useCtaDock`) and the Toast rides above it — zero from 48em, where the dock is not at the bottom.
+- **The phone's view button says what the adds ARE** (`padViewStatus`), the most urgent first: a
+  lost add "Check the order" (nothing is coming — it names the fix), an unconfirmed one "Checking…",
+  a flying or unread one "Adding…". Never "Adding…" over an answer that came back.
 - **Tiles.** A memo'd `PadTile` on primitive props, so a 5s poll re-renders no tile whose facts did
   not change. Two sibling buttons, never nested: the main tap (≥ 8.5rem tall) and, on an `add` dish
   only, a 44×44 options corner (sr-only "Options for {x}"). What a tap does is ONE pure decision
   (`tileAction`): sold out wins; a REQUIRED choice (`needsChoice` — any group with `minSelect ≥ 1`)
   opens the options sheet; otherwise the tap adds one, no modifiers. The `×N` badge counts the
   CONFIRMED ticket only (voided lines excluded, §21); a dim `+N` counts this dish's pending adds.
+  **A tile is named by its own runs** (`aria-labelledby`, in reading order): the verb (an sr-only
+  "Add" on an add tile, whose only visible mark is the aria-hidden +; the visible Choose / Sold out
+  otherwise), the lead and the echo (each its own `lang`), the price, the `×N`, and the `+N` with its
+  word (`pad.ghost.adding`, sr-only) — never a flattened `aria-label`, so each run keeps its
+  language's voice and the name contains every count that is drawn (WCAG 2.5.3).
 - **Sections and search.** "All" lists every category in `sort_order`; a pressed chip filters to its
   one section and scrolls the pane to the top; a non-empty search IGNORES the chip — English, raw
   Burmese and category across the whole menu into one untitled section, no lit chip — and the chosen
@@ -1365,25 +1399,53 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   (`usePadWrites`), so commit order is tap order. The COUNT is optimistic; no amount ever is: the
   subtotal reads "—" and Take payment drops its figure while any add — or any of the ticket's own
   writes (a quantity, a removal, a note) — is in flight, or answered but not yet in a read that
-  started after it (`padAmountsSettled`, one predicate for both).
+  started after it (`padAmountsSettled`, one predicate for both). **Every decision a tap makes is
+  taken AT the tap, from refs** — the adds (`holdFor`, `counts`) and Take payment's phase
+  (`phaseRef`, moved with its state by one setter) — never from the last render.
 - **Outcomes are settled BY KEY** (`pendingReduce`). `ok` lands the ghost, which leaves only on a
   committed read that STARTED after the landing. A definite refusal removes that attempt (never the
   dish), plays `mms-settle` on the glyph, keeps focus on the tile and names the dish. A write that
   may have committed, or an action that threw, is `lost`: the ghost stays with "Try again" under the
-  SAME key — never "send", the kitchen's verb on this console (pinned in `plain-words.test.ts`). 15s
-  with no answer is `unconfirmed` ("Checking…"), not a failure: a late answer still resolves it;
-  because Next runs actions one at a time, an unconfirmed add holds the tiles, the Send and Take
-  payment, and the ticket offers "Reload the order". The holds say the state — unconfirmed "Waiting
-  to hear back about {x}", lost the fix ("tap Try again on it, or reload the order") — never a wait
-  for an answer that already came (`sendHoldMsg`). A sheet add queued behind a hung one frees its
-  sheet 15s after ITS tap; a refusal that lands after its origin stopped waiting is said in the pad's
-  region.
+  SAME key — never "send", the kitchen's verb on this console (pinned in `plain-words.test.ts`). The
+  ghost's "Try again" keeps its node through the retry — busy ("Adding…" / "Checking…", `aria-busy`)
+  while it is on its way, live again if it comes back lost — so focus stays on it. 15s with no answer
+  is `unconfirmed` ("Checking…"), not a failure: a late answer still resolves it; because Next runs
+  actions one at a time, an unconfirmed add holds the tiles, the Send and Take payment, and the
+  ticket offers "Reload the order". The holds say the state — unconfirmed "Waiting to hear back
+  about {x}", lost the fix ("tap Try again on it, or reload the order") — never a wait for an answer
+  that already came (`sendHoldMsg`). A sheet add queued behind a hung one frees its sheet 15s after
+  ITS tap; whatever lands after its origin stopped waiting — a refusal or an `ok` — is said in the
+  pad's region.
+- **Doubt said is resolution said.** 15s unanswered is said ONCE in the pad's region ("No answer
+  yet about {x} — still checking. If it stays, reload the order.", `pad.err.add.checking`) — the
+  ghost's "Checking…" and the Reload are aria-hidden or unannounced — unless the add's origin, the
+  sheet, is still waiting and says it with its own line: never both voices for one fact. An add
+  whose doubt was SAID (that line, "we couldn't confirm", the sheet giving up) is said to LAND
+  (`browse.added`, as news, never deferred behind the correction it answers); every retry follows
+  one of those, so a retry that lands is said too.
+- **A dish whose add is unknown refuses a NEW add** (`padDishHold`): a lost or unconfirmed add on
+  THIS dish holds its tile (`aria-disabled`, `padTileBlock` → `"held"`), its options corner, the
+  sheet's open, and a new choice in an already-open sheet — a new tap is a new add key, the ledger
+  dedupes only the same key, and if the first one landed the dish goes on twice. The refusal is the
+  Send's own sentence (`sendHoldMsg`: Try again on it, or reload). The held attempt's own key always
+  passes (the ghost's Try again, the sheet's same choice again). A FLYING add is not a hold (its
+  answer is coming — a second tap is a second dish), and no other dish is held.
+- **A retry's refusal is no verdict on the first attempt** (`padRetryVerdict`). Every definite
+  refusal an add can give is decided before the add-key ledger (the gate, the cart read, the payment
+  mutex, pricing) or by the insert's "not open" guard, so a refused resend never consulted the
+  ledger: the add stays `lost` under its key, and the sentence says why the retry could not run and
+  that the dish MAY already be on (`pad.err.retry.outage` · `.paying` · `.failed`) — never "didn't go
+  on". It is read before the ghost AND before the origin's outcome, so the sheet keeps its held key.
+  A retry's outcome is said by its ORIGIN: the ghost's in the pad's region, the sheet's in the sheet.
 - **The Send is the table page's controller, reused.** `useStaffSend` is owned by `OrderPad` (a
   refresh or a view swap cannot kill an open undo) and handed a `drain` — the add chain settles
   before any fire, and a hung or lost add refuses the fire and says what it waits on — and a BARE
   label while any add is flying or unread: a count is a claim only from a view that has seen the
-  cart. With nothing to send the slot is "Done · Table N", never empty. A counter order has no Send
-  (until 2f); its status row says the kitchen starts it when it is paid.
+  cart. **With a drain, the Send re-reads its note hold AFTER the drain:** a note typed while it
+  waited returns it to idle, focuses that field and says the hold — the table page passes no drain,
+  so nothing awaits between its one read and its fire. With nothing to send the slot is "Done ·
+  Table N", never empty. A counter order has no Send (until 2f); its status row says the kitchen
+  starts it when it is paid.
 - **Take payment navigates; it never takes money here.** Secondary at an open dine-in table (the
   step after Send is leaving — never two filled pills), primary on a counter order. Its refusal is
   ONE typed reason from ONE pure function — `padSettle` → `PadSettleBlock`, ranked **paying > note >
@@ -1397,7 +1459,12 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   while an add flies is accepted and busy in the phase it is IN ("Waiting for the last dish…" ·
   "Saving the name…" · "Opening payment…"), then `router.push("/staff/table/{id}?settle=1")`, which
   the table page lands on its "Take payment" heading (§29). A push that never lands frees the button
-  after 10s (`SETTLE_OPEN_RESET_MS`, or on a `pageshow` restore).
+  after 10s (`SETTLE_OPEN_RESET_MS`, or on a `pageshow` restore). **Nothing goes on while Take
+  payment is leaving:** every tile answers `"settling"` (`padTileBlock`) and the sheet's Add refuses
+  on the same phase — an add tapped then would land after the drain, be announced to a screen that
+  is leaving, and never be retracted; a tap says what Take payment is doing (`padSettleBusyKey`, its
+  busy label's own words). After a name save the chain drains AGAIN and re-reads
+  its blocker before the push. The walk-up name's Save is §17's empty-Save rule (`padNameSave`).
 - **Disabled is `aria-disabled` plus a stated reason, never native `disabled`** — the pad renders
   zero `button[disabled]` across idle, pending, paying and sold-out (`OrderPad.test.tsx`, both
   states mounted). The phone bar's hints are `sr-only` (no room for a sentence), so a refused Send or
@@ -1416,6 +1483,16 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   (15s): a throw or a timeout is UNKNOWN — the row comes back, the region says "We couldn’t confirm
   {x} was removed — the order shows what’s on it", the hold releases, and while the request still
   holds Next's action queue the ticket offers "Reload the order".
+- **One raw read in flight.** A detail read that timed out (`raceTimeout` frees the CALLER at 15s)
+  is still in Next's action queue, and a fresh read would queue behind it: `usePadDetailLive`
+  watches the RAW call, starts no read while it is unanswered, and owes every ask it refused ONE
+  read the moment it answers (`owed` → `kick`).
+- **Focus never falls to `<body>`.** The pad carries FloorDetailLive's catch-all: on any detail
+  commit or pending change, focus that fell to `<body>` after real focus on the pad goes to the
+  ticket's heading (the search circle while the phone shows the menu) — declared after the dock's
+  own restore, which wins. The ghost's Try again keeps its node (above); a saved note closes its
+  editor with `flushSync` and hands focus to its note button. The heading shows the keyboard ring
+  (§17: its outline goes only under `:focus:not(:focus-visible)`).
 - **A retry that changed nothing is never silent.** The menu outage's "Try again" is busy while the
   page re-reads (`useTransition`) and says the outage line again when the menu is still down.
 - **Loading is the pad's own geometry** (`PadSkeleton`: the tools row, 8 / 12 / 16 tile ghosts at 2
@@ -1456,9 +1533,15 @@ Decided in `lib/register-math.ts` · `lib/register-ui.ts` · `lib/inflight-refus
 - **The figure recorded is the figure the cashier read, or a refusal naming both.** The confirm sends
   its quote as `quotedCents` (COMPARE-ONLY, never read into an amount); the server compares it inside
   the held freeze and refuses a moved total with `code: "moved"` and its own figure, releasing the
-  freeze. The confirm then quotes the server's figure until the page catches up (the quote's
-  `basis`, collapsed the moment the live value reaches it), and the re-tap is compared again. The
-  card-on-file close's "Charge $x" does the same (P2aa); the reader charges the live total.
+  freeze. The confirm then quotes the server's figure until the page catches up — its live figure
+  reaching the server's (the quote's `basis`, collapsed the moment it does), OR any committed read
+  that STARTED after the refusal: the quote carries the page's read clock (`raisedAt`, the last read
+  started when the refusal landed — `FloorDetailLive.readsStarted`), and `reconcileQuote(q, live,
+readTicket)` settles it on a read with a LATER ticket; a read already in the air at the refusal
+  settles nothing. A live figure that then differs from the quote is a drift, said with both figures
+  (the guest took the dish off again: "The total changed from $42.65 to $42.10"). The re-tap is
+  compared again. The card-on-file close's "Charge $x" does the same (P2aa); the reader charges the
+  live total.
 - **The actions ride a band pinned to the sheet's bottom** (`.reg-settle-actions`, the
   `.item-cta-bar` pattern): the one alert sits right above Take / Cancel, the band owns the
   home-bar inset, and the Sheet's keyboard lift puts it on top of the decimal pad.
@@ -1466,11 +1549,19 @@ Decided in `lib/register-math.ts` · `lib/register-ui.ts` · `lib/inflight-refus
   (`settle.cash.unknown`) and re-reads the page's detail — never "that change wasn't saved". On a
   COUNTER order the page holds its closed-bounce while the outcome is unknown (a landed counter
   settle closes the session behind it) and, on `closed`, says it "most likely went through" where
-  the settle was, focused, with the way back to the counter.
+  the settle was, focused, with the way back to the counter. **That hold ENDS** — the mark is a
+  timestamp (when the page learned the outcome was unknown, so it errs long), cleared
+  (`settleUnknownAfterRead`) by a committed read that STARTED after the settle could last land and
+  still shows the order open, or by a reader collect that STARTS (the reader took the freeze on an
+  open cart, which a landed cash settle would have paid); a paid read never clears it. The bound is
+  `SETTLE_MAY_LAND_MS = SETTLE_TTL_MS`, ONE binding: nothing bounds the settle function itself, and
+  the freeze's lifetime is the one the system gives a settle attempt — too short bounces a late
+  landing to the floor (the money risk), too long only keeps a hedged sentence armed. The mark is
+  armed only on a counter order, which can never hold a card-on-file running bill.
 - **One primary per settle section** (`settlePrimary`): the card on file on a secure running bill,
   cash otherwise; the reader after cash, secondary. The section's visible heading ("Take payment")
   is where the order pad's `?settle=1` lands focus — without `preventScroll`: landing on it is the
-  jump the link promised.
+  jump the link promised — and it shows the keyboard ring there (§17: no inline `outline: none`).
 - **The paid card's NAME carries its facts.** `HandoffCard` is a focused region, never
   `role="status"`: `aria-labelledby` = the title, the change row (or still-to-collect, or the total
   when no tender was entered) and the #CODE, so focus speaks "Paid, Change $7.90, #A1B2C3" once.

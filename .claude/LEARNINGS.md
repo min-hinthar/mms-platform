@@ -2771,3 +2771,25 @@ the same async continuation as `setConfirming(false)`, moved focus first, and th
 pulled it back a frame later — a jump that visibly happened and then un-happened. A ref set BEFORE
 the close (`jumpOwnsFocus`) hands the restore over; `secure-close/unsent-close-steals-focus-back`
 pins it. Any "restore focus on close" effect needs a way to be told someone else owns focus now.
+
+## #156
+
+**A retry's refusal is about the RETRY, not the first attempt.** The pad resends a lost add under
+its SAME key so the add-key ledger dedupes it — but every definite refusal `staffAddItem` gives
+(the gate, the cart read, the payment mutex, pricing, the insert's "not open") is decided BEFORE
+that ledger is consulted, so a refused resend proves nothing about whether the first attempt
+committed. Read as definite, it dropped the ghost and said "Mohinga didn't go on" over a dish that
+may be on the order — and the next tap minted a new key: a second plate. Wherever an idempotency
+ledger sits after the refusal points, run a retry's answer through its own verdict
+(`padRetryVerdict` → still unknown, "may already be on") BEFORE the state machine AND before the
+origin's outcome: transforming it inside the handler alone left the options sheet resolving
+"refused" and dropping its held key.
+
+## #157
+
+**A `raceTimeout` frees the caller, not the queue.** Next runs Server Actions one at a time, so a
+read that timed out at 15s is still queued — and the 5s poll's "fresh" read queued behind it, then
+another, each abandoned in turn (three calls behind one hang in 45s). Watch the RAW promise apart
+from its timeout: start nothing while it is unanswered, and owe the refused asks ONE read when it
+answers (`usePadDetailLive`'s `rawPending` / `owed`). The same queue is why #144's queued add never
+started its dispatch clock.
