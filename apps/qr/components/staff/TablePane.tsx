@@ -17,6 +17,7 @@ import {
   liveTwinOf,
   paneEscapeCloses,
   paneFailKeys,
+  paneStatusSays,
   readHandoffStash,
 } from "@/lib/floor-pane";
 import { tf } from "@/lib/i18n/fill";
@@ -44,7 +45,8 @@ import type { Handoff } from "@/lib/register-ui";
  *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
- * another table); otherwise this pane's single sr-only `role=status` does. Never two at once.
+ * another table); otherwise this pane's single sr-only `role=status` does (`paneStatusSays`: a lost
+ * write, "Loading…" when the head is a name, the closed title, the failure). Never two at once.
  */
 /** Every read carries its selection's `gen`: a table picked AGAIN (A → ✕ → A, A → B → A) starts in
  *  `loading` and reads afresh — a previous pick's detail would seed `FloorDetailLive`'s state
@@ -219,6 +221,16 @@ export function TablePane({
     <Chrome lang={lang} k="floor.pane.lostWrite" vars={{ x: lostName! }} echo="stack" />
   ) : null;
   const detailMounted = cur?.kind === "detail";
+  // Phase 2d · review fixes — the pane's ONE region while no detail (with its own) is mounted.
+  const closedKey =
+    cur?.kind === "closed" && (cur.hint?.counter || sel?.hint?.counter)
+      ? "floor.pane.closed.counterTitle"
+      : "table.detail.closed.title";
+  const says = paneStatusSays({
+    lost: lostWrite !== null,
+    read: cur === null || cur.kind === "detail" ? null : cur.kind,
+    headNamed: name !== null,
+  });
 
   const twin =
     cur?.kind === "closed" && cur.label !== null
@@ -232,7 +244,7 @@ export function TablePane({
       ref={paneRef}
       className="staff-split-pane"
       aria-labelledby="table-pane-h"
-      aria-busy={!hydrated || cur?.kind === "loading" || undefined}
+      aria-busy={!hydrated || undefined}
       onKeyDown={onKeyDown}
     >
       {!hydrated ? null : sel === null ? (
@@ -251,9 +263,6 @@ export function TablePane({
               subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
             />
           </div>
-          <p role="status" className="sr-only">
-            {lostLine}
-          </p>
         </>
       ) : (
         <>
@@ -291,7 +300,13 @@ export function TablePane({
           {lostWrite && (
             <LostWrite line={lostLine} lang={lang} lw={lostWrite} onSelect={onSelect} />
           )}
-          <div className="staff-pane-body mms-rise" key={sel.id}>
+          {/* Busy is the BODY's (the skeleton), never the section's: the pane's one region below
+              must not sit inside a busy subtree, whose announcements may be held until it clears. */}
+          <div
+            className="staff-pane-body mms-rise"
+            key={sel.id}
+            aria-busy={cur?.kind === "loading" || undefined}
+          >
             {cur?.kind === "loading" && <TableDetailSkeleton />}
             {cur?.kind === "detail" && (
               <TableNavProvider
@@ -346,16 +361,7 @@ export function TablePane({
                 <EmptyState
                   titleAs="h3"
                   titleId="table-pane-closed-h"
-                  title={
-                    <Chrome
-                      lang={lang}
-                      k={
-                        cur.hint?.counter || sel.hint?.counter
-                          ? "floor.pane.closed.counterTitle"
-                          : "table.detail.closed.title"
-                      }
-                    />
-                  }
+                  title={<Chrome lang={lang} k={closedKey} />}
                   subtitle={<Chrome lang={lang} k="floor.pane.closed.body" echo="stack" />}
                 />
                 {twinRow && (
@@ -403,25 +409,23 @@ export function TablePane({
               </>
             )}
           </div>
-          {/* The pane's ONE region while no detail (with its own region) is mounted. */}
-          {!detailMounted && (
-            <p role="status" className="sr-only">
-              {lostLine ??
-                (cur?.kind === "closed" ? (
-                  <Chrome
-                    lang={lang}
-                    k={
-                      cur.hint?.counter || sel.hint?.counter
-                        ? "floor.pane.closed.counterTitle"
-                        : "table.detail.closed.title"
-                    }
-                  />
-                ) : cur?.kind === "fail" ? (
-                  <Chrome lang={lang} k={paneFailKeys(cur.cause).title} />
-                ) : null)}
-            </p>
-          )}
         </>
+      )}
+      {/* The pane's ONE region while no detail (with its own region) is mounted — ONE node across
+          "nothing picked" and every read state (outside the branches above), so a tap's "Loading…"
+          is a CHANGE to a region that already stood, never a region inserted with its text. */}
+      {hydrated && !detailMounted && (
+        <PaneRegion>
+          {says === "lost" ? (
+            lostLine
+          ) : says === "loading" ? (
+            <Chrome lang={lang} k="shell.loading" vars={{ what: ts(lang, "what.table") }} />
+          ) : says === "closed" ? (
+            <Chrome lang={lang} k={closedKey} />
+          ) : says === "fail" && cur?.kind === "fail" ? (
+            <Chrome lang={lang} k={paneFailKeys(cur.cause).title} />
+          ) : null}
+        </PaneRegion>
       )}
     </section>
   );
@@ -459,6 +463,23 @@ function LostWrite({
         <Chrome lang={lang} k="floor.pane.open" vars={{ x: name }} />
       </Button>
     </div>
+  );
+}
+
+/** The pane's ONE region. It stands across "nothing picked" and every read state, and when it does
+ *  mount fresh — a switch away from a mounted detail, whose own region just left — it mounts EMPTY
+ *  and is filled a tick later: a live region inserted WITH its text is often never spoken. */
+function PaneRegion({ children }: { children: ReactNode }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    // Scheduled, never a synchronous setState in the effect (the react-hooks rule).
+    const t = setTimeout(() => setArmed(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <p role="status" className="sr-only">
+      {armed ? children : null}
+    </p>
   );
 }
 

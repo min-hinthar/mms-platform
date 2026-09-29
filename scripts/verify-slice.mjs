@@ -10656,6 +10656,38 @@ const MUTANTS = [
     find: "                    headingLevel={3}\n",
     replace: "",
   },
+  {
+    id: "p2d-rev/split-loading-never-said-after-a-tap",
+    file: "apps/qr/lib/floor-pane.ts",
+    suite: "lib/floor-pane.test.ts",
+    why: "Phase 2d \u00b7 review fixes \u2014 a tapped card names the table in the head at once, so the region is the only place 'Loading\u2026' is said; silent, focus lands on a bare name over a skeleton",
+    find: '  if (p.read === "loading") return p.headNamed ? "loading" : null;',
+    replace: '  if (p.read === "loading") return null;',
+  },
+  {
+    id: "p2d-rev/split-loading-said-twice-on-a-deep-link",
+    file: "apps/qr/lib/floor-pane.ts",
+    suite: "lib/floor-pane.test.ts",
+    why: "Phase 2d \u00b7 review fixes \u2014 a deep link's unnamed head IS the loading line (focused); the region saying it too says it twice",
+    find: '  if (p.read === "loading") return p.headNamed ? "loading" : null;',
+    replace: '  if (p.read === "loading") return "loading";',
+  },
+  {
+    id: "p2d-rev/split-region-inserted-with-its-text",
+    file: "apps/qr/components/staff/TablePane.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 after a switch away from a mounted detail the pane's region mounts fresh; inserted WITH its text it is often never spoken, so it mounts empty and fills a tick later",
+    find: "      {armed ? children : null}",
+    replace: "      {children}",
+  },
+  {
+    id: "p2d-rev/split-region-inside-a-busy-subtree",
+    file: "apps/qr/components/staff/TablePane.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 busy is the skeleton body's, never the section's: the pane's one region inside a busy subtree may have its 'Loading\u2026' held until the read lands",
+    find: "      aria-busy={!hydrated || undefined}",
+    replace: '      aria-busy={!hydrated || cur?.kind === "loading" || undefined}',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

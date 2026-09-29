@@ -175,6 +175,23 @@ export function paneFailKeys(cause: "outage" | "unknown"): { title: StaffKey; su
     : { title: "floor.pane.fail.title", sub: "out.tail.reconnecting" };
 }
 
+/**
+ * What the pane's ONE region says while no detail (which carries its own) is mounted. A lost write
+ * outranks (it is about a table the person already left); then the read's own state. Loading is
+ * said only when the head does not already carry it: a tapped card names the table at once, so the
+ * head's sr-only "Loading…" never renders and focus lands on a bare name over a skeleton — while a
+ * deep link's unnamed head IS the loading line, and saying it again would say it twice.
+ */
+export function paneStatusSays(p: {
+  lost: boolean;
+  read: "loading" | "closed" | "fail" | null;
+  headNamed: boolean;
+}): "lost" | "loading" | "closed" | "fail" | null {
+  if (p.lost) return "lost";
+  if (p.read === "loading") return p.headNamed ? "loading" : null;
+  return p.read;
+}
+
 /** A closed table's LIVE namesake on the floor (a new party at Table 7), for "Open the current
  *  Table 7". Never the closed session itself; never for a counter order (`reg-` names no place). */
 export function liveTwinOf(

@@ -13,6 +13,7 @@ import {
   opensInPane,
   paneEscapeCloses,
   paneFailKeys,
+  paneStatusSays,
   paneFocusAfterClose,
   paneFreezeSpoken,
   paneFromHash,
@@ -232,6 +233,24 @@ describe("paneFailKeys", () => {
       expect(STAFF[title].en).not.toMatch(/paper/i);
       expect(STAFF[sub].en).not.toMatch(/paper/i);
     }
+  });
+});
+
+describe("paneStatusSays — the pane's one region (review fixes)", () => {
+  it("a lost write outranks every read state", () => {
+    for (const read of ["loading", "closed", "fail", null] as const)
+      expect(paneStatusSays({ lost: true, read, headNamed: true })).toBe("lost");
+  });
+  it("loading is said only when the head does not already say it", () => {
+    // A tapped card: the head is a name, so the region is the only place loading is said.
+    expect(paneStatusSays({ lost: false, read: "loading", headNamed: true })).toBe("loading");
+    // A deep link: the unnamed head IS the loading line — said once.
+    expect(paneStatusSays({ lost: false, read: "loading", headNamed: false })).toBeNull();
+  });
+  it("closed and fail are said; nothing picked says nothing", () => {
+    expect(paneStatusSays({ lost: false, read: "closed", headNamed: true })).toBe("closed");
+    expect(paneStatusSays({ lost: false, read: "fail", headNamed: false })).toBe("fail");
+    expect(paneStatusSays({ lost: false, read: null, headNamed: false })).toBeNull();
   });
 });
 

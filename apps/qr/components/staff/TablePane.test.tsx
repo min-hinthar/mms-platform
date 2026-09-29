@@ -464,6 +464,66 @@ describe("TablePane — the pane is not a page", () => {
   });
 });
 
+// Phase 2d · review fixes — a tapped card names the table in the head at once, so the head's sr-only
+// "Loading…" never rendered: focus landed on "Table 4" over a skeleton and nothing said it was
+// loading. It is said now through the pane's ONE region — a node that stands from mount (a live
+// region inserted WITH its text is often never spoken), outside the busy body (a busy subtree's
+// announcements may be held until it clears).
+describe("TablePane — loading is said through the pane's one region", () => {
+  const loading = () => tf("en", "shell.loading", { what: ts("en", "what.table") });
+  it("a tapped card: the head names it, the SAME region node says loading, outside the busy body", async () => {
+    answers[A] = () => new Promise(() => {}); // the read stays in the air
+    mount();
+    await tick(0);
+    const region = pane().querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    await tap(card(A));
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+    // MUTATION: say loading only when the head is unnamed — the tap path is silent; red.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe(loading());
+    // MUTATION: render the region inside each branch — a fresh node per branch; red.
+    expect(pane().querySelector('[role="status"]')).toBe(region);
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBe("true");
+    expect(region!.closest('[aria-busy="true"]')).toBeNull();
+  });
+  it("a switch away from a mounted detail: the region comes back EMPTY, then says loading", async () => {
+    answers[B] = () => new Promise(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull(); // A's detail (and its region)
+    await act(async () => {
+      fireEvent.click(card(B));
+    });
+    // MUTATION: fill the region at mount — inserted WITH its text, it is often never spoken; red.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe("");
+    await tick(0);
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe(loading());
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+  it("a deep link with no name yet: the head carries it, the region stays quiet (said once)", async () => {
+    answers[A] = () => new Promise(() => {});
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    expect(paneHeading().textContent).toBe(loading());
+    // MUTATION: say loading whatever the head says — focus on the head and the region say it twice.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe("");
+  });
+  it("once the detail lands, the detail's region is the pane's one", async () => {
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBeNull();
+  });
+});
+
 describe("TablePane — the freeze is one fact, spoken once", () => {
   const frozenSpan = () =>
     [
