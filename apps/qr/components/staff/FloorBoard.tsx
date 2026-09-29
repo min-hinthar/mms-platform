@@ -361,13 +361,20 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
 
       {/* Phase 2d · floor — THE STRIP: the room's map and its one-tap start, above the cards (and
           above the empty state: at open, every table free is the most useful screen). */}
-      {snap.registry.length > 0 && (
+      {snap.registry.length > 0 ? (
         <TableStrip
           registry={snap.registry}
           tables={snap.tables}
           lang={lang}
           onNotice={onStripNotice}
         />
+      ) : (
+        // Phase 2d · review (floor #3) — no registered table: the strip's place SAYS so, plainly
+        // and not live (it is the room as it is), instead of a silent gap the help's "under Tables"
+        // points at. There is no setup screen in the app to name, so it names only the fact.
+        <p className="floor-strip-label floor-strip-none">
+          <Chrome lang={lang} k="floor.strip.none" />
+        </p>
       )}
 
       {count === 0 ? (
@@ -380,10 +387,17 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               echo="stack"
             />
           }
+          // Phase 2d · review (floor #3) — with no table set up, never promise a table start.
           subtitle={
             <Chrome
               lang={lang}
-              k={degraded ? "floor.tables.emptyFrozenSub" : "floor.tables.emptySub"}
+              k={
+                degraded
+                  ? "floor.tables.emptyFrozenSub"
+                  : snap.registry.length === 0
+                    ? "floor.tables.emptySubNoTables"
+                    : "floor.tables.emptySub"
+              }
               echo="stack"
             />
           }

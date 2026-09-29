@@ -10681,6 +10681,22 @@ const MUTANTS = [
     find: "          frozen={frozen}\n",
     replace: "          frozen={false}\n",
   },
+  {
+    id: "p2d-rev/floor-empty-registry-silent",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #3) — with no registered table the strip draws nothing; its place must say no tables are set up, or the help's 'under Tables' points at a silent gap",
+    find: '          <Chrome lang={lang} k="floor.strip.none" />\n',
+    replace: "",
+  },
+  {
+    id: "p2d-rev/floor-empty-room-promises-a-start",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #3) — the quiet room's line says tables appear when 'you start one'; with no table set up there is no start to offer, so it names only what still works",
+    find: "                  : snap.registry.length === 0\n",
+    replace: "                  : false\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

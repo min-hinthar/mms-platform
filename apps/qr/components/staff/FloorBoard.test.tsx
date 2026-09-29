@@ -648,6 +648,24 @@ describe("the strip's shape", () => {
 
   it("an empty registry draws no strip and no label — never a dead control", () => {
     const { section } = mount(snap([], { registry: [] }));
-    expect(section().querySelector(".floor-strip-wrap")).toBeNull();
+    expect(section().querySelector(".floor-strip")).toBeNull();
+    expect(document.getElementById("floor-strip-h")).toBeNull();
+  });
+
+  it("(r) an empty registry SAYS so where the strip would be, and the empty state promises no table start", () => {
+    // Phase 2d · review (floor #3) — with no registered table there is no way to start one, but the
+    // quiet room's line said tables appear "the moment … you start one" and the strip's place was a
+    // silent gap. MUTATION: drop the note → nothing says why there are no tiles. MUTATION: keep the
+    // ordinary subtitle → it promises a start the screen cannot offer.
+    const { section } = mount(snap([], { registry: [] }));
+    const note = section().querySelector(".floor-strip-none");
+    expect(note?.textContent).toBe(ts("en", "floor.strip.none"));
+    expect(section().textContent).toContain(ts("en", "floor.tables.emptySubNoTables"));
+    expect(section().textContent).not.toContain(ts("en", "floor.tables.emptySub"));
+    // …and the ordinary room keeps its ordinary line (over-blocking is as bad as under-blocking).
+    cleanup();
+    const again = mount(snap([]));
+    expect(again.section().querySelector(".floor-strip-none")).toBeNull();
+    expect(again.section().textContent).toContain(ts("en", "floor.tables.emptySub"));
   });
 });
