@@ -62,9 +62,16 @@ import { Chrome } from "./Chrome";
  *
  * Sound is never the only feedback (§15): every event that rings already has a visible half — the
  * floor card's status ring and chip, the lane card's ring and its "Here now" / "Kitchen done" badge.
+ * So the bell is silent while that half is off screen: below 48em a table open in the counter's
+ * split covers the whole column (`useCounterBellCover`, `counterColumnShown`).
  */
 
-type Bell = { ring: (kind: CounterRingKind) => void };
+/** `cover` — Phase 2d · review fixes: a probe that says the counter column is covered right now
+ *  (registered by the split; the returned function unregisters it). */
+type Bell = {
+  ring: (kind: CounterRingKind) => void;
+  cover: (covered: () => boolean) => () => void;
+};
 const BellContext = createContext<Bell | null>(null);
 
 /** The chip's marker (`data-counter-sound` on the chip below): a tap on the chip is the chip's own
@@ -104,8 +111,21 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
       mounted.current = false;
     };
   }, []);
+  // Phase 2d · review fixes — below 48em a selected table TAKES the counter's column (the boards
+  // stay mounted and polling, not displayed), so the card ring and chip a ring is announcing are
+  // not on screen. Sound is never the only feedback (§15): no ring while covered. Nothing is owed
+  // later either — the board's ear recorded the facts as heard before it asked for this ring.
+  const covers = useRef(new Set<() => boolean>());
+  const cover = useCallback((covered: () => boolean) => {
+    covers.current.add(covered);
+    return () => {
+      covers.current.delete(covered);
+    };
+  }, []);
   const ring = useCallback((kind: CounterRingKind) => {
     if (!mounted.current) return;
+    // Read at the instant of the ring (a rotation reflows the split without a render here).
+    for (const covered of covers.current) if (covered()) return;
     // Re-read at the instant of the ring, never captured: a mute on the chip or a context that
     // suspended a moment ago is the truth now. Nothing here reads whether the tab is VISIBLE: the
     // counter bell rings while the tab is hidden (owner decision 5c).
@@ -115,7 +135,7 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
     last.current = { ring: kind, at: now };
     playCounter(kind);
   }, []);
-  const bell = useMemo(() => ({ ring }), [ring]);
+  const bell = useMemo(() => ({ ring, cover }), [ring, cover]);
 
   // PAUSED — the counter wanted the bell and the context is not running (a reload, a slept tablet, a
   // call). The first click or key anywhere else on the page re-arms it SILENTLY (nobody asked for a
@@ -141,6 +161,15 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
   }, [posture]);
 
   return <BellContext.Provider value={bell}>{children}</BellContext.Provider>;
+}
+
+/**
+ * Phase 2d · review fixes — the counter's split tells the bell when it covers the counter column
+ * (`covered`, read at the instant of each ring). Outside the provider it does nothing.
+ */
+export function useCounterBellCover(covered: () => boolean): void {
+  const bell = useContext(BellContext);
+  useEffect(() => bell?.cover(covered), [bell, covered]);
 }
 
 /** A seeding call's answer: nothing is news. */

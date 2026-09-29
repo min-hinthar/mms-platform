@@ -14,6 +14,7 @@ import {
   paneEscapeCloses,
   paneFailKeys,
   paneStatusSays,
+  counterColumnShown,
   paneFocusAfterClose,
   paneFreezeSpoken,
   paneFromHash,
@@ -233,6 +234,16 @@ describe("paneFailKeys", () => {
       expect(STAFF[title].en).not.toMatch(/paper/i);
       expect(STAFF[sub].en).not.toMatch(/paper/i);
     }
+  });
+});
+
+describe("counterColumnShown — the bell's visible half (review fixes)", () => {
+  it("below 48em an open table covers the column; nothing else does", () => {
+    expect(counterColumnShown({ paneOpen: true, split: false })).toBe(false);
+    expect(counterColumnShown({ paneOpen: false, split: false })).toBe(true);
+    // Side by side, the floor is beside the pane.
+    expect(counterColumnShown({ paneOpen: true, split: true })).toBe(true);
+    expect(counterColumnShown({ paneOpen: false, split: true })).toBe(true);
   });
 });
 

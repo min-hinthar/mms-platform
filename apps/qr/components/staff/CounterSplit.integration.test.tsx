@@ -309,3 +309,46 @@ describe("the view's live regions, measured on a real render", () => {
     expect(polite(splitRoot())).toHaveLength(3);
   });
 });
+
+describe("the bell never rings over a covered counter column", () => {
+  it("phone width, a table deep-linked into the column: no ring, no late ring after it closes, and a NEW ask rings", async () => {
+    split = false;
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mountCounter();
+    await tick(0);
+    await tick(0);
+    expect(splitRoot().dataset.pane).toBe("open"); // below 48em the pane TAKES the column
+    // Table 7 asks to pay at the counter while the column is covered.
+    floorAnswer = floorOk(snap([table(A, 4), asks(B, 7, NOW)]));
+    await tick(5000);
+    // MUTATION: the provider rings with no cover check — the floor card's ring and chip are not on
+    // screen, so the sound is the only feedback; red.
+    expect(playCounter).not.toHaveBeenCalled();
+    // The pane closes: the column is back, and the same ask is not news (heard while covered).
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    expect(splitRoot().dataset.pane).not.toBe("open");
+    await tick(5000);
+    expect(playCounter).not.toHaveBeenCalled();
+    // A NEW ask with the column showing rings — the gate is the cover, not a dead bell.
+    floorAnswer = floorOk(snap([asks(A, 4, NOW), asks(B, 7, NOW)]));
+    await tick(5000);
+    expect(playCounter).toHaveBeenCalledWith("guest");
+  });
+
+  it("split width, a table open beside the floor: the floor is on screen, so the bell rings", async () => {
+    mountCounter();
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(card(A));
+    });
+    await tick(0);
+    expect(splitRoot().dataset.pane).toBe("open");
+    floorAnswer = floorOk(snap([table(A, 4), asks(B, 7, NOW)]));
+    await tick(5000);
+    // MUTATION: treat any open pane as covering the column — a tablet mutes the bell all shift; red.
+    expect(playCounter).toHaveBeenCalledWith("guest");
+  });
+});

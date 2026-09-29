@@ -11,6 +11,7 @@ import {
 import {
   FLOOR_HASH,
   PANE_QUERY,
+  counterColumnShown,
   dropHandoffStash,
   needsCanonicalSync,
   opensInPane,
@@ -21,6 +22,7 @@ import {
   paneSelectionFromHash,
 } from "@/lib/floor-pane";
 import { haptic } from "@/lib/haptics";
+import { useCounterBellCover } from "./CounterBell";
 import type { TableHint } from "./TableNav";
 import { TablePane } from "./TablePane";
 import {
@@ -80,6 +82,15 @@ export function CounterSplit({
   const [closeSeq, setCloseSeq] = useState(0);
   const focusSeq = useRef(0);
   const genSeq = useRef(0);
+
+  // Phase 2d · review fixes — below 48em a selected table covers the counter's column, and the
+  // bell's visible half with it: the bell asks this at the instant of each ring (never captured —
+  // a rotation reflows the split without a render).
+  const bellCovered = useCallback(
+    () => !counterColumnShown({ paneOpen: selRef.current !== null, split: isSplit() }),
+    [],
+  );
+  useCounterBellCover(bellCovered);
 
   const hintFor = useCallback(
     (id: string): TableHint | null => rowsRef.current.find((r) => r.sessionId === id)?.hint ?? null,

@@ -106,6 +106,16 @@ export function needsCanonicalSync(state: unknown): boolean {
   );
 }
 
+/**
+ * Is the counter's own column on screen? Below 48em a selected table TAKES the column (the floor and
+ * the lane stay mounted and polling, just not displayed — `globals.css` "Phase 2d · split"), so the
+ * floor card's ring and chip and the lane card's badge are not there to see. The bell reads this at
+ * the instant of a ring: sound is never the only feedback (§15).
+ */
+export function counterColumnShown(p: { paneOpen: boolean; split: boolean }): boolean {
+  return !p.paneOpen || p.split;
+}
+
 /** A card tap opens in the pane only at split width, for a plain primary click nobody handled. */
 export function opensInPane(e: {
   split: boolean;
