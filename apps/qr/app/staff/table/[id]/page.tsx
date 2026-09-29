@@ -40,9 +40,9 @@ export default async function TablePage({
   if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
   if (res.kind === "closed") {
-    // P2 — the closed surface speaks the device language too, and mounts the control itself: this
-    // branch renders INSTEAD of FloorDetailLive, so a person who lands here from a stale bookmark
-    // would otherwise have no way to change the language of the only screen in front of them.
+    // P2 — the closed surface speaks the device language too. P2e — like every in-service bar it
+    // mounts no language control; its Back pill leads to the counter, whose Help sheet has the
+    // Language row (`check-staff-lang` rule 4d holds this arm's leading to that way up).
     const lang = await readStaffLang();
     return (
       <main className="staff-main">

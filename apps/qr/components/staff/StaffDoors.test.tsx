@@ -10,7 +10,9 @@ const push = vi.fn();
 vi.mock("@/lib/staff-door-actions", () => ({ setStaffDoor: (v: unknown) => setStaffDoor(v) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
 
-const { StaffDoors } = await import("./StaffDoors");
+const { StaffDoors, MoreGrid } = await import("./StaffDoors");
+const { StaffLangProvider } = await import("./StaffLangProvider");
+const { moreTiles } = await import("@/lib/staff-more");
 
 /**
  * P7 — the doors. What is worth pinning: a tap REMEMBERS then NAVIGATES, and "then" means the write
@@ -229,4 +231,29 @@ describe("the busy word and the More list's name", () => {
     expect(document.getElementById("staff-more-h")?.tagName).toBe("H2");
     expect(list.getAttribute("aria-label")).toBeNull(); // dictionary text on screen, no literal name
   });
+});
+
+// ── Phase 2e · lang ──
+describe("P2e — the Language tile is the doors' bilingual way back", () => {
+  it.each([
+    ["en", true],
+    ["my", false],
+  ] as const)(
+    "under lang=%s (echoes %s) the LAST row links to the Profile's card and reads BOTH scripts; the others follow the device",
+    (lang, echoes) => {
+      render(
+        <StaffLangProvider lang={lang} echoes={echoes}>
+          <MoreGrid lang={lang} more={moreTiles({ view: "doors", role: "server", hasPin: true })} />
+        </StaffLangProvider>,
+      );
+      const links = screen.getAllByRole("link");
+      const last = links.at(-1)!;
+      expect(last.getAttribute("href")).toBe("/staff/login?show=lang");
+      expect(last.textContent).toContain(STAFF["shell.lang.row"].my);
+      expect(last.textContent).toContain(STAFF["shell.lang.row"].en);
+      // Every OTHER tile follows the device: no English under Burmese-only, no Burmese under English.
+      const tips = links.find((l) => l.getAttribute("href") === "/staff/tips")!;
+      expect(tips.textContent).toBe(STAFF["floor.nav.tips"][lang]);
+    },
+  );
 });

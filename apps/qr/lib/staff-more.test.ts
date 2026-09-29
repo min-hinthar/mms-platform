@@ -1,33 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { approvalsHref, APPROVALS_ZONE, moreTiles } from "./staff-more";
+import { approvalsHref, APPROVALS_ZONE, moreTiles, STAFF_LANG_HREF } from "./staff-more";
 import { resolveStaffHome } from "./staff-door";
 import { STAFF } from "./i18n/staff";
 
 /**
- * A4·5 — the More list is three tiles behind the doors and four on the counter's screen, in a
- * fixed order, and role only ever changes a label. Pinned as VALUES (the whole list, not a count)
+ * A4·5 — the More list is three tiles behind the doors and four on the counter's screen (P2e: each
+ * ends with the Language tile), in a fixed order, and role only ever changes a label. Pinned as VALUES (the whole list, not a count)
  * so a tile that quietly returns — a manager-only approvals row, a feedback row — is a failing
  * assertion and not a "nice extra".
  */
 const hrefs = (tiles: ReturnType<typeof moreTiles>) => tiles.map((t) => t.href);
 
 describe("moreTiles", () => {
-  it("behind the doors: exactly Menu · Tips · Sign-in, in that order, for every role", () => {
+  it("behind the doors: exactly Menu · Tips · Sign-in · Language, in that order, for every role", () => {
     for (const role of ["server", "manager", "owner"] as const) {
       expect(hrefs(moreTiles({ view: "doors", role, hasPin: true }))).toEqual([
         "/staff/menu",
         "/staff/tips",
         "/staff/login",
+        "/staff/login?show=lang",
       ]);
     }
   });
 
-  it("on the counter's screen: the kitchen board FIRST, as a plain link, then the same three", () => {
+  it("on the counter's screen: the kitchen board FIRST, as a plain link, then the same four", () => {
     expect(hrefs(moreTiles({ view: "floor", role: "manager", hasPin: false }))).toEqual([
       "/staff/kitchen",
       "/staff/menu",
       "/staff/tips",
       "/staff/login",
+      "/staff/login?show=lang",
     ]);
     expect(moreTiles({ view: "floor", role: "server", hasPin: false })[0]).toEqual({
       href: "/staff/kitchen",
@@ -59,6 +61,31 @@ describe("moreTiles", () => {
         expect(t.icon.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+// ── Phase 2e · lang ──
+describe("P2e — the Language tile, the doors' bilingual way back", () => {
+  it("is the LAST tile in both views, for every role and PIN state, and the only `both` tile", () => {
+    for (const view of ["doors", "floor"] as const)
+      for (const role of ["server", "manager", "owner"] as const)
+        for (const hasPin of [true, false]) {
+          const tiles = moreTiles({ view, role, hasPin });
+          expect(tiles.at(-1)).toEqual({
+            href: "/staff/login?show=lang",
+            k: "shell.lang.row",
+            icon: "language",
+            both: true,
+          });
+          expect(tiles.filter((t) => t.both)).toHaveLength(1);
+        }
+  });
+
+  it("lands with a QUERY PARAM, never a #hash (§26 — /staff/login has a loading.tsx)", () => {
+    expect(STAFF_LANG_HREF).not.toContain("#");
+    const url = new URL(STAFF_LANG_HREF, "https://x.test");
+    expect(url.pathname).toBe("/staff/login");
+    expect(url.searchParams.get("show")).toBe("lang");
   });
 });
 

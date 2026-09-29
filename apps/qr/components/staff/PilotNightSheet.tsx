@@ -33,10 +33,10 @@ import type { StaffLang } from "@/lib/staff-lang";
  *   • A failed read is never a zero — `getPilotNight` collapses to `ok: false` and this renders the
  *     "can't read tonight" sentence instead of a confident, false quiet night.
  *
- * ⚠️ IT MUST NOT MOUNT `<StaffLangSwitch>`, directly or through anything it imports. The page's
- * bar carries the one control (`check-staff-lang.mjs` rule 4); a second reached through this sheet
- * would be two writes racing for one cookie and two groups with one name, and rule 4 fails a page
- * that reaches the switch through more than one module.
+ * ⚠️ IT MUST NOT MOUNT ANY LANGUAGE CONTROL (`StaffLangSwitch`, `StaffLangRows`, `StaffLangSection`),
+ * directly or through anything it imports. A page reaches its one control through ONE hosting
+ * module (`check-staff-lang.mjs` rule 4c); a second reached through this sheet would be two writes
+ * racing for one cookie and two groups with one name.
  */
 export async function PilotNightSheet() {
   const lang = await readStaffLang();
