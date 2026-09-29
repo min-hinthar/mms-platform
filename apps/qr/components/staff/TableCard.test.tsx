@@ -237,3 +237,27 @@ describe("TableCard — the refund-honest chip, the kitchen row and the clock", 
     expect(card().getAttribute("data-session-id")).toBe("s-1");
   });
 });
+
+// ── Phase 2d · split ──
+describe("TableCard — the table open in the counter's pane", () => {
+  const mountCard = (selected: boolean) =>
+    render(
+      <TableCard
+        table={{ ...SETTLED, tableNumber: 7, label: "T7" }}
+        serverNow={SETTLED.lastActivityAt}
+        thresholds={TH}
+        lang="en"
+        selected={selected}
+      />,
+    );
+  it("selected: aria-current, and the lit cap's host holds exactly the table's NAME", () => {
+    mountCard(true);
+    expect(card().getAttribute("aria-current")).toBe("true");
+    expect(card().classList.contains("floor-card")).toBe(true);
+    expect(card().querySelector(".floor-card-label")!.textContent).toBe("Table 7");
+  });
+  it("unselected: no attribute (MUTATION: always set — every card reads as the open one; red)", () => {
+    mountCard(false);
+    expect(card().hasAttribute("aria-current")).toBe(false);
+  });
+});
