@@ -73,9 +73,22 @@ const SETTLED_ORDER_CAP = 20;
 /** Phase 2d · floor — the floor's LINE reads are bounded, below PostgREST's `max_rows` (1000,
  *  `supabase/config.toml`), which truncates SILENTLY. A read that comes back AT the cap cannot tell
  *  "exactly this many" from "we stopped counting" (`queueEmptiness`), and a truncated fold would
- *  misstate the kitchen row and the running total, so it is an outage — the board freezes on its
- *  last-known room, never a partial one (the KDS's own posture, `lib/kitchen.ts`). */
+ *  misstate the kitchen row and the running total — never drawn as the room.
+ *
+ *  Phase 2d · review (floor #6) — and never a whole-room outage for it either: one long night on
+ *  one table used to take the strip, every card and every table start down. The two reads now
+ *  answer a full page differently, by what they carry:
+ *    · the OPEN carts' lines carry the MONEY on the cards (the item count, the "so far" total, the
+ *      seated/ordering word), so they are read WHOLE — keyset pages of this size on `id` (a row
+ *      added or removed between pages moves only itself), up to `FLOOR_OPEN_LINE_PAGES`; past that
+ *      ceiling a card's money would be a partial sum, and that alone is still an outage;
+ *    · the PAID carts' lines feed only the kitchen row, so a full page makes the kitchen picture
+ *      honestly UNKNOWN for the poll (`kitchenUnknown`: no kitchen row on any card, one note in the
+ *      board's region) while the room — cards, strip, starts — keeps working. */
 const FLOOR_LINE_CAP = 900;
+/** Phase 2d · review — pages of `FLOOR_LINE_CAP` the open-cart read may walk (4,500 lines in the
+ *  room's open carts, a ceiling no real service reaches) before it refuses to draw a partial sum. */
+const FLOOR_OPEN_LINE_PAGES = 5;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const laterIso = (a: string, b: string | null | undefined): string =>
@@ -178,6 +191,7 @@ export async function getFloorView(): Promise<FloorPoll> {
         serverNow,
         registry,
         thresholds,
+        kitchenUnknown: false,
       },
     };
 
@@ -230,6 +244,7 @@ export async function getFloorView(): Promise<FloorPoll> {
   // don't write it, so it's stuck at cart creation): the most recent line add is "last activity".
   // Phase 2d · floor — the kitchen columns ride the same read, and the read is BOUNDED (above).
   type FloorLineRow = {
+    id: string;
     cart_id: string;
     qty: number;
     unit_price_cents: number;
@@ -245,36 +260,59 @@ export async function getFloorView(): Promise<FloorPoll> {
     FloorLineRow,
     "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
   >;
-  const [{ data: lines, error: linesError }, { data: paidLines, error: paidLinesError }] =
-    await Promise.all([
-      cartIds.length
-        ? db
-            .from("qr_cart_items")
-            .select(
-              "cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
-            )
-            .in("cart_id", cartIds)
-            .limit(FLOOR_LINE_CAP)
-        : Promise.resolve({ data: [] as FloorLineRow[], error: null }),
-      paidCartIds.length
-        ? db
-            .from("qr_cart_items")
-            .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
-            .in("cart_id", paidCartIds)
-            .in("state", ["fired", "in_progress", "served"])
-            .limit(FLOOR_LINE_CAP)
-        : Promise.resolve({ data: [] as PaidLineRow[], error: null }),
-    ]);
-  if (linesError || paidLinesError) return { ok: false, reason: "outage" };
-  if (
-    queueEmptiness((lines ?? []).length, FLOOR_LINE_CAP) === "cannot-say" ||
-    queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say"
-  ) {
-    console.error("[floor] line read saturated — refusing to render a partial room", {
-      cap: FLOOR_LINE_CAP,
+  // Phase 2d · review — the open carts' lines, read WHOLE (above): keyset pages on `id`, each
+  // page after the last id seen, until a page comes back short; past the ceiling, `saturated`.
+  const readOpenLines = async (): Promise<
+    { data: FloorLineRow[]; error: null; saturated: boolean } | { data: null; error: unknown }
+  > => {
+    const all: FloorLineRow[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < FLOOR_OPEN_LINE_PAGES; page++) {
+      let q = db
+        .from("qr_cart_items")
+        .select(
+          "id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
+        )
+        .in("cart_id", cartIds);
+      if (after !== null) q = q.gt("id", after);
+      const { data, error } = await q.order("id").limit(FLOOR_LINE_CAP);
+      if (error) return { data: null, error };
+      const got = data ?? [];
+      all.push(...got);
+      if (queueEmptiness(got.length, FLOOR_LINE_CAP) !== "cannot-say")
+        return { data: all, error: null, saturated: false };
+      after = got[got.length - 1]!.id;
+    }
+    return { data: all, error: null, saturated: true };
+  };
+  const [open, { data: paidLines, error: paidLinesError }] = await Promise.all([
+    cartIds.length
+      ? readOpenLines()
+      : Promise.resolve({ data: [] as FloorLineRow[], error: null, saturated: false }),
+    paidCartIds.length
+      ? db
+          .from("qr_cart_items")
+          .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
+          .in("cart_id", paidCartIds)
+          .in("state", ["fired", "in_progress", "served"])
+          .limit(FLOOR_LINE_CAP)
+      : Promise.resolve({ data: [] as PaidLineRow[], error: null }),
+  ]);
+  if (open.data === null || paidLinesError) return { ok: false, reason: "outage" };
+  // Past the ceiling a card's money would be a partial sum: that alone still freezes the room.
+  if (open.saturated) {
+    console.error("[floor] open-cart line read past its page ceiling — refusing a partial total", {
+      cap: FLOOR_LINE_CAP * FLOOR_OPEN_LINE_PAGES,
     });
     return { ok: false, reason: "outage" };
   }
+  const lines = open.data;
+  // A full paid-cart page: the kitchen is unknown this poll — said once, never folded partial.
+  const kitchenUnknown = queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say";
+  if (kitchenUnknown)
+    console.error("[floor] paid-cart line read saturated — the kitchen row is unknown this poll", {
+      cap: FLOOR_LINE_CAP,
+    });
   // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
   const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
   const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
@@ -376,11 +414,13 @@ export async function getFloorView(): Promise<FloorPoll> {
       lastActivityAt: lastActivity,
       // ── Phase 2d · floor ──
       openedAt: s.created_at ?? nowIso,
-      kitchen: foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
-        mode: s.mode,
-        hostPresent: s.host_seat != null,
-        nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
-      }),
+      kitchen: kitchenUnknown
+        ? null
+        : foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
+            mode: s.mode,
+            hostPresent: s.host_seat != null,
+            nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
+          }),
     };
   });
 
@@ -410,6 +450,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       serverNow,
       registry,
       thresholds,
+      kitchenUnknown,
     },
   };
 }

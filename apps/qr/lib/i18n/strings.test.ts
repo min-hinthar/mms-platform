@@ -361,4 +361,29 @@ describe("one concept, one word — across namespaces that draw on ONE screen", 
     expect(STAFF[a].en).toBe(STAFF[b].en);
     expect(STAFF[a].my).toBe(STAFF[b].my);
   });
+
+  // Phase 2d · review (floor #4) — the pairs above hold whole LABELS, so a PHRASE naming the same
+  // act escaped them: the Start zone's heading and its region name said အော်ဒါ စဖွင့်, the quiet
+  // room's line …အော်ဒါ စဖွင့်တာနဲ့…, and the help's first card အော်ဒါ စဖို့ — three forks of the
+  // one verb the fixup chose, on the one screen. Every phrase below names Start on the counter
+  // screen; each must carry the tile's own verb (ဖွင့်, never as the tail of စဖွင့်), and neither
+  // fork this screen has shipped. MUTATION: fork any listed Burmese value back → red.
+  const START = STAFF["floor.verb.start"];
+  const START_FORKS = ["စဖွင့်", "စဖို့"] as const;
+  const START_PHRASES: ReadonlyArray<keyof typeof STAFF> = [
+    "floor.zone.start",
+    "reg.a11y.start",
+    "reg.going",
+    "floor.strip.label",
+    "floor.tables.emptySub",
+    "floor.tables.emptySubNoTables",
+    "help.how.counter.1",
+    "help.how.counter.1.more",
+  ];
+  it.each(START_PHRASES)("%s names Start with the counter screen's one verb", (k) => {
+    const { en, my } = STAFF[k];
+    expect(en).toMatch(new RegExp(`\\b${START.en}`, "i"));
+    expect(my).toMatch(new RegExp(`(^|[^စ])${START.my}`));
+    for (const fork of START_FORKS) expect(my).not.toContain(fork);
+  });
 });

@@ -80,7 +80,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevUp = useRef<Map<string, number>>(
-    new Map(initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0])),
+    new Map(
+      initial.kitchenUnknown ? [] : initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]),
+    ),
   );
   const onStripNotice = useCallback((n: StaffMsg | null) => {
     if (stripTimer.current) clearTimeout(stripTimer.current);
@@ -142,7 +144,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           bumped.push([t.sessionId, nonceRef.current]);
         }
       }
-      prevUp.current = new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
+      // Phase 2d · review — an UNKNOWN kitchen is no baseline: its zeros are not "nothing up", so
+      // the kitchen's return is first sight (never a rise) — never "Ready to serve" for food that
+      // was already out.
+      prevUp.current = next.kitchenUnknown
+        ? new Map()
+        : new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
       if (upNow.length > 0) {
         if (upTimer.current) clearTimeout(upTimer.current);
         setUpNotice(upNow);
@@ -347,6 +354,11 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               snap.counterTruncated ? (
                 <Chrome key="truncated" lang={lang} k="floor.counter.truncated" />
               ) : null,
+              // Phase 2d · review (floor #6) — the kitchen read came back full: every card's
+              // kitchen row is unknown this poll, said once here rather than vanishing unsaid.
+              snap.kitchenUnknown ? (
+                <Chrome key="kitchen" lang={lang} k="floor.kitchen.unknown" />
+              ) : null,
             ]
               .filter(Boolean)
               .map((seg, i) => (
@@ -361,13 +373,20 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
 
       {/* Phase 2d · floor — THE STRIP: the room's map and its one-tap start, above the cards (and
           above the empty state: at open, every table free is the most useful screen). */}
-      {snap.registry.length > 0 && (
+      {snap.registry.length > 0 ? (
         <TableStrip
           registry={snap.registry}
           tables={snap.tables}
           lang={lang}
           onNotice={onStripNotice}
         />
+      ) : (
+        // Phase 2d · review (floor #3) — no registered table: the strip's place SAYS so, plainly
+        // and not live (it is the room as it is), instead of a silent gap the help's "under Tables"
+        // points at. There is no setup screen in the app to name, so it names only the fact.
+        <p className="floor-strip-label floor-strip-none">
+          <Chrome lang={lang} k="floor.strip.none" />
+        </p>
       )}
 
       {count === 0 ? (
@@ -380,10 +399,17 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               echo="stack"
             />
           }
+          // Phase 2d · review (floor #3) — with no table set up, never promise a table start.
           subtitle={
             <Chrome
               lang={lang}
-              k={degraded ? "floor.tables.emptyFrozenSub" : "floor.tables.emptySub"}
+              k={
+                degraded
+                  ? "floor.tables.emptyFrozenSub"
+                  : snap.registry.length === 0
+                    ? "floor.tables.emptySubNoTables"
+                    : "floor.tables.emptySub"
+              }
               echo="stack"
             />
           }
@@ -407,6 +433,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 thresholds={snap.thresholds}
                 pulse={pulses.get(r.table.sessionId)}
                 lang={lang}
+                // Phase 2d · review — a frozen floor holds every wait pill at the last read.
+                frozen={degraded !== null}
                 selected={pane?.selectedId === r.table.sessionId}
                 onSelect={
                   pane

@@ -108,6 +108,11 @@ export type FloorSnapshot = {
   /** The kitchen's own lateness thresholds (`mms_kds_config`, or the defaults) — the wait pill reads
    *  `kdsUrgency` with these, never a second 8/12. */
   thresholds: KdsThresholds;
+  // ── Phase 2d · review ──
+  /** The paid-cart kitchen read came back full this poll (`lib/floor.ts`, floor #6): every table's
+   *  `kitchen` is null because it is UNKNOWN, not empty, and the board says so once in its region.
+   *  Required, never defaulted — a producer that forgot it would draw "nothing in the kitchen". */
+  kitchenUnknown: boolean;
 };
 
 /** W10b: the floor poll discriminant (K10 parity with KitchenPoll/ExpoPoll). A failed gate/read used

@@ -94,6 +94,7 @@ const snap = (tables: FloorTable[], over: Partial<FloorSnapshot> = {}): FloorSna
   serverNow: NOW,
   registry: REGISTRY,
   thresholds: DEFAULT_KDS_THRESHOLDS,
+  kitchenUnknown: false,
   ...over,
 });
 const ok = (s: FloorSnapshot) => () => Promise.resolve({ ok: true, snapshot: s });
@@ -205,6 +206,65 @@ describe("the wait pill ticks on its own", () => {
     await tick(FLOOR_WAIT_TICK_MS); // 8:20 — still amber
     // MUTATION: pop on every tick → a fresh (re-keyed) element each tick.
     expect(pill()).toBe(popped);
+  });
+});
+
+describe("the wait pill on a FROZEN floor", () => {
+  it("(q) holds the last good minute — no extrapolated escalation, no pop — and says what the card's name says", async () => {
+    // The poll is failing, so the board cannot know whether the dish came out. Ticking on from the
+    // device clock drew '12 min' in red with the alert glyph and a pop over data nobody has, while
+    // the card's name kept the poll's '9 min' — a sighted server and a listener told two things.
+    // MUTATION: the pill keeps extrapolating while frozen → '12 min', red. MUTATION: the board
+    // never tells the card the floor is frozen → the same. And the hold is the READ's instant, not
+    // the one the freeze was noticed at: 9:57 + 5 s would be '10 min' beside the name's '9 min'.
+    const { section } = mount(
+      snap([
+        table(7, {
+          kitchen: {
+            notSent: 0,
+            inKitchen: 1,
+            up: 0,
+            done: 0,
+            oldestFireAt: ago(9 * 60_000 + 57_000),
+          },
+        }),
+      ]),
+    );
+    await tick(0);
+    const pill = () => section().querySelector<HTMLElement>(".floor-wait")!;
+    const name = () =>
+      section().querySelector('.card-textured[data-session-id="s7"]')!.getAttribute("aria-label")!;
+    expect(pill().textContent).toBe("9 min");
+    answer = () => Promise.resolve({ ok: false, reason: "outage" });
+    await tick(POLL_MS);
+    await tick(10 * FLOOR_WAIT_TICK_MS);
+    expect(pill().textContent).toBe("9 min");
+    expect(pill().className).toContain("floor-wait-amber"); // the last read's own level
+    expect(pill().className).not.toContain("mms-pop");
+    expect(pill().querySelector("svg")).toBeNull();
+    expect(name()).toContain(`, ${pill().textContent},`);
+  });
+
+  it("(q) a floor that comes back resumes the clock from the new read", async () => {
+    const kitchen = {
+      notSent: 0,
+      inKitchen: 1,
+      up: 0,
+      done: 0,
+      oldestFireAt: ago(9 * 60_000 + 20_000),
+    };
+    const { section } = mount(snap([table(7, { kitchen })]));
+    await tick(0);
+    const pill = () => section().querySelector<HTMLElement>(".floor-wait")!;
+    answer = () => Promise.resolve({ ok: false, reason: "outage" });
+    await tick(POLL_MS);
+    await tick(3 * 60_000);
+    expect(pill().textContent).toBe("9 min");
+    // Over-blocking is as bad as under-blocking: a live read moves the pill again at once.
+    answer = () => ok(snap([table(7, { kitchen })], { serverNow: new Date().toISOString() }))();
+    await tick(POLL_MS); // 9:20 + 5 s + 3 min + 5 s
+    expect(pill().textContent).toBe("12 min");
+    expect(pill().className).toContain("floor-wait-red");
   });
 });
 
@@ -321,6 +381,24 @@ describe("the strip starts a table through the screen's ONE lock", () => {
     expect(openRegisterOrder).toHaveBeenCalledTimes(1);
   });
 
+  it("(t) the flip window is SAID: a tile that just turned free is aria-disabled for its 600 ms, then arms", async () => {
+    // Phase 2d · review (floor #7) — the guard's refused tap was silent: a tile that looked ready
+    // ignored a tap with nothing to tell the person why. Now the window is the held state every
+    // start control already speaks (aria-disabled + the dim), never a native disable. MUTATION:
+    // drop the window from the tile's held state → the tile reads ready while it refuses.
+    const { tile } = mount(snap([table(7)]));
+    answer = ok(snap([]));
+    await tick(POLL_MS);
+    expect(tile(7).tagName).toBe("BUTTON");
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    expect((tile(7) as HTMLButtonElement).disabled).toBe(false);
+    expect(tile(8).getAttribute("aria-disabled")).toBeNull(); // free all along: never held
+    await tick(599);
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    await tick(1);
+    expect(tile(7).getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("(g) an occupied tile is a link to its table, never a start — and while a start is held its tap goes nowhere", async () => {
     openRegisterOrder.mockImplementation(() => hang());
     const { tile } = mount(snap([table(3, { status: "counter", counterRequestedAt: ago(1000) })]));
@@ -329,6 +407,8 @@ describe("the strip starts a table through the screen's ONE lock", () => {
     expect(link.getAttribute("href")).toBe("/staff/table/s3");
     expect(link.getAttribute("data-tone")).toBe("ask");
     expect(link.getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
+    // Phase 2d · review (floor #5) — what the tile PRINTS is its label's visible half: the number.
+    expect(link.querySelector(".floor-tile-n")?.textContent).toBe("3");
     // An ordinary tap is navigation: not prevented, and it starts nothing.
     expect(fireEvent.click(link)).toBe(true);
     expect(openRegisterOrder).not.toHaveBeenCalled();
@@ -447,6 +527,26 @@ describe("the ONE region", () => {
     const { region, section } = mount(snap([table(7, { kitchen: up })]));
     answer = ok(snap([table(7, { kitchen: up })]));
     await tick(5000);
+    expect(region().textContent).toBe("1 active table");
+    expect(section().querySelector(".floor-card-pulse")).toBeNull();
+  });
+});
+
+describe("a kitchen the floor could not read (Phase 2d · review, floor #6)", () => {
+  it("(s) is said ONCE in the region, draws no kitchen row, and its return never rings 'Ready to serve'", async () => {
+    // A full paid-cart read used to take the whole room down; now the room stays and the kitchen
+    // is honestly unknown. MUTATION: drop the region's segment → nothing says why every kitchen row
+    // vanished. MUTATION: keep an unknown poll's zeros as the baseline → the kitchen's return reads
+    // as food coming out on every table that already had it up.
+    const up = (n: number) => ({ notSent: 0, inKitchen: 0, up: n, done: 0, oldestFireAt: null });
+    const { region, section } = mount(snap([table(7, { kitchen: up(1) })]));
+    expect(region().textContent).toBe("1 active table");
+    answer = ok(snap([table(7, { kitchen: null })], { kitchenUnknown: true }));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe(`1 active table · ${ts("en", "floor.kitchen.unknown")}`);
+    expect(section().querySelector(".floor-kitchen")).toBeNull();
+    answer = ok(snap([table(7, { kitchen: up(1) })]));
+    await tick(POLL_MS);
     expect(region().textContent).toBe("1 active table");
     expect(section().querySelector(".floor-card-pulse")).toBeNull();
   });
@@ -589,6 +689,24 @@ describe("the strip's shape", () => {
 
   it("an empty registry draws no strip and no label — never a dead control", () => {
     const { section } = mount(snap([], { registry: [] }));
-    expect(section().querySelector(".floor-strip-wrap")).toBeNull();
+    expect(section().querySelector(".floor-strip")).toBeNull();
+    expect(document.getElementById("floor-strip-h")).toBeNull();
+  });
+
+  it("(r) an empty registry SAYS so where the strip would be, and the empty state promises no table start", () => {
+    // Phase 2d · review (floor #3) — with no registered table there is no way to start one, but the
+    // quiet room's line said tables appear "the moment … you start one" and the strip's place was a
+    // silent gap. MUTATION: drop the note → nothing says why there are no tiles. MUTATION: keep the
+    // ordinary subtitle → it promises a start the screen cannot offer.
+    const { section } = mount(snap([], { registry: [] }));
+    const note = section().querySelector(".floor-strip-none");
+    expect(note?.textContent).toBe(ts("en", "floor.strip.none"));
+    expect(section().textContent).toContain(ts("en", "floor.tables.emptySubNoTables"));
+    expect(section().textContent).not.toContain(ts("en", "floor.tables.emptySub"));
+    // …and the ordinary room keeps its ordinary line (over-blocking is as bad as under-blocking).
+    cleanup();
+    const again = mount(snap([]));
+    expect(again.section().querySelector(".floor-strip-none")).toBeNull();
+    expect(again.section().textContent).toContain(ts("en", "floor.tables.emptySub"));
   });
 });

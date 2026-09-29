@@ -366,7 +366,9 @@ export const STAFF = {
   "floor.hi": { en: "Hi, {x}", my: "မင်္ဂလာပါ {x}" },
   // A4·2 — the counter's one screen: the Start zone's visible heading (its region name is
   // `reg.a11y.start`, the same words), the channel chip on a counter order's card, and its status.
-  "floor.zone.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },
+  // Phase 2d · review (floor #4) — MY re-drafted to ဖွင့်, the strip's and Phone form's ONE verb for
+  // this act (was “အော်ဒါ စဖွင့်”); pinned by strings.test "one verb". K15 draft.
+  "floor.zone.start": { en: "Start an order", my: "အော်ဒါ ဖွင့်" },
   "floor.counter.chip": { en: "Counter", my: "ကောင်တာ" },
   // {n} is a COUNT (Burmese numerals). EN singular/plural pair — ONE Burmese value.
   "floor.counter.count.one": { en: "{n} counter order", my: "ကောင်တာ အော်ဒါ {n} ခု" },
@@ -1019,9 +1021,19 @@ export const STAFF = {
   },
   // Phase 2d · floor — reworded: the card's clock is "Opened", not "seated" (a session outlives
   // payment until Clear table), and the row now says what is in the kitchen. MY is a K15 draft.
+  // Phase 2d · review (floor #4) — its closing sentence's verb re-drafted to ဖွင့် (was
+  // “… အော်ဒါ စဖွင့်တာနဲ့ …”), the Start zone's one verb.
   "floor.tables.emptySub": {
     en: "Tables appear here the moment a guest scans in or you start one — party, what’s in the kitchen, and how long the table has been open. Counter orders appear the moment you start one above.",
-    my: "ဧည့်သည် စကန်ဖတ်တာ ဒါမှမဟုတ် စားပွဲ ဖွင့်လိုက်တာနဲ့ ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ မီးဖိုချောင်မှာ ဘာရှိလဲ၊ ဖွင့်ထားတာ ဘယ်လောက်ကြာပြီလဲ။ အပေါ်မှာ အော်ဒါ စဖွင့်တာနဲ့ ကောင်တာ အော်ဒါလည်း ဒီမှာ ပေါ်ပါမယ်။",
+    my: "ဧည့်သည် စကန်ဖတ်တာ ဒါမှမဟုတ် စားပွဲ ဖွင့်လိုက်တာနဲ့ ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ မီးဖိုချောင်မှာ ဘာရှိလဲ၊ ဖွင့်ထားတာ ဘယ်လောက်ကြာပြီလဲ။ အပေါ်မှာ အော်ဒါ ဖွင့်တာနဲ့ ကောင်တာ အော်ဒါလည်း ဒီမှာ ပေါ်ပါမယ်။",
+  },
+  // Phase 2d · review (floor #3) — the quiet room with NO registered table: the line above promises
+  // a table start the screen cannot offer (the strip is the only way to start one, and it draws
+  // nothing without a registry), so this one names only what still works. MY is a K15 draft; its
+  // words are the line above's closing sentence, with the Start zone's one verb (ဖွင့်).
+  "floor.tables.emptySubNoTables": {
+    en: "Counter orders appear here the moment you start one above.",
+    my: "အပေါ်မှာ အော်ဒါ ဖွင့်တာနဲ့ ကောင်တာ အော်ဒါ ဒီမှာ ချက်ချင်း ပေါ်ပါမယ်။",
   },
   "floor.tables.emptyFrozenSub": {
     en: "New tables won’t appear here until this board is updating again. Nothing already open is lost.",
@@ -1677,7 +1689,9 @@ export const STAFF = {
   },
 
   // ── the register: accessible names with no visible text to pair with ──────
-  "reg.a11y.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },
+  // Phase 2d · review (floor #4) — the zone heading's same words, so the same re-draft to ဖွင့်
+  // (was “အော်ဒါ စဖွင့်”). K15 draft.
+  "reg.a11y.start": { en: "Start an order", my: "အော်ဒါ ဖွင့်" },
 
   // ═══ P2 PR B · settle ═══════════════════════════════════════════════════════════
   // ── settling a cart: cash, the card on file, the reader, clear and merge ──
@@ -2485,14 +2499,19 @@ export const STAFF = {
   // app/staff/page.tsx). A4·2 folded the takeaway board into this screen: the bump card (3) is
   // COMPOSED from the board's two bump SENTENCES, verbatim in both tongues (their two sub-lines did
   // not survive the fold); the paper card (4) moved whole; the scan-and-go card went with the sheet.
+  // Phase 2d · review (floor #4) — MY's verb re-drafted to ဖွင့်, the Start zone's one verb (was
+  // “… အော်ဒါ စဖို့ …”). K15 draft.
   "help.how.counter.1": {
     en: "Someone at the counter? Tap Walk-up to start their order.",
-    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",
+    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ ဖွင့်ဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",
   },
-  // Phase 2d · floor — reworded: a table starts from the strip now. MY is a K15 draft.
+  // Phase 2d · floor — reworded: a table starts from the strip now. Phase 2d · review (floor #3) —
+  // reworded again so it never promises a strip that is not there: with no table set up, the strip's
+  // place says so (`floor.strip.none`) and this line is still true. MY is a K15 draft (was
+  // “… စားပွဲ ဖွင့်ဖို့ စားပွဲများ အောက်က နံပါတ်ကို နှိပ်ပါ။”).
   "help.how.counter.1.more": {
-    en: "Phone order sits beside it. To start a table, tap its number under Tables.",
-    my: "ဖုန်း အော်ဒါ က ဘေးမှာ ရှိပါတယ်။ စားပွဲ ဖွင့်ဖို့ စားပွဲများ အောက်က နံပါတ်ကို နှိပ်ပါ။",
+    en: "Phone order sits beside it. Every table set up here has its number under Tables — tap it to start the table.",
+    my: "ဖုန်း အော်ဒါ က ဘေးမှာ ရှိပါတယ်။ ဒီမှာ ထည့်ထားတဲ့ စားပွဲတိုင်းရဲ့ နံပါတ်က စားပွဲများ အောက်မှာ ရှိပါတယ် — စားပွဲ ဖွင့်ဖို့ အဲဒါကို နှိပ်ပါ။",
   },
   "help.how.counter.2": {
     en: "Tap a table to see its order.",
@@ -3144,6 +3163,14 @@ export const STAFF = {
     en: "Tables — tap a free one to start it",
     my: "စားပွဲများ — လွတ်နေတဲ့ စားပွဲကို နှိပ်ပြီး ဖွင့်ပါ",
   },
+  // Phase 2d · review (floor #3) — the strip's place when NO table is registered: the strip is the
+  // only way to start a table, and there is no setup screen in the app to name, so it says only the
+  // fact. Plain, not live (nothing changed — it is the room as it is). K15 draft; words grounded on
+  // စားပွဲ (floor.table) and မ…ရသေး (floor.kitchen.notSent's "not yet").
+  "floor.strip.none": {
+    en: "No tables are set up yet",
+    my: "စားပွဲ မထည့်ရသေးပါ",
+  },
   // A FREE tile's verb (under its number) and an occupied tile's spoken verb. `ဖွင့်` is the verb
   // of the retired `reg.start.table` (စားပွဲ ဖွင့်), kept verbatim; "View" is ကြည့် ('look'), never
   // "Open", which would pair with ဖွင့် and read as the same word as Start.
@@ -3165,6 +3192,13 @@ export const STAFF = {
     en: "Ready to serve — Tables {id}",
     my: "ဟင်းထွက်ပြီ — စားပွဲ {id}",
   }, // grounded: board.pulse.up + floor.table
+  // Phase 2d · review (floor #6) — a segment of the count line when the floor's kitchen read came
+  // back full: every card's kitchen row is UNKNOWN this poll, so the room says it once here instead
+  // of the rows silently vanishing. K15 draft; words grounded on မီးဖိုချောင် (kds.title).
+  "floor.kitchen.unknown": {
+    en: "Kitchen status can’t be shown right now",
+    my: "မီးဖိုချောင် အခြေအနေ အခု မပြနိုင်ပါ",
+  },
   // A segment of the count line, whenever a table has asked to pay at the counter.
   "floor.tables.asks": {
     en: "{n} waiting to pay at counter",

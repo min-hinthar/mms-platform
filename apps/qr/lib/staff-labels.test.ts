@@ -78,6 +78,10 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
   ["a verb control", { kind: "verb", verb: "floor.verb.deactivate", subject: "Daw Hla" }],
   ["a subject control", { kind: "subject", verb: "reg.verb.resume", subject: "Daw Hla, 2 items" }],
   [
+    "an occupied strip tile (Phase 2d · review)",
+    { kind: "tile", n: 5, status: "ordering", refundState: null, notSent: 2 },
+  ],
+  [
     "a quiet table",
     {
       kind: "table",
@@ -615,5 +619,40 @@ describe("a table's name carries the refund word, the kitchen row, the wait and 
     expect(aria).toContain("၉ မိနစ်");
     expect(aria).toContain("၂၅ မိနစ်က");
     expect(aria).not.toMatch(/\b[39]\b/);
+  });
+});
+
+// ── Phase 2d · review (floor #5) ──
+describe("an occupied strip tile — its visible label is the NUMBER it prints", () => {
+  // The tile is a link showing only its table number (the glyph and the owed mark are aria-hidden).
+  // Its name was built with the `subject` arm, whose `visible` is the whole subject — "Table 3 ·
+  // Pay at counter" — a string the tile never renders: the trap the `subject` docblock names. The
+  // `tile` arm's `visible` is the number the tile prints, and the name leads with the verb.
+  // MUTATION: `visible` = "Table 3" → red here, and the strip would print it into a 60 px tile.
+  it("visible is the number, Latin in both tongues; the name leads with View and names the table", () => {
+    for (const lang of LANGS) {
+      const { visible, aria } = al(lang, {
+        kind: "tile",
+        n: 3,
+        status: "counter",
+        refundState: null,
+        notSent: 0,
+      });
+      expect(visible).toBe("3");
+      expect(aria.startsWith(`${ts(lang, "floor.verb.view")} — `)).toBe(true);
+      expect(aria).toContain(visible);
+    }
+    expect(
+      al("en", { kind: "tile", n: 3, status: "counter", refundState: null, notSent: 0 }).aria,
+    ).toBe("View — Table 3 · Pay at counter");
+  });
+
+  it("says the chip's word (a refund included) and, when owed, the card's own '· 2 not sent'", () => {
+    expect(
+      al("en", { kind: "tile", n: 5, status: "ordering", refundState: null, notSent: 2 }).aria,
+    ).toBe("View — Table 5 · Ordering · 2 not sent");
+    expect(
+      al("en", { kind: "tile", n: 4, status: "paid", refundState: "full", notSent: 0 }).aria,
+    ).toBe("View — Table 4 · Refunded");
   });
 });

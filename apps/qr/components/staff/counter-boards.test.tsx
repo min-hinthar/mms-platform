@@ -16,9 +16,11 @@ import type { FloorTable } from "@/lib/floor-types";
  */
 const NOW = "2026-09-13T18:00:00.000Z";
 const topics: string[] = [];
-// Phase 2d · floor — the snapshot's strip and thresholds (no registered tables: no strip).
+// Phase 2d · floor — the snapshot's strip and thresholds (no registered tables: no strip), and
+// (Phase 2d · review) a kitchen read that came back whole.
 const P2D = {
   registry: [] as number[],
+  kitchenUnknown: false,
   thresholds: {
     dineinAmberMin: 8,
     dineinRedMin: 12,

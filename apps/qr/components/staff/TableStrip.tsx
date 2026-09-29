@@ -1,19 +1,27 @@
 "use client";
-import { useCallback, useLayoutEffect, useRef, type FocusEvent, type MouseEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FocusEvent,
+  type MouseEvent,
+} from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "@mms/ui";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import {
   createFlipGuard,
+  FLIP_GUARD_MS,
   owedSendUnits,
   stripKey,
   tableStrip,
   type FlipGuard,
 } from "@/lib/floor-rows";
 import { floorTone, type FloorTone } from "@/lib/floor-tone";
-import { al, floorStatusKey } from "@/lib/staff-labels";
+import { al } from "@/lib/staff-labels";
 import { tf } from "@/lib/i18n/fill";
-import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { useCounterMint, type MintNotice } from "./CounterMint";
@@ -32,7 +40,9 @@ import { useTablePane } from "./TablePaneContext";
  * THE FLIP GUARD. A tile that turned free within `FLIP_GUARD_MS` ignores a tap: another tablet
  * cleared that table between polls, and the person was reaching for the occupied tile to OPEN it.
  * The flip is recorded when it commits (a layout effect — before the browser paints the new tile, so
- * no tap can land between the two).
+ * no tap can land between the two). Phase 2d · review — and the window is SAID: the tile is held
+ * (`aria-disabled`, the dim every held start control wears — never a native disable) for exactly
+ * the window, so the refused tap is no longer a tile that looks ready and does nothing.
  *
  * FOCUS ACROSS A FLIP. A tile that changes element type (button ↔ link) on a poll would drop focus
  * to <body>. The strip remembers the focused tile and, when that element was REPLACED under it (and
@@ -56,15 +66,6 @@ const GLYPH: Record<FloorTone, IconName> = {
   returned: "undo",
 };
 
-/** The occupied tile's name: "View — Table 7 · Pay at counter" — the status word the chip shows —
- *  and, when the table owes a Send, the card's own "· 2 not sent" (the mark is aria-hidden). */
-function occupiedSubject(lang: StaffLang, n: number, table: FloorTable): string {
-  const word = ts(lang, floorStatusKey(table.status, table.refund?.state ?? null));
-  const owed = owedSendUnits(table);
-  const tail = owed > 0 ? ` · ${tf(lang, "floor.kitchen.notSent", { n: owed })}` : "";
-  return `${tf(lang, "floor.table", { id: String(n) })} · ${word}${tail}`;
-}
-
 export function TableStrip({
   registry,
   tables,
@@ -83,10 +84,34 @@ export function TableStrip({
 
   // ── the flip guard ── (the memory and its clock live in `createFlipGuard`; the strip only asks)
   const flip = useRef<FlipGuard | null>(null);
+  // Phase 2d · review — the tiles inside their window, held until it closes (docblock). A tile
+  // that flips again restarts its own timer; the timers die with the strip.
+  const [settling, setSettling] = useState<ReadonlySet<number>>(() => new Set());
+  const settleTimers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
   useLayoutEffect(() => {
     flip.current ??= createFlipGuard();
-    flip.current.observe(tiles);
-  });
+    const flipped = flip.current.observe(tiles);
+    if (flipped.length === 0) return;
+    setSettling((prev) => new Set([...prev, ...flipped]));
+    for (const n of flipped) {
+      clearTimeout(settleTimers.current.get(n));
+      settleTimers.current.set(
+        n,
+        setTimeout(() => {
+          settleTimers.current.delete(n);
+          setSettling((prev) => {
+            const next = new Set(prev);
+            next.delete(n);
+            return next;
+          });
+        }, FLIP_GUARD_MS),
+      );
+    }
+  }, [tiles]); // a fresh array per render — `observe` is idempotent, it only acts on a change
+  useEffect(() => {
+    const timers = settleTimers.current;
+    return () => timers.forEach((t) => clearTimeout(t));
+  }, []);
 
   // ── focus across a flip ──
   const focused = useRef<{ el: HTMLElement; n: number } | null>(null);
@@ -179,7 +204,7 @@ export function TableStrip({
               <FreeTile
                 n={n}
                 lang={lang}
-                held={held}
+                held={held || settling.has(n)}
                 busy={minting === `table-${n}`}
                 onTap={() => tapFree(n)}
               />
@@ -263,10 +288,14 @@ function OccupiedTile({
   onTap: (e: MouseEvent<HTMLAnchorElement>, table: FloorTable) => void;
 }) {
   const tone = floorTone(table.status, table.refund?.state ?? null);
-  const { aria } = al(lang, {
-    kind: "subject",
-    verb: "floor.verb.view",
-    subject: occupiedSubject(lang, n, table),
+  // Phase 2d · review — the `tile` arm: its `visible` IS the number rendered below ("View — Table 7
+  // · Pay at counter", and "· 2 not sent" when a Send is owed — the mark is aria-hidden).
+  const { visible, aria } = al(lang, {
+    kind: "tile",
+    n,
+    status: table.status,
+    refundState: table.refund?.state ?? null,
+    notSent: owedSendUnits(table),
   });
   return (
     <Link
@@ -279,7 +308,7 @@ function OccupiedTile({
       aria-disabled={held || undefined}
       onClick={(e) => onTap(e, table)}
     >
-      <span className="floor-tile-n">{n}</span>
+      <span className="floor-tile-n">{visible}</span>
       <Icon name={GLYPH[tone]} size={18} strokeWidth={2.25} className="floor-tile-glyph" />
       {owedSendUnits(table) > 0 ? <span className="floor-owed-dot" aria-hidden /> : null}
     </Link>
