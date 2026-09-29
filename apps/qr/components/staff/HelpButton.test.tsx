@@ -683,6 +683,40 @@ describe("P2e — the Help sheet's Language row", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("a refresh from the EARLIER write, landing while a newer write is out, neither closes the sheet nor moves the tick back", async () => {
+    seen("counter");
+    const { rerender } = mountLang("en");
+    await openLang();
+    // Write 1 (Both) lands; its refresh is still on the wire.
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // Before it lands the person picks Burmese only — write 2 is out.
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValue(w2.p);
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ" }));
+    // Write 1's refresh lands now: the provider says Both.
+    rerender(
+      <Host mode="both">
+        <Tail mode="both" />
+      </Host>,
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy(); // not closed on a mode the person moved past
+    const pressed = () =>
+      [...document.querySelectorAll('.staff-lang-row[aria-pressed="true"]')].map((b) =>
+        b.getAttribute("data-mode"),
+      );
+    expect(pressed()).toEqual(["my-only"]); // the tick stays on the pick in flight
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    rerender(
+      <Host mode="my-only">
+        <Tail mode="my-only" />
+      </Host>,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it.each(MODES)(
     "under %s: a second tap on the PENDING row keeps the sheet open, and the later failure is said in it — both tongues",
     async (mode) => {

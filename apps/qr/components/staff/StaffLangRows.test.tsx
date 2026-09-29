@@ -243,6 +243,70 @@ describe("StaffLangRows — the write", () => {
     expect(screen.getByRole("group").hasAttribute("aria-busy")).toBe(false);
   });
 
+  it("a provider change landing MID-WRITE never moves the cap off the pick in flight", async () => {
+    const w = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValue(w.p);
+    const { rerender } = mount("both");
+    fireEvent.click(row("English"));
+    // An earlier write's refresh (or another tab) lands while this write is out.
+    rerender(
+      <Host mode="my-only">
+        <Harness />
+      </Host>,
+    );
+    expect(pressedName()).toEqual(["en"]);
+    await act(async () => w.release({ ok: true, mode: "en" }));
+    expect(pressedName()).toEqual(["en"]); // the cap is what the chain KNOWS the server holds
+    rerender(
+      <Host mode="en">
+        <Harness />
+      </Host>,
+    );
+    expect(pressedName()).toEqual(["en"]);
+  });
+
+  it("a STALE provider mode landing mid-chain never becomes the chain's confirmed value", async () => {
+    const { rerender } = mount("both");
+    // Chain 1 writes English; its refresh has not landed (the provider still says Both).
+    fireEvent.click(row("English"));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // Chain 2: Burmese only, corrected to Both while it is out.
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    const w3 = held<{ ok: false; error: string }>();
+    setStaffLang.mockReturnValueOnce(w2.p).mockReturnValueOnce(w3.p);
+    fireEvent.click(row("မြန်မာ"));
+    fireEvent.click(row("မြန်မာ English"));
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(setStaffLang.mock.calls.at(-1)).toEqual([{ mode: "both" }]);
+    // Chain 1's refresh lands NOW, mid-chain: English, already outdated by write 2.
+    rerender(
+      <Host mode="en">
+        <Harness />
+      </Host>,
+    );
+    await act(async () => w3.release({ ok: false, error: "nope" }));
+    // The server holds Burmese only (write 2) — never the stale English the refresh carried.
+    expect(pressedName()).toEqual(["my-only"]);
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("a chain that wrote NOTHING adopts the provider's mid-chain word: the server already holds the wish → no line", async () => {
+    const w = held<{ ok: false; error: string }>();
+    setStaffLang.mockReturnValue(w.p);
+    const { rerender } = mount("both");
+    fireEvent.click(row("English"));
+    // Another tab sets English while this write is out; its refresh lands mid-chain.
+    rerender(
+      <Host mode="en">
+        <Harness />
+      </Host>,
+    );
+    await act(async () => w.release({ ok: false, error: "nope" }));
+    expect(pressedName()).toEqual(["en"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(settled.mock.calls).toEqual([[{ wrote: false, alert: false, confirmed: "en" }]]);
+  });
+
   it("focusOnMount lands on the PRESSED row, not the first — and a rerender does not re-focus", () => {
     const { rerender } = mount("en", true);
     expect(document.activeElement).toBe(row("English"));

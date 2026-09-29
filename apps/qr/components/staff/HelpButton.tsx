@@ -37,7 +37,7 @@ import { HelpPicture } from "./HelpPicture";
 import { useLiveConnection } from "./LiveConnection";
 import { useStaffLangMode } from "./StaffLangProvider";
 import { STAFF_LANG_MODE_KEY, StaffLangRows } from "./StaffLangSwitch";
-import { useLangModeWrite } from "./useLangModeWrite";
+import { useLangModeWrite, type LangModeWrite } from "./useLangModeWrite";
 import { TicketDishTitle } from "./TicketText";
 
 type View = "menu" | "how" | "size" | "lang" | "report";
@@ -177,6 +177,16 @@ export function HelpButton(props: HelpProps) {
     setAwaiting(null);
     setOpen(false);
   }
+  // Every tap that WRITES outdates the wait for the last write: a refresh from that earlier write,
+  // landing while the new one is out, must never close the sheet on a mode the person moved past.
+  const langRows: LangModeWrite = {
+    ...langWrite,
+    choose: (next) => {
+      const tap = langWrite.choose(next);
+      if (tap === "wrote") setAwaiting(null);
+      return tap;
+    },
+  };
 
   useEffect(() => {
     let active = true;
@@ -591,7 +601,7 @@ export function HelpButton(props: HelpProps) {
             </p>
             {/* Focus lands on the pressed row as the view opens (QA §A — the row that opened it
                 is gone with the menu). */}
-            <StaffLangRows write={langWrite} focusOnMount onSameConfirmed={() => show(false)} />
+            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />
             {langWrite.alert && (
               <p role="alert" className="staff-lang-msg">
                 <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />

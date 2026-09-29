@@ -69,20 +69,31 @@ export function useLangModeWrite({
   const inFlight = useRef(false);
   const intent = useRef<StaffLangMode | null>(null);
   const confirmed = useRef(mode);
+  // The provider's latest word, whatever is in flight (read when a chain ends having written nothing).
+  const provider = useRef(mode);
   const [pick, setPick] = useState<StaffLangMode | null>(null);
   const [busy, setBusy] = useState(false);
   const [alert, setAlert] = useState(false);
 
   // The pick YIELDS to the server: when the provider's mode changes (the refresh landed, or another
   // tab wrote the cookie), the local cap is dropped during render — the store-previous-prop pattern,
-  // never a setState in an effect.
+  // never a setState in an effect. But only BETWEEN chains: a refresh from an EARLIER write can land
+  // while a newer one is out (write English, then pick Burmese only before English's refresh
+  // arrives), and dropping the cap then moved the tick back to a mode the person had already left.
+  // Mid-chain the pick is the person's latest wish; the chain's end sets the cap itself.
   const [seen, setSeen] = useState(mode);
   if (seen !== mode) {
     setSeen(mode);
-    setPick(null);
+    if (!busy) setPick(null);
   }
+  // The same rule for what the server is KNOWN to hold: mid-chain, `confirmed` is what THIS chain's
+  // writes returned — newer than any refresh that lands during it — so the provider is adopted only
+  // between chains. STATED LIMIT: a stale refresh that lands AFTER a chain ended and before that
+  // chain's own refresh is adopted for that moment (the tick shows the older mode until the last
+  // refresh lands, and a tap in between is judged against it — at worst one redundant write).
   useEffect(() => {
-    confirmed.current = mode;
+    provider.current = mode;
+    if (!inFlight.current) confirmed.current = mode;
   }, [mode]);
 
   async function drain() {
@@ -109,6 +120,9 @@ export function useLangModeWrite({
       confirmed.current = res.mode;
       wrote = true;
     }
+    // A chain that wrote nothing learned nothing new: what the server holds is the provider's latest
+    // word, including a change that landed mid-chain (another tab) and was held off above.
+    if (!wrote) confirmed.current = provider.current;
     const out = langChainOutcome({
       wanted: intent.current ?? confirmed.current,
       confirmed: confirmed.current,
