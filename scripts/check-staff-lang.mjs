@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * P2 — the staff-locale guard. EIGHT rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d (the
- * accessible names), 4 (every page reaches the language control) and 5 (a dictionary string reaches
- * the DOM marked) — all PARSED (LEARNINGS #60), all in the CI fast lane: file-read-only, seconds,
- * no build and no DB.
+ * P2 — the staff-locale guard. TWELVE rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d (the
+ * accessible names), 4a · 4b · 4c · 4d (where the language control lives since P2e, and that every
+ * page has a way to it), 5 (a dictionary string reaches the DOM marked) and 6 (`keepEcho` stays on
+ * the language surfaces) — all PARSED (LEARNINGS #60), all in the CI fast lane: file-read-only,
+ * seconds, no build and no DB.
  *
  * ⚠️ THE COUNT IN THIS SENTENCE IS PART OF THE GUARD. It read "Two rules" while the file implemented
  * seven, because each rule was added without re-reading the header — and a blind audit reported the
@@ -1154,26 +1155,40 @@ function nameableFindings(file, srcOverride) {
 
 for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 
-// ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
-// A staff surface that cannot switch language is a surface one of the two readers is locked out of.
-// The switch is mounted PER SURFACE rather than by the layout (a layout strip would steal height
-// from the KDS's measured `min-height: 100dvh`), so this is what makes "per surface" safe.
+// ── Rule 4 — the language control lives where the design says, and every page has a way to it ──
+// P2e (owner decision 2, 2026-09-24) moved the control OFF every in-service bar. It lives in four
+// places now: the four FRONT DOORS' two-script pill (the sign-in form, the lock, the outage shell,
+// the error screen — each through its bar's `trailing` slot), the Help sheet's Language row on the
+// kitchen and the counter (`HelpButton` → `<StaffLangRows>`), the Profile's language card
+// (`/staff/login` signed in → `<StaffLangSection>`), and the doors' More tile that links there. The
+// old rule ("every page reaches the switch, through StaffBar") became false BY DESIGN, so it is four
+// sub-rules now, each PARSED on the same export-rooted walker (LEARNINGS #60):
 //
-// ⚠️ THIS RULE WAS DECORATIVE IN ITS FIRST CUT AND THAT IS WHY IT LOOKS LIKE THIS NOW. It accepted
-// `<StaffOutageShell>` as evidence that a page "owns" a switch. The shell mounts NOTHING — it is the
-// full-page takeover shown when the auth answer is unknowable — and 14 of the 15 staff pages render
-// it, so the rule passed green over 13 pages with no control at all while its own comment claimed to
-// prove "no staff page forgets it". A guard satisfied by a TAG NAME rather than by the behaviour it
-// names is LEARNINGS #60 exactly, written by the session that had just read #60.
+//   4a — `StaffBar` reaches NO control: its `StaffBar` export's live JSX, followed at every hop,
+//        never lands on any of the control's three exports. A pill re-added to the bar is red.
+//   4b — each FRONT DOOR reaches the PILL (`StaffLangSwitch`, specifically) through live JSX from the
+//        export that renders it. Dropping `trailing` on any of the four is red.
+//   4c — every staff page reaches the control's exports through AT MOST ONE hosting module (two are
+//        two writes racing for one cookie and two groups with one name). `/staff/login` reaches two
+//        exports — the pill in the form, the card when signed in — through ONE module, which is
+//        allowed; the control's own module is never counted as a host.
+//   4d — a staff page that reaches NO control has, in every live `<StaffBar>` its default export
+//        reaches, a wordless way UP: `leading` absent (the Screens circle), `{ kind: "screens" }` or
+//        `{ kind: "back", … }` in EVERY conditional arm. A computed or "here" leading — or no bar at
+//        all — is red.
 //
-// So: the only accepted evidence is a live `<StaffLangSwitch>`, found in the page's own JSX or in a
-// component the page transitively imports (the KDS mounts it inside `KdsBoard`, not in
-// `kitchen/page.tsx`). And the 13 pages that genuinely have no control are a RATCHET, not a pass.
+// ⚠️ THIS RULE WAS DECORATIVE IN ITS FIRST CUT AND THAT IS WHY IT LOOKS LIKE THIS. It accepted
+// `<StaffOutageShell>` as evidence that a page "owns" a switch while the shell mounted nothing — a
+// guard satisfied by a TAG NAME rather than by the behaviour it names (LEARNINGS #60), and Codex
+// needed five rounds on #298 to close the exclusion's evasions. Every sub-rule below reuses that
+// hardened walker; none is a name match.
 //
-// ⚠️ STATED LIMIT, because a guard that overclaims is worse than none: this is a PRESENCE check over
-// the JSX a module returns, excluding the enumerated literal-dead shapes below. It is liveness
-// against a PARKED DEAD COPY, not a reachability proof — a page whose only mount sits behind a
-// runtime-false condition passes here, and the preview a11y tick is what covers that shape.
+// ⚠️ STATED LIMITS, because a guard that overclaims is worse than none: 4c walks the IMPORT graph
+// (a presence check over the JSX a module returns, excluding the enumerated literal-dead shapes —
+// liveness against a PARKED DEAD COPY, not a reachability proof), so a page whose only mount sits
+// behind a runtime-false condition passes here; the doors view of `/staff`, which has no Help door,
+// is one such runtime branch — its way back is the More tile, pinned by `StaffDoors.test` and
+// `staff-more.test`. 4d proves a wordless way UP exists, not where it lands.
 /**
  * A4·2 — a page that only REDIRECTS has no reader. `/staff/register` and `/staff/expo` stay as
  * routes so a tablet's bookmark lands on the counter's one screen instead of a 404, and their
@@ -1239,21 +1254,6 @@ if (staffPages.length < 9)
   );
 
 /**
- * ⚠️ EMPTY, AND THAT IS THE FINISHED STATE — same contract, same warning as ARIA_TODO above.
- *
- * PR A converted `/staff/login` and the KDS and listed the thirteen pages with no language control
- * at all; PR B mounted every one, and rule 4 now holds every one of them. A page added back here is a
- * person who cannot read English arriving on a staff screen with no way to change it — which is the
- * exact failure the rule was written for, so it does not get to be a TODO.
- *
- * `SWITCH_WALK_EXCLUDED` above is the one thing that still needs care: `StaffOutageShell` reaches
- * the control (through `<StaffBar>` since signin-5) and every page imports it, so the walk must not
- * follow that import or every page would answer "reachable" on the strength of a screen that
- * only exists during an outage.
- */
-const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
-
-/**
  * Is this JSX element parked in a literal-dead branch — `{false && <X/>}`, `{0 && <X/>}`,
  * `{true || <X/>}`, `{"" ?? <X/>}`, `{false ? <X/> : null}`, `{true ? null : <X/>}`, or under
  * `if (false)` / the `else` of `if (true)`? Only what a LITERAL settles — `false` · `true` · `null`
@@ -1311,7 +1311,18 @@ function inDeadBranch(node) {
   return false;
 }
 
-/** Does this module's own JSX mount a live `<StaffLangSwitch>`? */
+/**
+ * The control's module and its three exports — the control's identity, by MODULE + SYMBOL.
+ * `StaffLangSwitch` is the front doors' pill; `StaffLangRows` the three mode rows (the Help sheet);
+ * `StaffLangSection` the Profile's card. The module itself is never a HOST (4c): its own exports
+ * compose each other.
+ */
+const SWITCH_MODULE = join(QR, "components/staff/StaffLangSwitch.tsx");
+const SWITCH_EXPORTS = new Set(["StaffLangSwitch", "StaffLangRows", "StaffLangSection"]);
+const PILL_EXPORT = "StaffLangSwitch";
+const BAR_MODULE = join(QR, "components/staff/StaffBar.tsx");
+
+/** Does this module's own JSX mount a live language control (any of the three exports, by tag)? */
 function mountsSwitchHere(file, srcOverride) {
   let sf;
   try {
@@ -1323,7 +1334,7 @@ function mountsSwitchHere(file, srcOverride) {
 
   function visit(node) {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      if (node.tagName.getText(sf) === "StaffLangSwitch" && !inDeadBranch(node)) found = true;
+      if (SWITCH_EXPORTS.has(node.tagName.getText(sf)) && !inDeadBranch(node)) found = true;
     }
     ts.forEachChild(node, (c) => {
       visit(c);
@@ -1359,10 +1370,8 @@ const SWITCH_WALK_EXCLUDED = new Map([
 
 /**
  * …or does any module it transitively imports, within apps/qr, other than the excluded surfaces?
- * Returns EVERY module on the walk that mounts one — not a boolean — because P7·1b put the control
- * in the shared `StaffBar` and a board that still mounted its own then reached TWO on one page
- * (`/staff/expo`: four language buttons, two writes racing for the cookie). A presence check was
- * green over that. A page must reach exactly one.
+ * Returns EVERY hosting module on the walk — not a boolean — because 4c holds a page to ONE. The
+ * control's own module is walked past, never counted: its three exports compose each other.
  */
 function switchMounts(root) {
   const seen = new Set([root]);
@@ -1370,7 +1379,7 @@ function switchMounts(root) {
   const mounts = [];
   while (queue.length) {
     const file = queue.shift();
-    if (mountsSwitchHere(file)) mounts.push(file);
+    if (file !== SWITCH_MODULE && mountsSwitchHere(file)) mounts.push(file);
     for (const dep of importsOf(file)) {
       if (!seen.has(dep) && dep.startsWith(QR) && !SWITCH_WALK_EXCLUDED.has(dep)) {
         seen.add(dep);
@@ -1380,19 +1389,6 @@ function switchMounts(root) {
   }
   return mounts;
 }
-function reachesSwitch(root) {
-  return switchMounts(root).length > 0;
-}
-
-/**
- * The one export that IS the control — identified by MODULE + SYMBOL, never by a tag name: an alias
- * (`import { StaffLangSwitch as S }`) counts in THIS walk, a same-named local does not (the pages'
- * walk, `mountsSwitchHere`, is still tag-named and reports an alias as no mount). Codex round 4 on #298:
- * the module alone was not enough either — a bar that mounts `<Foo>` from a module whose OTHER
- * export holds the switch is not a bar that reaches it.
- */
-const SWITCH_MODULE = join(QR, "components/staff/StaffLangSwitch.tsx");
-const SWITCH_EXPORT = "StaffLangSwitch";
 
 /**
  * What the export-rooted walk needs from a module: imports by local name — resolved to the module
@@ -1458,7 +1454,7 @@ function componentGraph(file) {
       }
     }
   }
-  return { byLocal, locals, exported };
+  return { sf, byLocal, locals, exported };
 }
 
 /** A function-LIKE node with a NAME binding — a separate root, never part of the enclosing body. */
@@ -1468,11 +1464,15 @@ const isNamedFn = (node) =>
   (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && isFnInit(node.initializer));
 
 /**
- * Does an EXPORTED component of `file` — the one named `entry`, or any when `entry` is null — reach
- * a live `<StaffLangSwitch>` through live JSX at EVERY hop? From the component's body: a `<Tag …>`
- * outside a literal-dead branch that names a function declared in a scope the body can see is
- * followed into that function (once per body); one that is an import of the switch's own export IS
- * the control; one that is an import of another apps/qr module is followed into THAT module's
+ * Every live JSX mount an EXPORTED component of `file` — the one named `entry`, or any when `entry`
+ * is null — reaches through live JSX at EVERY hop, whose tag resolves to an import `isHit` accepts
+ * (P2e generalised the walker from one boolean answer, "reaches the switch", to the mounts it
+ * finds: 4a/4b ask for the control's exports, 4d for the `<StaffBar>`s whose `leading` it reads).
+ * From the component's body: a `<Tag …>` outside a literal-dead branch that names a function
+ * declared in a scope the body can see is followed into that function (once per body); one that is
+ * an import `isHit` accepts IS a hit, recorded where it is mounted and never entered; the control's
+ * own module and the excluded surfaces are never entered; one that is an import of another apps/qr
+ * module is followed into THAT module's
  * export of THAT symbol (once per module+symbol), by the same rule. Parsed, not walked (LEARNINGS
  * #60), and export-rooted at every hop (Codex rounds 2–5 on #298): an import EDGE is not a mount —
  * `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false && <StaffBar/>}` and every
@@ -1492,12 +1492,12 @@ const isNamedFn = (node) =>
  * a discarded expression statement, so it is gone, not qualified), a named function passed BY
  * REFERENCE (`render={Example}`), and a member tag (`<Foo.Bar>`).
  */
-function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
+function exportWalk(file, entry, isHit, hits = [], seenModules = new Set()) {
   const key = `${file}#${entry ?? "*"}`;
-  if (seenModules.has(key)) return false;
+  if (seenModules.has(key)) return hits;
   seenModules.add(key);
   const g = componentGraph(file);
-  if (!g) return false;
+  if (!g) return hits;
   const seenBodies = new Set();
 
   /**
@@ -1534,98 +1534,158 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
   }
 
   function walkBody(body, chain) {
-    if (seenBodies.has(body)) return false;
+    if (seenBodies.has(body)) return;
     seenBodies.add(body);
     const here = [declaredIn(body), ...chain];
-    let hit = false;
     // Innermost binding wins, as it does at runtime: a function body is entered, a shadow (a
     // parameter, a plain variable) is the end of the road, and only an UNBOUND name is an import.
-    function follow(name) {
-      const scope = here.find((s) => s.has(name));
+    function follow(name, node) {
+      const scope = here.find((sc) => sc.has(name));
       if (scope) {
         const local = scope.get(name);
-        return local ? walkBody(local, here) : false;
+        if (local) walkBody(local, here);
+        return;
       }
-      return followImport(g.byLocal.get(name));
+      followImport(g.byLocal.get(name), node);
     }
     function visit(node) {
-      if (hit) return;
       if (node !== body && isNamedFn(node)) return;
       if (
         (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
         ts.isIdentifier(node.tagName) &&
         !inDeadBranch(node)
-      ) {
-        if (follow(node.tagName.text)) hit = true;
-      }
+      )
+        follow(node.tagName.text, node);
       ts.forEachChild(node, (c) => {
         visit(c);
       });
     }
     visit(body);
-    return hit;
   }
 
-  /** An import edge: the switch's own export IS the control; another apps/qr module is entered at
-   *  the imported symbol; anything else (a package, a type) reaches nothing. */
-  function followImport(imp) {
-    if (!imp) return false;
-    if (imp.module === SWITCH_MODULE) return imp.name === SWITCH_EXPORT;
-    return imp.module.startsWith(QR) && reachesSwitchFromExports(imp.module, seenModules, imp.name);
+  /** An import edge: a hit is recorded where it is MOUNTED (this file, this node) and never entered;
+   *  the control's own module and the excluded surfaces are never entered either; another apps/qr
+   *  module is entered at the imported symbol; anything else (a package, a type) reaches nothing. */
+  function followImport(imp, node) {
+    if (!imp) return;
+    if (isHit(imp)) {
+      hits.push({ file, node, sf: g.sf, imp });
+      return;
+    }
+    if (imp.module === SWITCH_MODULE || SWITCH_WALK_EXCLUDED.has(imp.module)) return;
+    if (imp.module.startsWith(QR)) exportWalk(imp.module, imp.name, isHit, hits, seenModules);
   }
 
   // An export names a body declared here, an import passed through (`import { X } …; export { X }`
   // or `export default X;`), or a re-export from another module.
   function walkExport(name) {
     const target = g.exported.get(name);
-    if (target === undefined) return false;
-    if (typeof target === "object")
-      return reachesSwitchFromExports(target.module, seenModules, target.name);
+    if (target === undefined) return;
+    if (typeof target === "object") {
+      if (isHit(target)) hits.push({ file, node: null, sf: g.sf, imp: target });
+      else if (target.module.startsWith(QR) && target.module !== SWITCH_MODULE)
+        exportWalk(target.module, target.name, isHit, hits, seenModules);
+      return;
+    }
     const body = g.locals.get(target);
     if (body) return walkBody(body, [g.locals]);
-    return followImport(g.byLocal.get(target));
+    followImport(g.byLocal.get(target), null);
   }
-  if (entry !== null) return walkExport(entry);
-  return [...g.exported.keys()].some((n) => walkExport(n));
+  if (entry !== null) walkExport(entry);
+  else for (const n of g.exported.keys()) walkExport(n);
+  return hits;
 }
 
-// Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
-// through live JSX from its EXPORTS at every hop (the shell's is `<StaffBar>`'s since signin-5,
-// and the bar's is its own `<StaffLangSwitch>`). If the shell ever stops reaching one, this set is
-// silently hiding nothing and the next reader would trust a comment that has stopped being true.
-// Never the import graph, never a file-wide scan: the walk the pages get follows every import,
-// which is right for "does this page reach a control" and wrong for "does this module still mount
-// one" — an unused import, a dead branch, an uncalled helper (top-level OR nested), a sibling
-// export of the mounted module — or of the SHELL's own module — holding the switch, a parameter
-// shadowing the bar's import, or a discarded `StaffBar(…)` call, at either hop, would each pass.
-for (const [f, entry] of SWITCH_WALK_EXCLUDED)
-  if (!reachesSwitchFromExports(f, new Set(), entry))
+/** A control export — any of the three (4a), or the pill alone (4b). */
+const isControl = (imp) => imp.module === SWITCH_MODULE && SWITCH_EXPORTS.has(imp.name);
+const isPill = (imp) => imp.module === SWITCH_MODULE && imp.name === PILL_EXPORT;
+const isBar = (imp) => imp.module === BAR_MODULE && imp.name === "StaffBar";
+
+/**
+ * 4d — the `leading` a live `<StaffBar>` mount declares, judged as a WORDLESS WAY UP: absent (the
+ * Screens circle is the default), an object literal whose `kind` is the string `"screens"` or
+ * `"back"`, or a conditional whose EVERY arm is one. Refused, each named: a spread on the bar (it
+ * may carry `leading`), a spread inside the object (it may carry `kind`), an identifier or call (a
+ * computed value this parse cannot settle), and `"here"` (a static mark that leads nowhere).
+ */
+function leadingVerdict(el, sf) {
+  const opening = ts.isJsxElement(el) ? el.openingElement : el;
+  const props = opening.attributes.properties;
+  if (props.some((a) => ts.isJsxSpreadAttribute(a)))
+    return "a spread on the bar may carry `leading`";
+  const attr = props.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "leading");
+  if (!attr) return null;
+  const init = attr.initializer;
+  if (!init || !ts.isJsxExpression(init) || !init.expression) return "`leading` has no expression";
+  const arm = (e) => {
+    while (ts.isParenthesizedExpression(e)) e = e.expression;
+    if (ts.isConditionalExpression(e)) return arm(e.whenTrue) ?? arm(e.whenFalse);
+    if (!ts.isObjectLiteralExpression(e))
+      return `a computed \`leading\` (${e.getText(sf).slice(0, 40)}) — this parse cannot settle it`;
+    if (e.properties.some((p) => ts.isSpreadAssignment(p)))
+      return "a spread inside `leading` may carry `kind`";
+    const kind = e.properties.find(
+      (p) => ts.isPropertyAssignment(p) && p.name.getText(sf).replace(/["']/g, "") === "kind",
+    );
+    if (!kind || !ts.isStringLiteral(kind.initializer)) return "`leading` without a literal `kind`";
+    const k = kind.initializer.text;
+    return k === "screens" || k === "back" ? null : `a \`${k}\` leading leads nowhere`;
+  };
+  return arm(init.expression);
+}
+
+// 4a — the bar mounts no control.
+if (exportWalk(BAR_MODULE, "StaffBar", isControl).length > 0)
+  failures.push(
+    "rule 4a: `StaffBar` reaches a language control through live JSX. No in-service bar carries one (P2e): the four front doors pass the pill through `trailing`, and every other screen reaches the language through Help or the doors' More.",
+  );
+
+// 4b — the four front doors each reach the PILL, from the export that renders them.
+const FRONT_DOORS = [
+  [join(APP, "staff/login/page.tsx"), "default"],
+  [join(APP, "staff/lock/page.tsx"), "default"],
+  [join(QR, "components/staff/StaffOutageShell.tsx"), "StaffOutageShell"],
+  [join(APP, "staff/error.tsx"), "default"],
+];
+for (const [f, entry] of FRONT_DOORS)
+  if (exportWalk(f, entry, isPill).length === 0)
     failures.push(
-      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but its \`${entry}\` export's LIVE JSX no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
+      `rule 4b: ${relative(ROOT, f)}'s \`${entry}\` export no longer reaches the two-script pill through live JSX. A front door is where a person who cannot read the current language must be able to fix it — pass <StaffLangSwitch /> through its bar's \`trailing\`.`,
     );
 
+// 4c — at most one hosting module per page; 4d — a page with none has a wordless way up.
+let hostedPages = 0;
+let upPages = 0;
 for (const file of staffPages) {
-  const listed = SWITCH_TODO.has(file);
   const mounts = switchMounts(file);
-  const reaches = mounts.length > 0;
-  if (!listed && !reaches)
-    failures.push(
-      `rule 4: ${relative(ROOT, file)} never reaches <StaffLangSwitch>. One of the two people who read this console cannot change its language here.`,
-    );
   if (mounts.length > 1)
     failures.push(
-      `rule 4: ${relative(ROOT, file)} reaches <StaffLangSwitch> through ${mounts.length} modules (${mounts.map((m) => relative(QR, m)).join(", ")}). Two controls on one page are two writes racing for one cookie, and two groups with one name. The bar carries it; the board must not.`,
+      `rule 4c: ${relative(ROOT, file)} reaches the language control through ${mounts.length} modules (${mounts.map((m) => relative(QR, m)).join(", ")}). Two controls on one page are two writes racing for one cookie, and two groups with one name.`,
     );
-  if (listed && reaches)
+  if (mounts.length === 1) {
+    hostedPages++;
+    continue;
+  }
+  if (mounts.length > 1) continue;
+  const bars = exportWalk(file, "default", isBar);
+  if (bars.length === 0) {
     failures.push(
-      `rule 4: ${relative(ROOT, file)} now reaches <StaffLangSwitch> — it is converted. Delete its SWITCH_TODO entry so the guard starts holding it.`,
+      `rule 4d: ${relative(ROOT, file)} reaches no language control AND renders no live <StaffBar>, so nothing on it leads anywhere a person could change the language.`,
     );
-}
-for (const file of SWITCH_TODO) {
-  if (!staffPages.includes(file))
+    continue;
+  }
+  const bad = bars
+    .map((b) =>
+      b.node ? { b, why: leadingVerdict(b.node, b.sf) } : { b, why: "a re-exported bar" },
+    )
+    .filter((x) => x.why !== null);
+  for (const { b, why } of bad) {
+    const line = b.node ? b.sf.getLineAndCharacterOfPosition(b.node.getStart(b.sf)).line + 1 : 0;
     failures.push(
-      `rule 4: ${relative(ROOT, file)} is on the still-to-convert list but is not a staff page. Delete the entry.`,
+      `rule 4d: ${relative(ROOT, file)} reaches no language control, and its bar at ${relative(ROOT, b.file)}:${line} has no wordless way up — ${why}. Lead with the Screens circle or a Back pill.`,
     );
+  }
+  if (bad.length === 0) upPages++;
 }
 
 // ── Rule 3b — the ratchet only turns one way ─────────────────────────────────────────────────────
@@ -1805,6 +1865,74 @@ for (const file of MARK_FILES) {
   visit(sf);
 }
 
+// ── Rule 6 — `keepEcho` lives on the language surfaces, in one literal shape ─────────────────────
+// P2e — a Burmese-only device drops `<Chrome>`'s English echoes, and `keepEcho` is the way through:
+// the language surfaces (the Help row and title, the doors' More tile, the Profile card, the failure
+// line) must speak BOTH tongues on every device, because the person reading them may be exactly the
+// one the current mode is wrong for. Anywhere else it would quietly undo the owner's Burmese-only
+// mode one call site at a time, so it is held to THREE files and ONE shape: bare or `{true}`, on a
+// `<Chrome>` that declares a LITERAL `lang="my"` (Chrome renders from its prop — anything computed
+// would follow the device) and a literal `echo` of `"stack"` or `"inline"` (an `echo={false}` has
+// nothing to keep), with no spread that could override either. STATED LIMIT: a `keepEcho` smuggled
+// in through a spread object is invisible to a parse and is refused only by review.
+const KEEP_ECHO_FILES = new Set([
+  join(QR, "components/staff/StaffLangSwitch.tsx"),
+  join(QR, "components/staff/HelpButton.tsx"),
+  join(QR, "components/staff/StaffDoors.tsx"),
+]);
+/** Every keepEcho that breaks the rule, as findings; the canonical ones are COUNTED (`.sites`). */
+function keepEchoFindings(file, srcOverride) {
+  let sf;
+  try {
+    sf = parse(file, srcOverride);
+  } catch {
+    return Object.assign([], { sites: 0 });
+  }
+  const out = Object.assign([], { sites: 0 });
+  function visit(node) {
+    if (ts.isJsxAttribute(node) && node.name.getText(sf) === "keepEcho") {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+      const el = node.parent.parent; // JsxAttributes → the opening / self-closing element
+      const attrs = el.attributes.properties;
+      const literal = (name) => {
+        const a = attrs.find((x) => ts.isJsxAttribute(x) && x.name.getText(sf) === name);
+        return a?.initializer && ts.isStringLiteral(a.initializer) ? a.initializer.text : null;
+      };
+      const init = node.initializer;
+      const bareOrTrue =
+        !init || (ts.isJsxExpression(init) && init.expression?.kind === ts.SyntaxKind.TrueKeyword);
+      const why = !KEEP_ECHO_FILES.has(file)
+        ? "keepEcho outside the three language surfaces"
+        : el.tagName.getText(sf) !== "Chrome"
+          ? "keepEcho on something other than <Chrome>"
+          : !bareOrTrue
+            ? "keepEcho with a computed value — bare or {true} only"
+            : literal("lang") !== "my"
+              ? 'keepEcho without a literal lang="my" — a computed lang follows the device'
+              : !["stack", "inline"].includes(literal("echo") ?? "")
+                ? 'keepEcho without a literal echo="stack" | "inline" — nothing to keep'
+                : attrs.some((x) => ts.isJsxSpreadAttribute(x))
+                  ? "keepEcho beside a spread that could override lang or echo"
+                  : null;
+      if (why) out.push(`${relative(ROOT, file)}:${line} — ${why}`);
+      else out.sites++;
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return out;
+}
+let keepEchoSites = 0;
+for (const file of walkFiles(QR).filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))) {
+  const src = readFileSync(file, "utf8");
+  if (!src.includes("keepEcho")) continue; // a pre-filter only — the parse below is the rule
+  const found = keepEchoFindings(file);
+  for (const f of found) failures.push(`rule 6: ${f}.`);
+  keepEchoSites += found.sites;
+}
+
 // ── SELF-TEST — every rule, aimed at a fixture that MUST make it fire ───────────────────────────
 //
 // ⚠️ THIS IS THE ANSWER TO "the 1265-line guard this slice rests on has no test of its own" (a
@@ -1915,8 +2043,86 @@ for (const c of SELF_TEST_CASES) {
     );
 }
 
+// ── rule 6 — keepEcho ─────────────────────────────────────────────────────────────────────────
+{
+  const LISTED = join(QR, "components/staff/HelpButton.tsx");
+  const UNLISTED = join(QR, "components/staff/KdsBoard.tsx");
+  const fires = [
+    [LISTED, '<Chrome lang={lang} k="shell.lang.row" echo="stack" keepEcho />', "a computed lang"],
+    [
+      LISTED,
+      '<Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho={on} />',
+      "keepEcho={cond}",
+    ],
+    [LISTED, '<Chrome lang="my" k="shell.lang.row" echo={false} keepEcho />', "echo={false}"],
+    [LISTED, '<Chrome lang="my" k="shell.lang.row" keepEcho />', "no echo at all"],
+    [LISTED, '<Chrome {...p} lang="my" k="shell.lang.row" echo="stack" keepEcho />', "a spread"],
+    [LISTED, '<Label lang="my" k="shell.lang.row" echo="stack" keepEcho />', "a non-Chrome tag"],
+    [UNLISTED, '<Chrome lang="my" k="kds.bump" echo="stack" keepEcho />', "an unlisted file"],
+  ];
+  for (const [file, jsx, what] of fires)
+    if (keepEchoFindings(file, `const A = () => ${jsx};`).length === 0)
+      failures.push(`SELF-TEST: rule 6 no longer fires on ${what}.`);
+  for (const jsx of [
+    '<Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />',
+    '<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho={true} />',
+  ])
+    if (keepEchoFindings(LISTED, `const A = () => ${jsx};`).length !== 0)
+      failures.push(`SELF-TEST: rule 6 fires on the canonical form \`${jsx}\`.`);
+}
+
+// ── rule 4d — the wordless way up ─────────────────────────────────────────────────────────────
+{
+  const verdictOf = (jsx) => {
+    const sf = parse(join(QR, "components/staff/__selftest__.tsx"), `const A = () => ${jsx};`);
+    let el = null;
+    const find = (n) => {
+      if (!el && (ts.isJsxSelfClosingElement(n) || ts.isJsxElement(n))) el = n;
+      ts.forEachChild(n, (c) => {
+        find(c);
+      });
+    };
+    find(sf);
+    return leadingVerdict(el, sf);
+  };
+  for (const [jsx, what] of [
+    ['<StaffBar lang={lang} leading={{ kind: "here" }} />', "a here leading"],
+    ["<StaffBar lang={lang} leading={lead} />", "a computed leading"],
+    [
+      '<StaffBar lang={lang} leading={on ? { kind: "back", href: "/x", k: "floor.back" } : { kind: "here" }} />',
+      "a here ARM",
+    ],
+    ["<StaffBar {...p} lang={lang} />", "a spread on the bar"],
+    ['<StaffBar lang={lang} leading={{ ...l, kind: "back" }} />', "a spread inside leading"],
+  ])
+    if (verdictOf(jsx) === null) failures.push(`SELF-TEST: rule 4d accepts ${what}.`);
+  for (const jsx of [
+    "<StaffBar lang={lang} />",
+    '<StaffBar lang={lang} leading={{ kind: "screens" }} />',
+    '<StaffBar lang={lang} leading={on ? { kind: "back", href: "/a", k: "floor.back" } : { kind: "back", href: "/b", k: "floor.back" }} />',
+  ])
+    if (verdictOf(jsx) !== null) failures.push(`SELF-TEST: rule 4d refuses \`${jsx}\`.`);
+}
+
 // Rule 4's evidence test is a boolean rather than a finding list, so it gets its own pair — and the
-// multi-line dead branch is here because the raw-text regex it replaced could not see it.
+// multi-line dead branch is here because the raw-text regex it replaced could not see it. P2e: the
+// control is three exports now, and each one's tag counts — and each one's dead copy does not.
+for (const tag of ["StaffLangRows", "StaffLangSection"]) {
+  const F = join(QR, "components/staff/__selftest__.tsx");
+  if (!mountsSwitchHere(F, `const A = () => <div><${tag} write={w} /></div>;`))
+    failures.push(`SELF-TEST: rule 4 no longer sees a LIVE <${tag}> mount.`);
+  if (mountsSwitchHere(F, `const A = () => <div>{false && <${tag} write={w} />}</div>;`))
+    failures.push(`SELF-TEST: rule 4 counts \`{false && <${tag}/>}\` as a live mount.`);
+  if (
+    mountsSwitchHere(
+      F,
+      `const A = () => (\n  <div>\n    {false && (\n      <${tag} write={w} />\n    )}\n  </div>\n);`,
+    )
+  )
+    failures.push(
+      `SELF-TEST: rule 4 counts a MULTI-LINE \`{false && (<${tag}/>)}\` as a live mount.`,
+    );
+}
 {
   const F = join(QR, "components/staff/__selftest__.tsx");
   const live = mountsSwitchHere(F, "const A = () => <div><StaffLangSwitch lang={lang} /></div>;");
@@ -1986,6 +2192,12 @@ for (const c of SELF_TEST_CASES) {
 }
 
 // Self-check: a rule that finds nothing to hold is not passing, it is not running.
+if (hostedPages === 0 || upPages === 0)
+  failures.push(
+    `rule 4 DID NOT RUN: ${hostedPages} pages reach a control module and ${upPages} lead up to one — the discovery is broken, not the codebase.`,
+  );
+if (keepEchoSites === 0)
+  failures.push("rule 6 DID NOT RUN: no keepEcho site found on the language surfaces.");
 if (marked < 10)
   failures.push(
     `rule 5 DID NOT RUN: found only ${marked} marked dictionary renders across ${MARK_FILES.length} staff components — the discovery is broken, not the codebase.`,
@@ -1998,5 +2210,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert, ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${FRONT_DOORS.length} front doors hold the pill · ${hostedPages}/${staffPages.length} staff pages reach one control module, ${upPages} lead up to one (4d), ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders · ${keepEchoSites} keepEcho sites)\x1b[0m`,
 );
