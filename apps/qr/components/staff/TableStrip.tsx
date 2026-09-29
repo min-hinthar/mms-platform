@@ -11,9 +11,8 @@ import {
   type FlipGuard,
 } from "@/lib/floor-rows";
 import { floorTone, type FloorTone } from "@/lib/floor-tone";
-import { al, floorStatusKey } from "@/lib/staff-labels";
+import { al } from "@/lib/staff-labels";
 import { tf } from "@/lib/i18n/fill";
-import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { useCounterMint, type MintNotice } from "./CounterMint";
@@ -55,15 +54,6 @@ const GLYPH: Record<FloorTone, IconName> = {
   done: "check",
   returned: "undo",
 };
-
-/** The occupied tile's name: "View — Table 7 · Pay at counter" — the status word the chip shows —
- *  and, when the table owes a Send, the card's own "· 2 not sent" (the mark is aria-hidden). */
-function occupiedSubject(lang: StaffLang, n: number, table: FloorTable): string {
-  const word = ts(lang, floorStatusKey(table.status, table.refund?.state ?? null));
-  const owed = owedSendUnits(table);
-  const tail = owed > 0 ? ` · ${tf(lang, "floor.kitchen.notSent", { n: owed })}` : "";
-  return `${tf(lang, "floor.table", { id: String(n) })} · ${word}${tail}`;
-}
 
 export function TableStrip({
   registry,
@@ -263,10 +253,14 @@ function OccupiedTile({
   onTap: (e: MouseEvent<HTMLAnchorElement>, table: FloorTable) => void;
 }) {
   const tone = floorTone(table.status, table.refund?.state ?? null);
-  const { aria } = al(lang, {
-    kind: "subject",
-    verb: "floor.verb.view",
-    subject: occupiedSubject(lang, n, table),
+  // Phase 2d · review — the `tile` arm: its `visible` IS the number rendered below ("View — Table 7
+  // · Pay at counter", and "· 2 not sent" when a Send is owed — the mark is aria-hidden).
+  const { visible, aria } = al(lang, {
+    kind: "tile",
+    n,
+    status: table.status,
+    refundState: table.refund?.state ?? null,
+    notSent: owedSendUnits(table),
   });
   return (
     <Link
@@ -279,7 +273,7 @@ function OccupiedTile({
       aria-disabled={held || undefined}
       onClick={(e) => onTap(e, table)}
     >
-      <span className="floor-tile-n">{n}</span>
+      <span className="floor-tile-n">{visible}</span>
       <Icon name={GLYPH[tone]} size={18} strokeWidth={2.25} className="floor-tile-glyph" />
       {owedSendUnits(table) > 0 ? <span className="floor-owed-dot" aria-hidden /> : null}
     </Link>

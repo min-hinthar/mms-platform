@@ -157,6 +157,23 @@ export type StaffControl =
    * add a second `subject` call site, that is the trap.
    */
   | { kind: "subject"; verb: VerbKey; subject: string }
+  /**
+   * Phase 2d · review — an OCCUPIED TABLE-STRIP TILE: a link whose visible content is the table's
+   * NUMBER alone (its glyph and its owed-Send mark are aria-hidden). Neither arm above fits: it shows
+   * no verb (`verb` would name a word it never renders), and `subject` — its first draft — makes the
+   * whole sentence the visible label, a string the tile never prints (the trap `subject`'s own
+   * docblock names). So `visible` is the number, Latin in both tongues as the tile prints it, and
+   * the name leads with the verb (`floor.verb.view`, `recall`'s inversion hard-coded for one
+   * control), then the table, the SAME status word the chip, the card and the strip's key say
+   * (`floorStatusKey`), and — when the table owes a Send — the card's own "· 2 not sent".
+   */
+  | {
+      kind: "tile";
+      n: number;
+      status: FloorStatus;
+      refundState: RefundState | null;
+      notSent: number;
+    }
   | {
       kind: "table";
       /** The table's display token — the number off the physical tent card. Latin, always. */
@@ -230,6 +247,16 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
     }
     case "subject": {
       return { visible: control.subject, aria: `${ts(lang, control.verb)} — ${control.subject}` };
+    }
+    case "tile": {
+      const visible = String(control.n);
+      const word = ts(lang, floorStatusKey(control.status, control.refundState));
+      const owed =
+        control.notSent > 0
+          ? ` · ${tf(lang, "floor.kitchen.notSent", { n: control.notSent })}`
+          : "";
+      const table = tf(lang, "floor.table", { id: visible });
+      return { visible, aria: `${ts(lang, "floor.verb.view")} — ${table} · ${word}${owed}` };
     }
     case "table": {
       const visible = tf(lang, "floor.table", { id: control.label });

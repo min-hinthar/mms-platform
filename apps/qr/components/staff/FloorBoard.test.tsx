@@ -388,6 +388,8 @@ describe("the strip starts a table through the screen's ONE lock", () => {
     expect(link.getAttribute("href")).toBe("/staff/table/s3");
     expect(link.getAttribute("data-tone")).toBe("ask");
     expect(link.getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
+    // Phase 2d · review (floor #5) — what the tile PRINTS is its label's visible half: the number.
+    expect(link.querySelector(".floor-tile-n")?.textContent).toBe("3");
     // An ordinary tap is navigation: not prevented, and it starts nothing.
     expect(fireEvent.click(link)).toBe(true);
     expect(openRegisterOrder).not.toHaveBeenCalled();

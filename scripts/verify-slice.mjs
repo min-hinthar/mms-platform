@@ -9808,11 +9808,12 @@ const MUTANTS = [
   },
   {
     id: "p2d-floor/strip-name-drops-the-owed-send",
-    file: "apps/qr/components/staff/TableStrip.tsx",
+    file: "apps/qr/lib/staff-labels.ts",
     suite: "components/staff/FloorBoard.test.tsx",
     why: "Phase 2d · floor — the dot is aria-hidden, so the tile's name must say '2 not sent' or a listener never hears what a sighted server sees",
-    find: '  const tail = owed > 0 ? ` · ${tf(lang, "floor.kitchen.notSent", { n: owed })}` : "";',
-    replace: '  const tail = "";',
+    // Phase 2d · review — re-anchored: the tile's name is `al()`'s `tile` arm now (floor #5).
+    find: '          ? ` · ${tf(lang, "floor.kitchen.notSent", { n: control.notSent })}`\n',
+    replace: '          ? ""\n',
   },
   {
     id: "p2d-floor/strip-busy-tile-unmarked",
@@ -10712,6 +10713,14 @@ const MUTANTS = [
     why: "Phase 2d · review (floor #4) — the help's first card teaches the Start zone's act; in a third verb (စဖို့) it teaches a word the screen never shows",
     find: '    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ ဖွင့်ဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",',
     replace: '    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",',
+  },
+  {
+    id: "p2d-rev/floor-tile-visible-is-not-the-number",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "lib/staff-labels.test.ts",
+    why: "Phase 2d · review (floor #5) — an occupied tile prints its number alone; a `visible` that is anything else is a label the tile never shows (the `subject` trap), and the strip would print it into a 60 px tile",
+    find: "      const visible = String(control.n);\n",
+    replace: '      const visible = tf(lang, "floor.table", { id: String(control.n) });\n',
   },
 ];
 
