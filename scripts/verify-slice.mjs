@@ -10639,6 +10639,23 @@ const MUTANTS = [
     find: "    if (!failed || !answered) return;",
     replace: "    if (!failed) return;",
   },
+  {
+    id: "p2d-rev/split-detail-paid-card-at-page-level",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 in the pane the paid card sits under the pane's h2 (Table 7 \u203a Paid); an h2 beside it breaks the outline a screen-reader user navigates by",
+    find: '            onDone={inPane ? () => nav.toFloor("user") : undefined}\n            headingLevel={inPane ? 3 : 2}',
+    replace:
+      '            onDone={inPane ? () => nav.toFloor("user") : undefined}\n            headingLevel={2}',
+  },
+  {
+    id: "p2d-rev/split-closed-paid-card-at-page-level",
+    file: "apps/qr/components/staff/TablePane.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 the closed notice's paid card sits under the pane's h2 like the live detail's",
+    find: "                    headingLevel={3}\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

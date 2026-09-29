@@ -336,7 +336,12 @@ export function TablePane({
             {cur?.kind === "closed" && (
               <>
                 {closedHandoff && (
-                  <HandoffCard lang={lang} handoff={closedHandoff} onDone={() => onClose("user")} />
+                  <HandoffCard
+                    lang={lang}
+                    handoff={closedHandoff}
+                    onDone={() => onClose("user")}
+                    headingLevel={3}
+                  />
                 )}
                 <EmptyState
                   titleAs="h3"

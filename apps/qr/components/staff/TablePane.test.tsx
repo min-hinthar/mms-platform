@@ -519,6 +519,30 @@ describe("TablePane — the paid card follows its table", () => {
     expect(pane().textContent).not.toContain("#A1B2C3");
   });
 
+  // Phase 2d · review fixes — the card sits UNDER the pane's heading (Table 7 › Paid), as every
+  // other section in the pane does; an h2 beside the pane's own h2 broke the outline.
+  it("the card's title is an h3 in the pane — on the live detail and on the closed notice", async () => {
+    stashHandoff(A, H);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    // MUTATION: the detail hands the card no pane level — an h2 beside the pane's h2; red.
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+    cleanup();
+    const tableCard = { ...H, isCounter: false };
+    stashHandoff(B, tableCard);
+    answers[B] = () => Promise.resolve({ kind: "closed", label: "T7", tableNumber: 7 });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${B}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "table.detail.closed.title"));
+    // MUTATION: the closed notice's card at the page level — red.
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+  });
+
   it("a settle that lands AFTER the pane moved on still leaves the card for its table", async () => {
     const counterA = detail(A, 4, {
       label: "reg-7f3a",

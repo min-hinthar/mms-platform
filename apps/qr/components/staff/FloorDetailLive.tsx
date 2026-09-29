@@ -1353,6 +1353,7 @@ export function FloorDetailLive({
             lang={lang}
             handoff={shownHandoff}
             onDone={inPane ? () => nav.toFloor("user") : undefined}
+            headingLevel={inPane ? 3 : 2}
           />
         )}
         {detail.paymentInFlight && terminalCollect == null && (
