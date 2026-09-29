@@ -10697,6 +10697,22 @@ const MUTANTS = [
     find: "                  : snap.registry.length === 0\n",
     replace: "                  : false\n",
   },
+  {
+    id: "p2d-rev/floor-zone-heading-forks-start",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "lib/i18n/strings.test.ts",
+    why: "Phase 2d · review (floor #4) — the Start zone's heading names the act the strip's tile and the Phone form's button name; forked back to စဖွင့် it is two Burmese verbs for one act a foot apart",
+    find: '  "floor.zone.start": { en: "Start an order", my: "အော်ဒါ ဖွင့်" },',
+    replace: '  "floor.zone.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },',
+  },
+  {
+    id: "p2d-rev/floor-help-forks-start",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "lib/i18n/strings.test.ts",
+    why: "Phase 2d · review (floor #4) — the help's first card teaches the Start zone's act; in a third verb (စဖို့) it teaches a word the screen never shows",
+    find: '    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ ဖွင့်ဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",',
+    replace: '    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
