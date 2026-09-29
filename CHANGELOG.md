@@ -126,7 +126,8 @@ counter screen's per-zone regions).
   three doors say what the P2cy lock guarantees.
 - **Owner decisions applied (2026-09-29, delegated: "decide on world class app design-thinking
   quality standards and apply database migrations").** ⑤a **P2dc — fail closed** at the three staff
-  doors (above); the diner's counter ask stays fail-open (it moves no money). ⑤b **P2dd + P2cy ship as
+  doors (above; the refusal speaks the house outage sentence, not the decision's drafted "Couldn't
+  check the kitchen — try again" — P2el); the diner's counter ask stays fail-open (it moves no money). ⑤b **P2dd + P2cy ship as
   a migration and are applied to prod**, one file, verified. ⑤c **Phase 2d as recommended:** the
   one-tap strip replacing the typed arm (600 ms flip guard, Clear table recovery); Walk-up the Start
   zone's one primary; the tablet split side by side from 48em with a persistent empty pane from 64em,
@@ -187,7 +188,9 @@ counter screen's per-zone regions).
 - **OPEN-ITEMS.** Closed P2dd · P2cy · P2dc (the three shipped here, with the prod evidence) · P2ac
   (`staff_fire_undo_test.sql` ran green in run `36628474692`) · P2ah (the floor's "not sent"); K14
   and K33 lose their floor / chip halves; K24 narrowed to its remainder; P2am · P2al · P2at · P2bh ·
-  P2bw · P2z · M125 updated; new **P2de–P2ek** (P2dk is the two-session CI case for the row lock).
+  P2bw · P2z · M125 updated; new **P2de–P2el** (P2dk is the two-session CI case for the row lock;
+  P2el the fail-closed refusal's words, which are the house outage sentence rather than the owner's
+  "Couldn't check the kitchen — try again").
 - **Gate at this head (measured):** 1271 `verify:slice` mutants across 179 target modules (145 lib ·
   3 API routes · 30 components · 1 `packages/db`) · 4288 qr + 278 ui tests · 39 mode-authority
   mutants · `check:docs` and `check:mutant-anchors` clean. The full 1271-mutant `verify:slice` run
