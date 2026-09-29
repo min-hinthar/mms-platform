@@ -17,6 +17,7 @@ import {
   counterColumnShown,
   lostKey,
   nextLost,
+  type LostKind,
   paneFocusAfterClose,
   paneFreezeSpoken,
   paneFromHash,
@@ -256,9 +257,10 @@ describe("lostKey / nextLost — a change the pane's table never saw land (revie
     expect(lostKey("settleUnknown")).toBe("floor.pane.lostSettleUnknown");
   });
   it("a later loss replaces the standing one — but a line edit never replaces a payment", () => {
-    const w = (id: string) => ({ id, kind: "write" as const });
-    const pay = (id: string) => ({ id, kind: "settle" as const });
-    const unk = (id: string) => ({ id, kind: "settleUnknown" as const });
+    type Lost = { id: string; kind: LostKind };
+    const w = (id: string): Lost => ({ id, kind: "write" });
+    const pay = (id: string): Lost => ({ id, kind: "settle" });
+    const unk = (id: string): Lost => ({ id, kind: "settleUnknown" });
     expect(nextLost(null, w("a"))).toEqual(w("a"));
     expect(nextLost(w("a"), w("b"))).toEqual(w("b"));
     expect(nextLost(w("a"), pay("b"))).toEqual(pay("b"));
