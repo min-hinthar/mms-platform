@@ -3203,6 +3203,45 @@ export const STAFF = {
     en: "Sound didn’t start on this device — tap to try again.",
     my: "ဒီစက်မှာ အသံ မစနိုင်ပါ — ထပ်နှိပ်ကြည့်ပါ။",
   },
+  // ── Phase 2d · split ──
+  // The counter's tablet split (K24): the selected table in a pane beside the floor. Every MY value
+  // below is a Claude-authored K15 draft pending Min's native check. Words grounded on: ကြည့်
+  // (floor.verb.view — an occupied table is VIEWED, never ဖွင့်, the strip's Start), အော်ဒါ and
+  // စားပွဲ (floor.counter / floor.table), ပိတ်ထားပြီ (table.detail.closed.title). `{x}` is a name
+  // already in the console's tongue ("Table 7" / "စားပွဲ 7", or "Counter order").
+  // The pane's empty state (≥64em, nothing picked): no button — the action is the card.
+  "floor.pane.empty.title": { en: "Pick a table", my: "စားပွဲတစ်ခု ရွေးပါ" },
+  "floor.pane.empty.sub": {
+    en: "Its order opens here, beside the list.",
+    my: "အဲဒီစားပွဲရဲ့ အော်ဒါက စာရင်းဘေး ဒီနေရာမှာ ပေါ်လာပါမယ်။",
+  },
+  // A counter order that closed while its pane was open (the table's twin is table.detail.closed.title).
+  "floor.pane.closed.counterTitle": {
+    en: "This counter order is closed",
+    my: "ဒီကောင်တာ အော်ဒါ ပိတ်ထားပြီ",
+  },
+  "floor.pane.closed.body": {
+    en: "It was cleared or merged, or its session ended.",
+    my: "ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် အချိန်ကုန်သွားတာ ဖြစ်ပါတယ်။",
+  },
+  // A closed Table 7 beside a NEW party's live Table 7: the one way to the table that is there now.
+  "floor.pane.closed.openCurrent": {
+    en: "View the current {x}",
+    my: "လက်ရှိ {x} ကို ကြည့်ပါ",
+  },
+  // The first read failed for a cause this end cannot name (a timeout, a dropped transport). Never
+  // "the system is unreachable" (that is out.shell.title, for a server-said outage) and never paper.
+  "floor.pane.fail.title": {
+    en: "Couldn’t show this table yet",
+    my: "ဒီစားပွဲကို မပြနိုင်သေးပါ",
+  },
+  // A line or discount change on one table, refused AFTER the pane moved to another: the person
+  // must hear it, and the way to check is one tap.
+  "floor.pane.lostWrite": {
+    en: "A change on {x} didn’t save — view it to check.",
+    my: "{x} မှာ ပြင်လိုက်တာ မသိမ်းမိပါ — ကြည့်ပြီး စစ်ပါ။",
+  }, // K15-HIGH — a dish change that did not save on a table the cashier has left
+  "floor.pane.open": { en: "View {x}", my: "{x} ကို ကြည့်ပါ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3411,6 +3450,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── Phase 2d · floor ──
   "floor.kitchen.notSent",
   "floor.key.notSent",
+  // ── Phase 2d · split ──
+  "floor.pane.lostWrite",
 ]);
 
 /**
