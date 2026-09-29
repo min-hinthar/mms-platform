@@ -52,6 +52,11 @@ let dbNow: string | null = DB_NOW;
 function tableApi(name: string) {
   const eqs: [string, unknown][] = [];
   const ins: [string, unknown[]][] = [];
+  // Phase 2d · review — `.gt()` and `.order()` are EVALUATED too: the open-cart line read walks
+  // keyset pages (`order("id")` + `gt("id", last)`), so a read that drops either reads the same
+  // page twice, or an unordered one, and the total it builds is wrong here rather than merely logged.
+  const gts: [string, unknown][] = [];
+  let orderBy: string | null = null;
   let cap: number | null = null;
   let select = "";
   const answer = (): Row[] => {
@@ -60,8 +65,15 @@ function tableApi(name: string) {
     const hit = (rows[name] ?? []).filter(
       (r) =>
         eqs.every(([c, v]) => !(c in r) || r[c] === v) &&
-        ins.every(([c, vs]) => !(c in r) || vs.includes(r[c])),
+        ins.every(([c, vs]) => !(c in r) || vs.includes(r[c])) &&
+        gts.every(([c, v]) => !(c in r) || (r[c] as string) > (v as string)),
     );
+    if (orderBy !== null) {
+      const col = orderBy;
+      hit.sort((a, b) =>
+        (a[col] as string) < (b[col] as string) ? -1 : a[col] === b[col] ? 0 : 1,
+      );
+    }
     // A column the read did not SELECT is not on the row it gets back — so a read that drops one
     // hands the fold an `undefined`, exactly as PostgREST would omit it.
     const cols = select.includes("(") ? null : select.split(",").map((c) => c.trim());
@@ -87,8 +99,14 @@ function tableApi(name: string) {
       cap = n;
       return api;
     },
-    order: () => api,
-    gt: () => api,
+    order(col: string) {
+      orderBy = col;
+      return api;
+    },
+    gt(col: string, val: unknown) {
+      gts.push([col, val]);
+      return api;
+    },
     not: () => api,
     or: () => api,
     is: () => api,
@@ -302,22 +320,67 @@ describe("getFloorView — guards", () => {
     expect(await getFloorView()).toEqual({ ok: false, reason: "locked" });
   });
 
-  it("an open-cart line read that comes back AT its cap is an outage, never a partial room", async () => {
-    // MUTATION: ignore the saturation → a truncated fold misstates the kitchen and the total.
-    rows.qr_cart_items = Array.from({ length: 900 }, () => line({}));
-    expect(await getFloorView()).toEqual({ ok: false, reason: "outage" });
-  });
-
-  it("a paid-cart line read that comes back AT its cap is an outage too", async () => {
-    rows.qr_cart_items = Array.from({ length: 900 }, () =>
-      line({ cart_id: PAID, state: "served", fire_at: ago(50), bumped_at: ago(45) }),
-    );
-    expect(await getFloorView()).toEqual({ ok: false, reason: "outage" });
-  });
-
   it("one line under the cap is an ordinary read", async () => {
     rows.qr_cart_items = Array.from({ length: 899 }, () => line({}));
     const { t } = await table7();
     expect(t.itemCount).toBe(899);
+  });
+});
+
+// ── Phase 2d · review (floor #6) — a full line read degrades, it never takes the room down ──
+describe("getFloorView — a line read at its cap", () => {
+  // At 900 rows a read cannot tell "exactly this many" from "we stopped counting", and it used to
+  // answer `outage` for the WHOLE room: the strip, every card and every table start gone because
+  // one table had a long night. Now: the OPEN carts' lines — which carry the money on the cards —
+  // are read WHOLE in keyset pages, and the PAID carts' kitchen read, when full, makes the kitchen
+  // picture honestly unknown while everything else keeps working.
+  const pad = (n: number, i: number) =>
+    `l-${String(n).padStart(2, "0")}-${String(i).padStart(5, "0")}`;
+
+  it("an open-cart read past one page is read WHOLE — the card's count and total are never partial", async () => {
+    // MUTATION: one page only → the 900-row page saturates and the room is an outage. MUTATION:
+    // drop the keyset `gt` → page two is page one again and the count doubles.
+    // Inserted in DESCENDING id order, so a read that forgets `order("id")` walks a page boundary
+    // that is not the keyset's and reads rows twice (MUTATION: drop the order → 1,799).
+    rows.qr_cart_items = Array.from({ length: 950 }, (_, i) => line({ id: pad(0, 949 - i) }));
+    const { snap, t } = await table7();
+    expect(t.itemCount).toBe(950);
+    expect(t.runningSubtotalCents).toBe(950 * 1000);
+    expect(snap.kitchenUnknown).toBe(false);
+  });
+
+  it("an open-cart read past its page ceiling is an outage — a card's money is never a partial sum", async () => {
+    // MUTATION: ignore the ceiling → a truncated total is drawn as the table's.
+    rows.qr_cart_items = Array.from({ length: 900 * 5 }, (_, i) => line({ id: pad(1, i) }));
+    expect(await getFloorView()).toEqual({ ok: false, reason: "outage" });
+  });
+
+  it("a paid-cart read at its cap keeps the room — tables, registry, money — and says the kitchen is unknown", async () => {
+    // MUTATION: make the saturation an outage again → the strip, the cards and every start vanish.
+    // MUTATION: fold anyway → a partial kitchen count drawn as the table's.
+    rows.qr_cart_items = [
+      line({ created_at: ago(5) }),
+      ...Array.from({ length: 900 }, (_, i) =>
+        line({
+          id: pad(2, i),
+          cart_id: PAID,
+          state: "served",
+          fire_at: ago(50),
+          bumped_at: ago(45),
+        }),
+      ),
+    ];
+    const { snap, t } = await table7();
+    expect(snap.kitchenUnknown).toBe(true);
+    expect(t.kitchen).toBeNull();
+    expect(t.itemCount).toBe(1);
+    expect(t.runningSubtotalCents).toBe(1000);
+    expect(snap.registry).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it("an ordinary read says the kitchen is known", async () => {
+    const { snap, t } = await table7();
+    expect(snap.kitchenUnknown).toBe(false);
+    expect(t.kitchen).not.toBeNull();
   });
 });

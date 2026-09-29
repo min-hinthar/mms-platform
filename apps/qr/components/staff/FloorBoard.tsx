@@ -80,7 +80,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevUp = useRef<Map<string, number>>(
-    new Map(initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0])),
+    new Map(
+      initial.kitchenUnknown ? [] : initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]),
+    ),
   );
   const onStripNotice = useCallback((n: StaffMsg | null) => {
     if (stripTimer.current) clearTimeout(stripTimer.current);
@@ -142,7 +144,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           bumped.push([t.sessionId, nonceRef.current]);
         }
       }
-      prevUp.current = new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
+      // Phase 2d · review — an UNKNOWN kitchen is no baseline: its zeros are not "nothing up", so
+      // the kitchen's return is first sight (never a rise) — never "Ready to serve" for food that
+      // was already out.
+      prevUp.current = next.kitchenUnknown
+        ? new Map()
+        : new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
       if (upNow.length > 0) {
         if (upTimer.current) clearTimeout(upTimer.current);
         setUpNotice(upNow);
@@ -346,6 +353,11 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               // is one a screen-reader user never reaches.
               snap.counterTruncated ? (
                 <Chrome key="truncated" lang={lang} k="floor.counter.truncated" />
+              ) : null,
+              // Phase 2d · review (floor #6) — the kitchen read came back full: every card's
+              // kitchen row is unknown this poll, said once here rather than vanishing unsaid.
+              snap.kitchenUnknown ? (
+                <Chrome key="kitchen" lang={lang} k="floor.kitchen.unknown" />
               ) : null,
             ]
               .filter(Boolean)

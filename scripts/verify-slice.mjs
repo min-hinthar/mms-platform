@@ -9621,17 +9621,20 @@ const MUTANTS = [
     id: "p2d-floor/read-open-lines-truncate-silently",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
-    why: "Phase 2d · floor — PostgREST truncates at its cap without saying so; a read AT the cap is an outage, never a partial room (the KDS's posture)",
-    find: '    queueEmptiness((lines ?? []).length, FLOOR_LINE_CAP) === "cannot-say" ||\n',
-    replace: "    false ||\n",
+    why: "Phase 2d · floor — PostgREST truncates at its cap without saying so; the open carts carry the money on the cards, so a read past its page ceiling is an outage, never a partial sum drawn as the room",
+    // Phase 2d · review — re-anchored: the open read pages now; only past its ceiling is it an
+    // outage (floor #6).
+    find: "  if (open.saturated) {\n",
+    replace: "  if (false) {\n",
   },
   {
     id: "p2d-floor/read-paid-lines-truncate-silently",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
-    why: "Phase 2d · floor — the paid-cart kitchen read is bounded the same way; at its cap it is an outage too",
-    find: '    queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say"\n',
-    replace: "    false\n",
+    why: "Phase 2d · floor — the paid-cart kitchen read is bounded the same way; at its cap the kitchen is UNKNOWN (never a partial fold drawn as the table's)",
+    // Phase 2d · review — re-anchored: a full paid read degrades the kitchen, not the room (floor #6).
+    find: '  const kitchenUnknown = queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say";\n',
+    replace: "  const kitchenUnknown = false;\n",
   },
   {
     id: "p2d-floor/read-opened-is-last-activity",
@@ -9654,17 +9657,19 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · floor — 'not sent' is dine-in drafts only; without the fulfillment column the send rule sees none and every table owes nothing",
-    find: '"cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
-    replace: '"cart_id,qty,unit_price_cents,created_at,state,comped,fire_at,bumped_at,by_seat",',
+    // Phase 2d · review — re-anchored: the paged read selects `id` first (floor #6).
+    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
+    replace: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fire_at,bumped_at,by_seat",',
   },
   {
     id: "p2d-floor/read-drops-who-added-it",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · floor — on a host table only staff-added drafts are owed; without by_seat every diner's line reads as staff-added",
-    find: '"cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
+    // Phase 2d · review — re-anchored: the paged read selects `id` first (floor #6).
+    find: '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",',
     replace:
-      '"cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at",',
+      '"id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at",',
   },
   {
     id: "p2d-floor/read-host-ignored",
@@ -10721,6 +10726,63 @@ const MUTANTS = [
     why: "Phase 2d · review (floor #5) — an occupied tile prints its number alone; a `visible` that is anything else is a label the tile never shows (the `subject` trap), and the strip would print it into a 60 px tile",
     find: "      const visible = String(control.n);\n",
     replace: '      const visible = tf(lang, "floor.table", { id: String(control.n) });\n',
+  },
+  {
+    id: "p2d-rev/floor-paid-cap-freezes-the-room",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · review (floor #6) — a full paid-cart kitchen read is no reason to take the strip, every card and every table start down: it makes the kitchen unknown and the room keeps working",
+    find: "  if (kitchenUnknown)\n    console.error(",
+    replace:
+      '  if (kitchenUnknown) return { ok: false, reason: "outage" };\n  if (kitchenUnknown)\n    console.error(',
+  },
+  {
+    id: "p2d-rev/floor-kitchen-unknown-folds-anyway",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · review (floor #6) — an unknown kitchen folds to nothing on every card; folded from a truncated read it draws a partial count as the table's",
+    find: "      kitchen: kitchenUnknown\n        ? null\n",
+    replace: "      kitchen: false\n        ? null\n",
+  },
+  {
+    id: "p2d-rev/floor-open-lines-one-page",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · review (floor #6) — the open carts carry the money on the cards, so their read walks past one full page; a single page freezes the whole room at 900 lines again",
+    find: "const FLOOR_OPEN_LINE_PAGES = 5;",
+    replace: "const FLOOR_OPEN_LINE_PAGES = 1;",
+  },
+  {
+    id: "p2d-rev/floor-open-lines-no-keyset",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · review (floor #6) — each page starts after the last id seen; without the keyset page two is page one again and a card's count and total double",
+    find: '      if (after !== null) q = q.gt("id", after);\n',
+    replace: "",
+  },
+  {
+    id: "p2d-rev/floor-open-lines-unordered",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · review (floor #6) — a keyset page boundary is only a boundary on the column the rows are ORDERED by; unordered, rows either side of it are read twice or never",
+    find: '      const { data, error } = await q.order("id").limit(FLOOR_LINE_CAP);\n',
+    replace: "      const { data, error } = await q.limit(FLOOR_LINE_CAP);\n",
+  },
+  {
+    id: "p2d-rev/floor-region-hides-an-unknown-kitchen",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #6) — when the kitchen read came back full every card's kitchen row vanishes; the room's one region must say why, once",
+    find: "              snap.kitchenUnknown ? (\n",
+    replace: "              false ? (\n",
+  },
+  {
+    id: "p2d-rev/floor-unknown-kitchen-is-a-baseline",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #6) — an unknown kitchen's zeros are not 'nothing up'; kept as the baseline, the kitchen's return rings 'Ready to serve' for food that was already out",
+    find: "      prevUp.current = next.kitchenUnknown\n",
+    replace: "      prevUp.current = false\n",
   },
 ];
 

@@ -3192,6 +3192,13 @@ export const STAFF = {
     en: "Ready to serve — Tables {id}",
     my: "ဟင်းထွက်ပြီ — စားပွဲ {id}",
   }, // grounded: board.pulse.up + floor.table
+  // Phase 2d · review (floor #6) — a segment of the count line when the floor's kitchen read came
+  // back full: every card's kitchen row is UNKNOWN this poll, so the room says it once here instead
+  // of the rows silently vanishing. K15 draft; words grounded on မီးဖိုချောင် (kds.title).
+  "floor.kitchen.unknown": {
+    en: "Kitchen status can’t be shown right now",
+    my: "မီးဖိုချောင် အခြေအနေ အခု မပြနိုင်ပါ",
+  },
   // A segment of the count line, whenever a table has asked to pay at the counter.
   "floor.tables.asks": {
     en: "{n} waiting to pay at counter",

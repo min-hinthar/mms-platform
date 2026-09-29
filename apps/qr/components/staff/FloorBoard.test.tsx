@@ -94,6 +94,7 @@ const snap = (tables: FloorTable[], over: Partial<FloorSnapshot> = {}): FloorSna
   serverNow: NOW,
   registry: REGISTRY,
   thresholds: DEFAULT_KDS_THRESHOLDS,
+  kitchenUnknown: false,
   ...over,
 });
 const ok = (s: FloorSnapshot) => () => Promise.resolve({ ok: true, snapshot: s });
@@ -508,6 +509,26 @@ describe("the ONE region", () => {
     const { region, section } = mount(snap([table(7, { kitchen: up })]));
     answer = ok(snap([table(7, { kitchen: up })]));
     await tick(5000);
+    expect(region().textContent).toBe("1 active table");
+    expect(section().querySelector(".floor-card-pulse")).toBeNull();
+  });
+});
+
+describe("a kitchen the floor could not read (Phase 2d · review, floor #6)", () => {
+  it("(s) is said ONCE in the region, draws no kitchen row, and its return never rings 'Ready to serve'", async () => {
+    // A full paid-cart read used to take the whole room down; now the room stays and the kitchen
+    // is honestly unknown. MUTATION: drop the region's segment → nothing says why every kitchen row
+    // vanished. MUTATION: keep an unknown poll's zeros as the baseline → the kitchen's return reads
+    // as food coming out on every table that already had it up.
+    const up = (n: number) => ({ notSent: 0, inKitchen: 0, up: n, done: 0, oldestFireAt: null });
+    const { region, section } = mount(snap([table(7, { kitchen: up(1) })]));
+    expect(region().textContent).toBe("1 active table");
+    answer = ok(snap([table(7, { kitchen: null })], { kitchenUnknown: true }));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe(`1 active table · ${ts("en", "floor.kitchen.unknown")}`);
+    expect(section().querySelector(".floor-kitchen")).toBeNull();
+    answer = ok(snap([table(7, { kitchen: up(1) })]));
+    await tick(POLL_MS);
     expect(region().textContent).toBe("1 active table");
     expect(section().querySelector(".floor-card-pulse")).toBeNull();
   });
