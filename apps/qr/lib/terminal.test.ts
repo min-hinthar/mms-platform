@@ -102,9 +102,10 @@ let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
 /** Phase 2c · gate — the session's mode, per case (a counter order by default). */
 let sessionMode: "pickup" | "dinein" = "pickup";
 /** Phase 2c · gate — what the unsent read answers: the dine-in dishes still to send. */
-let unsentUnits = 0;
+let unsentUnits: number | null = 0;
 vi.mock("./unsent-read", () => ({
-  kitchenDraftUnits: (cartId: string) => {
+  // P2dc — settleCard reads the error-aware twin (`null` = unreadable).
+  readKitchenDraftUnits: (cartId: string) => {
     log("unsent-read", { cartId });
     return Promise.resolve(unsentUnits);
   },
@@ -795,6 +796,24 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
       attemptId: string;
     };
     expect(rel).toEqual({ cartId: "cart-1", attemptId: acq.uid });
+  });
+
+  // P2dc (owner decision 5a) — no PaymentIntent is minted over a gate nobody could check.
+  it("an UNREADABLE unsent count refuses with the outage sentence, before any PaymentIntent", async () => {
+    // MUTATION (p2d-dc/card-unreadable-fails-open): treat null as 0 — the reader charges a table
+    // whose unsent dishes nobody could count, and the webhook fires them after pay; red.
+    sessionMode = "dinein";
+    unsentUnits = null;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toEqual({ ok: false, error: "outage" }); // `./staff` is mocked: its outage sentence
+    expect(calls.map((c) => c.op)).toEqual(["acquire", "unsent-read", "releaseFor"]);
+  });
+
+  it("…a counter order's unreadable count changes nothing (the gate never applies there)", async () => {
+    sessionMode = "pickup";
+    unsentUnits = null;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: true });
   });
 
   it("a counter order is never gated — paying IS ordering there", async () => {

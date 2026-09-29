@@ -27,8 +27,8 @@ import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
 import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
-import { staffSettleBlockedByUnsent } from "./checkout-stage";
-import { kitchenDraftUnits } from "./unsent-read";
+import { staffSettleUnsentVerdict } from "./checkout-stage";
+import { readKitchenDraftUnits } from "./unsent-read";
 import { lineRpcRefusal } from "./line-rpc-refusal";
 
 // Named once for this module's refusals (a "use server" file may export only async functions, so
@@ -379,16 +379,15 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // refusal costs no totals read). The read fails OPEN (lib/unsent-read), which is today's
     // settle-fires behaviour. Returned from INSIDE the try: the `finally` below releases this
     // attempt's freeze.
-    // ⚠️ THE FREEZE DOES NOT STOP AN ADD LANDING AFTER THIS READ (Phase 2c · review, R7 — this
-    // comment used to claim "no add or fire can move the verdict before the RPC"). `staffAddItem`
-    // (and the diner's add) check the freeze with a READ before their write, and
-    // `mms_cart_item_insert_if_open` guards only `status = 'open'`, never `settle_at` — so an add
-    // whose check passed just before the acquire can insert a draft after this read. What catches it
-    // HERE is the compare-and-swap below: the new dish moves the live total off `quotedCents` and the
-    // settle refuses `moved` (whenever the sheet sent a quote). `settleCard` (lib/terminal) has no
-    // such compare; the real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
-    const unsentUnits = await kitchenDraftUnits(cart.id);
-    if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);
+    // P2cy (20260929000000) — the add RPCs now take the cart row FOR SHARE and refuse under a fresh
+    // freeze, so no add can land after the acquire above: an add that locked first committed before
+    // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
+    // P2dc (owner decision 5a) — an UNREADABLE count refuses here (fail closed at the staff doors);
+    // the `finally` below releases this attempt's freeze.
+    const unsentUnits = await readKitchenDraftUnits(cart.id);
+    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
+    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };
+    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -668,12 +667,14 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // and long before any PaymentIntent. This close is the one where "the guest may have left", so a
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
-  // (R7: the freeze does not stop an add landing after this read — see settleCash; here too the
-  // compare-and-swap below is what refuses it, when the confirm sent its quote.)
-  const unsentUnits = await kitchenDraftUnits(cart.id);
-  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+  // (P2cy: no add lands after the acquire — see settleCash. P2dc: an unreadable count refuses.)
+  const unsentUnits = await readKitchenDraftUnits(cart.id);
+  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
+  if (unsent !== null) {
     await releaseSettlementFor(cart.id, attempt);
-    return unsentRefusal(unsentUnits);
+    return unsent === "unsent"
+      ? unsentRefusal(unsentUnits ?? 0)
+      : { ok: false, error: STAFF_WRITE_OUTAGE };
   }
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the

@@ -45,6 +45,11 @@ vi.mock("./lock", () => ({
   // A3 — the release names its request-unique owner and reports whether it matched.
   releaseSettlementFor: () => Promise.resolve({ released: true, error: null }),
 }));
+// P2dc — the settle gate's read, answered EXPLICITLY (settle-cash-cas.test's R5 lesson): this
+// file's fake DB never answered a line read, so the gate used to pass through its fail-OPEN path on
+// every case. The staff doors now fail closed on an unreadable count, which surfaced it. Nothing is
+// unsent here; the gate itself is pinned in settle-unsent.test.
+vi.mock("./unsent-read", () => ({ readKitchenDraftUnits: () => Promise.resolve(0) }));
 vi.mock("./tax", () => ({ lineTax: () => 0 }));
 vi.mock("./order-lines", () => ({
   insertOrIncLine: () => Promise.resolve(),

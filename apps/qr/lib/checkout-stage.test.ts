@@ -5,6 +5,7 @@ import {
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
   staffSettleBlockedByUnsent,
+  staffSettleUnsentVerdict,
   unsentFoodQty,
 } from "./checkout-stage";
 
@@ -132,5 +133,23 @@ describe("staffSettleBlockedByUnsent — the staff settle gate is the diner gate
     for (const mode of ["dinein", "pickup", "scango", null, undefined])
       for (const n of [0, 1, 3])
         expect(staffSettleBlockedByUnsent(mode, n)).toBe(payBlockedByUnsent(mode, n, true));
+  });
+});
+
+describe("staffSettleUnsentVerdict — P2dc: the staff doors fail CLOSED on an unreadable count", () => {
+  it("an unreadable count at a dine-in table refuses (`unreadable`), never passes as 0", () => {
+    // MUTATION (p2d-dc/verdict-null-reads-as-zero): return null for null — every staff door takes
+    // money over a gate nobody could check; red.
+    expect(staffSettleUnsentVerdict("dinein", null)).toBe("unreadable");
+  });
+  it("…but only where the gate could ever refuse: a counter order's unreadable count passes", () => {
+    // MUTATION (p2d-dc/verdict-null-closes-every-mode): refuse null in any mode; red.
+    expect(staffSettleUnsentVerdict("pickup", null)).toBeNull();
+    expect(staffSettleUnsentVerdict("scango", null)).toBeNull();
+  });
+  it("a readable count is the settle gate, unchanged", () => {
+    expect(staffSettleUnsentVerdict("dinein", 2)).toBe("unsent");
+    expect(staffSettleUnsentVerdict("dinein", 0)).toBeNull();
+    expect(staffSettleUnsentVerdict("pickup", 2)).toBeNull();
   });
 });

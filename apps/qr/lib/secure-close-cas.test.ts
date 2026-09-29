@@ -48,6 +48,11 @@ vi.mock("./lock", () => ({
 let unsentUnits = 0;
 let unsentReads = 0;
 vi.mock("./unsent-read", () => ({
+  // P2dc — the staff doors read the error-aware twin; both answer the same count here.
+  readKitchenDraftUnits: () => {
+    unsentReads += 1;
+    return Promise.resolve(unsentUnits);
+  },
   kitchenDraftUnits: () => {
     unsentReads += 1;
     return Promise.resolve(unsentUnits);

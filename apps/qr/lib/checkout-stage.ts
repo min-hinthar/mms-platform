@@ -109,3 +109,24 @@ export function staffSettleBlockedByUnsent(
 ): boolean {
   return payBlockedByUnsent(mode, sendableUnits, true);
 }
+
+/**
+ * P2dc (owner decision 5a, 2026-09-29) — the staff gate when the unsent READ FAILED (`units` null).
+ *
+ * The diner doors keep `kitchenDraftUnits`' fail-open posture: a guest refused at Pay on a read blip
+ * has nobody to ask. The three STAFF doors fail CLOSED instead — a person at the register can try
+ * again in a second, and letting a card or cash through over a gate nobody could verify is the one
+ * outcome the gate exists to prevent (the settle fires the unsent dishes after pay).
+ *
+ * Closed only where the gate could ever refuse: an unreadable count on a mode the gate never blocks
+ * (a pickup order — paying IS ordering) changes nothing, and refusing it would block a counter sale
+ * on a read whose answer cannot matter. Delegated, never restated: "would ANY unsent dish block this
+ * mode?" is `staffSettleBlockedByUnsent(mode, 1)`.
+ */
+export function staffSettleUnsentVerdict(
+  mode: string | null | undefined,
+  sendableUnits: number | null,
+): "unreadable" | "unsent" | null {
+  if (sendableUnits === null) return staffSettleBlockedByUnsent(mode, 1) ? "unreadable" : null;
+  return staffSettleBlockedByUnsent(mode, sendableUnits) ? "unsent" : null;
+}
