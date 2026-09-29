@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
-import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { STAFF, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock, staffDate } from "@/lib/staff-clock";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
@@ -38,6 +38,7 @@ import { useLiveConnection } from "./LiveConnection";
 import { useStaffLangMode } from "./StaffLangProvider";
 import { STAFF_LANG_MODE_KEY, StaffLangRows } from "./StaffLangSwitch";
 import { useLangModeWrite } from "./useLangModeWrite";
+import { TicketDishTitle } from "./TicketText";
 
 type View = "menu" | "how" | "size" | "lang" | "report";
 
@@ -62,6 +63,18 @@ type HelpProps = {
     }
   | { screen: Exclude<HelpDoorScreen, "kitchen">; cardVars?: undefined }
 );
+
+/**
+ * P2e review — the Text size preview's word is a DISH, so it renders the way the ticket names a
+ * dish: `TicketDishTitle` (the catalog Burmese over its English), the same in every device mode,
+ * like `TicketText`. Through `<Chrome>` it followed the device — English alone on an English
+ * tablet, and no English line at all under Burmese only — so the preview stopped looking like the
+ * ticket it previews. The words stay in the dictionary (`help.size.sample`, one K15 home).
+ */
+const SIZE_SAMPLE = {
+  name: STAFF["help.size.sample"].en,
+  nameMy: STAFF["help.size.sample"].my,
+};
 
 /** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
 const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
@@ -542,7 +555,7 @@ export function HelpButton(props: HelpProps) {
                   }}
                 >
                   <span className="help-size-sample" data-size={sz}>
-                    <Chrome lang={lang} k="help.size.sample" echo="stack" />
+                    <TicketDishTitle line={SIZE_SAMPLE} />
                   </span>
                   <span className="help-size-meta">
                     <Chrome lang={lang} k={`kds.size.${sz}`} echo="inline" />

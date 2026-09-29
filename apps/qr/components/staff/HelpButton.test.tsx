@@ -712,3 +712,47 @@ describe("P2e — the Help sheet's Language row", () => {
     expect(setStaffLang).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * P2e review — the Text size preview is a DISH NAME, and a dish name never changes with the
+ * device's language (the ticket's `TicketText` path). Rendered through the chrome, the sample lost
+ * its English line on a Burmese-only device (and was English alone on an English one), so the
+ * preview stopped showing what the ticket shows. It is the ticket's own dish-title render now:
+ * byte-identical to `TicketDishTitle` for the same dish, in every mode.
+ */
+describe("P2e — the Text size sample reads as the ticket does, in every mode", () => {
+  it.each(["my-only", "both", "en"] as const)("under %s", async (mode) => {
+    seen("kitchen");
+    stubMatchMedia(true);
+    const { TicketDishTitle } = await import("./TicketText");
+    rtlRender(
+      <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
+        <HelpButton
+          lang={scriptOf(mode)}
+          screen="kitchen"
+          size={{ value: "m", onPick: vi.fn() }}
+          cardVars={kitchenVars}
+        />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(document.querySelector(".staff-circ-gold")!);
+    await screen.findByRole("dialog");
+    fireEvent.click(document.querySelector(".help-glyph-aa")!.closest("button")!);
+    const samples = await waitFor(() => {
+      const found = [...document.querySelectorAll(".help-size-sample")];
+      expect(found).toHaveLength(3);
+      return found;
+    });
+    const dish = {
+      name: STAFF["help.size.sample"].en,
+      nameMy: STAFF["help.size.sample"].my,
+    };
+    const ticket = rtlRender(<TicketDishTitle line={dish} />).container.innerHTML;
+    for (const s of samples) {
+      // The CSS's shape: `.help-size-sample > .chrome-pair > [lang="my"]` and `> .chrome-en`.
+      expect(s.querySelector(':scope > .chrome-pair > [lang="my"]')?.textContent).toBe(dish.nameMy);
+      expect(s.querySelector(":scope > .chrome-pair > .chrome-en")?.textContent).toBe(dish.name);
+      expect(s.innerHTML).toBe(ticket);
+    }
+  });
+});
