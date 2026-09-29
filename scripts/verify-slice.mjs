@@ -10797,7 +10797,7 @@ const MUTANTS = [
     id: "p2e-lang/k15-high-echo-dropped",
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
-    why: "P2e — the food-and-money band keeps its English on a Burmese-only device: the shared kitchen tablet's cross-check (Dad's line) under Mark sold out, Done and the money words",
+    why: "P2e — the K15-HIGH band (the strings a wrong word would stop service over) keeps its English on a Burmese-only device: the shared kitchen tablet's cross-check (Dad's line) under Mark sold out, Done and the money words",
     find: "  const echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k);",
     replace: "  const echoes = useEchoesShown() || keepEcho;",
   },

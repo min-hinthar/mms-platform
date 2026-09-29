@@ -44,8 +44,11 @@ import { useEchoesShown } from "./StaffLangProvider";
  *    the bare span would strip every bar title, door, More row and Help row of its size. And a key
  *    in `STAFF_K15_HIGH` keeps its English line whatever the device says: the English under Mark
  *    sold out, Cook now, Done and the money words is the shared kitchen tablet's cross-check (Dad's
- *    line, `TicketText`), and those are exactly the Burmese drafts that gate food or money — so the
- *    band that decides what the word-check sheet asks first also decides what English survives.
+ *    line, `TicketText`). The band is "the strings a wrong word takes SERVICE down over" — wider
+ *    than food and money: the logins and lock-outs, the outage and connection lines, the report's
+ *    outcome, the late and held tickets too — so the band that decides what the word-check sheet
+ *    asks first also decides what English survives, and the Burmese-only row's description says
+ *    exactly that ("where a wrong word would stop service"), never "food or money".
  *    `keepEcho` is the third way through: a language surface (the Help row, the More tile, the
  *    Profile card, the failure line) that must speak BOTH tongues on every device, because the
  *    person reading it may be exactly the one who cannot read the current mode. check:staff-lang

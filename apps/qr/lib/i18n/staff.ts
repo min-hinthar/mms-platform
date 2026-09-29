@@ -3254,8 +3254,8 @@ export const STAFF = {
   // ── Phase 2e · lang ──
   // The language as a three-way device setting (owner decision 2, 2026-09-24): the Help sheet's
   // Language row, the doors' More tile, the Profile's language card. Every MY value below is a
-  // Claude-authored draft pending Min's native check (K15); none gates food or money, so none
-  // carries the first-band marker. `.row` and `.scope` render in BOTH tongues on every device
+  // Claude-authored draft pending Min's native check (K15); a wrong word in none of them stops
+  // service (none gates food or money), so none carries the first-band marker. `.row` and `.scope` render in BOTH tongues on every device
   // (`keepEcho`) — the way back must be readable by whoever the current mode is wrong for; the
   // three mode lines and the note follow the device.
   // grounded: ဘာသာစကား is the word inside shell.lang.group (စက်၏ ဘာသာစကား).
@@ -3266,10 +3266,16 @@ export const STAFF = {
     en: "Only this device changes — every tablet and phone keeps its own.",
     my: "ဒီစက်ပဲ ပြောင်းပါမယ် — တက်ဘလက်နဲ့ ဖုန်း တစ်ခုစီက ကိုယ့်ဟာကိုယ် ထားပါတယ်။",
   },
-  // True by construction: the English a Burmese-only device keeps IS the STAFF_K15_HIGH band.
+  // The band that keeps its English on a Burmese-only device is STAFF_K15_HIGH, whose definition is
+  // "the strings a wrong word takes SERVICE down over" — the logins, the lock-outs, the outage and
+  // connection lines, the report's outcome, the late and held tickets and the money words, not only
+  // food and money. The language surfaces keep English too (keepEcho), and the note below says what
+  // never changes — so this line says where English STAYS and never claims "only" there. K15 draft,
+  // reworded in review; grounded: စာလုံးမှားရင် အလုပ် ရပ်သွား is the band's own phrase
+  // (pilot.gloss.band.high.why, "A wrong word here stops service").
   "shell.lang.mode.myOnly": {
-    en: "Burmese only — English stays only where a wrong word costs food or money",
-    my: "မြန်မာလို သီးသန့် — အစားအစာ ဒါမှမဟုတ် ငွေ ထိခိုက်နိုင်တဲ့ စာလုံးတွေမှာပဲ အင်္ဂလိပ် ကျန်ပါမယ်",
+    en: "Burmese only — English stays where a wrong word would stop service",
+    my: "မြန်မာလို သီးသန့် — စာလုံးမှားရင် အလုပ် ရပ်သွားနိုင်တဲ့ နေရာတွေမှာ အင်္ဂလိပ် ကျန်ပါမယ်",
   },
   // "on", not "under": an inline echo sits BESIDE its word.
   "shell.lang.mode.both": {

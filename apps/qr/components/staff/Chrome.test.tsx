@@ -288,7 +288,8 @@ describe("a labelled control's NAME contains every word the control SHOWS", () =
  * child pair is what keeps a Burmese-only bar title at its 30px — the render is measured here as a
  * TREE (the parent, its one element child), never as a substring (`startsWith` would pass a render
  * that still carried the echo after the Burmese). The K15-HIGH keys keep their English line because
- * the kitchen tablet is shared with an English reader (Dad's line) and those words gate food or money.
+ * the kitchen tablet is shared with an English reader (Dad's line) and a wrong word there would stop
+ * service (the band's definition — wider than food and money).
  */
 const burmeseOnly = (ui: React.ReactElement) =>
   render(
@@ -369,6 +370,24 @@ describe("P2e — the K15-HIGH band keeps its English line on a Burmese-only dev
       STAFF[k].my,
       STAFF[k].en,
     ]);
+  });
+
+  it("the Burmese-only row says what THIS band keeps, in the band's own words — never a narrower claim", () => {
+    // The band is "the strings a wrong word takes SERVICE down over" (the word-check sheet heads it
+    // "A wrong word here stops service"), and it holds keys that gate neither food nor money — so a
+    // row promising "English stays only where a wrong word costs food or money" was untrue on the
+    // first sign-in refusal. The row reuses the band's own phrase in both tongues and claims no
+    // exclusivity (the language surfaces keep their English too, `keepEcho`).
+    const band = STAFF["pilot.gloss.band.high.why"];
+    const row = STAFF["shell.lang.mode.myOnly"];
+    const MY_PHRASE = "စာလုံးမှားရင် အလုပ် ရပ်သွား";
+    expect(band.my).toContain(MY_PHRASE);
+    expect(row.my).toContain(MY_PHRASE);
+    expect(band.en).toMatch(/wrong word here stops service/);
+    expect(row.en).toMatch(/wrong word would stop service/);
+    for (const k of ["entry.login.denied", "pin.outage", "shell.net.offline"] as const)
+      expect(STAFF_K15_HIGH.has(k), k).toBe(true);
+    expect(row.en).not.toMatch(/stays only|food or money/);
   });
 
   it.each(HIGH)("%s · echo={false} is still the bare Burmese span — the flag adds nothing", (k) => {
