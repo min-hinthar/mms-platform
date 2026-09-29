@@ -7,6 +7,7 @@ import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
 import {
+  CartPayingError,
   insertOrIncLine,
   priceItem,
   touchCart,
@@ -258,6 +259,9 @@ export async function reorderOrder(raw: {
       // That is NOT an availability fact about the remaining dishes — stop and say what happened.
       if (e instanceof Error && e.message === "Cart is no longer open")
         return { ok: false, error: "Your order just closed — start a fresh one from the menu." };
+      // P2cy — the table's settlement froze it mid-loop (the RPC's own check, under its row lock).
+      // Stop and say so, in the diner's freeze sentence; the dishes already added stay.
+      if (e instanceof CartPayingError) return { ok: false, error: e.message };
       // M119 — an availability refusal carries its own reason, so the fallback path above stays as
       // honest as the batch one. Without this, a sold-out dish reached on the unverified path would
       // be reported `needs_choices` ("tap to choose") — a wrong sentence swapped in for a wrong

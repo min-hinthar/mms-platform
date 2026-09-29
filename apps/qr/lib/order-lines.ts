@@ -1,3 +1,4 @@
+import { lineRpcRefusal } from "./line-rpc-refusal";
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
@@ -80,6 +81,20 @@ export class CartClosedError extends Error {
   constructor() {
     super("Cart is no longer open");
     this.name = "CartClosedError";
+  }
+}
+
+/**
+ * P2cy — the line RPC refused because the table is being PAID (a fresh settlement freeze, checked
+ * under the cart's row lock). A DEFINITE non-write, like `CartClosedError`: the raise aborted the
+ * transaction. The message is the diner's own freeze sentence (`addItem`'s pre-check), so a diner
+ * who lost the race to the settlement reads the same words as one who didn't; staff map the type to
+ * their `paying` code.
+ */
+export class CartPayingError extends Error {
+  constructor() {
+    super("Your table is paying — you can’t change the order while everyone pays");
+    this.name = "CartPayingError";
   }
 }
 
@@ -290,37 +305,47 @@ export async function insertOrIncLine(
       // resolves every live caller. A duplicate scan_id makes the RPC a silent no-op (not an error).
       ...(scanId ? { p_scan_id: scanId } : {}),
     });
-    if (incErr) throw new Error("Cart is no longer open");
-  } else {
-    const { data: insertedId, error: insertErr } = await db.rpc("mms_cart_item_insert_if_open", {
-      p_cart_id: cartId,
-      p_menu_item_id: line.menuItemId,
-      p_name: line.name,
-      p_modifiers: line.opts,
-      p_unit_price_cents: line.unitPriceCents,
-      p_tax_cents: line.taxCents,
-      // The SQL param `p_by_seat uuid` is nullable (added-by-server lines pass null); Supabase's
-      // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
-      p_by_seat: bySeat as string,
-      p_fulfillment: line.fulfillment,
-      // p_qty/p_notes/p_scan_id default in SQL — omitted for a plain single add, so a pre-migration
-      // DB still resolves the call (deploy-order safety; see the migration header).
-      ...(qty !== 1 ? { p_qty: qty } : {}),
-      ...(line.notes ? { p_notes: line.notes } : {}),
-      ...(scanId ? { p_scan_id: scanId } : {}),
-      // M3 — spread ONLY when the line actually carries option ids (same deploy-order pattern):
-      // a DB without 20260815100000 still resolves every option-less caller.
-      ...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),
-    });
-    // An RPC ERROR is not a verdict: the response may have been lost after the insert committed, so
-    // it stays an untyped throw (the staff add reads it `unconfirmed`). Same sentence as ever — the
-    // callers that match it (reorder.ts) behave exactly as before.
-    if (insertErr) throw new Error("Cart is no longer open");
-    // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
-    // check as the idempotent success it is (the write already landed on a prior attempt). A null
-    // with no error is the guard's own refusal: nothing was written (`CartClosedError`).
-    if (!insertedId) throw new CartClosedError();
+    if (!incErr) return;
+    // P2dd · P2cy — two raises are DEFINITE refusals (the transaction aborted; nothing landed):
+    //  · `paying` — the table's settlement froze it between the caller's read and this bump;
+    //  · `sent`   — a Send fired the sibling between the sibling read above and this bump. An add
+    //    after a Send is a FRESH draft in the order model, so fall through to the insert — the
+    //    bump's scan claim rolled back with the raise, so the insert can claim the same scan id.
+    // Anything else stays the untyped throw it always was: it may have committed.
+    const refusal = lineRpcRefusal(incErr);
+    if (refusal === "paying") throw new CartPayingError();
+    if (refusal !== "sent") throw new Error("Cart is no longer open");
   }
+  const { data: insertedId, error: insertErr } = await db.rpc("mms_cart_item_insert_if_open", {
+    p_cart_id: cartId,
+    p_menu_item_id: line.menuItemId,
+    p_name: line.name,
+    p_modifiers: line.opts,
+    p_unit_price_cents: line.unitPriceCents,
+    p_tax_cents: line.taxCents,
+    // The SQL param `p_by_seat uuid` is nullable (added-by-server lines pass null); Supabase's
+    // type-gen marks it non-null, so cast. NULL is a valid provenance ("no seat").
+    p_by_seat: bySeat as string,
+    p_fulfillment: line.fulfillment,
+    // p_qty/p_notes/p_scan_id default in SQL — omitted for a plain single add, so a pre-migration
+    // DB still resolves the call (deploy-order safety; see the migration header).
+    ...(qty !== 1 ? { p_qty: qty } : {}),
+    ...(line.notes ? { p_notes: line.notes } : {}),
+    ...(scanId ? { p_scan_id: scanId } : {}),
+    // M3 — spread ONLY when the line actually carries option ids (same deploy-order pattern):
+    // a DB without 20260815100000 still resolves every option-less caller.
+    ...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),
+  });
+  // An RPC ERROR is not a verdict: the response may have been lost after the insert committed, so
+  // it stays an untyped throw (the staff add reads it `unconfirmed`). Same sentence as ever — the
+  // callers that match it (reorder.ts) behave exactly as before.
+  // P2cy — except the freeze: a raise that aborted the transaction, so a definite non-write.
+  if (lineRpcRefusal(insertErr) === "paying") throw new CartPayingError();
+  if (insertErr) throw new Error("Cart is no longer open");
+  // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
+  // check as the idempotent success it is (the write already landed on a prior attempt). A null
+  // with no error is the guard's own refusal: nothing was written (`CartClosedError`).
+  if (!insertedId) throw new CartClosedError();
 }
 
 /** Bump a cart's updated_at so realtime peers re-sync. Non-fatal (the line mutation already committed) —

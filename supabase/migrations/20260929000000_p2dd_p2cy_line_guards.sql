@@ -28,6 +28,7 @@
 -- the claim could commit between our read and our commit, and the settlement's reads would miss a
 -- line that then appears. `FOR SHARE` is compatible with itself, so concurrent adds to one table
 -- never serialize against each other; only a settlement waits (for the length of one insert).
+-- Measured, both orders and the mutant without the lock: the test file's header.
 --
 -- Lock ORDER is cart → line, the same order every settlement function uses (`… from qr_carts where
 -- id = p_cart for update` first). The fire functions (`mms_fire_cart`, `mms_fire_pending_food`,

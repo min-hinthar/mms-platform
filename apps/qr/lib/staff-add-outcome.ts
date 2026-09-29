@@ -1,4 +1,9 @@
-import { CartClosedError, ItemUnreadableError, ItemUnsellableError } from "./order-lines";
+import {
+  CartClosedError,
+  CartPayingError,
+  ItemUnreadableError,
+  ItemUnsellableError,
+} from "./order-lines";
 
 /**
  * Phase 2a · padserver — the staff add's refusal, CODED (order-pad spec, commit group 1).
@@ -17,7 +22,14 @@ import { CartClosedError, ItemUnreadableError, ItemUnsellableError } from "./ord
  */
 
 /** A failure `addFailureCode` can decide from the phase + the thrown value. */
-export type AddFailureCode = "sold_out" | "gone" | "outage" | "failed" | "unconfirmed" | "closed";
+export type AddFailureCode =
+  | "sold_out"
+  | "gone"
+  | "outage"
+  | "failed"
+  | "unconfirmed"
+  | "closed"
+  | "paying";
 
 /**
  * Every code `staffAddItem` can answer with. The pre-read refusals are decided by the branch that
@@ -44,6 +56,9 @@ export function addFailureCode(phase: "price" | "write", err: unknown): AddFailu
   // open" (null, no error) — nothing was written, so the add is not in doubt. Typed at the throw
   // (`CartClosedError`), never matched by message: an RPC error carries the same sentence.
   if (phase === "write" && err instanceof CartClosedError) return "closed";
+  // P2cy — the other definite refusal: the settlement froze the table between the add's read and
+  // its write (`CartPayingError`, a raise that aborted the transaction). Nothing landed.
+  if (phase === "write" && err instanceof CartPayingError) return "paying";
   // Anything else out of the write may have committed — the one outcome a caller must never retry
   // under a new key.
   if (phase === "write") return "unconfirmed";

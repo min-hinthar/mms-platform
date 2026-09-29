@@ -35,7 +35,11 @@ vi.mock("./order-lines", () => ({
 }));
 
 let lineState = "draft";
-const rpc = vi.fn(() => Promise.resolve({ data: 1, error: null }));
+let rpcAnswer: { data: number | null; error: { code: string; message: string } | null } = {
+  data: 1,
+  error: null,
+};
+const rpc = vi.fn(() => Promise.resolve(rpcAnswer));
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => ({
@@ -57,6 +61,7 @@ const { staffSetQty } = await import("./staff-cart");
 beforeEach(() => {
   rpc.mockClear();
   lineState = "draft";
+  rpcAnswer = { data: 1, error: null };
 });
 
 describe("staffSetQty — a draft edit only (Codex round 3, P1)", () => {
@@ -76,4 +81,33 @@ describe("staffSetQty — a draft edit only (Codex round 3, P1)", () => {
       expect(rpc).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("staffSetQty — the RPC's own re-check (P2dd · P2cy, 20260929000000)", () => {
+  // The action's reads above can be overtaken: another tablet's Send, or a settlement, lands
+  // between them and the RPC. The RPC now refuses both under the cart's row lock, and each raise is
+  // a DEFINITE refusal — never the outage sentence, which tells staff to retry a write that can't land.
+  it("a Send that won the race: 'line already sent' says the dish went to the kitchen", async () => {
+    rpcAnswer = { data: null, error: { code: "P0001", message: "line already sent" } };
+    const r = await staffSetQty(SESSION, { cartItemId: LINE, qty: 3 });
+    expect(r).toEqual({
+      ok: false,
+      error: "That dish already went to the kitchen — use Remove or Make it free instead.",
+    });
+  });
+
+  it("a settlement that won the race: 'cart is being paid' says the table is paying", async () => {
+    rpcAnswer = { data: null, error: { code: "P0001", message: "cart is being paid" } };
+    const r = await staffSetQty(SESSION, { cartItemId: LINE, qty: 3 });
+    expect(r).toEqual({
+      ok: false,
+      error: "This table is mid-payment — wait until they’ve finished.",
+    });
+  });
+
+  it("any other RPC error stays the outage sentence (it may be a transport failure)", async () => {
+    rpcAnswer = { data: null, error: { code: "XX000", message: "line already sent" } };
+    const r = await staffSetQty(SESSION, { cartItemId: LINE, qty: 3 });
+    expect(r).toEqual({ ok: false, error: "outage" });
+  });
 });

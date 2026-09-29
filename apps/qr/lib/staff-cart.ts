@@ -29,6 +29,13 @@ import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
 import { staffSettleBlockedByUnsent } from "./checkout-stage";
 import { kitchenDraftUnits } from "./unsent-read";
+import { lineRpcRefusal } from "./line-rpc-refusal";
+
+// Named once for this module's refusals (a "use server" file may export only async functions, so
+// these stay local). Plain words — never "void"/"fire"/"settle" in staff copy.
+const PAYING_REFUSAL = "This table is mid-payment — wait until they’ve finished.";
+const SENT_LINE_REFUSAL =
+  "That dish already went to the kitchen — use Remove or Make it free instead.";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -112,11 +119,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   if (!session) return { ok: false, error: "That table is closed.", code: "closed" };
   if (!cart) return { ok: false, error: "This table has no open order.", code: "no-cart" };
   if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "This table is mid-payment — wait until they’ve finished.",
-      code: "paying",
-    };
+    return { ok: false, error: PAYING_REFUSAL, code: "paying" };
 
   // Phase 2a · padserver — WHERE a throw happens decides what it means (lib/staff-add-outcome.ts):
   // pricing writes nothing, so its failures are definite; the write may have committed with its
@@ -173,7 +176,12 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     const code = addFailureCode(phase, phase === "write" ? e : priceFailure);
     return {
       ok: false,
-      error: code === "closed" ? "This table has no open order." : "Couldn’t add that item.",
+      error:
+        code === "closed"
+          ? "This table has no open order."
+          : code === "paying"
+            ? PAYING_REFUSAL
+            : "Couldn’t add that item.",
       code,
     };
   }
@@ -215,8 +223,7 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
-  if (await paymentInFlightReason(cart))
-    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
 
   const db = serviceClient();
   // The line must belong to THIS table's open cart (an id from another table is a not-found, not an edit).
@@ -235,11 +242,7 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   // otherwise land on the just-fired line and the kitchen would cook a different quantity from the
   // ticket. A sent dish changes through Remove / Make it free (the loss flow), never here. (The same
   // guard inside the RPC — against another device's Send racing this read — needs a migration: filed.)
-  if (line.state !== "draft")
-    return {
-      ok: false,
-      error: "That dish already went to the kitchen — use Remove or Make it free instead.",
-    };
+  if (line.state !== "draft") return { ok: false, error: SENT_LINE_REFUSAL };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
   // diner path uses). 0 rows ⇒ the cart flipped paid/closed under us.
@@ -247,6 +250,12 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
     p_id: cartItemId,
     p_qty: qty,
   });
+  // P2dd · P2cy — the RPC now re-checks, under the cart's row lock, the two facts this action read
+  // above: a Send from another device, or a settlement, can land in between. Both raises are definite
+  // refusals (nothing written), so they get their own sentence — never the outage copy.
+  const refusal = lineRpcRefusal(rpcError);
+  if (refusal === "sent") return { ok: false, error: SENT_LINE_REFUSAL };
+  if (refusal === "paying") return { ok: false, error: PAYING_REFUSAL };
   if (rpcError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!affected) return { ok: false, error: "This table’s order is no longer open." };
   await touchCart(cart.id, "staffSetQty");
@@ -272,8 +281,7 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
-  if (await paymentInFlightReason(cart))
-    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
 
   // One statement carries every guard: this table's cart + still-draft. 0 rows ⇒ fired/removed under us.
   // W10b — a failed UPDATE is not "the note is frozen" (a false verdict); it's an unsaved change.
