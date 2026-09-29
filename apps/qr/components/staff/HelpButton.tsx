@@ -130,7 +130,8 @@ function safe(read: () => string | undefined): string | undefined {
  * (a render-time close, never a setState in an effect; only while the person is still looking at
  * the rows). A failure with the sheet open is a `role="alert"` in the view; one that lands after
  * the person closed the sheet is the bar tail's `.staff-bar-msg` line beside this circle (the Lock
- * refusal's line) — only one of the two ever renders, and the next open clears it.
+ * refusal's line) — only one of the two ever renders, and the next open clears it. A failure that
+ * lands while the person is on How, Text size or Report is kept through the close and said there.
  */
 export function HelpButton(props: HelpProps) {
   const { lang, screen, size, sheetClassName } = props;
@@ -253,11 +254,14 @@ export function HelpButton(props: HelpProps) {
 
   function show(next: boolean) {
     if (!next && pending) return; // the sheet is busy — the choke point refuses too; belt and brace
-    // P2e — a language failure the person SAW (in the sheet) is answered by closing it, and a stale
-    // one must never greet the next open: both directions clear the line and stop waiting. A
-    // failure that lands AFTER the close is still said, in the bar tail.
+    // P2e — a language failure the person SAW (the menu or the Language view draw its line) is
+    // answered by closing the sheet, and a stale one must never greet the next open. One that
+    // landed while they were on How, Text size or Report was never shown (those views have no line
+    // of their own — one region per view), so the close KEEPS it and the bar tail says it. A
+    // failure that lands after the close is said there too.
+    const lineShown = open && (view === "menu" || view === "lang");
     setAwaiting(null);
-    langWrite.clearAlert();
+    if (next || lineShown) langWrite.clearAlert();
     // M76 — the reset rides the OPEN, not the close: the content stays mounted for the whole exit
     // slide now, so a close-time reset flipped the "Report sent" card and the title back to the
     // menu in the first frame of the slide (the blind pass, slice 4). Resetting here is the same
@@ -362,8 +366,10 @@ export function HelpButton(props: HelpProps) {
           <Chrome lang={lang} k="help.title" />
         </span>
       </button>
-      {/* P2e — a language failure that landed after the sheet closed: the bar tail's line, beside
-          this circle (the fragment's children are the tail's), both tongues on every device. */}
+      {/* P2e — a language failure the sheet did not say: the bar tail's line, beside this circle
+          (the fragment's children are the tail's), both tongues on every device. ONE line ever:
+          this one only while the sheet is closed, the sheet's only while it is open — its content
+          stays mounted through the exit slide (M76), so those are `open &&`. */}
       {!open && langWrite.alert && (
         <span role="alert" className="staff-bar-msg">
           <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
@@ -493,7 +499,7 @@ export function HelpButton(props: HelpProps) {
             </ul>
             {/* P2e — a language write that failed after the person stepped Back from the rows:
                 said here, under the row that leads back to them. */}
-            {langWrite.alert && (
+            {open && langWrite.alert && (
               <p role="alert" className="staff-lang-msg">
                 <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
               </p>
@@ -602,7 +608,7 @@ export function HelpButton(props: HelpProps) {
             {/* Focus lands on the pressed row as the view opens (QA §A — the row that opened it
                 is gone with the menu). */}
             <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />
-            {langWrite.alert && (
+            {open && langWrite.alert && (
               <p role="alert" className="staff-lang-msg">
                 <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
               </p>

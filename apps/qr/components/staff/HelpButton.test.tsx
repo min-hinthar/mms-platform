@@ -832,3 +832,120 @@ describe("P2e — the Text size sample reads as the ticket does, in every mode",
     }
   });
 });
+
+/**
+ * P2e review — ONE failure line at a time, and never a failure lost unsaid.
+ *
+ * Radix hides everything outside an open dialog from assistive tech, so `getByRole` can never see a
+ * second alert BEHIND the sheet — these count `[role="alert"]` in the whole document instead. The
+ * sheet's content stays mounted through its exit slide (M76), so a failure landing during the
+ * slide would draw the in-sheet line AND the bar tail's unless the in-sheet lines are `open &&`.
+ * And a failure that lands while the person is on How, Text size or Report (views with no line of
+ * their own) is said in the bar tail once they close — the close answers only a line they SAW.
+ */
+describe("P2e — one language failure line, never a lost one", () => {
+  // The exit-slide case stubs getComputedStyle; restored here so a red run cannot leak it onward.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  const Host = ({ mode, children }: { mode: StaffLangMode; children: ReactNode }) => (
+    <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
+      {children}
+    </StaffLangProvider>
+  );
+  const mount = () =>
+    rtlRender(
+      <Host mode="en">
+        <div className="staff-bar-tail">
+          <HelpButton lang="en" screen="counter" />
+        </div>
+      </Host>,
+    );
+  const alerts = () => [...document.querySelectorAll('[role="alert"]')];
+  const openLang = async () => {
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /Language/ }));
+    await screen.findByRole("group", { name: "This device’s language" });
+  };
+  function held<T>() {
+    let release!: (v: T) => void;
+    const p = new Promise<T>((r) => {
+      release = r;
+    });
+    return { p, release };
+  }
+
+  it("with the sheet open, the whole document holds ONE failure line — the sheet's", async () => {
+    seen("counter");
+    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+    mount();
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    await within(dialog()).findByRole("alert");
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.closest(".help-lang")).not.toBeNull();
+    // …and on the menu view too.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.closest(".help-menu")).not.toBeNull();
+  });
+
+  it.each([
+    ["the Language view", ".help-lang", false],
+    ["the menu", ".help-menu", true],
+  ] as const)(
+    "a failure landing during the exit slide from %s is ONE line — the bar tail's, never the sliding sheet's too",
+    async (_, viewClass, backToMenu) => {
+      seen("counter");
+      stubComputedStyle();
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      mount();
+      await openLang();
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      if (backToMenu) {
+        fireEvent.click(screen.getByRole("button", { name: "Back" }));
+        await screen.findByRole("list", { name: "Help topics" });
+      }
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      });
+      // Held by the stubbed exit: the view is still mounted, sliding away.
+      expect(dialog().getAttribute("data-state")).toBe("closed");
+      expect(document.querySelector(viewClass)).not.toBeNull();
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0]!.className).toBe("staff-bar-msg");
+    },
+  );
+
+  it.each([
+    ["How", /How this screen works/],
+    ["Something's wrong", /Something/],
+  ] as const)(
+    "a failure landing while the person reads %s is said in the bar tail once they close — never cleared unsaid",
+    async (_, rowName) => {
+      seen("counter");
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      const { container } = mount();
+      await openLang();
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(await screen.findByRole("button", { name: rowName }));
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      expect(alerts()).toHaveLength(0); // this view has no line of its own (one region per view)
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const line = screen.getByRole("alert");
+      expect(line.className).toBe("staff-bar-msg");
+      expect(line.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+      expect(line.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
+      // The next open answers it.
+      fireEvent.click(circle());
+      await screen.findByRole("dialog");
+      expect(alerts()).toHaveLength(0);
+    },
+  );
+});

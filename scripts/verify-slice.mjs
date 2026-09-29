@@ -10887,8 +10887,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/HelpButton.tsx",
     suite: "components/staff/HelpButton.test.tsx",
     why: "P2e — a failure the person saw is answered by the next open or close; kept, it greets the next open and doubles in the bar tail",
-    find: "    setAwaiting(null);\n    langWrite.clearAlert();\n",
-    replace: "    setAwaiting(null);\n",
+    find: "    if (next || lineShown) langWrite.clearAlert();\n",
+    replace: "",
   },
   {
     id: "p2e-lang/more-drops-language",
