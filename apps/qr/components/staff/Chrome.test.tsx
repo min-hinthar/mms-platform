@@ -299,10 +299,10 @@ const burmeseOnly = (ui: React.ReactElement) =>
 
 describe("P2e — Burmese only keeps the pair and drops its echo", () => {
   // Deliberately NOT in the K15-HIGH band — the cross-check below keeps the fixture honest.
-  const PLAIN: ReadonlyArray<readonly [StaffKey, "stack" | "inline"]> = [
+  const PLAIN = [
     ["kds.title", "stack"],
     ["help.back", "inline"],
-  ];
+  ] as const;
   it("the fixture keys are outside the K15-HIGH band (or the case below proves nothing)", () => {
     for (const [k] of PLAIN) expect(STAFF_K15_HIGH.has(k), k).toBe(false);
     expect(STAFF_K15_HIGH.has("kds.err.bump")).toBe(false);

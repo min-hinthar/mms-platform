@@ -7,7 +7,8 @@ import { LoadingLine } from "./LoadingLine";
  * (`/staff/login` and `/staff/lock`) with the card drawn in EACH route's own first shape. Both
  * fell back to `app/staff/loading.tsx`, the counter's 1080 three-zone geometry, so a tap on
  * Sign-in or a lock landed the bar and a 440 card on top of a different layout. This mirrors the
- * pages: the bar (a static circle, the title block, the switch's pair of circles in the tail), then
+ * pages: the bar (a static circle, the title block, the language pill in the tail — P2e: the front
+ * door's two-script pill, passed through the bar's trailing slot), then
  * `.staff-col.entry-col` with the one textured card —
  *
  *   · `login`: the brand line, the heading, the sub-line, the Google pill, the divider word, one
@@ -19,6 +20,9 @@ import { LoadingLine } from "./LoadingLine";
  * card of a materially different height when either route resolved — the exact shift a route's
  * own boundary exists to prevent (Codex round 2, P2). `EntrySkeleton.test.tsx` renders the two
  * live forms and holds each variant to the live form's field count, pill count and brand line.
+ *
+ * STATED LIMIT (K37): the SIGNED-IN `/staff/login` lands without the pill (its bar carries Lock, and
+ * the language is the card beneath) and one card taller — this fallback draws the form's shape.
  *
  * Every gap is the class the live page wears or a `--s*` token; the root says `aria-busy`, and the
  * one line it offers assistive tech (sr-only, no live semantics — a fallback that mounts already
@@ -36,8 +40,7 @@ export function EntrySkeleton({ what, form }: { what: WhatKey; form: "login" | "
           <Skeleton width={44} height={44} radius={999} />
           <Skeleton width={180} height={30} radius={8} />
           <div className="staff-bar-tail">
-            <Skeleton width={44} height={44} radius={999} />
-            <Skeleton width={44} height={44} radius={999} />
+            <Skeleton width={152} height={44} radius={999} />
           </div>
         </div>
         <div className="staff-col entry-col">

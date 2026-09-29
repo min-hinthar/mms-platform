@@ -1,6 +1,13 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { STAFF_LANG_COOKIE, parseStaffLang, resolveBoardLang, type StaffLang } from "./staff-lang";
+import {
+  STAFF_LANG_COOKIE,
+  parseStaffLang,
+  parseStaffLangMode,
+  resolveBoardLang,
+  type StaffLang,
+  type StaffLangMode,
+} from "./staff-lang";
 
 /**
  * P2 — the ONLY `cookies().get(STAFF_LANG_COOKIE)` in the app.
@@ -29,4 +36,14 @@ export async function readStaffLang(): Promise<StaffLang> {
  */
 export async function readBoardLang(query: string | undefined): Promise<StaffLang> {
   return resolveBoardLang(query, (await cookies()).get(STAFF_LANG_COOKIE)?.value);
+}
+
+/**
+ * P2e — the device's MODE (Burmese only · Both · English), for `app/staff/layout.tsx`, which hands
+ * the provider its script and whether the chrome draws English echoes. Same one read of the same
+ * cookie as `readStaffLang` (Next memoizes `cookies()`); the parse is `parseStaffLangMode`'s exact
+ * three literals, so `scriptOf(readStaffLangMode())` always equals `readStaffLang()`.
+ */
+export async function readStaffLangMode(): Promise<StaffLangMode> {
+  return parseStaffLangMode((await cookies()).get(STAFF_LANG_COOKIE)?.value);
 }

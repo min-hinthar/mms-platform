@@ -25,6 +25,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replac
 
 const { EntrySkeleton } = await import("./EntrySkeleton");
 const { StaffBar } = await import("./StaffBar");
+const { StaffLangSwitch } = await import("./StaffLangSwitch");
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { StaffLogin } = await import("./StaffLogin");
 const { PinUnlock } = await import("./PinUnlock");
@@ -96,11 +97,24 @@ describe("EntrySkeleton", () => {
     const band = main.querySelector("[aria-hidden] > .staff-bar")!;
     expect(band).not.toBeNull();
     expect(band.querySelector(":scope > .staff-bar-tail")).not.toBeNull();
+    // P2e — the front door's bar as the pages render it: the pill through the TRAILING slot.
     const live = mount(
-      <StaffBar lang="en" title="entry.login.title" leading={{ kind: "here", icon: "people" }} />,
+      <StaffBar
+        lang="en"
+        title="entry.login.title"
+        leading={{ kind: "here", icon: "people" }}
+        trailing={<StaffLangSwitch />}
+      />,
     );
     const bar = live.querySelector("header.staff-bar")!;
     expect(bar.querySelector(":scope > .staff-bar-tail")).not.toBeNull();
+    // …and the skeleton's tail draws exactly what the live tail holds: ONE pill, not two circles.
+    const liveTail = bar.querySelector(":scope > .staff-bar-tail")!;
+    const bandTail = band.querySelector(":scope > .staff-bar-tail")!;
+    expect(liveTail.children).toHaveLength(1);
+    expect(liveTail.children[0]!.className).toBe("staff-lang");
+    expect(bandTail.children).toHaveLength(liveTail.children.length);
+    expect((bandTail.children[0] as HTMLElement).style.width).toBe("152px");
     // the same shape: a leading circle, a title block, a tail of circles. Phase 2b · feedback — the
     // bar's `hidden` height probe (StaffBarNet) is `display: none`: no flex item, no gap, no shape;
     // and its always-mounted offline region is `.sr-only` while online (absolutely positioned — out

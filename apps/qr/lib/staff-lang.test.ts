@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import type { StaffLangInput } from "@mms/db/schemas";
 import {
   STAFF_LANG_COOKIE,
   STAFF_LANG_MODES,
@@ -13,6 +14,7 @@ import {
   resolveBoardLang,
   scriptOf,
   staffLangCookieOptions,
+  type StaffLang,
   type StaffLangMode,
 } from "./staff-lang";
 
@@ -274,5 +276,16 @@ describe("the write chain's two decisions", () => {
         failed: true,
       }),
     ).toEqual({ cap: "en", alert: true, refresh: true });
+  });
+});
+
+describe("the two literal lists cannot drift — checked by the COMPILER", () => {
+  it("the action's enum is exactly StaffLangMode, and a script is not a mode", () => {
+    // RED at typecheck if "my" is ever added to either list: the enum would widen past the mode type
+    // (this assertion), or the mode type would admit the script (the expect-error below goes unused).
+    expectTypeOf<StaffLangInput["mode"]>().toEqualTypeOf<StaffLangMode>();
+    // @ts-expect-error — "my" is a SCRIPT; passing one where a mode is expected is a compile error.
+    const m: StaffLangMode = "my" as StaffLang;
+    expect(m).toBe("my");
   });
 });

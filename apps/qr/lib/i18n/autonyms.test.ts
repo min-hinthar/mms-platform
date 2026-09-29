@@ -34,7 +34,10 @@ import { STAFF, STAFF_CHANNEL_KEY, STAFF_K15_HIGH, STAFF_SETTLED } from "./staff
  * so the visitor below is written `(c) => { visit(c); }`.
  */
 
-/** The language control's two labels, verbatim from `components/staff/StaffLangSwitch.tsx`. */
+/**
+ * The language control's two labels, verbatim from `components/staff/StaffLangSwitch.tsx` — the
+ * pill's segments and (P2e) the three rows' samples.
+ */
 const AUTONYMS = ["မြန်မာ", "English"] as const;
 
 const SOURCE = fileURLToPath(new URL("./staff.ts", import.meta.url));
@@ -100,33 +103,48 @@ describe("P5 — the word-check sheet's own invariants", () => {
   it("the autonyms are still the strings this guard thinks they are", () => {
     // A guard naming two literals is worth nothing if the component has since changed them: it would
     // keep passing over a dictionary entry that now IS the button's label. So the claim is checked
-    // against the component, in the position that renders — a JSX child of a `.staff-lang-btn`.
+    // against the component, in the positions that render — a JSX child of a `.staff-lang-btn`
+    // (the pill) or of an element whose class list has a `staff-lang-auto` token (P2e — the rows'
+    // samples). Parsed: a comment or a string that merely mentions a class name is not a render.
     const file = fileURLToPath(
       new URL("../../components/staff/StaffLangSwitch.tsx", import.meta.url),
     );
     const src = readFileSync(file, "utf8");
     const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-    const rendered: string[] = [];
+    const pill: string[] = [];
+    const rows: string[] = [];
+    function classTokens(node: ts.JsxElement): string[] {
+      for (const a of node.openingElement.attributes.properties)
+        if (
+          ts.isJsxAttribute(a) &&
+          a.name.getText(sf) === "className" &&
+          a.initializer &&
+          ts.isStringLiteral(a.initializer)
+        )
+          return a.initializer.text.split(/\s+/);
+      return [];
+    }
     function visit(node: ts.Node) {
       if (ts.isJsxElement(node)) {
-        const cls = node.openingElement.attributes.properties.find(
-          (a) =>
-            ts.isJsxAttribute(a) &&
-            a.name.getText(sf) === "className" &&
-            a.initializer &&
-            ts.isStringLiteral(a.initializer) &&
-            a.initializer.text === "staff-lang-btn",
-        );
-        if (cls)
+        const tokens = classTokens(node);
+        const into = tokens.includes("staff-lang-btn")
+          ? pill
+          : tokens.includes("staff-lang-auto")
+            ? rows
+            : null;
+        if (into)
           for (const child of node.children)
-            if (ts.isJsxText(child) && child.text.trim()) rendered.push(child.text.trim());
+            if (ts.isJsxText(child) && child.text.trim()) into.push(child.text.trim());
       }
       ts.forEachChild(node, (c) => {
         visit(c);
       });
     }
     visit(sf);
-    expect(rendered.sort()).toEqual([...AUTONYMS].sort());
+    expect(pill.sort()).toEqual([...AUTONYMS].sort());
+    // The rows' samples are EXACTLY the two autonyms as a set — both of them, nothing else (a
+    // "Burmese" sample, or a dictionary lookup in its place, reddens this).
+    expect([...new Set(rows)].sort()).toEqual([...AUTONYMS].sort());
   });
 
   it("STAFF_K15_HIGH equals the set of entries carrying a K15-HIGH marker, above or beside", () => {
