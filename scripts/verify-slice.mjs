@@ -10784,6 +10784,30 @@ const MUTANTS = [
     find: "      prevUp.current = next.kitchenUnknown\n",
     replace: "      prevUp.current = false\n",
   },
+  {
+    id: "p2d-rev/floor-flip-window-unsaid",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #7) — a tile inside its flip window refuses a tap; unheld, it reads ready and does nothing, with nothing to say why",
+    find: "                held={held || settling.has(n)}\n",
+    replace: "                held={held}\n",
+  },
+  {
+    id: "p2d-rev/floor-flip-window-never-closes",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · review (floor #7) — the hold lasts exactly the guard's window; a window that never closes leaves a free table dimmed and held for good",
+    find: "            next.delete(n);\n",
+    replace: "",
+  },
+  {
+    id: "p2d-rev/floor-flip-stamped-but-unsaid",
+    file: "apps/qr/lib/floor-rows.ts",
+    suite: "lib/floor-rows.test.ts",
+    why: "Phase 2d · review (floor #7) — the guard names the tiles it just stamped, so the strip holds exactly those; saying none leaves the refusal silent",
+    find: "        if (freeSince.get(n) === at && seen?.get(n) === true) flipped.push(n);\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

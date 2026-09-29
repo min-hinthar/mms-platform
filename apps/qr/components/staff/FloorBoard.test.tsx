@@ -381,6 +381,24 @@ describe("the strip starts a table through the screen's ONE lock", () => {
     expect(openRegisterOrder).toHaveBeenCalledTimes(1);
   });
 
+  it("(t) the flip window is SAID: a tile that just turned free is aria-disabled for its 600 ms, then arms", async () => {
+    // Phase 2d · review (floor #7) — the guard's refused tap was silent: a tile that looked ready
+    // ignored a tap with nothing to tell the person why. Now the window is the held state every
+    // start control already speaks (aria-disabled + the dim), never a native disable. MUTATION:
+    // drop the window from the tile's held state → the tile reads ready while it refuses.
+    const { tile } = mount(snap([table(7)]));
+    answer = ok(snap([]));
+    await tick(POLL_MS);
+    expect(tile(7).tagName).toBe("BUTTON");
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    expect((tile(7) as HTMLButtonElement).disabled).toBe(false);
+    expect(tile(8).getAttribute("aria-disabled")).toBeNull(); // free all along: never held
+    await tick(599);
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    await tick(1);
+    expect(tile(7).getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("(g) an occupied tile is a link to its table, never a start — and while a start is held its tap goes nowhere", async () => {
     openRegisterOrder.mockImplementation(() => hang());
     const { tile } = mount(snap([table(3, { status: "counter", counterRequestedAt: ago(1000) })]));

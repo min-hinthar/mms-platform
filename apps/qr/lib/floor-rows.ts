@@ -107,9 +107,12 @@ export function freeTapAllowed(
  * time; a tile that is occupied again forgets); `allows` is the tap-time question, answered by
  * `freeTapAllowed`. The clock is injected so the rule is falsifiable by a value, and it is read here
  * rather than in the component, which only ever asks.
+ *
+ * Phase 2d · review — `observe` also RETURNS the numbers it just stamped, so the strip can hold
+ * those tiles `aria-disabled` for the window: the refused tap is said, never silent.
  */
 export type FlipGuard = {
-  observe: (tiles: readonly StripTile[]) => void;
+  observe: (tiles: readonly StripTile[]) => number[];
   allows: (n: number) => boolean;
 };
 
@@ -120,11 +123,16 @@ export function createFlipGuard(now: () => number = Date.now): FlipGuard {
     observe(tiles) {
       const at = now();
       const next = new Map(tiles.map((t) => [t.n, t.table !== null] as const));
+      const flipped: number[] = [];
       for (const [n, occupied] of next) {
         if (occupied) freeSince.delete(n);
         else if (seen?.get(n) === true) freeSince.set(n, at);
+        // …and SAID: exactly the numbers THIS observation stamped (stamped now, occupied before —
+        // a same-millisecond re-observe of a tile already free is not a second flip).
+        if (freeSince.get(n) === at && seen?.get(n) === true) flipped.push(n);
       }
       seen = next;
+      return flipped;
     },
     allows(n) {
       return freeTapAllowed(freeSince.get(n) ?? null, now());

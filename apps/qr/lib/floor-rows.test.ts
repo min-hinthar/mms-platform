@@ -178,6 +178,20 @@ describe("createFlipGuard — the strip remembers which tiles JUST turned free",
     expect(g.allows(7)).toBe(true);
   });
 
+  it("observe SAYS which tiles it just stamped — once, and never on first sight (Phase 2d · review)", () => {
+    // The strip holds exactly these tiles aria-disabled for the window, so the refused tap is said.
+    // MUTATION: return nothing → the tile reads ready while the guard refuses it.
+    let now = 0;
+    const g = createFlipGuard(() => now);
+    expect(g.observe([tile(7, true), tile(8, false)])).toEqual([]);
+    now = 5_000;
+    expect(g.observe([tile(7, false), tile(8, false)])).toEqual([7]);
+    // The same instant again (a re-render in the same millisecond): no second flip.
+    expect(g.observe([tile(7, false), tile(8, false)])).toEqual([]);
+    now = 5_100;
+    expect(g.observe([tile(7, false), tile(8, false)])).toEqual([]);
+  });
+
   it("first sight is not a flip, and a tile occupied again forgets its stamp", () => {
     let now = 0;
     const g = createFlipGuard(() => now);
