@@ -2034,8 +2034,12 @@ for (const file of MARK_FILES) {
 // mode one call site at a time, so it is held to THREE files and ONE shape: bare or `{true}`, on a
 // `<Chrome>` that declares a LITERAL `lang="my"` (Chrome renders from its prop — anything computed
 // would follow the device) and a literal `echo` of `"stack"` or `"inline"` (an `echo={false}` has
-// nothing to keep), with no spread that could override either. STATED LIMIT: a `keepEcho` smuggled
-// in through a spread object is invisible to a parse and is refused only by review.
+// nothing to keep), with no spread that could override either — and ON A LANGUAGE KEY: a literal `k`
+// starting `shell.lang.`, or the one data-driven site, `StaffDoors`' `k={t.k}` (the More tile, held
+// to exactly one `both` tile — the Language one — by `staff-more.test`). Without the key rule,
+// `<Chrome lang="my" k="kds.title" echo="stack" keepEcho />` in HelpButton passed, and quietly
+// undid Burmese only for any word (added after review). STATED LIMIT: a `keepEcho` smuggled in
+// through a spread object is invisible to a parse and is refused only by review.
 const KEEP_ECHO_FILES = new Set([
   join(QR, "components/staff/StaffLangSwitch.tsx"),
   join(QR, "components/staff/HelpButton.tsx"),
@@ -2059,6 +2063,20 @@ function keepEchoFindings(file, srcOverride) {
         const a = attrs.find((x) => ts.isJsxAttribute(x) && x.name.getText(sf) === name);
         return a?.initializer && ts.isStringLiteral(a.initializer) ? a.initializer.text : null;
       };
+      /** A literal `shell.lang.*` key — or, in StaffDoors alone, the tile's `k={t.k}`. */
+      const languageKey = () => {
+        const a = attrs.find((x) => ts.isJsxAttribute(x) && x.name.getText(sf) === "k");
+        const v = a?.initializer;
+        if (v && ts.isStringLiteral(v)) return v.text.startsWith("shell.lang.");
+        return (
+          file === join(QR, "components/staff/StaffDoors.tsx") &&
+          !!v &&
+          ts.isJsxExpression(v) &&
+          !!v.expression &&
+          ts.isPropertyAccessExpression(v.expression) &&
+          v.expression.getText(sf) === "t.k"
+        );
+      };
       const init = node.initializer;
       const bareOrTrue =
         !init || (ts.isJsxExpression(init) && init.expression?.kind === ts.SyntaxKind.TrueKeyword);
@@ -2074,7 +2092,9 @@ function keepEchoFindings(file, srcOverride) {
                 ? 'keepEcho without a literal echo="stack" | "inline" — nothing to keep'
                 : attrs.some((x) => ts.isJsxSpreadAttribute(x))
                   ? "keepEcho beside a spread that could override lang or echo"
-                  : null;
+                  : !languageKey()
+                    ? "keepEcho on a key that is not a language key — a literal `shell.lang.*` k, or StaffDoors' `k={t.k}`"
+                    : null;
       if (why) out.push(`${relative(ROOT, file)}:${line} — ${why}`);
       else out.sites++;
     }
@@ -2208,6 +2228,7 @@ for (const c of SELF_TEST_CASES) {
 {
   const LISTED = join(QR, "components/staff/HelpButton.tsx");
   const UNLISTED = join(QR, "components/staff/KdsBoard.tsx");
+  const DOORS = join(QR, "components/staff/StaffDoors.tsx");
   const fires = [
     [LISTED, '<Chrome lang={lang} k="shell.lang.row" echo="stack" keepEcho />', "a computed lang"],
     [
@@ -2220,15 +2241,33 @@ for (const c of SELF_TEST_CASES) {
     [LISTED, '<Chrome {...p} lang="my" k="shell.lang.row" echo="stack" keepEcho />', "a spread"],
     [LISTED, '<Label lang="my" k="shell.lang.row" echo="stack" keepEcho />', "a non-Chrome tag"],
     [UNLISTED, '<Chrome lang="my" k="kds.bump" echo="stack" keepEcho />', "an unlisted file"],
+    [LISTED, '<Chrome lang="my" k="kds.title" echo="stack" keepEcho />', "a non-language key"],
+    [LISTED, '<Chrome lang="my" k={key} echo="stack" keepEcho />', "a computed key"],
+    [
+      LISTED,
+      '<Chrome lang="my" k={t.k} echo="stack" keepEcho />',
+      "the tile's t.k outside StaffDoors",
+    ],
+    [
+      DOORS,
+      '<Chrome lang="my" k={x.k} echo="stack" keepEcho />',
+      "another computed key in StaffDoors",
+    ],
+    [
+      DOORS,
+      '<Chrome lang="my" k="floor.nav.kitchen" echo="stack" keepEcho />',
+      "a door tile's own key",
+    ],
   ];
   for (const [file, jsx, what] of fires)
     if (keepEchoFindings(file, `const A = () => ${jsx};`).length === 0)
       failures.push(`SELF-TEST: rule 6 no longer fires on ${what}.`);
-  for (const jsx of [
-    '<Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />',
-    '<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho={true} />',
+  for (const [file, jsx] of [
+    [LISTED, '<Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />'],
+    [LISTED, '<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho={true} />'],
+    [DOORS, '<Chrome lang="my" k={t.k} echo="stack" keepEcho />'],
   ])
-    if (keepEchoFindings(LISTED, `const A = () => ${jsx};`).length !== 0)
+    if (keepEchoFindings(file, `const A = () => ${jsx};`).length !== 0)
       failures.push(`SELF-TEST: rule 6 fires on the canonical form \`${jsx}\`.`);
 }
 

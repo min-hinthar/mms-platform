@@ -52,7 +52,8 @@ import { useEchoesShown } from "./StaffLangProvider";
  *    `keepEcho` is the third way through: a language surface (the Help row, the More tile, the
  *    Profile card, the failure line) that must speak BOTH tongues on every device, because the
  *    person reading it may be exactly the one who cannot read the current mode. check:staff-lang
- *    rule 6 confines it to those files, a literal `lang="my"` and a literal echo.
+ *    rule 6 confines it to those files, a literal `lang="my"`, a literal echo and a language key
+ *    (a literal `shell.lang.*`, or the More tile's `t.k`).
  */
 
 /** Anything with a Latin letter or an ASCII digit has to be marked inside a Burmese run. */
@@ -100,7 +101,7 @@ export function Chrome({
   echo?: "stack" | "inline" | false;
   /**
    * P2e — the echo survives Burmese only. Language surfaces ONLY (the Help row, the More tile, the
-   * Profile card, the failure line) — check:staff-lang rule 6 holds it to those files.
+   * Profile card, the failure line) — check:staff-lang rule 6 holds it to those files and keys.
    */
   keepEcho?: boolean;
 }) {
