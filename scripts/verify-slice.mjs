@@ -9683,9 +9683,9 @@ const MUTANTS = [
     id: "p2d-floor/mint-lock-without-the-ref",
     file: "apps/qr/components/staff/CounterMint.tsx",
     suite: "components/staff/FloorBoard.test.tsx",
-    why: "Phase 2d · floor — two taps in one frame both read a stale `pending`; only the ref, read at tap time, stops a second start (Walk-up and a table in the same frame)",
-    find: "      if (pending || inFlight.current !== null) return;",
-    replace: "      if (pending) return;",
+    why: "Phase 2d · floor — two taps in one frame both read the render's stale `minting`; only the ref, read at tap time, stops a second start (Walk-up and a table in the same frame)",
+    find: "      if (inFlight.current !== null) return;",
+    replace: "      if (minting !== null) return;",
   },
   {
     id: "p2d-floor/mint-rejection-escapes",
@@ -9710,6 +9710,14 @@ const MUTANTS = [
     why: "Phase 2d · floor — a landed start holds every start control until the route swap; released, a tap in that beat starts a second order",
     find: "          if (!landed) {",
     replace: "          if (true) {",
+  },
+  {
+    id: "p2d-floor/mint-pushes-after-unmount",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — a start that lands after the person opened a table from a card must not navigate: the router is global, and the push yanks them off the table they chose onto an add screen",
+    find: "          if (mounted.current) router.push(mintLanding(r.sessionId, r.created));",
+    replace: "          router.push(mintLanding(r.sessionId, r.created));",
   },
   {
     id: "p2d-floor/strip-flip-guard-unwired",

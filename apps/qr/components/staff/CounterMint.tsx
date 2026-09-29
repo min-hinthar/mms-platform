@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useState,
   useTransition,
@@ -30,7 +31,14 @@ import type { StaffKey } from "@/lib/i18n/staff";
  *   · a LANDED mint holds until the route swap unmounts the screen: a second tap in the beat between
  *     the push and the swap must not start a second order;
  *   · a refusal, or a server action that REJECTS (offline, dropped transport), re-arms — and the
- *     rejection is CAUGHT and said, never thrown to the error boundary over the counter screen.
+ *     rejection is CAUGHT and said, never thrown to the error boundary over the counter screen;
+ *   · the lock is `inFlight`/`minting` ALONE, never `useTransition`'s `pending`: React entangles
+ *     every pending async transition, so the expo lane's or the approvals queue's action still in
+ *     flight on this page kept a `pending`-read lock held — every start control dimmed and taps
+ *     went nowhere for a reason that was not a start;
+ *   · a start that lands after the screen is GONE (the person opened a table from a card while it
+ *     was in flight) does not navigate: the router is global, and a push from an unmounted screen
+ *     yanks them off the table they chose. The start still landed; the next poll shows it.
  *
  * A rejection is an UNKNOWN outcome, not a failure: the response may have been lost after the
  * server started the order. It is said that way (`floor.mint.unknown`), never "wasn't saved" — if it
@@ -83,16 +91,26 @@ export function mintLanding(sessionId: string, created: boolean): string {
 
 export function CounterMintProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  // The transition only schedules the action; its `pending` is NOT the lock (docblock).
+  const [, startTransition] = useTransition();
   // The ref and the state are ONE fact with a synchronous twin: written together, cleared together.
   const inFlight = useRef<MintId | null>(null);
   const [minting, setMinting] = useState<MintId | null>(null);
+  // Whether the screen that asked is still here when the answer lands. Re-armed at setup, because
+  // Strict Mode runs the cleanup once on mount (a cleanup-only latch would read "gone" forever).
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const isBusy = useCallback(() => pending || inFlight.current !== null, [pending]);
+  const isBusy = useCallback(() => inFlight.current !== null, []);
 
   const run = useCallback(
     (id: MintId, input: MintInput, { onStart, onRefusal }: MintCallbacks) => {
-      if (pending || inFlight.current !== null) return;
+      if (inFlight.current !== null) return;
       inFlight.current = id;
       setMinting(id);
       onStart();
@@ -106,8 +124,9 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
             onRefusal(r.error);
             return;
           }
-          router.push(mintLanding(r.sessionId, r.created));
           landed = true;
+          // The screen that asked is gone: never navigate from it (docblock).
+          if (mounted.current) router.push(mintLanding(r.sessionId, r.created));
         } catch (e) {
           // A server action that REJECTS — offline, or the transport dropped. Caught, so the counter
           // screen is never replaced by the error boundary; said as unknown (docblock).
@@ -123,10 +142,10 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         }
       });
     },
-    [pending, router],
+    [router],
   );
 
-  const value: CounterMint = { minting, held: pending || minting !== null, isBusy, run };
+  const value: CounterMint = { minting, held: minting !== null, isBusy, run };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

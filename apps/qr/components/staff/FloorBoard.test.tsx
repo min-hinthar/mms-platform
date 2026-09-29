@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { useTransition } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FloorSnapshot, FloorTable } from "@/lib/floor-types";
@@ -330,6 +331,69 @@ describe("the strip starts a table through the screen's ONE lock", () => {
     expect(openRegisterOrder).toHaveBeenCalledTimes(1);
     // A start is held: the link's tap is refused, so a landing push is never raced.
     expect(fireEvent.click(tile(3))).toBe(false);
+  });
+
+  it("(k) a start that lands AFTER the person left the counter screen never yanks them to it", async () => {
+    // They tapped a free tile, then opened a table from a CARD (a link the strip cannot refuse) —
+    // the counter screen unmounted. The start still lands; the next poll shows it. MUTATION: push
+    // regardless of the screen → they are pulled off the table they chose onto an add screen.
+    const d = deferred<{ ok: true; sessionId: string; created: boolean }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { tile, unmount } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    unmount();
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s1", created: true });
+      await d.promise;
+    });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("(l) an UNRELATED action still in flight elsewhere on the counter page never holds the lock", async () => {
+    // The expo lane and the approvals queue run their own async transitions on this page. React
+    // entangles every pending async transition, so a lock that read `useTransition`'s `pending`
+    // stayed held for as long as someone else's action ran — taps went nowhere, every start control
+    // dimmed. MUTATION: `held`/`isBusy` read `pending` again → the refused tile stays held.
+    function Elsewhere() {
+      const [, start] = useTransition();
+      return (
+        <button
+          type="button"
+          data-elsewhere=""
+          onClick={() => start(async () => void (await hang()))}
+        >
+          elsewhere
+        </button>
+      );
+    }
+    openRegisterOrder.mockResolvedValueOnce({ ok: false, error: "Refused." });
+    const utils = render(
+      <StaffLangProvider lang="en">
+        <CounterMintProvider>
+          <Elsewhere />
+          <FloorBoard initial={snap([])} />
+        </CounterMintProvider>
+      </StaffLangProvider>,
+    );
+    const tile7 = () => utils.container.querySelector<HTMLElement>('[data-tile="7"]')!;
+    await act(async () => {
+      fireEvent.click(utils.container.querySelector("[data-elsewhere]")!);
+    });
+    await act(async () => {
+      fireEvent.click(tile7());
+    });
+    await tick(0);
+    await tick(0);
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(tile7().getAttribute("aria-disabled")).toBeNull();
+    openRegisterOrder.mockImplementationOnce(() => hang());
+    await act(async () => {
+      fireEvent.click(tile7());
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(2);
   });
 });
 
