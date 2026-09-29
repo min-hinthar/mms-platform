@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExpoTicket } from "@/lib/expo-types";
 import type { FloorTable } from "@/lib/floor-types";
 
@@ -242,9 +242,22 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
     arrivedAt: "2026-09-13T17:58:00.000Z",
   });
   const cooked = (id: string): ExpoTicket => ({ ...bag(id), kitchen: "done" });
-  const B1 = "11111111-1111-4111-8111-111111111111";
-  const B2 = "22222222-2222-4222-8222-222222222222";
-  const B3 = "33333333-3333-4333-8333-333333333333";
+  // Fresh ids for every case: what the counter home has heard is DOCUMENT-scoped
+  // (`counterHeard`, by design — a remount must not re-ring), and every case in this file shares one
+  // document, so a key heard in an earlier case would read as already heard in the next.
+  let seq = 0;
+  const uid = () => {
+    seq += 1;
+    const h = seq.toString(16).padStart(8, "0");
+    return `${h}-0000-4000-8000-${h.padStart(12, "0")}`;
+  };
+  let B1 = "";
+  let B2 = "";
+  let B3 = "";
+  let B4 = "";
+  beforeEach(() => {
+    [B1, B2, B3, B4] = [uid(), uid(), uid(), uid()];
+  });
 
   // The fake context: a browser's `statechange` on every move, `resume` runs it.
   const contexts: Array<EventTarget & { state: AudioContextState }> = [];
@@ -335,10 +348,7 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
     await tick(5_000);
     expect(await rings()).toEqual([]);
     // …and the ear is live, not deaf: a NEW ask rings once.
-    floorAnswer = floorOf([
-      askingTable(B1),
-      askingTable("44444444-4444-4444-8444-444444444444", 9),
-    ]);
+    floorAnswer = floorOf([askingTable(B1), askingTable(B4, 9)]);
     await tick(5_000);
     expect(await rings()).toEqual(["guest"]);
   });
@@ -398,10 +408,7 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
     expect(await rings()).toEqual([]);
     // The FLOOR's poll still runs after StrictMode's replayed effects (its `alive` guard is re-armed
     // at setup), so a new ask there is heard…
-    floorAnswer = floorOf([
-      askingTable(B1),
-      askingTable("44444444-4444-4444-8444-444444444444", 9),
-    ]);
+    floorAnswer = floorOf([askingTable(B1), askingTable(B4, 9)]);
     await tick(5_000);
     expect(await rings()).toEqual(["guest"]);
     // …and so is the lane's, a gap later.
@@ -465,4 +472,112 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
     await tick(1_100);
     expect(document.querySelectorAll(".floor-card-pulse")).toHaveLength(0);
   });
+
+  it("a REMOUNT carrying the page's first snapshot (Back restores it) never re-rings what an earlier mount rang for", async () => {
+    // Red before the document-level set: each mount seeded from its own `initial`, so a counter home
+    // restored by Back (the App Router's client cache hands back the FIRST load's props) rang again
+    // for every ask and arrival it had already rung for since the page opened.
+    await bellOn();
+    vi.useFakeTimers();
+    const firstLoad = { floor: [] as FloorTable[], lane: [bag(B2)] };
+    floorAnswer = floorOf(firstLoad.floor);
+    expoAnswer = laneOf(firstLoad.lane);
+    const first = mountCounter(firstLoad.floor, firstLoad.lane);
+    await tick(5_000);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    await tick(RING_GAP_MS_LOCAL);
+    floorAnswer = floorOf([askingTable(B1)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest", "guest"]);
+    // Into a table and Back: the boards remount on the page's FIRST snapshot, and the room still
+    // holds the ask and the arrival the bell already rang for.
+    first.unmount();
+    mountCounter(firstLoad.floor, firstLoad.lane);
+    await tick(5_000);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest", "guest"]);
+    // …and the returning ear is not deaf: a fact it has never heard rings once.
+    expoAnswer = laneOf([arrived(B2), cooked(B3)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest", "guest", "food"]);
+  });
+
+  it("a lane poll that lands after the counter home was left rings nothing", async () => {
+    // Red before the fix: the in-flight `getExpoQueue` resolved on /staff/table/7, and the armed,
+    // document-scoped engine rang the counter bell on a page that has none (owner decision 5c).
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([bag(B2)]);
+    const view = mountCounter([], [bag(B2)]);
+    await tick(5_000);
+    let answer: (v: unknown) => void = () => {};
+    expoAnswer = new Promise((resolve) => {
+      answer = resolve;
+    });
+    await tick(5_000); // the next lane poll is on the wire
+    view.unmount();
+    await act(async () => {
+      answer(laneOf([arrived(B2)]));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(await rings()).toEqual([]);
+  });
+
+  it("a lane that unmounts under a LIVE provider rings nothing and lights nothing for its late poll", async () => {
+    // Red before ExpoBoard's own `alive` guard (by hand): the provider is still mounted, so its guard
+    // cannot help — the lane's own must (a re-parent across a breakpoint unmounts the board alone).
+    await bellOn();
+    vi.useFakeTimers();
+    const tree = (lane: boolean) => (
+      <StaffLangProvider lang="en">
+        <LiveConnectionProvider>
+          <CounterBellProvider>
+            {lane && <ExpoBoard initial={{ tickets: [bag(B2)], serverNow: NOW }} />}
+          </CounterBellProvider>
+        </LiveConnectionProvider>
+      </StaffLangProvider>
+    );
+    expoAnswer = laneOf([bag(B2)]);
+    const view = render(tree(true));
+    await tick(5_000);
+    let answer: (v: unknown) => void = () => {};
+    expoAnswer = new Promise((resolve) => {
+      answer = resolve;
+    });
+    await tick(5_000);
+    view.rerender(tree(false));
+    await act(async () => {
+      answer(laneOf([arrived(B2)]));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(await rings()).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rings while the tab is HIDDEN (owner decision 5c) — the counter is across the room, not at the screen", async () => {
+    // MUTATION (counter-bell/a-hidden-tab-is-silent): the provider returns early on `document.hidden`.
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([bag(B2)]);
+    mountCounter([], [bag(B2)]);
+    await tick(5_000);
+    hideTab();
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(document.hidden).toBe(true);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest"]);
+  });
 });
+
+/** Stub the tab hidden (an own property shadows jsdom's getter); `showTab` restores the getter. */
+function hideTab() {
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+}
+function showTab() {
+  delete (document as { visibilityState?: unknown }).visibilityState;
+  delete (document as { hidden?: unknown }).hidden;
+}
+afterEach(showTab);

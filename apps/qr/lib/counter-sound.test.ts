@@ -245,3 +245,19 @@ describe("the wanted store — a broken store is not consent", () => {
     expect(calls).toBe(1);
   });
 });
+
+describe("what this document has heard — merged, never replaced", () => {
+  it("every remember ADDS: a remount's stale seed can never drop a key an earlier mount rang for", async () => {
+    // MUTATION (counter-sound/the-heard-set-forgets): a remember that REPLACES — Back restores the
+    // counter home's first-load snapshot, its seed wipes the keys rung since, and they ring again.
+    const s = await fresh();
+    expect([...s.counterHeard()]).toEqual([]);
+    s.rememberCounterHeard(["here:a", "food:b"]);
+    s.rememberCounterHeard(["ask:c:2026-09-29T10:00:00.000Z"]);
+    s.rememberCounterHeard([]); // a remount whose seed holds nothing
+    s.rememberCounterHeard(["here:a"]); // …or only what was already heard
+    expect(new Set(s.counterHeard())).toEqual(
+      new Set(["here:a", "food:b", "ask:c:2026-09-29T10:00:00.000Z"]),
+    );
+  });
+});

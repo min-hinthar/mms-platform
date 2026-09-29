@@ -380,8 +380,9 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
         ]
       : []),
     // ── Phase 2d · bell ── the counter bell's PAUSED chip (`.staff-chip[data-muted="true"]`) sets
-    // its "Sound off — tap to turn on" in --warn on the chip's own --sf ground, in both themes (the
-    // hint and the refusal under it are `t2 on pg` / `warn on pg`, already pinned above).
+    // its "Sound off — tap to turn on" in --warn on the chip's own --sf ground, in both themes. The
+    // refusal note floating under it (`.staff-sound-line-warn`) is the same pair; the hint is
+    // `t2 on sf`, already pinned above.
     { name: "warn on sf (the counter bell's paused chip)", fg: tok(map, "--warn"), bg: sf },
   ];
 

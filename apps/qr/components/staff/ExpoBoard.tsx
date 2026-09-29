@@ -243,9 +243,15 @@ export function ExpoBoard({
       );
     }
   }, []);
+  // A poll that lands after the lane unmounted (getExpoQueue has no AbortController, and the counter
+  // home can be left mid-poll) must neither ring nor light a card: re-armed at setup, latched in the
+  // cleanup — FloorBoard's `alive`, for the bell's two steps only.
+  const alive = useRef(true);
   useEffect(() => {
+    alive.current = true;
     const timers = pulseTimers.current;
     return () => {
+      alive.current = false;
       timers.forEach((t) => clearTimeout(t));
       timers.clear();
     };
@@ -282,8 +288,10 @@ export function ExpoBoard({
       setSnap(res.queue);
       // Phase 2d · bell — a GOOD poll's facts, heard (a frozen lane reports nothing): one ring per
       // new fact through the counter's bell, and the ring on each card the news is about.
-      const news = hear(laneFacts(res.queue.tickets));
-      if (news.size > 0) pulseCards([...news].map(factSubject));
+      if (alive.current) {
+        const news = hear(laneFacts(res.queue.tickets));
+        if (news.size > 0) pulseCards([...news].map(factSubject));
+      }
       clockOffset.current = Date.parse(res.queue.serverNow) - Date.now();
       // A bag that left the queue under an open picked-up window (someone else's tap, a refund)
       // takes its window with it — writing picked_up to a gone order would only earn a "stale"

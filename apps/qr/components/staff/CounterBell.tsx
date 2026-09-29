@@ -26,9 +26,11 @@ import {
 import {
   armWithin,
   counterArmed,
+  counterHeard,
   counterSoundServerSnapshot,
   getCounterWanted,
   playCounter,
+  rememberCounterHeard,
   setCounterWanted,
   subscribeCounterArmed,
   subscribeCounterWanted,
@@ -48,11 +50,12 @@ import { Chrome } from "./Chrome";
  *   · `CounterBellProvider` — mounted by the counter branch of `/staff` INSIDE its
  *     LiveConnectionProvider. It owns the ONE ring gate (`mayRing`: one ring per kind per gap across
  *     both boards) and, while the bell is PAUSED, the silent re-arm off the next tap anywhere.
- *   · `useCounterAttention` — a board's ear: its per-mount seen set, seeded with the board's first
- *     good facts, heard on every GOOD poll. Outside the provider it still reports the news (the
- *     lane's one-shot card ring is the visible half and never depends on sound) and rings nothing.
+ *   · `useCounterAttention` — a board's ear: its first good facts merged, silently, into what this
+ *     DOCUMENT has already heard (`counterHeard`, `lib/counter-sound.ts`), and every GOOD poll heard
+ *     against that set — so a remount never re-rings. Outside the provider it still reports the news
+ *     (the lane's one-shot card ring is the visible half and never depends on sound) and rings nothing.
  *   · `CounterSoundChip` — the counter's own control, beside the greeting (not a bar circle: the KDS
- *     rule, and a fifth circle overflows a 390 manager bar). An honest three-way chip: "Enable sound"
+ *     rule, and a fifth circle overflows a 390 manager bar). An honest three-way chip: "Turn on sound"
  *     · "Sound on" (the one lit cap) · "Sound off — tap to turn on" (warn). iOS arms audio only
  *     inside a tap, so the chip's tap IS the arming — and the moment the bell is armed it plays the
  *     guest phrase once: the tap is the volume check.
@@ -68,6 +71,11 @@ const BellContext = createContext<Bell | null>(null);
  *  arm, with its lock — never the page's background re-arm. */
 const CHIP_SELECTOR = "[data-counter-sound]";
 
+/** Is the context running right now — the store, not a mirror (off on the server). */
+function useCounterArmed(): boolean {
+  return useSyncExternalStore(subscribeCounterArmed, counterArmed, counterSoundServerSnapshot);
+}
+
 /** §15 — "wanted" and "armed" are two stores, read through `useSyncExternalStore` (the store, not
  *  a mirror), both off on the server. */
 function useSoundPosture(): SoundPosture {
@@ -76,12 +84,7 @@ function useSoundPosture(): SoundPosture {
     getCounterWanted,
     counterSoundServerSnapshot,
   );
-  const armed = useSyncExternalStore(
-    subscribeCounterArmed,
-    counterArmed,
-    counterSoundServerSnapshot,
-  );
-  return soundPosture(wanted, armed);
+  return soundPosture(wanted, useCounterArmed());
 }
 
 export function CounterBellProvider({ children }: { children: ReactNode }) {
@@ -89,9 +92,23 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
   // The last ring the provider PLAYED (a refused or silent ring records nothing). Monotonic clock:
   // a gap is a duration, and the device's wall clock can jump.
   const last = useRef<{ ring: CounterRingKind; at: number } | null>(null);
+  // Is the counter home still here? A board's poll that lands after the view left (a tap into
+  // /staff/table/7 while `getExpoQueue` was in flight) still holds this `ring`, and the engine it
+  // plays through is a document singleton that stays armed — so without this the bell rang on the
+  // table page (owner decision 5c: the counter home only). Re-armed at setup, never latched only in
+  // the cleanup: StrictMode replays the effect as cleanup → setup.
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const ring = useCallback((kind: CounterRingKind) => {
+    if (!mounted.current) return;
     // Re-read at the instant of the ring, never captured: a mute on the chip or a context that
-    // suspended a moment ago is the truth now.
+    // suspended a moment ago is the truth now. Nothing here reads whether the tab is VISIBLE: the
+    // counter bell rings while the tab is hidden (owner decision 5c).
     if (soundPosture(getCounterWanted(), counterArmed()) !== "on") return;
     const now = performance.now();
     if (!mayRing(last.current, kind, now)) return;
@@ -126,6 +143,9 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
   return <BellContext.Provider value={bell}>{children}</BellContext.Provider>;
 }
 
+/** A seeding call's answer: nothing is news. */
+const NO_NEWS: ReadonlySet<string> = new Set();
+
 /**
  * A board's ear. `seed` returns the board's first GOOD facts — or null when it has none yet (a lane
  * that mounted into an outage), and then its first good poll seeds instead. Call the returned
@@ -133,26 +153,36 @@ export function CounterBellProvider({ children }: { children: ReactNode }) {
  * rings through the provider when a key is news, and returns the news so the board can light the
  * cards it is about.
  *
- * The seed runs once per mount (a lazy state initializer: pure, so a StrictMode double render seeds
- * the same set), and the set lives in a ref the poll's callback owns — never written in render.
+ * News is judged against what this DOCUMENT has heard (`counterHeard`), never a per-mount set: the
+ * mount's seed is merged INTO it — silently, on the first `hear` — and every good poll grows it. So
+ * a remount carrying a stale `initial` (Back restores the counter home's first-load props) never
+ * re-rings a fact any earlier mount rang for.
+ *
+ * `seed` runs once per mount (a lazy state initializer, pure: a StrictMode double render computes the
+ * same facts), and the document set is written only from the poll's callback — never in render.
  */
 export function useCounterAttention(
   seed: () => CounterFacts | null,
 ): (next: CounterFacts) => ReadonlySet<string> {
   const bell = useContext(BellContext);
-  const [first] = useState(() => {
-    const facts = seed();
-    return facts === null ? null : counterRing(null, facts).seen;
-  });
-  const seen = useRef<ReadonlySet<string> | null>(first);
+  const [first] = useState(seed);
+  const seeded = useRef(false);
   return useCallback(
     (next: CounterFacts) => {
-      const r = counterRing(seen.current, next);
-      seen.current = r.seen;
+      if (!seeded.current) {
+        seeded.current = true;
+        // The mount's own facts are never news — added to what the document heard, never replacing
+        // it. A board with no facts of its own yet (null) takes its first good poll as the seed.
+        const base = first ?? next;
+        rememberCounterHeard(counterRing(null, base).seen);
+        if (first === null) return NO_NEWS;
+      }
+      const r = counterRing(counterHeard(), next);
+      rememberCounterHeard(r.seen);
       if (r.ring !== null) bell?.ring(r.ring);
       return r.fresh;
     },
-    [bell],
+    [bell, first],
   );
 }
 
@@ -176,6 +206,23 @@ export function CounterSoundChip() {
     );
     return () => clearTimeout(id);
   }, [line]);
+  // Render-time adjustment (guarded set-during-render): a refusal is only true while the context is
+  // NOT running. A resume the browser left pending past ARM_TIMEOUT_MS can still land (`armWithin`);
+  // on a PAUSED chip that lights the cap, and "tap to try again" beside a lit chip sends the tap that
+  // MUTES it. So the refusal is DROPPED — not merely hidden, or a context that pauses again inside
+  // the dwell would bring back a stale alert — the moment the store says the context runs.
+  const armed = useCounterArmed();
+  if (line?.kind === "refused" && armed) setLine(null);
+  // Is the chip still on the screen? The arm's answer can land after the counter home was left (a
+  // tap, then straight into a table inside ARM_TIMEOUT_MS): the answer is kept, but the volume-check
+  // tone is not played on a page that has no bell. Re-armed at setup (StrictMode's replay).
+  const live = useRef(false);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
 
   const onTap = () => {
     if (arming.current) return;
@@ -194,6 +241,10 @@ export function CounterSoundChip() {
     void armWithin().then((ok) => {
       arming.current = false;
       setBusy(false);
+      if (!live.current) {
+        if (ok) setCounterWanted(true); // the tap asked for the bell, and it armed: say so on return
+        return;
+      }
       if (!ok) {
         // Never blames the volume or the silent switch: neither can refuse an arm.
         setLine({ kind: "refused" });
@@ -228,11 +279,11 @@ export function CounterSoundChip() {
         <Chrome lang={lang} k={word} />
       </button>
       {line?.kind === "refused" ? (
-        <p role="alert" className="staff-sound-line staff-sound-line-warn">
+        <p role="alert" className="staff-sound-line staff-sound-line-warn mms-rise">
           <Chrome lang={lang} k="floor.sound.refused" />
         </p>
       ) : line?.kind === "hint" ? (
-        <p className="staff-sound-line">
+        <p className="staff-sound-line mms-rise">
           <Chrome lang={lang} k="floor.sound.hint" />
         </p>
       ) : null}

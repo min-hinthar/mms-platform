@@ -18,8 +18,8 @@ import { ARM_TIMEOUT_MS, COUNTER_LEVEL, COUNTER_SOUND_KEY, COUNTER_TONES } from 
  * On an iPad a running context is still MUTED by the ringer switch unless the page asks for a
  * `playback` audio session (WebKit's Audio Session API). The owner chose that (decision 5c): the
  * chip is the counter's mute, not the switch. Feature-detected and best effort — a browser without
- * the API keeps its default, and the post-arm hint ("Check the volume and the silent switch") covers
- * that device. ⚠️ Unmeasured: no device here; OPEN-ITEMS row. Trade-off the owner accepted: on those
+ * the API keeps its default, and the post-arm hint (turn up the volume, check the device is not on
+ * silent) covers that device. ⚠️ Unmeasured: no device here; OPEN-ITEMS row. Trade-off the owner accepted: on those
  * devices the switch no longer silences the bell, and it may pause other audio on the counter iPad.
  */
 
@@ -122,4 +122,32 @@ export function subscribeCounterWanted(cb: () => void): () => void {
     wantedListeners.delete(cb);
     window.removeEventListener("storage", cb);
   };
+}
+
+// ── What this document has already heard ─────────────────────────────────────────────────────────
+/**
+ * Every fact key (`lib/counter-attention.ts`) the counter home's boards have heard in THIS DOCUMENT —
+ * document-scoped for the engine's reason. A board's own seen set lived one MOUNT, and each mount
+ * seeded it from the page's `initial` snapshot; a remount whose `initial` is OLDER than its last good
+ * poll then rang again for every fact it had already rung for. That remount is reachable: Back (the
+ * App Router restores a back/forward navigation from its client cache, so the counter home returns
+ * with its FIRST load's props, and the boards remount — no `cacheComponents` here), an error
+ * boundary's reset, a re-parent across a breakpoint. Each mount's seed now merges INTO this set and
+ * every good poll grows it, so a key this document has heard never rings again, whatever `initial`
+ * a remount carries.
+ *
+ * It only grows (pruning it is exactly what would let a flap re-ring): one short string per ask,
+ * arrival, basket and finished bag — a few hundred a day, kilobytes over a tablet's week-long tab.
+ * A reload or a hard navigation is a new document, and a new document's first mount seeds (§17).
+ */
+const heard = new Set<string>();
+
+/** The keys this document has heard (a read-only view: `rememberCounterHeard` is the one writer). */
+export function counterHeard(): ReadonlySet<string> {
+  return heard;
+}
+
+/** Add keys to what this document has heard. Merge only — never a replace. */
+export function rememberCounterHeard(keys: Iterable<string>): void {
+  for (const k of keys) heard.add(k);
 }

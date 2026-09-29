@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -9,15 +10,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  *   - the chip's tap arms INSIDE the gesture (iOS arms audio nowhere else), plays the guest phrase
  *     once (the tap is the volume check) and leaves a plain hint;
- *   - a refused arm is said as an alert and the chip stays "Enable sound"; a resume that never
- *     settles returns the chip to tappable at ARM_TIMEOUT_MS, never busy forever;
+ *   - a refused arm is said as an alert and the chip stays "Turn on sound"; a resume that never
+ *     settles returns the chip to tappable at ARM_TIMEOUT_MS, never busy forever — and one that
+ *     lands after that drops the alert the moment the context runs;
  *   - a context suspended out from under the bell turns the chip PAUSED (warn), and the next click
  *     anywhere else re-arms it silently — no tone, and never the chip's busy state;
  *   - "wanted" and "armed" are two facts, each read through useSyncExternalStore (§15).
  */
 
-type ResumeMode = "run" | "refuse" | "hang";
+type ResumeMode = "run" | "refuse" | "hang" | "late";
 let resumeMode: ResumeMode = "run";
+/** `late`: the resume stays pending until the test lands it — the browser allowing it after all. */
+let landLate: (() => void) | null = null;
 const contexts: Array<EventTarget & { state: AudioContextState; resumed: number }> = [];
 const freqs: number[] = [];
 
@@ -33,6 +37,14 @@ class FakeCtx extends EventTarget {
   resume(): Promise<void> {
     this.resumed += 1;
     if (resumeMode === "hang") return new Promise(() => {});
+    if (resumeMode === "late")
+      return new Promise<void>((resolve) => {
+        landLate = () => {
+          this.state = "running";
+          this.dispatchEvent(new Event("statechange"));
+          resolve();
+        };
+      });
     if (resumeMode === "run" && this.state !== "running") {
       this.state = "running";
       this.dispatchEvent(new Event("statechange"));
@@ -67,7 +79,8 @@ const haptic = vi.fn();
 vi.mock("@/lib/haptics", () => ({ haptic: (...a: unknown[]) => haptic(...a) }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
-const { CounterBellProvider, CounterSoundChip } = await import("./CounterBell");
+const { CounterBellProvider, CounterSoundChip, useCounterAttention } =
+  await import("./CounterBell");
 const { setCounterWanted } = await import("@/lib/counter-sound");
 const { ARM_TIMEOUT_MS, COUNTER_SOUND_KEY, COUNTER_TONES, SOUND_HINT_MS } =
   await import("@/lib/counter-chime");
@@ -90,6 +103,7 @@ function suspend() {
 beforeEach(() => {
   vi.useFakeTimers();
   resumeMode = "run";
+  landLate = null;
   suspend();
   setCounterWanted(false);
   localStorage.clear();
@@ -159,7 +173,7 @@ describe("the chip's tap arms the bell inside the gesture", () => {
     expect(localStorage.getItem(COUNTER_SOUND_KEY)).toBeNull();
   });
 
-  it("a REFUSED arm says so as an alert, keeps 'Enable sound', and plays nothing", async () => {
+  it("a REFUSED arm says so as an alert, keeps 'Turn on sound', and plays nothing", async () => {
     resumeMode = "refuse";
     mount();
     fireEvent.click(chip());
@@ -192,6 +206,23 @@ describe("the chip's tap arms the bell inside the gesture", () => {
     expect(chip().getAttribute("aria-busy")).toBeNull();
     expect(chip().getAttribute("aria-disabled")).toBeNull();
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "floor.sound.refused"));
+  });
+
+  it("an arm that answers after the chip LEFT keeps the answer but plays no tone on the next page", async () => {
+    // MUTATION (counter-bell/the-check-tone-follows-the-counter-out): the volume check plays on
+    // /staff/table/7 — a tap on the chip, then straight into a table inside the arm window.
+    resumeMode = "late";
+    const view = mount();
+    fireEvent.click(chip());
+    view.unmount();
+    await act(async () => {
+      landLate!();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(freqs).toEqual([]);
+    expect(haptic).not.toHaveBeenCalled();
+    // The tap asked for the bell and it armed: the counter home comes back to "Sound on".
+    expect(localStorage.getItem(COUNTER_SOUND_KEY)).toBe("1");
   });
 });
 
@@ -240,6 +271,43 @@ describe("PAUSED — wanted, but the context is not running", () => {
     expect(chip().getAttribute("aria-busy")).toBe("true");
   });
 
+  it("a resume that lands AFTER the timeout drops the refusal — never 'tap to try again' beside a lit chip", async () => {
+    // MUTATION (counter-bell/a-late-arm-keeps-the-refusal): the alert dwelt its 8s beside the lit
+    // cap, and the tap it asks for MUTES the bell (`soundTapIntent('on')`).
+    mount();
+    await armViaChip();
+    act(() => suspend());
+    resumeMode = "late";
+    fireEvent.click(chip());
+    await tick(ARM_TIMEOUT_MS);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "floor.sound.refused"));
+    await act(async () => {
+      landLate!();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(chip().getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    // DROPPED, not hidden: the context pausing again inside the old dwell does not bring it back.
+    act(() => suspend());
+    expect(chip().textContent).toBe(ts("en", "kds.sound.off"));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("on an OFF chip, a late resume drops the refusal too (it is no longer true) and leaves the chip off", async () => {
+    resumeMode = "late";
+    mount();
+    fireEvent.click(chip());
+    await tick(ARM_TIMEOUT_MS);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    await act(async () => {
+      landLate!();
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(chip().getAttribute("aria-pressed")).toBe("false");
+    expect(chip().textContent).toBe(ts("en", "kds.sound.enable"));
+  });
+
   it("a device that wanted the bell on an earlier load mounts PAUSED, never 'Sound on'", () => {
     localStorage.setItem(COUNTER_SOUND_KEY, "1");
     mount();
@@ -271,5 +339,43 @@ describe("the chip in Burmese", () => {
     expect(document.querySelector('.staff-sound-line [lang="my"]')?.textContent).toBe(
       ts("my", "floor.sound.hint"),
     );
+  });
+});
+
+describe("the provider rings on the counter home only", () => {
+  it("a ring that lands after the provider unmounted plays nothing", async () => {
+    // MUTATION (counter-bell/the-bell-rings-after-the-counter-left): the provider's `mounted` guard
+    // dropped. A board without its own alive guard, polling across the unmount, rang the armed
+    // document-scoped engine on the table page.
+    const ear: { hear: ((f: { guest: Set<string>; food: Set<string> }) => unknown) | null } = {
+      hear: null,
+    };
+    function Ear() {
+      const hear = useCounterAttention(() => ({
+        guest: new Set<string>(),
+        food: new Set<string>(),
+      }));
+      useEffect(() => {
+        ear.hear = hear;
+      }, [hear]);
+      return null;
+    }
+    const view = render(
+      <StaffLangProvider lang="en">
+        <CounterBellProvider>
+          <CounterSoundChip />
+          <Ear />
+        </CounterBellProvider>
+      </StaffLangProvider>,
+    );
+    await armViaChip();
+    // The ear is live while the provider is: a new key rings.
+    act(() => void ear.hear!({ guest: new Set(["here:ear-a"]), food: new Set() }));
+    expect(freqs).toEqual(GUEST);
+    freqs.length = 0;
+    view.unmount();
+    await tick(10_000); // well past RING_GAP_MS: only the unmount can refuse the next ring
+    act(() => void ear.hear!({ guest: new Set(["here:ear-a", "here:ear-b"]), food: new Set() }));
+    expect(freqs).toEqual([]);
   });
 });
