@@ -81,6 +81,7 @@ export function StaffPromoControl({
   canWrite,
   onError,
   onChanged,
+  headingLevel = 2,
 }: {
   sessionId: string;
   lang: StaffLang;
@@ -97,7 +98,10 @@ export function StaffPromoControl({
    *  fires `useFloorRealtime` too, so this is the belt for a socket that is down, not a second
    *  mechanism. */
   onChanged: () => void;
+  /** Phase 2d · split — h3 inside the counter's pane (Tables › Table 7 › Discount); h2 on the page. */
+  headingLevel?: 2 | 3;
 }) {
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<null | "apply" | "clear">(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -168,9 +172,9 @@ export function StaffPromoControl({
 
   return (
     <section className="card card-textured" style={sectionCard} aria-labelledby="promo-h">
-      <h2 id="promo-h" style={sectionH}>
+      <Heading id="promo-h" style={sectionH}>
         <Chrome lang={lang} k="promo.h" echo="inline" />
-      </h2>
+      </Heading>
 
       {promoCode ? (
         <>

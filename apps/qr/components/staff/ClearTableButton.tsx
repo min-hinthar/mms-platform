@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
 import { clearTable } from "@/lib/floor";
-import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { dropHandoffStash } from "@/lib/floor-pane";
+import { useTableNav } from "./TableNav";
 import { tf } from "@/lib/i18n/fill";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -22,7 +22,8 @@ export function ClearTableButton({
   paymentInFlight: boolean;
 }) {
   const lang = useStaffLang();
-  const router = useRouter();
+  // Phase 2d · split — the exit is the page's or the pane's (`TableNav`), bound once.
+  const nav = useTableNav();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,8 +52,10 @@ export function ClearTableButton({
     }
     // Session closed — return to the floor (this detail is now defunct). Phase 2a · tablet: the
     // floor BY NAME — a bare `/staff` resolves by the door cookie and could land on the doors.
-    router.replace(STAFF_DOOR_TARGET.counter);
-    router.refresh();
+    // Phase 2d · split: through `TableNav` — the page replaces to the floor; the pane closes. The
+    // table's paid card leaves with it (a cleared table has no card to follow).
+    dropHandoffStash(sessionId);
+    nav.toFloor("cleared");
   }
 
   if (paymentInFlight) {

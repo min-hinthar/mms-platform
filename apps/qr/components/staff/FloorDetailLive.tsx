@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type ReactNode,
+  type Ref,
 } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
@@ -54,6 +55,10 @@ import { settleUnknownAfterRead } from "@/lib/register-math";
 import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
+// ── Phase 2d · split ──
+import { paneFreezeSpoken, readHandoffStash, stashHandoff } from "@/lib/floor-pane";
+import { useLiveBoardState, useReportLive } from "./LiveConnection";
+import { useTableNav } from "./TableNav";
 // ── Phase 2c · gate ──
 import { staffSettleBlockedByUnsent } from "@/lib/checkout-stage";
 import {
@@ -91,9 +96,24 @@ export function FloorDetailLive({
   hasPin = false,
   arrivedToSend = false,
   focusSettle = false,
+  variant = "page",
+  onClosed,
+  onLostWrite,
+  paneNotice,
 }: {
   initial: TableDetail;
   sessionId: string;
+  /** Phase 2d · split — `page` is `/staff/table/[id]` (its own <main>, bar and column; pinned by
+   *  FloorDetailLive.test). `pane` is the counter's pane beside the floor: no <main>, no bar, h3
+   *  sections, and the exits go through the pane (`onClosed`, `TableNav`). */
+  variant?: "page" | "pane";
+  /** Pane — the table closed (and no terminal flow holds it): the pane shows its notice. */
+  onClosed?: (sessionId: string) => void;
+  /** Pane — a line or discount write refused AFTER this detail unmounted (the pane moved on): the
+   *  pane says so, naming this table, so the refusal is never dropped silently. */
+  onLostWrite?: (sessionId: string, name: { counter: boolean; display: string }) => void;
+  /** Pane — the lost-write sentence for ANOTHER table, spoken through this view's one region. */
+  paneNotice?: ReactNode;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
    *  Send (or the status row, if a colleague sent in between), then drop the param. */
   arrivedToSend?: boolean;
@@ -133,6 +153,16 @@ export function FloorDetailLive({
   const readsStarted = useCallback(() => reads.current, []);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
+  // ── Phase 2d · split ── the pane's root (focus ownership is "inside it", not "anywhere but
+  // <body>"), its heading level (Tables › Table 7 › Order), the exits, and the freeze it shares.
+  const inPane = variant === "pane";
+  const rootRef = useRef<HTMLDivElement>(null);
+  const H = inPane ? "h3" : "h2";
+  const nav = useTableNav();
+  // The floor beside the pane speaks a shared freeze once (`paneFreezeSpoken`, the lane's rule); on
+  // the page there is no provider and nothing to share.
+  const floorLive = useLiveBoardState("floor");
+  const freezeSpoken = !inPane || paneFreezeSpoken(floorLive);
 
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
@@ -164,7 +194,21 @@ export function FloorDetailLive({
   // tip, the tender the cashier entered, whether it is a counter order, and the cart that paid (so a
   // table's card leaves when the next round's cart opens — `handoffStillCurrent`). It is never reset:
   // a stale one is simply not rendered, and the next settle overwrites it.
-  const [handoff, setHandoff] = useState<Handoff | null>(null);
+  const [handoff, setHandoffState] = useState<Handoff | null>(null);
+  // Phase 2d · split — the paid card FOLLOWS ITS TABLE (owner decision 5c): written to this tab's
+  // sessionStorage inside the settle's own callback, so a settle that lands after the pane moved to
+  // another table still leaves its card for when this one is reselected. Display-only: the server's
+  // settle result, verbatim. A RESTORED card is its own state, so the focus effect below (keyed on a
+  // NEW settle) never pulls focus off the pane heading the person just landed on.
+  const setHandoff = useCallback(
+    (h: Handoff) => {
+      stashHandoff(sessionId, h);
+      setHandoffState(h);
+    },
+    [sessionId],
+  );
+  const [restoredHandoff, setRestoredHandoff] = useState<Handoff | null>(null);
+  const shownHandoff = handoff ?? restoredHandoff;
   // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
   // freeze flips paymentInFlight, which unmounts the settle section seconds after the start),
   // PLUS reload survival: the PI handle is mirrored to sessionStorage, so a mid-collect refresh /
@@ -188,6 +232,12 @@ export function FloorDetailLive({
         /* deliberate: an unreadable stash is just a cold start */
       }
     }, 0);
+    return () => clearTimeout(id);
+  }, [sessionId]);
+  // Phase 2d · split — the paid card's stash, restored the same way (a scheduled callback, never a
+  // synchronous setState in the effect; `readHandoffStash` swallows every storage failure).
+  useEffect(() => {
+    const id = setTimeout(() => setRestoredHandoff(readHandoffStash(sessionId)), 0);
     return () => clearTimeout(id);
   }, [sessionId]);
   // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
@@ -231,8 +281,8 @@ export function FloorDetailLive({
   // still returns to the floor).
   const terminalFlowLive = useRef(false);
   useEffect(() => {
-    terminalFlowLive.current = terminalCollect != null || handoff?.isCounter === true;
-  }, [terminalCollect, handoff]);
+    terminalFlowLive.current = terminalCollect != null || shownHandoff?.isCounter === true;
+  }, [terminalCollect, shownHandoff]);
   useEffect(() => {
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
     if (handoff) handoffRef.current?.focus();
@@ -262,14 +312,25 @@ export function FloorDetailLive({
   useEffect(() => {
     const onBody = document.activeElement === document.body;
     if (onBody && hadRealFocus.current) orderHeadingRef.current?.focus({ preventScroll: true });
-    hadRealFocus.current = document.activeElement !== document.body;
-  }, [detail]);
+    // Phase 2d · split — in the pane, "had real focus" means focus INSIDE the pane: the floor beside
+    // it is another owner, and a lane bump that drops ITS focus to <body> must never be answered by
+    // the pane stealing it on the next poll. The page keeps "anywhere but <body>" (it is the page).
+    hadRealFocus.current = inPane
+      ? (rootRef.current?.contains(document.activeElement) ?? false)
+      : document.activeElement !== document.body;
+  }, [detail, inPane]);
 
   // Phase 2a · tablet — false once the poll effect has cleaned up (unmount, or a new `refresh`). A
   // read already in the air when the server taps "+ Add items" used to land on the unmounted page
   // and, on a `closed` verdict, `router.replace` them OFF the add page they had just opened (the
   // /add yank). Every setState and router call below the await is behind this.
   const alive = useRef(true);
+  // Phase 2d · split — the pane's close callback, read through a ref so `refresh` (and with it the
+  // 5s poll's interval) keeps its identity when the pane re-renders with a new closure.
+  const onClosedRef = useRef(onClosed);
+  useEffect(() => {
+    onClosedRef.current = onClosed;
+  }, [onClosed]);
 
   const refresh = useCallback(async () => {
     // Phase 2a (blind review) — a refresh asked for while a read is in the air is REMEMBERED, not
@@ -315,8 +376,13 @@ export function FloorDetailLive({
             // is then most likely that settle landing (see `settleUnknown`); the page says so.
             if (settleUnknown.current !== null) setClosedAfterUnknown(true);
             else if (!terminalFlowLive.current) {
-              router.replace(STAFF_DOOR_TARGET.counter);
-              router.refresh();
+              // Phase 2d · split — in the pane the floor is already beside it: the pane says the
+              // table closed (and keeps its paid card) instead of navigating anywhere.
+              if (onClosedRef.current) onClosedRef.current(sessionId);
+              else {
+                router.replace(STAFF_DOOR_TARGET.counter);
+                router.refresh();
+              }
             }
           } else if (res.kind === "signin") {
             // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
@@ -412,15 +478,30 @@ export function FloorDetailLive({
     const gate = settleGateAfterCommit(settleGate, readTicket, settleBlocked);
     if (gate !== settleGate) setSettleGate(gate);
   }
+  // Phase 2d · split — the name the pane gives this table in a lost-write sentence.
+  const paneName = { counter: isCounter, display: tableDisplay(detail).text };
+  const paneNameRef = useRef(paneName);
+  const onLostWriteRef = useRef(onLostWrite);
+  useEffect(() => {
+    paneNameRef.current = { counter: paneName.counter, display: paneName.display };
+    onLostWriteRef.current = onLostWrite;
+  }, [paneName.counter, paneName.display, onLostWrite]);
   const onWriteError = useCallback(
     (e: ReactNode) => {
+      // Phase 2d · split — a refusal that lands after this detail UNMOUNTED (the pane moved to
+      // another table mid-write) is said by the pane, naming this table — never dropped. A clear
+      // (null) after unmount has nothing to say.
+      if (!alive.current) {
+        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current);
+        return;
+      }
       setWriteError(e);
       setSendNote(null);
       setSettleGate(null); // Phase 2c · gate — every setter clears the others
       // `setSendNote` is named because the React Compiler cannot prove a setter stable once the render
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
-    [setSendNote, setSettleGate],
+    [setSendNote, setSettleGate, sessionId],
   );
   const onSendNotice = useCallback(
     (n: SendNotice | null) => {
@@ -517,28 +598,44 @@ export function FloorDetailLive({
             ? orderHeadingRef.current
             : send.statusRef.current;
     (target ?? orderHeadingRef.current)?.focus();
-    router.replace(pathname, { scroll: false });
-  }, [sendView.kind, send.controlRef, send.statusRef, router, pathname]);
+    // Phase 2d · split — the pane's arrival param is the pane's to drop (a replace to `pathname`
+    // here would strip the counter's `?floor=1` and the table's hash).
+    if (!inPane) router.replace(pathname, { scroll: false });
+  }, [sendView.kind, send.controlRef, send.statusRef, router, pathname, inPane]);
+
+  // Phase 2d · split — the pane's "Back to the counter": a plain primary click closes the pane.
+  const closeToCounter = (e: React.MouseEvent) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    nav.toFloor("user");
+  };
+  // Phase 2d · split — the table's feed, reported to the counter screen's help door (a no-op on the
+  // page, which has no provider); withdrawn on unmount by the hook itself.
+  useReportLive("table", degraded ? "not_updating" : "live");
 
   return (
-    <main className="staff-main" onFocusCapture={markFocus}>
+    <DetailRoot inPane={inPane} rootRef={rootRef} onFocusCapture={markFocus}>
       {/* P7·1b — the staff bar is the h1 and the language control (rule 4 reaches the switch
           through `StaffBar`). K2: the real table number; an unregistered/legacy sticker shows its
           raw token + flag. W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table —
           name it so, and never wave the unregistered-sticker warning at it. */}
-      <StaffBar
-        lang={lang}
-        title={isCounter ? "floor.counter" : "floor.table"}
-        titleVars={isCounter ? undefined : { id: tableDisplay(detail).text }}
-        // Phase 0 — a sub-page's leading control is the way back UP (DESIGN-LANGUAGE §17), and this
-        // page's own exits already promised "← Floor". It used to wear the default Screens circle,
-        // so every settle hand-off left through the doors. `STAFF_DOOR_TARGET.counter` is the floor
-        // WITHOUT re-dooring the tablet (the cookie is written only by a door tap).
-        leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
-        lock={hasPin}
-        live={degraded ? "not_updating" : "live"} // Phase 2b · feedback — the banner's own truth
-      />
-      <div className="staff-col" style={wrap}>
+      {/* Phase 2d · split — the pane has no bar: the counter screen's bar is the page's ONE bar
+          (and rule 4's one language switch); the pane's head names the table. */}
+      {!inPane && (
+        <StaffBar
+          lang={lang}
+          title={isCounter ? "floor.counter" : "floor.table"}
+          titleVars={isCounter ? undefined : { id: tableDisplay(detail).text }}
+          // Phase 0 — a sub-page's leading control is the way back UP (DESIGN-LANGUAGE §17), and this
+          // page's own exits already promised "← Floor". It used to wear the default Screens circle,
+          // so every settle hand-off left through the doors. `STAFF_DOOR_TARGET.counter` is the floor
+          // WITHOUT re-dooring the tablet (the cookie is written only by a door tap).
+          leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
+          lock={hasPin}
+          live={degraded ? "not_updating" : "live"} // Phase 2b · feedback — the banner's own truth
+        />
+      )}
+      <div className={inPane ? undefined : "staff-col"} style={inPane ? undefined : wrap}>
         <div style={header}>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -646,9 +743,9 @@ export function FloorDetailLive({
         <section className="card card-textured" style={sectionCard} aria-labelledby="party-h">
           {/* `echo={false}` is REQUIRED on a heading that is an aria-labelledby target: the computed
             name is the element's whole text, so an echo would name this region "အဖွဲ့ Party". */}
-          <h2 id="party-h" style={sectionH}>
+          <H id="party-h" style={sectionH}>
             <Chrome lang={lang} k="table.detail.party.title" />
-          </h2>
+          </H>
           {detail.members.length === 0 ? (
             <p style={muted}>
               <Chrome lang={lang} k="table.detail.party.empty" echo="stack" />
@@ -702,7 +799,7 @@ export function FloorDetailLive({
               gap: "var(--s4)",
             }}
           >
-            <h2
+            <H
               id="order-h"
               ref={orderHeadingRef}
               tabIndex={-1}
@@ -718,7 +815,7 @@ export function FloorDetailLive({
                 lang={lang}
                 k={detail.settled ? "table.detail.order.settledTitle" : "table.detail.order.title"}
               />
-            </h2>
+            </H>
             {/* K33 — see `roundsNote`: the record is the latest round, and on a table that settled
               more than once saying nothing would let the list read as the whole meal. */}
             {detail.settled && detail.settledOrderCount > 1 && (
@@ -963,11 +1060,16 @@ export function FloorDetailLive({
               // Phase 2a · send — while the slot is mounted the line is reserved, so an outcome
               // appearing never pushes the settle triggers below it.
               minHeight:
-                writeError || gateLine || degraded || sendNote || send.display.kind !== "none"
+                writeError ||
+                paneNotice ||
+                gateLine ||
+                degraded ||
+                sendNote ||
+                send.display.kind !== "none"
                   ? 16
                   : 0,
               color:
-                writeError || gateLine || degraded || sendNote?.tone === "warn"
+                writeError || paneNotice || gateLine || degraded || sendNote?.tone === "warn"
                   ? "var(--warn)"
                   : sendNote
                     ? "var(--t2)"
@@ -978,6 +1080,11 @@ export function FloorDetailLive({
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
+            ) : paneNotice ? (
+              // Phase 2d · split — a change on ANOTHER table that did not save (the pane shows the
+              // line and its "View" button above; this is where it is SAID). Below this view's own
+              // refusal, above everything else: it is money on a table the cashier has left.
+              paneNotice
             ) : gateLine ? (
               // Phase 2c · gate — the settle rank, SHOWN and SAID. Outranked lines stay shown,
               // unspoken: the frozen-board line below it (S9 — a frozen view never looks live).
@@ -1022,7 +1129,9 @@ export function FloorDetailLive({
                 ) : null}
               </>
             ) : degraded ? (
-              <span lang={lang}>
+              // Phase 2d · split — ALWAYS shown; in the pane SAID only while the floor's own region
+              // is not already saying the freeze (`paneFreezeSpoken` — one fact, spoken once).
+              <span lang={lang} aria-hidden={freezeSpoken ? undefined : true}>
                 {frozenBoardCopy(
                   lang,
                   detail.serverNow,
@@ -1050,6 +1159,7 @@ export function FloorDetailLive({
             canWrite={canWrite}
             onError={onWriteError}
             onChanged={onChange}
+            headingLevel={inPane ? 3 : 2}
           />
         )}
 
@@ -1078,7 +1188,7 @@ export function FloorDetailLive({
             style={{ marginTop: "var(--s4)" }}
             aria-label={sx(lang, "table.detail.a11y.openTab")}
           >
-            <OpenTabButton cartId={detail.cartId!} />
+            <OpenTabButton cartId={detail.cartId!} onChanged={onChange} />
           </section>
         )}
 
@@ -1091,9 +1201,9 @@ export function FloorDetailLive({
           <section className="staff-settle" aria-labelledby="settle-h">
             {/* `echo={false}`: an aria-labelledby target AND a focus target — both scripts in either
                 would say everything twice. */}
-            <h2 id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
+            <H id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
               <Chrome lang={lang} k="table.detail.settle.title" />
-            </h2>
+            </H>
             {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
@@ -1223,6 +1333,8 @@ export function FloorDetailLive({
             </p>
             <Link
               href={STAFF_DOOR_TARGET.counter}
+              // Phase 2d · split — in the pane the counter is already beside it: a close.
+              onClick={inPane ? closeToCounter : undefined}
               className={buttonClass({ variant: "primary", size: "xl", block: true })}
             >
               <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
@@ -1232,8 +1344,13 @@ export function FloorDetailLive({
         {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
             named by its facts; never a status region. A table's card leaves once the next round's
             cart opens (`handoffStillCurrent`). */}
-        {handoff && handoffStillCurrent(handoff, detail.cartId) && (
-          <HandoffCard ref={handoffRef} lang={lang} handoff={handoff} />
+        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId) && (
+          <HandoffCard
+            ref={handoffRef}
+            lang={lang}
+            handoff={shownHandoff}
+            onDone={inPane ? () => nav.toFloor("user") : undefined}
+          />
         )}
         {detail.paymentInFlight && terminalCollect == null && (
           <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
@@ -1285,6 +1402,30 @@ export function FloorDetailLive({
           />
         </section>
       </div>
+    </DetailRoot>
+  );
+}
+
+/** Phase 2d · split — the page's <main> (the page variant, unchanged) or the pane's plain root:
+ *  the counter screen already has its <main>, and a second one would be a second landmark. */
+function DetailRoot({
+  inPane,
+  rootRef,
+  onFocusCapture,
+  children,
+}: {
+  inPane: boolean;
+  rootRef: Ref<HTMLDivElement>;
+  onFocusCapture: () => void;
+  children: ReactNode;
+}) {
+  return inPane ? (
+    <div className="staff-pane-detail" ref={rootRef} onFocusCapture={onFocusCapture}>
+      {children}
+    </div>
+  ) : (
+    <main className="staff-main" onFocusCapture={onFocusCapture}>
+      {children}
     </main>
   );
 }
