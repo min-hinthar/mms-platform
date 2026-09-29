@@ -4,6 +4,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useTransition,
@@ -40,6 +41,13 @@ import { useTablePane } from "./TablePaneContext";
  *   · a start that lands after the screen is GONE (the person opened a table from a card while it
  *     was in flight) does not navigate: the router is global, and a push from an unmounted screen
  *     yanks them off the table they chose. The start still landed; the next poll shows it.
+ *   · Phase 2d · review — the same promise at SPLIT width, where nothing unmounts: a card, the
+ *     pane's own pick, Back / Forward or ✕ moves the counter pane while the start is out, and the
+ *     screen is still here. So the landing compares the pane's selection at TAP time with its
+ *     selection NOW — read through a ref kept current by every render (the `pane` in the action's
+ *     closure is the render that tapped, so it can never see the move). Moved: no push, no pane
+ *     switch, and the lock RE-ARMS — no route swap is coming to release it. The start still
+ *     landed; the next poll shows it, exactly as above.
  *
  * A rejection is an UNKNOWN outcome, not a failure: the response may have been lost after the
  * server started the order. It is said that way (`floor.mint.unknown`), never "wasn't saved" — if it
@@ -110,12 +118,20 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const isBusy = useCallback(() => inFlight.current !== null, []);
+  // Phase 2d · review — the pane as of the LAST commit (docblock): a card tap commits before any
+  // server answer lands, so the landing reads the person's current pick, never the tapping render's.
+  const paneNow = useRef(pane);
+  useLayoutEffect(() => {
+    paneNow.current = pane;
+  });
 
   const run = useCallback(
     (id: MintId, input: MintInput, { onStart, onRefusal }: MintCallbacks) => {
       if (inFlight.current !== null) return;
       inFlight.current = id;
       setMinting(id);
+      // What the pane showed when the person tapped — the landing's "did they move it" baseline.
+      const pickedAtTap = paneNow.current?.selectedId ?? null;
       onStart();
       // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
       haptic("commit");
@@ -132,6 +148,12 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
           // Phase 2d · split — a start that CONVERGED on a seated table opens it where a card tap
           // would: the pane beside the floor at split width (`openSession` says whether it did).
           if (!mounted.current) return;
+          // The screen stayed but the person moved the pane (docblock): never pull them off the
+          // table they chose, and hand the lock back — no route swap will unmount this screen.
+          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {
+            landed = false; // re-armed: they moved the pane while this start was out
+            return;
+          }
           const hint =
             input.kind === "table" ? { counter: false, display: String(input.tableNumber) } : null;
           if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {

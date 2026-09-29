@@ -10630,6 +10630,33 @@ const MUTANTS = [
     find: '  if (refusal === "paying") throw new CartPayingError();\n',
     replace: "",
   },
+  // ── Phase 2d · review fixes ──
+  // floor — the blind pass's floor group: the mint lock against the pane, the frozen wait pill, the
+  // strip tile's name arm, the degraded kitchen read and the flip window.
+  {
+    id: "p2d-rev/floor-mint-lands-over-the-pane-pick",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d · review (floor #1) — at split width nothing unmounts: a start that lands after the person picked a table in the pane must not push its add screen over that table, nor replace it with a converged one",
+    find: "          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {\n",
+    replace: "          if (false) {\n",
+  },
+  {
+    id: "p2d-rev/floor-mint-reads-the-tapping-render",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d · review (floor #1) — the action's closure holds the render that TAPPED; its `pane.selectedId` can never see the move, so the check must read the ref every render keeps current",
+    find: "          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {\n",
+    replace: "          if ((pane?.selectedId ?? null) !== pickedAtTap) {\n",
+  },
+  {
+    id: "p2d-rev/floor-mint-pane-pick-holds-the-lock",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d · review (floor #1) — a landing that stands down for the pane must RE-ARM: no route swap is coming to release a `landed` lock, so every start control on the screen would stay held for good",
+    find: "            landed = false; // re-armed: they moved the pane while this start was out\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
