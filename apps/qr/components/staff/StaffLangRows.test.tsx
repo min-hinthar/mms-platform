@@ -307,6 +307,8 @@ describe("StaffLangRows — the write", () => {
     expect(settled.mock.calls).toEqual([[{ wrote: false, alert: false, confirmed: "en" }]]);
   });
 
+  // What can fail here is the effect's DEPS: without `[focusOnMount]` every render re-focuses the
+  // pressed row, and this rerender pulls focus off the row the person moved to.
   it("focusOnMount lands on the PRESSED row, not the first — and a rerender does not re-focus", () => {
     const { rerender } = mount("en", true);
     expect(document.activeElement).toBe(row("English"));

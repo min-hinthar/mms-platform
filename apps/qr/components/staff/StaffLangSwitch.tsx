@@ -120,8 +120,8 @@ export function StaffLangSwitch() {
  * already holds with nothing in flight — never for a second tap on the row whose write is still out
  * (its outcome has not landed, and closing on it would lose the failure line).
  *
- * `focusOnMount` moves focus to the PRESSED row once (a `?show=lang` landing, the Help sheet's view
- * change — QA §A); a refresh keeps the component mounted, so it never re-focuses.
+ * `focusOnMount` moves focus to the PRESSED row once per mount (a `?show=lang` landing, the Help
+ * sheet's view change — QA §A); a refresh keeps the component mounted, so it never re-focuses.
  */
 export function StaffLangRows({
   write,
@@ -138,11 +138,10 @@ export function StaffLangRows({
   const lang = useStaffLang();
   const base = useId();
   const pressedRef = useRef<HTMLButtonElement>(null);
-  const focused = useRef(false);
+  // Once per mount: the deps are the flag alone, so a re-render (a refresh landing, a pick) never
+  // re-runs it. (A `focused` latch ref once sat here too — dead, since the deps already say once.)
   useEffect(() => {
-    if (!focusOnMount || focused.current) return;
-    focused.current = true;
-    pressedRef.current?.focus();
+    if (focusOnMount) pressedRef.current?.focus();
   }, [focusOnMount]);
 
   return (
