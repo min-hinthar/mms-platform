@@ -889,7 +889,9 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     });
     // MUTATION (p2d-el/cash-unreadable-said-as-server): drop the `unreadable` arm — the server's
     // English passes through <OutageText> on a Burmese console; red.
-    expect(within(dialog).getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable"));
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      tf("my", "settle.unsentUnreadable", {}),
+    );
     expect(take().getAttribute("aria-disabled")).toBeNull();
   });
 

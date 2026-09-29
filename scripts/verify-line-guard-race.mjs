@@ -308,12 +308,17 @@ const D2 = 1;
 const BY = 2; // inc_qty's step
 const SET = 7; // set_qty's target
 const RUN = `${process.pid.toString(36)}${Date.now().toString(36)}`;
+// One qr_code per FIXTURE, not per scenario name: `--mutants` runs every scenario again after the
+// baseline, and `table_sessions_active_qr_uniq` (unique qr_code among ACTIVE sessions) refused the
+// second `P2DK-insert-a-<run>` — CI's first run of this harness went red on exactly that. A minimal
+// local schema without the index passed, which is why the index is now part of the local proof.
+let fixtureSeq = 0;
 const sig = (lines, d1, d2) => `${lines}|${d1}|${d2}`;
 
 function fixture(id) {
   const out = q(`with s as (
       insert into public.table_sessions (qr_code, mode, status)
-      values ('${TAG}-${id}-${RUN}', 'dinein', 'active') returning id
+      values ('${TAG}-${id}-${RUN}-${++fixtureSeq}', 'dinein', 'active') returning id
     ), c as (
       insert into public.qr_carts (session_id) select id from s returning id
     ), i as (

@@ -255,7 +255,7 @@ describe("TerminalSettleButton — the settle gate (refused while dishes are uns
       fireEvent.click(screen.getAllByRole("button")[0]!);
     });
     // MUTATION (p2d-el/reader-unreadable-said-as-server): drop the `unreadable` arm; red.
-    expect(screen.getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable"));
+    expect(screen.getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable", {}));
     expect(document.body.textContent).not.toContain("english");
   });
 
