@@ -191,6 +191,13 @@ item's NAME — never on a control that could repeat the action** (at qty 1 the 
 "Remove {next dish}"); the heading takes focus only when the view swaps, and a tablemate's change
 moves focus only if it was inside what they removed (§24).
 
+**The counter screen is one view with per-ZONE regions, and says why** (Phase 2d · split):
+`FloorBoard`, `ExpoBoard` and `RegisterStart` each keep their always-mounted region because each
+speaks a different fact (the room's state is `FloorBoard`'s — the tablet pane's freeze line is said
+only while the floor's region is not already saying it); the tablet pane adds at most ONE at a time
+— the mounted table detail's region, else the pane's own sr-only status. A zone never mounts a
+second region for a fact another zone already speaks (§17).
+
 ## 8 · Money surfaces — receipt language
 
 Server-authoritative always (the client sends ids and rates, never amounts). Name a money value
@@ -688,6 +695,8 @@ built.
   with a hairline in light. Sticky, and it clears `env(safe-area-inset-top)`. On a scrolling page
   the bar is the only sticky element; an app-shell page scrolls its panes beneath it; nothing
   sticks above or beside it (a page-level sticky wrapper around the bar paid the notch inset twice).
+  One amendment (Phase 2d · split): a DETAIL COLUMN — the counter's tablet pane — may stick UNDER
+  the bar (`top: var(--staff-bar-h)`), and it never takes the notch inset; the bar already paid it.
 - **A sheet opened from a class-themed subtree carries the theme itself** — `Sheet` portals to
   `<body>`, so `.kds-root.dark`'s Night never reaches it; the KDS passes `className="dark"`. A
   light sheet over a Night board is what "the sheet paints in the document's theme" looks like.
@@ -721,7 +730,10 @@ built.
   reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh is
   `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip, an `<li>` pressed by its class
   rather than an attribute — it had worn a gold OUTLINE, which is §2's idle idiom, while the band's
-  own comment called it the cap.
+  own comment called it the cap. The eighth is `.floor-card[aria-current="true"] .floor-card-label`
+  (Phase 2d · split): the selected table card's NAME — a pick from a live list, so `aria-current`,
+  and the cap on the name only, never the card's ground (below). The Phase 2d counter bell's chip is
+  a `.staff-chip`, so it wears the sixth.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
@@ -843,14 +855,24 @@ built.
   by its PHASE (`lib/staff-add-outcome.ts` `addFailureCode`) — pricing writes nothing, so its failures
   are definite (`sold_out` · `gone` · `outage` · `failed`); anything thrown from the write is
   `unconfirmed`, because the RPC may have committed with its response lost. Never classify by message
-  text. The Send's refusal union (`lib/staff-send.ts`) is coded the same way.
+  text. The Send's refusal union (`lib/staff-send.ts`) is coded the same way. **Two raises from the
+  write are DEFINITE, and are typed at the throw** (Phase 2d · P2dd · P2cy, the line RPCs'
+  `'cart is being paid'` and `'line already sent'`, both SQLSTATE P0001 — `lib/line-rpc-refusal.ts`
+  matches code AND message, never either alone): a settle freeze that landed between the add's read
+  and its write is `CartPayingError` → `paying` (nothing was written), and a merge target that was
+  sent mid-add falls through to a fresh draft insert under the same scan id — an add after a Send is
+  a new line in the order model. `staffSetQty` and the diner's `setQty` name both refusals in their
+  own sentences, never the outage copy.
 - **One add, one key.** A staff add may carry a client-minted `addKey` (uuid) riding the existing
   `p_scan_id` ledger (`mms_scan_events`, claimed in the insert's transaction), so a resend of the same
   key is an idempotent no-op. An `unconfirmed` add is resent under the SAME key, never re-tapped
   under a new one; the key dedupes per EVENT, so mint one per add.
 - **Every exit to the floor asks for it BY NAME.** The bar's back control, a closed-table bounce and
   a cleared table go to `STAFF_DOOR_TARGET.counter`, never a bare `/staff` — that resolves by the
-  door cookie and can land on the doors screen.
+  door cookie and can land on the doors screen. Since Phase 2d the in-table exits are bound ONCE in
+  `TableNav` (`toFloor` · `toTable`): on the page they replace to the floor or the namesake table; in
+  the counter's tablet pane the same controls close or switch the pane — and an exit that answers
+  after the pane moved on never touches the table shown now.
 - **A live board's async read never acts on an unmounted view.** The poll effect owns an `alive` ref
   (re-armed at setup, cleared in cleanup) and nothing below the `await` — no setState, no router
   call — runs once it is false. A board that reports its connection state withdraws the report when
@@ -1002,10 +1024,24 @@ built.
   `{ code: "unsent", units }`, a member of each door's refusal union. Inside a settle: freeze →
   unsent → totals → the quote compare (§29) → the charge. A refusal releases the freeze its own
   attempt took (cash through its `finally`; the running-bill close and the reader explicitly, before
-  any PaymentIntent exists). The unsent read fails OPEN — a blip falls back to the settle-fires
-  behaviour, never a stranded table. The diner's counter ask fails open on both its reads (host,
-  drafts) and that is safe: the ask moves no money, and every charge behind it still refuses on its
-  own (`counter-pay/unsent-host-read-fails-closed` pins it).
+  any PaymentIntent exists). **At the three staff doors the unsent read fails CLOSED** (Phase 2d ·
+  P2dc, owner decision 5a, 2026-09-29 — it failed open through Phase 2c): `readKitchenDraftUnits`
+  answers `null` on a read error, never a guessed 0, and `staffSettleUnsentVerdict(mode, units)`
+  turns `null` into `unreadable` → the house outage sentence (`STAFF_WRITE_OUTAGE`, bilingual through
+  `<OutageText>`), the attempt's freeze released, before any totals read or PaymentIntent. The
+  promise "no payment over unsent dishes" is only true if an unverified gate refuses: a blip costs
+  the cashier one tap, a false pass charges a guest for food cooked after they leave. Closed ONLY
+  where the gate could ever refuse — the verdict delegates "would any unsent dish block this mode?"
+  to `staffSettleBlockedByUnsent(mode, 1)`, so a pickup order's unreadable count changes nothing.
+  The diner doors keep the fail-open `kitchenDraftUnits` (a guest refused at Pay on a blip has
+  nobody to ask; the webhook fires the dishes at payment): the counter ask fails open on both its
+  reads (host, drafts) and that is safe — the ask moves no money, and every charge behind it still
+  refuses on its own (`counter-pay/unsent-host-read-fails-closed` pins it). **And the freeze now
+  binds the adds in the DATABASE** (P2cy): the three line RPCs take the cart row `FOR SHARE`, which
+  conflicts with every settlement claim's `UPDATE … settle_at`, and refuse under a fresh freeze — so
+  an add either committed before the claim returned (and the gate's read sees it) or waits and
+  refuses. Before, a dish added a millisecond after the gate's read rode the reader's
+  PaymentIntent and fired after pay.
 - **A gated trigger stays rendered, with its amount** — dimmed by an `aria-disabled` spread plus its
   handler's guard, its `aria-describedby` reading the page's note first. The note
   (`#settle-unsent-note`) is the settle section's LAST child, so its unmount after a Send moves no
@@ -1034,6 +1070,230 @@ built.
   reason in the Bill's status line — to the host as the fix, to a guest as WHO sends
   (`counterUnsentTapCopy`, the note's own split). The server's refusal goes to whoever asked, so it
   orders nobody: "Everything has to go to the kitchen first — then pay at the counter."
+
+**Phase 2d — the floor, the counter bell and the tablet split (2026-09-29, owner decision 5c: "as
+recommended").** The counter's room map and its one-tap start, a bell on the counter home, and a
+master-detail split on a tablet. The rules as built:
+
+_The floor — the counter's room map and its one-tap start._
+
+- **The strip is the map AND the start.** One tile per ACTIVE registered table (`qr_tables`),
+  ascending, from the SAME snapshot the cards render (`tableStrip`), so a tile and its card never
+  disagree. A FREE tile is a `<button>` — the number over "Start" on a 2px DASHED `--t2` edge (the
+  empty-seat shape); an OCCUPIED tile is a `<Link>` to the table — the number over one glyph, its
+  tone carried by a 4px inset bottom bar AND the glyph (never colour alone); the ask (a table waiting
+  to pay at the counter) is the one FILLED tile (`--warnb`). 5 across on a 390 phone, one row on a
+  tablet, tiles `minmax(--s15, 3 × --s8)` (60–96px). An empty registry draws no strip (never a dead
+  control). The strip list is named once — the visible label names the `<ul role="list">`
+  (`aria-labelledby`), with no wrapping group of the same name (heard twice).
+- **The strip carries its KEY.** Under the tiles, one line decodes every glyph on screen in the
+  tile's own word (`stripKey`: one entry per status word present, the ask first, then the owed-Send
+  dot) — a map with its legend, so a person who has never used a POS can read a taken table without
+  opening it. `aria-hidden`: every tile's name already says its word. An all-free strip has no key.
+  A key, not a word on each tile: a word on a 60–96px tile wraps unpredictably in Burmese.
+- **A table owing a Send is marked on the map.** A `--warn` dot in the tile's corner (a shape, not a
+  tint — the tile's tone is untouched) whenever `owedSendUnits(table) > 0` (the fold's ONE count),
+  and the tile's name gains the card's own "· 2 not sent". The dot carries no number: the count is
+  said once, on the card.
+- **One mint lock per screen.** `CounterMintProvider` wraps zones 1–2; Walk-up, Phone order and every
+  free tile start through `useCounterMint().run`, the ONE place a start is admitted (tap-time ref;
+  `minting` names which control went; every start control `aria-disabled`, the minting one
+  `aria-busy`; never native `disabled`; a landed start holds until the route swap; a refusal or a
+  rejection re-arms). The hook throws outside the provider. A caller's "new tap" work rides `onStart`
+  (only for a start that goes, before the server is asked), never a pre-check of its own — a
+  pre-check in every caller made the lock's own ref check unreachable (its mutant survived).
+- **The lock is its own start, never a transition's `pending`.** `held`/`isBusy` read
+  `inFlight`/`minting` alone: React entangles every pending async transition, so a `pending`-read
+  lock stayed held while the expo lane's or the approvals queue's action ran on the same page.
+- **A start that lands after the screen is gone never navigates** (a mounted ref, re-armed at
+  setup): the router is global, and the push would yank the person off the table they opened from a
+  card. The start still landed; the next poll shows it.
+- **The ONE tile starting says so:** full ink (`.floor-tile[aria-busy]` out-orders the held dim) and
+  the kit's `.ui-btn-spinner` beside its KEPT verb — the primitive Button's busy shape, so the name
+  still contains what the tile shows ("Starting…" does not fit a 60px tile).
+- **A start whose answer never came is UNKNOWN, never "not saved".** A rejected server action is
+  caught (the error boundary never replaces the counter screen) and said as `floor.mint.unknown` — the
+  next poll shows the table taken if it landed. `created:false` (a diner scanned first) opens the
+  seated table, never its add screen (`mintLanding`).
+- **A stale-free tap never mints.** A tile that flipped occupied → free within `FLIP_GUARD_MS`
+  (600 ms) ignores the tap (`createFlipGuard` in `lib/floor-rows.ts` — the memory and its injected
+  clock live in lib; the strip only asks). Focus survives a tile's button ↔ link flip, and only when
+  the element was REPLACED under it: a blur with nowhere to go is re-read after the event
+  (connected and no longer active = a click on something that takes no focus → forgotten;
+  disconnected = replaced → restored; still active = the page lost focus → kept).
+- **The Start zone is two controls.** Walk-up is the zone's ONE primary (the primitive Button, `xl`,
+  block); Phone order the `.staff-arm` beside it; while the Phone form is open its Go is the primary
+  and Walk-up steps down to secondary. Stacked on a phone, `2fr 1fr` from 48em (`.reg-start`). The
+  typed "Start a table" arm is gone — the strip is the table start. One Burmese verb for starting on
+  the counter screen, ဖွင့် (the strip's Start, the Phone form's Go, the help line), pinned across
+  namespaces by `strings.test.ts`; the occupied tile's verb is ကြည့် ("View").
+- **The kitchen row says what the kitchen has, in the wall's words.** `2 not sent · 3 in kitchen ·
+  1 ready to serve`, or "Kitchen done" alone — never over an unsent dish. "Not sent" is 2a's one
+  count (`staffOwedSendUnits` — what staff can act on, owner decision 5c) and the one fact a server
+  must ACT on, so it is `--warn` bold (bound to the segment's own `data-seg`); "in kitchen" is
+  `--tx` bold, `PULSE_COOKING_STATES` past the send grace; "ready to serve" is `--ok` bold, the
+  wall's `PULSE_PASS_LINGER_MS` window and the wall's own words. Never "ready" as a claim anyone ran
+  the food. The row's glyph is the flame — the Kitchen door's own glyph (`StaffDoors`, the nav),
+  naming the row, not claiming anything is cooking: showing it only while something cooks would make
+  one glyph mean a place and a state.
+- **The wait is the kitchen's own rule in whole minutes.** `floorWait` → `kdsUrgency('dinein', …)` with
+  the configured thresholds; from one whole minute; ok quiet, amber the gold-tint pair with a gold
+  edge (its shape cue), red the warn pair with an edge and the alert glyph. A LEAF with its own 15 s
+  clock (skew-corrected once per `serverNow`); the board and the card re-render only on the poll.
+- **No loop on the counter.** The pill replays the kit's one-shot `.mms-pop` only when its level RISES
+  between ticks; "ready to serve" rings the card's existing one-shot `.floor-card-pulse` once.
+- **One status word per state across tile, chip, key and name — and never a success word over
+  returned money** (`floorStatusKey`: a refunded paid table reads Refunded / Partly refunded).
+- **One ink per tone across tile, edge, key and chip.** The chip's inline pair (`CHIP_TONE`) is
+  pinned to each tone's `--floor-ink` by a parsing test. `returned` is the MUTED pair everywhere
+  (`--t2` ink, `--t3` bar, the chip on `--sf`) — never `--ok`, and never the act-now `--warn`, which
+  means "a person or money is moving now" (the ask, a payment in flight); a refund done is neither.
+  The drill-down header chip reads the same.
+- **The card wears a status edge** (a 4px inset rail on a full-card overlay so it follows the card's
+  corner; `rest` has none) and its clock reads **"Opened {ago}"** (the session's start), not last
+  activity.
+- **The board's ONE region, with a written precedence:** a strip refusal (`ERR_DWELL_MS`, the
+  kitchen's "a refusal outlives the poll that follows it", cleared by the next start) > the freeze >
+  "Ready to serve — Table 7" (`UP_NOTICE_DWELL_MS`, its own fact, set equal to the refusal dwell and
+  documented against it) > the counts, which gain "{n} waiting to pay at counter" whenever a table
+  asks. The strip, the tiles, the key and the pill mount no live region.
+- **Cards never re-sort by status.** The grid keeps the floor's stable order (`mergeFloorRows`); the
+  strip carries the map. The card grid's minimum is `min(100%, 18rem)`.
+- **Tone changes are instant** (`.floor-tile` overrides `.staff-press`'s box-shadow transition); only
+  transform and opacity move.
+- **The floor stops behind a locked console** (K14's floor half): `getFloorView` answers
+  `{ ok: false, reason: "locked" }` and the board goes to `/staff/lock`.
+
+_The counter bell (owner decision 5c)._
+
+- **The counter HOME rings, and nothing else does.** A `CounterBellProvider` sits inside the counter
+  branch's `LiveConnectionProvider` (`CounterLive` in `app/staff/page.tsx`), and a board outside it
+  rings nothing. Two phrases, each opening on a pitch no other phrase in the app opens on — **guest**
+  (E6 twice: a table asking to pay at the counter, a pickup guest's "I'm here", a scan-and-go basket
+  waiting at the exit check) and **food** (D6 → A5: a to-go bag the kitchen finished, not yet
+  bagged, whose guest is not already standing there). A fixed 0.6 — a working device in a dining
+  room, louder than a guest's phone (0.22), quieter than a hot line (0.8); the device's own buttons
+  are the dial. It rings while the tab is hidden for as long as the browser keeps the page and its
+  audio running — a hidden tab's polls are throttled, so a ring there can lag, and nothing promises
+  instant. No nag: a guest still waiting after the ring gets no second bell. Sound is never the only
+  feedback — every event already has its visible half (the floor card's status ring and chip; the
+  lane card's ring and its "Here now" / "Kitchen done" badge).
+- **A bell rings once per EVENT, never per poll — and never twice per DOCUMENT.** A ring is a fact
+  KEY this document has never heard (`lib/counter-attention.ts`): an ask is `ask:{session}:{stamp}`,
+  an arrival `here:{order}`, a basket `verify:{order}`, a finished bag `food:{order}`. What the
+  counter home has heard is ONE document-scoped set (`counterHeard` / `rememberCounterHeard`,
+  `lib/counter-sound.ts` — merge-only, never pruned, never per mount): each board mount's first GOOD
+  facts are merged into it silently (the mount, a StrictMode replay, a reload, a lane that mounted
+  into an outage — it seeds on its first good poll), and every good poll grows it. So a flap (the
+  advisory kitchen read's done → unknown → done, a KDS bump-undo, an ask's counter → paying → counter
+  with the same stamp) rings nothing twice, and neither does a REMOUNT whose `initial` is older than
+  its last good poll (Back restores the counter home from the App Router's client cache with its
+  first load's props; an error boundary's reset; a re-parent). Only a good poll reports; a frozen
+  board says nothing, and on recovery only keys never heard ring. One ring per poll (a guest outranks
+  food), and the provider refuses the same kind again within `RING_GAP_MS` across both boards (two
+  boards on one tick are one bell) — except a guest after food: a person waiting is never swallowed
+  by a bag.
+- **The bell rings on the counter home and nowhere else — including a poll that lands late.** The
+  provider's `ring` returns early once it has unmounted (a mounted ref, re-armed at setup), each board
+  keeps an `alive` ref around its ear and its card ring, and the chip keeps a late arm's answer (the
+  tap asked for sound) but plays no volume check once it has left: the engine is a document singleton
+  that stays armed across the trip to a table, so "the view is gone" must be checked, never assumed.
+  Nothing on the ring path reads whether the tab is visible — it rings while hidden.
+- **The bell's control is the counter's own chip, not a bar circle** (the KDS rule; a fifth circle
+  overflows a 390 manager bar): a `.staff-chip` at the right of the greeting (`.staff-greet-row`,
+  counter branch only — the doors' greeting is unchanged), wearing the ONE lit cap through the shared
+  pressed list when on. Three postures from two stores (§15 — "wanted" and "armed" are two facts, each
+  read through `useSyncExternalStore`, both OFF on the server): **"Turn on sound"** · **"Sound on"**
+  (lit) · **"Sound off — tap to turn on"** (warn hairline + ink, `data-muted`: wanted, but the context
+  is not running). iOS arms audio only inside a gesture, so the chip's tap IS the arm — started
+  synchronously in the handler, raced against `ARM_TIMEOUT_MS` so a resume the browser leaves pending
+  never holds the chip busy; on success it plays the guest phrase once (the tap is the volume check)
+  and leaves a plain, non-live hint for 8s ("Didn't hear it? Turn up the volume and check this device
+  isn't on silent." — device-neutral: most Android phones have no silent switch); a refusal is an
+  alert that never blames the volume or silent mode, and it is DROPPED (a guarded set-during-render)
+  the moment the context runs — a resume the browser let through after `ARM_TIMEOUT_MS` must never
+  leave "tap to try again" beside a lit chip whose tap mutes. Both lines FLOAT under the chip
+  (`.staff-sound-line`: absolute from the relative `.staff-greet-row`, the chip's `--sf` ground with
+  `--sh-md`, under the sticky bar, `pointer-events: none`, `.mms-rise` in) — in the flow they pushed
+  the whole counter column down a line and pulled it back 8s later, under a finger. Only the chip's
+  own tap takes its lock (aria-busy + aria-disabled, label kept). While PAUSED, the next click or key
+  anywhere else — or the tab coming back into view — re-arms SILENTLY and lock-free. The arm asks for
+  WebKit's `playback` audio session where it exists, so an iPad's silent switch does not mute the bell
+  (the chip is the counter's mute). The engine is a module singleton, so the arm survives the soft trip
+  to a table page and back; a reload loses it and the chip says so.
+- **One word per action on every sound chip.** The KDS, the TV and the counter share the OFF word —
+  "Turn on sound" (`kds.sound.enable`, `board.sound`), the same "turn on" the paused posture says —
+  and plain-words bans "enable" (settings-speak).
+- **One "just changed" ring on the counter screen.** A lane card the bell rang for wears the floor
+  card's own `.floor-card-pulse` (keyed per event, cleared on its own timer, RM → none) — never a
+  third ring class. It shows whether or not the bell is on.
+
+_The tablet split — K24's counter/table half._
+
+- **The counter splits on a tablet.** `/staff?floor=1` is a master-detail: the counter's zones in
+  `.staff-split-main`, the selected table in `.staff-split-pane` beside them. ONE mounted tree
+  (`CounterSplit` wraps the zones; the bell provider and the boards are never remounted across a
+  breakpoint) — CSS decides the shape: below 48em today's column (a selection takes the column, the
+  floor stays mounted and polling, just not displayed); 48–64em side by side only while a table is
+  open (`data-pane="open"`); ≥64em the pane column is always there with its empty state ("Pick a
+  table"), so the grid keeps one shape all shift. Breakpoints are named once in `lib/floor-pane.ts`
+  (`PANE_QUERY` / `PANE_IDLE_QUERY`) and parity-tested against the two `display: grid` rules.
+- **The selection is the URL hash** (`#table-<uuid>`): a reload keeps it, Back fires `hashchange`, a
+  link can name it. **One entry deep:** open pushes, a switch replaces, close walks back only over an
+  entry THIS mount pushed (hash AND `history.length`), otherwise it replaces to `#floor-h` — never an
+  empty hash, never a same-hash neighbour. Writes carry no `__NA`; a native fragment entry (the
+  approvals circle) is synced into Next's canonical URL on `hashchange`. A zone jump keeps the table
+  beside it at split width and clears it below 48em.
+- **A card tap opens in the pane only for a plain primary click at split width, read at CLICK time**
+  (SSR never guesses a width); cmd/ctrl/shift/alt, a middle click and every phone tap keep the real
+  link to `/staff/table/[id]`. Occupied strip tiles, a start that converged on a seated table
+  (`created:false`), the order pad's "← Table 7", its Done and its Take payment land in the pane the
+  same way (`SplitAwareLink` / `tableDestination`); `?settle=1` rides in as a one-shot param.
+- **The pick cap.** A selected card carries `aria-current="true"`, the console's ONE lit cap on its
+  NAME only (`.floor-card-label` joins the shared rule — a pick from a live list, not "you are here";
+  never the door's 18%-gold ground, where Night --t3/--warn/--ok fall below AA), a gold edge and a
+  `--glow-gold` halo restated on `:hover`/`:active` so the press never erases it. The label carries
+  the cap's padding at rest, so selecting paints and moves nothing.
+- **The pane is a column, not a card and not a page:** sticky UNDER the bar (the amendment above: a
+  detail column may stick under the bar and never takes the notch inset), its own scroller
+  (`overscroll-behavior-y: contain`), an opaque `--pg` head with the table's name (h2, one line,
+  ellipsis) and a 44px ✕; no `<main>`, no second bar, sections h3 (Tables › Table 7 › Order). The
+  scroller reserves the dock's bottom space (`--tap-bump + --s8 + safe area`), so its last controls
+  never sit under the lane's Undo pill.
+- **Focus.** On select the pane heading takes focus ONCE (preventScroll at split width); it renders
+  from the tapped card's hint, so focus never moves when the detail lands. Close: a cleared table →
+  the floor heading (its card lingers until the next poll); a control close → the card/tile that
+  opened it, else the heading; a Back close moves focus only from inside the pane or `<body>`. The
+  pane's catch-all owns only focus INSIDE the pane. Escape closes — never over a sheet that handled
+  it, mid-IME-composition, or from inside a field.
+- **The freeze is one fact, spoken once:** the pane's frozen line always SHOWS; it is SAID only while
+  the floor's own region is not already saying it (`paneFreezeSpoken`, the lane's rule).
+- **The paid card follows its table:** stashed in this tab's sessionStorage (`mms-handoff:{id}`,
+  register's canonical shape, display-only, try/catch) inside the settle's own callback, so a settle
+  that lands after a switch still leaves its #CODE; restored on reselect without stealing focus;
+  removed on ✕, Escape, Back and Clear. Restored in the PANE only — the full page (a phone) keeps its
+  card in memory, as before.
+- **A write lost behind a switch is said, with its way back.** A refusal that lands after the pane
+  moved on or closed ("A change on Table 7 didn't save — view it to check.") is shown with a one-tap
+  "View Table 7" (`Button`) and said through the view's one region; with no table open it sets
+  `data-pane="lost"`, which below 64em shows just that line above the floor (the floor keeps its
+  place). It is never filtered by the selection: only an unmounted detail reports it, so even the
+  same table shown again never issued that write.
+- **A read belongs to a PICK, not an id** (`gen`): a table picked again (A → ✕ → A, A → B → A)
+  starts in loading and reads afresh; a re-tap of the table shown keeps its live detail. The first
+  read runs once per pick — never per render (`selectedNow` is one stable callback): a re-run would
+  land a `closed` past the detail's terminal hold.
+- **The in-table exits are bound to their table** (`TableNav`): a Clear or Merge that answers after
+  the pane moved on (or closed) never closes or switches the table shown now; the control's own work
+  (the server write, its stash drop) still happens.
+- **A closed table keeps its name:** `getTableDetail`'s `closed` verdict carries the session's label
+  and number, so a pane opened straight onto it (a reload, a deep link) names it and offers the live
+  namesake; a settled read with no name shows a neutral "Table" head, never the loading skeleton. The
+  closed notice takes focus when focus was in the pane BEFORE the swap (sampled in `onClosed`).
+- **Motion:** the cap, head and 48–64em reflow are instant (layout never animates); the pane body
+  rises once per selection (`mms-rise` at `--dur-base`, keyed), RM-escorted. **Staff routes opt out
+  of the J1 root drift** (`html:has(.staff-main) { view-transition-name: none }`): every staff Back
+  is instant.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
