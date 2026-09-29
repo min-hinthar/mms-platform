@@ -86,6 +86,8 @@ export function tableStrip(
  * it — that tap must not become a start. (The reverse flip is harmless: a tap on a tile that just
  * turned occupied navigates, and a stale start converges on the sticker's session server-side.)
  */
+// A starting value (the spec's), unmeasured on a device: a poll's flip under a finger already moving
+// lands inside it; a deliberate tap on a table that was free all along is never refused by it.
 export const FLIP_GUARD_MS = 600;
 
 export function freeTapAllowed(
