@@ -7405,6 +7405,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
   border-color: transparent;
   background: var(--ac);
@@ -13236,7 +13237,7 @@ a.aisle-tile {
 
 /* The phone tier: one pane at a time, and the dock's hints are spoken, not drawn (the bar is one
    64px row; a hint below it would sit off the screen). */
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-shell[data-view="menu"] .pad-ticket,
   .pad-shell[data-view="order"] .pad-tiles,
   .pad-shell[data-view="order"] .pad-tools {
@@ -13402,7 +13403,7 @@ a.aisle-tile {
     display: block;
   }
 }
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-skeleton .pad-ticket {
     display: none;
   }
@@ -13955,4 +13956,207 @@ a.aisle-tile {
 .staff-sound-line-warn {
   border-color: var(--warn);
   color: var(--warn);
+}
+
+/* ── Phase 2d · split ── */
+/* The counter's TABLET SPLIT (K24, DESIGN-LANGUAGE §17): the floor in the main column, the selected
+   table in a pane beside it. The selection is the URL hash (`lib/floor-pane.ts`), and the breakpoints
+   are named ONCE there and parity-tested against the two `display: grid` rules below. One mounted
+   tree around the boards — a rotation reflows it, it never remounts FloorBoard or the lane.
+
+     phone    < 48em   today's column; a selection (a deep link, a narrowed iPad) TAKES the column
+                       — the floor stays mounted and polling, just not displayed.
+     tablet   48–64em  side by side only while a table is open (`data-pane="open"`).
+     desktop  ≥ 64em   the pane column is always there (the empty state), so the grid keeps one
+                       shape all shift and a table keeps its place. */
+:root {
+  --w-staff-pane: clamp(22rem, 34vw, 34rem);
+  --w-staff-split: 96rem;
+}
+.staff-split {
+  max-width: 67.5rem;
+}
+.staff-split-main {
+  min-width: 0;
+}
+.staff-split-pane {
+  display: none;
+}
+.staff-split[data-pane="open"] > .staff-split-main {
+  display: none;
+}
+.staff-split[data-pane="open"] > .staff-split-pane {
+  display: block;
+}
+@media (min-width: 48em) {
+  .staff-split[data-pane="open"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--w-staff-pane);
+    column-gap: var(--s6);
+    align-items: start;
+    max-width: var(--w-staff-split);
+  }
+  .staff-split[data-pane="open"] > .staff-split-main {
+    display: block;
+  }
+  /* A column on the page's lines, not a card: sticky UNDER the bar (never the notch inset, which
+     stays the bar's), its own scroller. The axis longhand — overscroll-contract.test refuses the
+     shorthand. The end padding keeps a 2.5px focus ring unclipped by the scroller. */
+  .staff-split-pane {
+    position: sticky;
+    top: calc(var(--staff-bar-h, 76px) + var(--s4));
+    max-height: calc(100dvh - var(--staff-bar-h, 76px) - var(--s8));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    border-inline-start: 1px solid var(--bd);
+    /* The end reserve is the dock's (`.staff-col-dock`): the pane scrolls itself, so without it its
+       last controls sit under the lane's fixed thumb-zone Undo pill. */
+    padding: 0 var(--s2) calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px))
+      var(--s6);
+  }
+}
+@media (min-width: 64em) {
+  .staff-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--w-staff-pane);
+    column-gap: var(--s6);
+    align-items: start;
+    max-width: var(--w-staff-split);
+  }
+  .staff-split > .staff-split-pane {
+    display: block;
+  }
+}
+/* A change refused AFTER the pane closed (`data-pane="lost"`): below 64em the pane is hidden when
+   empty, so the warning would be neither shown nor said. There it comes back as ONE line above the
+   floor — the floor stays in place, the "Pick a table" page stays hidden, the pane is not a column.
+   ≥64em the always-there pane column already carries it. */
+@media (max-width: 63.99em) {
+  .staff-split[data-pane="lost"] {
+    display: flex;
+    flex-direction: column;
+  }
+  .staff-split[data-pane="lost"] > .staff-split-pane {
+    display: block;
+    order: -1;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-inline-start: 0;
+    padding: 0;
+  }
+  .staff-split[data-pane="lost"] .staff-pane-empty {
+    display: none;
+  }
+}
+/* The pane head: opaque page ground (the bar is §17's one frosted pane), a hairline, the table's
+   name one line with an ellipsis, and the ✕. Sticks under the bar on a phone (the page scrolls), at
+   the pane's top from 48em (the pane scrolls). */
+.staff-pane-head {
+  position: sticky;
+  top: var(--staff-bar-h, 128px);
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 60px;
+  margin-bottom: var(--s4);
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+}
+@media (min-width: 48em) {
+  .staff-pane-head {
+    top: 0;
+  }
+}
+.staff-pane-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.staff-pane-title [lang="my"],
+.staff-pane-title:lang(my) {
+  font-family: var(--font-my);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+}
+/* A change on another table that did not save: warn ink and the words, never colour alone. */
+.staff-pane-lost {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+.staff-pane-actions {
+  margin-top: var(--s4);
+}
+/* The body rises once per SELECTION (keyed), never on a live refresh: --dur-base, not the kit's
+   --dur-slow, so a switch mid-rush never trails. */
+.staff-pane-body.mms-rise {
+  animation-duration: var(--dur-base);
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-pane-body,
+  .staff-pane-body.mms-rise {
+    animation: none;
+  }
+}
+/* The selected card: the console's ONE lit cap on the table's NAME (the shared rule above), a gold
+   edge and a halo on the card. The label carries the cap's padding at rest, so selecting paints and
+   moves nothing. Not the door's 18%-gold ground — Night --t3/--warn/--ok fall below 4.5:1 on it. */
+.floor-card-label {
+  display: inline-block;
+  padding: 0 var(--s2);
+  margin-inline-start: calc(-1 * var(--s2));
+  border-radius: var(--r-full);
+}
+.floor-card[aria-current="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    inset 0 -1px 0 var(--edge-lo),
+    var(--sh-paper),
+    0 0 18px -8px var(--glow-gold);
+}
+/* Restated at (0,3,0): `.card-interactive:hover`/`:active` set their own shadow and would erase the
+   halo exactly when the finger is on the card. */
+@media (hover: hover) {
+  .floor-card.card-interactive[aria-current="true"]:hover {
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-paper-hover),
+      0 0 18px -8px var(--glow-gold);
+  }
+}
+.floor-card.card-interactive[aria-current="true"]:active {
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh),
+    0 0 18px -8px var(--glow-gold);
+}
+/* Staff routes opt out of the root drift (TransitionNav: ops tools need no theatre): the pane's ✕
+   walks history back, and a 16px slide of the whole counter screen — whose overlay swallows the
+   next tap — is exactly what a cashier mid-rush must not get. Every staff Back is instant now. */
+@supports (view-transition-name: none) {
+  html:has(.staff-main) {
+    view-transition-name: none;
+  }
+  html:has(.staff-main)::view-transition {
+    pointer-events: none;
+  }
+}
+/* The loading skeleton's reserved pane column: space only — no divider, no shapes. */
+.staff-split-pane.staff-split-pane-idle {
+  border-inline-start: 0;
 }

@@ -1149,3 +1149,23 @@ describe("FloorDetailLive — the programmatic focus landings keep the focus rin
     }
   });
 });
+
+describe("FloorDetailLive — the full page never brings back a stashed paid card (Phase 2d · split)", () => {
+  it("a stash for this table is the PANE's to restore; the page (a phone) keeps its card in memory", async () => {
+    const { stashHandoff } = await import("@/lib/floor-pane");
+    stashHandoff("s1", {
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: 5000,
+      isCounter: false,
+      cartId: null,
+    });
+    mountWith({ ...SETTLEABLE, cartId: null, settled: true });
+    await tick(0);
+    // MUTATION: restore in every variant — a reopened settled table on a phone shows an old
+    // change-due card until Clear; red.
+    // The table card names no #CODE; its change-due line is the tell ($50.00 − $42.10).
+    expect(document.querySelector("main")!.textContent).not.toContain("$7.90");
+  });
+});

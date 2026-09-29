@@ -41,10 +41,14 @@ export function HandoffCard({
   lang,
   handoff,
   ref,
+  onDone,
 }: {
   lang: StaffLang;
   handoff: Handoff;
   ref?: Ref<HTMLElement>;
+  /** Phase 2d · split — inside the counter's pane the counter is already beside it: "Back to the
+   *  counter" CLOSES the pane (the same link, so a modified click still opens the floor). */
+  onDone?: () => void;
 }) {
   const rows = handoffRows(handoff.totalCents, handoff.tipCents, handoff.tenderedCents);
   // The row the name speaks: the change (or what is still owed) when a tender was entered, else the
@@ -102,6 +106,15 @@ export function HandoffCard({
       {handoff.isCounter && (
         <Link
           href={STAFF_DOOR_TARGET.counter}
+          onClick={
+            onDone
+              ? (e) => {
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  onDone();
+                }
+              : undefined
+          }
           className={buttonClass({
             variant: "primary",
             size: "xl",

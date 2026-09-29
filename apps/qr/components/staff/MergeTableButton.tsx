@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { useTableNav } from "./TableNav";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
@@ -37,7 +37,8 @@ export function MergeTableButton({
   sourceItemCount: number;
 }) {
   const lang = useStaffLang();
-  const router = useRouter();
+  // Phase 2d · split — the exit is the page's or the pane's (`TableNav`), bound once.
+  const nav = useTableNav();
   const [step, setStep] = useState<"idle" | "picking" | "confirm">("idle");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,9 +90,9 @@ export function MergeTableButton({
       setError({ kind: "server", text: res.error });
       return;
     }
-    // This table is now closed; go to the table that received the order.
-    router.replace(`/staff/table/${res.targetSessionId}`);
-    router.refresh();
+    // This table is now closed; go to the table that received the order — its page, or (in the
+    // counter's pane) the pane switches to it, named by the candidate's own label.
+    nav.toTable(res.targetSessionId, { counter: false, display: tableDisplay(target).text });
   }
 
   return (

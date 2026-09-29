@@ -67,6 +67,8 @@ let orderItemRows: Row[] = [];
 let memberRows: Row[] = [];
 let cartItemRows: Row[] = [];
 let orderItemsFail = false;
+/** Phase 2d · split — the drill-down's session status (a closed table's verdict carries its name). */
+let sessionStatus = "active";
 /** Phase 2c · register — every status flip a clear would write (none may run on a refusal). */
 const updates: string[] = [];
 
@@ -145,7 +147,7 @@ function tableApi(name: string) {
             qr_code: "t-7",
             table_number: 7,
             mode: "dinein",
-            status: "active",
+            status: sessionStatus,
             host_seat: null,
             created_at: "2026-09-09T00:00:00.000Z",
           },
@@ -254,6 +256,7 @@ beforeEach(() => {
   cartItemRows = [];
   memberRows = [];
   orderItemsFail = false;
+  sessionStatus = "active";
 });
 
 describe("K33 — a settled table still shows what it ordered", () => {
@@ -636,5 +639,15 @@ describe("clearTable — a FAILED share read refuses (fail closed), never clears
     payReason = null;
     expect((await clearTable({ sessionId: SESSION })).ok).toBe(true);
     expect(updates).toEqual(["qr_carts", "table_sessions"]);
+  });
+});
+
+describe("getTableDetail — a closed table's verdict names it (Phase 2d · split)", () => {
+  it("carries the session's own label and number, and nothing else", async () => {
+    sessionStatus = "closed";
+    const r = await getTableDetail(SESSION);
+    // MUTATION: the bare `{ kind: "closed" }` — a pane opened straight onto a cleared table can
+    // neither name it nor find the live namesake a new party sat at; red.
+    expect(r).toEqual({ kind: "closed", label: "t-7", tableNumber: 7 });
   });
 });

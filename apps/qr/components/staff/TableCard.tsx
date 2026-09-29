@@ -1,4 +1,4 @@
-import { type CSSProperties } from "react";
+import { type CSSProperties, type MouseEventHandler } from "react";
 import Link from "next/link";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import { al } from "@/lib/staff-labels";
@@ -45,8 +45,15 @@ export function TableCard({
   thresholds,
   pulse,
   lang,
+  selected = false,
+  onSelect,
 }: {
   table: FloorTable;
+  /** Phase 2d · split — this table is open in the counter's pane: `aria-current` and the lit cap on
+   *  its NAME (a pick from a live list, not "you are here"). */
+  selected?: boolean;
+  /** Phase 2d · split — the pane's tap (it opens in the pane at split width, else the link runs). */
+  onSelect?: MouseEventHandler<HTMLElement>;
   serverNow: string;
   /** Phase 2d · floor — the kitchen's own lateness thresholds, for the wait pill and its name. */
   thresholds: KdsThresholds;
@@ -103,6 +110,9 @@ export function TableCard({
       style={card}
       aria-label={aria}
       data-session-id={table.sessionId}
+      className="floor-card"
+      aria-current={selected ? "true" : undefined}
+      onClick={onSelect}
     >
       {/* Phase 2d · floor — the STATUS EDGE: a rail down the left in the table's tone, so the room
           reads at arm's length. Decorative (the chip says the word); a table at rest has none. */}
@@ -115,7 +125,10 @@ export function TableCard({
             Latin table number inside the Burmese run keeps its own `lang="en"` — a flat string
             could not carry that, and `$`-free though it is, `Table 7` still needs the body face. */}
         <span style={label}>
-          <Chrome lang={lang} k="floor.table" vars={{ id: td.text }} />
+          {/* Phase 2d · split — the lit cap's host: the NAME alone (the flag stays outside). */}
+          <span className="floor-card-label">
+            <Chrome lang={lang} k="floor.table" vars={{ id: td.text }} />
+          </span>
           {td.unregistered && (
             <span
               style={{

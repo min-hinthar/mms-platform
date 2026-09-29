@@ -302,7 +302,10 @@ export type ClearTableResult = { ok: true } | { ok: false; error: string };
  *  `outage` freezes the last-known detail. */
 export type TableDetailResult =
   | { kind: "detail"; detail: TableDetail }
-  | { kind: "closed" }
+  /** Phase 2d · split — the session's own label and number when the row still exists (a table
+   *  cleared or merged away), so a pane opened straight onto it can name it and find the live
+   *  namesake a new party sat at. Absent for a malformed id or a vanished row. */
+  | { kind: "closed"; label?: string; tableNumber?: number | null }
   | { kind: "signin" }
   | { kind: "outage" };
 

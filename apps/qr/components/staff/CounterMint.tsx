@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { openRegisterOrder } from "@/lib/register";
 import { haptic } from "@/lib/haptics";
 import type { StaffKey } from "@/lib/i18n/staff";
+import { useTablePane } from "./TablePaneContext";
 
 /**
  * Phase 2d · floor — THE ONE MINT LOCK PER SCREEN.
@@ -91,6 +92,8 @@ export function mintLanding(sessionId: string, created: boolean): string {
 
 export function CounterMintProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
+  // ── Phase 2d · split ── the counter's pane (the provider sits OUTSIDE this one).
+  const pane = useTablePane();
   // The transition only schedules the action; its `pending` is NOT the lock (docblock).
   const [, startTransition] = useTransition();
   // The ref and the state are ONE fact with a synchronous twin: written together, cleared together.
@@ -126,7 +129,17 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
           }
           landed = true;
           // The screen that asked is gone: never navigate from it (docblock).
-          if (mounted.current) router.push(mintLanding(r.sessionId, r.created));
+          // Phase 2d · split — a start that CONVERGED on a seated table opens it where a card tap
+          // would: the pane beside the floor at split width (`openSession` says whether it did).
+          if (!mounted.current) return;
+          const hint =
+            input.kind === "table" ? { counter: false, display: String(input.tableNumber) } : null;
+          if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {
+            // Re-armed: the screen stays (no route swap will unmount it).
+            landed = false;
+            return;
+          }
+          router.push(mintLanding(r.sessionId, r.created));
         } catch (e) {
           // A server action that REJECTS — offline, or the transport dropped. Caught, so the counter
           // screen is never replaced by the error boundary; said as unknown (docblock).
@@ -142,7 +155,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         }
       });
     },
-    [router],
+    [router, pane],
   );
 
   const value: CounterMint = { minting, held: minting !== null, isBusy, run };
