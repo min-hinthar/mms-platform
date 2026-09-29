@@ -363,7 +363,9 @@ the plan state.
 - [x] **Phase 1a · 1b · 1c — the guest flow** (#300 · #301 · #302): the menu's first screen, one tap to
       send / to pay, the add, the removal, the card form, the Stars and the market's front door.
 - [ ] **Phase 2 — staff.** Owner decisions 2026-09-24: counter orders sendable before payment (2f) and
-      a three-way per-device staff language (2e).
+      a three-way per-device staff language (2e). 2026-09-29 (delegated): the staff payment doors
+      fail closed on an unreadable unsent count (5a), the two line guards ship as a migration applied
+      to prod (5b), and 2d as recommended (5c).
   - [x] **2a — the console sends to the kitchen** (2026-09-24): Send + server-clocked Undo on the
         table page (P2k), coded staff-add refusals + an idempotent add key, four tablet fixes, two
         register hotfixes (the typed-comma tip, the rejected secure close).
@@ -379,7 +381,14 @@ the plan state.
         change, a quote frozen at open, a compare-and-swap on the running-bill close — P2aa) with one
         polite region (P2r) and holder-named mid-payment refusals (P2w); and the settle gate — every
         payment door refuses while dine-in dishes are unsent and jumps to the fix.
-  - [ ] **2d — the floor + the tablet split + the counter bell** (the floor's "not sent" signal).
+  - [x] **2d — the floor + the tablet split + the counter bell** (2026-09-29): a strip of every table
+        above the cards — one tap starts a free one, a key decodes the pictures, a warn dot marks a
+        table owing a Send (P2ah) — with Walk-up as the Start zone's one primary and one mint lock per
+        screen; each card's kitchen row, wait pill, "Opened" clock and status edge; the counter bell
+        (guest + food, once per event, the counter home only); the tablet split (the floor beside the
+        selected table from 48em — K24's counter/table half); and, from the integration, the line
+        RPCs' database guards (P2dd · P2cy — a prod migration, applied and verified) and the staff
+        doors failing closed on an unreadable unsent count (P2dc).
   - [ ] **2e — staff language: Burmese / Both / English, per device, in Profile** (owner-chosen).
   - [ ] **2f — counter orders cook before paid** ("Unpaid — collect at pickup"; needs a migration).
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
