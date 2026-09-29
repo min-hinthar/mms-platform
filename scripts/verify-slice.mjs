@@ -10662,8 +10662,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorWait.tsx",
     suite: "components/staff/FloorBoard.test.tsx",
     why: "Phase 2d · review (floor #2) — on a frozen floor the pill holds at the last read's instant, the minutes the card's name says; the device clock draws a wait (and a red escalation) over a kitchen nobody can see",
-    find: "      const now = frozen ? Date.parse(serverNow) : Date.now() - skew;\n",
-    replace: "      const now = Date.now() - skew;\n",
+    find: "    if (frozen) return;\n",
+    replace: "",
   },
   {
     id: "p2d-rev/floor-board-never-says-frozen",

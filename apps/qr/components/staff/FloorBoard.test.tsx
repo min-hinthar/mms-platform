@@ -214,8 +214,8 @@ describe("the wait pill on a FROZEN floor", () => {
     // device clock drew '12 min' in red with the alert glyph and a pop over data nobody has, while
     // the card's name kept the poll's '9 min' — a sighted server and a listener told two things.
     // MUTATION: the pill keeps extrapolating while frozen → '12 min', red. MUTATION: the board
-    // never tells the card the floor is frozen → the same. MUTATION: hold at the instant the
-    // freeze is NOTICED, not the read's → 9:57 + 5 s is '10 min' beside the name's '9 min'.
+    // never tells the card the floor is frozen → the same. And the hold is the READ's instant, not
+    // the one the freeze was noticed at: 9:57 + 5 s would be '10 min' beside the name's '9 min'.
     const { section } = mount(
       snap([
         table(7, {

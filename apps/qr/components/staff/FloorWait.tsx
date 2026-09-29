@@ -53,8 +53,7 @@ export function FloorWait({
   useEffect(() => {
     const skew = Date.now() - Date.parse(serverNow);
     const update = () => {
-      // Held at the read's own instant while frozen (docblock) — the same minutes the name says.
-      const now = frozen ? Date.parse(serverNow) : Date.now() - skew;
+      const now = Date.now() - skew;
       setNowMs(now);
       const w = floorWait(kitchen, now, thresholds);
       const rank = w === null ? null : FLOOR_WAIT_RANK[w.level];
@@ -62,8 +61,10 @@ export function FloorWait({
         setPop((p) => p + 1);
       lastRank.current = rank;
     };
+    // The skew is measured at THIS run, so its first update is always the read's own instant —
+    // which is exactly what a frozen pill holds (docblock): it just never starts the clock.
     update();
-    if (frozen) return; // no clock on a frozen floor
+    if (frozen) return;
     const id = setInterval(update, FLOOR_WAIT_TICK_MS);
     return () => clearInterval(id);
   }, [serverNow, kitchen, thresholds, frozen]);
