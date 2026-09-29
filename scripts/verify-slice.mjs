@@ -10315,7 +10315,9 @@ const MUTANTS = [
     suite: "components/staff/TablePane.test.tsx",
     why: "Phase 2d \u00b7 split \u2014 the read landing is gated on the selection NOW; without it A's detail renders under B's heading",
     find: "        if (!live || !acceptPaneRead(id, selectedNow())) return;",
-    replace: "        if (!live) return;",
+    // The effect's own `live` flag (cleared when the selection moves) and `acceptPaneRead` guard the
+    // same landing — belt and braces, each alone sufficient — so the mutant removes the GATE, both.
+    replace: "        if (false) return;",
   },
   {
     id: "floor-detail/pane-handoff-not-stashed",
