@@ -4,6 +4,195 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database (2026-09-29)
+
+Built as three worktree branches: `p2d/floor` and `p2d/bell` in parallel off `2437a78`, merged here
+(`81269da` · `3c77873` — a union on `FloorBoard.tsx`), then `p2d/split` off that merge (`736bcfb`).
+Each area ran an independent critic round and fixed what it verified (below). Then, on the merged
+head, the two database guards Phase 2c filed (P2dd · P2cy) shipped as ONE migration, APPLIED TO PROD
+the same day, and the staff payment doors learned to fail closed (P2dc) — `141d545` · `974d82e` ·
+`595b1b4` · `f1199c2` · `b8be8f5`. Decided in pure `lib/` modules with mutants (152 new — floor 58 ·
+bell 32 · split 48 · guards 14; 1271 total across 179 files). DESIGN-LANGUAGE §17 (the floor, the
+counter bell, the tablet split, the fail-closed staff gate, the typed line refusals) and §7 (the
+counter screen's per-zone regions).
+
+**What staff see first:**
+
+- **A strip of every table above the cards — one tap starts a free one.** A free table shows its
+  number over "Start" on a dashed outline; one tap starts it and opens its order screen (if a diner
+  scanned it a moment before, the tap opens THEIR table instead). A taken table shows its number over
+  a small picture (receipt = waiting to pay at the counter, card = paying, cart = ordering, people =
+  seated, check = paid, arrow = money returned) with a coloured bar — tap it to open that table; the
+  table waiting to pay is the one tinted tile. A key under the strip says what each picture on screen
+  means, and a red dot marks a table with dishes not sent. A tile another tablet cleared a split
+  second ago ignores a tap for 0.6 s. The table you tapped stays bright with a spinner while it starts.
+- **The Start zone is two buttons:** a big **Walk-up** and **Phone order** beside it. The typed
+  "Start a table" arm is gone.
+- **Each table card says what the kitchen has** — "2 not sent · 3 in kitchen · 1 ready to serve" or
+  "Kitchen done", with "not sent" red and bold — plus a minutes pill on the kitchen's own late rule
+  (calm, amber, red with a warning mark; it pops once when it rises, nothing blinks), "Opened 25m
+  ago", and a coloured status edge. The floor says **"Ready to serve — Table 7"** for 8 s and the
+  card rings once; the count line says when a table is **waiting to pay at counter**. A refunded
+  table's chip reads **Refunded** / **Partly refunded** in grey, never Paid, on the card and the table
+  page. A start with no answer says so ("No answer from the ordering system — it may have started…")
+  instead of an error screen; a console locked on another tab stops showing the live floor.
+- **The counter bell.** The counter home rings — once per event, never twice — for a guest (a table
+  asking to pay at the counter, "I'm here", a scan-and-go basket at the exit) and for food (a to-go
+  bag the kitchen finished), at a fixed 0.6 with the `playback` audio session so the iPad's silent
+  switch does not mute it. A chip beside the greeting arms it with one tap (and plays it once, as the
+  volume check), says "Sound off — tap to turn on" when a slept tablet lost it and re-arms silently
+  off the next tap; the lane card the bell rang for takes the floor's one-shot ring. Every sound chip
+  (KDS, TV, counter) now says **"Turn on sound"**, never "Enable sound".
+- **The counter splits on a tablet (K24's counter/table half).** On a tablet (≥48em) a table card or
+  an occupied tile opens the table BESIDE the floor instead of a new page; the floor, the to-go lane
+  and Start stay in view through the settle. From 64em an empty "Pick a table" column is always
+  there. Back / ✕ / Escape close it, one history entry deep; the selected table's name wears the gold
+  cap. The paid card's #CODE follows its table across a switch; a change that didn't save on a table
+  you left is said, with a "View Table 7" button; the order pad's "← Table 7", Done and Take payment
+  return to the pane. Every staff Back is instant (the slide is gone on staff routes). Phones:
+  unchanged.
+- **A dish can no longer slip onto a bill that is being paid, or change after it was sent** — the
+  database now refuses both, and the console says which ("This table is mid-payment — wait until
+  they’ve finished." · "That dish already went to the kitchen — use Remove or Make it free
+  instead."). And the three staff payment doors refuse, with the house "couldn't reach the system"
+  sentence, when they cannot check whether dishes are unsent — one more tap, never a charge over food
+  cooked after the guest left.
+
+**As built:**
+
+- **The floor (`p2d/floor`).** `lib/floor-kitchen.ts` (`foldFloorKitchen` — the kitchen row from 2a's
+  one count `staffOwedSendUnits(hostPresent, staffSendCounts(…))`, closing P2ah; `floorWait` →
+  `kdsUrgency('dinein', …)`; `ERR_DWELL_MS` / `UP_NOTICE_DWELL_MS`), `lib/floor-tone.ts` (`floorTone`,
+  `FLOOR_TONES` — out of `floor-status.ts` because that imports the server-only `pay-guard`),
+  `lib/floor-rows.ts` (`tableStrip`, `stripKey`, `owedSendUnits`, `createFlipGuard` /
+  `FLIP_GUARD_MS`); `TableStrip`, `CounterMint` (`CounterMintProvider` / `useCounterMint().run`, the
+  ONE start admission, `mintLanding`), `FloorWait` (a leaf with its own 15 s clock) and the
+  `FloorBoard` region's written precedence (strip refusal > freeze > ready notice > counts). The floor
+  read selects `fulfillment` and `by_seat`, answers `{ok:false, reason:"locked"}` behind the console
+  lock (K14's floor half), refuses a partial room when a line read saturates, and reads the chip's
+  refund through `floorStatusKey` (K33's chip half). `register.json` [11]–[15] rebuilt on the strip.
+- **The counter bell (`p2d/bell`).** Rules in `lib/counter-attention.ts` (`counterRing`, the fact
+  keys, `RING_GAP_MS`) and `lib/counter-chime.ts` (`COUNTER_TONES`, the postures, `COUNTER_LEVEL`
+  0.6, `ARM_TIMEOUT_MS`, `SOUND_HINT_MS`), plumbing in `lib/counter-sound.ts` (`armWithin`,
+  `playbackSession`, the document-scoped `counterHeard` / `rememberCounterHeard`), the provider +
+  chip + one ear for both boards in `components/staff/CounterBell.tsx` (`useCounterAttention`),
+  composed with `LiveConnectionProvider` once in `CounterLive` (`app/staff/page.tsx`). `--warn` on
+  `--sf` (the paused chip) is newly contrast-pinned, both themes. Also fixed: `FloorBoard`'s `alive`
+  latch was never re-armed at setup, so under StrictMode (dev) the floor stopped refreshing after
+  mount.
+- **The tablet split (`p2d/split`).** `lib/floor-pane.ts` (the hash, the one-entry history,
+  `PANE_QUERY` / `PANE_IDLE_QUERY`, the focus rules, `paneFreezeSpoken`, the handoff stash,
+  `tableDestination`), `CounterSplit` (the selection, `gen`, the stable `selectedNow`, the lost-write
+  line), `TablePane` (the column, its first read per pick, `TableNav` bound to its table),
+  `SplitAwareLink`, `TablePaneContext` (its own module — exporting it from the provider's file dragged
+  the drill-down's server actions into every board's graph), `FloorDetailLive`'s `variant="pane"`,
+  `TableNav` (the in-table exits, bound once). `getTableDetail`'s `closed` verdict carries the
+  session's label and number. `OpenTabButton` takes `onChanged`; `HandoffCard` gained `onDone`.
+- **The line guards in the database (P2dd · P2cy — `20260929000000_p2dd_p2cy_line_guards.sql`).**
+  `mms_cart_item_insert_if_open`, `mms_cart_item_inc_qty` and `mms_cart_item_set_qty_if_open` take the
+  parent cart row `FOR SHARE` (it conflicts with every settlement claim's `UPDATE … settle_at`, so the
+  two orders are total), raise `'cart is being paid'` under a FRESH freeze (`settle_at` within 10
+  minutes — `SETTLE_TTL_MS`, restated; a stale one refuses nothing) and never change a non-draft line
+  (`'line already sent'`); both raises come AFTER the scan claim, so it rolls back with them, and a
+  duplicate replay still answers idempotently. `create or replace`, signatures and grants unchanged —
+  no types drift. Pinned by `supabase/tests/p2dd_p2cy_line_guards_test.sql` (11 named cases,
+  P2DD.0–4 · P2CY.1–6, 21 asserts; red on the old bodies — a fired line's quantity moved 2 → 5),
+  registered in `ci.yml`'s required list, and joined to `scripts/verify-mode-authority.mjs`'s chain
+  (27 → 39 mutants over six functions; 4 documented survivors, the new one `insert/for-share-deleted`:
+  the row lock is observable only with two sessions — measured locally 2026-09-29 on PG16: with the
+  lock both orders serialize, ~1.5 s waits; without it an add landed under a live freeze in 0.04 s.
+  A CI two-session case is **P2dk**). App: `lib/line-rpc-refusal.ts` (the classifier — SQLSTATE
+  P0001 AND the message — and `CartPayingError`); `insertOrIncLine` falls through to a fresh draft
+  insert when its merge target was sent mid-add (same scan id); `staffAddItem` codes a frozen add
+  `paying`; `staffSetQty` and the diner's `setQty` name both refusals; `reorderOrder` stops on a
+  freeze in the diner's sentence.
+- **Applied to prod 2026-09-29** through the Supabase MCP `apply_migration` (name
+  `p2dd_p2cy_line_guards`, one file), after CI's Supabase job ran the new SQL test and the
+  mode-authority battery green (run `36628474692`, 39 mutants accounted for). Verified on prod: all
+  three bodies hash to the CI-tested targets (`md5(prosrc)` `4a76053727f785cf9bce7bf3d6cd8c1b`
+  inc_qty · `3953146806f6b8a11e1b58899f1851a1` insert · `abbbc7ba625c3c77c7122c29fc7c761c` set_qty;
+  before `e2248557…` · `b5a51d20…` · `0bbe05d5…`), one overload each, `search_path ''`, execute to
+  `service_role` only; every SQL case re-run against prod inside ONE `DO` block ending in a sentinel
+  raise (all passed, zero residue). Prod's history carries it as MCP stamp `20260929205611`, not the
+  repo's `20260929000000` (M125).
+- **The staff doors fail closed (P2dc, owner decision 5a).** `readKitchenDraftUnits` answers `null` on
+  a read error; `staffSettleUnsentVerdict(mode, units)` (`lib/checkout-stage.ts`) turns it into
+  `unreadable` only where the gate could ever refuse (it delegates to
+  `staffSettleBlockedByUnsent(mode, 1)`, so a counter order is unaffected). `settleCash`,
+  `closeSecureTab` and `settleCard` refuse `unreadable` with `STAFF_WRITE_OUTAGE` (bilingual through
+  `<OutageText>`), releasing their own freeze before any totals read or PaymentIntent. The diner
+  doors keep the fail-open `kitchenDraftUnits`. `cash-tip.test`'s fake DB had answered the gate's read
+  by accident — down the fail-open branch — and now answers it explicitly; the R7 comments at the
+  three doors say what the P2cy lock guarantees.
+- **Owner decisions applied (2026-09-29, delegated: "decide on world class app design-thinking
+  quality standards and apply database migrations").** ⑤a **P2dc — fail closed** at the three staff
+  doors (above); the diner's counter ask stays fail-open (it moves no money). ⑤b **P2dd + P2cy ship as
+  a migration and are applied to prod**, one file, verified. ⑤c **Phase 2d as recommended:** the
+  one-tap strip replacing the typed arm (600 ms flip guard, Clear table recovery); Walk-up the Start
+  zone's one primary; the tablet split side by side from 48em with a persistent empty pane from 64em,
+  the handoff following its table through sessionStorage, staff routes out of the Back drift, Back
+  one entry deep; the counter bell on the counter home only (guest + food), fixed 0.6, the `playback`
+  session, no nag; the floor's "not sent" counts what staff can act on (2a's rule).
+- **Critic rounds — every verified finding fixed.**
+  - _Floor (12 fixed, 2 rejected with evidence):_ "Not sent" was drawn in the quietest ink with
+    nothing on the tile (now `--warn` bold, a warn dot and a name clause); a late start landing
+    yanked the person off a table opened from a card (a mounted ref); the starting tile looked like
+    every held tile (full ink + the kit's spinner beside the kept verb); a refocus pulled focus back
+    after a click on a non-focusable node; the lock read `pending`, entangled with every other
+    transition on the page; the help picture's tile stretched; a refunded table was two colours (one
+    tone map, parsed); `NOTICE_DWELL_MS` restated `ERR_DWELL_MS`; the board's `locked` arm was
+    untested (`vi.stubGlobal("location")`, a mutant); no mutant for the tick isolation; two Burmese
+    words for "Start" (`reg.go` MY → ဖွင့်, a cross-namespace guard); occupied tiles carried no word
+    (the key); hardcoded px (tokens). "Not sent" ignoring a counter ask on a host table is an owner
+    question (owner decision 5c binds it — **P2ds**). **Rejected:** "fold paid lines into
+    `aggByCart`" as a mutant — EQUIVALENT under the per-cart key (measured: the exact mutation left
+    `floor-kitchen-read.test.ts` 14/14 green); and the flame on every kitchen row is the kitchen's
+    glyph, not a cooking claim.
+  - _Bell (6, all fixed, none rejected):_ a remount with a stale `initial` re-rang what an earlier
+    mount had rung (the heard set is document-scoped now); a lane poll or a chip arm landing after
+    unmount rang on the table page; a late resume left "tap to try again" beside a lit chip; nothing
+    pinned "rings while hidden"; the hint line reflowed the counter column for 8 s (it floats now);
+    "Enable sound" vs "tap to turn on", and an Android phone sent to a "silent switch".
+  - _Split (17 new rules, each with a mutant):_ a re-run first read could land `closed` past the
+    detail's terminal hold (`selectedNow` stable; reads per pick, `gen`); a Clear or Merge answering
+    after a switch touched the table shown now (exits bound); a write refused after the pane closed
+    was unsaid below 64em (`data-pane="lost"`); the lost-write selection filter the build shipped was
+    REMOVED — its mutant survived because the only reachable case was the case it got wrong; the
+    closed notice's focus sample; a nameless closed pane; the stash restores in the pane only; the
+    scroller clears the lane's Undo pill. **Partly rejected:** a Clear REFUSED after its detail
+    unmounted is still unsaid (the table stays visible on the floor — **P2ej**); and "CLAUDE.md's
+    mutate-set count not updated" was out of the branch's bounds and is applied here.
+- **Mutate set.** `floor-kitchen.ts`, `floor-tone.ts`, `counter-attention.ts`, `counter-chime.ts`,
+  `counter-sound.ts`, `floor-pane.ts` and `line-rpc-refusal.ts` join the lib bucket (138 → 145);
+  `staff/TableStrip.tsx`, `staff/CounterMint.tsx`, `staff/FloorBoard.tsx`, `staff/FloorWait.tsx`,
+  `staff/CounterBell.tsx`, `staff/CounterSplit.tsx`, `staff/TablePane.tsx`, `staff/SplitAwareLink.tsx`
+  and `staff/ClearTableButton.tsx` the components (21 → 30). 152 new mutants — `p2d-floor/` 58,
+  `counter-attention/` · `counter-chime/` · `counter-sound/` · `counter-bell/` 32, the split's
+  `floor-pane/` · `counter-split/` · `table-pane/` · `floor-detail/` · `table-card/` ·
+  `counter-mint/` · `split-aware-link/` · `floor/` · `clear-table/` 48, and the integration's
+  `p2d-guards/` 9 · `p2d-dc/` 5; re-anchored with meaning kept: two floor mutants the split moved,
+  `staff-labels/table-name-uses-the-raw-status-key`, `counter-bell/a-seed-rings`, five after
+  `insertOrIncLine`'s dedent and 14 Phase 2c gate mutants on the fail-closed shape (`b8be8f5` the
+  running-bill close's own block). Every area's `--no-gate --only=` runs killed every mutant it added
+  or touched; `check:mutant-anchors` clean at 1271.
+- **Words (K15).** 24 new staff keys, each with a Claude-authored Burmese draft — the floor's 13, the
+  bell's 2, the split's 9 — three of them K15-HIGH (`floor.kitchen.notSent`, `floor.key.notSent`,
+  `floor.pane.lostWrite`; `STAFF_K15_HIGH` 108 → 111); `floor.kitchen.upNotice.one` / `.many` a plural
+  pair. Re-drafted: `reg.go` (MY စဖွင့် → ဖွင့်), `floor.tables.emptySub`, `help.how.counter.1.more`
+  (its EN too: "To start a table…"). English changed, Burmese unchanged: `kds.sound.enable` and
+  `board.sound` ("Turn on sound"). Retired with the typed arm: `reg.start.table` ·
+  `reg.table.label` · `reg.table.placeholder` · `reg.err.table`. The two DB refusals and P2dc's
+  outage are server sentences (the outage through the existing bilingual `<OutageText>`).
+- **OPEN-ITEMS.** Closed P2dd · P2cy · P2dc (the three shipped here, with the prod evidence) · P2ac
+  (`staff_fire_undo_test.sql` ran green in run `36628474692`) · P2ah (the floor's "not sent"); K14
+  and K33 lose their floor / chip halves; K24 narrowed to its remainder; P2am · P2al · P2at · P2bh ·
+  P2bw · P2z · M125 updated; new **P2de–P2ej** (P2dk the two-session CI case for the row lock).
+- **Gate at this head (measured):** 1271 `verify:slice` mutants across 179 target modules (145 lib ·
+  3 API routes · 30 components · 1 `packages/db`) · 4288 qr + 278 ui tests · 39 mode-authority
+  mutants · `check:docs` and `check:mutant-anchors` clean. The full 1271-mutant `verify:slice` run
+  with the gate is not recorded here. Nothing is device-measured — the strip, the bell's audio and the
+  split owe their device passes (P2dk… see OPEN-ITEMS: P2dj · P2dp · P2dz · P2eb).
+
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
 Built as three worktree branches: `p2c/pad` and `p2c/register` in parallel off `1768979`, merged here
