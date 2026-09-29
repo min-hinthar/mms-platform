@@ -144,7 +144,7 @@ counter screen's per-zone regions).
     untested (`vi.stubGlobal("location")`, a mutant); no mutant for the tick isolation; two Burmese
     words for "Start" (`reg.go` MY → ဖွင့်, a cross-namespace guard); occupied tiles carried no word
     (the key); hardcoded px (tokens). "Not sent" ignoring a counter ask on a host table is an owner
-    question (owner decision 5c binds it — **P2ds**). **Rejected:** "fold paid lines into
+    question (owner decision 5c binds it — **P2do**). **Rejected:** "fold paid lines into
     `aggByCart`" as a mutant — EQUIVALENT under the per-cart key (measured: the exact mutation left
     `floor-kitchen-read.test.ts` 14/14 green); and the flame on every kitchen row is the kitchen's
     glyph, not a cooking claim.
@@ -170,7 +170,8 @@ counter screen's per-zone regions).
   `counter-attention/` · `counter-chime/` · `counter-sound/` · `counter-bell/` 32, the split's
   `floor-pane/` · `counter-split/` · `table-pane/` · `floor-detail/` · `table-card/` ·
   `counter-mint/` · `split-aware-link/` · `floor/` · `clear-table/` 48, and the integration's
-  `p2d-guards/` 9 · `p2d-dc/` 5; re-anchored with meaning kept: two floor mutants the split moved,
+  `p2d-guards/` 9 · `p2d-dc/` 5; re-anchored with meaning kept: `p2d-floor/mint-lock-without-the-ref` (the lock reads `minting`, not
+  `pending`), two floor mutants the split moved,
   `staff-labels/table-name-uses-the-raw-status-key`, `counter-bell/a-seed-rings`, five after
   `insertOrIncLine`'s dedent and 14 Phase 2c gate mutants on the fail-closed shape (`b8be8f5` the
   running-bill close's own block). Every area's `--no-gate --only=` runs killed every mutant it added
@@ -186,12 +187,12 @@ counter screen's per-zone regions).
 - **OPEN-ITEMS.** Closed P2dd · P2cy · P2dc (the three shipped here, with the prod evidence) · P2ac
   (`staff_fire_undo_test.sql` ran green in run `36628474692`) · P2ah (the floor's "not sent"); K14
   and K33 lose their floor / chip halves; K24 narrowed to its remainder; P2am · P2al · P2at · P2bh ·
-  P2bw · P2z · M125 updated; new **P2de–P2ej** (P2dk the two-session CI case for the row lock).
+  P2bw · P2z · M125 updated; new **P2de–P2ek** (P2dk is the two-session CI case for the row lock).
 - **Gate at this head (measured):** 1271 `verify:slice` mutants across 179 target modules (145 lib ·
   3 API routes · 30 components · 1 `packages/db`) · 4288 qr + 278 ui tests · 39 mode-authority
   mutants · `check:docs` and `check:mutant-anchors` clean. The full 1271-mutant `verify:slice` run
   with the gate is not recorded here. Nothing is device-measured — the strip, the bell's audio and the
-  split owe their device passes (P2dk… see OPEN-ITEMS: P2dj · P2dp · P2dz · P2eb).
+  split owe their device passes (P2dj · P2dr · P2ea · P2eb · P2ed · P2ee).
 
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
