@@ -89,7 +89,9 @@ export function HelpPicture({
         // Phase 2d · floor — the Start zone as it renders now: its own grid (`START_GRID`), Walk-up
         // in the primitive Button's own class (`START_WALKUP_REST`), Phone order in the arm class
         // (none open, so no cap) — and beside them one FREE table tile in the strip's own class,
-        // because the card's second sentence sends a table there. `.help-pic` sets
+        // because the card's second sentence sends a table there — inside the strip's OWN track
+        // (`.floor-strip`), which is what sizes a tile (60–96px); `.floor-tile` is `width: 100%`,
+        // so without the track it stretched to the picture's whole line. `.help-pic` sets
         // pointer-events: none, so neither press can fire on a picture.
         <span className="help-pic-start">
           <span className={START_GRID}>
@@ -100,10 +102,12 @@ export function HelpPicture({
               <Chrome lang={lang} k="reg.start.phone" echo="stack" />
             </span>
           </span>
-          <span className="floor-tile" data-free="">
-            <span className="floor-tile-n">7</span>
-            <span className="floor-tile-verb">
-              <Chrome lang={lang} k="floor.verb.start" />
+          <span className="floor-strip">
+            <span className="floor-tile" data-free="">
+              <span className="floor-tile-n">7</span>
+              <span className="floor-tile-verb">
+                <Chrome lang={lang} k="floor.verb.start" />
+              </span>
             </span>
           </span>
         </span>

@@ -340,3 +340,25 @@ describe("the dictionary guards", () => {
     expect(t("my", "yourOrder")).toBe("သင့်အော်ဒါ");
   });
 });
+
+// ── Phase 2d · floor ──
+describe("one concept, one word — across namespaces that draw on ONE screen", () => {
+  // The surface rules above group by key prefix, so two keys that render on the SAME screen under
+  // different prefixes escape them: the counter screen draws the Start zone (`reg.*`) and the table
+  // strip (`floor.*`) together, and the strip's "Start" read ဖွင့် while the Phone form's "Start"
+  // read စဖွင့် — one verb for one act, two Burmese words a foot apart. Each pair below is ONE act
+  // on one screen; it must say one thing in each tongue. MUTATION: fork either Burmese value → red.
+  const ONE_SCREEN_ONE_WORD: ReadonlyArray<
+    readonly [keyof typeof STAFF, keyof typeof STAFF, string]
+  > = [
+    [
+      "floor.verb.start",
+      "reg.go",
+      "the counter screen: a free table tile's Start and the Phone form's Start",
+    ],
+  ];
+  it.each(ONE_SCREEN_ONE_WORD)("%s and %s say one word (%s)", (a, b) => {
+    expect(STAFF[a].en).toBe(STAFF[b].en);
+    expect(STAFF[a].my).toBe(STAFF[b].my);
+  });
+});

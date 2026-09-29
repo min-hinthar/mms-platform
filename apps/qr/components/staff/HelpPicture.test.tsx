@@ -67,6 +67,12 @@ describe("HelpPicture — the real control, inert", () => {
     // The tile is the strip's own class and nothing help-only (MUTATION: a bespoke
     // `.help-pic-tile` drawing a tile-alike → this and the placement rule below redden).
     expect([...tiles[0]!.classList].filter((c) => c.startsWith("help-pic"))).toEqual([]);
+    // …and it sits in the strip's OWN track, which is what sizes a tile (60–96px): `.floor-tile`
+    // is `width: 100%`, so a replica placed straight in the picture's wrapping flex row stretched
+    // to the whole line — the drift this discipline exists to stop, and invisible to jsdom's
+    // layout. MUTATION: drop the wrapper → the tile's parent is the placement box.
+    expect(tiles[0]!.parentElement?.classList.contains("floor-strip")).toBe(true);
+    expect(css).toMatch(/(^|[\s,])\.floor-strip\s*\{[^}]*grid-template-columns:/m);
     expect(tiles[0]!.textContent).toContain("7");
     expect(tiles[0]!.textContent).toContain(STAFF["floor.verb.start"].en);
     expect(css).toMatch(/(^|[\s,])\.reg-start\s*\{/m);

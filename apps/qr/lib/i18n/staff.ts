@@ -1614,7 +1614,10 @@ export const STAFF = {
   // `reg.err.table` retired with their last reader: the typed "Start a table" arm is the strip now.
   "reg.phone.label": { en: "Caller’s name", my: "ခေါ်သူ့ နာမည်" },
   "reg.phone.placeholder": { en: "First name", my: "နာမည်" },
-  "reg.go": { en: "Start", my: "စဖွင့်" },
+  // Phase 2d · floor — MY re-drafted to ဖွင့်: the counter screen's ONE verb for starting (the strip's
+  // `floor.verb.start`, its own busy twin `reg.going`, the strip label and the help line all say
+  // ဖွင့်; စဖွင့် forked the one act a foot away). K15 draft; pinned by strings.test "one word".
+  "reg.go": { en: "Start", my: "ဖွင့်" },
   "reg.going": { en: "Starting…", my: "ဖွင့်နေပါတယ်…" },
 
   // ── the register: the open-counter queue ──────────────────────────────────
@@ -2488,7 +2491,7 @@ export const STAFF = {
   },
   // Phase 2d · floor — reworded: a table starts from the strip now. MY is a K15 draft.
   "help.how.counter.1.more": {
-    en: "Phone order sits beside it. To seat a table, tap its number under Tables.",
+    en: "Phone order sits beside it. To start a table, tap its number under Tables.",
     my: "ဖုန်း အော်ဒါ က ဘေးမှာ ရှိပါတယ်။ စားပွဲ ဖွင့်ဖို့ စားပွဲများ အောက်က နံပါတ်ကို နှိပ်ပါ။",
   },
   "help.how.counter.2": {
