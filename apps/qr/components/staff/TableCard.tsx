@@ -47,7 +47,12 @@ export function TableCard({
   lang,
   selected = false,
   onSelect,
+  frozen,
 }: {
+  /** Phase 2d · review — the floor is not updating (the board's freeze). REQUIRED, so the caller
+   *  decides: the wait pill then holds at the read's instant, the same minutes this card's name
+   *  says, instead of escalating over a kitchen nobody can see. */
+  frozen: boolean;
   table: FloorTable;
   /** Phase 2d · split — this table is open in the counter's pane: `aria-current` and the lit cap on
    *  its NAME (a pick from a live list, not "you are here"). */
@@ -188,6 +193,7 @@ export function TableCard({
           serverNow={serverNow}
           thresholds={thresholds}
           lang={lang}
+          frozen={frozen}
         />
       )}
 

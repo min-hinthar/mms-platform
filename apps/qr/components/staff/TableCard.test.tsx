@@ -70,6 +70,7 @@ describe("TableCard — a refunded table on the floor", () => {
         thresholds={TH}
         pulse={undefined}
         lang="en"
+        frozen={false}
       />,
     );
     const name = card().getAttribute("aria-label") ?? "";
@@ -90,6 +91,7 @@ describe("TableCard — a refunded table on the floor", () => {
         thresholds={TH}
         pulse={undefined}
         lang="en"
+        frozen={false}
       />,
     );
     const name = card().getAttribute("aria-label") ?? "";
@@ -106,6 +108,7 @@ describe("TableCard — a refunded table on the floor", () => {
         thresholds={TH}
         pulse={undefined}
         lang="en"
+        frozen={false}
       />,
     );
     const name = card().getAttribute("aria-label") ?? "";
@@ -117,7 +120,9 @@ describe("TableCard — a refunded table on the floor", () => {
 // ── Phase 2d · floor ──
 describe("TableCard — the refund-honest chip, the kitchen row and the clock", () => {
   const mount = (table: FloorTable, serverNow = SETTLED.lastActivityAt) =>
-    render(<TableCard table={table} serverNow={serverNow} thresholds={TH} lang="en" />);
+    render(
+      <TableCard table={table} serverNow={serverNow} thresholds={TH} lang="en" frozen={false} />,
+    );
 
   it("a fully refunded table's chip says Refunded in the returned tone — never Paid (K33)", () => {
     // MUTATION: drop `refund={table.refund}` → the chip reads "Paid" in the success tone.
@@ -247,6 +252,7 @@ describe("TableCard — the table open in the counter's pane", () => {
         serverNow={SETTLED.lastActivityAt}
         thresholds={TH}
         lang="en"
+        frozen={false}
         selected={selected}
       />,
     );

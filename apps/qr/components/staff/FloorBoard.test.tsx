@@ -208,6 +208,65 @@ describe("the wait pill ticks on its own", () => {
   });
 });
 
+describe("the wait pill on a FROZEN floor", () => {
+  it("(q) holds the last good minute — no extrapolated escalation, no pop — and says what the card's name says", async () => {
+    // The poll is failing, so the board cannot know whether the dish came out. Ticking on from the
+    // device clock drew '12 min' in red with the alert glyph and a pop over data nobody has, while
+    // the card's name kept the poll's '9 min' — a sighted server and a listener told two things.
+    // MUTATION: the pill keeps extrapolating while frozen → '12 min', red. MUTATION: the board
+    // never tells the card the floor is frozen → the same. MUTATION: hold at the instant the
+    // freeze is NOTICED, not the read's → 9:57 + 5 s is '10 min' beside the name's '9 min'.
+    const { section } = mount(
+      snap([
+        table(7, {
+          kitchen: {
+            notSent: 0,
+            inKitchen: 1,
+            up: 0,
+            done: 0,
+            oldestFireAt: ago(9 * 60_000 + 57_000),
+          },
+        }),
+      ]),
+    );
+    await tick(0);
+    const pill = () => section().querySelector<HTMLElement>(".floor-wait")!;
+    const name = () =>
+      section().querySelector('.card-textured[data-session-id="s7"]')!.getAttribute("aria-label")!;
+    expect(pill().textContent).toBe("9 min");
+    answer = () => Promise.resolve({ ok: false, reason: "outage" });
+    await tick(POLL_MS);
+    await tick(10 * FLOOR_WAIT_TICK_MS);
+    expect(pill().textContent).toBe("9 min");
+    expect(pill().className).toContain("floor-wait-amber"); // the last read's own level
+    expect(pill().className).not.toContain("mms-pop");
+    expect(pill().querySelector("svg")).toBeNull();
+    expect(name()).toContain(`, ${pill().textContent},`);
+  });
+
+  it("(q) a floor that comes back resumes the clock from the new read", async () => {
+    const kitchen = {
+      notSent: 0,
+      inKitchen: 1,
+      up: 0,
+      done: 0,
+      oldestFireAt: ago(9 * 60_000 + 20_000),
+    };
+    const { section } = mount(snap([table(7, { kitchen })]));
+    await tick(0);
+    const pill = () => section().querySelector<HTMLElement>(".floor-wait")!;
+    answer = () => Promise.resolve({ ok: false, reason: "outage" });
+    await tick(POLL_MS);
+    await tick(3 * 60_000);
+    expect(pill().textContent).toBe("9 min");
+    // Over-blocking is as bad as under-blocking: a live read moves the pill again at once.
+    answer = () => ok(snap([table(7, { kitchen })], { serverNow: new Date().toISOString() }))();
+    await tick(POLL_MS); // 9:20 + 5 s + 3 min + 5 s
+    expect(pill().textContent).toBe("12 min");
+    expect(pill().className).toContain("floor-wait-red");
+  });
+});
+
 describe("the strip starts a table through the screen's ONE lock", () => {
   it("(b) a free tile double-tapped in one frame starts ONE table, and lands on its add screen", async () => {
     const d = deferred<{ ok: true; sessionId: string; created: boolean }>();

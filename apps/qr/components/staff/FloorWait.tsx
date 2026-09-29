@@ -23,17 +23,27 @@ export const FLOOR_WAIT_TICK_MS = 15_000;
  * `.mms-pop` (a keyed remount; never on first sight). There is no loop: a pulsing red on a counter
  * screen through a whole rush would owe a WCAG 2.2.2 stop control. Decorative to assistive tech —
  * the card's accessible name carries the same minutes and the KDS's "Late".
+ *
+ * Phase 2d · review — FROZEN, the pill HOLDS. While the floor's poll is failing (`frozen`, the
+ * board's `degraded`), the snapshot's `serverNow` is the last instant this card knows anything
+ * about: the dish may have come out since. So the pill stops ticking and shows the minutes AS OF
+ * that read — exactly what the card's accessible name says (it is built from the same instant) — and
+ * a held clock can never rise, so nothing escalates and nothing pops over data the board cannot see.
+ * The next good read hands it a new `serverNow` and the clock runs again.
  */
 export function FloorWait({
   kitchen,
   serverNow,
   thresholds,
   lang,
+  frozen,
 }: {
   kitchen: FloorKitchen;
   serverNow: string;
   thresholds: KdsThresholds;
   lang: StaffLang;
+  /** The floor is not updating (the board's freeze): hold at `serverNow`, never extrapolate. */
+  frozen: boolean;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.parse(serverNow));
   const [pop, setPop] = useState(0);
@@ -43,7 +53,8 @@ export function FloorWait({
   useEffect(() => {
     const skew = Date.now() - Date.parse(serverNow);
     const update = () => {
-      const now = Date.now() - skew;
+      // Held at the read's own instant while frozen (docblock) — the same minutes the name says.
+      const now = frozen ? Date.parse(serverNow) : Date.now() - skew;
       setNowMs(now);
       const w = floorWait(kitchen, now, thresholds);
       const rank = w === null ? null : FLOOR_WAIT_RANK[w.level];
@@ -52,9 +63,10 @@ export function FloorWait({
       lastRank.current = rank;
     };
     update();
+    if (frozen) return; // no clock on a frozen floor
     const id = setInterval(update, FLOOR_WAIT_TICK_MS);
     return () => clearInterval(id);
-  }, [serverNow, kitchen, thresholds]);
+  }, [serverNow, kitchen, thresholds, frozen]);
 
   const w = floorWait(kitchen, nowMs, thresholds);
   if (w === null) return null;

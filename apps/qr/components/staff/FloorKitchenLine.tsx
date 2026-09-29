@@ -21,11 +21,14 @@ export function FloorKitchenLine({
   serverNow,
   thresholds,
   lang,
+  frozen,
 }: {
   kitchen: FloorKitchen;
   serverNow: string;
   thresholds: KdsThresholds;
   lang: StaffLang;
+  /** Phase 2d · review — the floor is not updating: the wait pill holds (`FloorWait`). */
+  frozen: boolean;
 }) {
   const segs = kitchenSegments(kitchen);
   return (
@@ -45,7 +48,13 @@ export function FloorKitchenLine({
           </Fragment>
         ))}
       </span>
-      <FloorWait kitchen={kitchen} serverNow={serverNow} thresholds={thresholds} lang={lang} />
+      <FloorWait
+        kitchen={kitchen}
+        serverNow={serverNow}
+        thresholds={thresholds}
+        lang={lang}
+        frozen={frozen}
+      />
     </div>
   );
 }

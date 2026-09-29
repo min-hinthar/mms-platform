@@ -407,6 +407,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 thresholds={snap.thresholds}
                 pulse={pulses.get(r.table.sessionId)}
                 lang={lang}
+                // Phase 2d · review — a frozen floor holds every wait pill at the last read.
+                frozen={degraded !== null}
                 selected={pane?.selectedId === r.table.sessionId}
                 onSelect={
                   pane
