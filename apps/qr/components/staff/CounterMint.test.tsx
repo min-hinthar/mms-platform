@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { useState, type MouseEvent } from "react";
+import type { MouseEvent } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TablePaneApi } from "./TablePaneContext";
@@ -64,16 +64,14 @@ function StartTable7() {
   );
 }
 
-let pick: (id: string | null) => void = () => {};
-function Pane({ initial }: { initial: string | null }) {
-  const [selectedId, setSelectedId] = useState<string | null>(initial);
-  pick = setSelectedId;
+/** The pane's selection is the case's to move: a re-render with a new `selectedId` is the person
+ *  picking a table (a card, the pane's own pick, Back) while the start is out. */
+function Pane({ selectedId }: { selectedId: string | null }) {
   const api: TablePaneApi = {
     selectedId,
-    openFromCard: (_e: MouseEvent<HTMLElement>, id: string) => setSelectedId(id),
+    openFromCard: (_e: MouseEvent<HTMLElement>) => {},
     openSession: (id, hint) => {
       openSession(id, hint);
-      setSelectedId(id);
       return true;
     },
     publishFloor: () => {},
@@ -95,7 +93,7 @@ async function startThenLand(opts: {
 }) {
   const d = deferred<Landing>();
   openRegisterOrder.mockReturnValueOnce(d.promise);
-  render(<Pane initial={opts.initial} />);
+  const { rerender } = render(<Pane selectedId={opts.initial} />);
   const button = () => screen.getByRole("button", { name: "start 7" });
   await act(async () => {
     fireEvent.click(button());
@@ -104,7 +102,7 @@ async function startThenLand(opts: {
   expect(button().getAttribute("aria-disabled")).toBe("true");
   if (opts.moveTo !== undefined) {
     const to = opts.moveTo;
-    await act(async () => pick(to));
+    await act(async () => rerender(<Pane selectedId={to} />));
   }
   await act(async () => {
     d.resolve(opts.landing);
