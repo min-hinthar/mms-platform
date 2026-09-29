@@ -55,11 +55,16 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/staff",
 }));
 vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.fn() }));
+const openRegisterOrder = vi.fn();
+vi.mock("@/lib/register", () => ({
+  openRegisterOrder: (...a: unknown[]) => openRegisterOrder(...(a as [])),
+}));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { LiveConnectionProvider, useReportLive } = await import("./LiveConnection");
 const { CounterSplit } = await import("./CounterSplit");
 const { useTablePane } = await import("./TablePaneContext");
+const { CounterMintProvider, useCounterMint } = await import("./CounterMint");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
 
@@ -635,5 +640,59 @@ describe("TablePane — a first read that failed, said by cause", () => {
     await tap(card(A));
     await tick(0);
     expect(pane().textContent).toContain(ts("en", "out.shell.title"));
+  });
+});
+
+describe("TablePane — a start that converged on a seated table", () => {
+  function StartTable4() {
+    const mint = useCounterMint();
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          mint.run("table-4", { kind: "table", tableNumber: 4 }, {
+            onStart: () => {},
+            onRefusal: () => {},
+          })
+        }
+      >
+        start 4
+      </button>
+    );
+  }
+  const mountMint = () =>
+    render(
+      <StaffLangProvider lang="en">
+        <LiveConnectionProvider>
+          <CounterSplit terminalReady={false}>
+            <CounterMintProvider>
+              <StartTable4 />
+            </CounterMintProvider>
+          </CounterSplit>
+        </LiveConnectionProvider>
+      </StaffLangProvider>,
+    );
+  it("opens it in the pane at split width (no route), where a card tap would", async () => {
+    openRegisterOrder.mockResolvedValue({ ok: true, sessionId: A, created: false });
+    mountMint();
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "start 4" }));
+    });
+    await tick(0);
+    // MUTATION: route every landing through the router — the counter screen is swapped for the
+    // table page on a tablet; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+  });
+  it("a NEW session still goes to its add screen; a phone still routes", async () => {
+    openRegisterOrder.mockResolvedValue({ ok: true, sessionId: A, created: true });
+    mountMint();
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "start 4" }));
+    });
+    await tick(0);
+    expect(push).toHaveBeenCalledWith(`/staff/table/${A}/add`);
   });
 });
