@@ -15,9 +15,12 @@ import {
   PANE_QUERY,
   acceptPaneRead,
   liveTwinOf,
+  lostKey,
   paneEscapeCloses,
   paneFailKeys,
+  paneStatusSays,
   readHandoffStash,
+  type LostKind,
 } from "@/lib/floor-pane";
 import { tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
@@ -41,10 +44,11 @@ import type { Handoff } from "@/lib/register-ui";
  *   closed   the head keeps its name and ✕; the notice, the live namesake's "View", and the table's
  *            paid card (if its stash stands) above it.
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
- *            quiet retry every 5 s.
+ *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
- * another table); otherwise this pane's single sr-only `role=status` does. Never two at once.
+ * another table); otherwise this pane's single sr-only `role=status` does (`paneStatusSays`: a lost
+ * write, "Loading…" when the head is a name, the closed title, the failure). Never two at once.
  */
 /** Every read carries its selection's `gen`: a table picked AGAIN (A → ✕ → A, A → B → A) starts in
  *  `loading` and reads afresh — a previous pick's detail would seed `FloorDetailLive`'s state
@@ -78,13 +82,13 @@ export function TablePane({
   /** The selection NOW (a ref read) — a read resolving late is gated on it, never on a closure. */
   selectedNow: () => string | null;
   rows: readonly PaneRow[];
-  lostWrite: { sessionId: string; hint: TableHint } | null;
+  lostWrite: { sessionId: string; hint: TableHint; kind: LostKind } | null;
   settleOnce: string | null;
   onSettleConsumed: () => void;
   terminalReady: boolean;
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
-  onLostWrite: (sessionId: string, hint: TableHint) => void;
+  onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -93,6 +97,12 @@ export function TablePane({
   const [retrying, setRetrying] = useState(false);
   const id = sel?.id ?? null;
   const gen = sel?.gen ?? 0;
+  // Phase 2d · review fixes — the read that last ANSWERED, named by (id, gen, attempt). The quiet
+  // retry is timed from an answer, never from a start: armed while a read is still in the air, it
+  // cancelled that read every 5 s, so a database answering in 5–15 s (inside `raceTimeout`'s bound)
+  // never landed and the pane said "couldn't" for as long as it stayed slow.
+  const readKey = `${id}:${gen}:${attempt}`;
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
   // A read belongs to ONE selection: anything else in state is a previous pick's.
   const cur: Read | null =
     id === null ? null : read?.id === id && read.gen === gen ? read : { id, gen, kind: "loading" };
@@ -105,6 +115,7 @@ export function TablePane({
   useEffect(() => {
     if (id === null) return;
     let live = true;
+    const key = `${id}:${gen}:${attempt}`;
     raceTimeout(getTableDetail(id))
       .then((res) => {
         if (!live || !acceptPaneRead(id, selectedNow())) return;
@@ -127,20 +138,24 @@ export function TablePane({
           setRead({ id, gen, kind: "fail", cause: "unknown" });
       })
       .finally(() => {
-        if (live) setRetrying(false);
+        if (!live) return;
+        setRetrying(false);
+        setAnsweredKey(key);
       });
     return () => {
       live = false;
     };
   }, [id, gen, attempt, selectedNow]);
 
-  // The quiet retry while a first read stands failed.
+  // The quiet retry while a first read stands failed — RETRY_MS after the current attempt's read
+  // answered (`answeredKey`), never over one still in the air.
   const failed = cur?.kind === "fail";
+  const answered = answeredKey === readKey;
   useEffect(() => {
-    if (!failed) return;
+    if (!failed || !answered) return;
     const t = setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
     return () => clearTimeout(t);
-  }, [failed, attempt]);
+  }, [failed, answered, readKey]);
 
   // Focus the heading ONCE per selection that asked for it (a tap, a merge, Forward, a deep link):
   // it renders from the hint, so focus never moves again when the detail arrives. The pane's own
@@ -205,9 +220,19 @@ export function TablePane({
 
   const lostName = lostWrite ? nameText(lostWrite.hint) : null;
   const lostLine = lostWrite ? (
-    <Chrome lang={lang} k="floor.pane.lostWrite" vars={{ x: lostName! }} echo="stack" />
+    <Chrome lang={lang} k={lostKey(lostWrite.kind)} vars={{ x: lostName! }} echo="stack" />
   ) : null;
   const detailMounted = cur?.kind === "detail";
+  // Phase 2d · review fixes — the pane's ONE region while no detail (with its own) is mounted.
+  const closedKey =
+    cur?.kind === "closed" && (cur.hint?.counter || sel?.hint?.counter)
+      ? "floor.pane.closed.counterTitle"
+      : "table.detail.closed.title";
+  const says = paneStatusSays({
+    lost: lostWrite !== null,
+    read: cur === null || cur.kind === "detail" ? null : cur.kind,
+    headNamed: name !== null,
+  });
 
   const twin =
     cur?.kind === "closed" && cur.label !== null
@@ -221,7 +246,7 @@ export function TablePane({
       ref={paneRef}
       className="staff-split-pane"
       aria-labelledby="table-pane-h"
-      aria-busy={!hydrated || cur?.kind === "loading" || undefined}
+      aria-busy={!hydrated || undefined}
       onKeyDown={onKeyDown}
     >
       {!hydrated ? null : sel === null ? (
@@ -240,9 +265,6 @@ export function TablePane({
               subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
             />
           </div>
-          <p role="status" className="sr-only">
-            {lostLine}
-          </p>
         </>
       ) : (
         <>
@@ -280,7 +302,13 @@ export function TablePane({
           {lostWrite && (
             <LostWrite line={lostLine} lang={lang} lw={lostWrite} onSelect={onSelect} />
           )}
-          <div className="staff-pane-body mms-rise" key={sel.id}>
+          {/* Busy is the BODY's (the skeleton), never the section's: the pane's one region below
+              must not sit inside a busy subtree, whose announcements may be held until it clears. */}
+          <div
+            className="staff-pane-body mms-rise"
+            key={sel.id}
+            aria-busy={cur?.kind === "loading" || undefined}
+          >
             {cur?.kind === "loading" && <TableDetailSkeleton />}
             {cur?.kind === "detail" && (
               <TableNavProvider
@@ -325,21 +353,17 @@ export function TablePane({
             {cur?.kind === "closed" && (
               <>
                 {closedHandoff && (
-                  <HandoffCard lang={lang} handoff={closedHandoff} onDone={() => onClose("user")} />
+                  <HandoffCard
+                    lang={lang}
+                    handoff={closedHandoff}
+                    onDone={() => onClose("user")}
+                    headingLevel={3}
+                  />
                 )}
                 <EmptyState
                   titleAs="h3"
                   titleId="table-pane-closed-h"
-                  title={
-                    <Chrome
-                      lang={lang}
-                      k={
-                        cur.hint?.counter || sel.hint?.counter
-                          ? "floor.pane.closed.counterTitle"
-                          : "table.detail.closed.title"
-                      }
-                    />
-                  }
+                  title={<Chrome lang={lang} k={closedKey} />}
                   subtitle={<Chrome lang={lang} k="floor.pane.closed.body" echo="stack" />}
                 />
                 {twinRow && (
@@ -387,25 +411,23 @@ export function TablePane({
               </>
             )}
           </div>
-          {/* The pane's ONE region while no detail (with its own region) is mounted. */}
-          {!detailMounted && (
-            <p role="status" className="sr-only">
-              {lostLine ??
-                (cur?.kind === "closed" ? (
-                  <Chrome
-                    lang={lang}
-                    k={
-                      cur.hint?.counter || sel.hint?.counter
-                        ? "floor.pane.closed.counterTitle"
-                        : "table.detail.closed.title"
-                    }
-                  />
-                ) : cur?.kind === "fail" ? (
-                  <Chrome lang={lang} k={paneFailKeys(cur.cause).title} />
-                ) : null)}
-            </p>
-          )}
         </>
+      )}
+      {/* The pane's ONE region while no detail (with its own region) is mounted — ONE node across
+          "nothing picked" and every read state (outside the branches above), so a tap's "Loading…"
+          is a CHANGE to a region that already stood, never a region inserted with its text. */}
+      {hydrated && !detailMounted && (
+        <PaneRegion>
+          {says === "lost" ? (
+            lostLine
+          ) : says === "loading" ? (
+            <Chrome lang={lang} k="shell.loading" vars={{ what: ts(lang, "what.table") }} />
+          ) : says === "closed" ? (
+            <Chrome lang={lang} k={closedKey} />
+          ) : says === "fail" && cur?.kind === "fail" ? (
+            <Chrome lang={lang} k={paneFailKeys(cur.cause).title} />
+          ) : null}
+        </PaneRegion>
       )}
     </section>
   );
@@ -419,8 +441,9 @@ function closedHint(label: string, tableNumber: number | null): TableHint {
   };
 }
 
-/** A change on another table that did not save: the words (warn ink) and the one-tap way to check.
- *  Shown here; SAID by the pane's region (or the mounted detail's). */
+/** A change on another table that did not save (or a payment there that did not go through, or whose
+ *  answer never came): the words (warn ink) and the one-tap way to check. Shown here; SAID by the
+ *  pane's region (or the mounted detail's). */
 function LostWrite({
   line,
   lang,
@@ -443,6 +466,23 @@ function LostWrite({
         <Chrome lang={lang} k="floor.pane.open" vars={{ x: name }} />
       </Button>
     </div>
+  );
+}
+
+/** The pane's ONE region. It stands across "nothing picked" and every read state, and when it does
+ *  mount fresh — a switch away from a mounted detail, whose own region just left — it mounts EMPTY
+ *  and is filled a tick later: a live region inserted WITH its text is often never spoken. */
+function PaneRegion({ children }: { children: ReactNode }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    // Scheduled, never a synchronous setState in the effect (the react-hooks rule).
+    const t = setTimeout(() => setArmed(true), 0);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <p role="status" className="sr-only">
+      {armed ? children : null}
+    </p>
   );
 }
 

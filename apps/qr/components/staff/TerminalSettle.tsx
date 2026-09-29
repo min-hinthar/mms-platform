@@ -69,6 +69,7 @@ export function TerminalSettleButton({
   running = false,
   gateLive,
   onChanged,
+  onSettleOutcome,
 }: {
   sessionId: string;
   totalCents: number;
@@ -96,6 +97,10 @@ export function TerminalSettleButton({
    *  retired (a send, a later read with nothing unsent, another setter): the raced line never
    *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
   gateLive?: boolean;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's reader START (a refused start takes nothing), as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
 }) {
   const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
@@ -124,6 +129,7 @@ export function TerminalSettleButton({
       const res = await settleCard({ sessionId });
       setBusy(false);
       if (!res.ok) {
+        onSettleOutcome?.("refused"); // the reader was never asked for the money
         setError(
           res.code === "inflight"
             ? { kind: "inflight", holder: res.holder }
@@ -145,6 +151,8 @@ export function TerminalSettleButton({
       // "Starting…" — the W10c bug class.
       setBusy(false);
       setError({ kind: "local" });
+      // The start's answer never came: the reader may be asking for the money right now.
+      onSettleOutcome?.("unknown");
     } finally {
       inFlight.current = false;
     }

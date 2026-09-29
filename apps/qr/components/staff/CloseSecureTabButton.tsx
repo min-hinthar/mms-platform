@@ -55,6 +55,7 @@ export function CloseSecureTabButton({
   gateLive,
   readTicket = 0,
   readsStarted,
+  onSettleOutcome,
 }: {
   sessionId: string;
   totalCents: number;
@@ -78,6 +79,10 @@ export function CloseSecureTabButton({
    *  ticket, and the last read STARTED (called when a refusal lands, never in render). */
   readTicket?: number;
   readsStarted?: () => number;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's settle, as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -150,9 +155,11 @@ export function CloseSecureTabButton({
       setBusy(false);
       setConfirming(false);
       setError({ kind: "local" });
+      onSettleOutcome?.("unknown");
       return;
     }
     if (!res.ok) {
+      onSettleOutcome?.("refused"); // nothing was charged, whichever refusal it is
       inFlight.current = false;
       setBusy(false);
       setConfirming(false);

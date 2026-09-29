@@ -11,7 +11,9 @@ import {
 import {
   FLOOR_HASH,
   PANE_QUERY,
+  counterColumnShown,
   dropHandoffStash,
+  nextLost,
   needsCanonicalSync,
   opensInPane,
   paneFocusAfterClose,
@@ -19,8 +21,10 @@ import {
   paneHistoryOp,
   paneOwned,
   paneSelectionFromHash,
+  type LostKind,
 } from "@/lib/floor-pane";
 import { haptic } from "@/lib/haptics";
+import { useCounterBellCover } from "./CounterBell";
 import type { TableHint } from "./TableNav";
 import { TablePane } from "./TablePane";
 import {
@@ -71,7 +75,11 @@ export function CounterSplit({
   const pushed = useRef<{ hash: string; len: number } | null>(null);
   const [rows, setRows] = useState<readonly PaneRow[]>([]);
   const rowsRef = useRef<readonly PaneRow[]>([]);
-  const [lostWrite, setLostWrite] = useState<{ sessionId: string; hint: TableHint } | null>(null);
+  const [lostWrite, setLostWrite] = useState<{
+    sessionId: string;
+    hint: TableHint;
+    kind: LostKind;
+  } | null>(null);
   // `?settle=1` (the order pad's Take payment, carried into the pane) — consumed ONCE.
   const [settleOnce, setSettleOnce] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -80,6 +88,15 @@ export function CounterSplit({
   const [closeSeq, setCloseSeq] = useState(0);
   const focusSeq = useRef(0);
   const genSeq = useRef(0);
+
+  // Phase 2d · review fixes — below 48em a selected table covers the counter's column, and the
+  // bell's visible half with it: the bell asks this at the instant of each ring (never captured —
+  // a rotation reflows the split without a render).
+  const bellCovered = useCallback(
+    () => !counterColumnShown({ paneOpen: selRef.current !== null, split: isSplit() }),
+    [],
+  );
+  useCounterBellCover(bellCovered);
 
   const hintFor = useCallback(
     (id: string): TableHint | null => rowsRef.current.find((r) => r.sessionId === id)?.hint ?? null,
@@ -278,12 +295,12 @@ export function CounterSplit({
             opener.current = null;
             select(id, hint, { write: true, focus: true });
           }}
-          onLostWrite={(sessionId, hint) => {
+          onLostWrite={(sessionId, hint, kind) => {
             // Only an UNMOUNTED detail reports here (FloorDetailLive routes a refusal through this
             // only once it is no longer alive), so the report is always one no mounted region can
             // say — even when the same table is shown again (A → ✕ → A): that new detail never
-            // issued the write. Never filtered by the selection.
-            setLostWrite({ sessionId, hint });
+            // issued the write. Never filtered by the selection. A payment's outranks a dish's.
+            setLostWrite((prev) => nextLost(prev, { sessionId, hint, kind }));
           }}
         />
       </div>

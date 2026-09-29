@@ -106,6 +106,16 @@ export function needsCanonicalSync(state: unknown): boolean {
   );
 }
 
+/**
+ * Is the counter's own column on screen? Below 48em a selected table TAKES the column (the floor and
+ * the lane stay mounted and polling, just not displayed — `globals.css` "Phase 2d · split"), so the
+ * floor card's ring and chip and the lane card's badge are not there to see. The bell reads this at
+ * the instant of a ring: sound is never the only feedback (§15).
+ */
+export function counterColumnShown(p: { paneOpen: boolean; split: boolean }): boolean {
+  return !p.paneOpen || p.split;
+}
+
 /** A card tap opens in the pane only at split width, for a plain primary click nobody handled. */
 export function opensInPane(e: {
   split: boolean;
@@ -173,6 +183,44 @@ export function paneFailKeys(cause: "outage" | "unknown"): { title: StaffKey; su
   return cause === "outage"
     ? { title: "out.shell.title", sub: "out.tail.reconnecting" }
     : { title: "floor.pane.fail.title", sub: "out.tail.reconnecting" };
+}
+
+/**
+ * A change the pane's table never saw land: a line or discount WRITE, a PAYMENT refused (cash not
+ * recorded, a card not charged, the reader not started), or a payment whose answer never came
+ * (`settleUnknown` — it may have landed). Reported only by a detail that already UNMOUNTED.
+ */
+export type LostKind = "write" | "settle" | "settleUnknown";
+
+/** The pane's sentence per kind — an unknown payment is never "didn't go through" (it may have). */
+export function lostKey(kind: LostKind): StaffKey {
+  if (kind === "settleUnknown") return "floor.pane.lostSettleUnknown";
+  if (kind === "settle") return "floor.pane.lostSettle";
+  return "floor.pane.lostWrite";
+}
+
+/** The pane holds ONE lost change. A later one replaces it — except that a line edit's never
+ *  replaces a standing PAYMENT's: money the cashier may have to collect again outranks a dish. */
+export function nextLost<T extends { kind: LostKind }>(prev: T | null, next: T): T {
+  if (prev !== null && prev.kind !== "write" && next.kind === "write") return prev;
+  return next;
+}
+
+/**
+ * What the pane's ONE region says while no detail (which carries its own) is mounted. A lost write
+ * outranks (it is about a table the person already left); then the read's own state. Loading is
+ * said only when the head does not already carry it: a tapped card names the table at once, so the
+ * head's sr-only "Loading…" never renders and focus lands on a bare name over a skeleton — while a
+ * deep link's unnamed head IS the loading line, and saying it again would say it twice.
+ */
+export function paneStatusSays(p: {
+  lost: boolean;
+  read: "loading" | "closed" | "fail" | null;
+  headNamed: boolean;
+}): "lost" | "loading" | "closed" | "fail" | null {
+  if (p.lost) return "lost";
+  if (p.read === "loading") return p.headNamed ? "loading" : null;
+  return p.read;
 }
 
 /** A closed table's LIVE namesake on the floor (a new party at Table 7), for "Open the current

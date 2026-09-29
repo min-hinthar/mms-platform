@@ -88,6 +88,22 @@ describe("HandoffCard — the paid moment", () => {
     ]);
   });
 
+  // Phase 2d · review fixes — the card's title follows its host's outline: h2 on the table page,
+  // h3 inside the counter's pane (Table 7 › Paid), the StaffPromoControl pattern.
+  it("its title is an h2 by default and an h3 when the host asks (the pane)", () => {
+    show(COUNTER);
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H2");
+    cleanup();
+    render(
+      <StaffLangProvider lang="en">
+        <HandoffCard lang="en" handoff={COUNTER} headingLevel={3} />
+      </StaffLangProvider>,
+    );
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+    // Still the card's name — the level changes the outline, never the facts.
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$6\.53.*#A1B2C3/ })).toBeTruthy();
+  });
+
   it("no tender (a reader's counter settle): the total names the card", () => {
     show({ ...COUNTER, tenderedCents: null });
     expect(screen.getByRole("region", { name: /Paid.*\$13\.47.*#A1B2C3/ })).toBeTruthy();

@@ -6,7 +6,8 @@ import { Skeleton } from "@mms/ui";
  * counter's pane while a table's first read is in the air. The header's chip row and sub-line → the
  * party card (its heading, ~30px guest chips) → the order card (its heading, three line rows of a
  * name and its meta beside a 44px note pill and the 44px stepper pair), every gap a `--s*` token.
- * Decorative: the host carries the one announced loading line.
+ * Decorative: the host says the one loading line — the page's `LoadingLine`, the pane's ONE region
+ * (`paneStatusSays`: a tapped card's head is already a name, so the region says "Loading…").
  */
 export function TableDetailSkeleton() {
   return (

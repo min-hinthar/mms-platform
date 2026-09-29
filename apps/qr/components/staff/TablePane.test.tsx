@@ -33,14 +33,16 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/useFloorRealtime", () => ({ useFloorRealtime: () => {} }));
 const staffSetQty = vi.fn();
 const settleCash = vi.fn();
+const closeSecureTab = vi.fn();
 vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (...a: unknown[]) => staffSetQty(...(a as [])),
   setLineNotes: vi.fn(),
   settleCash: (...a: unknown[]) => settleCash(...(a as [])),
-  closeSecureTab: vi.fn(),
+  closeSecureTab: (...a: unknown[]) => closeSecureTab(...(a as [])),
 }));
+const settleCard = vi.fn();
 vi.mock("@/lib/terminal", () => ({
-  settleCard: vi.fn(),
+  settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: vi.fn(),
   cancelTerminal: vi.fn(),
 }));
@@ -68,7 +70,7 @@ const { CounterSplit } = await import("./CounterSplit");
 const { useTablePane } = await import("./TablePaneContext");
 const { CounterMintProvider, useCounterMint } = await import("./CounterMint");
 const { tf } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
 
 const line = (id: string, name: string, drafts = true): TableLineView => ({
   id,
@@ -177,10 +179,11 @@ function Floor({
 }
 
 let split = true;
+let terminalReady = false;
 const tree = (props: Parameters<typeof Floor>[0] = {}) => (
   <StaffLangProvider lang="en">
     <LiveConnectionProvider>
-      <CounterSplit terminalReady={false}>
+      <CounterSplit terminalReady={terminalReady}>
         <Floor {...props} />
       </CounterSplit>
     </LiveConnectionProvider>
@@ -208,6 +211,7 @@ let backSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   vi.useFakeTimers();
   split = true;
+  terminalReady = false;
   window.matchMedia = ((q: string) => ({
     matches: split && q === PANE_QUERY,
     media: q,
@@ -231,6 +235,8 @@ afterEach(() => {
   getTableDetail.mockClear();
   staffSetQty.mockReset();
   settleCash.mockReset();
+  closeSecureTab.mockReset();
+  settleCard.mockReset();
   clearTable.mockReset();
   mergeTables.mockReset();
   getMergeCandidates.mockClear();
@@ -464,6 +470,66 @@ describe("TablePane — the pane is not a page", () => {
   });
 });
 
+// Phase 2d · review fixes — a tapped card names the table in the head at once, so the head's sr-only
+// "Loading…" never rendered: focus landed on "Table 4" over a skeleton and nothing said it was
+// loading. It is said now through the pane's ONE region — a node that stands from mount (a live
+// region inserted WITH its text is often never spoken), outside the busy body (a busy subtree's
+// announcements may be held until it clears).
+describe("TablePane — loading is said through the pane's one region", () => {
+  const loading = () => tf("en", "shell.loading", { what: ts("en", "what.table") });
+  it("a tapped card: the head names it, the SAME region node says loading, outside the busy body", async () => {
+    answers[A] = () => new Promise(() => {}); // the read stays in the air
+    mount();
+    await tick(0);
+    const region = pane().querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    await tap(card(A));
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+    // MUTATION: say loading only when the head is unnamed — the tap path is silent; red.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe(loading());
+    // MUTATION: render the region inside each branch — a fresh node per branch; red.
+    expect(pane().querySelector('[role="status"]')).toBe(region);
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBe("true");
+    expect(region!.closest('[aria-busy="true"]')).toBeNull();
+  });
+  it("a switch away from a mounted detail: the region comes back EMPTY, then says loading", async () => {
+    answers[B] = () => new Promise(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull(); // A's detail (and its region)
+    await act(async () => {
+      fireEvent.click(card(B));
+    });
+    // MUTATION: fill the region at mount — inserted WITH its text, it is often never spoken; red.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe("");
+    await tick(0);
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe(loading());
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+  });
+  it("a deep link with no name yet: the head carries it, the region stays quiet (said once)", async () => {
+    answers[A] = () => new Promise(() => {});
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    expect(paneHeading().textContent).toBe(loading());
+    // MUTATION: say loading whatever the head says — focus on the head and the region say it twice.
+    expect(pane().querySelector('[role="status"]')!.textContent).toBe("");
+  });
+  it("once the detail lands, the detail's region is the pane's one", async () => {
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBeNull();
+  });
+});
+
 describe("TablePane — the freeze is one fact, spoken once", () => {
   const frozenSpan = () =>
     [
@@ -517,6 +583,30 @@ describe("TablePane — the paid card follows its table", () => {
     await tap(card(A));
     await tick(0);
     expect(pane().textContent).not.toContain("#A1B2C3");
+  });
+
+  // Phase 2d · review fixes — the card sits UNDER the pane's heading (Table 7 › Paid), as every
+  // other section in the pane does; an h2 beside the pane's own h2 broke the outline.
+  it("the card's title is an h3 in the pane — on the live detail and on the closed notice", async () => {
+    stashHandoff(A, H);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    // MUTATION: the detail hands the card no pane level — an h2 beside the pane's h2; red.
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+    cleanup();
+    const tableCard = { ...H, isCounter: false };
+    stashHandoff(B, tableCard);
+    answers[B] = () => Promise.resolve({ kind: "closed", label: "T7", tableNumber: 7 });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${B}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "table.detail.closed.title"));
+    // MUTATION: the closed notice's card at the page level — red.
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
   });
 
   it("a settle that lands AFTER the pane moved on still leaves the card for its table", async () => {
@@ -594,6 +684,221 @@ describe("TablePane — a change that did not save on a table the pane left", ()
   });
 });
 
+// Phase 2d · review fixes — a settle's refusal (or an answer that never came) landing after its
+// detail UNMOUNTED used to die with it: the three settle controls say their outcome inside
+// themselves, and only line/discount writes rode the lost-write channel. A cashier who took cash and
+// went Back (the sheet's scrim stops a card tap, not the browser's Back), or tapped another card
+// beside a card-on-file close or a reader start, never learned it was not recorded.
+describe("TablePane — a settle outcome on a table the pane left", () => {
+  const settleable = (id: string, n: number, over: Partial<TableDetail> = {}) =>
+    detail(id, n, {
+      settleTotalCents: 4210,
+      settleTipBaseCents: 4000,
+      lines: [line(`l-${n}`, "Mohinga", false)],
+      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      ...over,
+    });
+  const table4 = () => tf("en", "floor.table", { id: "4" });
+  const lostLine = () => pane().querySelector(".staff-pane-lost");
+  const deferred = () => {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise((r, j) => {
+      resolve = r;
+      reject = j;
+    });
+    return { promise, resolve, reject };
+  };
+  async function takeCash() {
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+  }
+  const goBack = async () => {
+    await act(async () => {
+      window.history.replaceState(null, "", "/staff?floor=1");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await tick(0);
+  };
+
+  it("cash REFUSED after Back closed the pane: said, naming the table, one tap back", async () => {
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCash.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await goBack();
+    expect(document.getElementById("order-h")).toBeNull(); // the detail (and its sheet) is gone
+    await act(async () => {
+      d.resolve({ ok: false, error: "That table is closed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const said = tf("en", "floor.pane.lostSettle", { x: table4() });
+    // MUTATION: the cash control reports no refusal — it dies with the unmounted sheet; red.
+    expect(lostLine()?.textContent).toContain(said);
+    expect(pane().querySelector('[role="status"]')!.textContent).toContain(said);
+    await act(async () => {
+      fireEvent.click(within(lostLine() as HTMLElement).getByRole("button"));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(table4());
+    expect(lostLine()).toBeNull();
+  });
+
+  it("cash whose answer never came, after a switch: 'we don't know' — never 'didn't go through'", async () => {
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCash.mockReturnValueOnce(d.promise);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const said = tf("en", "floor.pane.lostSettleUnknown", { x: table4() });
+    // MUTATION: an unknown outcome reported as refused — "didn't go through" over a settle that
+    // may have landed, and the cashier takes the money twice; red.
+    expect(lostLine()?.textContent).toContain(said);
+    // SAID through the ONE region of the detail now shown (B's).
+    const region = document
+      .getElementById("order-h")!
+      .closest("section")!
+      .querySelector('[role="status"]')!;
+    expect(region.textContent).toContain(said);
+  });
+
+  it("a card-on-file close whose answer never came, after a switch: said", async () => {
+    answers[A] = ok(settleable(A, 4, { tab: "secure" }));
+    const d = deferred();
+    closeSecureTab.mockReturnValueOnce(d.promise);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!); // the close is the primary
+    await act(async () => {
+      fireEvent.click(within(settleSection).getByRole("button", { name: /^Charge \$/ }));
+    });
+    await tap(card(B)); // the confirm is inline, not a sheet: the floor stays tappable
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the close reports no unknown outcome — the charge may have landed, unsaid; red.
+    expect(lostLine()?.textContent).toContain(
+      tf("en", "floor.pane.lostSettleUnknown", { x: table4() }),
+    );
+  });
+
+  it("a card-on-file close REFUSED after a switch: said as not gone through", async () => {
+    answers[A] = ok(settleable(A, 4, { tab: "secure" }));
+    const d = deferred();
+    closeSecureTab.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    await act(async () => {
+      fireEvent.click(within(settleSection).getByRole("button", { name: /^Charge \$/ }));
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.resolve({ ok: false, error: "The card was declined — settle by cash or a fresh card." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the close reports no refusal — a declined card on a table left behind, unsaid; red.
+    expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostSettle", { x: table4() }));
+  });
+
+  it("a reader start whose answer never came, after a switch: 'we don't know'", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCard.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the reader's rejected start reports nothing — the reader may be asking for the
+    // money on a table the cashier left; red.
+    expect(lostLine()?.textContent).toContain(
+      tf("en", "floor.pane.lostSettleUnknown", { x: table4() }),
+    );
+  });
+
+  it("a reader start refused after a switch: said", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCard.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    const reader = within(settleSection).getAllByRole("button").at(-1)!;
+    await act(async () => {
+      fireEvent.click(reader);
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.resolve({ ok: false, code: "inflight", holder: "phone", error: "A guest is paying." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the reader's start reports no refusal — it dies with the unmounted button; red.
+    expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostSettle", { x: table4() }));
+  });
+
+  it("a refusal on the table still SHOWN is its control's own — never a lost line", async () => {
+    answers[A] = ok(settleable(A, 4));
+    settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await tick(0);
+    // MUTATION: route every outcome to the pane — the shown table says its refusal twice; red.
+    expect(lostLine()).toBeNull();
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain(
+      "That table is closed.",
+    );
+  });
+});
+
 describe("TablePane — a table that closes", () => {
   it("says so, and offers the live Table 4 a new party sat at", async () => {
     mount({ publish: [{ sessionId: C, label: "T4", n: 4 }] });
@@ -651,6 +956,28 @@ describe("TablePane — a first read that failed, said by cause", () => {
     await tap(card(A));
     await tick(0);
     expect(pane().textContent).toContain(ts("en", "out.shell.title"));
+  });
+  // Phase 2d · review fixes — the quiet retry is timed from a read's ANSWER, never from its start:
+  // re-armed every 5 s regardless, it cancelled the read in the air, so a database answering in
+  // 5–15 s (inside `raceTimeout`'s bound) never landed and the pane said "couldn't" forever.
+  it("the quiet retry never cancels a read still in the air: a slow answer lands", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    answers[A] = () => Promise.reject(new Error("staff-poll-timeout"));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    // The next read answers after 8 s — past the 5 s quiet retry, inside the 15 s read bound.
+    answers[A] = () =>
+      new Promise((r) => setTimeout(() => r({ kind: "detail", detail: detail(A, 4) }), 8000));
+    await tick(5000); // the quiet retry: read #2 goes out
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    await tick(5000); // 10 s — read #2 is still in the air: no third read may replace it
+    // MUTATION: arm the quiet retry off `failed` alone — read #3 cancels read #2; red.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    await tick(3000); // 13 s — read #2 answers, and it lands
+    expect(document.getElementById("order-h")).not.toBeNull();
   });
 });
 
@@ -982,6 +1309,22 @@ describe("TablePane — a deep link to a table that is already closed", () => {
         name: new RegExp(tf("en", "floor.pane.closed.openCurrent", { x: "Table 4" })),
       }),
     ).toBeTruthy();
+  });
+  // Phase 2d · review fixes — `closed` is also the answer for an id the server never had (a typed
+  // or stale hash): the notice HEDGES its cause in both scripts, and names every real one (paid,
+  // cleared, merged, idle) — never "its session ended" / "time ran out" asserted as history.
+  it("a session the server cannot find: the notice hedges, never states a history", async () => {
+    answers[A] = () => Promise.resolve({ kind: "closed" });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    const body = tf("en", "floor.pane.closed.body", {});
+    expect(pane().textContent).toContain(body);
+    expect(body).toMatch(/\bmay\b/);
+    expect(body).not.toMatch(/session ended/);
+    expect(STAFF["floor.pane.closed.body"].my).toContain("ဖြစ်နိုင်ပါတယ်"); // "may be" — the hedge
+    expect(STAFF["floor.pane.closed.body"].my).not.toContain("အချိန်ကုန်"); // "time ran out"
   });
   it("a first read that failed with no name still stops saying loading", async () => {
     answers[A] = () => Promise.resolve({ kind: "outage" });

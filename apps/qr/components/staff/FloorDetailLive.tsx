@@ -56,7 +56,7 @@ import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
 // ── Phase 2d · split ──
-import { paneFreezeSpoken, readHandoffStash, stashHandoff } from "@/lib/floor-pane";
+import { paneFreezeSpoken, readHandoffStash, stashHandoff, type LostKind } from "@/lib/floor-pane";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { useTableNav } from "./TableNav";
 // ── Phase 2c · gate ──
@@ -110,8 +110,13 @@ export function FloorDetailLive({
   /** Pane — the table closed (and no terminal flow holds it): the pane shows its notice. */
   onClosed?: (sessionId: string) => void;
   /** Pane — a line or discount write refused AFTER this detail unmounted (the pane moved on): the
-   *  pane says so, naming this table, so the refusal is never dropped silently. */
-  onLostWrite?: (sessionId: string, name: { counter: boolean; display: string }) => void;
+   *  pane says so, naming this table, so the refusal is never dropped silently. Phase 2d · review
+   *  fixes — a settle's refusal or unknown outcome too (`settle` / `settleUnknown`). */
+  onLostWrite?: (
+    sessionId: string,
+    name: { counter: boolean; display: string },
+    kind: LostKind,
+  ) => void;
   /** Pane — the lost-write sentence for ANOTHER table, spoken through this view's one region. */
   paneNotice?: ReactNode;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
@@ -495,7 +500,7 @@ export function FloorDetailLive({
       // another table mid-write) is said by the pane, naming this table — never dropped. A clear
       // (null) after unmount has nothing to say.
       if (!alive.current) {
-        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current);
+        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current, "write");
         return;
       }
       setWriteError(e);
@@ -505,6 +510,21 @@ export function FloorDetailLive({
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
     [setSendNote, setSettleGate, sessionId],
+  );
+  // Phase 2d · review fixes — a settle's refusal or unknown outcome, as it lands. While this detail
+  // is mounted the control says it itself (its sheet's alert, its line); once the detail UNMOUNTED
+  // (the pane moved on, closed, or went Back mid-settle) that control is gone with it, so the pane
+  // says it, naming this table — a cashier who took cash and left must learn it was not recorded.
+  const onSettleOutcome = useCallback(
+    (outcome: "refused" | "unknown") => {
+      if (alive.current) return;
+      onLostWriteRef.current?.(
+        sessionId,
+        paneNameRef.current,
+        outcome === "unknown" ? "settleUnknown" : "settle",
+      );
+    },
+    [sessionId],
   );
   const onSendNotice = useCallback(
     (n: SendNotice | null) => {
@@ -1219,6 +1239,7 @@ export function FloorDetailLive({
                 readTicket={readTicket}
                 readsStarted={readsStarted}
                 gateLive={settleGate !== null}
+                onSettleOutcome={onSettleOutcome}
               />
             )}
             <CashSettleButton
@@ -1247,6 +1268,7 @@ export function FloorDetailLive({
               running={runningClose}
               readTicket={readTicket}
               readsStarted={readsStarted}
+              onSettleOutcome={onSettleOutcome}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the
@@ -1263,6 +1285,7 @@ export function FloorDetailLive({
                 running={runningClose}
                 gateLive={settleGate !== null}
                 onChanged={onChange}
+                onSettleOutcome={onSettleOutcome}
               />
             )}
             {detail.tab === "trust" && (
@@ -1353,6 +1376,7 @@ export function FloorDetailLive({
             lang={lang}
             handoff={shownHandoff}
             onDone={inPane ? () => nav.toFloor("user") : undefined}
+            headingLevel={inPane ? 3 : 2}
           />
         )}
         {detail.paymentInFlight && terminalCollect == null && (
