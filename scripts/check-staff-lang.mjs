@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * P2 — the staff-locale guard. TWELVE rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d (the
- * accessible names), 4a · 4b · 4c · 4d (where the language control lives since P2e, and that every
- * page has a way to it), 5 (a dictionary string reaches the DOM marked) and 6 (`keepEcho` stays on
- * the language surfaces) — all PARSED (LEARNINGS #60), all in the CI fast lane: file-read-only,
- * seconds, no build and no DB.
+ * P2 — the staff-locale guard. THIRTEEN rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d
+ * (the accessible names), 4a · 4b · 4c · 4d · 4e (where the language control lives since P2e, that
+ * every page has a way to it, and that each of its three exports is mounted by its own hosts
+ * only), 5 (a dictionary string reaches the DOM marked) and 6 (`keepEcho` stays on the language
+ * surfaces, on the language keys) — all PARSED (LEARNINGS #60), all in the CI fast lane:
+ * file-read-only, seconds, no build and no DB.
  *
  * ⚠️ THE COUNT IN THIS SENTENCE IS PART OF THE GUARD. It read "Two rules" while the file implemented
  * seven, because each rule was added without re-reading the header — and a blind audit reported the
@@ -78,10 +79,17 @@ function walkFiles(dir, out = []) {
   return out;
 }
 
+/**
+ * In-memory sources for the SELF-TESTS only (rule 4e's probes): a probe that needs the whole
+ * export-rooted walk — not one module — swaps a file's text here for the duration of one call and
+ * removes it again. Empty on every real run.
+ */
+const PARSE_OVERRIDES = new Map();
+
 function parse(file, srcOverride) {
   return ts.createSourceFile(
     file,
-    srcOverride ?? readFileSync(file, "utf8"),
+    srcOverride ?? PARSE_OVERRIDES.get(file) ?? readFileSync(file, "utf8"),
     ts.ScriptTarget.Latest,
     true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
@@ -1176,6 +1184,10 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 //        reaches, a wordless way UP: `leading` absent (the Screens circle), `{ kind: "screens" }` or
 //        `{ kind: "back", … }` in EVERY conditional arm. A computed or "here" leading — or no bar at
 //        all — is red.
+//   4e — each of the three exports is MOUNTED only by its own hosts (the pill by the four front
+//        doors, the rows by HelpButton, the card by the sign-in page), by import identity and from
+//        the host's rendering export. Added after review: 4a–4d let a page with no Help door put
+//        the pill on its own bar (4c counted it as that page's one host and skipped 4d).
 //
 // ⚠️ THIS RULE WAS DECORATIVE IN ITS FIRST CUT AND THAT IS WHY IT LOOKS LIKE THIS. It accepted
 // `<StaffOutageShell>` as evidence that a page "owns" a switch while the shell mounted nothing — a
@@ -1653,6 +1665,155 @@ for (const [f, entry] of FRONT_DOORS)
       `rule 4b: ${relative(ROOT, f)}'s \`${entry}\` export no longer reaches the two-script pill through live JSX. A front door is where a person who cannot read the current language must be able to fix it — pass <StaffLangSwitch /> through its bar's \`trailing\`.`,
     );
 
+// 4e — each control export is MOUNTED only by its own hosts, judged by module + export identity.
+//
+// 4a–4d do not hold this, and a blind critic proved it: 4a reads the `StaffBar` module alone, and
+// 4c allows ONE hosting module per page and then skips 4d — so a page with no Help door could hand
+// its own bar `trailing={<StaffLangSwitch />}` and pass ("5/9 staff pages reach one control
+// module", an in-memory probe of tips/page.tsx). The design names each export's hosts, so the rule
+// names them too:
+//   · `StaffLangSwitch` (the pill)  — the four FRONT_DOORS, each from the export that renders it;
+//   · `StaffLangRows` (the rows)    — `HelpButton` (the Help sheet's Language view);
+//   · `StaffLangSection` (the card) — the sign-in page's default export (the signed-in Profile).
+// A live mount is allowed only when the export-rooted walk (`exportWalk`) from one of THAT export's
+// hosts reaches that very element — so a second export parked inside a host module (a `TipsBar` in
+// StaffOutageShell.tsx) is red, not only a mount in a foreign module. The identity is the IMPORT,
+// never the tag's text: `import { StaffLangSwitch as Pill }` → `<Pill />` is the pill. CLOSED
+// DIRECTIONS, each a finding rather than an analysis: the control passed by REFERENCE
+// (`createElement(StaffLangSwitch)`, `render={StaffLangSwitch}`, `const P = StaffLangSwitch`), a
+// namespace or default import of its module, a re-export (a barrel widens the hosts), and a dynamic
+// `import()` / `require()` of it. Literal-dead mounts are skipped, as everywhere in rule 4. Tests
+// are not shipped and are not read. The self-tests below aim at every one of these shapes.
+const CONTROL_HOSTS = new Map([
+  [PILL_EXPORT, FRONT_DOORS],
+  ["StaffLangRows", [[join(QR, "components/staff/HelpButton.tsx"), "HelpButton"]]],
+  ["StaffLangSection", [[join(APP, "staff/login/page.tsx"), "default"]]],
+]);
+const mountKey = (file, node, sf) => `${file}:${node.getStart(sf)}`;
+
+/** Every element each export's hosts reach, as `file:offset` keys — the only mounts 4e allows. */
+function hostedMountKeys() {
+  const keys = new Map();
+  for (const [name, hosts] of CONTROL_HOSTS) {
+    const set = new Set();
+    for (const [f, entry] of hosts)
+      for (const h of exportWalk(
+        f,
+        entry,
+        (imp) => imp.module === SWITCH_MODULE && imp.name === name,
+      ))
+        if (h.node) set.add(mountKey(h.file, h.node, h.sf));
+    keys.set(name, set);
+  }
+  return keys;
+}
+
+/** 4e's findings for one module, against `keys` from `hostedMountKeys()`. */
+function controlMountFindings(file, keys) {
+  if (file === SWITCH_MODULE) return Object.assign([], { mounts: 0 });
+  let sf;
+  try {
+    sf = parse(file);
+  } catch {
+    return Object.assign([], { mounts: 0 });
+  }
+  const out = Object.assign([], { mounts: 0 });
+  const at = (node) =>
+    `${relative(ROOT, file)}:${sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1}`;
+  const isSwitch = (spec) =>
+    !!spec && ts.isStringLiteralLike(spec) && resolveSpecifier(spec.text, file) === SWITCH_MODULE;
+  const hostsOf = (name) =>
+    CONTROL_HOSTS.get(name)
+      .map(([f, e]) => `${relative(QR, f)}#${e}`)
+      .join(", ");
+  const bound = new Map(); // local binding → the control export it names
+  function edges(node) {
+    if (ts.isImportDeclaration(node) && isSwitch(node.moduleSpecifier)) {
+      const clause = node.importClause;
+      if (clause && !clause.isTypeOnly) {
+        if (clause.name)
+          out.push(`${at(node)} — a default import of the control's module (unsettleable)`);
+        const nb = clause.namedBindings;
+        if (nb && ts.isNamespaceImport(nb))
+          out.push(`${at(node)} — a namespace import of the control's module (unsettleable)`);
+        if (nb && ts.isNamedImports(nb))
+          for (const el of nb.elements) {
+            const imported = (el.propertyName ?? el.name).text;
+            if (!el.isTypeOnly && CONTROL_HOSTS.has(imported)) bound.set(el.name.text, imported);
+          }
+      }
+    } else if (ts.isExportDeclaration(node) && !node.isTypeOnly && isSwitch(node.moduleSpecifier)) {
+      const els =
+        node.exportClause && ts.isNamedExports(node.exportClause)
+          ? node.exportClause.elements
+          : null;
+      if (!els) out.push(`${at(node)} — \`export *\` from the control's module widens its hosts`);
+      else
+        for (const el of els) {
+          const name = (el.propertyName ?? el.name).text;
+          if (!el.isTypeOnly && CONTROL_HOSTS.has(name))
+            out.push(`${at(node)} — a re-export of \`${name}\` widens its hosts`);
+        }
+    } else if (
+      ts.isCallExpression(node) &&
+      isSwitch(node.arguments[0]) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === "require"))
+    )
+      out.push(`${at(node)} — a dynamic import of the control's module (unsettleable)`);
+    ts.forEachChild(node, (c) => {
+      edges(c);
+    });
+  }
+  edges(sf);
+  function uses(node) {
+    if (ts.isIdentifier(node) && bound.has(node.text)) {
+      const p = node.parent;
+      const name = bound.get(node.text);
+      const isTag =
+        (ts.isJsxOpeningElement(p) || ts.isJsxSelfClosingElement(p)) && p.tagName === node;
+      if (isTag) {
+        if (inDeadBranch(p)) {
+          // parked — not a mount (rule 4's liveness exclusion)
+        } else if (keys.get(name).has(mountKey(file, p, sf))) out.mounts++;
+        else out.push(`${at(p)} — mounts \`${name}\` outside its hosts (${hostsOf(name)})`);
+      } else if (ts.isExportSpecifier(p)) {
+        out.push(`${at(node)} — a re-export of \`${name}\` widens its hosts`);
+      } else if (
+        !(ts.isJsxClosingElement(p) && p.tagName === node) &&
+        !ts.isImportSpecifier(p) &&
+        !ts.isImportClause(p) &&
+        !ts.isTypeQueryNode(p) &&
+        !(ts.isPropertyAccessExpression(p) && p.name === node) &&
+        !(ts.isPropertyAssignment(p) && p.name === node) &&
+        !(ts.isJsxAttribute(p) && p.name === node)
+      ) {
+        out.push(`${at(node)} — \`${name}\` passed by reference (where it mounts is unsettleable)`);
+      }
+    }
+    ts.forEachChild(node, (c) => {
+      uses(c);
+    });
+  }
+  if (bound.size > 0) uses(sf);
+  return out;
+}
+
+const SHIPPED_MODULES = walkFiles(QR).filter(
+  (f) => (f.endsWith(".ts") || f.endsWith(".tsx")) && !/\.(test|spec)\.tsx?$/.test(f),
+);
+let hostMounts = 0;
+{
+  const keys = hostedMountKeys();
+  for (const file of SHIPPED_MODULES) {
+    // A pre-filter only: every edge into the module names it — the parse below is the rule.
+    if (!readFileSync(file, "utf8").includes("StaffLangSwitch")) continue;
+    const found = controlMountFindings(file, keys);
+    for (const f of found) failures.push(`rule 4e: ${f}.`);
+    hostMounts += found.mounts;
+  }
+}
+
 // 4c — at most one hosting module per page; 4d — a page with none has a wordless way up.
 let hostedPages = 0;
 let upPages = 0;
@@ -2071,6 +2232,143 @@ for (const c of SELF_TEST_CASES) {
       failures.push(`SELF-TEST: rule 6 fires on the canonical form \`${jsx}\`.`);
 }
 
+// ── rule 4e — each control mounted only by its hosts ──────────────────────────────────────────
+// The WHOLE rule runs on each probe (the host walk and the scan), with the probe's text swapped in
+// for its path through PARSE_OVERRIDES and removed again — so a host probe (a second export parked
+// in StaffOutageShell.tsx, the pill mounted by HelpButton) exercises the export-rooted walk too.
+{
+  const probe4e = (files) => {
+    for (const [f, src] of files) PARSE_OVERRIDES.set(f, src);
+    try {
+      const keys = hostedMountKeys();
+      return files.flatMap(([f]) => controlMountFindings(f, keys));
+    } finally {
+      for (const [f] of files) PARSE_OVERRIDES.delete(f);
+    }
+  };
+  const PAGE = join(APP, "staff/__selftest__/page.tsx");
+  const SHELL = join(QR, "components/staff/StaffOutageShell.tsx");
+  const HELP = join(QR, "components/staff/HelpButton.tsx");
+  const PILL = 'import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";\n';
+  const BAR = 'import { StaffBar } from "@/components/staff/StaffBar";\n';
+  const fires = [
+    [
+      "the pill on a page's OWN bar (the tips probe)",
+      [
+        [
+          PAGE,
+          `${PILL}${BAR}export default function P() {\n  return <StaffBar lang="en" title="floor.tips.title" trailing={<StaffLangSwitch />} />;\n}\n`,
+        ],
+      ],
+    ],
+    [
+      "an ALIASED import of the pill",
+      [
+        [
+          PAGE,
+          'import { StaffLangSwitch as Pill } from "@/components/staff/StaffLangSwitch";\nexport default function P() {\n  return <div><Pill /></div>;\n}\n',
+        ],
+      ],
+    ],
+    [
+      "the pill passed by reference",
+      [
+        [
+          PAGE,
+          `import { createElement } from "react";\n${PILL}export default function P() {\n  return createElement(StaffLangSwitch);\n}\n`,
+        ],
+      ],
+    ],
+    [
+      "a namespace import",
+      [
+        [
+          PAGE,
+          'import * as L from "@/components/staff/StaffLangSwitch";\nexport default function P() {\n  return <L.StaffLangSwitch />;\n}\n',
+        ],
+      ],
+    ],
+    [
+      "a re-export barrel",
+      [[PAGE, 'export { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";\n']],
+    ],
+    [
+      "a dynamic import",
+      [
+        [
+          PAGE,
+          'import dynamic from "next/dynamic";\nconst P = dynamic(() => import("@/components/staff/StaffLangSwitch").then((m) => m.StaffLangSwitch));\nexport default P;\n',
+        ],
+      ],
+    ],
+    [
+      "the rows outside the Help sheet",
+      [
+        [
+          PAGE,
+          'import { StaffLangRows } from "@/components/staff/StaffLangSwitch";\nexport default function P({ w }) {\n  return <StaffLangRows write={w} />;\n}\n',
+        ],
+      ],
+    ],
+    [
+      "a second export parked in a HOST module (a TipsBar in StaffOutageShell.tsx)",
+      [
+        [
+          SHELL,
+          `${readFileSync(SHELL, "utf8")}\nexport function TipsBar() {\n  return <StaffBar lang="en" title="floor.tips.title" trailing={<StaffLangSwitch />} />;\n}\n`,
+        ],
+      ],
+    ],
+    [
+      "the pill mounted by the Help sheet (a host of the ROWS, not of the pill)",
+      [
+        [
+          HELP,
+          'import { StaffLangSwitch } from "./StaffLangSwitch";\nexport function HelpButton() {\n  return <div><StaffLangSwitch /></div>;\n}\n',
+        ],
+      ],
+    ],
+  ];
+  for (const [what, files] of fires)
+    if (probe4e(files).length === 0)
+      failures.push(`SELF-TEST: rule 4e no longer fires on ${what}.`);
+  const misses = [
+    [
+      "a non-control export of the module",
+      [
+        [
+          PAGE,
+          'import { STAFF_LANG_MODE_KEY } from "@/components/staff/StaffLangSwitch";\nexport default function P() {\n  return <p>{STAFF_LANG_MODE_KEY.en}</p>;\n}\n',
+        ],
+      ],
+    ],
+    [
+      "a literal-dead mount",
+      [
+        [
+          PAGE,
+          `${PILL}export default function P() {\n  return <div>{false && <StaffLangSwitch />}</div>;\n}\n`,
+        ],
+      ],
+    ],
+    [
+      "the rows in the Help sheet",
+      [
+        [
+          HELP,
+          'import { StaffLangRows } from "./StaffLangSwitch";\nexport function HelpButton({ w }) {\n  return <div><StaffLangRows write={w} /></div>;\n}\n',
+        ],
+      ],
+    ],
+    ["the outage shell as it ships", [[SHELL, readFileSync(SHELL, "utf8")]]],
+  ];
+  for (const [what, files] of misses) {
+    const found = probe4e(files);
+    if (found.length !== 0)
+      failures.push(`SELF-TEST: rule 4e fires on the near-miss "${what}" (${found[0]}).`);
+  }
+}
+
 // ── rule 4d — the wordless way up ─────────────────────────────────────────────────────────────
 {
   const verdictOf = (jsx) => {
@@ -2198,6 +2496,15 @@ if (hostedPages === 0 || upPages === 0)
   );
 if (keepEchoSites === 0)
   failures.push("rule 6 DID NOT RUN: no keepEcho site found on the language surfaces.");
+{
+  // One live mount per (export, host) pair at least — the four doors' pills, the Help sheet's rows,
+  // the Profile's card. Fewer means the scan found nothing to judge, not that every mount is clean.
+  const pairs = [...CONTROL_HOSTS.values()].reduce((n, hosts) => n + hosts.length, 0);
+  if (hostMounts < pairs)
+    failures.push(
+      `rule 4e DID NOT RUN: judged ${hostMounts} hosted control mounts, expected at least ${pairs} — the discovery is broken, not the codebase.`,
+    );
+}
 if (marked < 10)
   failures.push(
     `rule 5 DID NOT RUN: found only ${marked} marked dictionary renders across ${MARK_FILES.length} staff components — the discovery is broken, not the codebase.`,
@@ -2210,5 +2517,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${FRONT_DOORS.length} front doors hold the pill · ${hostedPages}/${staffPages.length} staff pages reach one control module, ${upPages} lead up to one (4d), ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders · ${keepEchoSites} keepEcho sites)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${FRONT_DOORS.length} front doors hold the pill · ${hostMounts} control mounts, each by its host (4e) · ${hostedPages}/${staffPages.length} staff pages reach one control module, ${upPages} lead up to one (4d), ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders · ${keepEchoSites} keepEcho sites)\x1b[0m`,
 );
