@@ -123,6 +123,7 @@ const snap = (tables: FloorTable[]): FloorSnapshot => ({
   counterTruncated: false,
   serverNow: NOW,
   registry: [1, 2, 3, 4, 5, 6, 7, 8],
+  kitchenUnknown: false,
   thresholds: DEFAULT_KDS_THRESHOLDS,
 });
 const ROOM = [table(A, 4), table(B, 7)];
