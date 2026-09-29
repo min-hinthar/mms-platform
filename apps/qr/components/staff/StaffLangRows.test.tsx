@@ -288,39 +288,49 @@ describe("StaffLangSection — the Profile's language card", () => {
     },
   );
 
-  it("inside the view's ONE region: a failure is spoken there, the visible line is aria-hidden, no second region", async () => {
-    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
-    const { container } = render(<Profile mode="both" />);
-    fireEvent.click(row("English"));
-    await waitFor(() => expect(container.querySelector(".staff-lang-msg")).not.toBeNull());
-    const line = container.querySelector(".staff-lang-msg")!;
-    expect(line.getAttribute("aria-hidden")).toBe("true");
-    expect(line.hasAttribute("role")).toBe(false);
-    expect(container.querySelector('[role="alert"]')).toBeNull();
-    // The line itself: both tongues whatever the device.
-    expect(line.querySelector('[lang="my"]')?.textContent).toBe(STAFF["shell.lang.failed"].my);
-    expect(line.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
-    const region = container.querySelector('[role="status"]')!;
-    expect(region.textContent).toBe(STAFF["shell.lang.failed"].my);
-    // The next tap answers it — the region clears with the line.
-    setStaffLang.mockImplementation(async (v: { mode: StaffLangMode }) => ({
-      ok: true,
-      mode: v.mode,
-    }));
-    fireEvent.click(row("English"));
-    expect(region.textContent).toBe("");
-    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
-    expect(container.querySelector(".staff-lang-msg")).toBeNull();
-  });
+  // The failure line's `keepEcho` only CHANGES anything on a Burmese-only device (English and Both
+  // draw the echo anyway), so each failure case runs there too — review found the line's English
+  // could be dropped with every suite green.
+  it.each(["both", "my-only"] as const)(
+    "under %s, inside the view's ONE region: a failure is spoken there, the visible line is aria-hidden and both tongues, no second region",
+    async (mode) => {
+      setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+      const { container } = render(<Profile mode={mode} />);
+      fireEvent.click(row("English"));
+      await waitFor(() => expect(container.querySelector(".staff-lang-msg")).not.toBeNull());
+      const line = container.querySelector(".staff-lang-msg")!;
+      expect(line.getAttribute("aria-hidden")).toBe("true");
+      expect(line.hasAttribute("role")).toBe(false);
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      // The line itself: both tongues whatever the device — the English half EXACTLY.
+      expect(line.querySelector('[lang="my"]')?.textContent).toBe(STAFF["shell.lang.failed"].my);
+      expect(line.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
+      const region = container.querySelector('[role="status"]')!;
+      expect(region.textContent).toBe(STAFF["shell.lang.failed"].my);
+      // The next tap answers it — the region clears with the line.
+      setStaffLang.mockImplementation(async (v: { mode: StaffLangMode }) => ({
+        ok: true,
+        mode: v.mode,
+      }));
+      fireEvent.click(row("English"));
+      expect(region.textContent).toBe("");
+      await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+      expect(container.querySelector(".staff-lang-msg")).toBeNull();
+    },
+  );
 
-  it("with NO view provider the line is the role=alert itself", async () => {
-    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
-    render(<Profile mode="en" withView={false} />);
-    fireEvent.click(row("မြန်မာ English"));
-    const alert = await screen.findByRole("alert");
-    expect(alert.className).toBe("staff-lang-msg");
-    expect(alert.querySelector('[lang="my"]')).not.toBeNull(); // both tongues under English
-  });
+  it.each(["en", "my-only"] as const)(
+    "under %s with NO view provider the line is the role=alert itself, both tongues",
+    async (mode) => {
+      setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+      render(<Profile mode={mode} withView={false} />);
+      fireEvent.click(row("မြန်မာ English"));
+      const alert = await screen.findByRole("alert");
+      expect(alert.className).toBe("staff-lang-msg");
+      expect(alert.querySelector('[lang="my"]')?.textContent).toBe(STAFF["shell.lang.failed"].my);
+      expect(alert.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
+    },
+  );
 });
 
 /**
