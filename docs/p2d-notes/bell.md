@@ -228,8 +228,9 @@ on"). Retired: none.
   mount and StrictMode cases red; dropping the lane card's pulse span → the pulse case red. Each
   restored byte-identical.
 - **Contrast.** `--warn` on `--sf` (the paused chip) is newly pinned in `contrast-audit.test.ts`,
-  both themes (watched red by pointing the pair at plain `--ac`). The hint (`t2 on pg`) and the
-  refusal (`warn on pg`) were already pinned.
+  both themes (watched red by pointing the pair at plain `--ac`). Since the critic round the hint and
+  the refusal float on the chip's own `--sf`: `t2 on sf` was already pinned, and the refusal is this
+  same `warn on sf` pair.
 - **No `.staff-press` on the chip** — `.staff-chip` carries its own rest/pressed/aria-disabled rules
   and no other `.staff-chip` toggle on the console presses it.
 
