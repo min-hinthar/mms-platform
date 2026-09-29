@@ -15,10 +15,12 @@ import {
   PANE_QUERY,
   acceptPaneRead,
   liveTwinOf,
+  lostKey,
   paneEscapeCloses,
   paneFailKeys,
   paneStatusSays,
   readHandoffStash,
+  type LostKind,
 } from "@/lib/floor-pane";
 import { tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
@@ -80,13 +82,13 @@ export function TablePane({
   /** The selection NOW (a ref read) — a read resolving late is gated on it, never on a closure. */
   selectedNow: () => string | null;
   rows: readonly PaneRow[];
-  lostWrite: { sessionId: string; hint: TableHint } | null;
+  lostWrite: { sessionId: string; hint: TableHint; kind: LostKind } | null;
   settleOnce: string | null;
   onSettleConsumed: () => void;
   terminalReady: boolean;
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
-  onLostWrite: (sessionId: string, hint: TableHint) => void;
+  onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -218,7 +220,7 @@ export function TablePane({
 
   const lostName = lostWrite ? nameText(lostWrite.hint) : null;
   const lostLine = lostWrite ? (
-    <Chrome lang={lang} k="floor.pane.lostWrite" vars={{ x: lostName! }} echo="stack" />
+    <Chrome lang={lang} k={lostKey(lostWrite.kind)} vars={{ x: lostName! }} echo="stack" />
   ) : null;
   const detailMounted = cur?.kind === "detail";
   // Phase 2d · review fixes — the pane's ONE region while no detail (with its own) is mounted.
@@ -439,8 +441,9 @@ function closedHint(label: string, tableNumber: number | null): TableHint {
   };
 }
 
-/** A change on another table that did not save: the words (warn ink) and the one-tap way to check.
- *  Shown here; SAID by the pane's region (or the mounted detail's). */
+/** A change on another table that did not save (or a payment there that did not go through, or whose
+ *  answer never came): the words (warn ink) and the one-tap way to check. Shown here; SAID by the
+ *  pane's region (or the mounted detail's). */
 function LostWrite({
   line,
   lang,

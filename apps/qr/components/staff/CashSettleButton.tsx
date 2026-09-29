@@ -89,6 +89,7 @@ export function CashSettleButton({
   onSettled,
   onChanged,
   onOutcomeUnknown,
+  onSettleOutcome,
   // Named `gateBlocked` inside: `blocked` below is the SHEET's binding (`cashSettleBlocked`).
   blocked: gateBlocked = false,
   blockedNoteId,
@@ -130,6 +131,10 @@ export function CashSettleButton({
    *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
    *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
   onOutcomeUnknown?: (unknown: boolean) => void;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's settle, as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
   /** Phase 2c · gate — the settle gate holds (`staffSettleBlockedByUnsent`, read by the page from
    *  `detail.send`): the trigger stays rendered with its amount but is `aria-disabled`, described by
    *  the page's note, and a tap opens NOTHING — it hands up (`onBlockedTap`). */
@@ -295,12 +300,14 @@ export function CashSettleButton({
           console.error("[CashSettleButton] settle rejected — outcome unknown", e);
           setError({ kind: "unknown" });
           onOutcomeUnknown?.(true);
+          onSettleOutcome?.("unknown");
           onChanged?.();
           return;
         }
         // An answer came back: whatever it says, the outcome is KNOWN again.
         onOutcomeUnknown?.(false);
         if (!res.ok) {
+          onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
           // The sheet stays open with the refusal inside it — the cashier reads why where they
           // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
           // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)

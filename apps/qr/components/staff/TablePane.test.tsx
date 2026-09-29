@@ -33,14 +33,16 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/useFloorRealtime", () => ({ useFloorRealtime: () => {} }));
 const staffSetQty = vi.fn();
 const settleCash = vi.fn();
+const closeSecureTab = vi.fn();
 vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (...a: unknown[]) => staffSetQty(...(a as [])),
   setLineNotes: vi.fn(),
   settleCash: (...a: unknown[]) => settleCash(...(a as [])),
-  closeSecureTab: vi.fn(),
+  closeSecureTab: (...a: unknown[]) => closeSecureTab(...(a as [])),
 }));
+const settleCard = vi.fn();
 vi.mock("@/lib/terminal", () => ({
-  settleCard: vi.fn(),
+  settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: vi.fn(),
   cancelTerminal: vi.fn(),
 }));
@@ -177,10 +179,11 @@ function Floor({
 }
 
 let split = true;
+let terminalReady = false;
 const tree = (props: Parameters<typeof Floor>[0] = {}) => (
   <StaffLangProvider lang="en">
     <LiveConnectionProvider>
-      <CounterSplit terminalReady={false}>
+      <CounterSplit terminalReady={terminalReady}>
         <Floor {...props} />
       </CounterSplit>
     </LiveConnectionProvider>
@@ -208,6 +211,7 @@ let backSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   vi.useFakeTimers();
   split = true;
+  terminalReady = false;
   window.matchMedia = ((q: string) => ({
     matches: split && q === PANE_QUERY,
     media: q,
@@ -231,6 +235,8 @@ afterEach(() => {
   getTableDetail.mockClear();
   staffSetQty.mockReset();
   settleCash.mockReset();
+  closeSecureTab.mockReset();
+  settleCard.mockReset();
   clearTable.mockReset();
   mergeTables.mockReset();
   getMergeCandidates.mockClear();
@@ -675,6 +681,221 @@ describe("TablePane — a change that did not save on a table the pane left", ()
     await tick(0);
     expect(paneHeading().textContent).toBe(table4);
     expect(pane().querySelector(".staff-pane-lost")).toBeNull();
+  });
+});
+
+// Phase 2d · review fixes — a settle's refusal (or an answer that never came) landing after its
+// detail UNMOUNTED used to die with it: the three settle controls say their outcome inside
+// themselves, and only line/discount writes rode the lost-write channel. A cashier who took cash and
+// went Back (the sheet's scrim stops a card tap, not the browser's Back), or tapped another card
+// beside a card-on-file close or a reader start, never learned it was not recorded.
+describe("TablePane — a settle outcome on a table the pane left", () => {
+  const settleable = (id: string, n: number, over: Partial<TableDetail> = {}) =>
+    detail(id, n, {
+      settleTotalCents: 4210,
+      settleTipBaseCents: 4000,
+      lines: [line(`l-${n}`, "Mohinga", false)],
+      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      ...over,
+    });
+  const table4 = () => tf("en", "floor.table", { id: "4" });
+  const lostLine = () => pane().querySelector(".staff-pane-lost");
+  const deferred = () => {
+    let resolve!: (v: unknown) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise((r, j) => {
+      resolve = r;
+      reject = j;
+    });
+    return { promise, resolve, reject };
+  };
+  async function takeCash() {
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+  }
+  const goBack = async () => {
+    await act(async () => {
+      window.history.replaceState(null, "", "/staff?floor=1");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await tick(0);
+  };
+
+  it("cash REFUSED after Back closed the pane: said, naming the table, one tap back", async () => {
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCash.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await goBack();
+    expect(document.getElementById("order-h")).toBeNull(); // the detail (and its sheet) is gone
+    await act(async () => {
+      d.resolve({ ok: false, error: "That table is closed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const said = tf("en", "floor.pane.lostSettle", { x: table4() });
+    // MUTATION: the cash control reports no refusal — it dies with the unmounted sheet; red.
+    expect(lostLine()?.textContent).toContain(said);
+    expect(pane().querySelector('[role="status"]')!.textContent).toContain(said);
+    await act(async () => {
+      fireEvent.click(within(lostLine() as HTMLElement).getByRole("button"));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(table4());
+    expect(lostLine()).toBeNull();
+  });
+
+  it("cash whose answer never came, after a switch: 'we don't know' — never 'didn't go through'", async () => {
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCash.mockReturnValueOnce(d.promise);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const said = tf("en", "floor.pane.lostSettleUnknown", { x: table4() });
+    // MUTATION: an unknown outcome reported as refused — "didn't go through" over a settle that
+    // may have landed, and the cashier takes the money twice; red.
+    expect(lostLine()?.textContent).toContain(said);
+    // SAID through the ONE region of the detail now shown (B's).
+    const region = document
+      .getElementById("order-h")!
+      .closest("section")!
+      .querySelector('[role="status"]')!;
+    expect(region.textContent).toContain(said);
+  });
+
+  it("a card-on-file close whose answer never came, after a switch: said", async () => {
+    answers[A] = ok(settleable(A, 4, { tab: "secure" }));
+    const d = deferred();
+    closeSecureTab.mockReturnValueOnce(d.promise);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!); // the close is the primary
+    await act(async () => {
+      fireEvent.click(within(settleSection).getByRole("button", { name: /^Charge \$/ }));
+    });
+    await tap(card(B)); // the confirm is inline, not a sheet: the floor stays tappable
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the close reports no unknown outcome — the charge may have landed, unsaid; red.
+    expect(lostLine()?.textContent).toContain(
+      tf("en", "floor.pane.lostSettleUnknown", { x: table4() }),
+    );
+  });
+
+  it("a card-on-file close REFUSED after a switch: said as not gone through", async () => {
+    answers[A] = ok(settleable(A, 4, { tab: "secure" }));
+    const d = deferred();
+    closeSecureTab.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    await act(async () => {
+      fireEvent.click(within(settleSection).getByRole("button", { name: /^Charge \$/ }));
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.resolve({ ok: false, error: "The card was declined — settle by cash or a fresh card." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the close reports no refusal — a declined card on a table left behind, unsaid; red.
+    expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostSettle", { x: table4() }));
+  });
+
+  it("a reader start whose answer never came, after a switch: 'we don't know'", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCard.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.reject(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the reader's rejected start reports nothing — the reader may be asking for the
+    // money on a table the cashier left; red.
+    expect(lostLine()?.textContent).toContain(
+      tf("en", "floor.pane.lostSettleUnknown", { x: table4() }),
+    );
+  });
+
+  it("a reader start refused after a switch: said", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    const d = deferred();
+    settleCard.mockReturnValueOnce(d.promise);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    const reader = within(settleSection).getAllByRole("button").at(-1)!;
+    await act(async () => {
+      fireEvent.click(reader);
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      d.resolve({ ok: false, code: "inflight", holder: "phone", error: "A guest is paying." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: the reader's start reports no refusal — it dies with the unmounted button; red.
+    expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostSettle", { x: table4() }));
+  });
+
+  it("a refusal on the table still SHOWN is its control's own — never a lost line", async () => {
+    answers[A] = ok(settleable(A, 4));
+    settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCash();
+    await tick(0);
+    // MUTATION: route every outcome to the pane — the shown table says its refusal twice; red.
+    expect(lostLine()).toBeNull();
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain(
+      "That table is closed.",
+    );
   });
 });
 

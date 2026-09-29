@@ -15,6 +15,8 @@ import {
   paneFailKeys,
   paneStatusSays,
   counterColumnShown,
+  lostKey,
+  nextLost,
   paneFocusAfterClose,
   paneFreezeSpoken,
   paneFromHash,
@@ -244,6 +246,26 @@ describe("counterColumnShown — the bell's visible half (review fixes)", () => 
     // Side by side, the floor is beside the pane.
     expect(counterColumnShown({ paneOpen: true, split: true })).toBe(true);
     expect(counterColumnShown({ paneOpen: false, split: true })).toBe(true);
+  });
+});
+
+describe("lostKey / nextLost — a change the pane's table never saw land (review fixes)", () => {
+  it("each kind says its own sentence; an unknown payment never says 'didn't go through'", () => {
+    expect(lostKey("write")).toBe("floor.pane.lostWrite");
+    expect(lostKey("settle")).toBe("floor.pane.lostSettle");
+    expect(lostKey("settleUnknown")).toBe("floor.pane.lostSettleUnknown");
+  });
+  it("a later loss replaces the standing one — but a line edit never replaces a payment", () => {
+    const w = (id: string) => ({ id, kind: "write" as const });
+    const pay = (id: string) => ({ id, kind: "settle" as const });
+    const unk = (id: string) => ({ id, kind: "settleUnknown" as const });
+    expect(nextLost(null, w("a"))).toEqual(w("a"));
+    expect(nextLost(w("a"), w("b"))).toEqual(w("b"));
+    expect(nextLost(w("a"), pay("b"))).toEqual(pay("b"));
+    expect(nextLost(pay("a"), unk("b"))).toEqual(unk("b"));
+    // Money outranks a dish: the payment line stands.
+    expect(nextLost(pay("a"), w("b"))).toEqual(pay("a"));
+    expect(nextLost(unk("a"), w("b"))).toEqual(unk("a"));
   });
 });
 

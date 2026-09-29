@@ -3246,6 +3246,19 @@ export const STAFF = {
     en: "A change on {x} didn’t save — view it to check.",
     my: "{x} မှာ ပြင်လိုက်တာ မသိမ်းမိပါ — ကြည့်ပြီး စစ်ပါ။",
   }, // K15-HIGH — a dish change that did not save on a table the cashier has left
+  // Phase 2d · review fixes — a PAYMENT refused (cash not recorded, card not charged, the reader not
+  // started) after the pane left its table: said by the pane, where the settle's own line is gone.
+  // K15 draft. Words: ငွေရှင်း (the settle keys'), ကြည့်ပြီး စစ်ပါ (floor.pane.lostWrite's).
+  "floor.pane.lostSettle": {
+    en: "The payment on {x} didn’t go through — view it to check.",
+    my: "{x} မှာ ငွေရှင်းတာ မအောင်မြင်ပါ — ကြည့်ပြီး စစ်ပါ။",
+  }, // K15-HIGH — cash the cashier took that was never recorded, on a table they have left
+  // …and one whose answer never came (the connection dropped): it may have landed. Never "didn't go
+  // through" — the settle.cash.unknown / settle.card.unknown rule: a misread collects twice. K15 draft.
+  "floor.pane.lostSettleUnknown": {
+    en: "We don’t know if the payment on {x} went through — view it before you take payment again.",
+    my: "{x} မှာ ငွေရှင်းတာ ဖြစ်သွားပြီလား မသိရပါ — ထပ်မယူခင် ကြည့်ပြီး စစ်ပါ။",
+  }, // K15-HIGH — read while a payment's outcome is unknown; a misread takes the money twice
   "floor.pane.open": { en: "View {x}", my: "{x} ကို ကြည့်ပါ" },
   // The pane's head once a read has settled with no name to give (a link to a session that no
   // longer exists, a first read that failed): neutral — never the loading skeleton. (K15 draft.)
@@ -3460,6 +3473,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.key.notSent",
   // ── Phase 2d · split ──
   "floor.pane.lostWrite",
+  // ── Phase 2d · review fixes ──
+  "floor.pane.lostSettle",
+  "floor.pane.lostSettleUnknown",
 ]);
 
 /**
