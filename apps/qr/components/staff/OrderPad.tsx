@@ -77,6 +77,14 @@ import { useStaffSend } from "./useStaffSend";
 import { usePadDetailLive } from "./usePadDetailLive";
 import { usePadWrites } from "./usePadWrites";
 import { usePadNotices } from "./usePadNotices";
+// ── Phase 2d · split ──
+import { PANE_QUERY, paneUrl, tableDestination } from "@/lib/floor-pane";
+
+/** Phase 2d · split — is the counter's pane where a way back to this table lands? Read at TAP time. */
+const splitNow = () =>
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia(PANE_QUERY).matches;
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -754,7 +762,8 @@ export function OrderPad({
     // copy of the cash / reader / hand-off flow on this screen). Busy until the route changes, or
     // until SETTLE_OPEN_RESET_MS says the push never landed.
     toPhase("opening");
-    router.push(`/staff/table/${sessionId}?settle=1`);
+    // Phase 2d · split — the pane on the counter screen at split width (read at tap time).
+    router.push(tableDestination(sessionId, { split: splitNow(), settle: true }));
   };
   // A push that never lands (dropped, or a page restored from the back-forward cache) must not leave
   // Take payment busy for good: it comes back to idle and a second tap goes again.
@@ -862,7 +871,7 @@ export function OrderPad({
         variant="primary"
         size="xl"
         block
-        onClick={() => router.push(`/staff/table/${sessionId}`)}
+        onClick={() => router.push(tableDestination(sessionId, { split: splitNow() }))}
       >
         <Chrome lang={lang} k="pad.done" vars={{ id: table }} echo="stack" />
       </Button>
@@ -918,6 +927,8 @@ export function OrderPad({
             : {
                 kind: "back",
                 href: `/staff/table/${sessionId}`,
+                // Phase 2d · split — at split width the way back is the counter's pane.
+                paneHref: paneUrl(sessionId),
                 k: "browse.back.table",
                 vars: { id: table },
               }

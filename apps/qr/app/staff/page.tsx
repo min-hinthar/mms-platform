@@ -27,6 +27,7 @@ import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
 import { approvalsHref, moreTiles } from "@/lib/staff-more";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
+import { CounterSplit } from "@/components/staff/CounterSplit";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
@@ -229,8 +230,10 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       <CounterLive>
         {header}
         {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
-            thumb-zone Undo pill. */}
-        <div className="staff-col staff-col-dock" style={wrapWide}>
+            thumb-zone Undo pill. Phase 2d · split — the column IS the split (`CounterSplit`): the
+            zones in its main column, the selected table's pane beside them on a tablet. One tree
+            around the boards (the bell's seam: no second provider, no remount on rotation). */}
+        <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
           {greeting}
           {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
               order in zone 1 and every free table on the strip in zone 2 (`CounterMint.tsx`). */}
@@ -279,7 +282,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           <div style={{ marginTop: "var(--s6)" }}>
             <MoreGrid lang={lang} more={more} />
           </div>
-        </div>
+        </CounterSplit>
       </CounterLive>
     </main>
   );

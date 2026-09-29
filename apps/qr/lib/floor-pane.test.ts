@@ -95,9 +95,10 @@ describe("paneHistoryOp — one entry deep", () => {
   });
   // MUTANT floor-pane/re-push-onto-the-same-hash — the URL-already-names-it arm deleted.
   it("the URL already names the target (none → A) → nothing, ownership unchanged: never a same-hash neighbour", () => {
-    expect(paneHistoryOp({ from: null, to: A, currentHash: `#table-${A}`, owned: false })).toEqual(
-      { op: "none", keepOwnership: true },
-    );
+    expect(paneHistoryOp({ from: null, to: A, currentHash: `#table-${A}`, owned: false })).toEqual({
+      op: "none",
+      keepOwnership: true,
+    });
   });
   // MUTANT floor-pane/close-walks-back-over-an-entry-it-did-not-push
   it("close: owned → back; not owned → replace to the floor heading, never ''", () => {
@@ -321,9 +322,7 @@ describe("tableDestination — decided at tap time", () => {
     expect(tableDestination(A, { split: true })).toBe(paneUrl(A));
     expect(tableDestination(A, { split: false })).toBe(`/staff/table/${A}`);
     expect(tableDestination(A, { split: true, settle: true })).toBe(paneUrl(A, { settle: true }));
-    expect(tableDestination(A, { split: false, settle: true })).toBe(
-      `/staff/table/${A}?settle=1`,
-    );
+    expect(tableDestination(A, { split: false, settle: true })).toBe(`/staff/table/${A}?settle=1`);
   });
 });
 

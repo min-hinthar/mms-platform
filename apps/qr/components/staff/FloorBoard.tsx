@@ -23,6 +23,8 @@ import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { TableStrip } from "./TableStrip";
 import { useCounterAttention } from "./CounterBell";
+// ── Phase 2d · split ──
+import { useTablePane } from "./TablePaneContext";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -235,6 +237,27 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     [],
   );
 
+  // ── Phase 2d · split ── the counter's pane (null off the counter screen): the selected card, its
+  // tap, and the live rows a hash selection and a closed table's namesake read.
+  const pane = useTablePane();
+  const publishFloor = pane?.publishFloor;
+  useEffect(() => {
+    publishFloor?.([
+      ...snap.tables.map((t) => ({
+        sessionId: t.sessionId,
+        label: t.label,
+        hint: { counter: false, display: tableDisplay(t).text },
+      })),
+      ...snap.counter.map((o) => ({
+        sessionId: o.sessionId,
+        // The queue row carries no sticker label; a counter order names no place, so `liveTwinOf`
+        // must never match it — the `reg-` prefix is exactly how that is said.
+        label: "reg-",
+        hint: { counter: true, display: "" },
+      })),
+    ]);
+  }, [snap, publishFloor]);
+
   // A4·2 — ONE list, keyed by session: the floor's tables and the open counter orders, in the order
   // `mergeFloorRows` states once (a table asking to pay, the counter orders, the rest of the room).
   const rows = mergeFloorRows(snap.tables, snap.counter);
@@ -247,7 +270,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   return (
     <section aria-labelledby="floor-h" className="staff-zone">
       <div style={headRow}>
-        <h2 id="floor-h" className="staff-zone-head">
+        {/* Phase 2d · split — a focus target: a cleared table's pane closes onto it. */}
+        <h2 id="floor-h" className="staff-zone-head" tabIndex={-1}>
           {/* `echo={false}`: this heading is the `aria-labelledby` target for the whole section, and
               a `chrome-pair` echo would name it "စားပွဲများ…Tables…". */}
           <Chrome lang={lang} k="floor.tables.title" />
@@ -383,6 +407,16 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 thresholds={snap.thresholds}
                 pulse={pulses.get(r.table.sessionId)}
                 lang={lang}
+                selected={pane?.selectedId === r.table.sessionId}
+                onSelect={
+                  pane
+                    ? (e) =>
+                        pane.openFromCard(e, r.table.sessionId, {
+                          counter: false,
+                          display: tableDisplay(r.table).text,
+                        })
+                    : undefined
+                }
               />
             ) : (
               <CounterOrderCard order={r.order} serverNow={snap.serverNow} lang={lang} />

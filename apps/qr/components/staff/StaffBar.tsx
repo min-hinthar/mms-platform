@@ -6,6 +6,7 @@ import { StaffLangSwitch } from "./StaffLangSwitch";
 import { LockButton } from "./LockButton";
 import { LiveDot } from "./LiveDot";
 import { StaffBarNet } from "./StaffBarNet";
+import { SplitAwareLink } from "./SplitAwareLink";
 import type { LiveBoardState } from "@/lib/live-connection";
 import { sx } from "@/lib/staff-labels";
 import type { StaffKey } from "@/lib/i18n/staff";
@@ -39,7 +40,14 @@ export type StaffBarLeading =
    */
   | { kind: "here"; icon?: IconName }
   /** A sub-page: the way back UP (a table's add page → the table; the counter order → the register). */
-  | { kind: "back"; href: string; k: StaffKey; vars?: Record<string, string | number> };
+  | {
+      kind: "back";
+      href: string;
+      k: StaffKey;
+      vars?: Record<string, string | number>;
+      /** Phase 2d · split — where the SAME way back lands at split width (the counter's pane). */
+      paneHref?: string;
+    };
 
 export function StaffBar({
   lang,
@@ -115,12 +123,21 @@ export function StaffBar({
           <Icon name={leading.icon ?? "grid"} size={20} />
         </span>
       )}
-      {leading.kind === "back" && (
-        <Link href={leading.href} className="staff-back staff-press">
-          {/* The arrow lives INSIDE the dictionary value (`← Table 7`), as every back label does. */}
-          <Chrome lang={lang} k={leading.k} vars={leading.vars} />
-        </Link>
-      )}
+      {leading.kind === "back" &&
+        (leading.paneHref ? (
+          <SplitAwareLink
+            href={leading.href}
+            paneHref={leading.paneHref}
+            className="staff-back staff-press"
+          >
+            <Chrome lang={lang} k={leading.k} vars={leading.vars} />
+          </SplitAwareLink>
+        ) : (
+          <Link href={leading.href} className="staff-back staff-press">
+            {/* The arrow lives INSIDE the dictionary value (`← Table 7`), as every back label does. */}
+            <Chrome lang={lang} k={leading.k} vars={leading.vars} />
+          </Link>
+        ))}
       {live === undefined ? (
         heading
       ) : (

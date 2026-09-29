@@ -1,0 +1,31 @@
+"use client";
+import { createContext, useContext, type MouseEvent } from "react";
+import type { TableHint } from "./TableNav";
+
+/**
+ * Phase 2d · split — the counter split's selection API, in its OWN module: the floor, the strip and
+ * the mint lock read it without importing the pane (and with it the whole table drill-down and its
+ * server actions) into every board's graph. `CounterSplit` provides it.
+ */
+export type PaneRow = { sessionId: string; label: string; hint: TableHint };
+
+export type TablePaneApi = {
+  selectedId: string | null;
+  /** A card or occupied tile tap: opens in the pane at split width, else falls through to its link. */
+  openFromCard: (e: MouseEvent<HTMLElement>, sessionId: string, hint: TableHint) => void;
+  /** Open a table without a click (a start that converged on a seated table). False below 48em —
+   *  the caller then navigates as before. */
+  openSession: (sessionId: string, hint: TableHint) => boolean;
+  /** The floor's live rows, for a hash selection's heading and a closed table's live twin. */
+  publishFloor: (rows: readonly PaneRow[]) => void;
+};
+
+export const TablePaneContext = createContext<TablePaneApi | null>(null);
+
+/** `null` outside the counter screen (the full table page, a phone route): every caller then keeps
+ *  its plain link. */
+export function useTablePane(): TablePaneApi | null {
+  return useContext(TablePaneContext);
+}
+
+export type CloseReason = "user" | "cleared";

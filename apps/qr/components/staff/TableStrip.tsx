@@ -1,8 +1,8 @@
 "use client";
-import { useCallback, useLayoutEffect, useRef, type FocusEvent } from "react";
+import { useCallback, useLayoutEffect, useRef, type FocusEvent, type MouseEvent } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "@mms/ui";
-import type { FloorTable } from "@/lib/floor-types";
+import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import {
   createFlipGuard,
   owedSendUnits,
@@ -17,6 +17,7 @@ import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { useCounterMint, type MintNotice } from "./CounterMint";
+import { useTablePane } from "./TablePaneContext";
 
 /**
  * Phase 2d · floor — THE TABLE STRIP: the room's map AND its one-tap start (owner decision 5c).
@@ -136,13 +137,23 @@ export function TableStrip({
     },
     [onNotice, run],
   );
+  // ── Phase 2d · split ── the counter's pane, when the strip sits on the counter screen.
+  const pane = useTablePane();
   const tapOccupied = useCallback(
-    (e: { preventDefault: () => void }) => {
+    (e: MouseEvent<HTMLAnchorElement>, table: FloorTable) => {
       // A tap is navigation — but never while a start is held: a landed start's push must not be
       // raced by a second route the person did not wait for.
-      if (isBusy()) e.preventDefault();
+      if (isBusy()) {
+        e.preventDefault();
+        return;
+      }
+      // Phase 2d · split — at split width the table opens in the pane beside the floor.
+      pane?.openFromCard(e, table.sessionId, {
+        counter: false,
+        display: tableDisplay(table).text,
+      });
     },
-    [isBusy],
+    [isBusy, pane],
   );
 
   if (tiles.length === 0) return null; // an empty registry is no strip — never a dead control
@@ -249,7 +260,7 @@ function OccupiedTile({
   table: FloorTable;
   lang: StaffLang;
   held: boolean;
-  onTap: (e: { preventDefault: () => void }) => void;
+  onTap: (e: MouseEvent<HTMLAnchorElement>, table: FloorTable) => void;
 }) {
   const tone = floorTone(table.status, table.refund?.state ?? null);
   const { aria } = al(lang, {
@@ -266,7 +277,7 @@ function OccupiedTile({
       data-session-id={table.sessionId}
       aria-label={aria}
       aria-disabled={held || undefined}
-      onClick={onTap}
+      onClick={(e) => onTap(e, table)}
     >
       <span className="floor-tile-n">{n}</span>
       <Icon name={GLYPH[tone]} size={18} strokeWidth={2.25} className="floor-tile-glyph" />

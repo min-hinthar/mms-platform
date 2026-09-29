@@ -252,7 +252,10 @@ export function stashHandoff(sessionId: string, h: Handoff, store: Store | null 
   }
 }
 
-export function readHandoffStash(sessionId: string, store: Store | null = session()): Handoff | null {
+export function readHandoffStash(
+  sessionId: string,
+  store: Store | null = session(),
+): Handoff | null {
   try {
     return parseHandoffStash(store?.getItem(handoffStashKey(sessionId)) ?? null);
   } catch {

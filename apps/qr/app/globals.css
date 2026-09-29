@@ -14131,3 +14131,7 @@ a.aisle-tile {
     pointer-events: none;
   }
 }
+/* The loading skeleton's reserved pane column: space only — no divider, no shapes. */
+.staff-split-pane.staff-split-pane-idle {
+  border-inline-start: 0;
+}
