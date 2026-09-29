@@ -379,6 +379,10 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
           { name: "email · oa on the ink CTA fill", fg: tok(map, "--oa"), bg: tok(map, "--ink") },
         ]
       : []),
+    // ── Phase 2d · bell ── the counter bell's PAUSED chip (`.staff-chip[data-muted="true"]`) sets
+    // its "Sound off — tap to turn on" in --warn on the chip's own --sf ground, in both themes (the
+    // hint and the refusal under it are `t2 on pg` / `warn on pg`, already pinned above).
+    { name: "warn on sf (the counter bell's paused chip)", fg: tok(map, "--warn"), bg: sf },
   ];
 
   // Anti-regression (LIGHT only): the vivid hues must STAY below 4.5 as text — this is why the
