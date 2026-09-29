@@ -238,6 +238,9 @@ afterEach(() => {
 
 describe("TablePane — a card tap at split width", () => {
   it("opens in the pane: prevented, ONE push without __NA, the hash names it, the heading takes focus, one read", async () => {
+    // Next's own entry: its state carries __NA — a write that copies it would keep it (the
+    // fixture that separates `{}` from `{ ...history.state }`).
+    window.history.replaceState({ __NA: true, tree: [] }, "", "/staff?floor=1");
     mount();
     await tick(0);
     const ev = await tap(card(A));
@@ -284,18 +287,22 @@ describe("TablePane — a late read never lands under another table", () => {
     await tick(0);
     await tap(card(A));
     await tap(card(B));
+    // B answers first; A's read (asked first) answers LAST.
+    await act(async () => {
+      resolveB({ kind: "detail", detail: detail(B, 7, { lines: [line("l-7", "Tea")] }) });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.getElementById("order-h")).not.toBeNull();
     await act(async () => {
       resolveA({ kind: "detail", detail: detail(A, 4) });
       await vi.advanceTimersByTimeAsync(0);
     });
-    // MUTATION: accept every read — Table 4's order renders under the Table 7 heading; red.
+    // MUTATION: accept every read — A's late answer replaces B's, and B's order drops back to the
+    // skeleton under its own heading; red.
     expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
-    expect(document.getElementById("order-h")).toBeNull();
-    await act(async () => {
-      resolveB({ kind: "detail", detail: detail(B, 7) });
-      await vi.advanceTimersByTimeAsync(0);
-    });
     expect(document.getElementById("order-h")).not.toBeNull();
+    expect(pane().textContent).toContain("Tea");
+    expect(pane().textContent).not.toContain("Mohinga");
   });
 });
 
