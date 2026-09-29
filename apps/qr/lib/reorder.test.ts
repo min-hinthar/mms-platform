@@ -75,11 +75,14 @@ const { ItemUnsellableError, ItemUnreadableError } = vi.hoisted(() => {
 /** What `priceItem` should do when called — the per-line gate the fallback now leans on. */
 let priceItemThrows: "sold_out" | "gone" | "cardinality" | "unreadable" | null = null;
 let priceItemCalls = 0;
+/** What the Nth `insertOrIncLine` call does (1-based) — resolves unless a case says otherwise. */
+let insertOnCall: (n: number) => Promise<unknown> = () => Promise.resolve({ ok: true });
+let insertCalls = 0;
 
 vi.mock("./order-lines", () => ({
   ItemUnsellableError,
   ItemUnreadableError,
-  insertOrIncLine: () => Promise.resolve({ ok: true }),
+  insertOrIncLine: () => insertOnCall(++insertCalls),
   touchCart: () => Promise.resolve(),
   priceItem: () => {
     priceItemCalls += 1;
@@ -120,12 +123,15 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const mod = await import("./reorder");
+const { CartPayingError } = await import("./line-rpc-refusal");
 
 beforeEach(() => {
   itemRows = [{ id: DISH, is_active: true, is_sold_out: false }];
   itemsError = null;
   priceItemThrows = null;
   priceItemCalls = 0;
+  insertOnCall = () => Promise.resolve({ ok: true });
+  insertCalls = 0;
   orderLines = [
     {
       menu_item_id: DISH,
@@ -214,5 +220,30 @@ describe("M119e — an unreadable availability read is not a sold-out menu", () 
     // cases bailed at "That order isn't available to reorder."
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.skipped.map((s) => s.reason)).toContain("sold_out");
+  });
+});
+
+describe("P2cy — the table's settlement freezes it mid-reorder", () => {
+  it("stops at the refusal and says the table is paying — the rest are NOT 'tap to choose'", async () => {
+    // Three dishes; the settlement's claim lands between the first add and the second. The RPC
+    // refuses the second under its row lock (`CartPayingError`), and the third must never be tried:
+    // it is not an availability fact about that dish, and "needs your choices" would send the diner
+    // to re-pick options on a table that cannot take them.
+    orderLines = ["Mohinga", "Tea leaf salad", "Shan noodles"].map((name) => ({
+      menu_item_id: DISH,
+      name,
+      qty: 1,
+      modifiers: [],
+      modifier_option_ids: [],
+      notes: null,
+    }));
+    insertOnCall = (n) =>
+      n === 2 ? Promise.reject(new CartPayingError()) : Promise.resolve({ ok: true });
+    const res = (await mod.reorderOrder({ orderId: "o1", cartId: "c1" })) as
+      | { ok: true; added: number; skipped: { name: string; reason: string }[] }
+      | { ok: false; error: string };
+    // ANTI-DEGENERACY: the loop reached the refusal — one landed, the second was the one refused.
+    expect(insertCalls).toBe(2);
+    expect(res).toEqual({ ok: false, error: new CartPayingError().message });
   });
 });

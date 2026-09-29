@@ -10630,6 +10630,15 @@ const MUTANTS = [
     find: '  if (refusal === "paying") throw new CartPayingError();\n',
     replace: "",
   },
+  // ── Phase 2d · review fixes ──
+  {
+    id: "p2d-rev/db-reorder-paying-reads-needs-choices",
+    file: "apps/qr/lib/reorder.ts",
+    suite: "lib/reorder.test.ts",
+    why: "P2cy — a settlement that lands mid-reorder must stop the loop in the diner's freeze sentence. Without the branch the refusal falls to the catch-all: every remaining dish is tried against a frozen table and reported 'needs your choices', sending the diner to re-pick options nothing can accept",
+    find: "      if (e instanceof CartPayingError) return { ok: false, error: e.message };\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
