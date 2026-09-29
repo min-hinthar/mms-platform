@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { floorRowKey, mergeFloorRows } from "./floor-rows";
+import {
+  FLIP_GUARD_MS,
+  createFlipGuard,
+  floorRowKey,
+  freeTapAllowed,
+  mergeFloorRows,
+  tableStrip,
+} from "./floor-rows";
 import type { FloorTable } from "./floor-types";
 import type { RegisterQueueRow } from "./register-queue";
 
@@ -28,6 +35,8 @@ const table = (
   tabOverCeiling: false,
   counterRequestedAt,
   lastActivityAt: "2026-09-13T18:00:00Z",
+  openedAt: "2026-09-13T17:00:00Z",
+  kitchen: null,
 });
 const order = (id: string): RegisterQueueRow => ({
   sessionId: id,
@@ -84,5 +93,101 @@ describe("mergeFloorRows — tables and counter orders as ONE list", () => {
     expect(keys(mergeFloorRows([], [order("reg-1")]))).toEqual(["reg-1"]);
     expect(keys(mergeFloorRows([table("t-1", null)], []))).toEqual(["t-1"]);
     expect(mergeFloorRows([], [])).toEqual([]);
+  });
+});
+
+// ── Phase 2d · floor ──
+/**
+ * The strip is the room's MAP and its start: one tile per registered table, occupancy from the SAME
+ * snapshot the cards read, so a tile and its card cannot disagree.
+ */
+describe("tableStrip — one tile per registered table, from the cards' own snapshot", () => {
+  const at = (
+    id: string,
+    n: number | null,
+    status: FloorTable["status"],
+    last = "2026-09-13T18:00:00Z",
+  ) => ({
+    ...table(id, null, status),
+    tableNumber: n,
+    lastActivityAt: last,
+  });
+
+  it("tiles follow the REGISTRY, ascending — a live number outside it gets no tile, a free one gets a null", () => {
+    // MUTATION: build the tiles from the live tables → tile 12 appears and the free tiles vanish.
+    const strip = tableStrip([1, 2, 3, 7, 10], [at("s7", 7, "ordering"), at("s12", 12, "seated")]);
+    expect(strip.map((t) => t.n)).toEqual([1, 2, 3, 7, 10]);
+    expect(strip.find((t) => t.n === 7)?.table?.sessionId).toBe("s7");
+    expect(strip.filter((t) => t.table !== null).map((t) => t.n)).toEqual([7]);
+  });
+
+  it("an unregistered sticker (no number) never takes a tile", () => {
+    expect(tableStrip([1], [at("sx", null, "ordering")])).toEqual([{ n: 1, table: null }]);
+  });
+
+  it("two live sessions on one number: the tile opens the one that needs a person first (STRIP_RANK)", () => {
+    // A seated session listed FIRST and a pay-at-counter ask second: the ask wins.
+    // MUTATION: take the first match → the seated one.
+    const strip = tableStrip([4], [at("seated", 4, "seated"), at("ask", 4, "counter")]);
+    expect(strip[0]?.table?.sessionId).toBe("ask");
+  });
+
+  it("a rank tie goes to the latest activity", () => {
+    const strip = tableStrip(
+      [4],
+      [
+        at("old", 4, "ordering", "2026-09-13T17:00:00Z"),
+        at("new", 4, "ordering", "2026-09-13T18:00:00Z"),
+      ],
+    );
+    expect(strip[0]?.table?.sessionId).toBe("new");
+  });
+});
+
+describe("freeTapAllowed — a tile that JUST turned free ignores the tap (the flip guard)", () => {
+  it("600 ms: a tap inside the window is ignored, at the edge it goes, with no flip it always goes", () => {
+    expect(FLIP_GUARD_MS).toBe(600);
+    const t0 = 1_000_000;
+    // MUTATION: always allow → the 599 ms tap mints a table the person was trying to OPEN.
+    expect(freeTapAllowed(t0, t0 + 599)).toBe(false);
+    expect(freeTapAllowed(t0, t0 + 600)).toBe(true);
+    expect(freeTapAllowed(null, t0)).toBe(true);
+  });
+});
+
+describe("createFlipGuard — the strip remembers which tiles JUST turned free", () => {
+  const tile = (n: number, occupied: boolean) => ({
+    n,
+    table: occupied ? { ...table(`s${n}`, null), tableNumber: n } : null,
+  });
+
+  it("a tile that flipped occupied → free refuses a tap for 600 ms, then allows it", () => {
+    let now = 10_000;
+    const g = createFlipGuard(() => now);
+    g.observe([tile(7, true), tile(8, false)]);
+    now = 12_000;
+    g.observe([tile(7, false), tile(8, false)]); // another tablet cleared 7
+    now = 12_599;
+    // MUTATION (floor-rows): a guard that never stamps the flip → the tap mints a table the person
+    // was reaching to OPEN.
+    expect(g.allows(7)).toBe(false);
+    // A tile that was free all along was never flipped: it starts at once.
+    expect(g.allows(8)).toBe(true);
+    now = 12_600;
+    expect(g.allows(7)).toBe(true);
+  });
+
+  it("first sight is not a flip, and a tile occupied again forgets its stamp", () => {
+    let now = 0;
+    const g = createFlipGuard(() => now);
+    g.observe([tile(3, false)]);
+    expect(g.allows(3)).toBe(true);
+    g.observe([tile(3, true)]);
+    now = 100;
+    g.observe([tile(3, false)]);
+    now = 200;
+    expect(g.allows(3)).toBe(false);
+    g.observe([tile(3, true)]);
+    expect(g.allows(3)).toBe(true);
   });
 });

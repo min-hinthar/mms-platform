@@ -3860,7 +3860,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",
     why: 'P2 · OPEN-ITEMS P2g, restored exactly — the table card interpolated `table.status` RAW into its accessible name, so a SPLITTING table announced "settling" while the chip beside it read "Splitting". A WCAG 2.5.3 mismatch in ENGLISH, live before this slice. \u26a0\ufe0f The generic containment loop in that suite stays GREEN under this mutation (a name containing the raw key still contains the visible label), which is precisely why the three `settling` assertions exist: `settling` is the one status whose DB value and displayed word differ, so it is the only fixture that separates the two code paths',
-    find: "      parts.push(ts(lang, FLOOR_STATUS_KEY[control.status]));",
+    // Phase 2d · floor — re-anchored: the word now reads the refund too (`floorStatusKey`); the
+    // mutant keeps its meaning — the raw DB status reaches the name — and its `settling` fixture.
+    find: "      parts.push(ts(lang, floorStatusKey(control.status, control.refundState)));",
     replace: "      parts.push(control.status);",
   },
   {

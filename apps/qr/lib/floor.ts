@@ -15,6 +15,11 @@ import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
 import { staffSendCounts } from "./staff-send-view";
+// ── Phase 2d · floor ──
+import { isConsoleLocked } from "./staff-lock";
+import { shapeKdsThresholds } from "./kds-urgency";
+import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
+import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
@@ -65,6 +70,12 @@ const ORDER_LINE_CAP = 500;
  *  shape for the 500-row LINE read, where a reader who trusted the old wording would assume a
  *  truncation that never happens and render one row too many. */
 const SETTLED_ORDER_CAP = 20;
+/** Phase 2d · floor — the floor's LINE reads are bounded, below PostgREST's `max_rows` (1000,
+ *  `supabase/config.toml`), which truncates SILENTLY. A read that comes back AT the cap cannot tell
+ *  "exactly this many" from "we stopped counting" (`queueEmptiness`), and a truncated fold would
+ *  misstate the kitchen row and the running total, so it is an outage — the board freezes on its
+ *  last-known room, never a partial one (the KDS's own posture, `lib/kitchen.ts`). */
+const FLOOR_LINE_CAP = 900;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const laterIso = (a: string, b: string | null | undefined): string =>
@@ -84,13 +95,17 @@ export async function getFloorView(): Promise<FloorPoll> {
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "signin" };
+  // Phase 2d · floor (K14) — a console locked from another tab stops drawing the live room here,
+  // exactly as the KDS and the lane already do (`kitchen.ts`, `expo.ts`): the lock is attribution,
+  // not a boundary, but a locked shared tablet must not keep polling a board past its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const db = serviceClient();
   const nowIso = new Date().toISOString();
 
   // A4·2 — the counter orders ride the SAME snapshot (`readRegisterQueue`, the read the register
   // page owned until it became a redirect): one poll, one outage posture. The floor's own read
   // keeps excluding exactly those sessions below, so the one list cannot key a session twice.
-  const [{ data: sessions, error: sessionsError }, counter] = await Promise.all([
+  const [{ data: sessions, error: sessionsError }, counter, floorExtras] = await Promise.all([
     db
       .from("table_sessions")
       .select("id,qr_code,table_number,mode,host_seat,created_at")
@@ -111,10 +126,42 @@ export async function getFloorView(): Promise<FloorPoll> {
       .order("created_at", { ascending: true })
       .limit(ACTIVE_SESSION_CAP),
     readRegisterQueue(db),
+    // ── Phase 2d · floor ── three more reads in the same round trip.
+    Promise.all([
+      // The strip's tiles: every ACTIVE registered number (the sticker tokens stay server-side —
+      // the strip never needs them).
+      db.from("qr_tables").select("table_number").eq("active", true).order("table_number"),
+      // The kitchen's own lateness thresholds, so the floor's wait pill is the KDS's rule (advisory).
+      db
+        .from("mms_kds_config")
+        .select("dinein_amber_min,dinein_red_min,pickup_amber_min,pickup_red_min,rechime_sec")
+        .maybeSingle(),
+      // The DATABASE clock: the send grace, the "ready" window and the wait are measured on it, as
+      // the KDS and the wall measure them (advisory — the app clock is the fallback).
+      db.rpc("mms_now"),
+    ]),
   ]);
+  const [registryRes, cfgRes, nowRes] = floorExtras;
   // A failed counter read misstates the counter the way a failed party read misstates a table —
   // an outage, never an empty queue beside a live room.
   if (sessionsError || !counter.ok) return { ok: false, reason: "outage" };
+  // Phase 2d · floor — the strip is now the ONLY way to start a table, so an unreadable registry is
+  // an outage of the whole floor read: on SSR the counter screen renders its outage shell, exactly
+  // as a failed sessions read does (stated, and pinned in lib/floor-kitchen-read.test.ts).
+  if (registryRes.error) return { ok: false, reason: "outage" };
+  const registry = [
+    ...new Set((registryRes.data ?? []).map((r) => r.table_number).filter(Number.isInteger)),
+  ].sort((a, b) => a - b);
+  if (cfgRes.error)
+    console.error("[floor] mms_kds_config read failed — the wait pill uses the defaults", {
+      message: cfgRes.error.message,
+    });
+  const thresholds = shapeKdsThresholds(cfgRes.error ? null : cfgRes.data);
+  if (nowRes.error)
+    console.error("[floor] mms_now failed — the kitchen row is timed on the app clock", {
+      message: nowRes.error.message,
+    });
+  const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
@@ -128,7 +175,9 @@ export async function getFloorView(): Promise<FloorPoll> {
         tables: [],
         counter: counter.rows,
         counterTruncated: counter.truncated,
-        serverNow: nowIso,
+        serverNow,
+        registry,
+        thresholds,
       },
     };
 
@@ -146,7 +195,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       .eq("status", "open"),
     db
       .from("qr_orders")
-      .select("session_id,total_cents,created_at,status,refunded_cents")
+      .select("session_id,cart_id,total_cents,created_at,status,refunded_cents")
       .in("session_id", sessionIds)
       // K33 — the SAME settled-status policy as `getTableDetail`, and it has to be the same one.
       // The two reads pick a settled order by the same rule (latest by `created_at`), so a
@@ -169,26 +218,93 @@ export async function getFloorView(): Promise<FloorPoll> {
 
   const cartRows = carts ?? [];
   const cartIds = cartRows.map((c) => c.id);
+  // Phase 2d · floor — the table's PAID carts, for the kitchen row only: a table that paid a round
+  // is still eating, and its food is on that cart. Never an open cart id (a cart is one or the
+  // other), and never folded into the "so far" aggregate below, which stays keyed by the OPEN cart.
+  const paidCartSession = new Map<string, string>();
+  for (const o of orders ?? [])
+    if (o.cart_id && o.session_id) paidCartSession.set(o.cart_id, o.session_id);
+  const paidCartIds = [...paidCartSession.keys()];
   // Lines for the open carts → aggregate count + running subtotal + latest line time per cart in TS.
   // `created_at` is the activity signal (NOT qr_carts.updated_at — nothing bumps it; the cart RPCs
   // don't write it, so it's stuck at cart creation): the most recent line add is "last activity".
-  const { data: lines, error: linesError } = cartIds.length
-    ? await db
-        .from("qr_cart_items")
-        .select("cart_id,qty,unit_price_cents,created_at,state,comped")
-        .in("cart_id", cartIds)
-    : {
-        data: [] as {
-          cart_id: string;
-          qty: number;
-          unit_price_cents: number;
-          created_at: string;
-          state: string;
-          comped: boolean;
-        }[],
-        error: null,
-      };
-  if (linesError) return { ok: false, reason: "outage" };
+  // Phase 2d · floor — the kitchen columns ride the same read, and the read is BOUNDED (above).
+  type FloorLineRow = {
+    cart_id: string;
+    qty: number;
+    unit_price_cents: number;
+    created_at: string;
+    state: string;
+    comped: boolean;
+    fulfillment: string;
+    fire_at: string | null;
+    bumped_at: string | null;
+    by_seat: string | null;
+  };
+  type PaidLineRow = Pick<
+    FloorLineRow,
+    "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
+  >;
+  const [{ data: lines, error: linesError }, { data: paidLines, error: paidLinesError }] =
+    await Promise.all([
+      cartIds.length
+        ? db
+            .from("qr_cart_items")
+            .select(
+              "cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
+            )
+            .in("cart_id", cartIds)
+            .limit(FLOOR_LINE_CAP)
+        : Promise.resolve({ data: [] as FloorLineRow[], error: null }),
+      paidCartIds.length
+        ? db
+            .from("qr_cart_items")
+            .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
+            .in("cart_id", paidCartIds)
+            .in("state", ["fired", "in_progress", "served"])
+            .limit(FLOOR_LINE_CAP)
+        : Promise.resolve({ data: [] as PaidLineRow[], error: null }),
+    ]);
+  if (linesError || paidLinesError) return { ok: false, reason: "outage" };
+  if (
+    queueEmptiness((lines ?? []).length, FLOOR_LINE_CAP) === "cannot-say" ||
+    queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say"
+  ) {
+    console.error("[floor] line read saturated — refusing to render a partial room", {
+      cap: FLOOR_LINE_CAP,
+    });
+    return { ok: false, reason: "outage" };
+  }
+  // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
+  const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
+  const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
+  const addKitchenRow = (sessionId: string | undefined, row: FloorKitchenRow) => {
+    if (!sessionId) return;
+    const arr = kitchenRowsBySession.get(sessionId) ?? [];
+    arr.push(row);
+    kitchenRowsBySession.set(sessionId, arr);
+  };
+  for (const l of lines ?? [])
+    addKitchenRow(sessionByOpenCart.get(l.cart_id), {
+      qty: l.qty,
+      state: l.state,
+      fulfillment: l.fulfillment,
+      fire_at: l.fire_at,
+      bumped_at: l.bumped_at,
+      by_seat: l.by_seat,
+      onOpenCart: true,
+    });
+  for (const l of paidLines ?? [])
+    addKitchenRow(paidCartSession.get(l.cart_id), {
+      qty: l.qty,
+      state: l.state,
+      fulfillment: l.fulfillment,
+      fire_at: l.fire_at,
+      bumped_at: l.bumped_at,
+      by_seat: l.by_seat,
+      onOpenCart: false,
+    });
+  const serverNowMs = Date.parse(serverNow);
 
   // Index by session for O(1) assembly.
   const cartBySession = new Map(cartRows.map((c) => [c.session_id, c]));
@@ -258,6 +374,13 @@ export async function getFloorView(): Promise<FloorPoll> {
       // T11: flag only a TRUST tab over the ceiling (a secure tab is card-backed). A flag, never an action.
       tabOverCeiling: tab === "trust" && agg.subtotal >= ceilingCents,
       lastActivityAt: lastActivity,
+      // ── Phase 2d · floor ──
+      openedAt: s.created_at ?? nowIso,
+      kitchen: foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
+        mode: s.mode,
+        hostPresent: s.host_seat != null,
+        nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
+      }),
     };
   });
 
@@ -284,7 +407,9 @@ export async function getFloorView(): Promise<FloorPoll> {
       tables,
       counter: counter.rows,
       counterTruncated: counter.truncated,
-      serverNow: nowIso,
+      serverNow,
+      registry,
+      thresholds,
     },
   };
 }

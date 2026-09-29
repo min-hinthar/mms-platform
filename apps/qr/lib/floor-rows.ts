@@ -37,3 +37,92 @@ export function mergeFloorRows(
 export function floorRowKey(row: FloorRow): string {
   return row.kind === "table" ? row.table.sessionId : row.order.sessionId;
 }
+
+// ── Phase 2d · floor ──
+/**
+ * The table strip (owner decision 5c): one tile per ACTIVE registered table number, ascending, each
+ * carrying the live session on that number or null when the table is free. Built from the SAME
+ * snapshot the cards render, so a tile and its card can never disagree about a table.
+ *
+ * A number outside the registry (a host-mint join code, an unregistered sticker) has no tile — it
+ * keeps its card. Two live sessions on one number is a data anomaly; the tile opens the one that
+ * needs a person soonest (`STRIP_RANK`), then the latest activity.
+ */
+export type StripTile = { n: number; table: FloorTable | null };
+
+/** Lower first: a table waiting on the register beats money in flight beats ordering beats rest. */
+export const STRIP_RANK: Readonly<Record<FloorTable["status"], number>> = {
+  counter: 0,
+  paying: 1,
+  settling: 2,
+  ordering: 3,
+  paid: 4,
+  seated: 5,
+};
+
+export function tableStrip(
+  registry: readonly number[],
+  tables: readonly FloorTable[],
+): StripTile[] {
+  return registry.map((n) => {
+    let pick: FloorTable | null = null;
+    for (const t of tables) {
+      if (t.tableNumber !== n) continue;
+      if (
+        pick === null ||
+        STRIP_RANK[t.status] < STRIP_RANK[pick.status] ||
+        (STRIP_RANK[t.status] === STRIP_RANK[pick.status] &&
+          Date.parse(t.lastActivityAt) > Date.parse(pick.lastActivityAt))
+      )
+        pick = t;
+    }
+    return { n, table: pick };
+  });
+}
+
+/**
+ * The flip guard. A tile that turned FREE within the last `FLIP_GUARD_MS` ignores a tap: another
+ * tablet cleared the table between polls, and the person was reaching for an OCCUPIED tile to open
+ * it — that tap must not become a start. (The reverse flip is harmless: a tap on a tile that just
+ * turned occupied navigates, and a stale start converges on the sticker's session server-side.)
+ */
+export const FLIP_GUARD_MS = 600;
+
+export function freeTapAllowed(
+  freeSinceMs: number | null,
+  tapMs: number,
+  guardMs: number = FLIP_GUARD_MS,
+): boolean {
+  return freeSinceMs === null || tapMs - freeSinceMs >= guardMs;
+}
+
+/**
+ * The strip's flip memory: which tiles turned FREE, and when. `observe` is called after every
+ * committed render with the tiles on screen (idempotent — only an occupied → free change stamps a
+ * time; a tile that is occupied again forgets); `allows` is the tap-time question, answered by
+ * `freeTapAllowed`. The clock is injected so the rule is falsifiable by a value, and it is read here
+ * rather than in the component, which only ever asks.
+ */
+export type FlipGuard = {
+  observe: (tiles: readonly StripTile[]) => void;
+  allows: (n: number) => boolean;
+};
+
+export function createFlipGuard(now: () => number = Date.now): FlipGuard {
+  let seen: Map<number, boolean> | null = null;
+  const freeSince = new Map<number, number>();
+  return {
+    observe(tiles) {
+      const at = now();
+      const next = new Map(tiles.map((t) => [t.n, t.table !== null] as const));
+      for (const [n, occupied] of next) {
+        if (occupied) freeSince.delete(n);
+        else if (seen?.get(n) === true) freeSince.set(n, at);
+      }
+      seen = next;
+    },
+    allows(n) {
+      return freeTapAllowed(freeSince.get(n) ?? null, now());
+    },
+  };
+}
