@@ -68,7 +68,7 @@ const { CounterSplit } = await import("./CounterSplit");
 const { useTablePane } = await import("./TablePaneContext");
 const { CounterMintProvider, useCounterMint } = await import("./CounterMint");
 const { tf } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
 
 const line = (id: string, name: string, drafts = true): TableLineView => ({
   id,
@@ -1028,6 +1028,22 @@ describe("TablePane — a deep link to a table that is already closed", () => {
         name: new RegExp(tf("en", "floor.pane.closed.openCurrent", { x: "Table 4" })),
       }),
     ).toBeTruthy();
+  });
+  // Phase 2d · review fixes — `closed` is also the answer for an id the server never had (a typed
+  // or stale hash): the notice HEDGES its cause in both scripts, and names every real one (paid,
+  // cleared, merged, idle) — never "its session ended" / "time ran out" asserted as history.
+  it("a session the server cannot find: the notice hedges, never states a history", async () => {
+    answers[A] = () => Promise.resolve({ kind: "closed" });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    const body = tf("en", "floor.pane.closed.body", {});
+    expect(pane().textContent).toContain(body);
+    expect(body).toMatch(/\bmay\b/);
+    expect(body).not.toMatch(/session ended/);
+    expect(STAFF["floor.pane.closed.body"].my).toContain("ဖြစ်နိုင်ပါတယ်"); // "may be" — the hedge
+    expect(STAFF["floor.pane.closed.body"].my).not.toContain("အချိန်ကုန်"); // "time ran out"
   });
   it("a first read that failed with no name still stops saying loading", async () => {
     answers[A] = () => Promise.resolve({ kind: "outage" });

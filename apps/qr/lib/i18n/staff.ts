@@ -3220,9 +3220,14 @@ export const STAFF = {
     en: "This counter order is closed",
     my: "ဒီကောင်တာ အော်ဒါ ပိတ်ထားပြီ",
   },
+  // Phase 2d · review fixes — `closed` is also what the server says for an id it never had (a typed
+  // or stale hash), so the cause is HEDGED, and names every real one: a counter order closes itself
+  // once paid, a table is cleared or merged, an unused session times out. K15 draft (both halves
+  // re-drafted for parity: the first MY said "time ran out" beside an EN "its session ended").
+  // Words: ငွေရှင်းပြီး (floor.status.paid), ရှင်းလိုက် / ပေါင်းလိုက် (the first draft's), ဖြစ်နိုင်ပါတယ် "may be".
   "floor.pane.closed.body": {
-    en: "It was cleared or merged, or its session ended.",
-    my: "ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် အချိန်ကုန်သွားတာ ဖြစ်ပါတယ်။",
+    en: "It may have been paid, cleared or merged, or left unused too long.",
+    my: "ငွေရှင်းပြီးသွားတာ၊ ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် ကြာကြာ မသုံးဘဲ ထားခဲ့တာ ဖြစ်နိုင်ပါတယ်။",
   },
   // A closed Table 7 beside a NEW party's live Table 7: the one way to the table that is there now.
   "floor.pane.closed.openCurrent": {
