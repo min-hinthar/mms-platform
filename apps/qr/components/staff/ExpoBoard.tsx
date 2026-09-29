@@ -37,6 +37,7 @@ import { haptic } from "@/lib/haptics";
 import type { ExpoErrCode } from "@/lib/expo-types";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
+import { factSubject, laneFacts } from "@/lib/counter-attention";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import { tf } from "@/lib/i18n/fill";
@@ -60,6 +61,7 @@ import { ts } from "@/lib/i18n/staff";
 import { useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
+import { useCounterAttention } from "./CounterBell";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -206,6 +208,48 @@ export function ExpoBoard({
     armed: boolean;
   } | null>(null);
   const toastSeq = useRef(0);
+  // ── Phase 2d · bell ── the lane's ear: a guest's "I'm here", a scan-and-go basket at the exit, a
+  // to-go bag the kitchen finished. Seeded with the bags as they rendered — or, for a lane that
+  // mounted into an outage (its `initial` is an empty placeholder, not the lane), with its first GOOD
+  // poll: seeding from the placeholder would ring every bag already waiting the moment it recovers.
+  const hear = useCounterAttention(() => (initialOutage ? null : laneFacts(initial.tickets)));
+  // The visible half of every ring (sound is never the only feedback, §15): each card the news is
+  // about takes the console's ONE "this just changed" ring, `.floor-card-pulse` — a per-card nonce
+  // (a second event restarts it), each cleared on its own timer.
+  const [pulses, setPulses] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const pulseSeq = useRef(0);
+  const pulseTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const pulseCards = useCallback((orderIds: readonly string[]) => {
+    const stamped = orderIds.map((id) => [id, (pulseSeq.current += 1)] as const);
+    setPulses((prev) => {
+      const next = new Map(prev);
+      for (const [id, n] of stamped) next.set(id, n);
+      return next;
+    });
+    for (const [id, n] of stamped) {
+      clearTimeout(pulseTimers.current.get(id));
+      pulseTimers.current.set(
+        id,
+        setTimeout(() => {
+          pulseTimers.current.delete(id);
+          // Only this pulse's own nonce: a newer ring on the same card keeps its full second.
+          setPulses((prev) => {
+            if (prev.get(id) !== n) return prev;
+            const next = new Map(prev);
+            next.delete(id);
+            return next;
+          });
+        }, LANE_PULSE_MS),
+      );
+    }
+  }, []);
+  useEffect(() => {
+    const timers = pulseTimers.current;
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+    };
+  }, []);
 
   useWakeLock(); // O-F: the bagging tablet is always-on too
 
@@ -236,6 +280,10 @@ export function ExpoBoard({
         return;
       }
       setSnap(res.queue);
+      // Phase 2d · bell — a GOOD poll's facts, heard (a frozen lane reports nothing): one ring per
+      // new fact through the counter's bell, and the ring on each card the news is about.
+      const news = hear(laneFacts(res.queue.tickets));
+      if (news.size > 0) pulseCards([...news].map(factSubject));
       clockOffset.current = Date.parse(res.queue.serverNow) - Date.now();
       // A bag that left the queue under an open picked-up window (someone else's tap, a refund)
       // takes its window with it — writing picked_up to a gone order would only earn a "stale"
@@ -273,7 +321,7 @@ export function ExpoBoard({
     } finally {
       inFlight.current = false;
     }
-  }, [stampNow]);
+  }, [stampNow, hear, pulseCards]);
 
   // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
   // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
@@ -710,6 +758,7 @@ export function ExpoBoard({
               onPicked={onPicked}
               onUndoPicked={onUndoPicked}
               onHold={hold}
+              pulse={pulses.get(t.orderId)}
             />
           )}
         />
@@ -767,6 +816,7 @@ function ExpoCard({
   onPicked,
   onUndoPicked,
   onHold,
+  pulse,
 }: {
   ticket: ExpoTicket;
   /** Server-space now (the lane's tick + its offset) — the age clock and its tone read it. */
@@ -783,6 +833,9 @@ function ExpoCard({
   onUndoPicked: (orderId: string, subject: ExpoSubject) => boolean;
   /** Phase 2b · feedback — a keyboard user arriving on (or leaving) the in-slot Undo. */
   onHold: (orderId: string, source: HoldSource, held: boolean) => void;
+  /** Phase 2d · bell — a per-event nonce: the card is what the bell just rang for (keyed one-shot
+   *  ring, the floor card's own); undefined = no ring. */
+  pulse?: number;
 }) {
   const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
@@ -868,6 +921,8 @@ function ExpoCard({
       // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
       aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOutAria })}
     >
+      {/* Phase 2d · bell — the ring the bell rang for (decorative; RM → none, the floor's rule). */}
+      {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
       {/* counter-7 — the header carries the bag's due-ness as a tone; the text keeps its ink. */}
       <header className="expo-head" data-tone={age.tone === "ok" ? undefined : age.tone}>
         <span style={tableLabel}>
@@ -1088,6 +1143,10 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
     </li>
   );
 }
+
+/** Phase 2d · bell — how long a lane card's ring stays mounted: the `.floor-card-pulse` animation's
+ *  1s plus the floor board's own 100ms of slack, so the keyframes always finish before the unmount. */
+const LANE_PULSE_MS = 1100;
 
 const headRow: CSSProperties = {
   display: "flex",

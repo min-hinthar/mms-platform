@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties 
 import { getFloorView } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
+import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
 import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
 import { EmptyState } from "@mms/ui";
@@ -14,6 +15,7 @@ import { useStaffLang } from "./StaffLangProvider";
 import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
+import { useCounterAttention } from "./CounterBell";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -61,6 +63,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // Guard against a fetch that resolves AFTER unmount (getFloorView has no AbortController) — otherwise we'd
   // schedule pulse timers the cleanup already ran past + setState on a dead component.
   const alive = useRef(true);
+  // Phase 2d · bell — the floor's ear: a table asking to pay at the counter. Seeded with the room as
+  // it rendered (the mount never rings), heard on every GOOD poll below (a frozen floor rings nothing).
+  const hear = useCounterAttention(() => floorFacts(initial.tables));
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
@@ -92,6 +97,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       }
       prevMeta.current = new Map(next.tables.map((t) => [t.sessionId, metaOf(t)]));
       setSnap(next);
+      hear(floorFacts(next.tables)); // Phase 2d · bell — the visible half is the card's status ring
       fails.current = 0;
       setDegraded(null);
       if (bumped.length > 0) {
@@ -131,7 +137,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [hear]);
 
   // Slow escalation tick while frozen/stale — the ≥2min paper-flow flip needs a re-render even if
   // every poll keeps failing silently.

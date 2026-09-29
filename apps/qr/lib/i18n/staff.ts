@@ -3135,6 +3135,25 @@ export const STAFF = {
     en: "Type a name to save — it’s optional.",
     my: "သိမ်းဖို့ နာမည် ရိုက်ပါ — မထည့်လည်း ရပါတယ်။",
   },
+  // ── Phase 2d · bell ──
+  // The counter bell's chip (components/staff/CounterBell.tsx) reuses the grounded chip words
+  // verbatim — kds.sound.enable · board.sound.on · kds.sound.off — and adds only its two lines.
+  // Both MY values are Claude-authored K15 drafts pending Min's native check; neither gates food or
+  // money (a missed bell costs a glance, and every event keeps its card ring and badge), so neither
+  // carries the high-priority marker. Words grounded on: အသံ and နှိပ် (kds.sound.off), ဒီစက် (shell.net.offline),
+  // ထပ် (pad.ghost.verb.retry).
+  // After a chip tap arms the bell it plays once; if the counter heard nothing the cause is the
+  // device's volume or its silent switch — said once, plainly, and not live (nothing went wrong).
+  "floor.sound.hint": {
+    en: "Didn’t hear it? Check the volume and the silent switch.",
+    my: "မကြားရဘူးလား — အသံအတိုးအကျယ်နဲ့ အသံပိတ်ခလုတ်ကို စစ်ပါ။",
+  },
+  // The browser refused (or never answered) the arm. Never blames the volume or the switch: neither
+  // can refuse an arm, and the chip is still the way to try again.
+  "floor.sound.refused": {
+    en: "Sound didn’t start on this device — tap to try again.",
+    my: "ဒီစက်မှာ အသံ မစနိုင်ပါ — ထပ်နှိပ်ကြည့်ပါ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

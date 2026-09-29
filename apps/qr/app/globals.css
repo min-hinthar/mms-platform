@@ -13643,3 +13643,46 @@ a.aisle-tile {
     overflow: visible;
   }
 }
+
+/* ── Phase 2d · bell ── */
+/* The counter's greeting line carries the bell's chip at its right (the counter branch of /staff
+   only — the doors' greeting keeps its own margin and no row). The row wraps on a phone: the chip
+   drops under the greeting, right-aligned, and its one transient line spans the row beneath it. */
+.staff-greet-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  margin: 0 0 var(--s4);
+}
+.staff-greet-row > .staff-greeting {
+  margin: 0;
+}
+.staff-greet-row > .staff-sound-chip {
+  margin-left: auto;
+}
+/* The chip's glyph beside its word (`volume` when on, `volume-off` otherwise); the lit cap, the
+   dimmed busy state and the rest are `.staff-chip`'s own — the pressed state is the ONE shared
+   selector list, never a fill of this chip's. */
+.staff-sound-chip {
+  gap: var(--s2);
+}
+/* PAUSED — the counter wanted the bell and the context is not running: a warn hairline + warn ink,
+   the kitchen chip's `data-muted` idiom (a state tone, not a selection). */
+.staff-chip[data-muted="true"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+/* The post-arm hint (plain) or the refusal (warn, role=alert), under the chip, ending where it ends. */
+.staff-sound-line {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+  text-align: end;
+}
+.staff-sound-line-warn {
+  color: var(--warn);
+}

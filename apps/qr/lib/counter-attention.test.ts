@@ -112,8 +112,9 @@ describe("laneFacts — an arrival, a basket at the exit, a finished bag", () =>
     // …and a basket is never FOOD, whatever its kitchen state reads.
     expect(f.food.size).toBe(0);
     expect(polls(laneFacts([]), f)).toEqual(["guest"]);
-    expect(polls(laneFacts([]), laneFacts([bag(O2, { lines: lines(grocery), status: "ready" })])))
-      .toEqual([null]);
+    expect(
+      polls(laneFacts([]), laneFacts([bag(O2, { lines: lines(grocery), status: "ready" })])),
+    ).toEqual([null]);
   });
 
   it("the basket test is the card's own: one food line makes it a bag", () => {
