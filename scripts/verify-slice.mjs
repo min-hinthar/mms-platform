@@ -10688,6 +10688,22 @@ const MUTANTS = [
     find: "      aria-busy={!hydrated || undefined}",
     replace: '      aria-busy={!hydrated || cur?.kind === "loading" || undefined}',
   },
+  {
+    id: "p2d-rev/split-floor-card-not-wired-to-the-pane",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 only the real floor can prove its cards open the pane (TablePane.test's stand-in floor calls openFromCard itself); unwired, a card tap leaves the counter for the full page",
+    find: "                        pane.openFromCard(e, r.table.sessionId, {",
+    replace: "                        (null as typeof pane)?.openFromCard(e, r.table.sessionId, {",
+  },
+  {
+    id: "p2d-rev/split-strip-tile-not-wired-to-the-pane",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 an occupied strip tile opens its table in the pane at split width; unwired, it routes away from the counter",
+    find: "      pane?.openFromCard(e, table.sessionId, {",
+    replace: "      (null as typeof pane)?.openFromCard(e, table.sessionId, {",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
