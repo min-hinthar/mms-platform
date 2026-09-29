@@ -17,6 +17,11 @@
 -- the line; a held claim made the add wait and raise 'cart is being paid'; without `for share` the
 -- add did not wait and landed under the live freeze). This file pins the single-session contract.
 --
+-- Corrections to the migration's header (prod-applied, so not edited):
+--   · "only a settlement waits" — ANY update of the cart row waits (for one statement) on an add's
+--     share lock, `touchCart`'s `updated_at` bump included. No deadlock: touchCart holds no line lock.
+--   · the restated '10 minutes' is now pinned to SETTLE_TTL_MS by apps/qr/lib/settle-ttl-parity.test.ts.
+--
 -- ⚠️ `now()` is the TRANSACTION start, constant through this file: `settle_at = now()` is fresh,
 -- `now() - 11 minutes` is stale.
 --

@@ -237,11 +237,12 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
     .maybeSingle();
   if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!line) return { ok: false, error: "That item isn’t on this table." };
-  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. The RPC guards only
-  // the open cart, so a stepper tap queued behind a Send (Next runs actions one at a time) would
-  // otherwise land on the just-fired line and the kitchen would cook a different quantity from the
-  // ticket. A sent dish changes through Remove / Make it free (the loss flow), never here. (The same
-  // guard inside the RPC — against another device's Send racing this read — needs a migration: filed.)
+  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. A stepper tap queued
+  // behind a Send (Next runs actions one at a time) would otherwise land on the just-fired line and
+  // the kitchen would cook a different quantity from the ticket. A sent dish changes through Remove /
+  // Make it free (the loss flow), never here. This read answers the common case; the race it cannot
+  // see — another device's Send landing after it — is closed inside the RPC since P2dd
+  // (20260929000000: `and ci.state = 'draft'` + the 'line already sent' raise, mapped below).
   if (line.state !== "draft") return { ok: false, error: SENT_LINE_REFUSAL };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
@@ -376,14 +377,13 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // ── Phase 2c · gate ── the settle gate (owner decision 3): a dine-in table pays only once every
     // dish has gone to the kitchen — otherwise this settle charges for dishes nobody sent and the
     // after() fire below cooks them once the table has paid. UNDER the freeze, BEFORE the totals (a
-    // refusal costs no totals read). The read fails OPEN (lib/unsent-read), which is today's
-    // settle-fires behaviour. Returned from INSIDE the try: the `finally` below releases this
+    // refusal costs no totals read). Returned from INSIDE the try: the `finally` below releases this
     // attempt's freeze.
     // P2cy (20260929000000) — the add RPCs now take the cart row FOR SHARE and refuse under a fresh
     // freeze, so no add can land after the acquire above: an add that locked first committed before
     // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
-    // P2dc (owner decision 5a) — an UNREADABLE count refuses here (fail closed at the staff doors);
-    // the `finally` below releases this attempt's freeze.
+    // P2dc (owner decision 5a) — an UNREADABLE count refuses here: the staff doors fail CLOSED (this
+    // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
     const unsentUnits = await readKitchenDraftUnits(cart.id);
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
     if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };
