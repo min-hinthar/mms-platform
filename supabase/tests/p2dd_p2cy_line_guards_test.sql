@@ -10,11 +10,17 @@
 -- so this file alone proves one case per run — the battery proves the rest).
 --
 -- The race itself (a settlement claim interleaved with an add) needs two sessions, so it is not in
--- here. MEASURED 2026-09-29 on a local PG16 with two live psql sessions: an add holding its lock
--- made the claim wait (1.54s) and the settlement then saw the line; a claim holding its UPDATE made
--- the add wait (1.54s) and then raise 'cart is being paid'. With `for share` deleted the add did not
--- wait (0.04s) and landed under the live freeze — the P2cy hole, reproduced. A CI two-session case
--- is OPEN-ITEMS P2dk. This file pins the single-session contract.
+-- here: it is scripts/verify-line-guard-race.mjs (P2dk; CI's "Line-guard race" steps), which runs
+-- all three RPCs claim-first and add-first plus a no-serialization control, and whose --mutants
+-- deletes each function's `for share` and watches both orders go red. First measured 2026-09-29 on
+-- a local PG16 by hand (an add holding its lock made the claim wait and the settlement then saw
+-- the line; a held claim made the add wait and raise 'cart is being paid'; without `for share` the
+-- add did not wait and landed under the live freeze). This file pins the single-session contract.
+--
+-- Corrections to the migration's header (prod-applied, so not edited):
+--   · "only a settlement waits" — ANY update of the cart row waits (for one statement) on an add's
+--     share lock, `touchCart`'s `updated_at` bump included. No deadlock: touchCart holds no line lock.
+--   · the restated '10 minutes' is now pinned to SETTLE_TTL_MS by apps/qr/lib/settle-ttl-parity.test.ts.
 --
 -- ⚠️ `now()` is the TRANSACTION start, constant through this file: `settle_at = now()` is fresh,
 -- `now() - 11 minutes` is stale.
@@ -107,6 +113,11 @@ begin
   perform public.mms_cart_item_inc_qty(cmp, 1);
   select qty into q from public.qr_cart_items where id = c99;
   assert q = 99, format('P2DD.4 · the 99-cap is a silent no-op (qty=%s)', q);
+  -- The comped half was called and never read back, so deleting `not ci.comped` from the bump
+  -- survived this whole file (measured 2026-09-29): a repeat tap grew a line staff had comped, and
+  -- every extra unit rode the bill at zero while the kitchen cooked it.
+  select qty into q from public.qr_cart_items where id = cmp;
+  assert q = 1, format('P2DD.4 · a comped draft is never grown — the bump is a silent no-op (qty=%s)', q);
 
   -- ══ a FRESH freeze ══════════════════════════════════════════════════════════════════════════
   update public.qr_carts set settle_at = now(), settle_by = gen_random_uuid() where id = cart;

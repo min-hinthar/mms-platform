@@ -13,7 +13,10 @@ import { isTaxable, lineTax, taxRate } from "./tax";
  * ⚠️ The two halves deliberately do NOT read each other. A TS test that parsed the migration would
  * be a turbo-cache trap: turbo hashes only files INSIDE the workspace, so editing a migration leaves
  * `@mms/qr:test` a cache hit and it replays a green log against drifted SQL (verified in this repo).
- * Each side asserts the constants independently, in its own job.
+ * Each side asserts the constants independently, in its own job. (Since P2d, `apps/qr/turbo.json`
+ * declares `supabase/migrations/**` a test input — measured: a migration-only edit now changes the
+ * task hash — so the cache half no longer holds here; `settle-ttl-parity.test.ts` relies on that.
+ * The independence argument for tax stands on its own.)
  *
  * ⚠️ Amounts are bounded NON-NEGATIVE here on purpose. TS `Math.round` is half-toward-+∞ and SQL
  * `round(numeric)` is half-away-from-zero, so they diverge by 1¢ on negative ties (−200 → TS −19,

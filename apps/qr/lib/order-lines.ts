@@ -335,7 +335,13 @@ export async function insertOrIncLine(
 }
 
 /** Bump a cart's updated_at so realtime peers re-sync. Non-fatal (the line mutation already committed) —
- *  a stale updated_at shouldn't surface as an error, but log it. */
+ *  a stale updated_at shouldn't surface as an error, but log it.
+ *
+ *  P2cy — this UPDATE conflicts with the `FOR SHARE` cart lock the three line RPCs open with
+ *  (20260929000000), so it waits — for one statement — behind an add in flight on the same table,
+ *  exactly as a settlement claim does. (That migration's header says "only a settlement waits"; it
+ *  is prod-applied and not edited, so the correction lives here.) No deadlock: this statement holds
+ *  no line lock, and the add holds the cart lock only to its own commit. */
 export async function touchCart(cartId: string, ctx: string): Promise<void> {
   const db = serviceClient();
   const { error } = await db
