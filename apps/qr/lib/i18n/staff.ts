@@ -1017,9 +1017,11 @@ export const STAFF = {
     en: "No tables as of the last update",
     my: "နောက်ဆုံး အသစ်တက်ချိန်အထိ စားပွဲ မရှိပါ",
   },
+  // Phase 2d · floor — reworded: the card's clock is "Opened", not "seated" (a session outlives
+  // payment until Clear table), and the row now says what is in the kitchen. MY is a K15 draft.
   "floor.tables.emptySub": {
-    en: "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated. Counter orders appear the moment you start one above.",
-    my: "ဧည့်သည် စကန်ဖတ်တာနဲ့ စားပွဲက ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ ဘာမှာထားလဲ၊ ထိုင်နေတာ ဘယ်လောက်ကြာပြီလဲ။ အပေါ်မှာ အော်ဒါ စဖွင့်တာနဲ့ ကောင်တာ အော်ဒါလည်း ဒီမှာ ပေါ်ပါမယ်။",
+    en: "Tables appear here the moment a guest scans in or you start one — party, what’s in the kitchen, and how long the table has been open. Counter orders appear the moment you start one above.",
+    my: "ဧည့်သည် စကန်ဖတ်တာ ဒါမှမဟုတ် စားပွဲ ဖွင့်လိုက်တာနဲ့ ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ မီးဖိုချောင်မှာ ဘာရှိလဲ၊ ဖွင့်ထားတာ ဘယ်လောက်ကြာပြီလဲ။ အပေါ်မှာ အော်ဒါ စဖွင့်တာနဲ့ ကောင်တာ အော်ဒါလည်း ဒီမှာ ပေါ်ပါမယ်။",
   },
   "floor.tables.emptyFrozenSub": {
     en: "New tables won’t appear here until this board is updating again. Nothing already open is lost.",
@@ -1608,18 +1610,15 @@ export const STAFF = {
   // အော်ဒါ") must not also rewrite the name printed on an unnamed order.
   "reg.start.walkup": { en: "Walk-up", my: "လမ်းလျှောက်လာ" },
   "reg.start.phone": { en: "Phone order", my: "ဖုန်း အော်ဒါ" }, // glossary: အော်ဒါ
-  "reg.start.table": { en: "Start a table", my: "စားပွဲ ဖွင့်" }, // glossary: စားပွဲ
+  // Phase 2d · floor — `reg.start.table`, `reg.table.label`, `reg.table.placeholder` and
+  // `reg.err.table` retired with their last reader: the typed "Start a table" arm is the strip now.
   "reg.phone.label": { en: "Caller’s name", my: "ခေါ်သူ့ နာမည်" },
   "reg.phone.placeholder": { en: "First name", my: "နာမည်" },
-  "reg.table.label": { en: "Table number", my: "စားပွဲ နံပါတ်" },
-  // {id} is an EXAMPLE table number — Latin in both tongues, and a slot rather than a literal
-  // because no dictionary VALUE may carry a digit of either script.
-  "reg.table.placeholder": { en: "e.g. {id}", my: "ဥပမာ {id}" },
-  "reg.go": { en: "Start", my: "စဖွင့်" },
+  // Phase 2d · floor — MY re-drafted to ဖွင့်: the counter screen's ONE verb for starting (the strip's
+  // `floor.verb.start`, its own busy twin `reg.going`, the strip label and the help line all say
+  // ဖွင့်; စဖွင့် forked the one act a foot away). K15 draft; pinned by strings.test "one word".
+  "reg.go": { en: "Start", my: "ဖွင့်" },
   "reg.going": { en: "Starting…", my: "ဖွင့်နေပါတယ်…" },
-  // The ONE client-authored failure the Start zone raises itself. It needs its own key because
-  // <OutageText> only swaps the write-outage twin and would pass this through as English forever.
-  "reg.err.table": { en: "Enter the table number.", my: "စားပွဲ နံပါတ် ထည့်ပါ။" },
 
   // ── the register: the open-counter queue ──────────────────────────────────
   "reg.row.walkup": { en: "Walk-up", my: "လမ်းလျှောက်လာ" },
@@ -2490,9 +2489,10 @@ export const STAFF = {
     en: "Someone at the counter? Tap Walk-up to start their order.",
     my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",
   },
+  // Phase 2d · floor — reworded: a table starts from the strip now. MY is a K15 draft.
   "help.how.counter.1.more": {
-    en: "Phone order and Start a table sit beside it — each opens the order screen.",
-    my: "ဖုန်း အော်ဒါ နဲ့ စားပွဲ ဖွင့် က ဘေးမှာ ရှိပါတယ် — တစ်ခုချင်းက အော်ဒါ စခရင်ကို ဖွင့်ပေးပါမယ်။",
+    en: "Phone order sits beside it. To start a table, tap its number under Tables.",
+    my: "ဖုန်း အော်ဒါ က ဘေးမှာ ရှိပါတယ်။ စားပွဲ ဖွင့်ဖို့ စားပွဲများ အောက်က နံပါတ်ကို နှိပ်ပါ။",
   },
   "help.how.counter.2": {
     en: "Tap a table to see its order.",
@@ -3135,6 +3135,52 @@ export const STAFF = {
     en: "Type a name to save — it’s optional.",
     my: "သိမ်းဖို့ နာမည် ရိုက်ပါ — မထည့်လည်း ရပါတယ်။",
   },
+  // ── Phase 2d · floor ──
+  // Every MY value below is a Claude-authored K15 draft pending Min's native check, EXCEPT where a
+  // `grounded:` note names the in-repo word it reuses verbatim. Counts ride `{n}` (Burmese numerals
+  // under my); table numbers ride `{id}` (Latin in both tongues). No value carries a digit.
+  // The strip's visible label, above the tiles (the room's map AND its start, owner decision 5c).
+  "floor.strip.label": {
+    en: "Tables — tap a free one to start it",
+    my: "စားပွဲများ — လွတ်နေတဲ့ စားပွဲကို နှိပ်ပြီး ဖွင့်ပါ",
+  },
+  // A FREE tile's verb (under its number) and an occupied tile's spoken verb. `ဖွင့်` is the verb
+  // of the retired `reg.start.table` (စားပွဲ ဖွင့်), kept verbatim; "View" is ကြည့် ('look'), never
+  // "Open", which would pair with ဖွင့် and read as the same word as Start.
+  "floor.verb.start": { en: "Start", my: "ဖွင့်" }, // grounded: the retired reg.start.table's verb
+  "floor.verb.view": { en: "View", my: "ကြည့်" },
+  // The card's kitchen row. "Ready to serve" is the wall's own plain words (`board.pulse.up`), so
+  // the TV and the card say one thing about one dish.
+  "floor.kitchen.notSent": { en: "{n} not sent", my: "{n} ခု မပို့ရသေး" }, // K15-HIGH — the cue that dishes never reached the kitchen
+  "floor.kitchen.inKitchen": { en: "{n} in kitchen", my: "မီးဖိုချောင်မှာ {n} ခု" }, // grounded: kds.title မီးဖိုချောင်
+  "floor.kitchen.up": { en: "{n} ready to serve", my: "{n} ခု ဟင်းထွက်ပြီ" }, // grounded: board.pulse.up
+  "floor.kitchen.wait": { en: "{n} min", my: "{n} မိနစ်" }, // grounded: time.minAgo မိနစ်
+  // The floor's ONE region when food comes out: one table, or several joined ", " in {id}.
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "floor.kitchen.upNotice.one": {
+    en: "Ready to serve — Table {id}",
+    my: "ဟင်းထွက်ပြီ — စားပွဲ {id}",
+  }, // grounded: board.pulse.up + floor.table
+  "floor.kitchen.upNotice.many": {
+    en: "Ready to serve — Tables {id}",
+    my: "ဟင်းထွက်ပြီ — စားပွဲ {id}",
+  }, // grounded: board.pulse.up + floor.table
+  // A segment of the count line, whenever a table has asked to pay at the counter.
+  "floor.tables.asks": {
+    en: "{n} waiting to pay at counter",
+    my: "ကောင်တာမှာ ရှင်းဖို့ စောင့်နေတဲ့ စားပွဲ {n} ခု",
+  },
+  // The card's clock: a prefix before <RelativeTime> — "Opened 25m ago" / "ဖွင့်တာ ၂၅ မိနစ်က".
+  "floor.card.opened": { en: "Opened", my: "ဖွင့်တာ" },
+  // A start whose answer never came back (a dropped connection AFTER the server may have started
+  // it): said as UNKNOWN, never "wasn't saved" — the next poll shows the table taken if it landed.
+  "floor.mint.unknown": {
+    en: "No answer from the ordering system — it may have started. Check Tables & counter orders before you try again.",
+    my: "အော်ဒါစနစ်က အဖြေ မရပါ — စပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ခင် စားပွဲများနဲ့ ကောင်တာ အော်ဒါများကို စစ်ပါ။",
+  },
+  // The strip's KEY: what the owed-Send dot on a tile means — `floor.kitchen.notSent`'s words
+  // without the count (the dot carries none). K15 draft.
+  "floor.key.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — decodes the one mark that says dishes never reached the kitchen
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3172,6 +3218,8 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   // ── Phase 2c · gate ──
   ["table.send.settleBlocked.one", "table.send.settleBlocked.many"],
   ["table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many"],
+  // ── Phase 2d · floor ──
+  ["floor.kitchen.upNotice.one", "floor.kitchen.upNotice.many"],
 ];
 
 /**
@@ -3338,6 +3386,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "pad.err.retry.paying",
   "pad.err.retry.failed",
   "pad.err.add.checking",
+  // ── Phase 2d · floor ──
+  "floor.kitchen.notSent",
+  "floor.key.notSent",
 ]);
 
 /**

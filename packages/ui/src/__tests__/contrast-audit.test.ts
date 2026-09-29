@@ -467,3 +467,64 @@ describe("the scan stage's constant ink pair — read THROUGH the .dark merge", 
     expect(contrastRatio(tok(map, "--on-ink"), tok(map, "--ink"))).toBeGreaterThanOrEqual(7);
   });
 });
+
+// ── Phase 2d · floor ──
+// The counter's floor: the table strip, the card's status edge, the kitchen row, the wait pill and
+// the board's region notice — every text and non-text pair it introduces, both themes. Non-text
+// (WCAG 1.4.11, 3:1): the free tile's DASHED edge on the card and on the page, the tone bars and
+// the card's edge on the card, the glyphs, the amber pill's gold edge, and the ask tile's bar on its
+// own warn fill. Text (4.5:1): the free tile's "Start", the ask tile's number, the kitchen row's
+// ready segment, the region's "Ready to serve", and the three pill levels (the amber tint is
+// `color-mix(in srgb, --gold 16%, --cd)`, which composites exactly like `flattenAlpha`).
+for (const [theme, map] of [
+  ["light", light],
+  ["dark", dark],
+] as const) {
+  const cd = tok(map, "--cd");
+  const pg = tok(map, "--pg");
+  const nonText: [string, string, string][] = [
+    ["t2 on cd (the free tile's dashed edge; the rest/returned glyph)", "--t2", cd],
+    ["t2 on pg (the free tile's dashed edge against the page)", "--t2", pg],
+    ["warn on cd (the ask / money-in-flight bar, edge and glyph)", "--warn", cd],
+    ["ac on cd (the ordering bar, edge and glyph)", "--ac", cd],
+    ["ok on cd (the paid bar, edge and glyph)", "--ok", cd],
+    ["t3 on cd (the returned-money bar and edge)", "--t3", cd],
+    ["gold-strong on cd (the amber pill's edge)", "--gold-strong", cd],
+    ["warn on warnb (the ask tile's bar and glyph on its own fill)", "--warn", tok(map, "--warnb")],
+    // The owed-Send dot (a tile's corner, on the card fill or the ask's warn fill) and the strip's
+    // KEY, which sits on the page: each glyph in its tone's ink, and the dot again.
+    ["warn on cd (the owed-Send dot on a tile)", "--warn", cd],
+    ["warn on pg (the key's ask / in-flight glyph and its owed dot)", "--warn", pg],
+    ["ac on pg (the key's ordering glyph)", "--ac", pg],
+    ["ok on pg (the key's paid glyph)", "--ok", pg],
+    ["t2 on pg (the key's seated / returned glyph)", "--t2", pg],
+  ];
+  const text: [string, string, string][] = [
+    ["ac-strong on cd (the free tile's 'Start')", "--ac-strong", cd],
+    ["tx on warnb (the ask tile's number)", "--tx", tok(map, "--warnb")],
+    ["tx on cd (a tile's number; the in-kitchen segment)", "--tx", cd],
+    ["ok on cd (the kitchen row's 'ready to serve')", "--ok", cd],
+    ["ok on pg (the region's 'Ready to serve — Table 7')", "--ok", pg],
+    ["t2 on sf (the calm wait pill)", "--t2", tok(map, "--sf")],
+    [
+      "gold-strong on gold 16% over cd (the amber wait pill)",
+      "--gold-strong",
+      flattenAlpha(tok(map, "--gold"), 0.16, cd),
+    ],
+    ["warn on warnb (the red wait pill)", "--warn", tok(map, "--warnb")],
+    // The kitchen row's "2 not sent" — the one fact a server must act on, in the act-now ink.
+    ["warn on cd (the kitchen row's 'not sent')", "--warn", cd],
+    // A refunded table's chip: the muted pair on the raised fill — the tile's ink, never --ok/--warn.
+    ["t2 on sf (the returned chip)", "--t2", tok(map, "--sf")],
+    // The strip's key: the words under the tiles, on the page.
+    ["t2 on pg (the strip's key)", "--t2", pg],
+  ];
+  describe(`${theme} theme — the floor (Phase 2d)`, () => {
+    it.each(nonText)("%s clears 3:1", (_name, fg, bg) => {
+      expect(contrastRatio(tok(map, fg), bg)).toBeGreaterThanOrEqual(3);
+    });
+    it.each(text)("%s clears 4.5:1", (_name, fg, bg) => {
+      expect(contrastRatio(tok(map, fg), bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+}

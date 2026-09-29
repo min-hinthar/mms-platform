@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FLOOR_STATUS_KEY, al, sx, type StaffControl } from "./staff-labels";
+import { FLOOR_STATUS_KEY, al, floorStatusKey, sx, type StaffControl } from "./staff-labels";
 import { STAFF, ts } from "./i18n/staff";
 import type { FloorStatus } from "./floor-types";
 import type { StaffLang } from "./staff-lang";
@@ -91,6 +91,10 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       runningSubtotal: "$0.00",
       paidTotal: null,
       paidRefunded: false,
+      refundState: null,
+      kitchen: [],
+      wait: null,
+      opened: { k: "time.justNow" },
     },
   ],
   [
@@ -107,6 +111,10 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       runningSubtotal: "$142.10",
       paidTotal: "$88.00",
       paidRefunded: false,
+      refundState: null,
+      kitchen: [],
+      wait: null,
+      opened: { k: "time.justNow" },
     },
   ],
 ];
@@ -289,6 +297,10 @@ describe("a table's name says the word the chip shows, never the database's", ()
     runningSubtotal: "$0.00",
     paidTotal: null,
     paidRefunded: false,
+    refundState: null,
+    kitchen: [],
+    wait: null,
+    opened: { k: "time.justNow" },
   } as const satisfies StaffControl;
 
   it("en: the visible word is 'Splitting' and the raw key never appears", () => {
@@ -339,6 +351,10 @@ describe("a table's name renders each fragment in the right script", () => {
     runningSubtotal: "$142.10",
     paidTotal: "$88.00",
     paidRefunded: false,
+    refundState: null,
+    kitchen: [],
+    wait: null,
+    opened: { k: "time.justNow" },
   } as const satisfies StaffControl;
 
   it("my: the table number and both money figures stay LATIN", () => {
@@ -365,6 +381,10 @@ describe("a table's name renders each fragment in the right script", () => {
       itemCount: 0,
       paidTotal: null,
       paidRefunded: false,
+      refundState: null,
+      kitchen: [],
+      wait: null,
+      opened: { k: "time.justNow" },
     } as const satisfies StaffControl;
     const loud = al("en", busy).aria;
     const soft = al("en", quiet).aria;
@@ -480,6 +500,10 @@ describe("al — a refunded table is never spoken as paid", () => {
       runningSubtotal: "$0.00",
       paidTotal: "$53.30",
       paidRefunded: true,
+      refundState: "full",
+      kitchen: [],
+      wait: null,
+      opened: { k: "time.justNow" },
     });
     expect(refunded.aria).toContain("$53.30 refunded");
     expect(refunded.aria).not.toContain("$53.30 paid");
@@ -500,8 +524,96 @@ describe("al — a refunded table is never spoken as paid", () => {
       runningSubtotal: "$0.00",
       paidTotal: "$53.30",
       paidRefunded: false,
+      refundState: null,
+      kitchen: [],
+      wait: null,
+      opened: { k: "time.justNow" },
     });
     expect(paid.aria).toContain("$53.30 paid");
     expect(paid.aria).not.toContain("refunded");
+  });
+});
+
+// ── Phase 2d · floor ──
+describe("floorStatusKey — one word per state, and never a success word over returned money", () => {
+  it("a paid table whose money came back reads Refunded / Partly refunded, in both tongues", () => {
+    // MUTATION: ignore `refundState` → a fully refunded table's chip, tile and name say "Paid".
+    expect(floorStatusKey("paid", "full")).toBe("floor.status.refunded");
+    expect(floorStatusKey("paid", "partial")).toBe("floor.status.partlyRefunded");
+    expect(floorStatusKey("paid", "none")).toBe("floor.status.paid");
+    expect(floorStatusKey("paid", null)).toBe("floor.status.paid");
+    // A refund state never rewrites a table that is not resting on its payment.
+    expect(floorStatusKey("ordering", "full")).toBe("floor.status.ordering");
+  });
+});
+
+describe("a table's name carries the refund word, the kitchen row, the wait and the clock", () => {
+  const base = {
+    kind: "table",
+    label: "7",
+    unregistered: false,
+    status: "paid",
+    tabOpen: false,
+    tabOverCeiling: false,
+    partySize: 2,
+    itemCount: 0,
+    runningSubtotal: "$0.00",
+    paidTotal: "$53.30",
+    paidRefunded: true,
+    refundState: "full",
+    kitchen: [],
+    wait: null,
+    opened: { k: "time.minAgo", n: 25 },
+  } as const satisfies StaffControl;
+
+  it("a fully refunded table is spoken as Refunded, never Paid — in both tongues", () => {
+    for (const lang of LANGS) {
+      const { aria } = al(lang, base);
+      expect(aria).toContain(ts(lang, "floor.status.refunded"));
+      expect(aria).not.toContain(ts(lang, "floor.status.paid"));
+    }
+  });
+
+  it("the kitchen segments, then the wait with 'Late' when red, then 'Opened …' — in visible order", () => {
+    const busy = {
+      ...base,
+      status: "ordering",
+      paidTotal: null,
+      paidRefunded: false,
+      refundState: null,
+      itemCount: 3,
+      runningSubtotal: "$21.00",
+      kitchen: [
+        { k: "floor.kitchen.notSent", n: 2 },
+        { k: "floor.kitchen.inKitchen", n: 3 },
+      ],
+      wait: { min: 9, late: true },
+    } as const satisfies StaffControl;
+    const { aria } = al("en", busy);
+    // MUTATION: drop the late push → "Late" never reaches a listener while the pill says it.
+    expect(aria).toContain("2 not sent, 3 in kitchen, 9 min, Late");
+    expect(aria.endsWith("Opened 25m ago")).toBe(true);
+    // A calm wait says the minutes and nothing more.
+    expect(al("en", { ...busy, wait: { min: 9, late: false } }).aria).not.toContain("Late");
+  });
+
+  it("'Kitchen done' stands alone as its own words", () => {
+    const { aria } = al("en", { ...base, kitchen: [{ k: "expo.kitchenDone" }] });
+    expect(aria).toContain(STAFF["expo.kitchenDone"].en);
+  });
+
+  it("my: segment counts and the wait are Burmese numerals, the table number stays Latin", () => {
+    const { aria } = al("my", {
+      ...base,
+      status: "ordering",
+      refundState: null,
+      kitchen: [{ k: "floor.kitchen.inKitchen", n: 3 }],
+      wait: { min: 9, late: false },
+    });
+    expect(aria).toContain("စားပွဲ 7");
+    expect(aria).toContain("မီးဖိုချောင်မှာ ၃ ခု");
+    expect(aria).toContain("၉ မိနစ်");
+    expect(aria).toContain("၂၅ မိနစ်က");
+    expect(aria).not.toMatch(/\b[39]\b/);
   });
 });

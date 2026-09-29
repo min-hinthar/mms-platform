@@ -64,6 +64,9 @@ export function CounterOrderCard({
       style={tableCardStyle.card}
       aria-label={aria}
     >
+      {/* Phase 2d · floor — the status edge the table cards wear, in the ordering tone: a counter
+          order is being built. Decorative; the chip says what it is. */}
+      <span className="floor-edge" data-tone="live" aria-hidden />
       <div style={tableCardStyle.topRow}>
         <span style={tableCardStyle.label}>
           {order.customerName ?? <Chrome lang={lang} k="reg.row.walkup" echo="inline" />}

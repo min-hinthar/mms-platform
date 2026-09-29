@@ -548,7 +548,7 @@ export function FloorDetailLive({
                   <Chrome lang={lang} k="table.detail.unregisteredBadge" />
                 </Badge>
               )}
-              <FloorStatusChip status={detail.status} lang={lang} />
+              <FloorStatusChip status={detail.status} refund={detail.refund} lang={lang} />
               {detail.tab !== "none" && (
                 // Announced (not decorative): this chip's text is the only place the tab state is named.
                 // Secured = jade (affirmative, card-backed); open = accent (neutral-attention). `bordered`

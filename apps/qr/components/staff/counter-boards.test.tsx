@@ -13,6 +13,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 const NOW = "2026-09-13T18:00:00.000Z";
 const topics: string[] = [];
+// Phase 2d · floor — the snapshot's strip and thresholds (no registered tables: no strip).
+const P2D = {
+  registry: [] as number[],
+  thresholds: {
+    dineinAmberMin: 8,
+    dineinRedMin: 12,
+    pickupAmberMin: 8,
+    pickupRedMin: 12,
+    rechimeSec: 75,
+  },
+};
 class FakeChannel {
   joined = false;
   constructor(public topic: string) {}
@@ -51,7 +62,7 @@ vi.mock("@mms/db", () => ({ browserClient: () => supa }));
 const OUTAGE = { ok: false as const, reason: "outage" as const };
 let floorAnswer: unknown = {
   ok: true,
-  snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW },
+  snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D },
 };
 let expoAnswer: unknown = { ok: true, queue: { tickets: [], serverNow: NOW } };
 vi.mock("@/lib/floor", () => ({ getFloorView: () => Promise.resolve(floorAnswer) }));
@@ -60,6 +71,9 @@ vi.mock("@/lib/expo", () => ({
   setTogoStatus: () => Promise.resolve({ ok: true }),
 }));
 vi.mock("@/lib/useWakeLock", () => ({ useWakeLock: () => {} }));
+// Phase 2d · floor — the board imports the strip, and the strip the screen's mint lock, which
+// reaches the register's server action. Nothing here starts an order.
+vi.mock("@/lib/register", () => ({ openRegisterOrder: () => Promise.resolve({ ok: false }) }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { LiveConnectionProvider } = await import("./LiveConnection");
@@ -72,7 +86,7 @@ afterEach(() => {
   vi.useRealTimers();
   floorAnswer = {
     ok: true,
-    snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW },
+    snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D },
   };
   expoAnswer = { ok: true, queue: { tickets: [], serverNow: NOW } };
 });
@@ -113,7 +127,7 @@ describe("the counter screen's two live boards on one singleton client", () => {
     render(
       <StaffLangProvider lang="en">
         <FloorBoard
-          initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW }}
+          initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D }}
         />
         <ExpoBoard initial={{ tickets: [], serverNow: NOW }} />
       </StaffLangProvider>,
@@ -139,7 +153,7 @@ describe("the lane's announcements — heard, never twice (Codex round 1 on A4·
       <StaffLangProvider lang="en">
         <LiveConnectionProvider>
           <FloorBoard
-            initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW }}
+            initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D }}
           />
           <ExpoBoard initial={{ tickets, serverNow: NOW }} />
         </LiveConnectionProvider>

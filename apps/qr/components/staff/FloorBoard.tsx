@@ -14,6 +14,13 @@ import { useStaffLang } from "./StaffLangProvider";
 import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
+// ── Phase 2d · floor ──
+import { UP_NOTICE_DWELL_MS, upRose } from "@/lib/floor-kitchen";
+import { ERR_DWELL_MS } from "@/lib/kds-errors";
+import { plural } from "@/lib/i18n/fill";
+import { tableDisplay } from "@/lib/floor-types";
+import { MsgText, type StaffMsg } from "./StaffMsg";
+import { TableStrip } from "./TableStrip";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -61,6 +68,26 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // Guard against a fetch that resolves AFTER unmount (getFloorView has no AbortController) — otherwise we'd
   // schedule pulse timers the cleanup already ran past + setState on a dead component.
   const alive = useRef(true);
+  // ── Phase 2d · floor ── the region's two notices (precedence in the render), each with its own
+  // dwell, and each table's last "ready to serve" count so a RISE between polls can cue. Seeded from
+  // the initial snapshot: a table already showing food up when the screen loads never rings.
+  const [stripNotice, setStripNotice] = useState<StaffMsg | null>(null);
+  const [upNotice, setUpNotice] = useState<string[] | null>(null);
+  const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevUp = useRef<Map<string, number>>(
+    new Map(initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0])),
+  );
+  const onStripNotice = useCallback((n: StaffMsg | null) => {
+    if (stripTimer.current) clearTimeout(stripTimer.current);
+    stripTimer.current = null;
+    setStripNotice(n);
+    if (n !== null)
+      stripTimer.current = setTimeout(() => {
+        stripTimer.current = null;
+        setStripNotice(null);
+      }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
+  }, []);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
@@ -74,6 +101,11 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           // W10b (M32): platform unreachable — keep the last-known room and keep polling.
           setNowMs(Date.now());
           setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          return;
+        }
+        // Phase 2d · floor (K14) — locked from another tab: the lock screen, the KDS's rule.
+        if (res.reason === "locked") {
+          window.location.assign("/staff/lock");
           return;
         }
         // A genuinely expired/invalid staff session: the honest surface is the login, K10-style.
@@ -91,6 +123,27 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         }
       }
       prevMeta.current = new Map(next.tables.map((t) => [t.sessionId, metaOf(t)]));
+      // Phase 2d · floor — food coming OUT is the one kitchen event that cues: the card's ring (the
+      // same nonce machinery, once per card per poll) and the region's "Ready to serve — Table 7".
+      const upNow: string[] = [];
+      for (const t of next.tables) {
+        const up = t.kitchen?.up ?? 0;
+        if (!upRose(prevUp.current.get(t.sessionId), up)) continue;
+        upNow.push(tableDisplay(t).text);
+        if (!bumped.some(([id]) => id === t.sessionId)) {
+          nonceRef.current += 1;
+          bumped.push([t.sessionId, nonceRef.current]);
+        }
+      }
+      prevUp.current = new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
+      if (upNow.length > 0) {
+        if (upTimer.current) clearTimeout(upTimer.current);
+        setUpNotice(upNow);
+        upTimer.current = setTimeout(() => {
+          upTimer.current = null;
+          setUpNotice(null);
+        }, UP_NOTICE_DWELL_MS);
+      }
       setSnap(next);
       fails.current = 0;
       setDegraded(null);
@@ -163,6 +216,14 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       timers.clear();
     };
   }, [refresh]);
+  // Phase 2d · floor — the notices' dwell timers die with the board.
+  useEffect(
+    () => () => {
+      if (stripTimer.current) clearTimeout(stripTimer.current);
+      if (upTimer.current) clearTimeout(upTimer.current);
+    },
+    [],
+  );
 
   // A4·2 — ONE list, keyed by session: the floor's tables and the open counter orders, in the order
   // `mergeFloorRows` states once (a table asking to pay, the counter orders, the rest of the room).
@@ -170,6 +231,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const count = rows.length;
   const tableCount = snap.tables.length;
   const counterCount = snap.counter.length;
+  // Phase 2d · floor — the ask a screen-reader user must hear when it appears.
+  const askCount = snap.tables.filter((t) => t.status === "counter").length;
 
   return (
     <section aria-labelledby="floor-h" className="staff-zone">
@@ -183,16 +246,20 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               returns a flat STRING, so the freeze branch has nowhere else to carry its mark. Every
               other branch renders <Chrome>, which marks itself, and an unconditional `lang={lang}`
               on the <p> would then double-mark them. */}
+        {/* Phase 2d · floor — the ONE region's precedence: a strip refusal (a start that did not
+              happen, or whose answer never came) > the freeze > "Ready to serve" > the counts. */}
         <p
           role="status"
-          lang={degraded ? lang : undefined}
+          lang={!stripNotice && degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
-            color: degraded ? "var(--warn)" : "var(--t2)",
+            color: stripNotice || degraded ? "var(--warn)" : upNotice ? "var(--ok)" : "var(--t2)",
           }}
         >
-          {degraded ? (
+          {stripNotice ? (
+            <MsgText lang={lang} msg={stripNotice} />
+          ) : degraded ? (
             // A4·2 — this is the counter screen's ONE state region: the lane beside it freezes on
             // the same outage and says so in plain text, never in a second live region (two
             // near-identical announcements in one second, the blind pass measured). So the freeze
@@ -204,6 +271,16 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               "what.floor",
               degraded.cause,
             )
+          ) : upNotice ? (
+            <Chrome
+              lang={lang}
+              k={plural(
+                upNotice.length,
+                "floor.kitchen.upNotice.one",
+                "floor.kitchen.upNotice.many",
+              )}
+              vars={{ id: upNotice.join(", ") }}
+            />
           ) : count === 0 ? (
             <Chrome lang={lang} k="floor.rows.none" />
           ) : (
@@ -217,6 +294,10 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                   k={tableCount === 1 ? "floor.tables.count.one" : "floor.tables.count.many"}
                   vars={{ n: tableCount }}
                 />
+              ) : null,
+              // Phase 2d · floor — a table asking to pay is the one ask that needs a person.
+              askCount > 0 ? (
+                <Chrome key="asks" lang={lang} k="floor.tables.asks" vars={{ n: askCount }} />
               ) : null,
               counterCount > 0 ? (
                 <Chrome
@@ -243,6 +324,17 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           )}
         </p>
       </div>
+
+      {/* Phase 2d · floor — THE STRIP: the room's map and its one-tap start, above the cards (and
+          above the empty state: at open, every table free is the most useful screen). */}
+      {snap.registry.length > 0 && (
+        <TableStrip
+          registry={snap.registry}
+          tables={snap.tables}
+          lang={lang}
+          onNotice={onStripNotice}
+        />
+      )}
 
       {count === 0 ? (
         // W10b — mid-freeze "the floor is quiet" would be an authoritative lie about a full room.
@@ -278,6 +370,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               <TableCard
                 table={r.table}
                 serverNow={snap.serverNow}
+                thresholds={snap.thresholds}
                 pulse={pulses.get(r.table.sessionId)}
                 lang={lang}
               />
@@ -304,5 +397,6 @@ const grid: CSSProperties = {
   padding: 0,
   display: "grid",
   gap: "var(--s3)",
-  gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 300px), 1fr))",
+  // Phase 2d · floor — 18rem: two cards across a 768 tablet's column, three across the 1080.
+  gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 18rem), 1fr))",
 };

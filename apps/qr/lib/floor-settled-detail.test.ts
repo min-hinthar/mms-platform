@@ -28,6 +28,9 @@ vi.mock("./staff", () => ({
   staffGate: () => Promise.resolve({ ok: true, caller: {} }),
   STAFF_WRITE_OUTAGE: "outage",
 }));
+// Phase 2d · floor — `getFloorView` checks the console lock (K14); `cookies()` throws outside a
+// request, so the lock answers "unlocked" here (lib/floor-kitchen-read.test.ts pins the locked arm).
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
 // Phase 2c · register (P2w) — per case: whether the freeze reads fresh, and the mutex's answer.
 let fresh = false;
 let payReason: "mid_payment" | "split_in_progress" | "split_unreadable" | null = null;
