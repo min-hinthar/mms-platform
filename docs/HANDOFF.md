@@ -5,6 +5,47 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-29 · Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database — on branch `claude/inspiring-cori-4rf37k`)
+>
+> **Phase 2d is built on this branch** as three worktree branches merged here — `p2d/floor` and
+> `p2d/bell` in parallel, then `p2d/split` on their merge — each through an independent critic round
+> whose verified findings are fixed; then the integration shipped the two database guards Phase 2c
+> filed and the fail-closed staff gate. Its CHANGELOG entry is the as-built; DESIGN-LANGUAGE §17
+> carries the floor, the counter bell and the tablet split (plus the fail-closed gate and the typed
+> line refusals), §7 the counter screen's per-zone regions. **Owner decisions applied (2026-09-29,
+> delegated — "decide on world class app design-thinking quality standards and apply database
+> migrations"):** ⑤a the three STAFF payment doors fail CLOSED on an unreadable unsent count (the
+> diner's counter ask stays fail-open); ⑤b P2dd + P2cy ship as a migration, **applied to prod**; ⑤c
+> Phase 2d as recommended (the one-tap strip, Walk-up as the Start zone's primary, the split from
+> 48em with a persistent pane from 64em, the bell on the counter home only, "not sent" counts what
+> staff can act on).
+>
+> **⚠️ A prod migration landed this phase:** `20260929000000_p2dd_p2cy_line_guards.sql` — the three
+> line RPCs take the cart row `FOR SHARE`, refuse under a fresh settle freeze and never change a sent
+> line. Applied through the MCP `apply_migration` (one file) AFTER CI's Supabase job ran its SQL test
+> and the mode-authority battery green (run `36628474692`), then verified on prod: `md5(prosrc)` of
+> all three bodies equals the CI-tested targets, one overload each, `search_path ''`, execute to
+> `service_role` only, and every SQL case re-run against prod inside one `DO` block ending in a
+> sentinel raise. Prod's history carries it as MCP stamp `20260929205611` (M125 — the histories are
+> still divergent; `db push` stays unusable). The row lock itself is a documented survivor of the
+> mode-authority battery — it needs two sessions; its CI case is **P2dk**.
+>
+> **Closed:** P2dd · P2cy · P2dc · P2ac (`staff_fire_undo_test.sql` passed in that run — its red-first
+> half still never done) · P2ah (the floor's "not sent"); K14's floor half, K33's chip half; K24
+> narrowed to its remainder (the counter/table half is the split). New rows **P2de–P2el**, two of them
+> owner questions (P2do — "not sent" on a table that asked to pay at the counter; P2el — the
+> fail-closed refusal speaks the house outage sentence, not decision 5a's drafted words). **Nothing
+> here is device-measured:** the strip (P2dj), the bell's audio on the counter iPad and an Android
+> phone (P2dr, incl. the silent switch and a hidden tab), the floating sound note (P2ea), Back from
+> the router cache (P2eb), the split's widths and manual QA (P2ed · P2ee) and pane-write latency
+> (P2ec) — do not quote a pixel, a tap count or a latency to the owner before those run. **24 new
+> Burmese strings — 3 K15-HIGH (`floor.kitchen.notSent`, `floor.key.notSent`, `floor.pane.lostWrite`)
+> — await Min's native check** (listed on K15). **Next: 2e** — staff language: Burmese / Both /
+> English, per device, in Profile (P2x) · then **2f** counter cook-before-paid (P2v, a migration).
+>
+> **Gate today:** 1271 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **30** components, 1 `packages/db`) · 39 mode-authority mutants · `check:docs` clean.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-25 · Phase 2c — the order pad, the register's cash moment and the settle gate — on branch `claude/inspiring-cori-4rf37k`)
 >
 > **Phase 2c is built on this branch** as three worktree branches merged here — `p2c/pad` and
@@ -35,8 +76,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > P2ck changed; new **P2cv–P2db** (two med: an add racing the settle freeze — a migration — and a
 > hung `settleCash` trapping the cash sheet); 6 more Burmese keys (4 K15-HIGH) + one re-draft on K15.
 >
-> **Gate today:** 1119 `verify:slice` mutants · 163 target modules (138 `apps/qr/lib`, 3 API routes,
-> **21** components, 1 `packages/db`) · `check:docs` clean.
+> **Gate today:** 1271 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **30** components, 1 `packages/db`) · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -269,8 +310,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 1119 `verify:slice` mutants · 163 target modules (138 `apps/qr/lib`, 3 API routes,
-> **21** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
+> **Gate today:** 1271 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **30** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
 > is the reusable lesson.** Codex round 1 and the blind pass independently found that the new
@@ -346,8 +387,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 1119 `verify:slice` mutants · 163 target modules (138 `apps/qr/lib`, 3 API routes,
-> **21** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
+> **Gate today:** 1271 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **30** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
 > message, twice). So #290's only independent review was the in-session blind pass, and the override
@@ -986,8 +1027,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **1119 `verify:slice` mutants** · **163 target modules** (138 under `apps/qr/lib`, 3 API routes,
-> 21 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (4007 + 228 today)** ·
+> **1271 `verify:slice` mutants** · **179 target modules** (145 under `apps/qr/lib`, 3 API routes,
+> 30 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (4288 + 278 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1456,7 +1497,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (1119 today)**, **1372 qr + 138 ui tests at the time (4007 + 228 today)**, 69 target modules at the time (138 under `apps/qr/lib` today, 163 in all), 97 local
+> **334 mutants at the time (1271 today)**, **1372 qr + 138 ui tests at the time (4288 + 278 today)**, 69 target modules at the time (145 under `apps/qr/lib` today, 179 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2348,7 +2389,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 1119 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 4007 qr tests + 228 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 1271 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 4288 qr tests + 278 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3070,7 +3111,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (1119 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (1271 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
