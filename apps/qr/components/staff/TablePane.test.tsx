@@ -657,10 +657,14 @@ describe("TablePane — a start that converged on a seated table", () => {
       <button
         type="button"
         onClick={() =>
-          mint.run("table-4", { kind: "table", tableNumber: 4 }, {
-            onStart: () => {},
-            onRefusal: () => {},
-          })
+          mint.run(
+            "table-4",
+            { kind: "table", tableNumber: 4 },
+            {
+              onStart: () => {},
+              onRefusal: () => {},
+            },
+          )
         }
       >
         start 4
