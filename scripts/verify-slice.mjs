@@ -10424,12 +10424,12 @@ const MUTANTS = [
     replace: 'sel ? "open" : "empty"',
   },
   {
-    id: "counter-split/lost-write-for-the-table-shown",
+    id: "counter-split/lost-write-filtered-by-selection",
     file: "apps/qr/components/staff/CounterSplit.tsx",
     suite: "components/staff/TablePane.test.tsx",
-    why: "Phase 2d \u00b7 split (critic) \u2014 a refusal on the table SHOWN is its own detail's to say; recording it as lost names the open table as another",
-    find: "            if (sessionId !== selRef.current?.id) setLostWrite({ sessionId, hint });",
-    replace: "            setLostWrite({ sessionId, hint });",
+    why: "Phase 2d \u00b7 split (critic) \u2014 only an unmounted detail reports a lost write; filtering it by the selection drops a refusal from A's closed detail once A is picked again (the new detail never issued that write)",
+    find: "            setLostWrite({ sessionId, hint });",
+    replace: "            if (sessionId !== selRef.current?.id) setLostWrite({ sessionId, hint });",
   },
   {
     id: "counter-split/open-session-at-every-width",

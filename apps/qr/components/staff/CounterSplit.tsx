@@ -279,8 +279,11 @@ export function CounterSplit({
             select(id, hint, { write: true, focus: true });
           }}
           onLostWrite={(sessionId, hint) => {
-            // A write refused on a table the pane has LEFT; one for the table shown is its own.
-            if (sessionId !== selRef.current?.id) setLostWrite({ sessionId, hint });
+            // Only an UNMOUNTED detail reports here (FloorDetailLive routes a refusal through this
+            // only once it is no longer alive), so the report is always one no mounted region can
+            // say — even when the same table is shown again (A → ✕ → A): that new detail never
+            // issued the write. Never filtered by the selection.
+            setLostWrite({ sessionId, hint });
           }}
         />
       </div>

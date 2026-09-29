@@ -890,6 +890,32 @@ describe("TablePane — a refusal after the pane closed is shown at every width"
     await tick(0);
     expect(split.dataset.pane).toBe("open");
   });
+  it("a refusal from A's CLOSED detail, landing after A was picked again, is still said", async () => {
+    let refuse!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (refuse = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const inc = pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    await act(async () => {
+      fireEvent.click(inc);
+    });
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await act(async () => {
+      refuse({ ok: false, error: "That line just changed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // The new A detail never issued that write, so its region cannot say it: dropping it because
+    // "A is shown" loses a refused dish change silently. MUTATION: re-add that check; red.
+    const said = tf("en", "floor.pane.lostWrite", { x: tf("en", "floor.table", { id: "4" }) });
+    expect(pane().querySelector(".staff-pane-lost")?.textContent).toContain(said);
+  });
   it("a refusal on the table SHOWN is its own detail's, never a lost write", async () => {
     let refuse!: (v: unknown) => void;
     staffSetQty.mockReturnValueOnce(new Promise((r) => (refuse = r)));
@@ -905,7 +931,7 @@ describe("TablePane — a refusal after the pane closed is shown at every width"
       refuse({ ok: false, error: "That line just changed." });
       await vi.advanceTimersByTimeAsync(0);
     });
-    // MUTATION: record every refusal as lost — the table shown names itself as "another"; red.
+    // A MOUNTED detail says its own refusal (its one region); only an unmounted one reports it here.
     expect(pane().querySelector(".staff-pane-lost")).toBeNull();
   });
 });
