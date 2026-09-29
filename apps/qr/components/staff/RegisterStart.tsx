@@ -59,10 +59,10 @@ export function RegisterStart({
     }
   }
 
+  /** The screen's lock alone admits a start; a refused tap changes nothing, a start clears the
+   *  zone's last notice (its own refusal, if any, arrives later). */
   function mint(id: "walkup" | "phone", input: MintInput) {
-    if (isBusy()) return;
-    setNotice(null);
-    run(id, input, setNotice);
+    run(id, input, { onStart: () => setNotice(null), onRefusal: setNotice });
   }
 
   return (

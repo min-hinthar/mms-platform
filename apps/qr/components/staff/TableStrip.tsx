@@ -99,13 +99,16 @@ export function TableStrip({
 
   const tapFree = useCallback(
     (n: number) => {
-      // The tap-time guards, in order: one start at a time on the whole screen, then the flip.
-      if (isBusy()) return;
+      // The tap-time guards: the flip here, then one start at a time on the whole screen — which
+      // the lock alone admits (a refused tap changes nothing; a start clears the last notice).
       if (flip.current !== null && !flip.current.allows(n)) return;
-      onNotice(null);
-      run(`table-${n}`, { kind: "table", tableNumber: n }, onNotice);
+      run(
+        `table-${n}`,
+        { kind: "table", tableNumber: n },
+        { onStart: () => onNotice(null), onRefusal: onNotice },
+      );
     },
-    [isBusy, onNotice, run],
+    [onNotice, run],
   );
   const tapOccupied = useCallback(
     (e: { preventDefault: () => void }) => {

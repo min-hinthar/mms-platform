@@ -61,8 +61,17 @@ type CounterMint = {
   held: boolean;
   /** The tap-time guard. Read it in a handler, never in render. */
   isBusy: () => boolean;
-  /** Start one order. A no-op while another is in flight or has landed. */
-  run: (id: MintId, input: MintInput, onRefusal: (n: MintNotice) => void) => void;
+  /** Start one order — the ONE place a start is admitted: a no-op while another start is in flight
+   *  or has landed. `onStart` runs only for a start that goes, BEFORE the server is asked, so a
+   *  caller's "a new tap" work (clearing its notice) can never erase that start's own answer. */
+  run: (id: MintId, input: MintInput, to: MintCallbacks) => void;
+};
+
+export type MintCallbacks = {
+  /** The start was admitted (and nothing has been said about it yet). */
+  onStart: () => void;
+  /** The start was refused, or its answer never came — say this in the caller's region. */
+  onRefusal: (n: MintNotice) => void;
 };
 
 const Ctx = createContext<CounterMint | null>(null);
@@ -82,10 +91,11 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   const isBusy = useCallback(() => pending || inFlight.current !== null, [pending]);
 
   const run = useCallback(
-    (id: MintId, input: MintInput, onRefusal: (n: MintNotice) => void) => {
+    (id: MintId, input: MintInput, { onStart, onRefusal }: MintCallbacks) => {
       if (pending || inFlight.current !== null) return;
       inFlight.current = id;
       setMinting(id);
+      onStart();
       // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
       haptic("commit");
       startTransition(async () => {
