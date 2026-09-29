@@ -243,7 +243,7 @@ export const STAFF = {
   }, // K15-HIGH
 
   // ── KDS: controls ──────────────────────────────────────────────────────────
-  "kds.sound.enable": { en: "Enable sound", my: "အသံ ဖွင့်" },
+  "kds.sound.enable": { en: "Turn on sound", my: "အသံ ဖွင့်" },
   // kitchen-8 — this device WANTED sound (armed last shift) and a reload disarmed it: a warn chip,
   // not a ghost identical to the filter beside it. Any tap on the board re-arms it silently.
   "kds.sound.off": { en: "Sound off — tap to turn on", my: "အသံ ပိတ်နေ — ဖွင့်ရန် နှိပ်ပါ" },
@@ -1860,7 +1860,7 @@ export const STAFF = {
     en: "Ready orders light up here.",
     my: "ယူလို့ရပြီးတဲ့ အော်ဒါတွေ ဒီမှာ ပေါ်ပါမယ်။",
   },
-  "board.sound": { en: "Enable sound", my: "အသံ ဖွင့်" },
+  "board.sound": { en: "Turn on sound", my: "အသံ ဖွင့်" },
   // board-4 — the chip is a TOGGLE now (it used to unmount on the tap that armed it): the pressed
   // state's word, and the one sentence the status node says when the TV's browser refuses audio.
   // Claude-authored drafts pending K15.
@@ -3181,6 +3181,28 @@ export const STAFF = {
   // The strip's KEY: what the owed-Send dot on a tile means — `floor.kitchen.notSent`'s words
   // without the count (the dot carries none). K15 draft.
   "floor.key.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — decodes the one mark that says dishes never reached the kitchen
+  // ── Phase 2d · bell ──
+  // The counter bell's chip (components/staff/CounterBell.tsx) reuses the grounded chip words
+  // verbatim — kds.sound.enable · board.sound.on · kds.sound.off — and adds only its two lines.
+  // Both MY values are Claude-authored K15 drafts pending Min's native check; neither gates food or
+  // money (a missed bell costs a glance, and every event keeps its card ring and badge), so neither
+  // carries the high-priority marker. Words grounded on: အသံ and နှိပ် (kds.sound.off), ဒီစက် (shell.net.offline),
+  // ထပ် (pad.ghost.verb.retry).
+  // After a chip tap arms the bell it plays once; if the counter heard nothing the cause is the
+  // device's volume or its silent mode — said once, plainly, and not live (nothing went wrong).
+  // Device-neutral: most Android phones have no silent SWITCH, and every device has a silent mode.
+  // K15 re-draft; words grounded on အသံ + ပိတ် (kds.sound.off), ဒီစက် (shell.net.offline), and တိုး
+  // (this entry's first draft).
+  "floor.sound.hint": {
+    en: "Didn’t hear it? Turn up the volume and check this device isn’t on silent.",
+    my: "မကြားရဘူးလား — အသံ တိုးပြီး ဒီစက် အသံပိတ်ထားလား စစ်ပါ။",
+  },
+  // The browser refused (or never answered) the arm. Never blames the volume or the switch: neither
+  // can refuse an arm, and the chip is still the way to try again.
+  "floor.sound.refused": {
+    en: "Sound didn’t start on this device — tap to try again.",
+    my: "ဒီစက်မှာ အသံ မစနိုင်ပါ — ထပ်နှိပ်ကြည့်ပါ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

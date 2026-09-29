@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties 
 import { getFloorView } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
+import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
 import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
 import { EmptyState } from "@mms/ui";
@@ -21,6 +22,7 @@ import { plural } from "@/lib/i18n/fill";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { TableStrip } from "./TableStrip";
+import { useCounterAttention } from "./CounterBell";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -88,6 +90,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         setStripNotice(null);
       }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
   }, []);
+  // Phase 2d · bell — the floor's ear: a table asking to pay at the counter. Seeded with the room as
+  // it rendered (the mount never rings), heard on every GOOD poll below (a frozen floor rings nothing).
+  const hear = useCounterAttention(() => floorFacts(initial.tables));
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
@@ -145,6 +150,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         }, UP_NOTICE_DWELL_MS);
       }
       setSnap(next);
+      hear(floorFacts(next.tables)); // Phase 2d · bell — the visible half is the card's status ring
       fails.current = 0;
       setDegraded(null);
       if (bumped.length > 0) {
@@ -184,7 +190,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [hear]);
 
   // Slow escalation tick while frozen/stale — the ≥2min paper-flow flip needs a re-render even if
   // every poll keeps failing silently.
@@ -206,6 +212,10 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
 
   // 5s poll backstop (independent of the socket); cleared on unmount.
   useEffect(() => {
+    // Phase 2d · bell — RE-ARMED at setup, not only latched in the cleanup: StrictMode (on in dev)
+    // replays this effect as cleanup → setup, and a cleanup-only latch left every poll after it
+    // returning early — a floor that never refreshed and a bell that never rang.
+    alive.current = true;
     const id = setInterval(refresh, 5000);
     const timers = pulseTimers.current;
     return () => {

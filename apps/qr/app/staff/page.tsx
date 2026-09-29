@@ -1,4 +1,4 @@
-import { type CSSProperties } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -20,6 +20,7 @@ import { DayCash } from "@/components/staff/DayCash";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
 import { SettledToday } from "@/components/staff/SettledToday";
 import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
+import { CounterBellProvider, CounterSoundChip } from "@/components/staff/CounterBell";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
@@ -158,11 +159,22 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       live={home.view === "floor" ? "counter" : undefined}
     />
   );
-  const greeting = (
+  const hello = (
     <p className="staff-greeting">
       <Chrome lang={lang} k="floor.hi" vars={{ x: caller.displayName }} echo="inline" />
     </p>
   );
+  // Phase 2d · bell — on the counter home the greeting line carries the bell's chip at its right
+  // (the counter's own control, not a bar circle); the doors' greeting stays the plain line.
+  const greeting =
+    home.view === "floor" ? (
+      <div className="staff-greet-row">
+        {hello}
+        <CounterSoundChip />
+      </div>
+    ) : (
+      hello
+    );
 
   if (home.view === "doors") {
     return (
@@ -214,7 +226,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     <main className="staff-main">
       {/* A4·2 — the two live boards report their feed to the bar's help door through this
           provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
-      <LiveConnectionProvider>
+      <CounterLive>
         {header}
         {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
             thumb-zone Undo pill. */}
@@ -268,8 +280,21 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             <MoreGrid lang={lang} more={more} />
           </div>
         </div>
-      </LiveConnectionProvider>
+      </CounterLive>
     </main>
+  );
+}
+
+/**
+ * Phase 2d · bell — the counter home's live stack: the boards' feed reports (A4·2) and, INSIDE
+ * them, the counter bell (owner decision 5c: it rings on the counter home and nowhere else — the two
+ * boards hear their facts and ring through it; the chip in the greeting arms it).
+ */
+function CounterLive({ children }: { children: ReactNode }) {
+  return (
+    <LiveConnectionProvider>
+      <CounterBellProvider>{children}</CounterBellProvider>
+    </LiveConnectionProvider>
   );
 }
 

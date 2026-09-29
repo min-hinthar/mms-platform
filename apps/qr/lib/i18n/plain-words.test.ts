@@ -39,6 +39,10 @@ const BANNED: readonly RegExp[] = [
   // copy. The pad's Take payment and its "Close bill" are the strings that would regress first.
   /\bsettl(e|es|ed|ing|ement)\b/i,
   /\btabs?\b/i,
+  // ── Phase 2d · bell ── "Turn on" (never enable): settings-speak, and a second word for the one
+  // action the sound chips' paused posture already calls "turn on". The KDS, TV and counter chips
+  // share the OFF word, so they are the strings that would regress first.
+  /\benabl(e|es|ed|ing)\b/i,
 ];
 
 /** key → why its English legitimately matches a banned pattern. Empty is the goal, not a rule. */
