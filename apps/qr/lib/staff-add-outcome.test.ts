@@ -11,8 +11,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("@mms/db/server", () => ({ serviceClient: () => ({}) }));
 
 const { addFailureCode } = await import("./staff-add-outcome");
-const { ItemUnsellableError, ItemUnreadableError, CartClosedError, CartPayingError } =
-  await import("./order-lines");
+const { ItemUnsellableError, ItemUnreadableError, CartClosedError } = await import("./order-lines");
+const { CartPayingError } = await import("./line-rpc-refusal");
 
 describe("addFailureCode — the write phase", () => {
   it("any throw after pricing is UNCONFIRMED — it may have landed", () => {

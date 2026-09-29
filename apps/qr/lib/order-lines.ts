@@ -1,4 +1,4 @@
-import { lineRpcRefusal } from "./line-rpc-refusal";
+import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { TaxCategory, LineFulfillment } from "@mms/db";
@@ -81,20 +81,6 @@ export class CartClosedError extends Error {
   constructor() {
     super("Cart is no longer open");
     this.name = "CartClosedError";
-  }
-}
-
-/**
- * P2cy — the line RPC refused because the table is being PAID (a fresh settlement freeze, checked
- * under the cart's row lock). A DEFINITE non-write, like `CartClosedError`: the raise aborted the
- * transaction. The message is the diner's own freeze sentence (`addItem`'s pre-check), so a diner
- * who lost the race to the settlement reads the same words as one who didn't; staff map the type to
- * their `paying` code.
- */
-export class CartPayingError extends Error {
-  constructor() {
-    super("Your table is paying — you can’t change the order while everyone pays");
-    this.name = "CartPayingError";
   }
 }
 

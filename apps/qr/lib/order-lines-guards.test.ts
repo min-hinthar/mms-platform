@@ -38,7 +38,8 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { insertOrIncLine, CartPayingError, CartClosedError } = await import("./order-lines");
+const { insertOrIncLine, CartClosedError } = await import("./order-lines");
+const { CartPayingError } = await import("./line-rpc-refusal");
 
 const CART = "11111111-1111-4111-8111-111111111111";
 const SCAN = "22222222-2222-4222-8222-222222222222";

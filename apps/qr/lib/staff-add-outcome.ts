@@ -1,9 +1,5 @@
-import {
-  CartClosedError,
-  CartPayingError,
-  ItemUnreadableError,
-  ItemUnsellableError,
-} from "./order-lines";
+import { CartClosedError, ItemUnreadableError, ItemUnsellableError } from "./order-lines";
+import { CartPayingError } from "./line-rpc-refusal";
 
 /**
  * Phase 2a · padserver — the staff add's refusal, CODED (order-pad spec, commit group 1).

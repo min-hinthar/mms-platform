@@ -7,13 +7,13 @@ import { assertCartMember } from "./authz";
 import { assertMutationRate } from "./rate";
 import { lineTax } from "./tax";
 import {
-  CartPayingError,
   insertOrIncLine,
   priceItem,
   touchCart,
   ItemUnreadableError,
   ItemUnsellableError,
 } from "./order-lines";
+import { CartPayingError } from "./line-rpc-refusal";
 import { optionsCameBackDifferent, storedOptionIds } from "./reorder-options";
 import { getPostHogClient } from "./posthog-server";
 

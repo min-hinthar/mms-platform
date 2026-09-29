@@ -28,8 +28,8 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { refusedPromoReason } from "./promo-refusal";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
-import { CartPayingError, insertOrIncLine, priceItem, touchCart } from "./order-lines";
-import { lineRpcRefusal } from "./line-rpc-refusal";
+import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
 import { safeImageUrl } from "./media-url";
 import { TABLE_STARTER_MID } from "./confirm-copy";
 
