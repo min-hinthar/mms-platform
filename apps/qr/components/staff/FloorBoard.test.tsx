@@ -1,0 +1,426 @@
+/** @vitest-environment jsdom */
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FloorSnapshot, FloorTable } from "@/lib/floor-types";
+
+/**
+ * Phase 2d · floor — THE FLOOR'S WIRING: the strip, the one mint lock across both zones, the one
+ * region's precedence, the "ready to serve" cue, the wait pill's own clock, and focus across a flip.
+ *
+ * Decision logic is pinned as values in `lib/` (floor-kitchen, floor-rows, floor-tone,
+ * staff-labels); this suite pins only what a render can show — who calls the server, how often,
+ * where the sentence lands, and which element holds focus.
+ */
+const NOW = "2026-09-29T19:00:00.000Z";
+const NOW_MS = Date.parse(NOW);
+const ago = (ms: number) => new Date(NOW_MS - ms).toISOString();
+
+// ── the realtime client: the board subscribes, and nothing here ever fires a change ──
+const channel = { on: () => channel, subscribe: () => channel };
+vi.mock("@mms/db", () => ({
+  browserClient: () => ({
+    auth: { getSession: () => Promise.resolve({ data: { session: { access_token: "t" } } }) },
+    realtime: { setAuth() {} },
+    channel: () => channel,
+    removeChannel() {},
+  }),
+}));
+// ── the poll: each case decides what the next answer is (or that it never comes) ──
+let answer: () => Promise<unknown> = () => new Promise(() => {});
+vi.mock("@/lib/floor", () => ({ getFloorView: () => answer() }));
+const openRegisterOrder = vi.fn();
+vi.mock("@/lib/register", () => ({
+  openRegisterOrder: (...a: unknown[]) => openRegisterOrder(...a),
+}));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("next/link", () => ({
+  default: ({ children, ...rest }: { children: React.ReactNode }) => <a {...rest}>{children}</a>,
+}));
+// TICK ISOLATION — every card render is counted, so a clock that re-renders the board is visible.
+let cardRenders = 0;
+vi.mock("./TableCard", async (importOriginal) => {
+  const m = await importOriginal<typeof import("./TableCard")>();
+  return {
+    ...m,
+    TableCard: (p: Parameters<typeof m.TableCard>[0]) => {
+      cardRenders += 1;
+      return <m.TableCard {...p} />;
+    },
+  };
+});
+
+const { StaffLangProvider } = await import("./StaffLangProvider");
+const { CounterMintProvider } = await import("./CounterMint");
+const { RegisterStart } = await import("./RegisterStart");
+const { FloorBoard } = await import("./FloorBoard");
+const { DEFAULT_KDS_THRESHOLDS } = await import("@/lib/kds-urgency");
+const { ts } = await import("@/lib/i18n/staff");
+const { FLOOR_WAIT_TICK_MS } = await import("./FloorWait");
+
+const REGISTRY = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const table = (n: number, over: Partial<FloorTable> = {}): FloorTable => ({
+  sessionId: `s${n}`,
+  label: String(n),
+  tableNumber: n,
+  mode: "dinein",
+  status: "ordering",
+  partySize: 2,
+  hostName: null,
+  itemCount: 1,
+  runningSubtotalCents: 1200,
+  paidTotalCents: null,
+  refund: null,
+  tab: "none",
+  tabOverCeiling: false,
+  counterRequestedAt: null,
+  lastActivityAt: ago(60_000),
+  openedAt: ago(20 * 60_000),
+  kitchen: null,
+  ...over,
+});
+const snap = (tables: FloorTable[], over: Partial<FloorSnapshot> = {}): FloorSnapshot => ({
+  tables,
+  counter: [],
+  counterTruncated: false,
+  serverNow: NOW,
+  registry: REGISTRY,
+  thresholds: DEFAULT_KDS_THRESHOLDS,
+  ...over,
+});
+const ok = (s: FloorSnapshot) => () => Promise.resolve({ ok: true, snapshot: s });
+
+function mount(initial: FloorSnapshot, withStart = false) {
+  const utils = render(
+    <StaffLangProvider lang="en">
+      <CounterMintProvider>
+        {withStart ? <RegisterStart /> : null}
+        <FloorBoard initial={initial} />
+      </CounterMintProvider>
+    </StaffLangProvider>,
+  );
+  const section = () => document.getElementById("floor-h")!.closest("section")!;
+  const region = () => section().querySelector('[role="status"]')!;
+  const tile = (n: number) => section().querySelector<HTMLElement>(`[data-tile="${n}"]`)!;
+  return { ...utils, section, region, tile };
+}
+const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void };
+function deferred<T>(): Deferred<T> {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((r, j) => {
+    resolve = r;
+    reject = j;
+  });
+  return { promise, resolve, reject };
+}
+
+/**
+ * A start that must stay in flight for the case — and is SETTLED when the case ends. React joins
+ * every async transition into one entangled action: a promise left pending forever keeps `isPending`
+ * true for every LATER transition in the file, and a later case would read its zone as held for a
+ * reason that is not its own.
+ */
+const hanging: Deferred<unknown>[] = [];
+function hang() {
+  const d = deferred<unknown>();
+  hanging.push(d);
+  return d.promise;
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW_MS);
+  cardRenders = 0;
+  answer = () => new Promise(() => {});
+});
+afterEach(async () => {
+  await act(async () => {
+    for (const d of hanging.splice(0)) d.resolve({ ok: false, error: "settled by the suite" });
+  });
+  cleanup();
+  vi.useRealTimers();
+  vi.clearAllMocks();
+});
+
+describe("the wait pill ticks on its own", () => {
+  it("(a) advancing its 15 s tick moves '9 min' to '10 min' with ZERO extra card renders", async () => {
+    // The poll never answers, so nothing but the pill's own clock can move the minute.
+    const { section } = mount(
+      snap([
+        table(7, {
+          kitchen: {
+            notSent: 0,
+            inKitchen: 1,
+            up: 0,
+            done: 0,
+            oldestFireAt: ago(9 * 60_000 + 50_000),
+          },
+        }),
+      ]),
+    );
+    await tick(0);
+    const pill = () => section().querySelector(".floor-wait")!;
+    expect(pill().textContent).toBe("9 min");
+    const before = cardRenders;
+    expect(FLOOR_WAIT_TICK_MS).toBe(15_000);
+    await tick(FLOOR_WAIT_TICK_MS);
+    expect(pill().textContent).toBe("10 min");
+    // MUTATION: a 15 s `setNowMs` in FloorBoard → every card re-renders on the tick.
+    expect(cardRenders - before).toBe(0);
+  });
+
+  it("(i) crossing into amber replays the one-shot pop ONCE; the next tick does not", async () => {
+    const { section } = mount(
+      snap([
+        table(7, {
+          kitchen: {
+            notSent: 0,
+            inKitchen: 1,
+            up: 0,
+            done: 0,
+            oldestFireAt: ago(7 * 60_000 + 50_000),
+          },
+        }),
+      ]),
+    );
+    await tick(0);
+    const pill = () => section().querySelector(".floor-wait")!;
+    expect(pill().className).toContain("floor-wait-ok");
+    expect(pill().className).not.toContain("mms-pop");
+    await tick(FLOOR_WAIT_TICK_MS); // 8:05 — amber
+    const popped = pill();
+    expect(popped.className).toContain("floor-wait-amber");
+    expect(popped.className).toContain("mms-pop");
+    await tick(FLOOR_WAIT_TICK_MS); // 8:20 — still amber
+    // MUTATION: pop on every tick → a fresh (re-keyed) element each tick.
+    expect(pill()).toBe(popped);
+  });
+});
+
+describe("the strip starts a table through the screen's ONE lock", () => {
+  it("(b) a free tile double-tapped in one frame starts ONE table, and lands on its add screen", async () => {
+    const d = deferred<{ ok: true; sessionId: string; created: boolean }>();
+    openRegisterOrder.mockReturnValue(d.promise);
+    const { tile } = mount(snap([]));
+    expect(tile(7).tagName).toBe("BUTTON");
+    await act(async () => {
+      fireEvent.click(tile(7));
+      fireEvent.click(tile(7));
+    });
+    // MUTATION: drop the tap-time ref read in the lock → two starts.
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "table", tableNumber: 7 });
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s1", created: true });
+      await d.promise;
+    });
+    expect(push).toHaveBeenCalledWith("/staff/table/s1/add");
+  });
+
+  it("(b) a start the server CONVERGED on a seated table (created:false) opens that table, never its add screen", async () => {
+    openRegisterOrder.mockResolvedValueOnce({ ok: true, sessionId: "s1", created: false });
+    const { tile } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    // MUTATION: always '/add' → staff land on an add screen for a party already seated.
+    expect(push).toHaveBeenCalledWith("/staff/table/s1");
+  });
+
+  it("(c) Walk-up and a table tile in the SAME frame start one order — one lock for both zones", async () => {
+    openRegisterOrder.mockImplementation(() => hang());
+    const { tile, container } = mount(snap([]), true);
+    const walkup = container.querySelector<HTMLButtonElement>("button.ui-btn")!;
+    await act(async () => {
+      fireEvent.click(walkup);
+      fireEvent.click(tile(7));
+    });
+    // MUTATION: a per-component lock → Walk-up AND table 7 start.
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    // Every start control on the screen now says it is held; only Walk-up is busy.
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    expect(tile(7).getAttribute("aria-busy")).toBeNull();
+    expect(walkup.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("(d) a refused start lands in the board's ONE region; focus stays on the tile, which is aria-disabled and never :disabled", async () => {
+    const d = deferred<{ ok: false; error: string }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { tile, region, section } = mount(snap([]));
+    tile(7).focus();
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    // MUTATION: native `disabled` → focus drops to <body> and `disabled` reads true.
+    expect((tile(7) as HTMLButtonElement).disabled).toBe(false);
+    expect(tile(7).getAttribute("aria-disabled")).toBe("true");
+    expect(tile(7).getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      d.resolve({ ok: false, error: "That table isn’t registered." });
+      await d.promise;
+    });
+    await tick(0);
+    // The section's FIRST role=status is the board's region (the lane's dedupe reads it).
+    expect(section().querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(region().textContent).toBe("That table isn’t registered.");
+    expect(document.activeElement).toBe(tile(7));
+    expect(tile(7).getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("(e) a start whose answer never comes back is said as UNKNOWN, and the strip re-arms — no error boundary", async () => {
+    const d = deferred<never>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { tile, region } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    await act(async () => {
+      d.reject(new TypeError("Failed to fetch"));
+      await d.promise.catch(() => {});
+    });
+    await tick(0);
+    // MUTATION: remove the lock's catch → the rejection escapes to the boundary.
+    expect(region().textContent).toBe(ts("en", "floor.mint.unknown"));
+    expect(tile(7).getAttribute("aria-disabled")).toBeNull();
+    openRegisterOrder.mockImplementationOnce(() => hang());
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(2);
+  });
+
+  it("(f) a tile that JUST turned free ignores a tap for 600 ms (another tablet cleared it), then starts", async () => {
+    openRegisterOrder.mockImplementation(() => hang());
+    const { tile } = mount(snap([table(7)]));
+    expect(tile(7).tagName).toBe("A");
+    answer = ok(snap([]));
+    await tick(5000); // the poll: table 7 was cleared elsewhere
+    expect(tile(7).tagName).toBe("BUTTON");
+    await tick(599);
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    // MUTATION: a guard that always allows → the person reaching to OPEN table 7 starts a new one.
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    await tick(1);
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it("(g) an occupied tile is a link to its table, never a start — and while a start is held its tap goes nowhere", async () => {
+    openRegisterOrder.mockImplementation(() => hang());
+    const { tile } = mount(snap([table(3, { status: "counter", counterRequestedAt: ago(1000) })]));
+    const link = tile(3);
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("/staff/table/s3");
+    expect(link.getAttribute("data-tone")).toBe("ask");
+    expect(link.getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
+    // An ordinary tap is navigation: not prevented, and it starts nothing.
+    expect(fireEvent.click(link)).toBe(true);
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    // A start is held: the link's tap is refused, so a landing push is never raced.
+    expect(fireEvent.click(tile(3))).toBe(false);
+  });
+});
+
+describe("the ONE region", () => {
+  it("(h) food coming out says 'Ready to serve — Table 7' AND rings that card; an ask adds its segment", async () => {
+    const up = (n: number) => ({ notSent: 0, inKitchen: 0, up: n, done: 1, oldestFireAt: null });
+    const { region, section } = mount(snap([table(7, { kitchen: up(0) }), table(3)]));
+    expect(region().textContent).toBe("2 active tables");
+    answer = ok(
+      snap([
+        table(7, { kitchen: up(1) }),
+        table(3, { status: "counter", counterRequestedAt: ago(1000) }),
+      ]),
+    );
+    await tick(5000);
+    expect(region().textContent).toBe("Ready to serve — Table 7");
+    const card7 = section().querySelector('.card-textured[data-session-id="s7"]')!;
+    expect(card7.querySelector(".floor-card-pulse")).not.toBeNull();
+    // The notice dwells 8 s, then the counts return — with the ask a listener must hear.
+    await tick(8000);
+    expect(region().textContent).toBe("2 active tables · 1 waiting to pay at counter");
+  });
+
+  it("(h) a refusal outranks the freeze; the freeze speaks once the refusal's dwell ends", async () => {
+    openRegisterOrder.mockResolvedValueOnce({ ok: false, error: "Refused." });
+    const { tile, region } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    await tick(0);
+    expect(region().textContent).toBe("Refused.");
+    answer = () => Promise.resolve({ ok: false, reason: "outage" });
+    await tick(5000);
+    // MUTATION: the freeze before the refusal → the refusal vanishes under the freeze.
+    expect(region().textContent).toBe("Refused.");
+    await tick(3000);
+    expect(region().textContent).toContain(ts("en", "out.head.cant"));
+  });
+
+  it("(h) a first sight of food already up never rings — only a RISE between polls does", async () => {
+    const up = { notSent: 0, inKitchen: 0, up: 1, done: 0, oldestFireAt: null };
+    const { region, section } = mount(snap([table(7, { kitchen: up })]));
+    answer = ok(snap([table(7, { kitchen: up })]));
+    await tick(5000);
+    expect(region().textContent).toBe("1 active table");
+    expect(section().querySelector(".floor-card-pulse")).toBeNull();
+  });
+});
+
+describe("focus across a flip", () => {
+  it("(j) a focused FREE tile that turns OCCUPIED on a poll keeps focus — now on the link", async () => {
+    const { tile } = mount(snap([]));
+    tile(7).focus();
+    expect(document.activeElement).toBe(tile(7));
+    answer = ok(snap([table(7)]));
+    await tick(5000);
+    expect(tile(7).tagName).toBe("A");
+    // MUTATION: drop the strip's refocus → focus is <body>.
+    expect(document.activeElement).toBe(tile(7));
+  });
+
+  it("a person who moved focus elsewhere is not pulled back by a flip", async () => {
+    const { tile, container } = mount(snap([]), true);
+    tile(7).focus();
+    const walkup = container.querySelector<HTMLButtonElement>("button.ui-btn")!;
+    walkup.focus();
+    answer = ok(snap([table(7)]));
+    await tick(5000);
+    expect(document.activeElement).toBe(walkup);
+  });
+});
+
+describe("the strip's shape", () => {
+  it("one tile per registered table, in order, named by the verb the free tile shows", () => {
+    const { section } = mount(snap([table(4)]));
+    const tiles = [...section().querySelectorAll<HTMLElement>("[data-tile]")];
+    expect(tiles.map((t) => t.dataset.tile)).toEqual(REGISTRY.map(String));
+    const free = tiles[0]!;
+    expect(free.getAttribute("aria-label")).toBe("Start — Table 1");
+    expect(free.textContent).toBe("1Start");
+    // The list is named by the visible label above it, and is a list despite `list-style: none`.
+    const list = section().querySelector("ul.floor-strip")!;
+    expect(list.getAttribute("role")).toBe("list");
+    expect(list.getAttribute("aria-labelledby")).toBe("floor-strip-h");
+    expect(document.getElementById("floor-strip-h")?.textContent).toBe(
+      ts("en", "floor.strip.label"),
+    );
+  });
+
+  it("an empty registry draws no strip and no label — never a dead control", () => {
+    const { section } = mount(snap([], { registry: [] }));
+    expect(section().querySelector(".floor-strip-wrap")).toBeNull();
+  });
+});

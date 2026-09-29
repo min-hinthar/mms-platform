@@ -6,7 +6,7 @@ import { Chrome } from "./Chrome";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { tableCardStyle } from "./TableCard";
 import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
-import { START_ARM } from "./register-stage";
+import { START_ARM, START_GRID, START_WALKUP_REST } from "./register-stage";
 
 /**
  * P7·3 — the "picture" on each help card: a STATIC replica of the real control in the real
@@ -86,25 +86,33 @@ export function HelpPicture({
         </span>
       )}
       {screen === "counter" && n === 1 && (
-        // A4·2 — the Start zone's three arms, in the zone's own exported CLASS
-        // (`register-stage.ts` → `.staff-arm`), the way `RegisterStart` renders them; no press on
-        // a picture, and none of the three is open, so none wears the cap.
-        <span className="help-pic-pair">
-          <span className={`help-pic-stage ${START_ARM}`}>
-            <Chrome lang={lang} k="reg.start.walkup" echo="stack" />
+        // Phase 2d · floor — the Start zone as it renders now: its own grid (`START_GRID`), Walk-up
+        // in the primitive Button's own class (`START_WALKUP_REST`), Phone order in the arm class
+        // (none open, so no cap) — and beside them one FREE table tile in the strip's own class,
+        // because the card's second sentence sends a table there. `.help-pic` sets
+        // pointer-events: none, so neither press can fire on a picture.
+        <span className="help-pic-start">
+          <span className={START_GRID}>
+            <span className={START_WALKUP_REST}>
+              <Chrome lang={lang} k="reg.start.walkup" echo="stack" />
+            </span>
+            <span className={START_ARM}>
+              <Chrome lang={lang} k="reg.start.phone" echo="stack" />
+            </span>
           </span>
-          <span className={`help-pic-stage ${START_ARM}`}>
-            <Chrome lang={lang} k="reg.start.phone" echo="stack" />
-          </span>
-          <span className={`help-pic-stage ${START_ARM}`}>
-            <Chrome lang={lang} k="reg.start.table" echo="stack" />
+          <span className="floor-tile" data-free="">
+            <span className="floor-tile-n">7</span>
+            <span className="floor-tile-verb">
+              <Chrome lang={lang} k="floor.verb.start" />
+            </span>
           </span>
         </span>
       )}
       {screen === "counter" && n === 2 && (
         // A floor table card: the same `<Card textured>` in `TableCard`'s own styles, with the real
-        // status chip.
+        // status chip — and (Phase 2d) the card's own status edge in the ordering tone.
         <Card textured style={tableCardStyle.card}>
+          <span className="floor-edge" data-tone="live" />
           <div style={tableCardStyle.topRow}>
             <span style={tableCardStyle.label}>
               <Chrome lang={lang} k="floor.table" vars={{ id: "7" }} />

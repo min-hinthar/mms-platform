@@ -2,6 +2,12 @@ import { type CSSProperties } from "react";
 import Link from "next/link";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import { al } from "@/lib/staff-labels";
+// ── Phase 2d · floor ──
+import { floorWait, kitchenSegments } from "@/lib/floor-kitchen";
+import { floorTone } from "@/lib/floor-tone";
+import { relativeAge } from "@/lib/relative-time";
+import type { KdsThresholds } from "@/lib/kitchen-types";
+import { FloorKitchenLine } from "./FloorKitchenLine";
 import { plural, tf } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
@@ -36,17 +42,26 @@ const MODE_KEY = {
 export function TableCard({
   table,
   serverNow,
+  thresholds,
   pulse,
   lang,
 }: {
   table: FloorTable;
   serverNow: string;
+  /** Phase 2d · floor — the kitchen's own lateness thresholds, for the wait pill and its name. */
+  thresholds: KdsThresholds;
   /** A per-transition nonce (FloorBoard diff) → a keyed one-shot ring overlay; undefined = no pulse. */
   pulse?: number;
   /** The staff device language, from `FloorBoard` (which reads it once from the provider). */
   lang: StaffLang;
 }) {
   const showRunning = table.itemCount > 0;
+  // Phase 2d · floor — the ONE tone (the edge; the chip reads the same map), and the kitchen row's
+  // words and wait AS OF THE POLL for the name (the visible pill ticks on its own between polls).
+  const refundState = table.refund?.state ?? null;
+  const tone = floorTone(table.status, refundState);
+  const serverNowMs = Date.parse(serverNow);
+  const wait = floorWait(table.kitchen, serverNowMs, thresholds);
   // K2: the real table number ("Table 7") at last; an unregistered/legacy sticker falls back to its
   // raw token, flagged so staff map it in the registry.
   const td = tableDisplay(table);
@@ -73,6 +88,10 @@ export function TableCard({
             )
           : fmt(table.paidTotalCents),
     paidRefunded: table.refund != null && table.refund.state !== "none",
+    refundState,
+    kitchen: kitchenSegments(table.kitchen),
+    wait: wait === null ? null : { min: wait.min, late: wait.level === "red" },
+    opened: relativeAge(table.openedAt, serverNowMs),
   });
 
   return (
@@ -83,7 +102,11 @@ export function TableCard({
       textured
       style={card}
       aria-label={aria}
+      data-session-id={table.sessionId}
     >
+      {/* Phase 2d · floor — the STATUS EDGE: a rail down the left in the table's tone, so the room
+          reads at arm's length. Decorative (the chip says the word); a table at rest has none. */}
+      {tone !== "rest" && <span className="floor-edge" data-tone={tone} aria-hidden />}
       {/* Keyed one-shot status ring — remounts per transition nonce so it restarts on rapid changes.
           Decorative (aria-hidden); CSS `@media (prefers-reduced-motion)` off-switch. */}
       {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
@@ -123,7 +146,7 @@ export function TableCard({
               )}
             </Badge>
           )}
-          <FloorStatusChip status={table.status} lang={lang} />
+          <FloorStatusChip status={table.status} refund={table.refund} lang={lang} />
         </span>
       </div>
 
@@ -144,6 +167,16 @@ export function TableCard({
           </>
         )}
       </div>
+
+      {/* Phase 2d · floor — what the kitchen has of this table, and how long it has waited. */}
+      {table.kitchen !== null && (
+        <FloorKitchenLine
+          kitchen={table.kitchen}
+          serverNow={serverNow}
+          thresholds={thresholds}
+          lang={lang}
+        />
+      )}
 
       <div style={bottomRow}>
         <span style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-body)" }}>
@@ -220,8 +253,12 @@ export function TableCard({
             </span>
           )}
         </span>
+        {/* Phase 2d · floor — when the table was OPENED (the session's start): what the data
+            records, never a claim about when this party sat — a session outlives payment until
+            Clear table. It no longer jumps on every line add. */}
         <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          <RelativeTime iso={table.lastActivityAt} serverNow={serverNow} />
+          <Chrome lang={lang} k="floor.card.opened" />{" "}
+          <RelativeTime iso={table.openedAt} serverNow={serverNow} />
         </span>
       </div>
     </Card>

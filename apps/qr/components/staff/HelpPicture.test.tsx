@@ -43,21 +43,35 @@ describe("HelpPicture — the real control, inert", () => {
     expect(css).not.toMatch(/^\s*\.help-pic-undo-btn\s*\{/m);
   });
 
-  it("the Screens circle is the control's class, never the bar's static mark; the Start zone's three buttons spread the zone's own style", () => {
+  it("the Screens circle is the control's class, never the bar's static mark; the Start zone and the strip's free tile wear their own classes", () => {
     const circ = pic("counter", 5).querySelector(".staff-circ")!;
     expect(circ).not.toBeNull();
     expect(circ.className).not.toContain("staff-circ-here");
     cleanup();
-    // A4·2 / counter-4 — three arms in the zone's own CLASS (`register-stage.ts` → `.staff-arm`),
-    // the real control's declaration: the class must be LIVE in the stylesheet (a rest rule) and
-    // the cap must be declared for its open state — a replica in a class nothing draws is the
-    // drift this file exists to catch. None of the three is open, so none wears `aria-expanded`.
-    const starts = pic("counter", 1).querySelectorAll(".help-pic-stage");
-    expect(starts.length).toBe(3);
-    for (const b of starts) {
-      expect(b.classList.contains("staff-arm")).toBe(true);
-      expect(b.getAttribute("aria-expanded")).toBeNull();
-    }
+    // Phase 2d · floor — the Start zone as it renders now, in the zone's own declarations: its grid
+    // (`START_GRID` → `.reg-start`), Walk-up in the primitive Button's own class (`buttonClass`,
+    // primary xl block) and ONE Phone order arm (`.staff-arm`, not open, so no cap) — beside ONE
+    // free table tile in the strip's own class, which the card's second sentence sends a table to.
+    // Every class must be LIVE in the stylesheet: a replica in a class nothing draws is the drift.
+    const start = pic("counter", 1);
+    const grid = start.querySelector(".reg-start")!;
+    expect(grid).not.toBeNull();
+    const walk = grid.querySelectorAll(".ui-btn.ui-btn-primary.ui-btn-xl.ui-btn-block");
+    expect(walk.length).toBe(1);
+    const arms = grid.querySelectorAll(".staff-arm");
+    expect(arms.length).toBe(1);
+    expect(arms[0]!.getAttribute("aria-expanded")).toBeNull();
+    const tiles = start.querySelectorAll(".floor-tile");
+    expect(tiles.length).toBe(1);
+    expect(tiles[0]!.hasAttribute("data-free")).toBe(true);
+    // The tile is the strip's own class and nothing help-only (MUTATION: a bespoke
+    // `.help-pic-tile` drawing a tile-alike → this and the placement rule below redden).
+    expect([...tiles[0]!.classList].filter((c) => c.startsWith("help-pic"))).toEqual([]);
+    expect(tiles[0]!.textContent).toContain("7");
+    expect(tiles[0]!.textContent).toContain(STAFF["floor.verb.start"].en);
+    expect(css).toMatch(/(^|[\s,])\.reg-start\s*\{/m);
+    expect(css).toMatch(/(^|[\s,])\.floor-tile\s*\{/m);
+    expect(css).toMatch(/\.floor-tile\[data-free\]\s*\{/);
     expect(css).toMatch(/(^|[\s,])\.staff-arm\s*\{/m);
     expect(css).toMatch(/\.staff-arm\[aria-expanded="true"\]/);
     expect(pic("counter", 1).textContent).toContain("Walk-up");
@@ -66,6 +80,8 @@ describe("HelpPicture — the real control, inert", () => {
     expect(table.querySelector(".card.card-textured")).not.toBeNull();
     expect(table.textContent).toContain("Table 7");
     expect(table.textContent).toContain("Ordering");
+    // Phase 2d · floor — the replica keeps the card's own status edge, in the ordering tone.
+    expect(table.querySelector('.card-textured > .floor-edge[data-tone="live"]')).not.toBeNull();
   });
 
   it("the takeaway stages (the counter's third card since A4·2) spread the board's own style objects: first stage accent, second plain", () => {

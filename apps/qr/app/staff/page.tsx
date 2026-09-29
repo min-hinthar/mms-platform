@@ -15,6 +15,7 @@ import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
+import { CounterMintProvider } from "@/components/staff/CounterMint";
 import { DayCash } from "@/components/staff/DayCash";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
 import { SettledToday } from "@/components/staff/SettledToday";
@@ -65,7 +66,8 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  *   doors  — no door yet, or `?doors=1` (the Screens chip), or an in-app arrival on a kitchen
  *            device: two big tiles, Kitchen and Counter, and the three other screens beneath as More.
  *   floor  — a counter device: the counter's one screen (A4·2 · A4·3), in the order the counter
- *            person works it — START an order (walk-up · phone · a table), the TABLES and the
+ *            person works it — START an order (walk-up · phone; a table starts from the strip
+ *            atop the next zone since Phase 2d), the TABLES and the
  *            counter orders being built in one list, the TO-GO BAGS lane, then the manager rails
  *            (manager+): REFUNDS NEEDED · APPROVALS · TODAY'S TAKINGS · SETTLED TODAY (the refund
  *            console reading the receipt) — then More. `/staff/register`, `/staff/expo`,
@@ -200,6 +202,8 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   ]);
   if (!floor.ok) {
     if (floor.reason === "outage") return <StaffOutageShell what="what.floor" />;
+    // Phase 2d · floor (K14) — locked between requireStaffPage and the read: the lock screen.
+    if (floor.reason === "locked") redirect("/staff/lock");
     redirect("/staff/login"); // gate race between requireStaffPage and the read
   }
   if (!expo.ok && expo.reason !== "outage")
@@ -216,20 +220,25 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             thumb-zone Undo pill. */}
         <div className="staff-col staff-col-dock" style={wrapWide}>
           {greeting}
-          {/* 1 · START — the one action taken most, first. The zone's region is `RegisterStart`'s own,
-            named by this heading. */}
-          <div className="staff-zone">
-            <h2 id="start-h" className="staff-zone-head">
-              <Chrome lang={lang} k="floor.zone.start" />
-            </h2>
-            <p style={sub}>
-              <Chrome lang={lang} k="reg.sub" echo="stack" />
-            </p>
-            <RegisterStart labelledBy="start-h" />
-          </div>
+          {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
+              order in zone 1 and every free table on the strip in zone 2 (`CounterMint.tsx`). */}
+          <CounterMintProvider>
+            {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
+              strip in zone 2. The zone's region is `RegisterStart`'s own, named by this heading. */}
+            <div className="staff-zone">
+              <h2 id="start-h" className="staff-zone-head">
+                <Chrome lang={lang} k="floor.zone.start" />
+              </h2>
+              <p style={sub}>
+                <Chrome lang={lang} k="reg.sub" echo="stack" />
+              </p>
+              <RegisterStart labelledBy="start-h" />
+            </div>
 
-          {/* 2 · TABLES & COUNTER ORDERS — one list, keyed by session; the board owns its heading. */}
-          <FloorBoard initial={floor.snapshot} />
+            {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
+              one list keyed by session; the board owns its heading. */}
+            <FloorBoard initial={floor.snapshot} />
+          </CounterMintProvider>
 
           {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
           <ExpoBoard initial={lane} initialOutage={!expo.ok} />
