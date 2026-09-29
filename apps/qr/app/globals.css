@@ -10104,7 +10104,7 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
-/* counter-4 — the Start zone's three arms (Walk-up · Phone order · Start a table; `register-stage.ts`
+/* counter-4 — the Start zone's arm (Phone order; Walk-up is the primitive Button since Phase 2d; `register-stage.ts`
    names the class, `RegisterStart` and the help card wear it). A hairline pill at rest; the press
    rides `.staff-press`; the OPEN arm wears the console's one lit cap through the shared pressed
    rule beside the KDS chips (`.staff-arm[aria-expanded="true"]`, §2/§17) — never the accent
@@ -13680,7 +13680,8 @@ a.aisle-tile {
 }
 .floor-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(60px, 96px));
+  /* 60px…96px: five across a 390 phone's column, one row of ten on a tablet (3 × --s8 = 96). */
+  grid-template-columns: repeat(auto-fit, minmax(var(--s15), calc(3 * var(--s8))));
   gap: var(--s2);
   margin: 0;
   padding: 0;
@@ -13689,6 +13690,7 @@ a.aisle-tile {
 .floor-tile {
   --floor-edge: transparent;
   --floor-ink: var(--t2);
+  position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -13722,8 +13724,11 @@ a.aisle-tile {
   opacity: 0.6;
   cursor: default;
 }
+/* The ONE tile starting keeps its full ink (and wears the kit's spinner) — AFTER the held rule,
+   which it must out-order at equal specificity: busy is not disabled (the primitive Button's rule). */
 .floor-tile[aria-busy="true"] {
   cursor: progress;
+  opacity: 1;
 }
 .floor-tile-n {
   font-size: var(--fs-h1);
@@ -13733,6 +13738,9 @@ a.aisle-tile {
   color: var(--tx);
 }
 .floor-tile-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
   font-size: var(--fs-label);
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
@@ -13741,30 +13749,71 @@ a.aisle-tile {
 .floor-tile-glyph {
   color: var(--floor-ink);
 }
-/* The ONE tone map, as tokens (`floorTone`, lib/floor-tone.ts): the tile's bar and glyph and the
-   card's status edge all read it. `--warn` is act-now or money in flight, `--ac` ordering, `--ok`
-   paid; returned money is `--t3`/`--t2` — NEVER the success tone (K33). `rest` has no bar. */
+/* The ONE tone map, as tokens (`floorTone`, lib/floor-tone.ts): the tile's bar and glyph, the
+   card's status edge and the key's glyphs all read it, and the chip's inline ink (`CHIP_TONE`) is
+   pinned to each `--floor-ink` here. `--warn` is act-now or money in flight, `--ac` ordering, `--ok`
+   paid; returned money is `--t3`/`--t2` — NEVER the success tone (K33), never the act-now warn.
+   `rest` has no bar. */
 .floor-tile[data-tone="ask"],
 .floor-tile[data-tone="inflight"],
 .floor-edge[data-tone="ask"],
-.floor-edge[data-tone="inflight"] {
+.floor-edge[data-tone="inflight"],
+.floor-key-item[data-tone="ask"],
+.floor-key-item[data-tone="inflight"] {
   --floor-edge: var(--warn);
   --floor-ink: var(--warn);
 }
 .floor-tile[data-tone="live"],
-.floor-edge[data-tone="live"] {
+.floor-edge[data-tone="live"],
+.floor-key-item[data-tone="live"] {
   --floor-edge: var(--ac);
   --floor-ink: var(--ac);
 }
 .floor-tile[data-tone="done"],
-.floor-edge[data-tone="done"] {
+.floor-edge[data-tone="done"],
+.floor-key-item[data-tone="done"] {
   --floor-edge: var(--ok);
   --floor-ink: var(--ok);
 }
 .floor-tile[data-tone="returned"],
-.floor-edge[data-tone="returned"] {
+.floor-edge[data-tone="returned"],
+.floor-key-item[data-tone="returned"] {
   --floor-edge: var(--t3);
   --floor-ink: var(--t2);
+}
+/* THE OWED-SEND MARK: a warn dot in the tile's corner when the table owes a Send (the card's "not
+   sent"), and the same dot in the key. A shape, not a tint — the tile's tone is untouched. */
+.floor-owed-dot {
+  display: inline-block;
+  flex: none;
+  width: var(--s2);
+  height: var(--s2);
+  border-radius: var(--r-full);
+  background: var(--warn);
+}
+.floor-tile > .floor-owed-dot {
+  position: absolute;
+  inset-block-start: var(--s1);
+  inset-inline-end: var(--s1);
+}
+/* THE KEY under the strip: each glyph on screen, in the tile's own word; the owed dot last. */
+.floor-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.floor-key-item {
+  --floor-ink: var(--t2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.floor-key-glyph {
+  flex: none;
+  color: var(--floor-ink);
 }
 /* The card's STATUS EDGE: a 4px rail down the left, drawn as an inset shadow on a full-card overlay
    so it follows the card's own corner (a 4px-wide box cannot carry a 20px radius). Out-specifies
@@ -13786,13 +13835,19 @@ a.aisle-tile {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--s2);
-  min-height: 28px;
+  min-height: calc(var(--s6) + var(--s1));
   font-size: var(--fs-sm);
   color: var(--t2);
 }
 .floor-kitchen-glyph {
   margin-right: var(--s1);
-  vertical-align: -3px;
+  vertical-align: text-bottom;
+}
+/* "Not sent" is the one kitchen fact a server must ACT on (K15-HIGH): the warn ink, bold — never the
+   row's quiet grey beside a bold "in kitchen". The word carries it; the colour says "act". */
+.floor-kitchen-seg[data-seg="floor.kitchen.notSent"] {
+  font-weight: var(--fw-bold);
+  color: var(--warn);
 }
 .floor-kitchen-seg[data-seg="floor.kitchen.inKitchen"] {
   font-weight: var(--fw-bold);
@@ -13810,7 +13865,7 @@ a.aisle-tile {
   display: inline-flex;
   align-items: center;
   gap: var(--s1);
-  min-height: 28px;
+  min-height: calc(var(--s6) + var(--s1));
   padding: 0 var(--s2);
   border: 1.5px solid transparent;
   border-radius: var(--r-full);

@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FloorTable } from "@/lib/floor-types";
@@ -27,6 +29,8 @@ vi.mock("./RelativeTime", () => ({
 vi.mock("./LiveMoney", () => ({ LiveMoney: ({ cents }: { cents: number }) => <>{cents}</> }));
 
 const { TableCard } = await import("./TableCard");
+const { CHIP_TONE } = await import("./FloorStatusChip");
+const { FLOOR_TONES } = await import("@/lib/floor-tone");
 const { DEFAULT_KDS_THRESHOLDS } = await import("@/lib/kds-urgency");
 
 const SETTLED: FloorTable = {
@@ -115,7 +119,7 @@ describe("TableCard — the refund-honest chip, the kitchen row and the clock", 
   const mount = (table: FloorTable, serverNow = SETTLED.lastActivityAt) =>
     render(<TableCard table={table} serverNow={serverNow} thresholds={TH} lang="en" />);
 
-  it("a fully refunded table's chip says Refunded in the warn tone — never Paid (K33)", () => {
+  it("a fully refunded table's chip says Refunded in the returned tone — never Paid (K33)", () => {
     // MUTATION: drop `refund={table.refund}` → the chip reads "Paid" in the success tone.
     const { container } = mount({
       ...SETTLED,
@@ -126,6 +130,65 @@ describe("TableCard — the refund-honest chip, the kitchen row and the clock", 
     expect(words).not.toContain("Paid");
     // The edge wears the returned tone, never `done`.
     expect(container.querySelector(".floor-edge")?.getAttribute("data-tone")).toBe("returned");
+  });
+
+  it("ONE tone map: the chip's ink for every tone is the ink the tile and the key draw (never two colours for one table)", () => {
+    // The chip colours itself inline (`CHIP_TONE`); the tile, the card's edge and the strip's key
+    // colour themselves from the stylesheet's `--floor-ink`. A refunded table read warn on its chip
+    // and muted on its tile until this pinned them together. Comments stripped; each tone's ink is
+    // the ONE rule selecting `.floor-tile[data-tone="…"]` that declares it, else the tile's base.
+    const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+      selectors: m[1]!.split(",").map((x) => x.trim()),
+      body: m[2]!,
+    }));
+    const inkOf = (selector: string): string[] =>
+      rules
+        .filter((r) => r.selectors.includes(selector))
+        .flatMap((r) => [...r.body.matchAll(/--floor-ink:\s*([^;]+);/g)].map((m) => m[1]!.trim()));
+    const base = inkOf(".floor-tile");
+    expect(base).toHaveLength(1);
+    for (const tone of FLOOR_TONES) {
+      const own = inkOf(`.floor-tile[data-tone="${tone}"]`);
+      expect(own.length).toBeLessThanOrEqual(1);
+      // MUTATION: the chip's `returned` back on the warn pair → red here.
+      expect([tone, CHIP_TONE[tone].fg]).toEqual([tone, own[0] ?? base[0]]);
+    }
+  });
+
+  it("'not sent' is drawn in the act-now ink, bold — never the row's quiet grey (K15-HIGH)", () => {
+    const { container } = mount({
+      ...SETTLED,
+      status: "ordering",
+      paidTotalCents: null,
+      itemCount: 2,
+      runningSubtotalCents: 2000,
+      kitchen: { notSent: 2, inKitchen: 0, up: 0, done: 0, oldestFireAt: null },
+    });
+    const seg = [...container.querySelectorAll<HTMLElement>(".floor-kitchen-seg")].find(
+      (e) => e.textContent === "2 not sent",
+    )!;
+    // The stylesheet binds to the segment's OWN attribute value, so a renamed key cannot quietly
+    // drop the emphasis. MUTATION: delete the rule → the owed Send reads in grey beside bold words.
+    const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const sel = `.floor-kitchen-seg[data-seg="${seg.dataset.seg}"]`;
+    const bodies = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) =>
+        m[1]!
+          .split(",")
+          .map((x) => x.trim())
+          .includes(sel),
+      )
+      .map((m) => m[2]!);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatch(/(^|;)\s*color:\s*var\(--warn\)\s*;/);
+    expect(bodies[0]).toMatch(/font-weight:\s*var\(--fw-bold\)\s*;/);
   });
 
   it("the kitchen row says what the kitchen has, and the wait's digits are hidden from the name's listeners", () => {

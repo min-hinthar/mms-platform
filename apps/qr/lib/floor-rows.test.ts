@@ -5,6 +5,7 @@ import {
   floorRowKey,
   freeTapAllowed,
   mergeFloorRows,
+  stripKey,
   tableStrip,
 } from "./floor-rows";
 import type { FloorTable } from "./floor-types";
@@ -189,5 +190,49 @@ describe("createFlipGuard — the strip remembers which tiles JUST turned free",
     expect(g.allows(3)).toBe(false);
     g.observe([tile(3, true)]);
     expect(g.allows(3)).toBe(true);
+  });
+});
+
+describe("stripKey — the strip's KEY: every glyph on screen, decoded, and nothing that is not", () => {
+  const on = (
+    n: number,
+    status: FloorTable["status"],
+    over: Partial<FloorTable> = {},
+  ): { n: number; table: FloorTable } => ({
+    n,
+    table: { ...table(`s${n}`, null, status), tableNumber: n, ...over },
+  });
+  const free = (n: number) => ({ n, table: null });
+
+  it("one entry per status WORD on the strip, the ask first — whatever order the tiles are in", () => {
+    // Table 2 orders, table 9 asks to pay: the ask is the one a person must act on, so the key
+    // leads with it. MUTATION: keep the tiles' order → Ordering first.
+    const k = stripKey([
+      free(1),
+      on(2, "ordering"),
+      on(5, "ordering"),
+      on(9, "counter", { counterRequestedAt: "2026-09-13T18:00:00Z" }),
+    ]);
+    expect(k.entries).toEqual([
+      { tone: "ask", k: "floor.status.counter" },
+      { tone: "live", k: "floor.status.ordering" },
+    ]);
+    expect(k.owed).toBe(false);
+  });
+
+  it("a refunded table is its own word in the muted tone — never folded into 'Paid'", () => {
+    const refund = { state: "full" as const, refundedCents: 1200, netPaidCents: 0 };
+    const k = stripKey([on(3, "paid"), on(4, "paid", { refund })]);
+    expect(k.entries).toEqual([
+      { tone: "done", k: "floor.status.paid" },
+      { tone: "returned", k: "floor.status.refunded" },
+    ]);
+  });
+
+  it("an all-free strip has nothing to decode; a table owing a Send adds the owed mark", () => {
+    expect(stripKey([free(1), free(2)])).toEqual({ entries: [], owed: false });
+    const kitchen = { notSent: 2, inKitchen: 0, up: 0, done: 0, oldestFireAt: null };
+    // MUTATION: never set `owed` → the red dot on the tile has no word anywhere on screen.
+    expect(stripKey([on(6, "ordering", { kitchen })]).owed).toBe(true);
   });
 });

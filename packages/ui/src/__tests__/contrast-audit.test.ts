@@ -491,6 +491,13 @@ for (const [theme, map] of [
     ["t3 on cd (the returned-money bar and edge)", "--t3", cd],
     ["gold-strong on cd (the amber pill's edge)", "--gold-strong", cd],
     ["warn on warnb (the ask tile's bar and glyph on its own fill)", "--warn", tok(map, "--warnb")],
+    // The owed-Send dot (a tile's corner, on the card fill or the ask's warn fill) and the strip's
+    // KEY, which sits on the page: each glyph in its tone's ink, and the dot again.
+    ["warn on cd (the owed-Send dot on a tile)", "--warn", cd],
+    ["warn on pg (the key's ask / in-flight glyph and its owed dot)", "--warn", pg],
+    ["ac on pg (the key's ordering glyph)", "--ac", pg],
+    ["ok on pg (the key's paid glyph)", "--ok", pg],
+    ["t2 on pg (the key's seated / returned glyph)", "--t2", pg],
   ];
   const text: [string, string, string][] = [
     ["ac-strong on cd (the free tile's 'Start')", "--ac-strong", cd],
@@ -505,6 +512,12 @@ for (const [theme, map] of [
       flattenAlpha(tok(map, "--gold"), 0.16, cd),
     ],
     ["warn on warnb (the red wait pill)", "--warn", tok(map, "--warnb")],
+    // The kitchen row's "2 not sent" — the one fact a server must act on, in the act-now ink.
+    ["warn on cd (the kitchen row's 'not sent')", "--warn", cd],
+    // A refunded table's chip: the muted pair on the raised fill — the tile's ink, never --ok/--warn.
+    ["t2 on sf (the returned chip)", "--t2", tok(map, "--sf")],
+    // The strip's key: the words under the tiles, on the page.
+    ["t2 on pg (the strip's key)", "--t2", pg],
   ];
   describe(`${theme} theme — the floor (Phase 2d)`, () => {
     it.each(nonText)("%s clears 3:1", (_name, fg, bg) => {

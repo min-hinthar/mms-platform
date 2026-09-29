@@ -3175,6 +3175,9 @@ export const STAFF = {
     en: "No answer from the ordering system — it may have started. Check Tables & counter orders before you try again.",
     my: "အော်ဒါစနစ်က အဖြေ မရပါ — စပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ခင် စားပွဲများနဲ့ ကောင်တာ အော်ဒါများကို စစ်ပါ။",
   },
+  // The strip's KEY: what the owed-Send dot on a tile means — `floor.kitchen.notSent`'s words
+  // without the count (the dot carries none). K15 draft.
+  "floor.key.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — decodes the one mark that says dishes never reached the kitchen
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3382,6 +3385,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "pad.err.add.checking",
   // ── Phase 2d · floor ──
   "floor.kitchen.notSent",
+  "floor.key.notSent",
 ]);
 
 /**

@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { useTransition } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,6 +61,10 @@ const { FloorBoard } = await import("./FloorBoard");
 const { DEFAULT_KDS_THRESHOLDS } = await import("@/lib/kds-urgency");
 const { ts } = await import("@/lib/i18n/staff");
 const { FLOOR_WAIT_TICK_MS } = await import("./FloorWait");
+const { UP_NOTICE_DWELL_MS } = await import("@/lib/floor-kitchen");
+const { ERR_DWELL_MS } = await import("@/lib/kds-errors");
+/** The board's poll backstop (`FloorBoard`'s own interval; not exported). */
+const POLL_MS = 5000;
 
 const REGISTRY = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const table = (n: number, over: Partial<FloorTable> = {}): FloorTable => ({
@@ -144,6 +150,7 @@ afterEach(async () => {
   cleanup();
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("the wait pill ticks on its own", () => {
@@ -412,8 +419,9 @@ describe("the ONE region", () => {
     expect(region().textContent).toBe("Ready to serve — Table 7");
     const card7 = section().querySelector('.card-textured[data-session-id="s7"]')!;
     expect(card7.querySelector(".floor-card-pulse")).not.toBeNull();
-    // The notice dwells 8 s, then the counts return — with the ask a listener must hear.
-    await tick(8000);
+    // The notice dwells its own named time, then the counts return — with the ask a listener must
+    // hear.
+    await tick(UP_NOTICE_DWELL_MS);
     expect(region().textContent).toBe("2 active tables · 1 waiting to pay at counter");
   });
 
@@ -426,10 +434,11 @@ describe("the ONE region", () => {
     await tick(0);
     expect(region().textContent).toBe("Refused.");
     answer = () => Promise.resolve({ ok: false, reason: "outage" });
-    await tick(5000);
+    await tick(POLL_MS);
     // MUTATION: the freeze before the refusal → the refusal vanishes under the freeze.
     expect(region().textContent).toBe("Refused.");
-    await tick(3000);
+    // The refusal's dwell is the kitchen's (a refused action outlives the poll that follows it).
+    await tick(ERR_DWELL_MS - POLL_MS);
     expect(region().textContent).toContain(ts("en", "out.head.cant"));
   });
 
@@ -440,6 +449,21 @@ describe("the ONE region", () => {
     await tick(5000);
     expect(region().textContent).toBe("1 active table");
     expect(section().querySelector(".floor-card-pulse")).toBeNull();
+  });
+});
+
+describe("the poll's refusals", () => {
+  it("(p) a console LOCKED on another tab goes to the lock screen — never the login", async () => {
+    // `location.assign` itself cannot be spied (jsdom defines it non-configurable), but the
+    // `location` global can be stubbed whole. MUTATION: drop the `locked` arm → the poll falls
+    // through to the expired-session branch and a locked console lands on the login page.
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    mount(snap([]));
+    answer = () => Promise.resolve({ ok: false, reason: "locked" });
+    await tick(POLL_MS);
+    expect(assign).toHaveBeenCalledWith("/staff/lock");
+    expect(assign).not.toHaveBeenCalledWith("/staff/login");
   });
 });
 
@@ -455,6 +479,22 @@ describe("focus across a flip", () => {
     expect(document.activeElement).toBe(tile(7));
   });
 
+  it("(n) a person who clicked something that takes NO focus is not pulled back by a flip", async () => {
+    // A click on the page's background, a heading or the region's text blurs the tile with nowhere
+    // to go (relatedTarget null) — the same shape as the tile being REPLACED, which is the one case
+    // to restore. MUTATION: treat every null-target blur as a removal → focus jumps back to 7.
+    const { tile } = mount(snap([]));
+    tile(7).focus();
+    await act(async () => {
+      tile(7).blur();
+    });
+    expect(document.activeElement).toBe(document.body);
+    answer = ok(snap([table(7)]));
+    await tick(5000);
+    expect(tile(7).tagName).toBe("A");
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("a person who moved focus elsewhere is not pulled back by a flip", async () => {
     const { tile, container } = mount(snap([]), true);
     tile(7).focus();
@@ -467,6 +507,70 @@ describe("focus across a flip", () => {
 });
 
 describe("the strip's shape", () => {
+  it("(m) the tile that is STARTING keeps full ink and the kit's spinner beside its kept verb; the other held tiles dim", async () => {
+    // Walk-up shows a spinner while it starts; the tapped tile must say the same, or a person who
+    // tapped one of ten dimmed tiles cannot tell which table is starting. The label is KEPT (the
+    // primitive Button's rule), so the name still contains what the tile shows.
+    openRegisterOrder.mockImplementation(() => hang());
+    const { tile } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(tile(7).getAttribute("aria-busy")).toBe("true");
+    // MUTATION: drop the spinner → the busy tile is one more dimmed tile.
+    expect(tile(7).querySelector(".ui-btn-spinner[aria-hidden]")).not.toBeNull();
+    expect(tile(7).textContent).toBe("7Start");
+    expect(tile(7).getAttribute("aria-label")).toBe("Start — Table 7");
+    expect(tile(8).getAttribute("aria-disabled")).toBe("true");
+    expect(tile(8).querySelector(".ui-btn-spinner")).toBeNull();
+    // …and the stylesheet gives the busy tile its ink back AFTER the held rule dims it (equal
+    // specificity, so source order decides). Comments stripped; each rule found by what it declares.
+    const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const ruleAt = (sel: string, decl: RegExp) => {
+      const re = new RegExp(`(^|\\})\\s*${sel.replace(/[.[\]"=]/g, "\\$&")}\\s*\\{([^}]*)\\}`, "g");
+      const hits = [...css.matchAll(re)].filter((m) => decl.test(m[2]!));
+      expect(hits).toHaveLength(1);
+      return hits[0]!.index!;
+    };
+    const dim = ruleAt('.floor-tile[aria-disabled="true"]', /opacity:\s*0\.6/);
+    const lit = ruleAt('.floor-tile[aria-busy="true"]', /opacity:\s*1\s*(;|$)/);
+    expect(lit).toBeGreaterThan(dim);
+  });
+
+  it("(o) a table owing a Send wears the owed mark and says it; the key decodes every glyph on the strip", () => {
+    const owes = { notSent: 2, inKitchen: 0, up: 0, done: 0, oldestFireAt: null };
+    const { tile, section } = mount(
+      snap([
+        table(3, { status: "counter", counterRequestedAt: ago(1000) }),
+        table(5, { kitchen: owes }),
+      ]),
+    );
+    // MUTATION: drop the mark → an ordering tile reads the same whether or not a Send is owed.
+    expect(tile(5).querySelector(".floor-owed-dot[aria-hidden]")).not.toBeNull();
+    expect(tile(5).getAttribute("aria-label")).toBe("View — Table 5 · Ordering · 2 not sent");
+    expect(tile(3).querySelector(".floor-owed-dot")).toBeNull();
+    expect(tile(3).getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
+    // The key: the ask first, then ordering, then the owed mark — each tile's own word. Hidden from
+    // the accessibility tree, because every tile's name already says its word.
+    const key = section().querySelector(".floor-key")!;
+    expect(key.getAttribute("aria-hidden")).toBe("true");
+    expect([...key.querySelectorAll(".floor-key-item")].map((i) => i.textContent)).toEqual([
+      ts("en", "floor.status.counter"),
+      ts("en", "floor.status.ordering"),
+      ts("en", "floor.key.notSent"),
+    ]);
+    expect(key.querySelectorAll(".floor-key-item svg")).toHaveLength(2);
+    expect(key.querySelector(".floor-key-item .floor-owed-dot")).not.toBeNull();
+  });
+
+  it("an all-free strip has no key — its tiles already say Start", () => {
+    const { section } = mount(snap([]));
+    expect(section().querySelector(".floor-key")).toBeNull();
+  });
+
   it("one tile per registered table, in order, named by the verb the free tile shows", () => {
     const { section } = mount(snap([table(4)]));
     const tiles = [...section().querySelectorAll<HTMLElement>("[data-tile]")];

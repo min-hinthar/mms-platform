@@ -15,14 +15,12 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
 // ── Phase 2d · floor ──
-import { upRose } from "@/lib/floor-kitchen";
+import { UP_NOTICE_DWELL_MS, upRose } from "@/lib/floor-kitchen";
+import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { plural } from "@/lib/i18n/fill";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { TableStrip } from "./TableStrip";
-
-/** Phase 2d · floor — how long a strip refusal or a "ready to serve" notice holds the region. */
-const NOTICE_DWELL_MS = 8000;
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -88,7 +86,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       stripTimer.current = setTimeout(() => {
         stripTimer.current = null;
         setStripNotice(null);
-      }, NOTICE_DWELL_MS);
+      }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
   }, []);
 
   const refresh = useCallback(async () => {
@@ -144,7 +142,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         upTimer.current = setTimeout(() => {
           upTimer.current = null;
           setUpNotice(null);
-        }, NOTICE_DWELL_MS);
+        }, UP_NOTICE_DWELL_MS);
       }
       setSnap(next);
       fails.current = 0;

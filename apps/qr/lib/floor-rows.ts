@@ -1,5 +1,8 @@
 import type { FloorTable } from "./floor-types";
 import type { RegisterQueueRow } from "./register-queue";
+import { FLOOR_TONES, floorTone, type FloorTone } from "./floor-tone";
+import { floorStatusKey } from "./staff-labels";
+import type { StaffKey } from "./i18n/staff";
 
 /**
  * A4·2 — the counter's ONE list: tables and counter orders, keyed by session, in one order.
@@ -127,4 +130,37 @@ export function createFlipGuard(now: () => number = Date.now): FlipGuard {
       return freeTapAllowed(freeSince.get(n) ?? null, now());
     },
   };
+}
+
+/**
+ * The strip's KEY — what a tile's glyph means, printed once under the strip (critic, Phase 2d: an
+ * occupied tile is a number and a glyph, and a person who has never used a POS cannot know what a
+ * receipt or a cart glyph asks of them). One entry per status WORD actually on the strip — the same
+ * word the tile's name and the card's chip say (`floorStatusKey`), with that word's tone for the
+ * glyph — ordered by what a person acts on first (`FLOOR_TONES`: the ask leads), first appearance
+ * within a tone. `owed` is whether any tile carries the owed-Send mark, so that mark is decoded too.
+ * An all-free strip decodes nothing: its tiles already say "Start".
+ */
+export type StripKeyEntry = { tone: FloorTone; k: StaffKey };
+
+export function stripKey(tiles: readonly StripTile[]): { entries: StripKeyEntry[]; owed: boolean } {
+  const seen = new Map<StaffKey, FloorTone>();
+  let owed = false;
+  for (const { table } of tiles) {
+    if (table === null) continue;
+    const refund = table.refund?.state ?? null;
+    const k = floorStatusKey(table.status, refund);
+    if (!seen.has(k)) seen.set(k, floorTone(table.status, refund));
+    if (owedSendUnits(table) > 0) owed = true;
+  }
+  const entries = [...seen].map(([k, tone]) => ({ tone, k }));
+  // `sort` is stable, so first appearance holds within a tone.
+  entries.sort((a, b) => FLOOR_TONES.indexOf(a.tone) - FLOOR_TONES.indexOf(b.tone));
+  return { entries, owed };
+}
+
+/** The dishes a table owes a Send — the server fold's ONE count (`foldFloorKitchen`), read here so
+ *  the tile's mark, its name and the key agree with the card's "not sent" segment. */
+export function owedSendUnits(table: FloorTable): number {
+  return table.kitchen?.notSent ?? 0;
 }

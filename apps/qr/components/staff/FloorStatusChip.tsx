@@ -19,19 +19,26 @@ import { Badge } from "@mms/ui";
  * is `floorTone`'s — the ONE tone map the strip's tiles and the card's edge read — so returned money
  * is never drawn in the success tone. The drill-down header passes the same refund.
  *
+ * `CHIP_TONE[t].fg` is the SAME ink the stylesheet gives `.floor-tile[data-tone=t]` (`--floor-ink`),
+ * pinned by `TableCard.test.tsx` ("ONE tone map"), so a table is never two colours at once. Returned
+ * money is the MUTED pair, like its tile: the warn tone means "a person or money is moving now" (the
+ * ask, a payment in flight), and a refund done is neither — three warn states on one strip would
+ * bury the one ask that needs someone. The word ("Refunded") carries the difference from "Seated".
+ *
  * `echo={false}` — a chip is a 44px object and two scripts cannot legibly stack inside one. The
  * English is not lost: the card's accessible name contains this same state, and the console's
  * language control is one tap away.
  */
-const TONE: Record<FloorTone, { fg: string; bg: string }> = {
+export const CHIP_TONE: Record<FloorTone, { fg: string; bg: string }> = {
   rest: { fg: "var(--t2)", bg: "var(--cd)" },
   live: { fg: "var(--ac)", bg: "var(--cd)" },
   // Money about to move, or a table waiting on a person — the attention tone.
   inflight: { fg: "var(--warn)", bg: "var(--warnb)" },
   ask: { fg: "var(--warn)", bg: "var(--warnb)" },
   done: { fg: "var(--ok)", bg: "var(--okb)" },
-  // Money that came BACK: the warn pair, never --ok (K33).
-  returned: { fg: "var(--warn)", bg: "var(--warnb)" },
+  // Money that came BACK: the muted pair on the raised fill (the calm wait pill's audited pair) —
+  // never --ok (K33), and never the act-now warn (docblock).
+  returned: { fg: "var(--t2)", bg: "var(--sf)" },
 };
 
 export function FloorStatusChip({
@@ -45,7 +52,7 @@ export function FloorStatusChip({
   lang: StaffLang;
 }) {
   const refundState = refund?.state ?? null;
-  const m = TONE[floorTone(status, refundState)];
+  const m = CHIP_TONE[floorTone(status, refundState)];
   return (
     <Badge color={m.fg} background={m.bg} dot={m.fg} bordered>
       <Chrome lang={lang} k={floorStatusKey(status, refundState)} />

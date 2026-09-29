@@ -1,6 +1,7 @@
 import { PULSE_COOKING_STATES, PULSE_PASS_LINGER_MS } from "./board-pulse";
 import { kdsUrgency } from "./kds-urgency";
 import { staffOwedSendUnits, staffSendCounts } from "./staff-send-view";
+import { ERR_DWELL_MS } from "./kds-errors";
 import type { FloorKitchen } from "./floor-types";
 import type { KdsThresholds } from "./kitchen-types";
 
@@ -156,3 +157,11 @@ export const FLOOR_WAIT_RANK: Readonly<Record<FloorWaitLevel, number>> = {
 export function upRose(prev: number | undefined, next: number): boolean {
   return prev !== undefined && next > prev;
 }
+
+/**
+ * How long "Ready to serve — Table 7" holds the floor's one region. Its own fact (a cue, not a
+ * refusal), set EQUAL to the refusal dwell on purpose (`ERR_DWELL_MS`, kitchen-10): both are a
+ * sentence in a region the 5 s poll would otherwise replace at any moment, so both must outlive the
+ * poll that follows them by the same reader's clock. Change one and say why the other differs.
+ */
+export const UP_NOTICE_DWELL_MS = ERR_DWELL_MS;

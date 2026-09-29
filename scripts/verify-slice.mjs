@@ -9791,6 +9791,73 @@ const MUTANTS = [
     find: "<RelativeTime iso={table.openedAt} serverNow={serverNow} />",
     replace: "<RelativeTime iso={table.lastActivityAt} serverNow={serverNow} />",
   },
+  // Phase 2d · floor — the critic round: the owed-Send mark and the key, the busy tile, focus after
+  // a click-away, the locked poll and the board's clock.
+  {
+    id: "p2d-floor/strip-owed-send-unmarked",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — a table owing a Send wears the warn dot on its tile; without it an ordering tile reads the same whether or not dishes never reached the kitchen",
+    find: '      {owedSendUnits(table) > 0 ? <span className="floor-owed-dot" aria-hidden /> : null}\n',
+    replace: "",
+  },
+  {
+    id: "p2d-floor/strip-name-drops-the-owed-send",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — the dot is aria-hidden, so the tile's name must say '2 not sent' or a listener never hears what a sighted server sees",
+    find: '  const tail = owed > 0 ? ` · ${tf(lang, "floor.kitchen.notSent", { n: owed })}` : "";',
+    replace: '  const tail = "";',
+  },
+  {
+    id: "p2d-floor/strip-busy-tile-unmarked",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — the ONE tile starting wears the kit's spinner at full ink; without it a person who tapped one of ten dimmed tiles cannot tell which table is starting",
+    find: '        {busy ? <span className="ui-btn-spinner" aria-hidden /> : null}\n',
+    replace: "",
+  },
+  {
+    id: "p2d-floor/strip-refocus-after-a-click-away",
+    file: "apps/qr/components/staff/TableStrip.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — a click on something that takes no focus blurs with nowhere to go, like a removal; kept, the next flip pulls focus back to a tile the person left",
+    find: "      if (el.isConnected && document.activeElement !== el) focused.current = null;",
+    replace: "      if (false) focused.current = null;",
+  },
+  {
+    id: "p2d-floor/key-owed-never-set",
+    file: "apps/qr/lib/floor-rows.ts",
+    suite: "lib/floor-rows.test.ts",
+    why: "Phase 2d · floor — the key decodes the owed-Send dot; unset, the red dot on a tile has no word anywhere on screen",
+    find: "    if (owedSendUnits(table) > 0) owed = true;",
+    replace: "",
+  },
+  {
+    id: "p2d-floor/key-in-tile-order",
+    file: "apps/qr/lib/floor-rows.ts",
+    suite: "lib/floor-rows.test.ts",
+    why: "Phase 2d · floor — the key leads with the ask (the one a person must act on), whatever order the tiles are in",
+    find: "  entries.sort((a, b) => FLOOR_TONES.indexOf(a.tone) - FLOOR_TONES.indexOf(b.tone));",
+    replace: "",
+  },
+  {
+    id: "p2d-floor/board-locked-goes-to-login",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor (K14) — a console locked on another tab must land on the lock screen; without the arm the poll falls through to the expired-session branch and sends it to the login page",
+    find: '        if (res.reason === "locked") {\n          window.location.assign("/staff/lock");\n          return;\n        }\n',
+    replace: "",
+  },
+  {
+    id: "p2d-floor/board-clock-rerenders-every-card",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · floor — the wait pill ticks on its OWN clock; a board-level 15 s clock re-renders every card on the counter screen four times a minute",
+    find: "  // Debounced trigger for realtime bursts.\n",
+    replace:
+      "  useEffect(() => {\n    const id = setInterval(() => setNowMs(Date.now()), 15_000);\n    return () => clearInterval(id);\n  }, []);\n  // Debounced trigger for realtime bursts.\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
