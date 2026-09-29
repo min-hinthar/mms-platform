@@ -127,8 +127,8 @@ counter screen's per-zone regions).
   three doors say what the P2cy lock guarantees.
 - **Owner decisions applied (2026-09-29, delegated: "decide on world class app design-thinking
   quality standards and apply database migrations").** ⑤a **P2dc — fail closed** at the three staff
-  doors (above; the refusal speaks the house outage sentence, not the decision's drafted "Couldn't
-  check the kitchen — try again" — P2el); the diner's counter ask stays fail-open (it moves no money). ⑤b **P2dd + P2cy ship as
+  doors (above; after the blind review the refusal is typed `unreadable` and says the decision's own
+  "Couldn't check the kitchen — try again", the control re-armed — P2el, closed); the diner's counter ask stays fail-open (it moves no money). ⑤b **P2dd + P2cy ship as
   a migration and are applied to prod**, one file, verified. ⑤c **Phase 2d as recommended:** the
   one-tap strip replacing the typed arm (600 ms flip guard, Clear table recovery); Walk-up the Start
   zone's one primary; the tablet split side by side from 48em with a persistent empty pane from 64em,
@@ -197,6 +197,36 @@ counter screen's per-zone regions).
   mutants · `check:docs` and `check:mutant-anchors` clean. The full 1271-mutant `verify:slice` run
   with the gate is not recorded here. Nothing is device-measured — the strip, the bell's audio and the
   split owe their device passes (P2dj · P2dr · P2ea · P2eb · P2ed · P2ee).
+
+- **Blind review (3 lenses — money semantics · concurrency · product truth + a11y; 3× REJECT) —
+  fixed in one pass, three parallel groups, every fix red-first with a mutant.**
+  - _Guards:_ `scripts/verify-line-guard-race.mjs` (`pnpm verify:line-race`, in CI) — a two-session
+    harness that watches each line RPC block on a live settle claim and vice versa, with `--mutants`
+    deleting `for share` from each (6 killed; P2dk closed); P2DD.4 now reads the comped draft back
+    (mode-authority battery 40 mutants); a parsed parity test pins the SQL freeze window to
+    `SETTLE_TTL_MS` (turbo now tracks `supabase/migrations` as a test input); reorder's paying branch
+    tested; stale comments corrected (the applied migration left untouched).
+  - _Floor + counter:_ a start that lands after the cashier picked a table in the pane neither
+    navigates nor switches it (and releases the lock); a frozen floor stops extrapolating the wait
+    pill and says it is frozen on the card and in its name; an empty table registry says so instead
+    of promising a strip; one Burmese verb for Start across the counter screen (guarded); the strip
+    tile's name arm fixed; the 900-row cap degrades only the kitchen picture ("kitchen times
+    unavailable") while cards, strip and starts keep working; the flip window's refused tap is
+    `aria-disabled` and said.
+  - _Split pane:_ the bell never rings over a covered counter column (below 48em) and never rings
+    late for what it heard there; the pane says "Loading this table…" through its one region; a
+    settle refused or unanswered after the pane left its table is said via the lost-write channel
+    (`floor.pane.lostSettle`, `…Unknown`); the quiet retry never cancels a read still in the air;
+    the paid card is an h3 in the pane; the closed-table copy hedges instead of inventing a history;
+    the REAL FloorBoard is now mounted under CounterSplit in an integration suite, which also pins
+    the per-zone live regions (measured, kept by design).
+  - _P2el:_ the fail-closed refusal is typed `unreadable` and says `settle.unsentUnreadable` at all
+    three doors.
+  - _Rejected with evidence:_ other callers of the line RPCs (none — grep), restated bodies not the
+    latest (prod md5 matched the repo's last definitions), a deadlock with merge/void/fulfil (only
+    `mms_merge_table_orders` writes both tables and it locks carts first), freeze expiry mid-collect
+    (the reader poll extends it), the grocery queue (it pre-checks the freeze), and consolidating the
+    counter screen's per-zone regions (a redesign, not a defect).
 
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
