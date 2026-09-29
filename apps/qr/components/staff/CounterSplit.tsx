@@ -42,7 +42,9 @@ import {
  * Next drops custom `history.state`. Writes carry no `__NA`, so Next adopts the hash into its
  * canonical URL; a native fragment entry it never saw is synced on `hashchange`.
  */
-type Sel = { id: string; hint: TableHint | null; focus: number };
+/** `gen` names ONE selection of `id`: a new one per pick of a table not already shown (A → ✕ → A,
+ *  A → B → A), kept by a re-tap of the table shown — a read belongs to a `gen`, never to an id. */
+type Sel = { id: string; hint: TableHint | null; focus: number; gen: number };
 
 const isSplit = () =>
   typeof window !== "undefined" &&
@@ -77,6 +79,7 @@ export function CounterSplit({
   const pendingFocus = useRef<{ target: "card" | "floorHeading"; id: string } | null>(null);
   const [closeSeq, setCloseSeq] = useState(0);
   const focusSeq = useRef(0);
+  const genSeq = useRef(0);
 
   const hintFor = useCallback(
     (id: string): TableHint | null => rowsRef.current.find((r) => r.sessionId === id)?.hint ?? null,
@@ -108,6 +111,7 @@ export function CounterSplit({
         id,
         hint: hint ?? hintFor(id),
         focus: opts.focus ? ++focusSeq.current : (selRef.current?.focus ?? 0),
+        gen: from === id && selRef.current ? selRef.current.gen : ++genSeq.current,
       };
       if (from === id && !opts.focus) return;
       selRef.current = next;
@@ -240,6 +244,11 @@ export function CounterSplit({
     setRows((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
 
+  // ONE identity for the mount: the pane's first-read effect lists it, so a new arrow per render
+  // would re-read the table shown on every floor publish (and land a `closed` past the detail's
+  // terminal hold, unmounting the reader panel before its #CODE card).
+  const selectedNow = useCallback(() => selRef.current?.id ?? null, []);
+
   const api: TablePaneApi = {
     selectedId: sel?.id ?? null,
     openFromCard,
@@ -251,14 +260,14 @@ export function CounterSplit({
     <TablePaneContext.Provider value={api}>
       <div
         className="staff-col staff-col-dock staff-split"
-        data-pane={!hydrated ? "unknown" : sel ? "open" : "empty"}
+        data-pane={!hydrated ? "unknown" : sel ? "open" : lostWrite ? "lost" : "empty"}
       >
         <div className="staff-split-main">{children}</div>
         <TablePane
           paneRef={paneRef}
           hydrated={hydrated}
           sel={sel}
-          selectedNow={() => selRef.current?.id ?? null}
+          selectedNow={selectedNow}
           rows={rows}
           lostWrite={lostWrite}
           settleOnce={settleOnce}

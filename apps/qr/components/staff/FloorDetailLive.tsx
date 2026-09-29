@@ -235,11 +235,14 @@ export function FloorDetailLive({
     return () => clearTimeout(id);
   }, [sessionId]);
   // Phase 2d · split — the paid card's stash, restored the same way (a scheduled callback, never a
-  // synchronous setState in the effect; `readHandoffStash` swallows every storage failure).
+  // synchronous setState in the effect; `readHandoffStash` swallows every storage failure). The
+  // PANE only: the full page (a phone) keeps its card in memory, as before — a reopened settled
+  // table there never brings back an old change-due card.
   useEffect(() => {
+    if (!inPane) return;
     const id = setTimeout(() => setRestoredHandoff(readHandoffStash(sessionId)), 0);
     return () => clearTimeout(id);
-  }, [sessionId]);
+  }, [sessionId, inPane]);
   // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
   // panel shows it, and carries no region of its own). A STATE mirrored from the live panel, not a
   // one-shot note: no other setter clears it, and it goes when the panel goes.

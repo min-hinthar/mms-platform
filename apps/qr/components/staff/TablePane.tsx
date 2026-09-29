@@ -46,11 +46,15 @@ import type { Handoff } from "@/lib/register-ui";
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
  * another table); otherwise this pane's single sr-only `role=status` does. Never two at once.
  */
-type Read =
-  | { id: string; kind: "loading" }
-  | { id: string; kind: "detail"; detail: TableDetail }
-  | { id: string; kind: "closed"; label: string | null; counter: boolean }
-  | { id: string; kind: "fail"; cause: "outage" | "unknown" };
+/** Every read carries its selection's `gen`: a table picked AGAIN (A → ✕ → A, A → B → A) starts in
+ *  `loading` and reads afresh — a previous pick's detail would seed `FloorDetailLive`'s state
+ *  (`useState(initial)`) with an order minutes old until the next poll. */
+type Read = { id: string; gen: number } & (
+  | { kind: "loading" }
+  | { kind: "detail"; detail: TableDetail }
+  | { kind: "closed"; label: string | null; hint: TableHint | null }
+  | { kind: "fail"; cause: "outage" | "unknown" }
+);
 
 const RETRY_MS = 5000; // parity with the page's 5 s poll (owner decision: pane poll cadence)
 
@@ -70,7 +74,7 @@ export function TablePane({
 }: {
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
-  sel: { id: string; hint: TableHint | null; focus: number } | null;
+  sel: { id: string; hint: TableHint | null; focus: number; gen: number } | null;
   /** The selection NOW (a ref read) — a read resolving late is gated on it, never on a closure. */
   selectedNow: () => string | null;
   rows: readonly PaneRow[];
@@ -88,27 +92,39 @@ export function TablePane({
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const id = sel?.id ?? null;
-  // A read belongs to ONE selection: anything else in state is a previous table's.
-  const cur: Read | null = id === null ? null : read?.id === id ? read : { id, kind: "loading" };
+  const gen = sel?.gen ?? 0;
+  // A read belongs to ONE selection: anything else in state is a previous pick's.
+  const cur: Read | null =
+    id === null ? null : read?.id === id && read.gen === gen ? read : { id, gen, kind: "loading" };
 
-  // The first read, per selection (and per retry). Gated by `acceptPaneRead` at landing.
+  // The first read, per selection (`gen`) and per retry — NEVER per render: `selectedNow` is one
+  // stable function for the mount, so a floor publish cannot re-run this. That matters beyond the
+  // wasted read: once a detail is mounted, a later `closed` is the detail's own to say (`onClosed`,
+  // behind its terminal hold — the reader panel and the counter's #CODE card); a re-run first read
+  // would land it past that hold. Gated by `acceptPaneRead` at landing.
   useEffect(() => {
     if (id === null) return;
     let live = true;
     raceTimeout(getTableDetail(id))
       .then((res) => {
         if (!live || !acceptPaneRead(id, selectedNow())) return;
-        if (res.kind === "detail") setRead({ id, kind: "detail", detail: res.detail });
+        if (res.kind === "detail") setRead({ id, gen, kind: "detail", detail: res.detail });
         else if (res.kind === "closed")
-          setRead({ id, kind: "closed", label: null, counter: false });
+          setRead({
+            id,
+            gen,
+            kind: "closed",
+            label: res.label ?? null,
+            hint: res.label === undefined ? null : closedHint(res.label, res.tableNumber ?? null),
+          });
         else if (res.kind === "signin") window.location.assign("/staff/login");
-        else setRead({ id, kind: "fail", cause: "outage" });
+        else setRead({ id, gen, kind: "fail", cause: "outage" });
       })
       .catch((e: unknown) => {
         // A timeout or a dropped transport: this end failed, which is not evidence of an outage.
         console.error("[TablePane] first read failed", e);
         if (live && acceptPaneRead(id, selectedNow()))
-          setRead({ id, kind: "fail", cause: "unknown" });
+          setRead({ id, gen, kind: "fail", cause: "unknown" });
       })
       .finally(() => {
         if (live) setRetrying(false);
@@ -116,7 +132,7 @@ export function TablePane({
     return () => {
       live = false;
     };
-  }, [id, attempt, selectedNow]);
+  }, [id, gen, attempt, selectedNow]);
 
   // The quiet retry while a first read stands failed.
   const failed = cur?.kind === "fail";
@@ -137,11 +153,16 @@ export function TablePane({
     headingRef.current?.focus({ preventScroll: split });
   }, [focusNonce, paneRef]);
 
-  // Closed while shown: the notice's title takes focus only if focus was inside the pane.
+  // Closed while shown: the notice's title takes focus only if focus was inside the pane. SAMPLED
+  // BEFORE the swap (`onClosed` runs while the detail's focused control is still in the DOM): by
+  // this effect that control is gone and focus is on <body>, which says nothing about where it was.
   const closedNow = cur?.kind === "closed";
+  const focusWasInPane = useRef(false);
   useEffect(() => {
     if (!closedNow) return;
-    if (paneRef.current?.contains(document.activeElement))
+    const had = focusWasInPane.current;
+    focusWasInPane.current = false;
+    if (had || paneRef.current?.contains(document.activeElement))
       document.getElementById("table-pane-closed-h")?.focus();
   }, [closedNow, paneRef]);
 
@@ -175,7 +196,10 @@ export function TablePane({
     cur?.kind === "detail"
       ? { counter: cur.detail.label.startsWith("reg-"), display: tableDisplay(cur.detail).text }
       : null;
-  const name = detailName ?? sel?.hint ?? null;
+  const name = detailName ?? (cur?.kind === "closed" ? cur.hint : null) ?? sel?.hint ?? null;
+  // A settled read with no name (a deep link to a vanished session, a failed first read): a neutral
+  // head — never the loading skeleton beside a body that is no longer loading.
+  const settled = cur !== null && cur.kind !== "loading";
   const nameText = (h: TableHint) =>
     h.counter ? ts(lang, "floor.counter") : tf(lang, "floor.table", { id: h.display });
 
@@ -205,13 +229,17 @@ export function TablePane({
           {lostWrite && (
             <LostWrite line={lostLine} lang={lang} lw={lostWrite} onSelect={onSelect} />
           )}
-          <EmptyState
-            titleAs="h2"
-            titleId="table-pane-h"
-            icon={<Icon name="receipt" size={24} />}
-            title={<Chrome lang={lang} k="floor.pane.empty.title" />}
-            subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
-          />
+          {/* Hidden below 64em while only a lost write stands (`data-pane="lost"`): there the pane
+              is the warning line above the floor, never a "Pick a table" page over it. */}
+          <div className="staff-pane-empty">
+            <EmptyState
+              titleAs="h2"
+              titleId="table-pane-h"
+              icon={<Icon name="receipt" size={24} />}
+              title={<Chrome lang={lang} k="floor.pane.empty.title" />}
+              subtitle={<Chrome lang={lang} k="floor.pane.empty.sub" echo="stack" />}
+            />
+          </div>
           <p role="status" className="sr-only">
             {lostLine}
           </p>
@@ -227,6 +255,8 @@ export function TablePane({
                 ) : (
                   <Chrome lang={lang} k="floor.table" vars={{ id: name.display }} />
                 )
+              ) : settled ? (
+                <Chrome lang={lang} k="floor.pane.head.unnamed" />
               ) : (
                 <>
                   <Skeleton width={180} height={30} radius={8} />
@@ -256,8 +286,15 @@ export function TablePane({
               <TableNavProvider
                 value={{
                   inPane: true,
-                  toFloor: (reason) => onClose(reason),
-                  toTable: (to, hint) => onSelect(to, hint),
+                  // Bound to THIS table: a Clear or Merge answering after the pane moved on (or
+                  // closed) must not close — or switch away from — the table shown now. The
+                  // control's own work (the server write, its stash drop) is already done.
+                  toFloor: (reason) => {
+                    if (acceptPaneRead(cur.id, selectedNow())) onClose(reason);
+                  },
+                  toTable: (to, hint) => {
+                    if (acceptPaneRead(cur.id, selectedNow())) onSelect(to, hint);
+                  },
                 }}
               >
                 <FloorDetailLive
@@ -270,11 +307,14 @@ export function TablePane({
                   paneNotice={lostLine}
                   onClosed={(sid) => {
                     if (!acceptPaneRead(sid, selectedNow())) return;
+                    focusWasInPane.current =
+                      paneRef.current?.contains(document.activeElement) ?? false;
                     setRead({
                       id: sid,
+                      gen: cur.gen,
                       kind: "closed",
                       label: cur.detail.label,
-                      counter: cur.detail.label.startsWith("reg-"),
+                      hint: closedHint(cur.detail.label, cur.detail.tableNumber),
                     });
                   }}
                   onLostWrite={onLostWrite}
@@ -294,7 +334,7 @@ export function TablePane({
                     <Chrome
                       lang={lang}
                       k={
-                        cur.counter || sel.hint?.counter
+                        cur.hint?.counter || sel.hint?.counter
                           ? "floor.pane.closed.counterTitle"
                           : "table.detail.closed.title"
                       }
@@ -355,7 +395,7 @@ export function TablePane({
                   <Chrome
                     lang={lang}
                     k={
-                      cur.counter || sel.hint?.counter
+                      cur.hint?.counter || sel.hint?.counter
                         ? "floor.pane.closed.counterTitle"
                         : "table.detail.closed.title"
                     }
@@ -369,6 +409,14 @@ export function TablePane({
       )}
     </section>
   );
+}
+
+/** A closed table's name from its label (`reg-*` is a counter order) and number. */
+function closedHint(label: string, tableNumber: number | null): TableHint {
+  return {
+    counter: label.startsWith("reg-"),
+    display: tableDisplay({ tableNumber, label }).text,
+  };
 }
 
 /** A change on another table that did not save: the words (warn ink) and the one-tap way to check.
@@ -391,13 +439,9 @@ function LostWrite({
     <div className="staff-pane-lost">
       <Icon name="alert" size={16} aria-hidden />
       <span aria-hidden="true">{line}</span>
-      <button
-        type="button"
-        className="staff-btn staff-press"
-        onClick={() => onSelect(lw.sessionId, lw.hint)}
-      >
+      <Button variant="secondary" size="sm" onClick={() => onSelect(lw.sessionId, lw.hint)}>
         <Chrome lang={lang} k="floor.pane.open" vars={{ x: name }} />
-      </button>
+      </Button>
     </div>
   );
 }

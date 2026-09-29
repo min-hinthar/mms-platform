@@ -13237,7 +13237,7 @@ a.aisle-tile {
 
 /* The phone tier: one pane at a time, and the dock's hints are spoken, not drawn (the bar is one
    64px row; a hint below it would sit off the screen). */
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-shell[data-view="menu"] .pad-ticket,
   .pad-shell[data-view="order"] .pad-tiles,
   .pad-shell[data-view="order"] .pad-tools {
@@ -13403,7 +13403,7 @@ a.aisle-tile {
     display: block;
   }
 }
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-skeleton .pad-ticket {
     display: none;
   }
@@ -14009,7 +14009,10 @@ a.aisle-tile {
     overflow-y: auto;
     overscroll-behavior-y: contain;
     border-inline-start: 1px solid var(--bd);
-    padding: 0 var(--s2) var(--s6) var(--s6);
+    /* The end reserve is the dock's (`.staff-col-dock`): the pane scrolls itself, so without it its
+       last controls sit under the lane's fixed thumb-zone Undo pill. */
+    padding: 0 var(--s2) calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px))
+      var(--s6);
   }
 }
 @media (min-width: 64em) {
@@ -14022,6 +14025,28 @@ a.aisle-tile {
   }
   .staff-split > .staff-split-pane {
     display: block;
+  }
+}
+/* A change refused AFTER the pane closed (`data-pane="lost"`): below 64em the pane is hidden when
+   empty, so the warning would be neither shown nor said. There it comes back as ONE line above the
+   floor — the floor stays in place, the "Pick a table" page stays hidden, the pane is not a column.
+   ≥64em the always-there pane column already carries it. */
+@media (max-width: 63.99em) {
+  .staff-split[data-pane="lost"] {
+    display: flex;
+    flex-direction: column;
+  }
+  .staff-split[data-pane="lost"] > .staff-split-pane {
+    display: block;
+    order: -1;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-inline-start: 0;
+    padding: 0;
+  }
+  .staff-split[data-pane="lost"] .staff-pane-empty {
+    display: none;
   }
 }
 /* The pane head: opaque page ground (the bar is §17's one frosted pane), a hairline, the table's

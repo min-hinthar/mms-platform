@@ -395,6 +395,28 @@ describe("CSS parity — globals.css names the split's breakpoints as floor-pane
     );
     expect(c).toHaveLength(1);
   });
+  it("a LOST write shows the pane's line below PANE_IDLE_QUERY — the only width it is hidden at", () => {
+    // Phase 2d · split (critic) — `data-pane="lost"`: exactly one rule shows the pane, and its
+    // media is the complement of PANE_IDLE_QUERY (≥64em already shows the pane column).
+    const c = all.filter(
+      (r) =>
+        r.selectors.includes('.staff-split[data-pane="lost"] > .staff-split-pane') &&
+        declares(r.body, "display", "block"),
+    );
+    expect(c).toHaveLength(1);
+    const min = /min-width:\s*([\d.]+)em/.exec(PANE_IDLE_QUERY)![1]!;
+    const max = /max-width:\s*([\d.]+)em/.exec(c[0]!.media ?? "")?.[1];
+    expect(max).toBeDefined();
+    expect(Number(min) - Number(max)).toBeCloseTo(0.01, 5);
+    // …and the "Pick a table" page stays hidden there: the floor keeps its place.
+    const hide = all.filter(
+      (r) =>
+        r.selectors.includes('.staff-split[data-pane="lost"] .staff-pane-empty') &&
+        declares(r.body, "display", "none") &&
+        r.media === c[0]!.media,
+    );
+    expect(hide).toHaveLength(1);
+  });
   it("the pane scroller contains its overscroll on the axis longhand", () => {
     const c = all.filter(
       (r) =>

@@ -23,10 +23,12 @@ const getTableDetail = vi.fn((id: string) => (answers[id] ?? (() => new Promise(
 vi.mock("@/lib/floor", () => ({
   getTableDetail: (id: string) => getTableDetail(id),
   clearTable: (...a: unknown[]) => clearTable(...(a as [])),
-  getMergeCandidates: vi.fn(() => Promise.resolve({ ok: true, candidates: [] })),
-  mergeTables: vi.fn(),
+  getMergeCandidates: (...a: unknown[]) => getMergeCandidates(...(a as [])),
+  mergeTables: (...a: unknown[]) => mergeTables(...(a as [])),
 }));
 const clearTable = vi.fn();
+const getMergeCandidates = vi.fn(() => Promise.resolve([] as unknown[]));
+const mergeTables = vi.fn();
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/useFloorRealtime", () => ({ useFloorRealtime: () => {} }));
 const staffSetQty = vi.fn();
@@ -175,16 +177,16 @@ function Floor({
 }
 
 let split = true;
-const mount = (props: Parameters<typeof Floor>[0] = {}) =>
-  render(
-    <StaffLangProvider lang="en">
-      <LiveConnectionProvider>
-        <CounterSplit terminalReady={false}>
-          <Floor {...props} />
-        </CounterSplit>
-      </LiveConnectionProvider>
-    </StaffLangProvider>,
-  );
+const tree = (props: Parameters<typeof Floor>[0] = {}) => (
+  <StaffLangProvider lang="en">
+    <LiveConnectionProvider>
+      <CounterSplit terminalReady={false}>
+        <Floor {...props} />
+      </CounterSplit>
+    </LiveConnectionProvider>
+  </StaffLangProvider>
+);
+const mount = (props: Parameters<typeof Floor>[0] = {}) => render(tree(props));
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
 const card = (id: string) =>
   document.querySelector<HTMLAnchorElement>(`.floor-card[data-session-id="${id}"]`)!;
@@ -230,6 +232,8 @@ afterEach(() => {
   staffSetQty.mockReset();
   settleCash.mockReset();
   clearTable.mockReset();
+  mergeTables.mockReset();
+  getMergeCandidates.mockClear();
   replace.mockReset();
   refresh.mockReset();
   push.mockReset();
@@ -707,3 +711,319 @@ describe("TablePane — a start that converged on a seated table", () => {
     expect(push).toHaveBeenCalledWith(`/staff/table/${A}/add`);
   });
 });
+
+// ── Critic round (split) — each block is red against the code it fixes. ──
+describe("TablePane — a floor re-render never re-reads the table shown", () => {
+  it("new floor rows: no second first-read, and a close the poll has not said yet never swaps the detail", async () => {
+    const view = mount({ publish: [{ sessionId: A, label: "T4", n: 4 }] });
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // The webhook closes it (the detail's own hold decides what that means) — then the floor
+    // publishes new rows, which re-renders the split.
+    answers[A] = () => Promise.resolve({ kind: "closed" });
+    view.rerender(tree({ publish: [{ sessionId: B, label: "T7", n: 7 }] }));
+    await tick(0);
+    // MUTATION: a new `selectedNow` arrow per render — the first read runs again, lands `closed`,
+    // and unmounts the live detail past its terminal hold; red.
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("order-h")).not.toBeNull();
+  });
+});
+
+describe("TablePane — a Clear or Merge that answers after a switch", () => {
+  const H = {
+    orderId: "o-00b7c8d9",
+    totalCents: 1200,
+    tipCents: 0,
+    tenderedCents: 2000,
+    isCounter: false,
+    cartId: null,
+  };
+  it("a late Clear on A never closes B, never drops B's paid card; A's own card goes", async () => {
+    let land!: (v: unknown) => void;
+    clearTable.mockReturnValueOnce(new Promise((r) => (land = r)));
+    stashHandoff(A, { ...H, orderId: "o-00a1a1a1" });
+    stashHandoff(B, H);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    fireEvent.click(within(pane()).getByRole("button", { name: /Clear table/ }));
+    const confirm = within(pane())
+      .getAllByRole("button")
+      .find((b) => b.textContent?.includes(ts("en", "settle.confirm")))!;
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    await tap(card(B));
+    await tick(0);
+    backSpy.mockClear();
+    await act(async () => {
+      land({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: an unbound `toFloor` — A's late success closes B's pane; red.
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    expect(backSpy).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(handoffStashKey(B))).toContain("o-00b7c8d9");
+    // MUTATION: skip ClearTableButton's own drop — a cleared table's card outlives it; red.
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+
+  it("a late Merge on A never switches the pane away from B", async () => {
+    let land!: (v: unknown) => void;
+    mergeTables.mockReturnValueOnce(new Promise((r) => (land = r)));
+    getMergeCandidates.mockResolvedValueOnce([
+      { sessionId: C, label: "T9", tableNumber: 9, mode: "dinein", itemCount: 1, partySize: 2 },
+    ]);
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: /Merge with another table/ }));
+    });
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: /Table 9/ }));
+    });
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: /Merge into Table 9/ }));
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      land({ ok: true, movedCount: 1, targetSessionId: C });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: an unbound `toTable` — A's late merge moves the pane off B to Table 9; red.
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    expect(location.hash).toBe(`#table-${B}`);
+  });
+});
+
+describe("TablePane — a table picked again starts from a fresh read", () => {
+  it("A → ✕ → A never shows A's old detail", async () => {
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain("Mohinga");
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    answers[A] = ok(detail(A, 4, { lines: [line("l-4b", "Tea")] }));
+    await tap(card(A));
+    await tick(0);
+    // MUTATION: reuse the previous read for the same id — the old order is seeded into the detail
+    // (useState(initial)) and stays until the next poll; red.
+    expect(pane().textContent).toContain("Tea");
+    expect(pane().textContent).not.toContain("Mohinga");
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+  });
+  it("A → B (still loading) → A reads A again", async () => {
+    answers[B] = () => new Promise(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await tap(card(B));
+    answers[A] = ok(detail(A, 4, { lines: [line("l-4b", "Tea")] }));
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain("Tea");
+    expect(pane().textContent).not.toContain("Mohinga");
+  });
+  it("re-tapping the table SHOWN keeps its live detail (no re-read, no remount)", async () => {
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const heading = document.getElementById("order-h");
+    await tap(card(A));
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    expect(document.getElementById("order-h")).toBe(heading);
+  });
+});
+
+describe("TablePane — a refusal after the pane closed is shown at every width", () => {
+  it("the split says `lost` (CSS shows the pane's line below 64em), and the line is SAID", async () => {
+    let refuse!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (refuse = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const inc = pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    await act(async () => {
+      fireEvent.click(inc);
+    });
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    await act(async () => {
+      refuse({ ok: false, error: "That line just changed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const split = document.querySelector<HTMLElement>(".staff-split")!;
+    // MUTATION: `empty` while a lost write stands — the CSS hides the pane (and its region) on a
+    // phone and a portrait iPad; red.
+    expect(split.dataset.pane).toBe("lost");
+    const said = tf("en", "floor.pane.lostWrite", { x: tf("en", "floor.table", { id: "4" }) });
+    expect(pane().querySelector('[role="status"]')!.textContent).toContain(said);
+    // The one way back is a real 44px Button, not a bare browser button.
+    const view = within(pane().querySelector(".staff-pane-lost") as HTMLElement).getByRole(
+      "button",
+    );
+    expect(view.className).toContain("ui-btn");
+    expect(view.className).not.toContain("staff-press");
+    await act(async () => {
+      fireEvent.click(view);
+    });
+    await tick(0);
+    expect(split.dataset.pane).toBe("open");
+  });
+  it("a refusal on the table SHOWN is its own detail's, never a lost write", async () => {
+    let refuse!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (refuse = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const inc = pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    await act(async () => {
+      fireEvent.click(inc);
+    });
+    await act(async () => {
+      refuse({ ok: false, error: "That line just changed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION: record every refusal as lost — the table shown names itself as "another"; red.
+    expect(pane().querySelector(".staff-pane-lost")).toBeNull();
+  });
+});
+
+describe("TablePane — a table that closes while a control inside it has focus", () => {
+  it("focus goes to the closed notice's title, never <body>", async () => {
+    mount({ publish: [] });
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const inc = pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    inc.focus();
+    expect(document.activeElement).toBe(inc);
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "T4", tableNumber: 4 });
+    await tick(5000);
+    await tick(0);
+    // MUTATION: sample focus only after the swap — the removed control left it on <body>; red.
+    expect(document.activeElement).toBe(document.getElementById("table-pane-closed-h"));
+  });
+  it("focus elsewhere stays where it is", async () => {
+    mount({ publish: [] });
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const outside = document.getElementById("outside")!;
+    outside.focus();
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "T4", tableNumber: 4 });
+    await tick(5000);
+    await tick(0);
+    expect(document.activeElement).toBe(outside);
+  });
+});
+
+describe("TablePane — a deep link to a table that is already closed", () => {
+  it("names it, stops saying loading, and offers the live namesake", async () => {
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "T4", tableNumber: 4 });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [], publish: [{ sessionId: C, label: "T4", n: 4 }] });
+    await tick(0);
+    await tick(0);
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    expect(pane().getAttribute("aria-busy")).toBeNull();
+    expect(pane().textContent).not.toContain(
+      tf("en", "shell.loading", { what: ts("en", "what.table") }),
+    );
+    expect(
+      within(pane()).getByRole("button", {
+        name: new RegExp(tf("en", "floor.pane.closed.openCurrent", { x: "Table 4" })),
+      }),
+    ).toBeTruthy();
+  });
+  it("a first read that failed with no name still stops saying loading", async () => {
+    answers[A] = () => Promise.resolve({ kind: "outage" });
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    expect(paneHeading().textContent).toBe(ts("en", "floor.pane.head.unnamed"));
+    expect(pane().textContent).not.toContain(
+      tf("en", "shell.loading", { what: ts("en", "what.table") }),
+    );
+  });
+});
+
+describe("TablePane — the settle arrival in the pane", () => {
+  it("?settle=1 is dropped by the split, never by a router.replace that strips the hash", async () => {
+    window.history.replaceState(null, "", `/staff?floor=1&settle=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    // MUTATION: drop the `!inPane` guard — replace(pathname) strips ?floor=1 and the hash; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(location.search).toBe("?floor=1");
+    expect(location.hash).toBe(`#table-${A}`);
+  });
+});
+
+describe("TablePane — a converged start on a phone", () => {
+  it("routes to the table page (the pane is not shown below 48em)", async () => {
+    split = false;
+    openRegisterOrder.mockResolvedValue({ ok: true, sessionId: A, created: false });
+    render(
+      <StaffLangProvider lang="en">
+        <LiveConnectionProvider>
+          <CounterSplit terminalReady={false}>
+            <CounterMintProvider>
+              <StartTable4Phone />
+            </CounterMintProvider>
+          </CounterSplit>
+        </LiveConnectionProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "start 4" }));
+    });
+    await tick(0);
+    // MUTATION: open in the pane at every width — a phone's column is swapped for a pane it
+    // cannot close back to a floor it can see, and the URL never reaches the table page; red.
+    expect(push).toHaveBeenCalledWith(`/staff/table/${A}`);
+    expect(location.hash).toBe("");
+  });
+});
+function StartTable4Phone() {
+  const mint = useCounterMint();
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        mint.run(
+          "table-4",
+          { kind: "table", tableNumber: 4 },
+          { onStart: () => {}, onRefusal: () => {} },
+        )
+      }
+    >
+      start 4
+    </button>
+  );
+}

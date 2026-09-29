@@ -3242,6 +3242,9 @@ export const STAFF = {
     my: "{x} မှာ ပြင်လိုက်တာ မသိမ်းမိပါ — ကြည့်ပြီး စစ်ပါ။",
   }, // K15-HIGH — a dish change that did not save on a table the cashier has left
   "floor.pane.open": { en: "View {x}", my: "{x} ကို ကြည့်ပါ" },
+  // The pane's head once a read has settled with no name to give (a link to a session that no
+  // longer exists, a first read that failed): neutral — never the loading skeleton. (K15 draft.)
+  "floor.pane.head.unnamed": { en: "Table", my: "စားပွဲ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

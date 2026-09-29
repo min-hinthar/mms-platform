@@ -438,7 +438,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     .maybeSingle();
   // An unread session is not a cleared table — `closed` on error would bounce staff off a live order.
   if (sessionError) return { kind: "outage" };
-  if (!session || session.status === "closed") return { kind: "closed" };
+  if (!session) return { kind: "closed" };
+  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
+  // its live-namesake button); nothing else is read or returned for a closed session.
+  if (session.status === "closed")
+    return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
 
   const [membersRes, cartRes, paidRes, tabConfigRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
