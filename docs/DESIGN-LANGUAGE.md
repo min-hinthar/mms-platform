@@ -1128,7 +1128,7 @@ _The floor — the counter's room map and its one-tap start._
   the counter screen, ဖွင့် (the strip's Start, the Phone form's Go, the help line), pinned across
   namespaces by `strings.test.ts`; the occupied tile's verb is ကြည့် ("View").
 - **The kitchen row says what the kitchen has, in the wall's words.** `2 not sent · 3 in kitchen ·
-  1 ready to serve`, or "Kitchen done" alone — never over an unsent dish. "Not sent" is 2a's one
+1 ready to serve`, or "Kitchen done" alone — never over an unsent dish. "Not sent" is 2a's one
   count (`staffOwedSendUnits` — what staff can act on, owner decision 5c) and the one fact a server
   must ACT on, so it is `--warn` bold (bound to the segment's own `data-seg`); "in kitchen" is
   `--tx` bold, `PULSE_COOKING_STATES` past the send grace; "ready to serve" is `--ok` bold, the

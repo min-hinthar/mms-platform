@@ -50,7 +50,8 @@ counter screen's per-zone regions).
   cap. The paid card's #CODE follows its table across a switch; a change that didn't save on a table
   you left is said, with a "View Table 7" button; the order pad's "← Table 7", Done and Take payment
   return to the pane. Every staff Back is instant (the slide is gone on staff routes). Phones:
-  unchanged.
+  unchanged, but for one line — a change refused after the pane closed shows as a warning line above
+  the floor with its "View Table 7".
 - **A dish can no longer slip onto a bill that is being paid, or change after it was sent** — the
   database now refuses both, and the console says which ("This table is mid-payment — wait until
   they’ve finished." · "That dish already went to the kitchen — use Remove or Make it free
