@@ -10630,6 +10630,15 @@ const MUTANTS = [
     find: '  if (refusal === "paying") throw new CartPayingError();\n',
     replace: "",
   },
+  // ── Phase 2d · review fixes ──
+  {
+    id: "p2d-rev/split-quiet-retry-over-a-read-in-the-air",
+    file: "apps/qr/components/staff/TablePane.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 review fixes \u2014 the pane's quiet retry is timed from a read's ANSWER; armed off `failed` alone it cancels the read in the air every 5 s, so a database answering in 5\u201315 s never lands",
+    find: "    if (!failed || !answered) return;",
+    replace: "    if (!failed) return;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

@@ -652,6 +652,28 @@ describe("TablePane — a first read that failed, said by cause", () => {
     await tick(0);
     expect(pane().textContent).toContain(ts("en", "out.shell.title"));
   });
+  // Phase 2d · review fixes — the quiet retry is timed from a read's ANSWER, never from its start:
+  // re-armed every 5 s regardless, it cancelled the read in the air, so a database answering in
+  // 5–15 s (inside `raceTimeout`'s bound) never landed and the pane said "couldn't" forever.
+  it("the quiet retry never cancels a read still in the air: a slow answer lands", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    answers[A] = () => Promise.reject(new Error("staff-poll-timeout"));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    // The next read answers after 8 s — past the 5 s quiet retry, inside the 15 s read bound.
+    answers[A] = () =>
+      new Promise((r) => setTimeout(() => r({ kind: "detail", detail: detail(A, 4) }), 8000));
+    await tick(5000); // the quiet retry: read #2 goes out
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    await tick(5000); // 10 s — read #2 is still in the air: no third read may replace it
+    // MUTATION: arm the quiet retry off `failed` alone — read #3 cancels read #2; red.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    await tick(3000); // 13 s — read #2 answers, and it lands
+    expect(document.getElementById("order-h")).not.toBeNull();
+  });
 });
 
 describe("TablePane — a start that converged on a seated table", () => {

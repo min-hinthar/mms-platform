@@ -41,7 +41,7 @@ import type { Handoff } from "@/lib/register-ui";
  *   closed   the head keeps its name and ✕; the notice, the live namesake's "View", and the table's
  *            paid card (if its stash stands) above it.
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
- *            quiet retry every 5 s.
+ *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
  * another table); otherwise this pane's single sr-only `role=status` does. Never two at once.
@@ -93,6 +93,12 @@ export function TablePane({
   const [retrying, setRetrying] = useState(false);
   const id = sel?.id ?? null;
   const gen = sel?.gen ?? 0;
+  // Phase 2d · review fixes — the read that last ANSWERED, named by (id, gen, attempt). The quiet
+  // retry is timed from an answer, never from a start: armed while a read is still in the air, it
+  // cancelled that read every 5 s, so a database answering in 5–15 s (inside `raceTimeout`'s bound)
+  // never landed and the pane said "couldn't" for as long as it stayed slow.
+  const readKey = `${id}:${gen}:${attempt}`;
+  const [answeredKey, setAnsweredKey] = useState<string | null>(null);
   // A read belongs to ONE selection: anything else in state is a previous pick's.
   const cur: Read | null =
     id === null ? null : read?.id === id && read.gen === gen ? read : { id, gen, kind: "loading" };
@@ -105,6 +111,7 @@ export function TablePane({
   useEffect(() => {
     if (id === null) return;
     let live = true;
+    const key = `${id}:${gen}:${attempt}`;
     raceTimeout(getTableDetail(id))
       .then((res) => {
         if (!live || !acceptPaneRead(id, selectedNow())) return;
@@ -127,20 +134,24 @@ export function TablePane({
           setRead({ id, gen, kind: "fail", cause: "unknown" });
       })
       .finally(() => {
-        if (live) setRetrying(false);
+        if (!live) return;
+        setRetrying(false);
+        setAnsweredKey(key);
       });
     return () => {
       live = false;
     };
   }, [id, gen, attempt, selectedNow]);
 
-  // The quiet retry while a first read stands failed.
+  // The quiet retry while a first read stands failed — RETRY_MS after the current attempt's read
+  // answered (`answeredKey`), never over one still in the air.
   const failed = cur?.kind === "fail";
+  const answered = answeredKey === readKey;
   useEffect(() => {
-    if (!failed) return;
+    if (!failed || !answered) return;
     const t = setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
     return () => clearTimeout(t);
-  }, [failed, attempt]);
+  }, [failed, answered, readKey]);
 
   // Focus the heading ONCE per selection that asked for it (a tap, a merge, Forward, a deep link):
   // it renders from the hint, so focus never moves again when the detail arrives. The pane's own
