@@ -270,6 +270,19 @@ jobs:
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 5
         run: node scripts/verify-mode-authority.mjs
+      # P2dk — the P2cy cart lock (`for share`) on the three line RPCs is only observable with TWO
+      # sessions: a settlement claim interleaved with an add. Each RPC, both orders (claim-first →
+      # the add waits then refuses; add-first → the claim waits and its next read sees the line) and
+      # a control (two adds never serialize). Commits tagged fixtures, so the script refuses
+      # anything that is not the local stack. ~3s measured locally.
+      - name: Line-guard race harness (two concurrent sessions)
+        timeout-minutes: 3
+        run: node scripts/verify-line-guard-race.mjs
+      # Can it fail? `for share` deleted (claim-first and add-first must go red) and turned into a
+      # mutex (the control must), per function; md5-checked apply, byte-identical restore. ~10s.
+      - name: Line-guard race mutants (can the row lock fail?)
+        timeout-minutes: 5
+        run: node scripts/verify-line-guard-race.mjs --mutants
       - name: Stop stack
         if: always()
         run: supabase stop || true

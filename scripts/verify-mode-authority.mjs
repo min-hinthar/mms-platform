@@ -662,7 +662,7 @@ const MUTANTS = [
     src: "p2dd",
     suite: "p2dd",
     expect: null,
-    why: "DOCUMENTED SURVIVOR — the row lock is what orders an add against a settlement claim, and it is only observable with TWO sessions. Measured locally 2026-09-29 (test header): with it deleted an add landed under a live freeze in 0.04s. A CI two-session case is OPEN-ITEMS P2dk",
+    why: "DOCUMENTED SURVIVOR HERE — the row lock is what orders an add against a settlement claim, and it is only observable with TWO sessions, which no file this battery runs can open. It is KILLED in CI by scripts/verify-line-guard-race.mjs --mutants (P2dk), which deletes `for share` from all three line RPCs and watches both orders go red. A kill HERE would mean the single-session suite has started to depend on the lock — re-read that harness before trusting it",
     find: "    from public.qr_carts c where c.id = p_cart_id\n    for share;",
     replace: "    from public.qr_carts c where c.id = p_cart_id;",
   },

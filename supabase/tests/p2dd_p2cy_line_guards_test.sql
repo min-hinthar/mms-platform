@@ -10,11 +10,12 @@
 -- so this file alone proves one case per run — the battery proves the rest).
 --
 -- The race itself (a settlement claim interleaved with an add) needs two sessions, so it is not in
--- here. MEASURED 2026-09-29 on a local PG16 with two live psql sessions: an add holding its lock
--- made the claim wait (1.54s) and the settlement then saw the line; a claim holding its UPDATE made
--- the add wait (1.54s) and then raise 'cart is being paid'. With `for share` deleted the add did not
--- wait (0.04s) and landed under the live freeze — the P2cy hole, reproduced. A CI two-session case
--- is OPEN-ITEMS P2dk. This file pins the single-session contract.
+-- here: it is scripts/verify-line-guard-race.mjs (P2dk; CI's "Line-guard race" steps), which runs
+-- all three RPCs claim-first and add-first plus a no-serialization control, and whose --mutants
+-- deletes each function's `for share` and watches both orders go red. First measured 2026-09-29 on
+-- a local PG16 by hand (an add holding its lock made the claim wait and the settlement then saw
+-- the line; a held claim made the add wait and raise 'cart is being paid'; without `for share` the
+-- add did not wait and landed under the live freeze). This file pins the single-session contract.
 --
 -- ⚠️ `now()` is the TRANSACTION start, constant through this file: `settle_at = now()` is fresh,
 -- `now() - 11 minutes` is stale.
