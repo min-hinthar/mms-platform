@@ -574,6 +574,16 @@ const MUTANTS = [
     replace: "    if false then\n      raise exception 'line already sent'",
   },
   {
+    id: "inc/grows-a-comped-line",
+    fn: "mms_cart_item_inc_qty",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.4",
+    why: "the comped guard on the bump: a repeat tap of a dish staff comped grows the comped line, so every extra unit is cooked and billed at zero. P2DD.4 called the bump on the comped draft and never read it back until the Phase 2d blind review — this mutant survived the file (measured)",
+    find: "ci.qty < 99 and not ci.comped",
+    replace: "ci.qty < 99",
+  },
+  {
     id: "insert/freeze-ignored",
     fn: "mms_cart_item_insert_if_open",
     src: "p2dd",

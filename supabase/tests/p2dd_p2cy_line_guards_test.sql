@@ -107,6 +107,11 @@ begin
   perform public.mms_cart_item_inc_qty(cmp, 1);
   select qty into q from public.qr_cart_items where id = c99;
   assert q = 99, format('P2DD.4 · the 99-cap is a silent no-op (qty=%s)', q);
+  -- The comped half was called and never read back, so deleting `not ci.comped` from the bump
+  -- survived this whole file (measured 2026-09-29): a repeat tap grew a line staff had comped, and
+  -- every extra unit rode the bill at zero while the kitchen cooked it.
+  select qty into q from public.qr_cart_items where id = cmp;
+  assert q = 1, format('P2DD.4 · a comped draft is never grown — the bump is a silent no-op (qty=%s)', q);
 
   -- ══ a FRESH freeze ══════════════════════════════════════════════════════════════════════════
   update public.qr_carts set settle_at = now(), settle_by = gen_random_uuid() where id = cart;
