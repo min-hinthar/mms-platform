@@ -43,9 +43,25 @@ Branch `p2d/split`, base `3c77873` (main 2b6a957 + Phase 2d floor + bell merged)
 - **The paid card follows its table:** stashed in this tab's sessionStorage (`mms-handoff:{id}`,
   register's canonical shape, display-only, try/catch) inside the settle's own callback, so a settle
   that lands after a switch still leaves its #CODE; restored on reselect without stealing focus;
-  removed on ✕, Escape, Back and Clear. A refusal that lands after the pane moved on ("A change on
-  Table 7 didn't save — view it to check.") is shown with a one-tap "View Table 7" and said through
-  the view's one region.
+  removed on ✕, Escape, Back and Clear. Restored in the PANE only — the full page (a phone) keeps its
+  card in memory, as before. A refusal that lands after the pane moved on or closed ("A change on
+  Table 7 didn't save — view it to check.") is shown with a one-tap "View Table 7" (`Button`) and said
+  through the view's one region; with no table open it sets `data-pane="lost"`, which below 64em shows
+  just that line above the floor (the floor keeps its place). It is never filtered by the selection:
+  only an unmounted detail reports it, so even the same table shown again never issued that write.
+- **A read belongs to a PICK, not an id** (`gen`): a table picked again (A → ✕ → A, A → B → A)
+  starts in loading and reads afresh; a re-tap of the table shown keeps its live detail. The first
+  read runs once per pick — never per render (`selectedNow` is one stable callback): a re-run would
+  land a `closed` past the detail's terminal hold.
+- **The in-table exits are bound to their table:** a Clear or Merge that answers after the pane moved
+  on (or closed) never closes or switches the table shown now; the control's own work (the server
+  write, its stash drop) still happens.
+- **A closed table keeps its name:** `getTableDetail`'s `closed` verdict carries the session's label
+  and number, so a pane opened straight onto it (a reload, a deep link) names it and offers the live
+  namesake; a settled read with no name shows a neutral "Table" head, never the loading skeleton. The
+  closed notice takes focus when focus was in the pane BEFORE the swap (sampled in `onClosed`).
+- **The pane scroller reserves the dock's bottom space** (`--tap-bump + --s8 + safe area`), so its
+  last controls never sit under the lane's Undo pill.
 - **Motion:** the cap, head and 48–64em reflow are instant (layout never animates); the pane body
   rises once per selection (`mms-rise` at `--dur-base`, keyed), RM-escorted. **Staff routes opt out
   of the J1 root drift** (`html:has(.staff-main) { view-transition-name: none }`): every staff Back
@@ -75,6 +91,7 @@ Branch `p2d/split`, base `3c77873` (main 2b6a957 + Phase 2d floor + bell merged)
 | low | Same-topic remount race on the whole-floor `floor`/`expo` channels (only on a /staff route round-trip inside the unsubscribe window)                                                                                                                                                      | Pre-existing (spec `out_of_scope`).                                                                                                                          |
 | low | Verify: GroceryBrowse writes `#aisle-*` with `__NA` riding along (grocery-view.ts), so a revalidating action / `router.refresh()` on /grocery may replaceState the aisle hash away                                                                                                        | Suspected sibling defect (spec `out_of_scope`).                                                                                                              |
 | low | Open counter orders (CounterOrderCard → /add) in the pane and give counter cards the pick cap; a per-selection `document.title`; K14/K23 in the pane (a locked console, unlock losing the hash)                                                                                           | Spec `out_of_scope`.                                                                                                                                         |
+| low | A Clear REFUSED after its detail unmounted (the pane moved on or closed mid-request) sets state on an unmounted `ClearTableButton` and is not said; the table stays on the floor, so the refusal is visible there, but not spoken                                                         | Critic round, split finding 2's tail. Route it through `onLostWrite` (a Clear refusal is not a dish change — needs its own key) in a follow-up.              |
 | low | A 5s `getTableDetail` poll runs all shift while a table stays selected (parity with a tablet parked on the table page) — a 15s pane-only backstop is the owner's alternative                                                                                                              | Owner decision kept at parity.                                                                                                                               |
 
 Closes / changes: **K24** — the counter/table half ("the table page is 640px in 1920 … the floor grid
@@ -83,11 +100,18 @@ Closes / changes: **K24** — the counter/table half ("the table page is 640px i
 ## 4. Mutate-set / CLAUDE.md enumeration changes
 
 - Files ADDED to verify-slice's mutate set (this branch): `apps/qr/lib/floor-pane.ts` (lib),
-  `apps/qr/components/staff/CounterSplit.tsx` (component), `apps/qr/components/staff/TablePane.tsx`
-  (component). (`CounterMint.tsx`, `TableCard.tsx`, `FloorDetailLive.tsx`, `TableStrip.tsx` were
-  already in the set.) Measured after this branch with CLAUDE.md's bucket grep: 144 apps/qr/lib · 3
-  app/api · 28 component files (incl. the three staff hooks) · 1 packages/db; `grep -cE '^\s+find:'`
-  = 1240. Integration re-measures after the merge.
+  `apps/qr/components/staff/CounterSplit.tsx`, `apps/qr/components/staff/TablePane.tsx`,
+  `apps/qr/components/staff/SplitAwareLink.tsx` and `apps/qr/components/staff/ClearTableButton.tsx`
+  (component — the last two joined in the critic round). (`CounterMint.tsx`, `TableCard.tsx`,
+  `FloorDetailLive.tsx`, `TableStrip.tsx`, `apps/qr/lib/floor.ts` were already in the set.) Measured
+  at this branch's head with CLAUDE.md's bucket grep: **178 files** = 144 apps/qr/lib · 3 app/api ·
+  30 component files (incl. the three staff hooks) · 1 packages/db; `grep -cE '^\s+find:'` = **1257**.
+- **CLAUDE.md enumeration draft** (integration applies it — the BRIEF forbids this branch editing
+  CLAUDE.md): the `verify:slice` comment's "163 money/authority modules" and its component list must
+  add `CounterSplit.tsx`, `TablePane.tsx`, `SplitAwareLink.tsx`, `ClearTableButton.tsx` (this area)
+  beside the floor/bell areas' own additions (`FloorBoard.tsx`, `FloorWait.tsx`, `TableStrip.tsx`,
+  `CounterBell.tsx`, …); the sum line becomes `144+3+30+1=178` on this branch alone — re-measure after
+  the wave merges.
 - Mutants ADDED (block `// ── Phase 2d · split ──`, 31): `floor-pane/hash-accepts-any-id`,
   `floor-pane/zone-jump-closes-the-pane`, `floor-pane/zone-jump-keeps-pane-over-a-phone-column`,
   `floor-pane/re-push-onto-the-same-hash`, `floor-pane/a-switch-pushes`,
@@ -105,6 +129,17 @@ Closes / changes: **K24** — the counter/table half ("the table page is 640px i
   `floor-detail/pane-catch-all-samples-anywhere`, `floor-detail/pane-freeze-always-spoken`,
   `floor-detail/pane-closed-navigates`, `table-card/every-card-selected`,
   `counter-mint/converged-start-routes-on-a-tablet`. All KILLED (targeted runs).
+- Mutants ADDED in the critic round (same block, 17): `counter-split/selected-now-per-render`,
+  `counter-split/re-tap-starts-a-new-pick`, `table-pane/read-reused-across-picks`,
+  `table-pane/late-clear-closes-the-table-shown`, `table-pane/late-merge-switches-the-pane`,
+  `counter-split/lost-write-hidden-when-empty`, `counter-split/lost-write-filtered-by-selection`,
+  `counter-split/open-session-at-every-width`, `table-pane/closed-focus-sampled-after-swap`,
+  `table-pane/closed-head-says-loading`, `table-pane/closed-read-drops-its-name`,
+  `floor/closed-verdict-nameless`, `split-aware-link/always-to-the-pane`,
+  `floor-detail/pane-arrival-strips-the-url`, `floor-detail/restored-card-takes-focus`,
+  `floor-detail/page-restores-the-stash`, `clear-table/cleared-card-outlives-its-table`. All KILLED;
+  the whole `floor/` (91), `floor-detail/` (22), `counter-split/` (9), `table-pane/` (7) blocks
+  re-run green after the edits.
 - Mutants RE-ANCHORED (meaning kept): `p2d-floor/mint-pushes-after-unmount` (the mounted guard is now
   an early return before the pane/route choice), `p2d-floor/strip-link-races-a-held-start` (the held
   refusal now also returns before the pane's tap). Both KILLED.
@@ -120,7 +155,12 @@ Closes / changes: **K24** — the counter/table half ("the table page is 640px i
 - A change that didn't save on a table you've left is said, with a "View Table 7" button.
 - The order pad's "← Table 7", Done and Take payment return to the pane at tablet width.
 - Every staff Back is instant (the 16px slide is gone on staff routes).
-- Phones: unchanged (a tap still opens the full table page).
+- Phones: unchanged (a tap still opens the full table page; the paid card there stays in memory as
+  before — the stash restores only in the pane). One addition: a change refused after the pane
+  closed shows as one warning line above the floor with its "View Table 7".
+- A table reopened on a tablet always shows a fresh read (never the order as it was when last shown).
+- A table opened straight onto after it closed (reload, deep link) is named, and offers the live
+  table that took its number.
 
 ## 6. K15 strings
 
@@ -136,6 +176,7 @@ All new; every MY value is a Claude-authored K15 draft (commented in `staff.ts`)
 | floor.pane.fail.title          | Couldn’t show this table yet                    | ဒီစားပွဲကို မပြနိုင်သေးပါ                                         | no                       |
 | floor.pane.lostWrite           | A change on {x} didn’t save — view it to check. | {x} မှာ ပြင်လိုက်တာ မသိမ်းမိပါ — ကြည့်ပြီး စစ်ပါ။                 | **yes** (STAFF_K15_HIGH) |
 | floor.pane.open                | View {x}                                        | {x} ကို ကြည့်ပါ                                                   | no                       |
+| floor.pane.head.unnamed        | Table                                           | စားပွဲ                                                            | no                       |
 
 No key retired.
 
@@ -172,6 +213,24 @@ No key retired.
   pulled the whole drill-down (and its `server-only` actions) into every board's graph and broke three
   suites; the context lives in its own module.
 
+- **Critic round:** the lost-write selection filter the build shipped was REMOVED, not mutated: its
+  mutant survived because the only reachable case (a refusal from A's unmounted detail landing after
+  A was picked again) is exactly where the filter was wrong — it dropped a refusal no mounted region
+  could say.
+- **Critic round:** no belt that lands the first read only over `loading`/`fail`. With `selectedNow`
+  stable and reads keyed on the pick's `gen`, the effect cannot re-run while a detail is mounted, so
+  that belt would be an unreachable guard (CLAUDE.md: "a guard that cannot be reached is
+  decorative"); the stable identity is the rule, pinned by `counter-split/selected-now-per-render`.
+
+## Critic findings — rejected
+
+- **11 (CLAUDE.md mutate-set count not updated):** the BRIEF's hard boundary forbids this branch
+  editing `CLAUDE.md` ("integration merges them from your notes"). Not rejected on the facts — the
+  measured counts (178 files · 1257 finds) and the enumeration draft are in §4 for integration.
+- **2 (tail — a late Clear REFUSAL on an unmounted button is dropped):** partially — the navigation
+  half is fixed; the unspoken refusal is filed in §3 (the table stays visible on the floor, and a
+  spoken route needs its own key and a `ClearTableButton` → pane seam).
+
 ## 9. LEARNINGS candidates
 
 - **A spread of `history.state` in a jsdom test is `{}` when the fixture's state is null** — a mutant
@@ -182,3 +241,8 @@ No key retired.
 - **A context that only CONSUMERS need belongs in its own module.** Exporting `useTablePane` from the
   provider's file dragged the provider's children (the table drill-down, its server actions) into
   every consumer's import graph — three unrelated suites failed on `server-only`.
+- **A mutant that survives can mean the RULE is wrong, not the fixture.** The lost-write selection
+  filter's only reachable case was the case it got wrong; the survivor was the finding.
+- **A prop callback in an effect's deps is an identity contract.** A new arrow per parent render
+  silently turned a once-per-selection read into a once-per-render read — green in every test whose
+  parent never re-rendered.
