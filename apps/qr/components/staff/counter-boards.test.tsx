@@ -1,6 +1,9 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExpoTicket } from "@/lib/expo-types";
+import type { FloorTable } from "@/lib/floor-types";
 
 /**
  * A4·2 (blind pass, CRITICAL 1) — the counter screen mounts TWO live boards, and the browser client
@@ -60,12 +63,24 @@ vi.mock("@/lib/expo", () => ({
   setTogoStatus: () => Promise.resolve({ ok: true }),
 }));
 vi.mock("@/lib/useWakeLock", () => ({ useWakeLock: () => {} }));
+// ── Phase 2d · bell ── the floor's cards are links; and every ring the provider decides to PLAY is
+// recorded on the real `playCounter` (the engine behind it stays real, over the fake context below).
+vi.mock("next/link", () => ({
+  default: ({ children, ...rest }: { children: React.ReactNode }) => <a {...rest}>{children}</a>,
+}));
+vi.mock("@/lib/counter-sound", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/counter-sound")>();
+  return { ...real, playCounter: vi.fn(real.playCounter) };
+});
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { LiveConnectionProvider } = await import("./LiveConnection");
 const { FloorBoard } = await import("./FloorBoard");
 const { ExpoBoard } = await import("./ExpoBoard");
 const { ts } = await import("@/lib/i18n/staff");
+const { RING_GAP_MS: RING_GAP_MS_LOCAL } = await import("@/lib/counter-attention");
+const { CounterBellProvider } = await import("./CounterBell");
+const counterSound = await import("@/lib/counter-sound");
 
 afterEach(() => {
   cleanup();
@@ -180,5 +195,274 @@ describe("the lane's announcements — heard, never twice (Codex round 1 on A4·
     // Both frozen: the floor's region is the screen's one voice; the lane's says nothing.
     expect(floorStatus()?.textContent).toContain(ts("en", "out.head.cant"));
     expect(laneStatus()?.textContent ?? "").toBe("");
+  });
+});
+
+// ── Phase 2d · bell ──
+describe("the counter bell on the counter's two boards (owner decision 5c)", () => {
+  /**
+   * Both boards under the REAL CounterBellProvider, over a fake AudioContext. A bell that rings
+   * falsely or twice teaches the family to mute it, so each case is a way it could: the mount, a
+   * StrictMode double mount, an outage and its recovery, a fact that drops out and comes back, two
+   * boards answering on one tick. Every ring the provider decides to PLAY lands on `playCounter`.
+   */
+  const FloorTableBase = {
+    label: "7",
+    tableNumber: 7,
+    mode: "dinein" as const,
+    partySize: 2,
+    hostName: null,
+    itemCount: 2,
+    runningSubtotalCents: 2400,
+    paidTotalCents: null,
+    refund: null,
+    tab: "none" as const,
+    tabOverCeiling: false,
+    lastActivityAt: NOW,
+  };
+  const ASK = "2026-09-13T17:55:00.000Z";
+  const askingTable = (sessionId: string, tableNumber = 7): FloorTable => ({
+    ...FloorTableBase,
+    sessionId,
+    tableNumber,
+    label: String(tableNumber),
+    status: "counter" as const,
+    counterRequestedAt: ASK,
+  });
+  const floorOf = (tables: FloorTable[]) => ({
+    ok: true,
+    snapshot: { tables, counter: [], counterTruncated: false, serverNow: NOW },
+  });
+  const laneOf = (tickets: ExpoTicket[]) => ({
+    ok: true,
+    queue: { tickets, serverNow: NOW },
+  });
+  const arrived = (id: string): ExpoTicket => ({
+    ...bag(id),
+    arrivedAt: "2026-09-13T17:58:00.000Z",
+  });
+  const cooked = (id: string): ExpoTicket => ({ ...bag(id), kitchen: "done" });
+  const B1 = "11111111-1111-4111-8111-111111111111";
+  const B2 = "22222222-2222-4222-8222-222222222222";
+  const B3 = "33333333-3333-4333-8333-333333333333";
+
+  // The fake context: a browser's `statechange` on every move, `resume` runs it.
+  const contexts: Array<EventTarget & { state: AudioContextState }> = [];
+  class FakeCtx extends EventTarget {
+    state: AudioContextState = "suspended";
+    currentTime = 0;
+    destination = {};
+    constructor() {
+      super();
+      contexts.push(this);
+    }
+    resume() {
+      this.state = "running";
+      this.dispatchEvent(new Event("statechange"));
+      return Promise.resolve();
+    }
+    createOscillator() {
+      return { type: "", frequency: {}, connect: (d: unknown) => d, start() {}, stop() {} };
+    }
+    createGain() {
+      return {
+        gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+        connect: (d: unknown) => d,
+      };
+    }
+  }
+  /** The engine is a module singleton: one context for the whole file. */
+  const ctx = () => contexts[0] ?? null;
+  const setState = (state: AudioContextState) => {
+    ctx()!.state = state;
+    ctx()!.dispatchEvent(new Event("statechange"));
+  };
+
+  const played = counterSound.playCounter as unknown as ReturnType<
+    typeof vi.fn<(k: string) => void>
+  >;
+
+  /** The bell ON, as a chip tap leaves it: wanted, and the context running. */
+  async function bellOn() {
+    Object.defineProperty(globalThis, "AudioContext", { configurable: true, value: FakeCtx });
+    await counterSound.armWithin();
+    counterSound.setCounterWanted(true);
+    played.mockClear();
+  }
+
+  function mountCounter(
+    floorInit: FloorTable[],
+    laneInit: ExpoTicket[],
+    opts: { strict?: boolean; laneOutage?: boolean } = {},
+  ) {
+    const tree = (
+      <StaffLangProvider lang="en">
+        <LiveConnectionProvider>
+          <CounterBellProvider>
+            <FloorBoard
+              initial={{
+                tables: floorInit,
+                counter: [],
+                counterTruncated: false,
+                serverNow: NOW,
+              }}
+            />
+            <ExpoBoard
+              initial={{ tickets: opts.laneOutage ? [] : laneInit, serverNow: NOW }}
+              initialOutage={opts.laneOutage}
+            />
+          </CounterBellProvider>
+        </LiveConnectionProvider>
+      </StaffLangProvider>
+    );
+    return render(opts.strict ? <StrictMode>{tree}</StrictMode> : tree);
+  }
+  const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+  const rings = async () => played.mock.calls.map((c) => c[0]);
+
+  afterEach(async () => {
+    if (ctx() && ctx()!.state !== "suspended") setState("suspended");
+    counterSound.setCounterWanted(false);
+  });
+
+  it("the mount rings NOTHING for the asks, arrivals and finished bags already on screen", async () => {
+    await bellOn();
+    vi.useFakeTimers();
+    floorAnswer = floorOf([askingTable(B1)]);
+    expoAnswer = laneOf([arrived(B2), cooked(B3)]);
+    mountCounter([askingTable(B1)], [arrived(B2), cooked(B3)]);
+    await tick(5_000);
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+    // …and the ear is live, not deaf: a NEW ask rings once.
+    floorAnswer = floorOf([
+      askingTable(B1),
+      askingTable("44444444-4444-4444-8444-444444444444", 9),
+    ]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest"]);
+  });
+
+  it("a floor ask and a lane arrival on ONE tick ring one guest phrase, not two", async () => {
+    // MUTATION (counter-bell/the-bell-never-coalesces): the provider skips `mayRing` — two bells for
+    // one rush, one from each board.
+    await bellOn();
+    vi.useFakeTimers();
+    mountCounter([], [bag(B2)]);
+    floorAnswer = floorOf([askingTable(B1)]);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest"]);
+  });
+
+  it("one ring per new fact: the same arrival dropping out and coming back rings nothing", async () => {
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([bag(B2)]);
+    mountCounter([], [bag(B2)]);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    expoAnswer = laneOf([]);
+    await tick(5_000);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    await tick(RING_GAP_MS_LOCAL);
+    expect(await rings()).toEqual(["guest"]);
+  });
+
+  it("nothing rings while the bell is PAUSED (wanted, the context suspended) — or off", async () => {
+    // MUTATION (counter-bell/the-bell-ignores-the-posture): the provider plays whatever the chip
+    // says — a slept tablet's rings are queued into a suspended context and burst out on the next tap.
+    await bellOn();
+    vi.useFakeTimers();
+    mountCounter([], [bag(B2)]);
+    act(() => setState("suspended"));
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+    // Off (nobody wants it) with the context running: silent too.
+    act(() => setState("running"));
+    act(() => counterSound.setCounterWanted(false));
+    floorAnswer = floorOf([askingTable(B1)]);
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+  });
+
+  it("a StrictMode double mount rings nothing — and the next new fact on each board rings once", async () => {
+    await bellOn();
+    vi.useFakeTimers();
+    floorAnswer = floorOf([askingTable(B1)]);
+    expoAnswer = laneOf([arrived(B2)]);
+    mountCounter([askingTable(B1)], [arrived(B2)], { strict: true });
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+    // The FLOOR's poll still runs after StrictMode's replayed effects (its `alive` guard is re-armed
+    // at setup), so a new ask there is heard…
+    floorAnswer = floorOf([
+      askingTable(B1),
+      askingTable("44444444-4444-4444-8444-444444444444", 9),
+    ]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest"]);
+    // …and so is the lane's, a gap later.
+    await tick(RING_GAP_MS_LOCAL);
+    expoAnswer = laneOf([arrived(B2), arrived(B3)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest", "guest"]);
+  });
+
+  it("an outage and its recovery: a fact seen before rings nothing; one first seen after rings once", async () => {
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([arrived(B2)]);
+    mountCounter([], [arrived(B2)]);
+    expoAnswer = OUTAGE;
+    await tick(5_000);
+    await tick(5_000);
+    expoAnswer = laneOf([arrived(B2)]);
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+    expoAnswer = OUTAGE;
+    await tick(5_000);
+    expoAnswer = laneOf([arrived(B2), cooked(B3)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["food"]);
+  });
+
+  it("a lane that mounted INTO an outage seeds on its first good poll — the bags already waiting ring nothing", async () => {
+    // MUTATION (by hand, red-first): seed the lane from its empty placeholder — every arrived bag
+    // rings the moment the lane recovers.
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([arrived(B2), cooked(B3)]);
+    mountCounter([], [], { laneOutage: true });
+    await tick(5_000);
+    expect(await rings()).toEqual([]);
+    expoAnswer = laneOf([arrived(B2), cooked(B3), arrived(B1)]);
+    await tick(5_000);
+    expect(await rings()).toEqual(["guest"]);
+  });
+
+  it("the card the bell rang for takes the one-shot ring (and only that card), for its second", async () => {
+    await bellOn();
+    vi.useFakeTimers();
+    expoAnswer = laneOf([bag(B2), bag(B3)]);
+    mountCounter([], [bag(B2), bag(B3)]);
+    await tick(5_000); // the subscribe's catch-up read and the first poll, both with nothing new
+    const cardOf = (id: string) =>
+      [...document.querySelectorAll<HTMLElement>("section article")].find((a) =>
+        a.querySelector(`[data-expo-slot="${id}"]`),
+      );
+    expoAnswer = laneOf([arrived(B2), bag(B3)]);
+    await tick(5_000);
+    expect(cardOf(B2)?.querySelectorAll(":scope > .floor-card-pulse")).toHaveLength(1);
+    expect(cardOf(B3)?.querySelectorAll(":scope > .floor-card-pulse")).toHaveLength(0);
+    // Sound is never the only feedback: the ring shows with the bell OFF too.
+    act(() => setState("suspended"));
+    expoAnswer = laneOf([arrived(B2), arrived(B3)]);
+    await tick(5_000);
+    expect(cardOf(B3)?.querySelectorAll(":scope > .floor-card-pulse")).toHaveLength(1);
+    await tick(1_100);
+    expect(document.querySelectorAll(".floor-card-pulse")).toHaveLength(0);
   });
 });

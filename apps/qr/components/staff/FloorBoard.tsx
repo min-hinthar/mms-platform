@@ -159,6 +159,10 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
 
   // 5s poll backstop (independent of the socket); cleared on unmount.
   useEffect(() => {
+    // Phase 2d · bell — RE-ARMED at setup, not only latched in the cleanup: StrictMode (on in dev)
+    // replays this effect as cleanup → setup, and a cleanup-only latch left every poll after it
+    // returning early — a floor that never refreshed and a bell that never rang.
+    alive.current = true;
     const id = setInterval(refresh, 5000);
     const timers = pulseTimers.current;
     return () => {
