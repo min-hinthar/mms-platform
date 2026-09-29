@@ -990,6 +990,8 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     '.staff-chip[aria-pressed="true"]',
     // board-9 — the wall's `Food up` chip wears the cap too (an <li>, pressed by its class).
     ".orb-table-up",
+    // ── Phase 2d · split ── the selected floor card's NAME (a pick from a live list, not "you are here").
+    '.floor-card[aria-current="true"] .floor-card-label',
   ];
   // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
   // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
