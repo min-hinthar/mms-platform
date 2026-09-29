@@ -29,7 +29,9 @@ type CloseError =
   | { kind: "inflight"; holder: InFlightHolder }
   // Phase 2c · gate — the settle gate refused the close (dishes the kitchen never got), with the
   // server's count. Shown here in the running bill's words, SAID by the page's one region.
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
+  | { kind: "unreadable" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -187,6 +189,11 @@ export function CloseSecureTabButton({
         onChanged?.();
         return;
       }
+      if (res.code === "unreadable") {
+        // P2dc · P2el — nothing charged, the freeze released: the dictionary's words; retry = tap.
+        setError({ kind: "unreadable" });
+        return;
+      }
       setError({ kind: "server", text: res.error });
       return;
     }
@@ -293,6 +300,8 @@ export function CloseSecureTabButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {alertMsg.kind === "server" ? (
             <OutageText lang={lang} error={alertMsg.text} />
+          ) : alertMsg.kind === "unreadable" ? (
+            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
           ) : alertMsg.kind === "moved" ? (
             <Chrome
               lang={lang}

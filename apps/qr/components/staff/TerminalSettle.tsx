@@ -28,7 +28,9 @@ type SettleError =
   | { kind: "inflight"; holder: InFlightHolder }
   // Phase 2c · gate — the settle gate refused the start (dishes the kitchen never got), with the
   // server's count. Shown here, SAID by the page's one region (the jump hands it up).
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
+  | { kind: "unreadable" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -135,7 +137,9 @@ export function TerminalSettleButton({
             ? { kind: "inflight", holder: res.holder }
             : res.code === "unsent"
               ? { kind: "unsent", units: res.units }
-              : { kind: "server", text: res.error },
+              : res.code === "unreadable"
+                ? { kind: "unreadable" }
+                : { kind: "server", text: res.error },
         );
         // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
         // the page says it in its one region and takes the cashier to the Send.
@@ -198,6 +202,8 @@ export function TerminalSettleButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "unreadable" ? (
+            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
           ) : error.kind === "inflight" ? (
             <Chrome
               lang={lang}

@@ -24,7 +24,7 @@
  *
  * DOCUMENTED SURVIVORS
  * --------------------
- * Three mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ * Four mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
  *
  *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
  *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
@@ -35,6 +35,10 @@
  *     because a pre-check refuses first, the second because the gate above it proves both carts
  *     exist. They are listed rather than omitted so a maintainer reworking either predicate sees the
  *     row instead of an absence.
+ *   · A survivor that needs TWO sessions. `insert/for-share-deleted` (P2cy): the row lock orders an
+ *     add against a settlement claim, which no single session can interleave. It is KILLED — for all
+ *     three line RPCs — by `scripts/verify-line-guard-race.mjs --mutants`; it is listed here so this
+ *     battery's own count stays honest.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.

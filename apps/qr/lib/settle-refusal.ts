@@ -57,3 +57,20 @@ export type UnsentRefusal = { ok: false; error: string; code: "unsent"; units: n
 export function unsentRefusal(units: number): UnsentRefusal {
   return { ok: false, error: UNSENT_SETTLE_REFUSAL, code: "unsent", units };
 }
+
+// ── Phase 2d · P2el ──
+/**
+ * P2dc's refusal (owner decision 5a): the unsent read FAILED at a dine-in table, so the gate could not
+ * be checked and the staff door refused rather than take money over it. Nothing was recorded or
+ * charged and the freeze was released, so the same tap retries. Typed, so every current client says
+ * it through the dictionary (`settle.unsentUnreadable`, both scripts); this English is for a bundle
+ * older than the code. Never the write-outage sentence ("keep it on paper") — a single read blip at a
+ * payment door is a retry, not an outage.
+ */
+export const UNSENT_UNREADABLE_REFUSAL = "Couldn’t check the kitchen — try again.";
+
+export type UnreadableRefusal = { ok: false; error: string; code: "unreadable" };
+
+export function unreadableRefusal(): UnreadableRefusal {
+  return { ok: false, error: UNSENT_UNREADABLE_REFUSAL, code: "unreadable" };
+}

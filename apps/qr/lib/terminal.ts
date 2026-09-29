@@ -17,7 +17,13 @@ import {
   settlementHeldBy,
 } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
+import {
+  settleRefusal,
+  unreadableRefusal,
+  unsentRefusal,
+  type UnreadableRefusal,
+  type UnsentRefusal,
+} from "./settle-refusal";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 // ── Phase 2c · gate ──
@@ -82,7 +88,8 @@ export type SettleCardResult =
   // Phase 2c · register (P2w) — money already moving on the cart, with who holds it.
   | InFlightRefusal
   // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
-  | UnsentRefusal;
+  | UnsentRefusal
+  | UnreadableRefusal;
 
 /**
  * Start a card-present settle: freeze the cart, mint the card_present PI, hand it to the reader.
@@ -154,9 +161,7 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
   if (unsent !== null) {
     await releaseSettlementFor(cart.id, attemptId);
-    return unsent === "unsent"
-      ? unsentRefusal(unsentUnits ?? 0)
-      : { ok: false, error: STAFF_WRITE_OUTAGE };
+    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
   }
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success

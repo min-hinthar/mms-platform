@@ -3104,6 +3104,13 @@ export const STAFF = {
   // send. Every MY value is a Claude-authored K15 draft pending Min's native check; the words are
   // grounded: မပို့ရသေး (table.line.notSent), ငွေရှင်း (table.detail.settle.title), ဖျက်
   // (table.line.a11y.remove — "Remove"), ဟင်း · ခု (the pad's dish and count words).
+  // P2el — the staff payment doors' fail-closed refusal (owner decision 5a): the unsent check could
+  // not be read, so nothing was taken; the same tap retries. K15 draft; grounded: မီးဖိုချောင် (kds.title),
+  // စစ် (check), ထပ်နှိပ်ကြည့်ပါ (floor.sound.refused).
+  "settle.unsentUnreadable": {
+    en: "Couldn’t check the kitchen — try again.",
+    my: "မီးဖိုချောင်ကို စစ်လို့ မရပါ — ထပ်နှိပ်ကြည့်ပါ။",
+  }, // K15-HIGH — a payment door's refusal; misread, staff take money outside the app or give up on a live table
   "table.send.settleBlocked.one": {
     en: "{n} dish hasn’t gone to the kitchen — send it first, then take payment.",
     my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — အရင်ပို့ပြီးမှ ငွေရှင်းပါ။",
@@ -3386,6 +3393,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
  * about; a key listed here with no marker is a claim about severity with nothing behind it.
  */
 export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
+  "settle.unsentUnreadable",
   "browse.price.confirmQ",
   "browse.price.keep",
   "browse.price.live.off",

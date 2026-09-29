@@ -19,7 +19,13 @@ import { inFlightRefusalFor } from "./inflight-read";
 import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
+import {
+  settleRefusal,
+  unreadableRefusal,
+  unsentRefusal,
+  type UnreadableRefusal,
+  type UnsentRefusal,
+} from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
@@ -78,13 +84,16 @@ export type SettleCashResult =
  *  - `unsent` — the settle gate (Phase 2c · gate): dine-in dishes have not gone to the kitchen.
  *    `units` is the server's count of them, read under the freeze; the component renders
  *    `table.send.settleBlocked.*` and jumps to the Send. Nothing was recorded; the freeze released.
+ *  - `unreadable` — P2dc · P2el: the same gate could not READ the lines (dine-in only), so it refused
+ *    rather than pass unchecked. The component says `settle.unsentUnreadable`; the tap retries.
  * A union member per code, so each carries exactly the facts its sentence needs.
  */
 export type SettleCashRefusal =
   | { ok: false; error: string; code?: undefined }
   | { ok: false; error: string; code: "moved"; totalCents: number }
   | InFlightRefusal
-  | UnsentRefusal;
+  | UnsentRefusal
+  | UnreadableRefusal;
 export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -386,7 +395,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
     const unsentUnits = await readKitchenDraftUnits(cart.id);
     const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
-    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };
+    if (unsent === "unreadable") return unreadableRefusal();
     if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
@@ -672,9 +681,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
   if (unsent !== null) {
     await releaseSettlementFor(cart.id, attempt);
-    return unsent === "unsent"
-      ? unsentRefusal(unsentUnits ?? 0)
-      : { ok: false, error: STAFF_WRITE_OUTAGE };
+    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
   }
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the

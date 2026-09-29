@@ -870,6 +870,29 @@ describe("CashSettleButton — the settle gate (owner decision 3: refused while 
     expect(open()).toBeTruthy();
   });
 
+  // ── Phase 2d · P2el ──
+  it("a server `unreadable` refusal is said in the sheet in Burmese, never the write-outage line, and Take stays armed for the retry", async () => {
+    settleCash.mockResolvedValueOnce({ ok: false, code: "unreadable", error: "english" });
+    render(
+      <StaffLangProvider lang="my">
+        <CashSettleButton sessionId="s1" totalCents={4210} tipBaseCents={4000} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const dialog = screen.getByRole("dialog");
+    const take = () =>
+      within(dialog)
+        .getAllByRole("button")
+        .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take());
+    });
+    // MUTATION (p2d-el/cash-unreadable-said-as-server): drop the `unreadable` arm — the server's
+    // English passes through <OutageText> on a Burmese console; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable"));
+    expect(take().getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("a server `unsent` refusal is said in the sheet in the device language, with ITS count — and the close hands the cashier to the fix, not back to the trigger", async () => {
     const english = "Some dishes haven’t gone to the kitchen.";
     settleCash.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: english });

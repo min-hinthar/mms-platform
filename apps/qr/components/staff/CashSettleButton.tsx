@@ -38,7 +38,9 @@ type SheetError =
   | { kind: "moved"; from: number; to: number }
   | { kind: "inflight"; holder: InFlightHolder }
   | { kind: "unknown" }
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
+  | { kind: "unreadable" };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
 export type CashSettled = {
@@ -338,6 +340,12 @@ export function CashSettleButton({
             setError({ kind: "unsent", units: res.units });
             unsentJump.current = res.units;
             onChanged?.();
+            return;
+          }
+          if (res.code === "unreadable") {
+            // P2dc · P2el — nothing recorded, the freeze released: said in the dictionary's words,
+            // and Take stays armed in the open sheet — the retry is the same tap.
+            setError({ kind: "unreadable" });
             return;
           }
           setError({ kind: "server", text: res.error });
@@ -716,6 +724,8 @@ export function CashSettleButton({
                 >
                   {alertMsg.kind === "server" ? (
                     <OutageText lang={lang} error={alertMsg.text} />
+                  ) : alertMsg.kind === "unreadable" ? (
+                    <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
                   ) : alertMsg.kind === "moved" ? (
                     <Chrome
                       lang={lang}

@@ -8337,7 +8337,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-unsent.test.ts",
     why: "Phase 2c · gate — the running-bill close charges the card on file OFF-SESSION, for a guest who may have left. Without the gate the charge includes dishes nobody sent, and the webhook's fire cooks them afterwards",
-    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
     replace: "",
   },
   {
@@ -8354,7 +8354,7 @@ const MUTANTS = [
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
     why: "Phase 2c · gate — the reader is a settle door too. Without the gate a card-present PaymentIntent is minted for dishes the kitchen never got, the reader charges them, and the webhook's fire cooks them after the table has paid",
-    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
     replace: "",
   },
   {
@@ -8500,7 +8500,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — the reader's `unsent` refusal renders the dictionary sentence with the count. Folded into the server arm, it is English on a Burmese console and a second alert beside the page's region",
-    find: '            : res.code === "unsent"\n              ? { kind: "unsent", units: res.units }\n              : { kind: "server", text: res.error },',
+    find: '            : res.code === "unsent"\n              ? { kind: "unsent", units: res.units }\n              : res.code === "unreadable"\n                ? { kind: "unreadable" }\n                : { kind: "server", text: res.error },',
     replace: '            : { kind: "server", text: res.error },',
   },
   {
@@ -8656,9 +8656,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-unsent.test.ts",
     why: "Phase 2c · gate — the gate refuses BEFORE the totals: a refusal costs no totals read, and a moved total is never reported over a table the gate refuses anyway (the cashier re-taps into the unsent refusal one round later)",
-    find: '    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n    // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live\n    // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.\n    // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on\n    // an unreadable cart (M30), and `settleCash` is a Server Action whose caller (CashSettleButton)\n    // awaits it with no try/catch: an escaping rejection skips `setBusy(false)`, so the button latches\n    // on "Settling…", disabled, with no error text — dead mid-cash-collection, recoverable only by a\n    // reload. A discriminated refusal is the whole point of this slice; an unhandled throw is not one.\n    const totals = await getCartTotals(cart.id, 0).catch(() => null);\n',
+    find: '    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return unreadableRefusal();\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n    // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live\n    // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.\n    // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on\n    // an unreadable cart (M30), and `settleCash` is a Server Action whose caller (CashSettleButton)\n    // awaits it with no try/catch: an escaping rejection skips `setBusy(false)`, so the button latches\n    // on "Settling…", disabled, with no error text — dead mid-cash-collection, recoverable only by a\n    // reload. A discriminated refusal is the whole point of this slice; an unhandled throw is not one.\n    const totals = await getCartTotals(cart.id, 0).catch(() => null);\n',
     replace:
-      '    const totals = await getCartTotals(cart.id, 0).catch(() => null);\n    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
+      '    const totals = await getCartTotals(cart.id, 0).catch(() => null);\n    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return unreadableRefusal();\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
   },
   {
     id: "settle/tab-close-unsent-read-before-the-freeze",
@@ -8674,9 +8674,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-unsent.test.ts",
     why: "Phase 2c · gate — the close refuses BEFORE the totals: the refusal costs no totals read, and 'nothing to settle' / a moved total is never said over a table the gate refuses anyway",
-    find: "  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === \"unsent\"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n\n  // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the\n  // table strands frozen until the 10-min TTL. (Unlike settleCash we can't use a blanket `finally` — the\n  // success path below deliberately HOLDS the freeze for the async off-session fulfill — so guard the one\n  // pre-charge await that isn't already covered by the release-on-error branches.) This became reachable\n  // once acquireSettlement stopped 42703-ing here (the cart-lock PostgREST-14 fix in this PR).\n  const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)\n",
+    find: "  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === \"unsent\" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n\n  // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the\n  // table strands frozen until the 10-min TTL. (Unlike settleCash we can't use a blanket `finally` — the\n  // success path below deliberately HOLDS the freeze for the async off-session fulfill — so guard the one\n  // pre-charge await that isn't already covered by the release-on-error branches.) This became reachable\n  // once acquireSettlement stopped 42703-ing here (the cart-lock PostgREST-14 fix in this PR).\n  const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)\n",
     replace:
-      '  const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+      '  const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
   },
   {
     id: "terminal/card-unsent-read-before-the-freeze",
@@ -8692,9 +8692,9 @@ const MUTANTS = [
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
     why: "Phase 2c · gate — the reader refuses BEFORE the totals: the refusal costs no totals read and says the one fix, never a totals error first",
-    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n\n  // Post-freeze awaits release on every failure path (closeSecureTab\'s discipline — the success\n  // path deliberately HOLDS the freeze, so no blanket finally). Releases are scoped to THIS\n  // attempt: they can never null a freeze someone else has since acquired.\n  const totals = await getCartTotals(cart.id, 0).catch(() => null); // tip 0 — the counter rule\n',
+    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n\n  // Post-freeze awaits release on every failure path (closeSecureTab\'s discipline — the success\n  // path deliberately HOLDS the freeze, so no blanket finally). Releases are scoped to THIS\n  // attempt: they can never null a freeze someone else has since acquired.\n  const totals = await getCartTotals(cart.id, 0).catch(() => null); // tip 0 — the counter rule\n',
     replace:
-      '  const totals = await getCartTotals(cart.id, 0).catch(() => null); // tip 0 — the counter rule\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+      '  const totals = await getCartTotals(cart.id, 0).catch(() => null); // tip 0 — the counter rule\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attemptId);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
   },
   {
     id: "terminal-ui/unsent-trigger-always-dimmed",
@@ -9238,16 +9238,16 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-cash-cas.test.ts",
     why: "Phase 2c · review (R5) — the cash gate answers BEFORE the compare-and-swap; after it, unsent dishes with a moved quote say 'moved' and the re-tap walks into the gate",
-    find: '    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
+    find: '    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return unreadableRefusal();\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
     replace:
-      '    const early = await getCartTotals(cart.id, 0).catch(() => null);\n    if (early && quotedCents !== undefined && quotedCents !== early.totalCents)\n      return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
+      '    const early = await getCartTotals(cart.id, 0).catch(() => null);\n    if (early && quotedCents !== undefined && quotedCents !== early.totalCents)\n      return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n    const unsentUnits = await readKitchenDraftUnits(cart.id);\n    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n    if (unsent === "unreadable") return unreadableRefusal();\n    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);\n',
   },
   {
     id: "p2c-reg2/cas-suite-close-gate-deleted",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/secure-close-cas.test.ts",
     why: "Phase 2c · review (R5) — the running-bill CAS suite answers the gate's read; the close's gate deleted must turn it red",
-    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
     replace: "",
   },
   {
@@ -9255,9 +9255,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/secure-close-cas.test.ts",
     why: "Phase 2c · review (R5) — the close's gate answers BEFORE the compare-and-swap; after it, unsent dishes with a moved quote say 'moved'",
-    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+    find: '  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
     replace:
-      '  const early = await getCartTotals(cart.id, 0).catch(() => null);\n  if (early && quotedCents !== undefined && quotedCents !== early.totalCents) {\n    await releaseSettlementFor(cart.id, attempt);\n    return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n  }\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent"\n      ? unsentRefusal(unsentUnits ?? 0)\n      : { ok: false, error: STAFF_WRITE_OUTAGE };\n  }\n',
+      '  const early = await getCartTotals(cart.id, 0).catch(() => null);\n  if (early && quotedCents !== undefined && quotedCents !== early.totalCents) {\n    await releaseSettlementFor(cart.id, attempt);\n    return { ok: false, code: "moved", totalCents: early.totalCents, error: "moved" };\n  }\n  const unsentUnits = await readKitchenDraftUnits(cart.id);\n  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);\n  if (unsent !== null) {\n    await releaseSettlementFor(cart.id, attempt);\n    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();\n  }\n',
   },
   {
     id: "p2c-reg2/cash-gate-ignores-the-mode",
@@ -10601,7 +10601,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-unsent.test.ts",
     why: "P2dc at the cash door: the unreadable branch deleted, so a null count falls through to the totals and cash is recorded",
-    find: '    if (unsent === "unreadable") return { ok: false, error: STAFF_WRITE_OUTAGE };\n',
+    find: '    if (unsent === "unreadable") return unreadableRefusal();\n',
     replace: "",
   },
   {
@@ -11001,6 +11001,39 @@ const MUTANTS = [
     why: "Phase 2d \u00b7 review fixes \u2014 the pane holds one lost change; a later line edit's must never replace a standing payment's (money the cashier may have to collect again)",
     find: '  if (prev !== null && prev.kind !== "write" && next.kind === "write") return prev;\n',
     replace: "",
+  },
+  // ── Phase 2d · P2el — the fail-closed refusal speaks its own words ──
+  {
+    id: "p2d-el/cash-door-unreadable-untyped",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/settle-unsent.test.ts",
+    why: "P2el — the cash door's fail-closed refusal is TYPED, so the sheet says it in the device language; untyped it reads as an outage ('keep it on paper') at a payment door",
+    find: '    if (unsent === "unreadable") return unreadableRefusal();',
+    replace: '    if (unsent === "unreadable") return { ok: false, error: "x" };',
+  },
+  {
+    id: "p2d-el/cash-unreadable-said-as-server",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "P2el — the sheet's `unreadable` arm; dropped, the server's English passes through on a Burmese console",
+    find: '          if (res.code === "unreadable") {\n',
+    replace: "          if (false) {\n",
+  },
+  {
+    id: "p2d-el/close-unreadable-said-as-server",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "P2el — the running-bill close's `unreadable` arm; dropped, the server's English passes through",
+    find: '      if (res.code === "unreadable") {\n',
+    replace: "      if (false) {\n",
+  },
+  {
+    id: "p2d-el/reader-unreadable-said-as-server",
+    file: "apps/qr/components/staff/TerminalSettle.tsx",
+    suite: "components/staff/TerminalSettle.test.tsx",
+    why: "P2el — the reader button's `unreadable` arm; dropped, the server's English passes through",
+    find: '              : res.code === "unreadable"\n',
+    replace: "              : false\n",
   },
 ];
 

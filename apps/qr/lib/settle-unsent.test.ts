@@ -1,8 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UNSENT_SETTLE_REFUSAL } from "./settle-refusal";
-
-/** `./staff` is mocked below; this is its outage sentence there. */
-const STAFF_WRITE_OUTAGE = "outage";
+import { UNSENT_SETTLE_REFUSAL, UNSENT_UNREADABLE_REFUSAL } from "./settle-refusal";
 
 /**
  * Phase 2c · gate — the staff settle gate on the two `staff-cart` doors (owner decision 3,
@@ -212,12 +209,12 @@ describe("settleCash — refused while dine-in dishes are unsent", () => {
   // P2dc (owner decision 5a, 2026-09-29) — the STAFF doors fail CLOSED. This case used to pin the
   // opposite (fail-open, "today's settle-fires behaviour"); the owner chose never to take money past
   // a gate nobody could check, because a person at the register can simply try again.
-  it("an unreadable line read REFUSES with the outage sentence — nothing recorded, freeze released", async () => {
+  it("an unreadable line read REFUSES, typed `unreadable` — nothing recorded, freeze released (P2el)", async () => {
     // MUTATION (p2d-dc/cash-unreadable-fails-open): treat null as 0 — cash is recorded over dishes
     // nobody could count, and the after() fire cooks them once the table has paid; red.
     rowsFail = true;
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
-    expect(r).toEqual({ ok: false, error: STAFF_WRITE_OUTAGE });
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
     expect(cashRecorded()).toBe(false);
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();
@@ -257,7 +254,7 @@ describe("closeSecureTab — the running-bill close is gated too, before any Pay
     tabType = "secure";
     rowsFail = true;
     const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 });
-    expect(r).toEqual({ ok: false, error: STAFF_WRITE_OUTAGE });
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
     expect(charged()).toBe(false);
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();

@@ -259,6 +259,26 @@ describe("CloseSecureTabButton — the settle gate (refused while dishes are uns
     expect(trigger.getAttribute("aria-describedby")).toBe("secure-close-hint");
   });
 
+  // ── Phase 2d · P2el ──
+  it("a server `unreadable` refusal is said in Burmese in the one alert — nothing charged, the confirm re-armed", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: false, code: "unreadable", error: "english" });
+    render(
+      <StaffLangProvider lang="my">
+        <CloseSecureTabButton sessionId="s1" totalCents={4210} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const charge = screen
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+    // MUTATION (p2d-el/close-unreadable-said-as-server): drop the `unreadable` arm; red.
+    expect(screen.getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable"));
+    expect(document.body.textContent).not.toContain("english");
+  });
+
   it("a server `unsent` refusal renders the RUNNING BILL's sentence in Burmese with its count, hands the jump up once, and never pulls focus back to the trigger", async () => {
     const english = "Some dishes haven’t gone to the kitchen.";
     closeSecureTab.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: english });

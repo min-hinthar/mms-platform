@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UNSENT_UNREADABLE_REFUSAL } from "./settle-refusal";
 
 /**
  * W6c — the Terminal settle's authority rules, asserted as CALL SHAPES + ordering (the
@@ -799,13 +800,14 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
   });
 
   // P2dc (owner decision 5a) — no PaymentIntent is minted over a gate nobody could check.
-  it("an UNREADABLE unsent count refuses with the outage sentence, before any PaymentIntent", async () => {
+  it("an UNREADABLE unsent count refuses, typed `unreadable`, before any PaymentIntent (P2dc · P2el)", async () => {
     // MUTATION (p2d-dc/card-unreadable-fails-open): treat null as 0 — the reader charges a table
     // whose unsent dishes nobody could count, and the webhook fires them after pay; red.
     sessionMode = "dinein";
     unsentUnits = null;
     const r = await settleCard({ sessionId: SESSION });
-    expect(r).toEqual({ ok: false, error: "outage" }); // `./staff` is mocked: its outage sentence
+    // P2el — typed, so the reader button says it in the device language; never the write-outage line.
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
     expect(calls.map((c) => c.op)).toEqual(["acquire", "unsent-read", "releaseFor"]);
   });
 
