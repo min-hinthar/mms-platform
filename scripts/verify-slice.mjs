@@ -3828,8 +3828,10 @@ const MUTANTS = [
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
     why: "P2 — an echoed pair that renders only its English half looks correct to the author testing in English and silently un-translates the surface for the reader it was written for",
-    find: '      {my}\n      {echo === "inline" && " · "}',
-    replace: '      {echo === "inline" && " · "}',
+    // P2e — re-anchored on the middot line as it now reads (`echoes &&` gates it on a
+    // Burmese-only device); the mutant still drops the Burmese half of every echoed pair.
+    find: '      {my}\n      {echoes && echo === "inline" && " · "}',
+    replace: '      {echoes && echo === "inline" && " · "}',
   },
   {
     id: "chrome/outage-twin-never-reached",

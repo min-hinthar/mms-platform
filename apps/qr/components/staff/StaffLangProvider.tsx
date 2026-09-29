@@ -1,12 +1,32 @@
 "use client";
 import { createContext, useContext, type ReactNode } from "react";
-import type { StaffLang } from "@/lib/staff-lang";
+import {
+  echoesShown,
+  modeOf,
+  scriptOf,
+  type StaffLang,
+  type StaffLangMode,
+} from "@/lib/staff-lang";
 
-const StaffLangContext = createContext<StaffLang | null>(null);
+const StaffLangContext = createContext<StaffLangMode | null>(null);
 
 /**
  * P2 — carries the staff device's language from `app/staff/layout.tsx` (one cookie read) to every
  * client board beneath it.
+ *
+ * P2e — the context holds the device's MODE (Burmese only · Both · English, `lib/staff-lang.ts`),
+ * but the PROP stayed a script: `lang` is what every staff component has always been handed, and the
+ * one new fact — whether the chrome draws its English echoes — rides a boolean, `echoes`, that
+ * defaults to true. So `<StaffLangProvider lang="my">` still means Both, byte-identical to what it
+ * rendered before P2e, and not one fixture across the thirty suites that mount a provider had to
+ * move; a Burmese-only test opts in with `echoes={false}`. The one impossible pair, `lang="en"
+ * echoes={false}`, is English (`modeOf`) — English has no echoes to drop.
+ *
+ *   `useStaffLang()`      → the SCRIPT (`scriptOf(mode)`); throws outside a provider.
+ *   `useStaffLangMode()`  → the MODE, for the language controls; throws outside a provider.
+ *   `useEchoesShown()`    → whether `<Chrome>` draws English echoes; NEVER throws — the wall TV's
+ *                           `ReadyBoard` renders `<Chrome>` with no provider, and a guest never
+ *                           loses English (`echoesShown(null)`).
  *
  * ⚠️ THE WRAPPER STAMPS `data-lang`, NEVER `lang`. This is the load-bearing CSS decision of the
  * slice and the attribute name is the whole point:
@@ -28,9 +48,18 @@ const StaffLangContext = createContext<StaffLang | null>(null);
  * 3.1.2 (language of parts) holds at every Burmese span. The residual is an OPEN-ITEMS row whose
  * precondition is an audit of what the Latin metrics actually do under a Burmese root.
  */
-export function StaffLangProvider({ lang, children }: { lang: StaffLang; children: ReactNode }) {
+export function StaffLangProvider({
+  lang,
+  echoes = true,
+  children,
+}: {
+  lang: StaffLang;
+  /** P2e — false on a Burmese-only device: `<Chrome>` drops its English echoes (not the K15-HIGH band). */
+  echoes?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <StaffLangContext.Provider value={lang}>
+    <StaffLangContext.Provider value={modeOf(lang, echoes)}>
       <div className="stx-root" data-lang={lang}>
         {children}
       </div>
@@ -47,10 +76,23 @@ export function StaffLangProvider({ lang, children }: { lang: StaffLang; childre
  * of whoever wired it, in development, instead of in front of a guest.
  */
 export function useStaffLang(): StaffLang {
-  const lang = useContext(StaffLangContext);
-  if (lang === null)
+  return scriptOf(useStaffLangMode());
+}
+
+/** P2e — the device's mode, for the language controls. Throws outside a provider, like the script. */
+export function useStaffLangMode(): StaffLangMode {
+  const mode = useContext(StaffLangContext);
+  if (mode === null)
     throw new Error(
-      "useStaffLang() outside <StaffLangProvider> — staff chrome only renders under app/staff/layout.tsx.",
+      "useStaffLang() / useStaffLangMode() outside <StaffLangProvider> — staff chrome only renders under app/staff/layout.tsx.",
     );
-  return lang;
+  return mode;
+}
+
+/**
+ * P2e — whether the chrome draws its English echoes. The one hook here that does NOT throw: `/board`
+ * renders `<Chrome>` with no provider, and no provider means echoes on (`echoesShown(null)`).
+ */
+export function useEchoesShown(): boolean {
+  return echoesShown(useContext(StaffLangContext));
 }

@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, type ReactNode } from "react";
-import { STAFF, type StaffKey } from "@/lib/i18n/staff";
+import { STAFF, STAFF_K15_HIGH, type StaffKey } from "@/lib/i18n/staff";
 import { fill } from "@/lib/i18n/fill";
 import {
   STAFF_WRITE_OUTAGE,
@@ -9,6 +9,7 @@ import {
   AUTHORITY_UNCONFIRMED_MY,
 } from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
+import { useEchoesShown } from "./StaffLangProvider";
 
 /**
  * P2 — the ONE staff chrome renderer. Every localized string on a staff surface goes through here,
@@ -35,6 +36,20 @@ import type { StaffLang } from "@/lib/staff-lang";
  * site, not derived: `"stack"` and `"inline"` for headings, action buttons, outage sentences, the 86
  * control and money labels; `false` for 44px chips and badges (two scripts cannot legibly stack in a
  * chip) and for live regions (a bilingual announcement says everything twice).
+ *
+ * 4. P2e — BURMESE-ONLY DROPS THE ECHO, NEVER THE PAIR, AND NEVER ON THE K15-HIGH BAND. On a device
+ *    set to Burmese only (`useEchoesShown()` false) a call site that chose an echo still renders the
+ *    `.chrome-pair` wrapper — with ONE child, the Burmese span: no middot, no `.chrome-en`. Every
+ *    Burmese size rule in the stylesheet is written `.x > .chrome-pair > [lang="my"]`, so returning
+ *    the bare span would strip every bar title, door, More row and Help row of its size. And a key
+ *    in `STAFF_K15_HIGH` keeps its English line whatever the device says: the English under Mark
+ *    sold out, Cook now, Done and the money words is the shared kitchen tablet's cross-check (Dad's
+ *    line, `TicketText`), and those are exactly the Burmese drafts that gate food or money — so the
+ *    band that decides what the word-check sheet asks first also decides what English survives.
+ *    `keepEcho` is the third way through: a language surface (the Help row, the More tile, the
+ *    Profile card, the failure line) that must speak BOTH tongues on every device, because the
+ *    person reading it may be exactly the one who cannot read the current mode. check:staff-lang
+ *    rule 6 confines it to those files, a literal `lang="my"` and a literal echo.
  */
 
 /** Anything with a Latin letter or an ASCII digit has to be marked inside a Burmese run. */
@@ -73,13 +88,20 @@ export function Chrome({
   k,
   vars,
   echo = false,
+  keepEcho = false,
 }: {
   lang: StaffLang;
   k: StaffKey;
   vars?: Record<string, string | number>;
   /** `"stack"` = the echo on its own line · `"inline"` = after a middot · `false` = no echo. */
   echo?: "stack" | "inline" | false;
+  /**
+   * P2e — the echo survives Burmese only. Language surfaces ONLY (the Help row, the More tile, the
+   * Profile card, the failure line) — check:staff-lang rule 6 holds it to those files.
+   */
+  keepEcho?: boolean;
 }) {
+  const echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k);
   const en = vars ? fill(STAFF[k].en, vars, "en") : STAFF[k].en;
   if (lang === "en") return <>{en}</>;
 
@@ -93,8 +115,8 @@ export function Chrome({
   return (
     <span className={echo === "stack" ? "chrome-pair" : "chrome-pair chrome-pair-inline"}>
       {my}
-      {echo === "inline" && " · "}
-      <span className="chrome-en">{en}</span>
+      {echoes && echo === "inline" && " · "}
+      {echoes && <span className="chrome-en">{en}</span>}
     </span>
   );
 }

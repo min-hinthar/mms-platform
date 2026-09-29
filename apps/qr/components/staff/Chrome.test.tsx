@@ -2,8 +2,9 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Chrome, OutageText } from "./Chrome";
+import { StaffLangProvider } from "./StaffLangProvider";
 import { al, chromeVisible, type ChromeEcho } from "@/lib/staff-labels";
-import { STAFF } from "@/lib/i18n/staff";
+import { STAFF, STAFF_K15_HIGH, type StaffKey } from "@/lib/i18n/staff";
 import {
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
@@ -276,5 +277,114 @@ describe("a labelled control's NAME contains every word the control SHOWS", () =
     expect(aria).toContain("Approve"); // the VISIBLE English word — absent before this fix
     expect(aria).toContain("ခွင့်ပြု");
     expect(aria).toContain("Mohinga");
+  });
+});
+
+// ── Phase 2e · lang ──
+/**
+ * P2e — Burmese only drops the ECHO, never the PAIR, and never on the K15-HIGH band.
+ *
+ * Every Burmese size rule in globals.css is written `.x > .chrome-pair > [lang="my"]`, so the one-
+ * child pair is what keeps a Burmese-only bar title at its 30px — the render is measured here as a
+ * TREE (the parent, its one element child), never as a substring (`startsWith` would pass a render
+ * that still carried the echo after the Burmese). The K15-HIGH keys keep their English line because
+ * the kitchen tablet is shared with an English reader (Dad's line) and those words gate food or money.
+ */
+const burmeseOnly = (ui: React.ReactElement) =>
+  render(
+    <StaffLangProvider lang="my" echoes={false}>
+      {ui}
+    </StaffLangProvider>,
+  ).container;
+
+describe("P2e — Burmese only keeps the pair and drops its echo", () => {
+  // Deliberately NOT in the K15-HIGH band — the cross-check below keeps the fixture honest.
+  const PLAIN: ReadonlyArray<readonly [StaffKey, "stack" | "inline"]> = [
+    ["kds.title", "stack"],
+    ["help.back", "inline"],
+  ];
+  it("the fixture keys are outside the K15-HIGH band (or the case below proves nothing)", () => {
+    for (const [k] of PLAIN) expect(STAFF_K15_HIGH.has(k), k).toBe(false);
+    expect(STAFF_K15_HIGH.has("kds.err.bump")).toBe(false);
+  });
+
+  it.each(PLAIN)("%s · echo=%s: the Burmese alone, EXACTLY, inside a one-child pair", (k, echo) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo={echo} />);
+    expect(c.querySelector(".stx-root")!.textContent).toBe(chromeVisible("my", k, false));
+    const my = c.querySelector('[lang="my"]')!;
+    const pair = my.parentElement!;
+    expect(pair.classList.contains("chrome-pair")).toBe(true);
+    expect(pair.classList.contains("chrome-pair-inline")).toBe(echo === "inline");
+    expect(pair.children).toHaveLength(1);
+    expect(c.querySelector(".chrome-en")).toBeNull();
+  });
+
+  it("a slotted key keeps its Latin value marked inside the one Burmese run", () => {
+    const c = burmeseOnly(
+      <Chrome lang="my" k="kds.err.bump" vars={{ x: "Mohinga" }} echo="inline" />,
+    );
+    expect(c.querySelector(".stx-root")!.textContent).toBe(
+      chromeVisible("my", "kds.err.bump", false, { x: "Mohinga" }),
+    );
+    expect(c.querySelector('[lang="my"] [lang="en"]')!.textContent).toBe("Mohinga");
+    expect(c.querySelector(".chrome-pair")!.children).toHaveLength(1);
+  });
+
+  it("under Both (a provider with the default) and with NO provider (the wall TV), the echo stays", () => {
+    for (const [k, echo] of PLAIN) {
+      cleanup();
+      const both = render(
+        <StaffLangProvider lang="my">
+          <Chrome lang="my" k={k} echo={echo} />
+        </StaffLangProvider>,
+      ).container;
+      expect(renderedParts(both)).toEqual([STAFF[k].my, STAFF[k].en]);
+      cleanup();
+      const bare = render(<Chrome lang="my" k={k} echo={echo} />).container;
+      expect(renderedParts(bare)).toEqual([STAFF[k].my, STAFF[k].en]);
+    }
+  });
+
+  it("English is untouched by the flag — still one bare text node", () => {
+    const c = render(
+      <StaffLangProvider lang="en" echoes={false}>
+        <Chrome lang="en" k="kds.title" echo="stack" />
+      </StaffLangProvider>,
+    ).container;
+    expect(c.querySelector(".stx-root")!.querySelectorAll("*")).toHaveLength(0);
+    expect(c.textContent).toBe(STAFF["kds.title"].en);
+  });
+});
+
+describe("P2e — the K15-HIGH band keeps its English line on a Burmese-only device", () => {
+  const HIGH: readonly StaffKey[] = ["kds.bump", "kds.86"];
+  it("the fixture keys ARE in the band — the case cannot rot into a plain-key test", () => {
+    for (const k of HIGH) expect(STAFF_K15_HIGH.has(k), k).toBe(true);
+  });
+
+  it.each(HIGH)("%s · echo=stack keeps .chrome-en with its English", (k) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo="stack" />);
+    expect(c.querySelector(".chrome-en")?.textContent).toBe(STAFF[k].en);
+    expect(renderedParts(c.querySelector(".stx-root") as HTMLElement)).toEqual([
+      STAFF[k].my,
+      STAFF[k].en,
+    ]);
+  });
+
+  it.each(HIGH)("%s · echo={false} is still the bare Burmese span — the flag adds nothing", (k) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo={false} />);
+    expect(c.querySelector(".chrome-pair")).toBeNull();
+    expect(c.querySelector(".chrome-en")).toBeNull();
+    expect(c.querySelector('[lang="my"]')!.textContent).toBe(STAFF[k].my);
+  });
+});
+
+describe("P2e — keepEcho is the language surfaces' way through", () => {
+  it("a keepEcho Chrome speaks both tongues on a Burmese-only device", () => {
+    const c = burmeseOnly(<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />);
+    expect(STAFF_K15_HIGH.has("shell.lang.failed")).toBe(false); // it is keepEcho doing this
+    expect(c.querySelector(".stx-root")!.textContent).toBe(
+      chromeVisible("my", "shell.lang.failed", "inline"),
+    );
   });
 });
