@@ -10906,6 +10906,133 @@ const MUTANTS = [
     find: "                {t.both ? (",
     replace: "                {false ? (",
   },
+  {
+    id: "p2e-lang/help-title-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's TITLE is both tongues on every device: on a Burmese-only tablet its English is the way back for the English reader",
+    find: '          view === "lang" ? (\n            <Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />',
+    replace:
+      '          view === "lang" ? (\n            <Chrome lang="my" k="shell.lang.row" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-scope-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's scope line keeps its English on a Burmese-only device (the rows' context for whoever the mode is wrong for)",
+    find: '              <Chrome lang="my" k="shell.lang.scope" echo="stack" keepEcho />',
+    replace: '              <Chrome lang="my" k="shell.lang.scope" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-bar-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the bar tail's failure line is both tongues on a Burmese-only device: the write may have failed for the English reader",
+    find: '        <span role="alert" className="staff-bar-msg">\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />',
+    replace:
+      '        <span role="alert" className="staff-bar-msg">\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" />',
+  },
+  {
+    id: "p2e-lang/help-menu-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the menu view's failure line keeps its English on a Burmese-only device",
+    find: '                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+    replace:
+      '                <Chrome lang="my" k="shell.lang.failed" echo="inline" />\n              </p>\n            )}\n          </div>',
+  },
+  {
+    id: "p2e-lang/help-view-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's failure line keeps its English on a Burmese-only device",
+    find: '                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n            <p className="staff-lang-note">',
+    replace:
+      '                <Chrome lang="my" k="shell.lang.failed" echo="inline" />\n              </p>\n            )}\n            <p className="staff-lang-note">',
+  },
+  {
+    id: "p2e-lang/profile-line-drops-english",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — the Profile card's failure line keeps its English on a Burmese-only device (the card is where a person comes when the mode is wrong for them)",
+    find: '          aria-hidden={announce ? true : undefined}\n        >\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />',
+    replace:
+      '          aria-hidden={announce ? true : undefined}\n        >\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" />',
+  },
+  {
+    id: "p2e-lang/help-sample-follows-the-device",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Text size preview is a dish name, and a dish name never changes with the device (TicketText): through the chrome it lost Dad's line under Burmese only",
+    find: "                    <TicketDishTitle line={SIZE_SAMPLE} />",
+    replace: '                    <Chrome lang={lang} k="help.size.sample" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-stale-refresh-closes",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — a new write outdates the wait for the last one: the earlier write's refresh landing mid-write must not close the sheet on a mode the person left",
+    find: '      if (tap === "wrote") setAwaiting(null);\n',
+    replace: "",
+  },
+  {
+    id: "p2e-lang/pick-drops-mid-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — a provider change landing mid-write (the earlier write's refresh) must not move the cap off the pick in flight",
+    find: "    if (!busy) setPick(null);",
+    replace: "    setPick(null);",
+  },
+  {
+    id: "p2e-lang/confirmed-stale-mid-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — mid-chain, confirmed is what THIS chain's writes returned; adopting a stale refresh then reverts the cap to a mode the server no longer holds",
+    find: "    if (!inFlight.current) confirmed.current = mode;",
+    replace: "    confirmed.current = mode;",
+  },
+  {
+    id: "p2e-lang/unwritten-chain-ignores-provider",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — a chain that wrote nothing must judge its failure against the provider's latest word: the server may already hold the wish (another tab)",
+    find: "    if (!wrote) confirmed.current = provider.current;\n",
+    replace: "",
+  },
+  {
+    id: "p2e-lang/help-view-line-through-exit",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the sheet's content stays mounted through the exit slide (M76), so an unguarded in-sheet line doubles the bar tail's",
+    find: "            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />\n            {open && langWrite.alert && (",
+    replace:
+      "            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />\n            {langWrite.alert && (",
+  },
+  {
+    id: "p2e-lang/help-menu-line-through-exit",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the menu view's line must not survive into the exit slide beside the bar tail's",
+    find: '            {open && langWrite.alert && (\n              <p role="alert" className="staff-lang-msg">\n                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+    replace:
+      '            {langWrite.alert && (\n              <p role="alert" className="staff-lang-msg">\n                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+  },
+  {
+    id: "p2e-lang/help-bar-line-while-open",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the bar tail's line only while the sheet is closed (Radix hides it from getByRole, never from the eye)",
+    find: "      {!open && langWrite.alert && (",
+    replace: "      {langWrite.alert && (",
+  },
+  {
+    id: "p2e-lang/help-close-clears-unseen",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — a failure that landed on How / Text size / Report was never shown; a close that clears it loses it unsaid",
+    find: '    const lineShown = open && (view === "menu" || view === "lang");',
+    replace: "    const lineShown = true;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
