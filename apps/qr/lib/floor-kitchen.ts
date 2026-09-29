@@ -72,10 +72,12 @@ export function foldFloorKitchen(
   let done = 0;
   let oldestMs = Number.POSITIVE_INFINITY;
   let oldestFireAt: string | null = null;
+  // Every other count is ONE of two state sets: cooking (`PULSE_COOKING_STATES`) or `served`. A
+  // draft (whose only word is "not sent", counted above) and a voided line are in neither, so they
+  // fall through below without a skip of their own — a guard nothing can reach is decoration, and
+  // `verify:slice` would report its mutant surviving (CLAUDE.md, "A guard that cannot be reached").
+  // `comped` is never consulted: a comped dish is still cooked and still owed by the kitchen.
   for (const r of rows) {
-    if (r.state === "voided") continue;
-    // A draft has not reached the kitchen; the only thing it can say is "not sent", counted above.
-    if (r.state === "draft") continue;
     const fireMs = parse(r.fire_at);
     if (fireMs === null) continue;
     // Held, or inside the send's undo grace: the kitchen has not seen it, so the floor must not.

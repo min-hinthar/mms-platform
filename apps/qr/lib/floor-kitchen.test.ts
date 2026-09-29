@@ -46,7 +46,8 @@ describe("foldFloorKitchen — what the floor may say about the kitchen", () => 
   });
 
   it("a voided line is never counted; a comped one is (the kitchen still cooks it)", () => {
-    // MUTATION: stop skipping `voided` → the voided in_progress line joins the count (2, not 1).
+    // A voided line is in neither state set the fold counts (pinned as a value: widening the
+    // cooking set to admit it would count it here).
     const k = fold([
       row({ state: "voided", fire_at: at(-5 * MIN) }),
       row({ state: "in_progress", fire_at: at(-3 * MIN) }),
