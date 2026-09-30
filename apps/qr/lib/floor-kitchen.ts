@@ -21,7 +21,8 @@ import type { KdsThresholds } from "./kitchen-types";
  *                   claim that anyone RAN the food: no runner event exists.
  *   not sent        2a's ONE count (plan conflict "floor × send-kitchen"): `staffOwedSendUnits(
  *                   hostPresent, staffSendCounts(…))` over the OPEN cart — every sendable dish on a
- *                   hostless table, only staff-added ones on a host table (owner decision 5c).
+ *                   hostless table, only staff-added ones on a host table (owner decision 5c) — plus,
+ *                   on a counter order whose food already reached the kitchen, its `counterDraft`.
  *   late            `kdsUrgency` with the kitchen's own thresholds (`floorWait`).
  *
  * Plain module (no "server-only"): `lib/floor.ts` folds server-side; the card renders the result.
@@ -71,13 +72,19 @@ export function foldFloorKitchen(
   ctx: FloorKitchenContext,
   lingerMs: number = PULSE_PASS_LINGER_MS,
 ): FloorKitchen | null {
-  const notSent = staffOwedSendUnits(
-    ctx.hostPresent,
-    staffSendCounts(
-      ctx.mode,
-      rows.filter((r) => r.onOpenCart),
-    ),
+  const counts = staffSendCounts(
+    ctx.mode,
+    rows.filter((r) => r.onOpenCart),
+    ctx.nowMs,
   );
+  // Phase 2f review PT1 — a COUNTER order (mode pickup) owes nothing by `staffOwedSendUnits` (its
+  // `sendable` is 0: a walk-up's drafts are pay-first). But once its food reached the kitchen, the
+  // drafts left beside it are the ones the table page's "send the rest" asks for — so they are
+  // "not sent", and the card can never read "Kitchen done" over an order still owing a Send.
+  // `counterDraft` is 0 off a pickup session, so a table's count is untouched.
+  const notSent =
+    staffOwedSendUnits(ctx.hostPresent, counts) +
+    (counts.counterSentPastGrace ? counts.counterDraft : 0);
   let inKitchen = 0;
   let up = 0;
   const upKeys: string[] = [];
@@ -90,7 +97,9 @@ export function foldFloorKitchen(
   // `verify:slice` would report its mutant surviving (CLAUDE.md, "A guard that cannot be reached").
   // `comped` is never consulted: a comped dish is still cooked and still owed by the kitchen.
   for (const r of rows) {
-    const fireMs = parse(r.fire_at);
+    // A line with NO fire_at was fired at or before now (Phase 2f review M2 — the reading the KDS,
+    // the no-show and Clear share). Drafts carry none too; the state sets below never count them.
+    const fireMs = r.fire_at === null ? ctx.nowMs : parse(r.fire_at);
     if (fireMs === null) continue;
     // Held, or inside the send's undo grace: the kitchen has not seen it, so the floor must not.
     if (fireMs > ctx.nowMs) continue;
@@ -98,7 +107,7 @@ export function foldFloorKitchen(
       inKitchen += r.qty;
       if (fireMs < oldestMs) {
         oldestMs = fireMs;
-        oldestFireAt = r.fire_at;
+        oldestFireAt = r.fire_at ?? new Date(fireMs).toISOString();
       }
       continue;
     }

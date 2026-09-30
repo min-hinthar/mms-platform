@@ -189,7 +189,9 @@ export async function getFloorView(): Promise<FloorPoll> {
   const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
   // Phase 2f · P2v — a register row whose food reached the kitchen (past its grace, on the DB clock)
   // is flagged Unpaid, and carries the SAME kitchen row the tables fold (mode pickup: a walk-up's
-  // drafts are pay-first, never "owed" — so its "not sent" is 0). A kiosk row never cooks unpaid.
+  // drafts are pay-first, never "owed" — until food reached the kitchen, when the drafts beside it
+  // are "not sent" and the card is never "Kitchen done"; `foldFloorKitchen`). A kiosk row never
+  // cooks unpaid.
   const counterNowMs = Number.isFinite(Date.parse(serverNow))
     ? Date.parse(serverNow)
     : Date.parse(nowIso);

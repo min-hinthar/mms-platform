@@ -25,7 +25,7 @@ import type { StaffSendView } from "./staff-send-view";
 const NOW = Date.parse("2026-10-01T18:00:00.000Z");
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString();
 
-const line = (over: Partial<CounterLine & { qty: number }> = {}) => ({
+const line = (over: Partial<CounterLine & { qty: number; bumped_at: string | null }> = {}) => ({
   state: "fired",
   fulfillment: "togo",
   fire_at: ago(1),
@@ -81,9 +81,17 @@ describe("counterSentLine — the kitchen HAS it (the SQL no-show's sent set)", 
     expect(counterSentLine(line({ fulfillment: "dinein" }), NOW)).toBe(true);
   });
 
-  it("no fire_at, or an unparseable one, is never sent", () => {
-    expect(counterSentLine(line({ fire_at: null }), NOW)).toBe(false);
+  it("a fired line with NO fire_at was fired at or before now — sent (the SQL twin's reading)", () => {
+    // p2f-rev-lib/counter-order/null-fire-at-unsent — `mms_line_transition`'s draft→fired edge
+    // stamps no fire_at; the SQL no-show counts that line as sent, so the TS must too, or Clear
+    // cancels (with no audit) food the no-show would write off.
+    expect(counterSentLine(line({ fire_at: null }), NOW)).toBe(true);
+    // …but a row whose fire_at was never READ (the field absent) is no evidence: never sent
     expect(counterSentLine(line({ fire_at: undefined }), NOW)).toBe(false);
+    expect(counterSentLine(line({ state: "served", fire_at: null }), NOW)).toBe(true);
+    // a draft with no fire_at is still not sent (the state decides first)
+    expect(counterSentLine(line({ state: "draft", fire_at: null }), NOW)).toBe(false);
+    // an unparseable stamp (no Postgres writer produces one) is never sent
     expect(counterSentLine(line({ fire_at: "not a date" }), NOW)).toBe(false);
   });
 
@@ -95,16 +103,31 @@ describe("counterSentLine — the kitchen HAS it (the SQL no-show's sent set)", 
 });
 
 describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
-  const gate = (over: Partial<KdsGateInput> = {}) =>
-    kdsLineGate({
+  // `fireMs` is sugar for the line's fire_at (null = no stamp); `line` overrides the rest of it.
+  const gate = (
+    over: Partial<Omit<KdsGateInput, "line">> & {
+      fireMs?: number | null;
+      line?: Partial<CounterLine>;
+    } = {},
+  ) => {
+    const { fireMs = NOW - 1000, line: l = {}, ...rest } = over;
+    return kdsLineGate({
       mode: "pickup",
       counterOrder: true,
       sessionStatus: "active",
       cartStatus: "open",
-      fireMs: NOW - 1000,
+      slotted: false,
       nowMs: NOW,
-      ...over,
+      ...rest,
+      line: {
+        state: "fired",
+        fulfillment: "togo",
+        comped: false,
+        fire_at: fireMs === null ? null : new Date(fireMs).toISOString(),
+        ...l,
+      },
     });
+  };
 
   it("dine-in: an active table past the grace cooks; closed or in grace is hidden", () => {
     expect(gate({ mode: "dinein", counterOrder: false })).toEqual({
@@ -125,6 +148,17 @@ describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
     expect(gate()).toEqual({ show: true, held: false, unpaid: true });
   });
 
+  it("a COMPED line is cooked but is not unpaid food — the flag is `counterSentLine`, one definition", () => {
+    // p2f-rev-lib/kds-gate/comped-flagged-unpaid — the floor, the lane and Clear all read
+    // `counterSentLine`, which excludes a comp; the KDS must not call the same line Unpaid.
+    expect(gate({ line: { comped: true } })).toEqual({ show: true, held: false, unpaid: false });
+  });
+
+  it("a fired line with no fire_at is shown now and is unpaid — fired at or before now", () => {
+    // p2f-rev-lib/kds-gate/null-fire-at-in-grace
+    expect(gate({ fireMs: null })).toEqual({ show: true, held: false, unpaid: true });
+  });
+
   it("an open counter order is hidden inside its grace and once its session is cleared", () => {
     // counter-grace-shown
     expect(gate({ fireMs: NOW + 1000 })).toEqual({ show: false });
@@ -132,14 +166,29 @@ describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
     expect(gate({ sessionStatus: "closed" })).toEqual({ show: false });
   });
 
-  it("a PAID counter order cooks, never flagged, never held (its only future fire_at is the grace)", () => {
+  it("a PAID counter order cooks, never flagged; without a slot its future fire_at is only the grace", () => {
     expect(gate({ cartStatus: "paid", sessionStatus: "closed" })).toEqual({
       show: true,
       held: false,
       unpaid: false,
     });
-    // paid-counter-held
+    // paid-counter-held: no pickup slot, so a future fire_at is the send's grace — hidden, not held
     expect(gate({ cartStatus: "paid", fireMs: NOW + 3000 })).toEqual({ show: false });
+  });
+
+  it("a PAID counter order WITH a pickup slot is held until slot − prep, as it always was", () => {
+    // p2f-rev-lib/kds-gate/slotted-counter-hidden — a diner who joined the reg- code can set a slot
+    // (`mms_set_pickup_slot`); settlement then fires at slot − prep, and the kitchen must SEE it held.
+    expect(gate({ cartStatus: "paid", slotted: true, fireMs: NOW + 3_600_000 })).toEqual({
+      show: true,
+      held: true,
+      unpaid: false,
+    });
+    expect(gate({ cartStatus: "paid", slotted: true })).toEqual({
+      show: true,
+      held: false,
+      unpaid: false,
+    });
   });
 
   it("a cancelled counter cart is hidden", () => {
@@ -259,6 +308,24 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
     expect(b?.moreUnits).toBe(1);
   });
 
+  it("a sent line with no fire_at dates the bag from now (fired at or before now)", () => {
+    const b = bag([line({ state: "fired", fire_at: null })]);
+    expect(b?.sentAt).toBe(new Date(NOW).toISOString());
+    expect(bag([line({ fire_at: null }), line({ fire_at: ago(90) })])?.sentAt).toBe(ago(90));
+  });
+
+  it("a DONE bag carries its completion stamp — the latest bump; a cooking bag carries none", () => {
+    // p2f-rev-lib/counter-order/bag-done-unstamped — the bell keys food by this stamp, so a second
+    // batch that finishes later is a new event (a new ring), and the same finish is never two.
+    const b = bag([
+      line({ state: "served", bumped_at: ago(50) }),
+      line({ state: "served", bumped_at: ago(20) }),
+    ]);
+    expect(b?.doneAt).toBe(ago(20));
+    const cooking = bag([line({ state: "served", bumped_at: ago(50) }), line({ state: "fired" })]);
+    expect(cooking?.doneAt).toBeNull();
+  });
+
   it("null when nothing is sent — drafts only, or a send still in its grace", () => {
     // bag-shows-in-grace
     expect(bag([line({ fire_at: ago(-4) })])).toBeNull();
@@ -280,6 +347,9 @@ describe("noShowOutcome — every RPC status, and never a silent ok", () => {
     ["not_counter", "not_counter"],
     ["in_flight", "in_flight"],
     ["nothing_sent", "nothing_sent"],
+    // p2f-rev-lib/counter-order/changed-reads-error — the sent set moved since the approver looked:
+    // nothing was written, and "try again" after a fresh look is the honest steer.
+    ["changed", "changed"],
     ["something_new", "error"],
     [null, "error"],
   ] as const)("%s → %s", (status, reason) => {

@@ -39,6 +39,30 @@ export function kitchenStateOf(lines: readonly KitchenLineRow[] | undefined): Ki
   return food.some((l) => l.state !== "served") ? "cooking" : "done";
 }
 
+/**
+ * Phase 2f review PT3 — WHEN the kitchen finished a bag: the latest `bumped_at` among its served
+ * to-go lines (the same lines `kitchenStateOf` reads), or null when none carries a stamp. The caller
+ * reads it only while its own state is `done`. It is the counter bell's key for finished food: a
+ * second batch that finishes later is a later bump — a new event, a new ring — while the same finish
+ * seen from the unpaid bag and from the paid bag that replaces it is ONE stamp, so one ring. Read off
+ * the cart's lines on both sides, so payment cannot change it.
+ */
+export function kitchenDoneAt(
+  lines: readonly (KitchenLineRow & { bumped_at?: string | null })[],
+): string | null {
+  let best: string | null = null;
+  let bestMs = Number.NEGATIVE_INFINITY;
+  for (const l of lines) {
+    if (l.fulfillment !== "togo" || l.state !== "served" || !l.bumped_at) continue;
+    const ms = Date.parse(l.bumped_at);
+    if (ms > bestMs) {
+      bestMs = ms;
+      best = l.bumped_at;
+    }
+  }
+  return best;
+}
+
 /** The fields the lane's order reads off a ticket. */
 export type ExpoOrderKey = {
   orderId: string;

@@ -33,7 +33,15 @@ const h = vi.hoisted(() => ({
   },
   paying: null as null | string,
   rpcCalls: [] as { fn: string; args: Record<string, unknown> }[],
-  fireRows: [] as { fired: number; batch: string; fire_deadline: string; named?: boolean }[],
+  fireRows: [] as {
+    fired: number;
+    batch: string;
+    fire_deadline: string;
+    named?: boolean;
+    open?: boolean;
+  }[],
+  /** Phase 2f review — the cart's status as a read-back of `qr_carts` answers it (null = error). */
+  cartStatus: "open" as string | null,
   /** Phase 2f — `surfaceOpen("payAtPickup")`, as the action reads it. */
   payAtPickup: true,
   unfired: 0,
@@ -96,6 +104,13 @@ function itemsQuery(table: string) {
     limit() {
       return q;
     },
+    maybeSingle() {
+      return Promise.resolve(
+        h.cartStatus === null
+          ? { data: null, error: { message: "cart unreadable" } }
+          : { data: { status: h.cartStatus }, error: null },
+      );
+    },
     then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
       return Promise.resolve(
         h.batchReadError
@@ -151,6 +166,7 @@ beforeEach(() => {
   // Three rows of qty 1 — the default where rows and units agree. The units case below separates them.
   h.batchRows = [{ qty: 1 }, { qty: 1 }, { qty: 1 }];
   h.batchReadError = null;
+  h.cartStatus = "open";
   h.itemReads = [];
 });
 
@@ -387,6 +403,39 @@ describe("staffFireCart / staffUndoFire — the counter's pay-at-pickup Send", (
     h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: true }];
     expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "nothing" });
     expect(h.touched).toEqual([]);
+  });
+
+  it("a Send that raced a settle or a clear answers `closed`, never `noName` (review)", async () => {
+    // p2f-rev-lib/staff-send/raced-settle-reads-noname — the cart was settled (or cleared) between
+    // the page's read and the fire's lock: nothing fired, and the order is gone. "Add a name" would
+    // send staff to rename an order that no longer exists.
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    h.cartStatus = "paid";
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    h.cartStatus = "cancelled";
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: true }];
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    expect(h.touched).toEqual([]);
+  });
+
+  it("the fire's own `open` signal is read first — no read-back when the RPC says it", async () => {
+    // Resolves at integration: `mms_fire_counter_cart` reports whether the cart was open under its
+    // lock (the db half of the review fix). The read-back is the fallback when it does not.
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, open: false }];
+    h.cartStatus = "open"; // a read-back would say open — the lock's answer wins
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, open: true }];
+    h.cartStatus = "paid";
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
+  });
+
+  it("an unreadable read-back never invents `closed` — the fire's own verdict stands", async () => {
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    h.cartStatus = null;
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
   });
 
   it("a table's empty fire is never read as noName (its RPC has no `named`)", async () => {

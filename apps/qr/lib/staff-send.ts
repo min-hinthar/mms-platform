@@ -151,6 +151,30 @@ async function firedUnits(cartId: string, batch: string, firedRows: number): Pro
 }
 
 /**
+ * Did an empty counter fire meet a cart that is no longer OPEN (settled or cleared since the page read
+ * it)? The fire's own `open` — the cart row as its lock saw it — answers when the RPC reports it
+ * (resolves at integration with the db half of the Phase 2f review fix); otherwise a read-back of the
+ * cart's status. An unreadable read-back answers false: the fire's own verdict (`noName` / `nothing`,
+ * both true — nothing went to the kitchen) stands, and `closed` is never said on no evidence.
+ */
+async function counterCartClosed(
+  cartId: string,
+  row: { open?: boolean } | undefined,
+): Promise<boolean> {
+  if (typeof row?.open === "boolean") return !row.open;
+  const { data, error } = await serviceClient()
+    .from("qr_carts")
+    .select("status")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) {
+    console.error("[staff-send] cart status read-back failed", { message: error.message });
+    return false; // deliberate: see above
+  }
+  return data != null && data.status !== "open";
+}
+
+/**
  * Send the table's unsent dine-in round to the kitchen. Returns the RPC's batch and the server's
  * deadline beside `serverNow` — the diner's `SendToKitchenResult` shape — so the console counts the
  * server-MEASURED grace down from its own receipt (`lib/send-grace.ts`) and its Undo targets exactly
@@ -186,11 +210,19 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
   // moved nothing.
   const row = res.data?.[0];
   const firedRows = row?.fired ?? 0;
-  const named =
+  const counterRow =
     table.route.rpc === "counter"
-      ? (res.data?.[0] as { named?: boolean } | undefined)?.named
+      ? (res.data?.[0] as { named?: boolean; open?: boolean } | undefined)
       : undefined;
-  if (!firedRows && named === false) return { ok: false, reason: "noName" };
+  // Phase 2f review — a Send that raced a settle or a clear fired nothing because the ORDER is gone,
+  // whatever its name: `closed`, never "Add a name" over an order that no longer exists.
+  if (
+    !firedRows &&
+    table.route.rpc === "counter" &&
+    (await counterCartClosed(table.cart.id, counterRow))
+  )
+    return { ok: false, reason: "closed" };
+  if (!firedRows && counterRow?.named === false) return { ok: false, reason: "noName" };
   // Nothing still draft and dine-in: a colleague (or the host's phone) sent it first, or only to-go
   // lines remain. The refreshed slot then says which.
   if (!firedRows) return { ok: false, reason: "nothing" };

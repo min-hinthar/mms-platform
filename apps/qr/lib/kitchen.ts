@@ -164,14 +164,18 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // and returns `outage` instead of degrading: a failed read used to render as an EMPTY board ("all
   // clear" over a room full of cooking food — the worst possible lie to a kitchen). The freeze-on-
   // outage client keeps the last-known queue, so erring toward `outage` never blanks anything.
+  const floorIso = queueFloorIso(nowIso);
   const { data: lines, error: linesError } = await db
     .from("qr_cart_items")
     .select(
-      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,cart_id,fulfillment,notes,menu_item_id",
+      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,cart_id,fulfillment,notes,menu_item_id,comped",
     )
     .in("state", ["fired", "in_progress"])
-    .not("fire_at", "is", null)
-    .gte("fire_at", queueFloorIso(nowIso))
+    // Phase 2f review M2 — a fired line with NO fire_at (`mms_line_transition`'s draft→fired edge
+    // stamps none) was fired at or before now: the no-show writes it off and Clear refuses over it,
+    // so the kitchen must see it too. It is bounded by the SAME day floor on its creation time, so
+    // an unstamped orphan can never creep back into the capped read (M180).
+    .or(`fire_at.gte.${floorIso},and(fire_at.is.null,created_at.gte.${floorIso})`)
     .order("fire_at", { ascending: true })
     .limit(QUEUE_LINE_CAP);
   if (linesError) return { ok: false, reason: "outage" };
@@ -264,16 +268,17 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     if (!sess) continue; // defensive: orphaned cart
     const channel: KitchenChannel =
       sess.mode === "dinein" ? "dinein" : sess.mode === "pickup" ? "pickup" : "scango";
-    const fireMs = new Date(l.fire_at ?? nowIso).getTime();
     // Dine-in: an active table past the grace. Counter (`reg-`) order: open → past the grace on an
-    // active session, flagged unpaid; paid → past the grace. Everything else: a PAID cart only (a
+    // active session, flagged unpaid when the line is SENT unpaid food (`counterSentLine` — a comp is
+    // not); paid → past the grace, or held on a slotted cart. Everything else: a PAID cart only (a
     // future fire_at there is the slot − prep schedule — held).
     const gate = kdsLineGate({
       mode: sess.mode,
       counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
       sessionStatus: sess.status,
       cartStatus: cart.status,
-      fireMs,
+      slotted: cart.pickup_slot != null,
+      line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment, comped: l.comped },
       nowMs,
     });
     if (!gate.show) continue;
@@ -300,6 +305,8 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // A ticket is HELD only while EVERY line is future-fired (mms_fire_pending_food stamps one
       // uniform fire_at per settlement, so a mixed ticket only arises from a manual fire-early race).
       if (!gate.held) existing.held = false;
+      // Unpaid when ANY line on it is sent unpaid food — the first line may be a comp.
+      if (gate.unpaid) existing.unpaid = true;
     } else {
       const orderId = orderByCart.get(l.cart_id);
       ticketByCart.set(l.cart_id, {
