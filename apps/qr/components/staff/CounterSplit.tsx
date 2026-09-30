@@ -88,6 +88,9 @@ export function CounterSplit({
   const [closeSeq, setCloseSeq] = useState(0);
   const focusSeq = useRef(0);
   const genSeq = useRef(0);
+  // Phase 2d · Codex round 1 — a close is a move too: the floor, shown, takes its own `gen` from
+  // the same count, so the API's `selectionGen` is new on EVERY move and never comes back.
+  const [floorGen, setFloorGen] = useState(0);
 
   // Phase 2d · review fixes — below 48em a selected table covers the counter's column, and the
   // bell's visible half with it: the bell asks this at the instant of each ring (never captured —
@@ -157,6 +160,7 @@ export function CounterSplit({
     pendingFocus.current = target === "stay" ? null : { target, id: cur.id };
     selRef.current = null;
     setSel(null);
+    setFloorGen(++genSeq.current);
     setLostWrite(null);
     // The paid card leaves with its table (✕, Escape, Back, Clear); a SWITCH keeps it.
     dropHandoffStash(cur.id);
@@ -268,6 +272,7 @@ export function CounterSplit({
 
   const api: TablePaneApi = {
     selectedId: sel?.id ?? null,
+    selectionGen: sel ? sel.gen : floorGen,
     openFromCard,
     openSession,
     publishFloor,

@@ -59,9 +59,13 @@ vi.mock("@/lib/tabs", () => ({ openTab: vi.fn() }));
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.fn() }));
-vi.mock("@/lib/register", () => ({ openRegisterOrder: vi.fn() }));
+const openRegisterOrder = vi.fn((_input: unknown) => new Promise<unknown>(() => {}));
+vi.mock("@/lib/register", () => ({
+  openRegisterOrder: (input: unknown) => openRegisterOrder(input),
+}));
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push }),
   usePathname: () => "/staff",
 }));
 vi.mock("next/link", () => ({
@@ -240,6 +244,8 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   getTableDetail.mockClear();
+  openRegisterOrder.mockClear();
+  push.mockClear();
   sessionStorage.clear();
 });
 
@@ -351,5 +357,97 @@ describe("the bell never rings over a covered counter column", () => {
     await tick(5000);
     // MUTATION: treat any open pane as covering the column — a tablet mutes the bell all shift; red.
     expect(playCounter).toHaveBeenCalledWith("guest");
+  });
+});
+
+/**
+ * Phase 2d · Codex round 1 (mint) — a start in flight while the person moves the pane and comes
+ * BACK. The landing compared the pane's selected id at tap and at answer, so a move that ends on
+ * the id it left (A → B → A; the floor → a table → ✕) passed as "never moved" and the add screen
+ * of the new order was pushed over the pane they had just worked in. The real split and the real
+ * mint lock, so the generation the lock compares is the one `CounterSplit` actually publishes.
+ */
+describe("a start that lands after the pane moved and came back", () => {
+  type Landing = { ok: true; sessionId: string; created: boolean };
+  function held() {
+    let resolve!: (v: Landing) => void;
+    const promise = new Promise<Landing>((r) => {
+      resolve = r;
+    });
+    openRegisterOrder.mockReturnValueOnce(promise);
+    return { promise, resolve };
+  }
+  const walkup = () =>
+    document
+      .getElementById("start-h")!
+      .parentElement!.querySelector<HTMLButtonElement>("button.ui-btn")!;
+  const tap = async (el: HTMLElement) => {
+    await act(async () => {
+      fireEvent.click(el);
+    });
+    await tick(0);
+  };
+  const land = async (d: ReturnType<typeof held>) => {
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s-new", created: true });
+      await d.promise;
+    });
+    await tick(0);
+  };
+
+  it("A → B → A: the new order's add screen is never pushed over the table they came back to — and the lock re-arms", async () => {
+    mountCounter();
+    await tick(0);
+    await tap(card(A));
+    const d = held();
+    await tap(walkup());
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    await tap(card(B));
+    await tap(card(A));
+    expect(location.hash).toBe(`#table-${A}`); // the same id the start was tapped over
+    await land(d);
+    // MUTATION: compare the selected id alone (or publish no generation) — A at tap, A at the
+    // answer: push('/staff/table/s-new/add') yanks them off table A; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("the floor → a table → ✕: a close is a move too — nothing is pushed over the floor", async () => {
+    mountCounter();
+    await tick(0);
+    const d = held();
+    await tap(walkup());
+    await tap(card(A));
+    expect(splitRoot().dataset.pane).toBe("open");
+    await tap(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    expect(splitRoot().dataset.pane).not.toBe("open");
+    await land(d);
+    // MUTATION: a close takes no generation of its own — the floor reads as it did at the tap; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  // Over-blocking is as bad as under-blocking: the ordinary starts must still go where they went.
+  it("an untouched floor still lands the new order on its add screen", async () => {
+    mountCounter();
+    await tick(0);
+    const d = held();
+    await tap(walkup());
+    await land(d);
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+
+  it("re-tapping the table already shown is not a move — the new order still lands", async () => {
+    mountCounter();
+    await tick(0);
+    await tap(card(A));
+    const d = held();
+    await tap(walkup());
+    await tap(card(A));
+    await land(d);
+    // MUTATION: a re-tap of the table shown takes a new generation — every start made with a table
+    // open beside the floor would silently stay put; red.
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
   });
 });

@@ -11,6 +11,10 @@ export type PaneRow = { sessionId: string; label: string; hint: TableHint };
 
 export type TablePaneApi = {
   selectedId: string | null;
+  /** Phase 2d · Codex round 1 — which SELECTION `selectedId` belongs to: new on every move of the
+   *  pane (a pick of a table not already shown, and a close), kept by a re-tap of the table shown,
+   *  never repeated. An id alone cannot see a move that came back (A → B → A, a table then ✕). */
+  selectionGen: number;
   /** A card or occupied tile tap: opens in the pane at split width, else falls through to its link. */
   openFromCard: (e: MouseEvent<HTMLElement>, sessionId: string, hint: TableHint) => void;
   /** Open a table without a click (a start that converged on a seated table). False below 48em —

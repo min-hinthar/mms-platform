@@ -65,10 +65,18 @@ function StartTable7() {
 }
 
 /** The pane's selection is the case's to move: a re-render with a new `selectedId` is the person
- *  picking a table (a card, the pane's own pick, Back) while the start is out. */
-function Pane({ selectedId }: { selectedId: string | null }) {
+ *  picking a table (a card, the pane's own pick, Back) while the start is out. `selectionGen` is
+ *  held at 0 unless a case walks a `path` — so the id comparison is pinned on its own. */
+function Pane({
+  selectedId,
+  selectionGen = 0,
+}: {
+  selectedId: string | null;
+  selectionGen?: number;
+}) {
   const api: TablePaneApi = {
     selectedId,
+    selectionGen,
     openFromCard: (_e: MouseEvent<HTMLElement>) => {},
     openSession: (id, hint) => {
       openSession(id, hint);
@@ -89,6 +97,9 @@ async function startThenLand(opts: {
   initial: string | null;
   /** What the person picks in the pane while the start is out (undefined: nothing). */
   moveTo?: string | null;
+  /** Phase 2d · Codex round 1 — a walk of picks with the generation the real split publishes: a
+   *  new one per pick of a table not already shown AND per close, kept by a re-tap. */
+  path?: readonly (string | null)[];
   landing: Landing;
 }) {
   const d = deferred<Landing>();
@@ -103,6 +114,14 @@ async function startThenLand(opts: {
   if (opts.moveTo !== undefined) {
     const to = opts.moveTo;
     await act(async () => rerender(<Pane selectedId={to} />));
+  }
+  let shown = opts.initial;
+  let gen = 0;
+  for (const to of opts.path ?? []) {
+    if (to !== shown) gen += 1;
+    shown = to;
+    const g = gen;
+    await act(async () => rerender(<Pane selectedId={to} selectionGen={g} />));
   }
   await act(async () => {
     d.resolve(opts.landing);
@@ -174,6 +193,53 @@ describe("CounterMint — a start that lands after the person picked a table in 
     await startThenLand({
       initial: "s-A",
       moveTo: "s-A",
+      landing: { ok: true, sessionId: "s-new", created: true },
+    });
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+});
+
+/**
+ * Phase 2d · Codex round 1 (mint) — a move that COMES BACK. The id at the answer equals the id at
+ * the tap (A → B → A; the floor → a table → ✕), so an id comparison alone reads "never moved" and
+ * lands the start over the pane the person has been working in. The pane's selection generation
+ * moves on every pick and every close, and the lock compares it too.
+ */
+describe("CounterMint — a start that lands after the pane moved and came back", () => {
+  it("A → B → A never pushes the new session's add screen — and the lock re-arms", async () => {
+    // MUTATION: drop the generation comparison → A at the tap, A at the answer: the push lands.
+    const { button } = await startThenLand({
+      initial: "s-A",
+      path: ["s-B", "s-A"],
+      landing: { ok: true, sessionId: "s-new", created: true },
+    });
+    expect(push).not.toHaveBeenCalled();
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("the floor → a table → ✕ never pushes over the floor", async () => {
+    await startThenLand({
+      initial: null,
+      path: ["s-A", null],
+      landing: { ok: true, sessionId: "s-new", created: true },
+    });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("A → B → A never opens a CONVERGED session over the table they came back to", async () => {
+    await startThenLand({
+      initial: "s-A",
+      path: ["s-B", "s-A"],
+      landing: { ok: true, sessionId: "s-7", created: false },
+    });
+    expect(openSession).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a re-tap of the table shown keeps its generation — the new session still lands", async () => {
+    await startThenLand({
+      initial: "s-A",
+      path: ["s-A"],
       landing: { ok: true, sessionId: "s-new", created: true },
     });
     expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");

@@ -48,6 +48,11 @@ import { useTablePane } from "./TablePaneContext";
  *     closure is the render that tapped, so it can never see the move). Moved: no push, no pane
  *     switch, and the lock RE-ARMS — no route swap is coming to release it. The start still
  *     landed; the next poll shows it, exactly as above.
+ *   · Phase 2d · Codex round 1 — "moved" is the pane's selection GENERATION as well as its id: a
+ *     move that comes back ends on the id it left (A → B → A; the floor → a table → ✕), so an id
+ *     compared alone waved the landing through over the pane the person had just worked in. The
+ *     generation is new on every pick of another table and every close, and kept by a re-tap of
+ *     the table shown — re-tapping it is still not a move.
  *
  * A rejection is an UNKNOWN outcome, not a failure: the response may have been lost after the
  * server started the order. It is said that way (`floor.mint.unknown`), never "wasn't saved" — if it
@@ -132,6 +137,7 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
       setMinting(id);
       // What the pane showed when the person tapped — the landing's "did they move it" baseline.
       const pickedAtTap = paneNow.current?.selectedId ?? null;
+      const genAtTap = paneNow.current?.selectionGen ?? 0;
       onStart();
       // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
       haptic("commit");
@@ -150,7 +156,8 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
           if (!mounted.current) return;
           // The screen stayed but the person moved the pane (docblock): never pull them off the
           // table they chose, and hand the lock back — no route swap will unmount this screen.
-          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {
+          const now = paneNow.current;
+          if ((now?.selectedId ?? null) !== pickedAtTap || (now?.selectionGen ?? 0) !== genAtTap) {
             landed = false; // re-armed: they moved the pane while this start was out
             return;
           }
