@@ -10769,16 +10769,18 @@ const MUTANTS = [
     id: "p2d-rev/floor-open-lines-no-keyset",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
-    why: "Phase 2d · review (floor #6) — each page starts after the last id seen; without the keyset page two is page one again and a card's count and total double",
-    find: '      if (after !== null) q = q.gt("id", after);\n',
-    replace: "",
+    why: "Phase 2d · review (floor #6) — each page starts after the last line seen; without the keyset page two is page one again, until the ceiling freezes the room",
+    // Phase 2d · Codex round 2 · lines — re-anchored: the seek is `(created_at, id)` now, an `.or()`.
+    find: "      if (after !== null)\n        q = q.or(\n",
+    replace: "      if (false)\n        q = q.or(\n",
   },
   {
     id: "p2d-rev/floor-open-lines-unordered",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-kitchen-read.test.ts",
     why: "Phase 2d · review (floor #6) — a keyset page boundary is only a boundary on the column the rows are ORDERED by; unordered, rows either side of it are read twice or never",
-    find: '      const { data, error } = await q.order("id").limit(FLOOR_LINE_CAP);\n',
+    // Phase 2d · Codex round 2 · lines — re-anchored: the order is `(created_at, id)` now.
+    find: '      const { data, error } = await q\n        .order("created_at", { ascending: true })\n        .order("id", { ascending: true })\n        .limit(FLOOR_LINE_CAP);\n',
     replace: "      const { data, error } = await q.limit(FLOOR_LINE_CAP);\n",
   },
   {
@@ -11308,6 +11310,47 @@ const MUTANTS = [
     find: "    if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))\n      dropHandoffStash(sessionId);\n",
     replace:
       "    if (stashed && handoffSuperseded(stashed, detail.cartId, null)) dropHandoffStash(sessionId);\n",
+  },
+  // ── Phase 2d · Codex round 2 · lines ──
+  {
+    id: "p2d-cx2/floor-lines-no-bound",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 2 · lines — the open-cart pages are bounded by the database clock the poll reports; without it a line begun mid-read is counted, and one whose transaction began before it but commits after the last page is skipped while the later one is counted",
+    find: '      if (linesAsOf !== null) q = q.lte("created_at", linesAsOf);\n',
+    replace: "",
+  },
+  {
+    id: "p2d-cx2/floor-lines-bound-on-app-clock",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 2 · lines — with the database clock unreadable the lines are read unbounded, never under the APP clock, whose skew hides the newest lines (every line, here) on every poll",
+    find: '  const linesAsOf = typeof nowRes.data === "string" ? nowRes.data : null;\n',
+    replace: "  const linesAsOf = serverNow;\n",
+  },
+  {
+    id: "p2d-cx2/floor-lines-seek-ignores-time",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 2 · lines — the pages are ordered by the seek's own key, `(created_at, id)`; ordered by the random id alone the page boundary is not the seek's, and lines are read twice",
+    find: '        .order("created_at", { ascending: true })\n        .order("id", { ascending: true })\n',
+    replace: '        .order("id", { ascending: true })\n',
+  },
+  {
+    id: "p2d-cx2/floor-lines-no-tie-break",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 2 · lines — one transaction's lines share a `created_at`, so the seek breaks the tie on `id`; on the time alone every line after the cursor in that instant is skipped",
+    find: '        q = q.or(\n          `created_at.gt."${after.createdAt}",and(created_at.eq."${after.createdAt}",id.gt."${after.id}")`,\n        );\n',
+    replace: '        q = q.gt("created_at", after.createdAt);\n',
+  },
+  {
+    id: "p2d-cx2/floor-lines-cursor-through-date",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 2 · lines — the cursor is the row's own `created_at` string; through `Date` it loses the column's microseconds, names another instant, and the seek re-reads what it already counted",
+    find: "      after = { createdAt: last.created_at, id: last.id };\n",
+    replace: "      after = { createdAt: new Date(last.created_at).toISOString(), id: last.id };\n",
   },
 ];
 

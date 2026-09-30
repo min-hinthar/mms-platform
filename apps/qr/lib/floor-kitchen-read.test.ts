@@ -48,15 +48,79 @@ const ago = (min: number) => new Date(Date.parse(DB_NOW) - min * 60_000).toISOSt
 let rows: Record<string, Row[]> = {};
 let failing = new Set<string>();
 let dbNow: string | null = DB_NOW;
+/** Called after each page of the open-cart line read, with its 1-based page number. */
+let betweenPages: (page: number) => void = () => {};
+let openPages = 0;
+
+/** One PostgREST filter term — `col.op.value`, or an `and(…)` of terms. The value may be quoted. */
+type Term = { col: string; op: string; val: string } | { and: Term[] };
+/** Split on the commas at THIS level — never inside `and(…)` or a quoted value. */
+function splitTop(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let quoted = false;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === '"') quoted = !quoted;
+    else if (!quoted && ch === "(") depth++;
+    else if (!quoted && ch === ")") depth--;
+    if (ch === "," && depth === 0 && !quoted) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+function parseTerm(t: string): Term {
+  if (t.startsWith("and(") && t.endsWith(")")) return { and: parseOr(t.slice(4, -1)) };
+  const m = /^([a-z_]+)\.(eq|gt|gte|lt|lte)\.(.+)$/.exec(t);
+  // A shape this fake cannot evaluate is a loud failure, never a filter silently passed.
+  if (!m) throw new Error(`fake or(): cannot evaluate "${t}"`);
+  return { col: m[1]!, op: m[2]!, val: m[3]!.replace(/^"(.*)"$/, "$1") };
+}
+function parseOr(expr: string): Term[] {
+  return splitTop(expr).map(parseTerm);
+}
+/** A timestamptz as an INSTANT in microseconds — the column's own precision, whatever offset
+ *  notation it is written in — so the fake compares times the way the database does. A cursor that
+ *  went through `Date` (milliseconds) is a DIFFERENT instant from the row it came from, here as
+ *  there. `null` for anything that is not a timestamp. */
+function instant(v: unknown): number | null {
+  if (typeof v !== "string") return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/.exec(v);
+  if (!m) return null;
+  return Date.parse(`${m[1]}${m[3]}`) * 1000 + Number((m[2] ?? "").padEnd(6, "0"));
+}
+function cmp(a: unknown, b: unknown): number {
+  const x = instant(a);
+  const y = instant(b);
+  if (x !== null && y !== null) return x < y ? -1 : x > y ? 1 : 0;
+  return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
+}
+function holds(t: Term, r: Row): boolean {
+  if ("and" in t) return t.and.every((x) => holds(x, r));
+  const c = cmp(r[t.col], t.val);
+  if (t.op === "eq") return c === 0;
+  if (t.op === "gt") return c > 0;
+  if (t.op === "gte") return c >= 0;
+  if (t.op === "lt") return c < 0;
+  return c <= 0;
+}
 
 function tableApi(name: string) {
   const eqs: [string, unknown][] = [];
   const ins: [string, unknown[]][] = [];
   // Phase 2d · review — `.gt()` and `.order()` are EVALUATED too: the open-cart line read walks
-  // keyset pages (`order("id")` + `gt("id", last)`), so a read that drops either reads the same
-  // page twice, or an unordered one, and the total it builds is wrong here rather than merely logged.
+  // keyset pages, so a read that drops the seek or the order reads the same page twice, or an
+  // unordered one, and the total it builds is wrong here rather than merely logged.
   const gts: [string, unknown][] = [];
-  let orderBy: string | null = null;
+  // Phase 2d · Codex round 2 · lines — the open-cart read now seeks on `(created_at, id)` under an
+  // upper bound, so `.lte()`, a composite `.order()` and the keyset's `.or()` are EVALUATED too: a
+  // read that drops the bound, the tie-break or either sort key reads a different set here.
+  const ltes: [string, unknown][] = [];
+  const ors: Term[][] = [];
+  const orderBy: [string, boolean][] = [];
   let cap: number | null = null;
   let select = "";
   const answer = (): Row[] => {
@@ -66,14 +130,18 @@ function tableApi(name: string) {
       (r) =>
         eqs.every(([c, v]) => !(c in r) || r[c] === v) &&
         ins.every(([c, vs]) => !(c in r) || vs.includes(r[c])) &&
-        gts.every(([c, v]) => !(c in r) || (r[c] as string) > (v as string)),
+        gts.every(([c, v]) => !(c in r) || cmp(r[c], v) > 0) &&
+        ltes.every(([c, v]) => !(c in r) || cmp(r[c], v) <= 0) &&
+        ors.every((any) => any.some((t) => holds(t, r))),
     );
-    if (orderBy !== null) {
-      const col = orderBy;
-      hit.sort((a, b) =>
-        (a[col] as string) < (b[col] as string) ? -1 : a[col] === b[col] ? 0 : 1,
-      );
-    }
+    if (orderBy.length > 0)
+      hit.sort((a, b) => {
+        for (const [col, asc] of orderBy) {
+          const c = cmp(a[col], b[col]);
+          if (c !== 0) return asc ? c : -c;
+        }
+        return 0;
+      });
     // A column the read did not SELECT is not on the row it gets back — so a read that drops one
     // hands the fold an `undefined`, exactly as PostgREST would omit it.
     const cols = select.includes("(") ? null : select.split(",").map((c) => c.trim());
@@ -99,16 +167,25 @@ function tableApi(name: string) {
       cap = n;
       return api;
     },
-    order(col: string) {
-      orderBy = col;
+    order(col: string, opts?: { ascending?: boolean }) {
+      orderBy.push([col, opts?.ascending !== false]);
       return api;
     },
     gt(col: string, val: unknown) {
       gts.push([col, val]);
       return api;
     },
+    lte(col: string, val: unknown) {
+      ltes.push([col, val]);
+      return api;
+    },
     not: () => api,
-    or: () => api,
+    // The register queue's `.or()` rides its JOINED session (`referencedTable`) and that read is
+    // answered empty above; every other `.or()` is parsed and evaluated.
+    or(expr: string, opts?: { referencedTable?: string }) {
+      if (!opts?.referencedTable) ors.push(parseOr(expr));
+      return api;
+    },
     is: () => api,
     maybeSingle() {
       if (failing.has(name)) return Promise.resolve({ data: null, error: { message: "down" } });
@@ -116,7 +193,12 @@ function tableApi(name: string) {
     },
     then(resolve: (r: { data: Row[] | null; error: unknown }) => void) {
       if (failing.has(name)) return resolve({ data: null, error: { message: "down" } });
-      resolve({ data: answer(), error: null });
+      const got = answer();
+      // A write landing BETWEEN two pages of the open-cart read (the open read is the one that asks
+      // for `unit_price_cents`; the paid read does not).
+      if (name === "qr_cart_items" && select.includes("unit_price_cents"))
+        betweenPages(++openPages);
+      resolve({ data: got, error: null });
     },
   };
   return api;
@@ -158,6 +240,8 @@ beforeEach(() => {
   locked = false;
   failing = new Set();
   dbNow = DB_NOW;
+  betweenPages = () => {};
+  openPages = 0;
   rows = {
     table_sessions: [
       {
@@ -351,14 +435,64 @@ describe("getFloorView — a line read at its cap", () => {
 
   it("an open-cart read past one page is read WHOLE — the card's count and total are never partial", async () => {
     // MUTATION: one page only → the 900-row page saturates and the room is an outage. MUTATION:
-    // drop the keyset `gt` → page two is page one again and the count doubles.
-    // Inserted in DESCENDING id order, so a read that forgets `order("id")` walks a page boundary
-    // that is not the keyset's and reads rows twice (MUTATION: drop the order → 1,799).
+    // drop the keyset seek → page two is page one again, until the ceiling → an outage.
+    // Inserted in DESCENDING id order, so a read that forgets the order walks a page boundary that
+    // is not the keyset's and reads rows twice (MUTATION: drop the order → 1,799). Every line
+    // shares ONE `created_at` (a round sent in one transaction), so a seek on the time alone stops
+    // at the first boundary (Phase 2d · Codex round 2 · lines — MUTATION: drop the `id` tie-break →
+    // 900).
     rows.qr_cart_items = Array.from({ length: 950 }, (_, i) => line({ id: pad(0, 949 - i) }));
     const { snap, t } = await table7();
     expect(t.itemCount).toBe(950);
     expect(t.runningSubtotalCents).toBe(950 * 1000);
     expect(snap.kitchenUnknown).toBe(false);
+  });
+
+  // ── Phase 2d · Codex round 2 · lines ── the pages are separate requests, each its own snapshot,
+  // so the read has to say WHICH room it drew. `created_at` comes back at the column's own precision
+  // (microseconds, `+00:00`), and the fixture is written that way on purpose.
+  const T0_US = (Date.parse(DB_NOW) - 1000) * 1000;
+  const stamp = (us: number) => {
+    const total = T0_US + us;
+    const secs = new Date(Math.floor(total / 1e6) * 1000).toISOString().slice(0, 19);
+    return `${secs}.${String(total % 1e6).padStart(6, "0")}+00:00`;
+  };
+
+  it("a line added BETWEEN two pages is never skipped while one added beside it is counted — the room is the one at the poll's own clock", async () => {
+    // A random uuid is no position in time: a line added between pages landed below the id cursor
+    // or above it by chance, so the read counted one mid-read line and skipped the other (951, and
+    // a last activity AFTER the clock the poll reports) — a room that never existed. Both lines
+    // here began after that clock, so both are the NEXT poll's. MUTATION: drop the bound → 952.
+    // 950 lines one microsecond apart inside ONE millisecond, their ids FALLING as they get newer:
+    // id order is not time order (MUTATION: order by id alone → rows read twice), and a cursor
+    // rounded through `Date` is not the row it came from (MUTATION → the millisecond re-read until
+    // the ceiling).
+    rows.qr_cart_items = Array.from({ length: 950 }, (_, i) =>
+      line({ id: pad(3, 949 - i), created_at: stamp(i) }),
+    );
+    betweenPages = (page) => {
+      if (page !== 1) return;
+      rows.qr_cart_items!.push(
+        line({ id: "l-00-00000", created_at: stamp(2_000_000) }), // below every id cursor
+        line({ id: "l-99-99999", created_at: stamp(3_000_000) }), // above it, and added later
+      );
+    };
+    const { snap, t } = await table7();
+    expect(t.itemCount).toBe(950);
+    expect(t.runningSubtotalCents).toBe(950 * 1000);
+    // Nothing drawn is newer than the clock the poll reports (the id read: stamp(3_000_000)).
+    expect(Date.parse(t.lastActivityAt)).toBeLessThanOrEqual(Date.parse(DB_NOW));
+    expect(snap.serverNow).toBe(DB_NOW);
+  });
+
+  it("an unreadable database clock never bounds the lines on the app's — the room is still read", async () => {
+    // The fallback `serverNow` is the APP clock, and the lines here are stamped on the database's
+    // (2099). MUTATION: bound the read on `serverNow` → every line is "after" it and the table reads
+    // empty.
+    dbNow = null;
+    const { t } = await table7();
+    expect(t.itemCount).toBe(2);
+    expect(t.runningSubtotalCents).toBe(2000);
   });
 
   it("an open-cart read past its page ceiling is an outage — a card's money is never a partial sum", async () => {
