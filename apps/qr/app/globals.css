@@ -7971,7 +7971,8 @@ a .chrome-en {
   opacity: 0.6;
   cursor: progress;
 }
-.kds-slot {
+.kds-slot,
+.kds-unpaid {
   margin: 0;
   padding: 8px 14px 0;
   font-size: var(--kfs-mod);
@@ -14325,4 +14326,18 @@ a.aisle-tile {
   .staff-handoff-counter .staff-handoff-early {
     grid-column: 1 / -1;
   }
+}
+/* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
+   only the glyph beside it is its own. */
+.kds-unpaid {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+/* A counter order's floor card: its Unpaid flag and its kitchen row, one wrapping line. */
+.counter-card-kitchen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
 }

@@ -455,7 +455,13 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 }
               />
             ) : (
-              <CounterOrderCard order={r.order} serverNow={snap.serverNow} lang={lang} />
+              <CounterOrderCard
+                order={r.order}
+                serverNow={snap.serverNow}
+                lang={lang}
+                thresholds={snap.thresholds}
+                frozen={degraded !== null}
+              />
             )
           }
         />

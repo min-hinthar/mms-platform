@@ -3412,7 +3412,8 @@ export const STAFF = {
     en: "This order is cooking unpaid — keep a name on it so the counter can call it.",
     my: "ဒီအော်ဒါ ငွေမရှင်းဘဲ ချက်နေပါတယ် — ကောင်တာက ခေါ်နိုင်အောင် နာမည် ထားပါ။",
   },
-  "expo.unpaid.pay": { en: "Take payment", my: "ငွေ လက်ခံ" },
+  // The unpaid bag's one action (a `…verb…` key: the link's NAME is `al()`'s verb + the bag's name).
+  "expo.verb.takePayment": { en: "Take payment", my: "ငွေ လက်ခံ" },
   "expo.a11y.cardUnpaid": {
     en: "Unpaid bag for {x}",
     my: "{x} အတွက် ငွေ မရှင်းရသေးတဲ့ ပါဆယ်ထုပ်",

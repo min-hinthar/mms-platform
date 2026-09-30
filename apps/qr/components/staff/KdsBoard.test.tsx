@@ -1497,3 +1497,78 @@ describe("the Language note's claim — dish names on kitchen tickets never chan
     expect(dishText("my", false)).toEqual(english); // Burmese only
   });
 });
+
+describe("Phase 2f — a counter order sent before it was paid", () => {
+  // Plan §5.4: `KitchenTicket.unpaid` (Area B) — an open counter order's ticket past its grace.
+  const counterTicket = (over: Record<string, unknown>) => {
+    const base = queue().tickets[0]!;
+    return {
+      ...base,
+      cartId: "cart-reg",
+      sessionId: "sess-reg",
+      channel: "pickup" as const,
+      label: "reg-7f3a9c",
+      tableNumber: null,
+      customerName: "Aye",
+      shortCode: null,
+      unpaid: true,
+      ...over,
+    } as unknown as KitchenQueue["tickets"][number];
+  };
+  const withTicket = (t: KitchenQueue["tickets"][number]) => ({ ...queue(), tickets: [t] });
+  const card = () => document.querySelector<HTMLElement>(".kds-ticket")!;
+
+  it("says Unpaid under the header in both tongues — its list item's NAME carries it — never in warn", () => {
+    mount("en", withTicket(counterTicket({})));
+    const line = card().querySelector(".kds-unpaid")!;
+    expect(line.textContent).toBe(STAFF["settle.unpaid"].en);
+    expect(line.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    // Kitchen-neutral: no warn class, no inline warn colour.
+    expect(line.className).toBe("kds-unpaid");
+    expect(card().getAttribute("aria-label")).toContain(STAFF["settle.unpaid"].en);
+    cleanup();
+    mount("my", withTicket(counterTicket({})));
+    const my = card().querySelector(".kds-unpaid")!;
+    expect(my.textContent).toContain(STAFF["settle.unpaid"].my);
+    // K15-HIGH: a Burmese device keeps the English echo, and the name follows what is drawn.
+    expect(my.textContent).toContain(STAFF["settle.unpaid"].en);
+    expect(card().getAttribute("aria-label")).toContain(STAFF["settle.unpaid"].my);
+  });
+
+  it("never prints the raw reg- token: the name leads, and a nameless one reads 'Walk-up'", () => {
+    mount("en", withTicket(counterTicket({})));
+    expect(document.querySelector(".kds-grid")!.textContent).not.toContain("reg-");
+    expect(card().getAttribute("aria-label")).not.toContain("reg-");
+    cleanup();
+    mount("en", withTicket(counterTicket({ customerName: null })));
+    expect(card().querySelector(".kds-id")!.textContent).toBe(STAFF["reg.row.walkup"].en);
+    expect(document.querySelector(".kds-grid")!.textContent).not.toContain("reg-");
+  });
+
+  it("a PAID counter ticket shows its #CODE and no Unpaid line", () => {
+    mount("en", withTicket(counterTicket({ unpaid: false, shortCode: "A1B2C3" })));
+    expect(card().querySelector(".kds-id")!.textContent).toContain("#A1B2C3");
+    expect(card().querySelector(".kds-unpaid")).toBeNull();
+    expect(card().getAttribute("aria-label")).not.toContain(STAFF["settle.unpaid"].en);
+  });
+
+  it("the stylesheet: `.kds-unpaid` shares `.kds-slot`'s block (one box, one type)", () => {
+    const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+      /\/\*[\s\S]*?\*\//g,
+      "",
+    );
+    const blocks = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
+      m[1]!
+        .split(",")
+        .map((x) => x.trim())
+        .includes(".kds-slot"),
+    );
+    expect(blocks).toHaveLength(1);
+    expect(
+      blocks[0]![1]!
+        .split(",")
+        .map((x) => x.trim())
+        .includes(".kds-unpaid"),
+    ).toBe(true);
+  });
+});

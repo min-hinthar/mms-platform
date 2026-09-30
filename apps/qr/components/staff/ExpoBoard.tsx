@@ -14,6 +14,7 @@ import { getExpoQueue, setTogoStatus } from "@/lib/expo";
 import {
   expoAge,
   isScanGoBasket,
+  laneRows,
   PICKED_UNDO_ARM_MS,
   PICKED_UNDO_MS,
   pickedUndoArmed,
@@ -40,14 +41,20 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { factSubject, laneFacts } from "@/lib/counter-attention";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
-import { tf } from "@/lib/i18n/fill";
-import { al, sx } from "@/lib/staff-labels";
-import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import { plural, tf } from "@/lib/i18n/fill";
+import { al, chromeVisible, sx } from "@/lib/staff-labels";
+import type { ExpoLine, ExpoQueue, ExpoTicket, ExpoUnpaidBag } from "@/lib/expo-types";
+// ── Phase 2f · pay at pickup ──
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { PANE_QUERY, opensInPane, paneUrl } from "@/lib/floor-pane";
+import { useZoneFocus } from "./ZoneFocus";
 import { ExpoLineMy, TicketNote } from "./TicketText";
 import { MsgText } from "./StaffMsg";
 import { StaggerList } from "./StaggerList";
 import {
   Badge,
+  buttonClass,
   EmptyState,
   Icon,
   matchesFocusVisible,
@@ -212,7 +219,9 @@ export function ExpoBoard({
   // to-go bag the kitchen finished. Seeded with the bags as they rendered — or, for a lane that
   // mounted into an outage (its `initial` is an empty placeholder, not the lane), with its first GOOD
   // poll: seeding from the placeholder would ring every bag already waiting the moment it recovers.
-  const hear = useCounterAttention(() => (initialOutage ? null : laneFacts(initial.tickets)));
+  const hear = useCounterAttention(() =>
+    initialOutage ? null : laneFacts(initial.tickets, initial.unpaid ?? []),
+  );
   // The visible half of every ring (sound is never the only feedback, §15): each card the news is
   // about takes the console's ONE "this just changed" ring, `.floor-card-pulse` — a per-card nonce
   // (a second event restarts it), each cleared on its own timer.
@@ -289,7 +298,7 @@ export function ExpoBoard({
       // Phase 2d · bell — a GOOD poll's facts, heard (a frozen lane reports nothing): one ring per
       // new fact through the counter's bell, and the ring on each card the news is about.
       if (alive.current) {
-        const news = hear(laneFacts(res.queue.tickets));
+        const news = hear(laneFacts(res.queue.tickets, res.queue.unpaid ?? []));
         if (news.size > 0) pulseCards([...news].map(factSubject));
       }
       clockOffset.current = Date.parse(res.queue.serverNow) - Date.now();
@@ -603,8 +612,14 @@ export function ExpoBoard({
     markHeld(toast.id, NO_HOLD);
   }, [toast, toastPhase, onUndoPicked, markHeld]);
 
+  // Phase 2f — the paid card's "Takeaway bags" link lands here by its fragment (A4·3): focus follows.
+  useZoneFocus("expo-h");
   const tickets = snap.tickets;
-  const count = tickets.length;
+  // Phase 2f — counter orders sent to the kitchen before they were paid: bags on the lane with no
+  // order yet. They share the one grid and its order (`laneRows`), never a second list.
+  const unpaid = snap.unpaid ?? [];
+  const rows = laneRows(tickets, unpaid);
+  const count = tickets.length + unpaid.length;
   // W9d — a PURE-grocery (scan-&-go) order has nothing to bag: the shopper already holds the goods,
   // and the counter's job is to check the exit pass. Counting it as a "bag waiting" handed staff
   // phantom bagging work, so the header names the two kinds separately. Vocabulary only — the
@@ -621,7 +636,8 @@ export function ExpoBoard({
   const handOverCount = tickets.filter(
     (t) => t.status === "ready" && isScanGoBasket(t.lines),
   ).length;
-  const bagCount = tickets.filter((t) => !isScanGoBasket(t.lines)).length;
+  const bagCount = tickets.filter((t) => !isScanGoBasket(t.lines)).length + unpaid.length;
+  const unpaidCount = unpaid.length;
 
   // What the lane's region ANNOUNCES (Codex round 1 on A4·2): the counts as they change — a bag
   // arriving or leaving is a state change a screen-reader user was hearing before this slice — and
@@ -640,6 +656,7 @@ export function ExpoBoard({
           bagCount > 0
             ? tf(lang, bagCount === 1 ? "expo.count.one" : "expo.count.many", { n: bagCount })
             : null,
+          unpaidCount > 0 ? tf(lang, "expo.count.unpaid", { n: unpaidCount }) : null,
           verifyCount > 0 ? tf(lang, "expo.count.verify", { n: verifyCount }) : null,
           handOverCount > 0 ? tf(lang, "expo.count.handOver", { n: handOverCount }) : null,
         ]
@@ -710,6 +727,9 @@ export function ExpoBoard({
                   vars={{ n: bagCount }}
                 />
               ) : null,
+              unpaidCount > 0 ? (
+                <Chrome key="unpaid" lang={lang} k="expo.count.unpaid" vars={{ n: unpaidCount }} />
+              ) : null,
               verifyCount > 0 ? (
                 <Chrome key="verify" lang={lang} k="expo.count.verify" vars={{ n: verifyCount }} />
               ) : null,
@@ -750,25 +770,31 @@ export function ExpoBoard({
         />
       ) : (
         <StaggerList
-          items={tickets}
-          getKey={(t) => t.orderId}
+          items={rows}
+          getKey={(r) => (r.kind === "paid" ? r.t.orderId : `unpaid:${r.b.cartId}`)}
           ariaLabel={sx(lang, "expo.a11y.bags")}
           style={grid}
-          renderItem={(t) => (
-            <ExpoCard
-              ticket={t}
-              nowMs={nowMs}
-              picked={picked.has(t.orderId)}
-              committing={picked.get(t.orderId)?.committing ?? false}
-              onBumped={refresh}
-              onError={showErr}
-              onRefused={onRefused}
-              onPicked={onPicked}
-              onUndoPicked={onUndoPicked}
-              onHold={hold}
-              pulse={pulses.get(t.orderId)}
-            />
-          )}
+          renderItem={(r) =>
+            r.kind === "paid" ? (
+              <ExpoCard
+                ticket={r.t}
+                nowMs={nowMs}
+                picked={picked.has(r.t.orderId)}
+                committing={picked.get(r.t.orderId)?.committing ?? false}
+                onBumped={refresh}
+                onError={showErr}
+                onRefused={onRefused}
+                onPicked={onPicked}
+                onUndoPicked={onUndoPicked}
+                onHold={hold}
+                // Phase 2f — a food ring is keyed by the CART (the unpaid bag and the paid bag that
+                // replaces it are one fact); a guest's ring by the order.
+                pulse={pulses.get(r.t.orderId) ?? (r.t.cartId ? pulses.get(r.t.cartId) : undefined)}
+              />
+            ) : (
+              <UnpaidBagCard bag={r.b} nowMs={nowMs} pulse={pulses.get(r.b.cartId)} />
+            )
+          }
         />
       )}
       {/* Phase 2b · feedback — the thumb-zone Undo pill (see the phases above). Bottom-centred at
@@ -1120,6 +1146,122 @@ function ExpoCard({
           )}
         </button>
       )}
+    </article>
+  );
+}
+
+/**
+ * Phase 2f · pay at pickup — a counter order whose food went to the kitchen BEFORE it was paid: a bag
+ * on the lane with no order behind it yet. It wears the lane's card, its kitchen progress and its age
+ * (from the moment the kitchen got it), the Unpaid flag in warn (money not yet taken at a hand-over),
+ * the SENT lines only (plus how many more are not sent yet), and ONE action: take the payment, on the
+ * table page's settle section (the pane at split width). No Bagged / Picked up — an unpaid bag never
+ * leaves the counter; once paid it comes back as an ordinary bag under the same cart.
+ */
+function UnpaidBagCard({
+  bag,
+  nowMs,
+  pulse,
+}: {
+  bag: ExpoUnpaidBag;
+  nowMs: number;
+  pulse?: number;
+}) {
+  const lang = useStaffLang();
+  const echoes = useEchoesShown();
+  const router = useRouter();
+  const who = bag.customerName ?? ts(lang, "reg.row.walkup");
+  const age = expoAge({ arrivedAt: null, pickupSlot: null, createdAt: bag.sentAt }, nowMs);
+  // The card's NAME carries the visible Unpaid words exactly as the badge draws them (no echo in a
+  // badge — the device's `shown` decides nothing there, but the name follows the same call).
+  const cardName = `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${chromeVisible(
+    lang,
+    "settle.unpaid",
+    false,
+    echoes,
+  )}`;
+  const href = `/staff/table/${bag.sessionId}?settle=1`;
+  return (
+    <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
+      {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
+      <header className="expo-head" data-tone={age.tone === "ok" ? undefined : age.tone}>
+        <span style={tableLabel}>
+          {bag.customerName ?? <Chrome lang={lang} k="reg.row.walkup" />}
+        </span>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)" }}>
+          {bag.kitchen === "done" && (
+            <Badge tone="ok" bordered decorative>
+              <Chrome lang={lang} k="expo.kitchenDone" />
+            </Badge>
+          )}
+          {age.sinceMs > 0 && (
+            <span className="expo-age">
+              <span aria-hidden="true">{fmtElapsed(age.sinceMs)}</span>
+              <span className="sr-only" lang={lang}>
+                {spokenElapsed(lang, age.sinceMs)}
+              </span>
+            </span>
+          )}
+        </span>
+      </header>
+      <p style={{ margin: 0 }}>
+        {/* A badge is a 44px object: no echo inside it (the table page's rule). */}
+        <Badge tone="warn" bordered>
+          <Icon name="receipt" size={14} aria-hidden />
+          <Chrome lang={lang} k="settle.unpaid" />
+        </Badge>
+      </p>
+      <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
+        {bag.lines.map((l) => (
+          <ExpoLineRow key={l.id} line={l} />
+        ))}
+      </ul>
+      {bag.moreUnits > 0 && (
+        <p style={secondaryLine}>
+          <Chrome
+            lang={lang}
+            k={plural(bag.moreUnits, "expo.unpaid.more.one", "expo.unpaid.more.many")}
+            vars={{ n: bag.moreUnits }}
+            echo="stack"
+          />
+        </p>
+      )}
+      {/* The real link (a phone, a modified click, a new tab get the full table page); at split
+          width a plain primary click opens the counter's pane on the settle section instead — read
+          at CLICK time, so SSR never guesses a width (SplitAwareLink's rule). */}
+      <Link
+        href={href}
+        className={buttonClass({ variant: "primary", size: "xl", block: true })}
+        aria-label={
+          al(lang, {
+            kind: "verb",
+            echo: "stack",
+            shown: echoes,
+            verb: "expo.verb.takePayment",
+            subject: who,
+          }).aria
+        }
+        onClick={(e) => {
+          const split =
+            typeof window.matchMedia === "function" && window.matchMedia(PANE_QUERY).matches;
+          if (
+            !opensInPane({
+              split,
+              button: e.button,
+              metaKey: e.metaKey,
+              ctrlKey: e.ctrlKey,
+              shiftKey: e.shiftKey,
+              altKey: e.altKey,
+              defaultPrevented: e.defaultPrevented,
+            })
+          )
+            return;
+          e.preventDefault();
+          router.push(paneUrl(bag.sessionId, { settle: true }));
+        }}
+      >
+        <Chrome lang={lang} k="expo.verb.takePayment" echo="stack" />
+      </Link>
     </article>
   );
 }
