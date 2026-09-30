@@ -8,6 +8,7 @@ import {
   acceptPaneRead,
   dropHandoffStash,
   handoffStashKey,
+  handoffSuperseded,
   liveTwinOf,
   needsCanonicalSync,
   opensInPane,
@@ -25,6 +26,7 @@ import {
   paneHistoryOp,
   paneOwned,
   paneSelectionFromHash,
+  paneSelectionHeld,
   paneUrl,
   parseHandoffStash,
   readHandoffStash,
@@ -367,6 +369,46 @@ describe("parseHandoffStash — register's canonical shape, display-only", () =>
     expect(() => stashHandoff(A, ok, boom)).not.toThrow();
     expect(readHandoffStash(A, boom)).toBeNull();
     expect(() => dropHandoffStash(A, boom)).not.toThrow();
+  });
+});
+
+// ── Phase 2d · Codex round 1 · pane ──
+describe("paneSelectionHeld — a live reader collection holds the pane on its table (Codex #306)", () => {
+  const held = (over: Partial<Parameters<typeof paneSelectionHeld>[0]>) =>
+    paneSelectionHeld({ paying: A, from: A, to: B, cleared: false, ...over });
+  // MUTANT p2d-cx1/held-never — the hold answers false: a tap switches away mid-collect.
+  it("a switch to another table, a close (to: null) — refused while the table shown is paying", () => {
+    expect(held({})).toBe(true);
+    expect(held({ to: null })).toBe(true);
+  });
+  // MUTANT p2d-cx1/held-retap-refused — the same-table clause dropped: a re-tap is not a change.
+  it("a re-tap of the paying table itself is not a change", () => {
+    expect(held({ to: A })).toBe(false);
+  });
+  // MUTANT p2d-cx1/held-any-paying — the `paying === from` clause dropped: a stale report about
+  // ANOTHER table would hold the pane on one that is not paying.
+  it("only the table SHOWN holds: nothing paying, or another table's report, holds nothing", () => {
+    expect(held({ paying: null })).toBe(false);
+    expect(held({ paying: B })).toBe(false);
+    expect(held({ from: null, to: A })).toBe(false);
+  });
+  // MUTANT p2d-cx1/held-over-a-clear — a CLEARED table (a server fact) is never held.
+  it("a table cleared is never held", () => {
+    expect(held({ to: null, cleared: true })).toBe(false);
+  });
+});
+
+describe("handoffSuperseded — a paid card the next round replaced dies for good (Codex #306)", () => {
+  const table = { isCounter: false, cartId: "c1" };
+  // MUTANT p2d-cx1/superseded-never — never superseded: round one's change comes back after round two.
+  it("a table's card, once a DIFFERENT live cart is seen", () => {
+    expect(handoffSuperseded(table, "c2")).toBe(true);
+    expect(handoffSuperseded({ isCounter: false, cartId: null }, "c2")).toBe(true);
+  });
+  it("never over its own cart, over no live cart, or for a counter order", () => {
+    expect(handoffSuperseded(table, "c1")).toBe(false);
+    expect(handoffSuperseded(table, null)).toBe(false);
+    expect(handoffSuperseded({ isCounter: true, cartId: "c1" }, "c2")).toBe(false);
   });
 });
 

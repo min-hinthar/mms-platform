@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
@@ -239,6 +239,7 @@ export function TerminalCollectPanel({
   onDone,
   onStatus,
   onChanged,
+  onLive,
 }: {
   sessionId: string;
   collect: TerminalCollect;
@@ -248,6 +249,11 @@ export function TerminalCollectPanel({
   onStatus?: (s: ReaderStatus) => void;
   /** The page's own detail refresh. */
   onChanged?: () => void;
+  /** Codex round 1 (#306) — whether this panel's poll is LIVE: collecting, or charged and waiting
+   *  for the order (the poll is what slides the freeze forward and records a counter's #CODE). The
+   *  counter's pane holds its selection on this table while it is. Reported at commit (a layout
+   *  effect), so a tap in the next event already meets the hold; `false` on unmount. */
+  onLive?: (live: boolean) => void;
 }) {
   const lang = useStaffLang();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
@@ -315,6 +321,14 @@ export function TerminalCollectPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- poll keyed on the PI + phase; onDone/onChanged read from the closure per tick
   }, [collect.paymentIntentId, sessionId, phase]);
+
+  // Codex round 1 (#306) — declined or cancelled ends the collection (the poll above stops, the
+  // freeze is released): the hold goes with it, even while the panel stays up saying so.
+  const live = phase === "collecting" || phase === "recording";
+  useLayoutEffect(() => {
+    onLive?.(live);
+    return () => onLive?.(false);
+  }, [live, onLive]);
 
   const cancelInFlight = useRef(false);
   async function cancel() {

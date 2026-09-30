@@ -75,6 +75,8 @@ export function TablePane({
   onClose,
   onSelect,
   onLostWrite,
+  onReaderLive,
+  paneHeld,
 }: {
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
@@ -89,6 +91,10 @@ export function TablePane({
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
   onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
+  /** Codex round 1 (#306) — the detail's reader collection went live / ended (the split holds the
+   *  pane on a paying table), and how many selection changes it refused (said by the detail). */
+  onReaderLive: (sessionId: string, live: boolean) => void;
+  paneHeld: number;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -346,6 +352,8 @@ export function TablePane({
                     });
                   }}
                   onLostWrite={onLostWrite}
+                  onReaderLive={onReaderLive}
+                  paneHeld={paneHeld}
                 />
                 <SettleConsumed when={settleOnce === cur.id} done={onSettleConsumed} />
               </TableNavProvider>
