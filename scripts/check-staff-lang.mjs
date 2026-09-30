@@ -2038,8 +2038,20 @@ for (const file of MARK_FILES) {
 // starting `shell.lang.`, or the one data-driven site, `StaffDoors`' `k={t.k}` (the More tile, held
 // to exactly one `both` tile — the Language one — by `staff-more.test`). Without the key rule,
 // `<Chrome lang="my" k="kds.title" echo="stack" keepEcho />` in HelpButton passed, and quietly
-// undid Burmese only for any word (added after review). STATED LIMIT: a `keepEcho` smuggled in
-// through a spread object is invisible to a parse and is refused only by review.
+// undid Burmese only for any word (added after review).
+//
+// ⚠️ THE ATTRIBUTE IS THE ONLY DOOR, AND THE RULE NOW SAYS SO BOTH WAYS (P2e review). The first cut
+// judged `keepEcho` only as a JSX ATTRIBUTE, and only in `.tsx` files — so
+// `createElement(Chrome, { lang: "my", k: "kds.title", echo: "stack", keepEcho: true })`, in any
+// file, or the same call in a `.ts` module, undid Burmese only with the guard green (both were put
+// on disk and watched pass). A `keepEcho` that travels as DATA — an object-literal property (the
+// props of `createElement` / `jsx()`, a spread object, shorthand `{ keepEcho }`, a quoted or
+// literal-computed key) or a property access (`p.keepEcho`, `p["keepEcho"]`) — is refused
+// OUTRIGHT, in every shipped source file whatever its extension: no language surface needs one,
+// and a parse cannot tie data to the `<Chrome>` it reaches. Chrome's own parameter destructuring
+// and its prop TYPE are bindings and signatures, not data, and are not read. STATED LIMIT: a key
+// COMPUTED from a non-literal (`{ ["keep" + "Echo"]: true }`, `{ [k]: true }`) is not a name the
+// parse can settle; the pre-filter below would still need the literal text, and review holds it.
 const KEEP_ECHO_FILES = new Set([
   join(QR, "components/staff/StaffLangSwitch.tsx"),
   join(QR, "components/staff/HelpButton.tsx"),
@@ -2054,7 +2066,46 @@ function keepEchoFindings(file, srcOverride) {
     return Object.assign([], { sites: 0 });
   }
   const out = Object.assign([], { sites: 0 });
+  /** The literal NAME an object-literal member declares, or null when the key is computed. */
+  const memberName = (name) => {
+    if (!name) return null;
+    if (
+      ts.isIdentifier(name) ||
+      ts.isStringLiteral(name) ||
+      ts.isNoSubstitutionTemplateLiteral(name)
+    )
+      return name.text;
+    if (ts.isComputedPropertyName(name)) {
+      const e = name.expression;
+      return ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e) ? e.text : null;
+    }
+    return null;
+  };
+  const line = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
   function visit(node) {
+    // `keepEcho` as DATA — never the attribute this rule can hold to its one shape.
+    if (
+      ts.isObjectLiteralElementLike(node) &&
+      !ts.isSpreadAssignment(node) &&
+      ts.isObjectLiteralExpression(node.parent) &&
+      memberName(node.name) === "keepEcho"
+    )
+      out.push(
+        `${relative(ROOT, file)}:${line(node)} — keepEcho as an object property (createElement / jsx() props, a spread object). The <Chrome keepEcho> attribute is the only door`,
+      );
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "keepEcho")
+      out.push(
+        `${relative(ROOT, file)}:${line(node)} — keepEcho read or written as a property. The <Chrome keepEcho> attribute is the only door`,
+      );
+    if (
+      ts.isElementAccessExpression(node) &&
+      (ts.isStringLiteral(node.argumentExpression) ||
+        ts.isNoSubstitutionTemplateLiteral(node.argumentExpression)) &&
+      node.argumentExpression.text === "keepEcho"
+    )
+      out.push(
+        `${relative(ROOT, file)}:${line(node)} — keepEcho read or written as a property. The <Chrome keepEcho> attribute is the only door`,
+      );
     if (ts.isJsxAttribute(node) && node.name.getText(sf) === "keepEcho") {
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
       const el = node.parent.parent; // JsxAttributes → the opening / self-closing element
@@ -2105,8 +2156,15 @@ function keepEchoFindings(file, srcOverride) {
   visit(sf);
   return out;
 }
+/**
+ * Every SHIPPED source file rule 6 reads — `.ts` as well as `.tsx` (and the plain-JS extensions the
+ * walker knows), because `createElement(Chrome, { keepEcho: true })` needs no JSX and was invisible
+ * in a `.ts` module. Tests and declaration files ship nothing and are not read.
+ */
+const isShippedSource = (f) =>
+  EXTS.some((e) => f.endsWith(e)) && !/\.test\.[cm]?[jt]sx?$/.test(f) && !f.endsWith(".d.ts");
 let keepEchoSites = 0;
-for (const file of walkFiles(QR).filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"))) {
+for (const file of walkFiles(QR).filter(isShippedSource)) {
   const src = readFileSync(file, "utf8");
   if (!src.includes("keepEcho")) continue; // a pre-filter only — the parse below is the rule
   const found = keepEchoFindings(file);
@@ -2262,6 +2320,51 @@ for (const c of SELF_TEST_CASES) {
   for (const [file, jsx, what] of fires)
     if (keepEchoFindings(file, `const A = () => ${jsx};`).length === 0)
       failures.push(`SELF-TEST: rule 6 no longer fires on ${what}.`);
+  // P2e review — keepEcho as DATA, the bypasses the attribute-only first cut could not see. Each is
+  // aimed at a LISTED file, on a language key, with a literal lang and echo — everything the
+  // attribute form would need — so only the carrier can make it fire.
+  const TS_MODULE = join(QR, "components/staff/__selftest__.ts");
+  const createElementProps =
+    'createElement(Chrome, { lang: "my", k: "shell.lang.row", echo: "stack", keepEcho: true })';
+  for (const [file, src, what] of [
+    [LISTED, `const A = () => ${createElementProps};`, "createElement(Chrome, { keepEcho: true })"],
+    [
+      TS_MODULE,
+      `export const a = () => ${createElementProps};`,
+      "the same createElement in a .ts module",
+    ],
+    [
+      LISTED,
+      'const A = () => jsx(Chrome, { lang: "my", k: "shell.lang.row", echo: "stack", keepEcho: true });',
+      "jsx(Chrome, { keepEcho: true })",
+    ],
+    [
+      LISTED,
+      "const A = (keepEcho) => createElement(Chrome, { keepEcho });",
+      "a shorthand { keepEcho }",
+    ],
+    [
+      LISTED,
+      'const p = { "keepEcho": true };\nconst A = () => <Chrome lang="my" k="shell.lang.row" echo="stack" {...p} />;',
+      "a quoted key in a spread object",
+    ],
+    [LISTED, 'const p = { ["keepEcho"]: true };', "a literal computed key"],
+    [LISTED, "function f(p) { p.keepEcho = true; }", "a property write"],
+    [LISTED, 'function f(p) { p["keepEcho"] = true; }', "an element-access write"],
+  ])
+    if (keepEchoFindings(file, src).length === 0)
+      failures.push(`SELF-TEST: rule 6 no longer fires on ${what}.`);
+  // …and the file WALK reads `.ts` modules — a parse that would fire on a file it never opens is
+  // the hole this closed, one level up.
+  if (!isShippedSource(TS_MODULE) || !isShippedSource(LISTED))
+    failures.push("SELF-TEST: rule 6's walk no longer reads .ts and .tsx modules.");
+  if (isShippedSource(join(QR, "components/staff/Chrome.test.tsx")))
+    failures.push("SELF-TEST: rule 6's walk reads test files, which ship nothing.");
+  // Chrome's own signature — the destructured parameter and its prop type — is not data.
+  const CHROME = join(QR, "components/staff/Chrome.tsx");
+  const chromeSelf = keepEchoFindings(CHROME);
+  if (chromeSelf.length !== 0)
+    failures.push(`SELF-TEST: rule 6 fires on <Chrome>'s own signature (${chromeSelf[0]}).`);
   for (const [file, jsx] of [
     [LISTED, '<Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />'],
     [LISTED, '<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho={true} />'],
