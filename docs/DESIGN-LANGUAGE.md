@@ -1505,7 +1505,10 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   — and only through `mms_fire_counter_cart`, which is `service_role`-only behind the staff gate.
   Its UPDATE is the whole guard: an OPEN cart, an ACTIVE and UNEXPIRED session, a non-blank name,
   draft TO-GO lines (grocery never fires). A kiosk order, a diner's own pickup and scan-and-go stay
-  pay-first; the diner's `mms_fire_cart` is untouched (a diner can join a `reg-` code, M243).
+  pay-first; the diner's `mms_fire_cart` is untouched. A diner can no longer JOIN an active `reg-`
+  code (`reservedCodeRefusal`, Codex r3 on #308): the join answers 403 "That’s a counter order —
+  staff add to it at the register." — the staff own the order, and the copy says where to go
+  (`kiosk-` joins are unaffected).
   `SURFACES.payAtPickup` parks NEW sends and never hides food already sent. A future writer minting
   `reg-` codes anywhere but `openRegisterOrder` inherits fire-before-pay — the migration header says
   so. There is no freeze guard on the fire or its undo, deliberately: moving a line draft ↔ fired
@@ -1514,10 +1517,14 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   comped (a comp is already an audited loss). Every staff read and the no-show refine it with "PAST
   the grace" — a line inside its 10 s undo never reached the KDS — and a NULL `fire_at` counts as
   fired at or before now. `counterSentLine` is the TS twin; the table page's flag, the KDS flag, the
-  floor card, the lane bag and the no-show's count read it, on the DATABASE clock where it gates a
+  floor card and the no-show's count read it, on the DATABASE clock where it gates a
   write-off; Clear's refusal is the SQL predicate itself, decided under the locks (below). The sweeper exempts ANY sent line, in-grace included, so every
   exempt session keeps an exit (a settle, or a no-show that is never `nothing_sent` once the grace
   has run). Never write a second test for "sent" at a call site, and never `label.startsWith("reg-")`.
+  **The bag is what the kitchen HAS, not what is owed** (Codex r3 on #308): the unpaid bag, its
+  kitchen state and its `sentAt` read `counterKitchenLine` — SENT with comps INCLUDED — so a comped
+  dish is listed and cooks before "Kitchen done", and a comped-only bag still appears; loss, the
+  Unpaid flag and the refusals keep `counterSentLine` (comps excluded). Bag ↔ KDS parity is a test.
 - **"Unpaid — collect at pickup" (`settle.unpaid`) shows exactly while an OPEN counter cart holds
   SENT food** — never during the grace, gone at settlement — on the table page's header, the pad's
   ticket, the counter's floor card, the lane's unpaid bag and the kitchen ticket. On the counter
@@ -1529,7 +1536,9 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   prints the raw `reg-` token — the guest's name, the `#CODE` once paid, else "Walk-up".
 - **The name lock.** A name is REQUIRED to send (the fire's own conjunct — the name is the only
   pre-payment identity; `named = false` → "Add a name first", with an **Add a name →** link, and the
-  pad saves a typed name before it sends). Once any line is fired / in progress / served — by STATE,
+  pad saves a typed name before it sends; a PRISTINE pad name field follows the live server name
+  when that value changes — never over typing — and a server `noName` moves focus to the field with
+  the same "Add a name first" copy). Once any line is fired / in progress / served — by STATE,
   in-grace included — clearing it is refused (`mms_clear_cart_name` → `keep_name`, under the cart
   row lock the fire takes, proven two-session); a non-empty rename is still allowed, and the schema
   trims first, so whitespace is empty.
@@ -1569,7 +1578,12 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   secondary on a counter order. One derivation each: `counterSettleVariant` (the table page) and
   `padCounterDock` (the pad).
 - **Merge and Clear.** Nothing merges INTO a counter order; a counter order with food sent does not
-  merge out; one that sent nothing merges as before (TS-only — M241). Clear keeps clearing a
+  merge out; one that sent nothing merges as before. Both refusals are decided INSIDE
+  `mms_merge_table_orders`, under its cart lock, with the source's pending approvals and then its
+  lines locked (-2 a counter target, -1 a SENT source; `floor.ts` keeps its read as the fast path and
+  maps both to one message — Codex r3 on #308). **Decision: an IN-GRACE line moves with a merge.**
+  It is not sent — the sender can still Undo it and the KDS has not drawn it — so it travels like a
+  draft and then follows the TARGET cart's pay-first rule; only SENT food refuses. Clear keeps clearing a
   drafts-only counter order. Its SENT check and its cancel are ONE locked decision
   (`mms_clear_counter_cart`: the cart row, then its lines, `FOR UPDATE`; one transaction clock), and
   an error or an unknown verdict refuses — a Send or a grace crossing mid-clear can no longer cancel

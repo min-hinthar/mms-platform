@@ -143,9 +143,10 @@ const HIDDEN: KdsGate = { show: false };
  *    when `counterSentLine` says so — ONE definition of sent unpaid food (a comp is cooked, shown, and
  *    not unpaid; Phase 2f review PT4);
  *  - counter, cart paid: shown once past the grace. A future fire_at there is the send's grace —
- *    hidden, never "held" — UNLESS the cart carries a pickup slot: a diner who joined the `reg-` code
- *    can set one (`mms_set_pickup_slot`), settlement then fires at slot − prep, and that is the held
- *    schedule the kitchen has always seen (Phase 2f review PT2);
+ *    hidden, never "held" — UNLESS the cart carries a pickup slot, and settlement then fires at
+ *    slot − prep, the held schedule the kitchen has always seen (Phase 2f review PT2). A diner can no
+ *    longer JOIN an active `reg-` code to set one (`reservedCodeRefusal`, Codex r3 on #308), but
+ *    `mms_set_pickup_slot` itself still accepts a `reg-` cart (M242), so the branch stays;
  *  - any other counter cart: hidden;
  *  - everything else (a diner's pickup, scan-and-go, a kiosk order): only a PAID cart cooks, and a
  *    future fire_at there is the slot − prep schedule — drawn held.

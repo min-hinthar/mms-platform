@@ -211,6 +211,62 @@ target modules (150 lib · 3 API routes · 43 components · 1 stylesheet · 1 `p
 mode-authority mutants · 26 SQL test files · 4881 qr + 287 ui tests · `check:docs` clean. The full
 `verify:slice` run with the gate at this head is not recorded here.
 
+**Codex round 3 on #308 (2026-09-30).** One P1 and three P2s, each verified against source, each
+fixed red-first on its own worktree branch and merged (`90ece98` · `b447745` · `55dfd8b` · `cab21da`):
+
+- **A merge could re-parent due, unpaid counter food onto a diner's pickup (P1) — `6aaa67e`.**
+  `mergeTables` refused a counter source with sent food from its OWN read of the lines, before
+  `mms_merge_table_orders` took any lock — so a line crossing its grace, or a kitchen draft→fired
+  edge (`mms_line_transition` locks only the line), between that read and the RPC moved cooking
+  food onto a non-counter cart: off the KDS until that customer paid, and onto their bill. Migration
+  `20261001000000` **§8** restates `mms_merge_table_orders` (from `20260827000000_m109`, otherwise
+  byte-identical; SECURITY DEFINER as before): after the cart lock a counter SOURCE locks its pending
+  approvals, then its lines, and returns **-1** if any line is SENT (`mms_counter_no_show`'s exact
+  predicate); a counter TARGET returns **-2**; every refusal before any write. `floor.ts` maps both
+  through `mergeRpcCounterRefusal` / `mergeCounterRefusalMessage` (`lib/counter-order.ts`, one copy)
+  and keeps its own read as the fast path — **M241 closed** (the refusal was TS-only). **Decision:** an IN-GRACE line is not sent — the sender
+  can still Undo it and the KDS has not drawn it — so it still moves with a merge and then follows
+  the target cart's pay-first rule; only SENT food refuses.
+- **A void or approval request racing a no-show wrote onto a cancelled cart (P2) — same commit.**
+  Migration **§9** restates `mms_void_line` and `mms_request_approval` (from `20260622100000_s2_polish`,
+  SECURITY INVOKER as before) to take the line's cart row `FOR SHARE` before the line, bound by
+  `cart_id` and following a merged line up to three hops, so they serialize with the no-show, the
+  merge, a counter Clear and the counter fire. `mms_resolve_approval` is deliberately NOT restated —
+  taking the cart after its approvals row would invert the no-show's cart → approvals order into a
+  deadlock, and the no-show and the merge supersede pending approvals first. **M239 closed.** SQL
+  P2F.28a–j · P2F.29a–e · P2F.30; `verify-counter-fire-race.mjs` gains orders (g) send-before-merge,
+  (g2) kitchen-fire-before-merge, (h) no-show-before-void and (h2) no-show-before-request — **10
+  orders, 11 lock mutants** (its CI step 5 → 9 min); the mode-authority battery **113 → 127**
+  mutants over 14 functions, the same 12 documented survivors; `verify-merge-race.mjs` 11 scenarios
+  / 14 mutants (M109's seven now patch §8). Six `p2f-cx3-sql/*` mutants (the TS mapping).
+  Still **not applied to prod**; the verification set is now ELEVEN functions (HANDOFF).
+- **The unpaid bag left out a comped dish and read "Kitchen done" while it cooked (P2) —
+  `b0b5399`.** New `counterKitchenLine` (fired / in progress / served, not grocery, past the grace,
+  comped INCLUDED) builds the expo unpaid bag, its kitchen state and `sentAt`; `counterSentLine`
+  (`counterKitchenLine` and not comped) stays for loss accounting, the Unpaid flag and the refusals.
+  The lane read drops `.eq("sent.comped", false)`, so a comped-only bag appears. Bag ↔ KDS parity
+  pinned by a test. Four `p2f-cx3-bag/*` mutants; `p2f-cx1-lane/unpaid-cap-comped` retired (its rule
+  is inverted). **P2ft closed.**
+- **A name cleared elsewhere stayed on the pad, and a server "no name" said nothing useful (P2) —
+  `8ca9262`.** `OrderPad` reconciles a PRISTINE name field to the live server name, on the server
+  value's change, never over typing; a server `noName` send result calls `onBlocked` (focus to the
+  name field) with the existing `table.send.err.noName` copy. Five `p2f-cx3-name/*` mutants.
+- **A diner could JOIN an active counter order and become its host (P2) — `b192439`.**
+  `/api/session` refused only to CREATE a reserved code; a crafted join to an active `reg-` session
+  succeeded and, with `host_seat` null, made the joiner HOST, whose to-go drafts the counter Send then
+  fired unpaid. New `reservedCodeRefusal` (`lib/session-code.ts`, the route's one reserved-code
+  decision): a join to an active `reg-` answers **403 "That’s a counter order — staff add to it at
+  the register."**; `kiosk-` joins are unaffected (a kiosk attaches directly, never via the route).
+  New `app/api/session/route.test.ts`; four `p2f-cx3-join/*` mutants. **M243 closed**; **M242** narrowed (the join is gone,
+  `mms_set_pickup_slot` still accepts a `reg-` cart). No new Burmese — the refusal is diner-facing
+  English, and no staff key changed (`STAFF_K15_HIGH` stays 132, measured).
+
+**Gate at this head (measured):** 1622 `verify:slice` mutants (1604 + 19 new − 1 retired) across 198
+target modules (unchanged: 150 lib · 3 API routes · 43 components · 1 stylesheet · 1 `packages/db`)
+· 127 mode-authority mutants · 26 SQL test files · 4909 qr + 287 ui tests · `check:docs` clean ·
+`check:mutant-anchors` clean (1622 anchors). The full `verify:slice` run with the gate at this head
+is not recorded here.
+
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
