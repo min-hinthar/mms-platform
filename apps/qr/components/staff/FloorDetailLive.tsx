@@ -1561,6 +1561,7 @@ export function FloorDetailLive({
               customerName={detail.customerName}
               lines={detail.lines}
               sentLineIds={detail.sentLineIds}
+              droppedLineIds={detail.droppedLineIds}
               lang={lang}
             />
           ) : (

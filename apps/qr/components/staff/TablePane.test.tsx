@@ -142,6 +142,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     customerName: null,
     unpaidSent: false,
     sentLineIds: [],
+    droppedLineIds: [],
     payAtPickup: true,
     mergeable: true,
     ...over,

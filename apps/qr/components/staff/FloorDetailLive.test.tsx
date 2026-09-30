@@ -154,6 +154,7 @@ const DETAIL: TableDetail = {
   customerName: null,
   unpaidSent: false,
   sentLineIds: [],
+  droppedLineIds: [],
   payAtPickup: true,
   mergeable: true,
 };
@@ -1293,6 +1294,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad")],
     unpaidSent: true,
     sentLineIds: ["l1"],
+    droppedLineIds: ["l2"],
     mergeable: false,
     send: {
       ...WALKUP.send,
@@ -1306,6 +1308,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     ...UNPAID_MORE,
     lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad", "in_progress")],
     sentLineIds: ["l1", "l2"],
+    droppedLineIds: [],
     send: {
       ...UNPAID_MORE.send,
       foodDraft: false,
@@ -1391,6 +1394,27 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     expect(screen.getByRole("button", { name: ts("en", "table.noshow.btn") })).toBeTruthy();
     expect(screen.queryByRole("button", { name: ts("en", "settle.clear.btn") })).toBeNull();
     expect(screen.queryByRole("button", { name: /Merge with another table/ })).toBeNull();
+  });
+
+  it("No-show's dropped sentence reads the server's droppedLineIds, threaded through (Codex r2 on #308)", async () => {
+    // A comped in-grace dish (3): only the server's set knows it is dropped — the line view carries
+    // no fire_at. The draft l2 (1) rides the same set. 4 dropped units, not 1 and not 0.
+    mountWith({
+      ...UNPAID_MORE,
+      lines: [
+        ...UNPAID_MORE.lines,
+        { ...togo("c2", "Shan noodles", "fired"), qty: 3, comped: true },
+      ],
+      droppedLineIds: ["l2", "c2"],
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "table.noshow.btn") }));
+    });
+    await tick(0);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain(
+      ts("en", "table.noshow.body.drafts.many").replace("{n}", "4"),
+    );
   });
 
   it("a counter order with drafts only keeps Clear AND Merge, and no Unpaid flag", () => {

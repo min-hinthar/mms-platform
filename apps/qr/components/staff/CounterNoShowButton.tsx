@@ -31,8 +31,10 @@ import { useTableNav } from "./TableNav";
  * WHAT IT CLAIMS, AND WHY THAT IS TRUE. The body's count is the units of `sentLineIds` — the server's
  * own SENT set (`counterSentLine` on the DB clock: fired / cooking / served, not grocery, not comped,
  * past its grace), which is exactly the set `mms_counter_no_show` writes off. What it DROPS is named
- * separately and said to be dropped, not counted as a loss — every line the server drops, an
- * in-grace fired one included (`noShowDroppedUnits`). The sent set rides the write as
+ * separately and said to be dropped, not counted as a loss — the units of `droppedLineIds`, the
+ * server's own DROPPED set read beside the sent one on the same DB clock (`counterNoShowDropped`:
+ * every draft and every in-grace fired line, comped or grocery included — the SQL reverts those and
+ * cancels the cart with them). Neither set is re-derived here. The sent set rides the write as
  * `expectedLineIds`, so a set that moved under the sheet is refused (`changed`), never written off
  * unseen. It never says anything is charged or refunded, because nothing is: the order is
  * cancelled, the loss is audited, no money moves.
@@ -49,6 +51,7 @@ export function CounterNoShowButton({
   customerName,
   lines,
   sentLineIds,
+  droppedLineIds,
   lang,
 }: {
   sessionId: string;
@@ -56,6 +59,8 @@ export function CounterNoShowButton({
   lines: TableLineView[];
   /** The server's SENT set on the DB clock (`TableDetail.sentLineIds`) — what the write-off takes. */
   sentLineIds: string[];
+  /** The server's DROPPED set on the same clock (`TableDetail.droppedLineIds`) — what goes unrecorded. */
+  droppedLineIds: string[];
   lang: StaffLang;
 }) {
   const [open, setOpen] = useState(false);
@@ -72,6 +77,7 @@ export function CounterNoShowButton({
           customerName={customerName}
           lines={lines}
           sentLineIds={sentLineIds}
+          droppedLineIds={droppedLineIds}
           lang={lang}
           onOpenChange={setOpen}
         />
@@ -91,25 +97,17 @@ export type NoShowRefusal =
   | { ok: false; reason: "changed" };
 
 /**
- * What the no-show DROPS — never counted as a loss, said beside it. The server takes the SENT set
- * (`sentLineIds`); of the rest, a draft stays on the cancelled cart and an IN-GRACE fired line is
- * reverted to draft (`mms_counter_no_show`'s last edge) — both dropped. So a line is dropped when it
- * is food (not grocery), not in the sent set, and a draft or an uncomped fired line (a comped fired
- * line outside the sent set is past its grace — the kitchen had it, and the comp already audited it).
+ * What the no-show DROPS — never counted as a loss, said beside it: the units of the server's DROPPED
+ * set (`droppedLineIds`, `counterNoShowDropped` on the DB clock). Only a lookup — the predicate lives
+ * in lib/counter-order.ts beside `counterSentLine`, so the sheet cannot quote a set the SQL does not
+ * remove (Codex r2 on #308: a client filter here once dropped a comped in-grace dish from the count).
  */
 export function noShowDroppedUnits(
-  lines: ReadonlyArray<Pick<TableLineView, "id" | "qty" | "state" | "fulfillment" | "comped">>,
-  sentLineIds: ReadonlyArray<string>,
+  lines: ReadonlyArray<Pick<TableLineView, "id" | "qty">>,
+  droppedLineIds: ReadonlyArray<string>,
 ): number {
-  const sent = new Set(sentLineIds);
-  return lines
-    .filter(
-      (l) =>
-        l.fulfillment !== "grocery" &&
-        !sent.has(l.id) &&
-        (l.state === "draft" || (l.state === "fired" && !l.comped)),
-    )
-    .reduce((a, l) => a + l.qty, 0);
+  const dropped = new Set(droppedLineIds);
+  return lines.filter((l) => dropped.has(l.id)).reduce((a, l) => a + l.qty, 0);
 }
 
 /** Every refusal → its sentence (null only for a lockout: the countdown IS that sentence). */
@@ -155,6 +153,7 @@ function NoShowSheet({
   customerName,
   lines,
   sentLineIds,
+  droppedLineIds,
   lang,
   onOpenChange,
 }: {
@@ -162,6 +161,7 @@ function NoShowSheet({
   customerName: string | null;
   lines: TableLineView[];
   sentLineIds: string[];
+  droppedLineIds: string[];
   lang: StaffLang;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -189,11 +189,11 @@ function NoShowSheet({
     };
   }, []);
 
-  // The SENT lines — the server's set, never re-derived here — and what it drops beside them.
+  // The SENT lines and the DROPPED ones — both the server's sets, never re-derived here.
   const sent = new Set(sentLineIds);
   const sentLines = lines.filter((l) => sent.has(l.id));
   const sentUnits = sentLines.reduce((a, l) => a + l.qty, 0);
-  const droppedUnits = noShowDroppedUnits(lines, sentLineIds);
+  const droppedUnits = noShowDroppedUnits(lines, droppedLineIds);
   const name = customerName?.trim() ? customerName.trim() : null;
 
   const pinOk = pin.length >= 4 && pin.length <= 8;

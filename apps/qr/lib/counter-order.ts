@@ -75,6 +75,25 @@ export function counterSentLine(l: CounterLine, nowMs: number): boolean {
   return SENT_STATES.has(l.state) && l.fulfillment !== "grocery" && !l.comped && fireMs <= nowMs;
 }
 
+/**
+ * DROPPED by a no-show — gone with the cancelled cart, NOT written off: what `mms_counter_no_show`
+ * leaves behind that nobody cooked. Its SQL twin is the function's own effect, not a select: the SENT
+ * set (`counterSentLine`) is voided as the loss; every in-grace `fired` line is reverted to draft
+ * (`state = 'fired' and fire_at > now()` — NO comped or grocery filter); then the cart is cancelled,
+ * taking every draft with it. So a line is dropped when it is a draft, or `fired` and still inside its
+ * grace — comped or not (a comped dish in the Send's grace never reached the kitchen either; Codex r2
+ * on #308), grocery or not (the cancelled cart takes a bag line exactly as it takes a dish). A line
+ * with no `fire_at` is past its grace (`lineFireMs`), so it is never dropped. Disjoint from
+ * `counterSentLine` by construction (draft / in-grace vs sent-state past grace). What neither covers —
+ * a comped line the kitchen already had, a voided one — the no-show neither writes off nor drops: the
+ * comp is already an audited loss, the void already gone. `nowMs` must be the DB clock (the one
+ * `sentLineIds` is read on), or the two sets split a line between them.
+ */
+export function counterNoShowDropped(l: CounterLine, nowMs: number): boolean {
+  if (l.state === "draft") return true;
+  return l.state === "fired" && lineFireMs(l.fire_at, nowMs) > nowMs;
+}
+
 /** Has anything on the order reached the kitchen? */
 export function counterSent(lines: readonly CounterLine[], nowMs: number): boolean {
   return lines.some((l) => counterSentLine(l, nowMs));

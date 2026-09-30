@@ -168,6 +168,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     customerName: null,
     unpaidSent: false,
     sentLineIds: [],
+    droppedLineIds: [],
     payAtPickup: true,
     mergeable: true,
     ...over,
@@ -1743,6 +1744,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     const d = counter({
       unpaidSent: true,
       sentLineIds: ["l1"],
+      droppedLineIds: [],
       lines: [line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" })],
       send: {
         sendable: 0,
@@ -1778,6 +1780,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
       payAtPickup: false,
       unpaidSent: true,
       sentLineIds: ["l1"],
+      droppedLineIds: [],
       lines: [
         line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" }),
         line({ id: "l2", sendable: false, fulfillment: "togo", state: "draft", qty: 2 }),
