@@ -23,6 +23,8 @@ import {
   counterSentLine,
   isCounterOrder,
   mergeCounterRefusal,
+  mergeCounterRefusalMessage,
+  mergeRpcCounterRefusal,
 } from "./counter-order";
 import { surfaceOpen } from "./surfaces";
 // ── Phase 2d · floor ──
@@ -1202,6 +1204,9 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
   return candidates;
 }
 
+/** A merge the RPC could not complete as asked — a cart flipped out of 'open' under it (settle/clear race). */
+const MERGE_CHANGED = "Couldn’t merge — a table changed. Check both and try again.";
+
 /**
  * One-tap merge of two table orders (S1.4) — the recovery for a double-order (a guest scans AND tells the
  * server). Folds the SOURCE table's open cart into the TARGET, then closes the source. Any active staff may
@@ -1238,8 +1243,11 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
 
   // Phase 2f · P2v — never INTO a counter order, and never a counter order whose food reached the
   // kitchen (its Unpaid flag would silently become another order's bill). A counter order that sent
-  // nothing merges as before. TS-only (the SQL half is filed beside M109); the source's "sent" is
-  // measured on the DB clock, and an unreadable check refuses.
+  // nothing merges as before. This read is the FAST PATH — it names the refusal before the promo and
+  // pay-guard reads; the AUTHORITY is `mms_merge_table_orders`, which re-decides it under its cart and
+  // line locks (Codex r3 on #308: a Send committing after this read was re-parented onto the target)
+  // and answers it as a negative count, mapped below. The source's "sent" is measured on the DB
+  // clock, and an unreadable check refuses.
   const srcCounter = isCounterOrder({ mode: src.session.mode, qrCode: src.session.qr_code });
   const tgtCounter = isCounterOrder({ mode: tgt.session.mode, qrCode: tgt.session.qr_code });
   if (srcCounter || tgtCounter) {
@@ -1256,14 +1264,7 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
       tgt: { counterOrder: tgtCounter },
       nowMs: Date.parse(clock.data as string),
     });
-    if (mergeRefusal)
-      return {
-        ok: false,
-        error:
-          mergeRefusal === "target"
-            ? "You can’t merge into a counter order."
-            : "A counter order that’s in the kitchen can’t be merged.",
-      };
+    if (mergeRefusal) return { ok: false, error: mergeCounterRefusalMessage(mergeRefusal) };
   }
 
   // A promo code lives on the CART (qr_carts.promo_code), and the discount/tax are re-derived per cart at
@@ -1334,8 +1335,14 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
     if (error?.message?.includes("same kind"))
       return { ok: false, error: "Only tables of the same kind can be merged." };
     // Otherwise a raise means a cart flipped out of 'open' under the merge (a race with settle/clear).
-    return { ok: false, error: "Couldn’t merge — a table changed. Check both and try again." };
+    return { ok: false, error: MERGE_CHANGED };
   }
+  // Codex r3 on #308 — the RPC's own counter refusal (decided under its locks, nothing written). A
+  // negative count is never a success: an unknown one falls to the race sentence rather than
+  // reporting a merge that moved "-3" units.
+  const rpcRefusal = mergeRpcCounterRefusal(movedCount);
+  if (rpcRefusal) return { ok: false, error: mergeCounterRefusalMessage(rpcRefusal) };
+  if (movedCount < 0) return { ok: false, error: MERGE_CHANGED };
 
   // Logged (non-PII): who (role) merged which two tables and how many units moved. Best-effort via
   // after() — an analytics outage must never fail a completed merge. Durable two-party audit = S2.

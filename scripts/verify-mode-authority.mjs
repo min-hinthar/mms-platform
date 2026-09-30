@@ -53,6 +53,12 @@
  * survivors in all. Codex r2 on #308 adds `mms_clear_counter_cart` (Clear's SENT check and cancel in
  * one call) with NINE killed mutants and NO new survivor: its two locks are left out of this battery
  * and killed by `verify-counter-fire-race.mjs --mutants` (orders e and f) instead.
+ * Codex r3 on #308 restates `mms_merge_table_orders` in the p2f migration (§8 — the counter refusal
+ * decided under the merge's own locks; M109's seven mutants now patch THAT text, still judged by the
+ * m109 suite) and `mms_void_line` / `mms_request_approval` (§9 — the cart locked before the line). Its
+ * non-lock checks are killed here (P2F.28, P2F.29) with NO new survivor: the merge's approvals and
+ * lines locks and the two writers' cart locks are killed by `verify-counter-fire-race.mjs --mutants`
+ * (orders g, g2, h and h2) instead.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -471,7 +477,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-deleted",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.1",
     why: "the whole M109 guard. A pickup table merges into a dine-in one: M97's fold predicate refuses to FOLD the mismatched tag, but the line re-parents onto the target cart anyway, and the tail then cancels the source cart and closes the source session",
@@ -481,7 +487,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-is-dinein-flavoured",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.3",
     why: 'the gate written as "is one of them dine-in?" — the shape M100 uses one function over. It refuses both dine-in-vs-other directions and merges scan-and-go straight into pickup, which is why case 3 holds two NON-dine-in modes',
@@ -491,7 +497,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-checks-one-side",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.2",
     why: "a one-sided gate — it refuses a pickup source landing on a dine-in target and admits the reverse. Case 1 alone cannot see this, which is the whole reason case 2 is not a mirror written for symmetry",
@@ -501,7 +507,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-over-tightened",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.7",
     why: "the OPPOSITE failure, and the one cases 1-6 all pass: a gate demanding both tables be dine-in refuses two pickup tables merging, an ordinary floor action. Over-blocking is as expensive as under-blocking",
@@ -511,7 +517,7 @@ const MUTANTS = [
   {
     id: "merge/reads-line-tags-not-mode",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.4",
     why: "the wrong COLUMN, and the mutant the first version of this suite could not kill. A session's `mode` and its lines' `fulfillment` tags are perfectly correlated in ordinary data, so a gate comparing TAGS answers identically on every ordinary fixture — M109's whole defect, reintroduced green. Case 4 holds the modes equal while the tags differ (a seated diner who tapped To go), which is the only shape that separates them",
@@ -522,7 +528,7 @@ const MUTANTS = [
   {
     id: "merge/mode-gate-weakened-by-tag-conjunct",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     expect: "M109.5",
     why: "the half-right version of the row above, and the reason case 5 is not redundant with case 4: a real mode comparison WEAKENED by an extra tag conjunct. Case 4 passes it (the modes match, so the gate is never reached), and only case 5 — modes differing while both lines happen to read `togo` — sees a pickup table merge into a dine-in one",
@@ -533,7 +539,7 @@ const MUTANTS = [
   {
     id: "merge/null-mode-branch-dropped",
     fn: "mms_merge_table_orders",
-    src: "m109",
+    src: "p2f", // Codex r3 on #308 restates the merge (§8); patch the LAST definition
     suite: "m109",
     // DOCUMENTED SURVIVOR — a GAP, not a property. `select … into` yields NULL when no row matches,
     // and `null <> null` is null, which `if` treats as false: without the explicit test an unreadable
@@ -854,8 +860,10 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15d ·",
     why: "a paid cart's lines are revenue; voiding them after the fact erases a sale from the books",
-    find: "  if v_status <> 'open' then return 'not_open'; end if;\n",
-    replace: "",
+    // Anchored on the comment after it: §9 restates `mms_void_line` / `mms_request_approval`, whose
+    // bodies carry the same line (Codex r3 on #308).
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n",
+    replace: "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n",
   },
   {
     id: "p2f/no-show-settle-freeze-ignored",
@@ -864,8 +872,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15e ·",
     why: "two tablets: a cashier's settle freeze is live — the no-show must refuse (in_flight) rather than void food the reader is charging for",
-    find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
-    replace: "     then\n    return 'in_flight';",
+    find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';\n  end if;\n  -- Lock order: approvals",
+    replace: "     then\n    return 'in_flight';\n  end if;\n  -- Lock order: approvals",
   },
   {
     id: "p2f/no-show-approver-gate-dropped",
@@ -874,8 +882,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15f ·",
     why: "decision 7b — the existing loss gate: a started or served dish needs a manager, and without the null check a server writes it off alone",
-    find: "    if p_approver is null then return 'needs_approval'; end if;\n",
-    replace: "",
+    find: "  if v_gate <> 'solo' then\n    if p_approver is null then return 'needs_approval'; end if;\n",
+    replace: "  if v_gate <> 'solo' then\n",
   },
   {
     id: "p2f/no-show-self-approve-allowed",
@@ -884,8 +892,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15g ·",
     why: "a manager approving their own write-off is no second pair of eyes — the same rule mms_void_line enforces",
-    find: "    if p_approver = p_initiator then return 'self_approve'; end if;\n",
-    replace: "",
+    find: "    if p_approver = p_initiator then return 'self_approve'; end if;\n    select role, active into v_role, v_active",
+    replace: "    select role, active into v_role, v_active",
   },
   {
     id: "p2f/no-show-server-approves",
@@ -1128,8 +1136,9 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "M4 — a guest's single-pay attempt is live (fresh lock): voiding the food under it cancels a cart a card is being charged for",
-    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at",
-    replace: "  if (v_settle_at",
+    find: "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at",
+    replace:
+      "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_settle_at",
   },
   {
     id: "p2f/no-show-pay-lock-ttl-widened",
@@ -1138,8 +1147,9 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "over-block: an ABANDONED pay lock (past mms_void_line's 5-minute literal) must not strand a no-show — the TTL is what releases it",
-    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')",
-    replace: "  if (v_locked and v_locked_at > now() - interval '10 minutes')",
+    find: "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_locked and v_locked_at > now() - interval '5 minutes')",
+    replace:
+      "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_locked and v_locked_at > now() - interval '10 minutes')",
   },
   {
     id: "p2f/no-show-pay-lock-flag-ignored",
@@ -1148,8 +1158,9 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15i ·",
     why: "over-block: a released lock leaves its stamp behind; only `locked` says a payment is live",
-    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')",
-    replace: "  if (v_locked_at > now() - interval '5 minutes')",
+    find: "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_locked and v_locked_at > now() - interval '5 minutes')",
+    replace:
+      "  -- `mms_void_line`'s two literals: a fresh pay lock, or a fresh settle freeze.\n  if (v_locked_at > now() - interval '5 minutes')",
   },
   {
     id: "p2f/no-show-ceiling-arm-dropped",
@@ -1439,6 +1450,149 @@ const MUTANTS = [
     find: "  update public.qr_carts c set status = 'cancelled' where c.id = p_cart_id and c.status = 'open';\n",
     replace: "",
   },
+  // ── Codex r3 on #308 — the merge's counter refusal (§8) and the void / request re-check (§9) ──
+  {
+    id: "p2f/merge-counter-source-check-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28a ·",
+    why: "the finding itself: a counter source's sent food re-parents onto a table's cart — off the KDS, onto another customer's bill",
+    find: "  if v_src_is_counter then\n",
+    replace: "  if false then\n",
+  },
+  {
+    id: "p2f/merge-counter-target-check-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28d ·",
+    why: "a table's lines folded INTO a counter order — an unpaid pay-at-pickup bag that is nobody's table",
+    find: "  if v_tgt_is_counter then\n",
+    replace: "  if false then\n",
+  },
+  {
+    id: "p2f/merge-refusal-still-writes",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28a · the refusal writes nothing",
+    why: "a refusal that supersedes the source's pending requests first — a manager's queue emptied by a merge that never happened",
+    find: "      return -1;\n",
+    replace:
+      "      update public.mms_approvals set status = 'superseded', resolved_at = now()\n" +
+      "        where cart_id = p_source_cart and status = 'pending';\n      return -1;\n",
+  },
+  {
+    id: "p2f/merge-sent-states-narrowed",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28b ·",
+    why: "a started or served dish is sent food too — 'fired' alone lets a cooked order merge away",
+    find: "            and src_ci.state in ('fired', 'in_progress', 'served')\n",
+    replace: "            and src_ci.state = 'fired'\n",
+  },
+  {
+    id: "p2f/merge-sent-null-fire-at-not-sent",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28c ·",
+    why: "a fired line with no fire_at is on the KDS (P2F.22) — reading it as unsent merges food the kitchen shows",
+    find: "            and (src_ci.fire_at is null or src_ci.fire_at <= now())) then",
+    replace: "            and src_ci.fire_at <= now()) then",
+  },
+  {
+    id: "p2f/merge-sent-grace-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28e ·",
+    why: "over-block: an in-grace line never reached the KDS and is still the sender's to undo — the no-show's predicate, exactly",
+    find: "            and (src_ci.fire_at is null or src_ci.fire_at <= now())) then",
+    replace: ") then",
+  },
+  {
+    id: "p2f/merge-sent-comped-blocks",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28g ·",
+    why: "over-block: a comped line is an audited loss already and the merge never moves it",
+    find: "            and not src_ci.comped\n",
+    replace: "",
+  },
+  {
+    id: "p2f/merge-sent-grocery-blocks",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28h ·",
+    why: "over-block: grocery is never kitchen food",
+    find: "            and src_ci.fulfillment <> 'grocery'\n",
+    replace: "",
+  },
+  {
+    id: "p2f/merge-counter-code-term-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28i ·",
+    why: "the code half of the counter predicate: a diner's own pickup with fired food is a table, and merges",
+    find: "  select s.mode = 'pickup' and s.qr_code like 'reg-%' into v_src_is_counter\n",
+    replace: "  select s.mode = 'pickup' into v_src_is_counter\n",
+  },
+  {
+    id: "p2f/merge-counter-mode-term-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28j ·",
+    why: "the mode half of the counter predicate: a reg- code on a scan-and-go session is not a counter order",
+    find: "  select s.mode = 'pickup' and s.qr_code like 'reg-%' into v_tgt_is_counter\n",
+    replace: "  select s.qr_code like 'reg-%' into v_tgt_is_counter\n",
+  },
+  {
+    id: "p2f/void-open-recheck-dropped",
+    fn: "mms_void_line",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.29d ·",
+    why: "the re-check the cart lock exists for: an approved void (a loss) recorded on a cart the no-show already cancelled",
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  if (v_locked and v_locked_at",
+    replace: "  if (v_locked and v_locked_at",
+  },
+  {
+    id: "p2f/request-open-recheck-dropped",
+    fn: "mms_request_approval",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.29e ·",
+    why: "a pending request raised on a cancelled cart — a manager asked to approve a loss on an order that no longer exists",
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n  if v_state = 'voided' or v_comped",
+    replace: "  if v_state = 'voided' or v_comped",
+  },
+  {
+    id: "p2f/void-cart-binding-refuses-everything",
+    fn: "mms_void_line",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.29a ·",
+    why: "over-block: the line read bound to a cart it can never equal — every void answers not_found",
+    find: "      where ci.id = p_line and ci.cart_id = v_void_cart\n",
+    replace: "      where ci.id = p_line and ci.cart_id = v_session\n",
+  },
+  {
+    id: "p2f/request-cart-binding-refuses-everything",
+    fn: "mms_request_approval",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.29b ·",
+    why: "over-block: the line read bound to a cart it can never equal — every request answers not_found",
+    find: "      where ci.id = p_line and ci.cart_id = v_req_cart\n",
+    replace: "      where ci.id = p_line and ci.cart_id = v_session\n",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -1491,6 +1645,8 @@ const TARGETS = [
   "mms_counter_no_show",
   "mms_sweep_expired_sessions",
   "mms_clear_counter_cart",
+  "mms_void_line",
+  "mms_request_approval",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

@@ -88,6 +88,8 @@ let clearVerdict: { data: string | null; error: { message: string } | null } = {
   data: "ok",
   error: null,
 };
+// `mms_merge_table_orders`' answer: a moved count, or its counter refusal (-1 sent · -2 target).
+let mergeMoved = 1;
 
 function pick(row: Row, cols: string): Row {
   const out: Row = {};
@@ -174,7 +176,8 @@ vi.mock("@mms/db/server", () => ({
         return Promise.resolve(
           nowError ? { data: null, error: nowError } : { data: DB_NOW, error: null },
         );
-      if (fn === "mms_merge_table_orders") return Promise.resolve({ data: 1, error: null });
+      if (fn === "mms_merge_table_orders")
+        return Promise.resolve({ data: mergeMoved, error: null });
       return Promise.resolve({ data: null, error: null });
     },
   }),
@@ -248,6 +251,7 @@ beforeEach(() => {
   rpcCalls = [];
   rpcArgs = [];
   clearVerdict = { data: "ok", error: null };
+  mergeMoved = 1;
   rq.value = null;
 });
 
@@ -413,6 +417,52 @@ describe("mergeTables — never into a counter order, never one whose food is in
     const r = await mergeTables({ sourceSessionId: KIOSK, targetSessionId: REG });
     expect(r.ok).toBe(false);
     expect(rpcCalls).not.toContain("mms_merge_table_orders");
+  });
+
+  // Codex r3 on #308 — the RPC is the authority: a Send committing AFTER the pre-check read (so the
+  // read saw drafts only) is refused by `mms_merge_table_orders` under its locks, as a negative count.
+  it("the RPC's own 'sent' refusal (-1) reads as the counter sentence, never a merge", async () => {
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    items["cart-reg"] = [line({ id: "d" })];
+    mergeMoved = -1;
+    // merge-rpc-sent-refusal
+    expect(await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE })).toEqual({
+      ok: false,
+      error: "A counter order that’s in the kitchen can’t be merged.",
+    });
+    expect(rpcCalls).toContain("mms_merge_table_orders");
+  });
+
+  it("the RPC's own 'target' refusal (-2) reads as the target sentence", async () => {
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    items["cart-reg"] = [line({ id: "d" })];
+    mergeMoved = -2;
+    // merge-rpc-target-refusal
+    expect(await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE })).toEqual({
+      ok: false,
+      error: "You can’t merge into a counter order.",
+    });
+  });
+
+  it("an unknown negative count is never a success", async () => {
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    items["cart-reg"] = [line({ id: "d" })];
+    mergeMoved = -3;
+    // merge-rpc-negative-success
+    expect(await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE })).toEqual({
+      ok: false,
+      error: "Couldn’t merge — a table changed. Check both and try again.",
+    });
+  });
+
+  it("a zero count is a real (empty) merge", async () => {
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    items["cart-reg"] = [line({ id: "d" })];
+    mergeMoved = 0;
+    expect(await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE })).toMatchObject({
+      ok: true,
+      movedCount: 0,
+    });
   });
 
   it("an unreadable check refuses as an outage", async () => {

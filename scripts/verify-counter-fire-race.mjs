@@ -22,7 +22,7 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the six orderings below, on one cart. The no-show, the undo and a
+ * WHAT THIS PROVES, and no more: the ten orderings below, on one cart (two, for the merge). The no-show, the undo and a
  * settle claim take the same cart-row lock, but no scenario here interleaves them — those orderings
  * are argued from construction and pinned single-session (P2F.15e, P2F.18), not proven here.
  *
@@ -57,6 +57,25 @@
  *   (f) settle-before-clear — A takes the cart row and flips it to paid (a settle's claim) inside an
  *       open transaction; B's clear must BLOCK and, once A commits, answer 'not_open'. Without the
  *       cart lock B decides from a snapshot older than the settle and reports a cancel it never made.
+ *
+ *   Codex r3 on #308 moved the merge's counter refusal into `mms_merge_table_orders` (after its cart
+ *   lock, with the source's approvals and lines locked) and gave `mms_void_line` /
+ *   `mms_request_approval` the cart row FOR SHARE before the line. Four more orders:
+ *   (g) send-before-merge — A's transaction starts, its 10s grace is waited out ON THE DB CLOCK, then
+ *       A Sends inside it (the stamped deadline is already past, so the food is DUE the moment A
+ *       commits); B merges the counter order into a diner's pickup and must BLOCK on A, then answer
+ *       -1 with the line still on the counter cart and the target empty. (A fresh Send is in its
+ *       grace and merges by design — the no-show's predicate — so the grace is pinned, not raced.)
+ *   (g2) kitchen-fire-before-merge — A runs the kitchen's draft→fired edge (due at once, the LINE
+ *       lock only) in an open transaction; B's merge must BLOCK and answer -1. Without the merge's
+ *       lines lock B reads the draft, passes the check, waits at the re-parent and then moves the
+ *       fired line onto the target: due food off the KDS and onto another customer's bill.
+ *   (h) no-show-before-void — A writes a no-show off inside an open transaction ('ok'); B voids a
+ *       DRAFT on that cart and must BLOCK, then answer 'not_open' with no audit row. Without the
+ *       void's cart lock B waits on the no-show's LINE lock and resumes with the cart row its
+ *       statement snapshot saw — 'open' — recording an approved void on a cancelled cart.
+ *   (h2) no-show-before-request — the same, for an approval request on a draft over the ceiling:
+ *       'not_open' and no pending row, never a manager asked to approve a loss on a cancelled cart.
  *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
@@ -97,6 +116,8 @@ const MIGRATION = path.join(
 );
 const TAG = "P2FR";
 const CODE_PREFIX = `reg-${TAG}-`;
+/** The merge target: a diner's pickup, deliberately NOT `reg-` (a counter target is refused). */
+const TGT_PREFIX = `${TAG}T-`;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
 const green = (s) => `\x1b[32m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
@@ -376,6 +397,50 @@ function fixture(id, ttl = "12 hours") {
   };
 }
 
+/** A DINER's pickup (not `reg-`, so not a counter order) with an open cart and nothing on it — the
+ *  merge target. Tagged `${TGT_PREFIX}` so the cleanup finds it (and the lines a merge moves onto it). */
+function target(id) {
+  const out = q(`with s as (
+      insert into public.table_sessions (qr_code, mode, status, expires_at)
+      values ('${TGT_PREFIX}${id}-${RUN}-${++fixtureSeq}', 'pickup', 'active',
+              clock_timestamp() + interval '12 hours') returning id
+    ), c as (
+      insert into public.qr_carts (session_id, customer_name) select id, 'P2FR Diner' from s returning id
+    )
+    select (select id from c);`);
+  if (!out) throw new Error(`${TAG} target ${id} did not resolve`);
+  return {
+    cart: out,
+    lines: () => q(`select count(*) from public.qr_cart_items where cart_id = '${out}';`),
+  };
+}
+
+/** A counter order a no-show can write off: one SENT line (past its grace) and two drafts — one
+ *  under the loss ceiling (a solo void) and one over it (a request needs a manager). */
+function noShowFixture(id) {
+  const f = fixture(id);
+  const out =
+    q(`update public.qr_cart_items set state = 'fired', fire_at = clock_timestamp() - interval '1 minute'
+                  where id = '${f.line}';
+    with d as (
+      insert into public.qr_cart_items
+        (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+      values ('${f.cart}', '${TAG}-dish', 'Tea leaf salad', 1, 1400, 147, 'togo'),
+             ('${f.cart}', '${TAG}-dish', 'Feast platter', 1, 2500, 262, 'togo')
+      returning id, unit_price_cents
+    )
+    select (select id from d where unit_price_cents = 1400), (select id from d where unit_price_cents = 2500);`);
+  const [draft, big] = out.split("\n").pop().split("|");
+  if (!draft || !big) throw new Error(`${TAG} no-show fixture ${id} did not resolve: ${out}`);
+  return {
+    ...f,
+    sent: f.line,
+    draft,
+    big,
+    audits: (line) => q(`select count(*) from public.mms_approvals where line_id = '${line}';`),
+  };
+}
+
 /** Observe (never assume) that the fixture's session has expired by the database's clock. */
 async function untilExpired(f) {
   const t0 = Date.now();
@@ -402,6 +467,21 @@ const nowBeforeExpiry = (f) =>
 const clearName = (f) => `select public.mms_clear_cart_name('${f.session}'::uuid);`;
 /** The table Clear's counter half (Codex r2 on #308): the SENT check and the cancel in one call. */
 const clearCounter = (f) => `select public.mms_clear_counter_cart('${f.cart}'::uuid);`;
+/** Codex r3 on #308 — the merge (a negative count is its counter refusal), and the two line writers. */
+const merge = (f, t) =>
+  `select public.mms_merge_table_orders('${f.cart}'::uuid, '${t.cart}'::uuid);`;
+const STAFF = "00000000-0000-0000-0000-00000000f2f0";
+const noShow = (f) =>
+  `select public.mms_counter_no_show('${f.cart}'::uuid, '${STAFF}'::uuid, array['${f.sent}']::uuid[]);`;
+const voidLine = (line) =>
+  `select public.mms_void_line('${line}'::uuid, 'void', 'wrong_item', '${STAFF}'::uuid);`;
+const requestApproval = (line) =>
+  `select public.mms_request_approval('${line}'::uuid, 'void', 'wrong_item', '${STAFF}'::uuid);`;
+/** Where the counter line is and what it is: on its own cart? · state · the cart's status. */
+const counterLine = (f) =>
+  q(`select (ci.cart_id = '${f.cart}')::text || '|' || ci.state || '|' || c.status
+       from public.qr_cart_items ci join public.qr_carts c on c.id = '${f.cart}'
+      where ci.id = '${f.line}';`);
 
 /** Each scenario returns [label, got, want] triples; any mismatch reddens it. */
 const SCENARIOS = {
@@ -559,6 +639,116 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  async g() {
+    const f = fixture("g");
+    const t = target("g");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // Pin A's `now()`, then wait its 10s grace out on the DB clock: the Send stamps now() + 10s,
+      // so the food A fires is already DUE — to B, whose statement starts later — when A commits.
+      await a.run("begin;");
+      const t0 = await a.run("select now();");
+      const t00 = Date.now();
+      while (
+        q(`select clock_timestamp() > '${t0}'::timestamptz + interval '10 seconds';`) !== "t"
+      ) {
+        if (Date.now() - t00 > 20000) throw new Error(`${TAG} TIMEOUT — the grace never ran out`);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      const fired = await a.run(fire(f));
+      b.fire(merge(f, t));
+      const how = await blockedOrDone(b, a);
+      // A merge that did NOT wait decided against A's uncommitted Send — the real race — so A commits
+      // only after it. A merge that waited cannot finish until A commits.
+      if (how === "blocked") await a.run("commit;");
+      const merged = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A sent the named bag (already due)", fired, "1|true"],
+        ["B's merge waited for the Send", how, "blocked"],
+        ["B refused: the counter order's food is in the kitchen", merged, "-1"],
+        ["the line stayed on the open counter cart, fired", counterLine(f), "true|fired|open"],
+        ["nothing reached the target", t.lines(), "0"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async g2() {
+    const f = fixture("g2");
+    const t = target("g2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // The kitchen's draft→fired edge: due at once, and it locks only the LINE.
+      await a.run("begin;");
+      const fired = await a.run(`select public.mms_line_transition('${f.line}'::uuid, 'fired');`);
+      b.fire(merge(f, t));
+      const how = await blockedOrDone(b, a);
+      if (how === "blocked") await a.run("commit;");
+      const merged = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A fired the line (due at once)", fired, "1"],
+        ["B's merge waited for the fire", how, "blocked"],
+        ["B refused: the counter order's food is in the kitchen", merged, "-1"],
+        ["the line stayed on the open counter cart, fired", counterLine(f), "true|fired|open"],
+        ["nothing reached the target", t.lines(), "0"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async h() {
+    const f = noShowFixture("h");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const wrote = await a.run(noShow(f));
+      b.fire(voidLine(f.draft));
+      const how = await blockedOrDone(b, a);
+      if (how === "blocked") await a.run("commit;");
+      const voided = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A wrote the no-show off", wrote, "ok"],
+        ["B's void waited for the no-show", how, "blocked"],
+        ["B refused: the cart is cancelled", voided, "not_open"],
+        ["no void recorded on the cancelled cart", f.audits(f.draft), "0"],
+        ["the cart is cancelled", f.cartStatus(), "cancelled"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async h2() {
+    const f = noShowFixture("h2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run("begin;");
+      const wrote = await a.run(noShow(f));
+      b.fire(requestApproval(f.big));
+      const how = await blockedOrDone(b, a);
+      if (how === "blocked") await a.run("commit;");
+      const asked = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A wrote the no-show off", wrote, "ok"],
+        ["B's request waited for the no-show", how, "blocked"],
+        ["B refused: the cart is cancelled", asked, "not_open"],
+        ["no request pending on the cancelled cart", f.audits(f.big), "0"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
 /** Run every scenario; returns the ids that went red (printing when `loud`). */
@@ -578,6 +768,10 @@ async function battery(loud) {
         d: "fire-before-sweep",
         e: "kitchen-fire-before-clear",
         f: "settle-before-clear",
+        g: "send-before-merge",
+        g2: "kitchen-fire-before-merge",
+        h: "no-show-before-void",
+        h2: "no-show-before-request",
       }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
@@ -591,11 +785,15 @@ async function battery(loud) {
 let lockOwned = false;
 function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
-  q(`delete from public.qr_cart_items ci using public.qr_carts c, public.table_sessions s
-       where ci.cart_id = c.id and c.session_id = s.id and s.qr_code like '${CODE_PREFIX}%';
-     delete from public.qr_carts c using public.table_sessions s
-       where c.session_id = s.id and s.qr_code like '${CODE_PREFIX}%';
-     delete from public.table_sessions where qr_code like '${CODE_PREFIX}%';`);
+  for (const prefix of [CODE_PREFIX, TGT_PREFIX]) {
+    q(`delete from public.mms_approvals a using public.qr_carts c, public.table_sessions s
+         where a.cart_id = c.id and c.session_id = s.id and s.qr_code like '${prefix}%';
+       delete from public.qr_cart_items ci using public.qr_carts c, public.table_sessions s
+         where ci.cart_id = c.id and c.session_id = s.id and s.qr_code like '${prefix}%';
+       delete from public.qr_carts c using public.table_sessions s
+         where c.session_id = s.id and s.qr_code like '${prefix}%';
+       delete from public.table_sessions where qr_code like '${prefix}%';`);
+  }
 }
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
@@ -606,8 +804,11 @@ const FNS = [
   "mms_clear_counter_cart",
   "mms_counter_no_show",
   "mms_fire_counter_cart",
+  "mms_merge_table_orders",
+  "mms_request_approval",
   "mms_sweep_expired_sessions",
   "mms_undo_counter_fire",
+  "mms_void_line",
 ];
 const HASHES = `select p.proname || '=' || md5(p.prosrc) from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
@@ -709,6 +910,35 @@ const MUTANTS = [
     expect: ["f"],
     why: "the clear decides from a snapshot older than a settle's claim and reports a cancel nobody made",
   },
+  {
+    id: "p2f/merge-counter-lines-lock-dropped",
+    fn: "mms_merge_table_orders",
+    find: "    perform 1 from public.qr_cart_items where cart_id = p_source_cart for update;\n",
+    replace: "",
+    // (g2): the kitchen's fire locks only the line, so the merge reads the draft, passes the check,
+    // waits at the re-parent and then moves the fired line onto the target (Codex r3 on #308).
+    // (g) stays green: the Send holds the CART, which the merge's own cart lock already waits on.
+    expect: ["g2"],
+    why: "a kitchen fire committing mid-merge moves due, unpaid food off the KDS and onto another bill",
+  },
+  {
+    id: "p2f/void-cart-lock-dropped",
+    fn: "mms_void_line",
+    find: "    perform 1 from public.qr_carts where id = v_void_cart for share;\n",
+    replace: "",
+    // (h): the void waits on the no-show's LINE lock and resumes with its statement's snapshot of
+    // the cart — 'open' — so it records an approved void on the cancelled cart (Codex r3 on #308).
+    expect: ["h"],
+    why: "a void racing a no-show records a loss on a cart the no-show already cancelled",
+  },
+  {
+    id: "p2f/request-cart-lock-dropped",
+    fn: "mms_request_approval",
+    find: "    perform 1 from public.qr_carts where id = v_req_cart for share;\n",
+    replace: "",
+    expect: ["h2"],
+    why: "a request racing a no-show leaves a manager a pending loss on a cancelled cart",
+  },
 ];
 
 function restoreMigration() {
@@ -737,7 +967,7 @@ async function runMutants() {
       `${TAG} REFUSED — the UNMUTATED functions are already red on (${base.join(", ")})`,
     );
   }
-  console.log(`  ${green("baseline")} ${dim("all six orders green on the real functions")}`);
+  console.log(`  ${green("baseline")} ${dim("all ten orders green on the real functions")}`);
 
   let bad = 0;
   for (const m of MUTANTS) {
@@ -828,7 +1058,8 @@ async function main() {
     await guard.close();
   }
   const left = q(
-    `select count(*) from public.table_sessions where qr_code like '${CODE_PREFIX}%';`,
+    `select count(*) from public.table_sessions
+      where qr_code like '${CODE_PREFIX}%' or qr_code like '${TGT_PREFIX}%';`,
   );
   if (left !== "0") {
     console.log(red(`✗ cleanup left ${left} ${TAG} sessions behind`));
@@ -841,7 +1072,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request\n`,
       ),
     );
   }
