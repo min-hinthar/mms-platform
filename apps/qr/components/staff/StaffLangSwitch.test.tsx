@@ -413,11 +413,52 @@ describe("the pill's CSS matches the DOM it renders", () => {
     expect(hits, `${sel} matched no rendered state`).not.toEqual([]);
   });
 
-  it("the pill clips (`overflow: hidden`), so its focus ring is drawn INSIDE — a negative offset", () => {
-    const pill = rules.find((r) => r.sels.includes(".staff-lang"));
-    expect(pill?.body).toMatch(/overflow:\s*hidden/);
-    const ring = rules.find((r) => r.sels.includes(".staff-lang-btn:focus-visible"));
-    expect(ring?.body).toMatch(/outline-offset:\s*-\d/);
+  /** Every value `prop` takes across the rules whose selector list names `sel` EXACTLY. */
+  const declared = (sel: string, prop: string) =>
+    rules
+      .filter((r) => r.sels.includes(sel))
+      .flatMap((r) =>
+        [...r.body.matchAll(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "g"))].map((m) =>
+          m[1]!.trim(),
+        ),
+      );
+  const tokenOf = (v: string) => /^var\((--[\w-]+)\)$/.exec(v)?.[1] ?? null;
+  const PRESSED = '.staff-lang-btn[aria-pressed="true"]';
+
+  // Phase 2e review (A1) — this pin used to check the OFFSET alone, and the ring it pinned was
+  // invisible exactly where focus lands most: drawn inside the segment, in the global ring's --ac,
+  // over the PRESSED segment's --ac fill (the tapped segment keeps focus; in the default Both the
+  // pressed မြန်မာ is the first Tab stop). So the pressed + focused segment names its own ring
+  // colour, and it is not the fill. The CONTRAST of both rings (≥3:1 on the fill, and the plain ring
+  // on the track, both themes) is computed from these same rules in packages/ui's
+  // composite-contrast.test.ts, which owns the WCAG maths.
+  it("the pill clips (`overflow: hidden`), so its ring is drawn INSIDE — and over the pressed fill it takes another ink", () => {
+    expect(declared(".staff-lang", "overflow")).toEqual(["hidden"]);
+    const offset = declared(".staff-lang-btn:focus-visible", "outline-offset");
+    expect(offset).toHaveLength(1);
+    expect(offset[0]).toMatch(/^-\d/);
+    const fill = declared(PRESSED, "background").map(tokenOf);
+    expect(fill).toHaveLength(1);
+    expect(fill[0]).not.toBeNull();
+    const ring = declared(`${PRESSED}:focus-visible`, "outline-color").map(tokenOf);
+    expect(ring).toHaveLength(1);
+    expect(ring[0]).not.toBeNull();
+    expect(ring[0]).not.toBe(fill[0]);
+  });
+
+  // Phase 2e review (A2) — the in-flight cue was `opacity: 0.7` on the pressed segment, which
+  // dimmed its LABEL with it (light theme below 3:1). Busy is not disabled (the control never refuses
+  // a tap), so the label keeps its full ink and the cue is a stripe over the fill; no rule keyed on
+  // the busy group may fade or filter the segment. The stripe's contrast is composite-contrast's.
+  it("in flight the pressed segment keeps its label's ink — a stripe over the fill, never a dim", () => {
+    const busy = rules.filter((r) =>
+      r.sels.some((sel) => sel.startsWith('.staff-lang[aria-busy="true"]')),
+    );
+    expect(busy.length).toBeGreaterThan(0);
+    for (const r of busy) expect(r.body).not.toMatch(/(?:^|;)\s*(?:opacity|filter)\s*:/);
+    expect(declared(`.staff-lang[aria-busy="true"] > ${PRESSED}`, "background-image")).toHaveLength(
+      1,
+    );
   });
 
   it("a refusal line's English echo takes the line's ink", () => {

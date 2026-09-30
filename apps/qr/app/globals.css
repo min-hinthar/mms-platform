@@ -7275,15 +7275,25 @@ a .chrome-en {
   letter-spacing: normal;
 }
 /* Pressed: the ONE lit cap, declared once beside `.kds-chip[aria-pressed="true"]` — see there. */
-/* ── Phase 2e · lang ── In flight: the GROUP is busy and the pending cap dims (the busy door's dim,
-   §17) — never `:disabled`, never `aria-disabled` (StaffLangSwitch's docblock: a disabled button
-   drops focus, and the control never refuses a tap — the latest pick wins). No motion, so this
-   joins no reduced-motion list. */
+/* ── Phase 2e · lang ── In flight: the GROUP is busy and the pending cap wears a STRIPE — never
+   `:disabled`, never `aria-disabled` (StaffLangSwitch's docblock: a disabled button drops focus, and
+   the control never refuses a tap — the latest pick wins). Review (A2): the first cut DIMMED the cap
+   (`opacity: 0.7`, the busy door's dim), label and all — light 2.84:1 on a control that is still
+   live. Busy is not disabled (the primitive Button's rule: the busy control keeps its full ink), so
+   the label keeps its ink and the cue is painted UNDER it: fine diagonal bands of the page ink over
+   the fill, which move the fill AWAY from the cap's on-accent ink in both themes (darker under
+   light's cream label, lighter under Night's dark one) — so the stripe can only RAISE the label's
+   contrast. composite-contrast.test.ts (packages/ui) computes both from this rule. Static — no
+   motion, so this joins no reduced-motion list. */
 .staff-lang[aria-busy="true"] {
   cursor: progress;
 }
 .staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {
-  opacity: 0.7;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 var(--s1),
+    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)
+  );
 }
 /* The pill's `overflow: hidden` clips the global +2px ring (xcut-2), so the ring is drawn INSIDE
    each segment, pill-shaped and concentric with the track. */
@@ -7291,13 +7301,21 @@ a .chrome-en {
   outline-offset: -3px;
   border-radius: var(--r-full);
 }
+/* Review (A1) — drawn inside, the ring on the PRESSED segment sits on the lit cap's fill, and the
+   global ring IS that fill (--ac): 1:1, an invisible focus on the segment focus lands on after every
+   tap (and the first Tab stop in the default Both). Over the fill the ring takes the cap's own
+   on-accent ink, as the label does; the unpressed segments keep the global ring on the track. Both
+   are ≥3:1 in both themes (composite-contrast.test.ts). */
+.staff-lang-btn[aria-pressed="true"]:focus-visible {
+  outline-color: var(--oa);
+}
 
 /* ── Phase 2e · lang ── the three language ROWS (the Help sheet's Language view, the Profile's card):
    Burmese only · Both · English. A row is the autonym sample over the mode's plain description, a
    tick at the end on the pressed row so the state is never colour alone. The pressed row joins the
    ONE lit cap (the shared list beside `.kds-chip[aria-pressed="true"]`) and declares no fill of its
    own; its description takes the cap's ink (`--t2` on `--ac` fails AA). The press is the kit's
-   `.staff-press` (RM-escorted there); the cap, the dim and the tick change instantly. */
+   `.staff-press` (RM-escorted there); the cap, the in-flight stripe and the tick change instantly. */
 .staff-lang-rows {
   display: grid;
   gap: var(--s2);
@@ -7366,8 +7384,13 @@ a .chrome-en {
 .staff-lang-rows[aria-busy="true"] {
   cursor: progress;
 }
+/* In flight: the pill's stripe, never a dim (review, A2 — see `.staff-lang[aria-busy]` above). */
 .staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {
-  opacity: 0.7;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 var(--s1),
+    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)
+  );
 }
 /* The failure line — both tongues, the warn ink for its English half too. */
 .staff-lang-msg {

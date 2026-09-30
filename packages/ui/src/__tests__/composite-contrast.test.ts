@@ -1009,3 +1009,134 @@ describe("text on the DOTTED card — `.card-textured` over `.card`'s satin ramp
     }
   }
 });
+
+// ── Phase 2e · review fixes · surface ──
+describe("the staff language control's lit cap — its focus ring and its in-flight cue, both themes", () => {
+  /**
+   * Two contrasts the hex audit cannot name, because neither ground is one token on its own:
+   *
+   *   A1 · THE RING ON THE PRESSED SEGMENT. The pill clips (`overflow: hidden`), so its focus ring is
+   *   drawn INSIDE each segment — and on the pressed segment that is ON the lit cap's fill. The
+   *   global ring is `--ac`, and so is the fill: 1:1, an invisible focus on the segment focus lands on
+   *   after every tap. The pressed + focused segment names its own ring colour; this asserts it holds
+   *   the non-text 3:1 (WCAG 1.4.11 / 2.4.11) on the fill, and that the plain ring still holds 3:1 on
+   *   the pill's track, where every unpressed segment draws it.
+   *
+   *   A2 · THE LABEL WHILE A WRITE IS OUT. The pending cap used to fade (`opacity: 0.7`), label and
+   *   all: light 2.8352, under even the large-text floor, on a control that is still live (busy is
+   *   not disabled — a tap still wins). The cue is now a stripe painted over the fill, and the label
+   *   must clear AA on the fill AND on the stripe; any `opacity` the busy rule declares is modelled as
+   *   the group fade it is (over the ground behind the segment), so a dim that comes back is measured,
+   *   not missed.
+   *
+   * BOUND TO THE CSS THAT SHIPS: the fill and the label come from the ONE lit-cap rule, the rings
+   * from `:focus-visible` and the pressed ring's own rule (falling back to the global ring when there
+   * is none — the cascade the browser applies), the stripe and any fade from the two busy rules. A
+   * shape this guard cannot composite throws rather than being guessed at.
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const rules = [...globals.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    sels: (m[1] as string)
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    body: m[2] as string,
+  }));
+  /** Every value `prop` takes in the rules whose selector list names `sel` exactly. */
+  const values = (sel: string, prop: string) =>
+    rules
+      .filter((r) => r.sels.includes(sel))
+      .flatMap((r) =>
+        [...r.body.matchAll(new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, "g"))].map((m) =>
+          (m[1] as string).replace(/\s+/g, " ").trim(),
+        ),
+      );
+  /** At most one value — ambiguity is refused, never picked by position. */
+  const one = (sel: string, prop: string): string | null => {
+    const v = values(sel, prop);
+    if (v.length > 1) throw new Error(`globals.css: \`${sel}\` declares \`${prop}\` ${v.length}×`);
+    return v[0] ?? null;
+  };
+  const must = (sel: string, prop: string): string => {
+    const v = one(sel, prop);
+    if (v === null) throw new Error(`globals.css: \`${sel}\` declares no \`${prop}\``);
+    return v;
+  };
+  const VAR = /^var\((--[\w-]+)\)$/;
+  const tokenOf = (value: string, shape = VAR) => {
+    const m = shape.exec(value);
+    if (!m) throw new Error(`globals.css: \`${value}\` is not the shape this guard composites`);
+    return m[1] as string;
+  };
+
+  const PILL_ON = '.staff-lang-btn[aria-pressed="true"]';
+  const ROW_ON = '.staff-lang-row[aria-pressed="true"]';
+  // The ONE lit cap: both pressed controls must read it from the same rule, or this is two guards.
+  const cap = rules.filter(
+    (r) => r.sels.includes(PILL_ON) && /(?:^|;)\s*background\s*:/.test(r.body),
+  );
+  const fillToken = tokenOf(must(PILL_ON, "background"));
+  const labelToken = tokenOf(must(PILL_ON, "color"));
+  const track = tokenOf(must(".staff-lang", "background"));
+  const globalRing = tokenOf(
+    must(":focus-visible", "outline"),
+    /^var\(--focus-w\) solid var\((--[\w-]+)\)$/,
+  );
+  const pressedRingDecl = one(`${PILL_ON}:focus-visible`, "outline-color");
+  const pressedRing = pressedRingDecl === null ? globalRing : tokenOf(pressedRingDecl);
+  const STRIPE =
+    /^repeating-linear-gradient\( ?[\d.]+deg, transparent 0 var\(--[\w-]+\), color-mix\(in oklab, var\((--[\w-]+)\) ([\d.]+)%, transparent\) var\(--[\w-]+\) var\(--[\w-]+\) ?\)$/;
+  const BUSY = [
+    // [the busy rule, the ground behind the segment an opacity would fade it onto]
+    [`.staff-lang[aria-busy="true"] > ${PILL_ON}`, track],
+    [`.staff-lang-rows[aria-busy="true"] > ${ROW_ON}`, tokenOf(must(".card", "background-color"))],
+  ] as const;
+  const THREE = 3;
+
+  it("the pill and the rows wear ONE lit cap", () => {
+    expect(cap).toHaveLength(1);
+    expect(cap[0]!.sels).toContain(ROW_ON);
+  });
+
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    const fill = t(map, fillToken);
+    const label = t(map, labelToken);
+
+    it(`${theme} · A1 — the pressed segment's ring holds 3:1 on the cap's fill`, () => {
+      expect(ratio(t(map, pressedRing), fill)).toBeGreaterThanOrEqual(THREE);
+    });
+    it(`${theme} · A1 — the plain ring holds 3:1 on the pill's track (every unpressed segment)`, () => {
+      expect(ratio(t(map, globalRing), t(map, track))).toBeGreaterThanOrEqual(THREE);
+    });
+
+    for (const [sel, groundToken] of BUSY) {
+      it(`${theme} · A2 — in flight, \`${sel}\` keeps its label at AA on the fill and on the stripe`, () => {
+        const op = Number(one(sel, "opacity") ?? "1");
+        const img = one(sel, "background-image");
+        const m = img === null ? null : STRIPE.exec(img);
+        if (img !== null && !m)
+          throw new Error(`globals.css: \`${sel}\`'s background-image is not the stripe shape`);
+        const ground = t(map, groundToken);
+        const faded = (c: Rgba) => over({ ...c, a: op }, ground);
+        const ink = faded(label);
+        const grounds = [fill];
+        if (m) grounds.push(over({ ...t(map, m[1] as string), a: Number(m[2]) / 100 }, fill));
+        for (const g of grounds) {
+          expect(ratio(ink, faded(g))).toBeGreaterThanOrEqual(AA);
+          // The ring is drawn over the same pixels when the pending segment has focus.
+          expect(ratio(faded(t(map, pressedRing)), faded(g))).toBeGreaterThanOrEqual(THREE);
+        }
+        // The cue EXISTS (a stripe distinct from the fill) and it can only RAISE the label's contrast:
+        // it moves the fill away from the label's ink, never toward it.
+        expect(m).not.toBeNull();
+        const striped = grounds[1]!;
+        expect(ratio(striped, fill)).toBeGreaterThan(1);
+        expect(ratio(label, striped)).toBeGreaterThanOrEqual(ratio(label, fill));
+      });
+    }
+  }
+});

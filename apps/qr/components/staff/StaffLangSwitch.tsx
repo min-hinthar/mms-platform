@@ -210,13 +210,16 @@ export function StaffLangRows({
  * menu-2 idiom); mounted with no provider (a suite, a future single-card screen) the line is the
  * `role="alert"` itself. The next write clears the region, and so does a write abandoned at 15 s
  * that LANDS the pick later (review C1) — a reader must not find a failure the device has outlived.
+ * What the region SAYS is both tongues too (`{ k, both: true }`, `StaffMsg`): it stands in for a
+ * line that is `aria-hidden`, so a region rendering the key in the device's own tongue said the
+ * failure in one language while the line showed two (review, A3).
  */
 export function StaffLangSection({ focusOnMount = false }: { focusOnMount?: boolean }) {
   const lang = useStaffLang();
   const announce = useViewStatus();
   const write = useLangModeWrite({
     onSettled: (s) => {
-      if (s.alert) announce?.({ k: "shell.lang.failed" });
+      if (s.alert) announce?.({ k: "shell.lang.failed", both: true });
       else if (s.wrote) announce?.(null);
     },
   });
