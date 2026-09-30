@@ -2709,10 +2709,6 @@ export const STAFF = {
     en: "{n} to-go items — the kitchen starts them when the table pays.",
     my: "ပါဆယ် {n} ခု — ငွေရှင်းတာနဲ့ မီးဖိုချောင်က စချက်ပါမယ်။",
   },
-  "table.send.counterAtPay": {
-    en: "The kitchen starts this order when it’s paid.",
-    my: "ငွေရှင်းပြီးမှ မီးဖိုချောင်က ဒီအော်ဒါကို စချက်ပါမယ်။",
-  }, // K15-HIGH — why a counter order has no Send (it cooks at payment)
   "table.send.err.nothing": { en: "Nothing new to send.", my: "ပို့စရာ အသစ် မရှိပါ။" },
   "table.send.err.closed": {
     en: "This order is paid or closed — nothing to send.",
@@ -3412,7 +3408,8 @@ export const STAFF = {
     en: "This order is cooking unpaid — keep a name on it so the counter can call it.",
     my: "ဒီအော်ဒါ ငွေမရှင်းဘဲ ချက်နေပါတယ် — ကောင်တာက ခေါ်နိုင်အောင် နာမည် ထားပါ။",
   },
-  "expo.unpaid.pay": { en: "Take payment", my: "ငွေ လက်ခံ" },
+  // The unpaid bag's one action (a `…verb…` key: the link's NAME is `al()`'s verb + the bag's name).
+  "expo.verb.takePayment": { en: "Take payment", my: "ငွေ လက်ခံ" },
   "expo.a11y.cardUnpaid": {
     en: "Unpaid bag for {x}",
     my: "{x} အတွက် ငွေ မရှင်းရသေးတဲ့ ပါဆယ်ထုပ်",
@@ -3639,7 +3636,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.mixedNote",
   "table.send.counterAskNote",
   "table.send.hold.note",
-  "table.send.counterAtPay",
   "table.send.err.expired",
   "table.send.err.unknown",
   "browse.add.unconfirmed",

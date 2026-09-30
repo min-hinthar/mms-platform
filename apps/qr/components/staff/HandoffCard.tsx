@@ -3,6 +3,7 @@ import type { Ref } from "react";
 import Link from "next/link";
 import { buttonClass } from "@mms/ui";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { laneHref } from "@/lib/staff-more";
 import { handoffRows, type HandoffRow } from "@/lib/register-math";
 import type { Handoff } from "@/lib/register-ui";
 import type { StaffKey } from "@/lib/i18n/staff";
@@ -61,10 +62,15 @@ export function HandoffCard({
   const key =
     rows.find((r) => r.k === "change" || r.k === "collect")?.k ?? ("total" as HandoffRow["k"]);
   const code = `#${handoff.orderId.slice(-6).toUpperCase()}`;
+  // Phase 2f — a counter order whose food went to the kitchen BEFORE it was paid: the bag is already
+  // on the Takeaway bags lane (or cooking toward it), so the card says where to hand it over from.
+  // It never says the food is READY (owner 7d — no auto-advance): the lane says that.
+  const sentEarly = handoff.isCounter && handoff.sentEarly === true;
   const labelledBy = [
     "handoff-title",
     `handoff-row-${key}`,
     handoff.isCounter ? "handoff-code" : null,
+    sentEarly ? "handoff-sent-early" : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -106,6 +112,22 @@ export function HandoffCard({
           <p className="staff-handoff-callout">
             <Chrome lang={lang} k="table.detail.handoff.callout" echo="stack" />
           </p>
+        </div>
+      )}
+      {sentEarly && (
+        <div className="staff-handoff-early">
+          {/* `echo={false}`: an aria-labelledby target — an echo would put both scripts in the name. */}
+          <p id="handoff-sent-early" className="staff-handoff-callout">
+            <Chrome lang={lang} k="table.detail.handoff.sentEarly" echo={false} />
+          </p>
+          {/* A NATIVE <a> (A4·3): the lane is a zone of the counter screen reached by its fragment,
+              which a client-side Link would not focus; in the pane it is a same-page jump. */}
+          <a
+            href={laneHref(onDone !== undefined)}
+            className={buttonClass({ variant: "secondary", size: "xl", block: true })}
+          >
+            <Chrome lang={lang} k="expo.title" echo="stack" />
+          </a>
         </div>
       )}
       {handoff.isCounter && (

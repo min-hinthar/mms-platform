@@ -1,14 +1,18 @@
 "use client";
 import Link from "next/link";
-import { Badge, Card } from "@mms/ui";
-import type { RegisterQueueRow } from "@/lib/register-queue";
+import { Badge, Card, Icon } from "@mms/ui";
+import type { CounterFloorRow } from "@/lib/floor-types";
+import type { KdsThresholds } from "@/lib/kitchen-types";
+import { kitchenSegments } from "@/lib/floor-kitchen";
 import type { StaffLang } from "@/lib/staff-lang";
 import { al, chromeVisible } from "@/lib/staff-labels";
-import { plural } from "@/lib/i18n/fill";
+import { plural, tf } from "@/lib/i18n/fill";
+import { ts } from "@/lib/i18n/staff";
 import { Chrome } from "./Chrome";
 import { RelativeTime } from "./RelativeTime";
 import { useEchoesShown } from "./StaffLangProvider";
 import { tableCardStyle } from "./TableCard";
+import { FloorKitchenLine } from "./FloorKitchenLine";
 
 /** Preformatted money — the repo's counter idiom. Latin in both tongues: it rides the `{m}` slot,
  *  which `fill()` never localizes. */
@@ -30,7 +34,7 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * was in its name only piecewise — never the one contiguous run WCAG 2.5.3 asks for.
  * `CounterOrderCard.test.tsx` reads the rendered card in all three modes.
  */
-function subjectOf(lang: StaffLang, shown: boolean, r: RegisterQueueRow): string {
+function subjectOf(lang: StaffLang, shown: boolean, r: CounterFloorRow): string {
   const name = r.customerName ?? chromeVisible(lang, "reg.row.walkup", "inline", shown);
   const chipKey = r.source === "kiosk" ? "reg.row.kiosk" : "floor.counter.chip";
   const chip = chromeVisible(lang, chipKey, false, shown);
@@ -41,7 +45,13 @@ function subjectOf(lang: StaffLang, shown: boolean, r: RegisterQueueRow): string
     shown,
     { n: r.itemCount, m: fmt(r.subtotalCents) },
   );
-  return `${name} · ${chip}, ${meta}`;
+  // Phase 2f — the unpaid row, in the order the card draws it: the flag (a badge: no echo), then the
+  // kitchen's segments exactly as `FloorKitchenLine` renders them (no echo — a card row is a glance).
+  const unpaid = r.unpaidSent ? `, ${chromeVisible(lang, "settle.unpaid", false, shown)}` : "";
+  const kitchen = kitchenSegments(r.kitchen)
+    .map((seg) => (seg.k === "expo.kitchenDone" ? ts(lang, seg.k) : tf(lang, seg.k, { n: seg.n })))
+    .join(" · ");
+  return `${name} · ${chip}, ${meta}${unpaid}${kitchen ? `, ${kitchen}` : ""}`;
 }
 
 /**
@@ -55,10 +65,16 @@ export function CounterOrderCard({
   order,
   serverNow,
   lang,
+  thresholds,
+  frozen,
 }: {
-  order: RegisterQueueRow;
+  /** Phase 2f — a register row with the floor's facts about it: sent unpaid, and its kitchen fold. */
+  order: CounterFloorRow;
   serverNow: string;
   lang: StaffLang;
+  thresholds: KdsThresholds;
+  /** The floor is not updating (FloorKitchenLine's own prop; the counter card draws no wait pill). */
+  frozen: boolean;
 }) {
   // The device's echo state — the value every `<Chrome>` on this card reads (P2e review, A5).
   const shown = useEchoesShown();
@@ -102,6 +118,28 @@ export function CounterOrderCard({
           echo="inline"
         />
       </div>
+      {/* Phase 2f — food on this order reached the kitchen before it was paid: the flag, then what
+          the kitchen has of it. Both are in the card's name (`subjectOf`), in this order. */}
+      {(order.unpaidSent || order.kitchen) && (
+        <div className="counter-card-kitchen">
+          {order.unpaidSent && (
+            <Badge tone="warn" bordered>
+              <Icon name="receipt" size={14} aria-hidden />
+              <Chrome lang={lang} k="settle.unpaid" />
+            </Badge>
+          )}
+          {order.kitchen && (
+            <FloorKitchenLine
+              kitchen={order.kitchen}
+              serverNow={serverNow}
+              thresholds={thresholds}
+              lang={lang}
+              frozen={frozen}
+              wait={false}
+            />
+          )}
+        </div>
+      )}
       {/* No status line: a counter order's status IS that it is open, which the chip already says,
           and every visible word inside this link must be in its name (WCAG 2.5.3 — the blind pass
           caught a draft that drew "Order in progress" here and left it out of the name). */}

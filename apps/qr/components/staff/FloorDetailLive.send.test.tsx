@@ -108,6 +108,14 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     hostPresent: false,
     send: { sendable: 3, staffAdded: 3, togoDraft: 0, inKitchen: false, foodDraft: true },
     serverNow: new Date(T).toISOString(),
+    // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
+    counterOrder: false,
+    counterArm: null,
+    customerName: null,
+    unpaidSent: false,
+    sentLineIds: [],
+    payAtPickup: true,
+    mergeable: true,
     ...over,
   };
 }

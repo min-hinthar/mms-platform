@@ -27,6 +27,20 @@ vi.mock("@/lib/staff-send", () => ({
 }));
 const haptic = vi.fn();
 vi.mock("@/lib/haptics", () => ({ haptic: (m: string) => haptic(m) }));
+// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands. Plan §5.2: B's `sendRefusalMsg` gains the noName arm
+// (`blocked === "noName"` → `table.send.hold.noName`, after the unchanged paying line). Until then the
+// PLANNED arm is layered over the real module so the table page's no-name hint can be tested; a mocked
+// pure rule would hide a wiring bug once the real one exists, so the integrator deletes this block.
+vi.mock("@/lib/staff-send-view", async (orig) => {
+  const real = await orig<typeof import("@/lib/staff-send-view")>();
+  return {
+    ...real,
+    sendRefusalMsg: (view: StaffSendView, h: StaffSendHold) =>
+      view.kind === "send" && view.blocked === "noName"
+        ? { k: "table.send.hold.noName" }
+        : real.sendRefusalMsg(view, h),
+  };
+});
 
 const { useStaffSend, undoStashKey } = await import("./useStaffSend");
 const { StaffSendButton } = await import("./StaffSendButton");
@@ -45,6 +59,17 @@ const SEND: StaffSendView = {
   dinerUnits: 0,
 };
 const ALL_SENT: StaffSendView = { kind: "allSent" };
+// Phase 2f — a counter order's pay-at-pickup Send (plan §5.2): a walk-up, named, nothing sent yet.
+const COUNTER: StaffSendView = {
+  kind: "send",
+  units: 3,
+  emphasis: "secondary",
+  note: "payAtPickup",
+  blocked: null,
+  staffAdded: 3,
+  dinerUnits: 0,
+  counter: true,
+};
 
 let hold: StaffSendHold = null;
 const notices: (SendNotice | null)[] = [];
@@ -57,6 +82,8 @@ function Host({
   slot = true,
   renderedHold = null,
   degraded = false,
+  onBlocked,
+  nameHref,
 }: {
   view: StaffSendView;
   seq: number;
@@ -64,6 +91,8 @@ function Host({
   slot?: boolean;
   renderedHold?: StaffSendHold;
   degraded?: boolean;
+  onBlocked?: (b: "paying" | "noName") => void;
+  nameHref?: string;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ctl = useStaffSend({
@@ -75,6 +104,7 @@ function Host({
     rootRef,
     onNotice: (n) => notices.push(n),
     onRefresh: refreshes,
+    onBlocked,
   });
   return (
     <div ref={rootRef}>
@@ -88,6 +118,7 @@ function Host({
           statusRef={ctl.statusRef}
           hold={renderedHold}
           hostName={null}
+          nameHref={nameHref}
         />
       )}
     </div>
@@ -448,6 +479,97 @@ describe("refusals and the unknown", () => {
     r.rerender(<Host view={ALL_SENT} seq={1} />);
     await flush(10_250);
     expect(live()).toBeNull();
+  });
+});
+
+describe("Phase 2f · pay at pickup — a counter order's Send", () => {
+  const describedText = (btn: HTMLElement) =>
+    (btn.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)!.textContent)
+      .join(" | ");
+
+  it("says it cooks now and is paid at pickup, at the view's emphasis, described by the note BELOW it", async () => {
+    render(<Host view={COUNTER} seq={0} />);
+    await flush();
+    const btn = control();
+    expect(btn.textContent).toBe(STAFF["table.send.cta.counter.many"].en.replace("{n}", "3"));
+    expect(btn.className).toContain("ui-btn-secondary");
+    expect(describedText(btn)).toBe(STAFF["table.send.payAtPickupNote"].en);
+    // The hint sits AFTER the control in the slot (a hint above it moves the control under a thumb).
+    const hint = document.getElementById(btn.getAttribute("aria-describedby")!)!;
+    expect(btn.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+    render(
+      <Host view={{ ...COUNTER, units: 1, emphasis: "primary", note: "unpaidMore" }} seq={0} />,
+    );
+    await flush();
+    expect(control().textContent).toBe(STAFF["table.send.cta.counter.one"].en.replace("{n}", "1"));
+    expect(control().className).toContain("ui-btn-primary");
+    expect(describedText(control())).toBe(STAFF["table.send.unpaidMoreNote"].en);
+  });
+
+  it("a table's Send keeps the plain label — the counter words are the counter's alone", async () => {
+    render(<Host view={{ ...SEND, counter: false }} seq={0} />);
+    await flush();
+    expect(control().textContent).toBe(STAFF["table.send.cta.many"].en.replace("{n}", "3"));
+  });
+
+  it("no name: aria-disabled (never [disabled]), the tap sends nothing and tells the host, the hint links to the name", async () => {
+    const blockedTaps: string[] = [];
+    render(
+      <Host
+        view={{ ...COUNTER, blocked: "noName" }}
+        seq={0}
+        onBlocked={(b) => blockedTaps.push(b)}
+        nameHref="/staff/table/s/add?name=1"
+      />,
+    );
+    await flush();
+    const btn = control();
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector("[disabled]")).toBeNull();
+    expect(describedText(btn)).toContain(STAFF["table.send.hold.noName"].en);
+    const link = document.getElementById("send-name-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/staff/table/s/add?name=1");
+    expect(link.textContent).toBe(STAFF["table.send.addName"].en);
+    fireEvent.click(btn);
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(haptic).not.toHaveBeenCalled();
+    expect(blockedTaps).toEqual(["noName"]);
+  });
+
+  it("a paying hold tells the host too, and the pad (no nameHref) gets no link", async () => {
+    const blockedTaps: string[] = [];
+    render(
+      <Host
+        view={{ ...COUNTER, blocked: "paying" }}
+        seq={0}
+        onBlocked={(b) => blockedTaps.push(b)}
+      />,
+    );
+    await flush();
+    fireEvent.click(control());
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(blockedTaps).toEqual(["paying"]);
+    expect(describedText(control())).toContain(STAFF["table.send.paying"].en);
+    cleanup();
+    render(<Host view={{ ...COUNTER, blocked: "noName" }} seq={0} />);
+    await flush();
+    expect(document.getElementById("send-name-link")).toBeNull();
+  });
+
+  it("sent unpaid: a status row (receipt glyph hidden), no Send, no live region", async () => {
+    render(<Host view={{ kind: "counterSent" }} seq={0} />);
+    await flush();
+    expect(control()).toBeNull();
+    const row = document.querySelector(".staff-send-status")!;
+    expect(accessibleText(row)).toBe(STAFF["table.send.counterSent"].en);
+    expect(row.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector("[role=status],[role=alert],[aria-live]")).toBeNull();
   });
 });
 

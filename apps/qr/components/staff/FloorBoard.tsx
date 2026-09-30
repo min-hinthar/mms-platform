@@ -455,7 +455,14 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 }
               />
             ) : (
-              <CounterOrderCard order={r.order} serverNow={snap.serverNow} lang={lang} />
+              <CounterOrderCard
+                order={r.order}
+                serverNow={snap.serverNow}
+                lang={lang}
+                thresholds={snap.thresholds}
+                // Written apart from the table card's (an anchored line): the same freeze fact.
+                frozen={degraded != null}
+              />
             )
           }
         />

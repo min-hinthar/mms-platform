@@ -22,6 +22,7 @@ export function FloorKitchenLine({
   thresholds,
   lang,
   frozen,
+  wait = true,
 }: {
   kitchen: FloorKitchen;
   serverNow: string;
@@ -29,6 +30,9 @@ export function FloorKitchenLine({
   lang: StaffLang;
   /** Phase 2d · review — the floor is not updating: the wait pill holds (`FloorWait`). */
   frozen: boolean;
+  /** Phase 2f — false on a counter order's card: the wait pill reads the DINE-IN thresholds
+   *  (`floorWait`), which would misjudge a pickup bag (a pickup-threshold pill is filed, D7). */
+  wait?: boolean;
 }) {
   const segs = kitchenSegments(kitchen);
   return (
@@ -48,13 +52,15 @@ export function FloorKitchenLine({
           </Fragment>
         ))}
       </span>
-      <FloorWait
-        kitchen={kitchen}
-        serverNow={serverNow}
-        thresholds={thresholds}
-        lang={lang}
-        frozen={frozen}
-      />
+      {wait && (
+        <FloorWait
+          kitchen={kitchen}
+          serverNow={serverNow}
+          thresholds={thresholds}
+          lang={lang}
+          frozen={frozen}
+        />
+      )}
     </div>
   );
 }

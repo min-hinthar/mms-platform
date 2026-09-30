@@ -6,6 +6,7 @@ import {
   sendHoldMsg,
   undoNotice,
   type SendNotice,
+  type SendPhase,
   type StaffSendHold,
   type StaffSendView,
 } from "@/lib/staff-send-view";
@@ -39,14 +40,16 @@ import { haptic } from "@/lib/haptics";
  * (`holdResolved`), so a stale "Everything's been sent" never flashes under "Brought back — not
  * sent" — and released at once when the page's detail read degrades, since no commit will come.
  */
-export type StaffSendPhase = "idle" | "sending" | "undo" | "undoing" | "returning";
+// Phase 2f — the phase union lives in lib (`SendPhase`), so the pure dock/emphasis rules
+// (`padCounterDock`, `counterSettleVariant`) read the same five words this hook moves through.
+export type StaffSendPhase = SendPhase;
 
 /** What the slot renders, derived from the phase first and the table's view second. */
 export type StaffSendDisplay =
   | { kind: "none" }
   | {
       kind: "status";
-      view: Extract<StaffSendView, { kind: "allSent" | "togoAtPay" | "counterAtPay" }>;
+      view: Extract<StaffSendView, { kind: "allSent" | "togoAtPay" | "counterSent" }>;
     }
   | { kind: "send"; view: Extract<StaffSendView, { kind: "send" }> | null }
   | { kind: "undo" };
@@ -60,7 +63,7 @@ export type StaffSendController = {
   onUndo: () => void;
   /** The one control node (Send ⇄ Undo — the SAME node, so focus stays on it across the relabel). */
   controlRef: RefObject<HTMLButtonElement | null>;
-  /** The status row (all sent / to-go at pay / counter at pay), focusable with tabIndex -1. */
+  /** The status row (all sent / to-go at pay / a counter order sent unpaid), focusable with tabIndex -1. */
   statusRef: RefObject<HTMLDivElement | null>;
 };
 
@@ -101,6 +104,7 @@ export function useStaffSend({
   onNotice,
   onRefresh,
   drain,
+  onBlocked,
 }: {
   sessionId: string;
   /** The table's send view, from the latest detail (`staffSendView`). */
@@ -127,6 +131,12 @@ export function useStaffSend({
    * add chain and passes nothing.
    */
   drain?: () => Promise<boolean>;
+  /**
+   * ── Phase 2f · pay at pickup ── a tap on a Send the view BLOCKS (a payment holds the cart, or a
+   * counter order has no name yet). The tap never fires; the host is told which, so the name case can
+   * take the finger to the name field (the table page's "Add a name →" link, the pad's own Field).
+   */
+  onBlocked?: (b: "paying" | "noName") => void;
 }): StaffSendController {
   const [phase, setPhase] = useState<StaffSendPhase>("idle");
   const [batch, setBatch] = useState<string | null>(null);
@@ -246,7 +256,12 @@ export function useStaffSend({
   const onSend = useCallback(() => {
     if (inFlight.current) return;
     if (undoTapHeld(armedAt.current, Date.now())) return; // the second half of a double-tap
-    if (view.kind !== "send" || view.blocked) return; // aria-disabled; the hint says why
+    if (view.kind !== "send") return;
+    if (view.blocked) {
+      // aria-disabled; the hint says why — and the host moves the finger to what clears it.
+      onBlocked?.(view.blocked);
+      return;
+    }
     // The note field is found by the LINE within the order card (never by the #note- id, which the
     // order pad may re-mint), so the allergy lands before the dish.
     const focusNote = (h: StaffSendHold) => {
@@ -312,7 +327,7 @@ export function useStaffSend({
         onRefresh();
       }
     })();
-  }, [view, getHold, rootRef, sessionId, onNotice, onRefresh, ask, drain]);
+  }, [view, getHold, rootRef, sessionId, onNotice, onRefresh, ask, drain, onBlocked]);
 
   const onUndo = useCallback(() => {
     if (inFlight.current || phase !== "undo" || batch === null) return;

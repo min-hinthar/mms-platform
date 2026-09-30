@@ -7971,7 +7971,8 @@ a .chrome-en {
   opacity: 0.6;
   cursor: progress;
 }
-.kds-slot {
+.kds-slot,
+.kds-unpaid {
   margin: 0;
   padding: 8px 14px 0;
   font-size: var(--kfs-mod);
@@ -14292,4 +14293,51 @@ a.aisle-tile {
 /* The loading skeleton's reserved pane column: space only — no divider, no shapes. */
 .staff-split-pane.staff-split-pane-idle {
   border-inline-start: 0;
+}
+
+/* ── Phase 2f · pay at pickup ── */
+/* The counter Send's "Add a name →" link inside its no-name hint: a real 44px target (QA §A), ink not
+   a new colour, underlined so it reads as the way forward rather than more hint text. */
+.staff-send-name-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--tx);
+  font-weight: var(--fw-semibold);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+/* A counter order's name leads the table page's chip row — the handle the kitchen and the lane call
+   it by. Heading size and weight from the scale; it wraps before it truncates (a name is the whole
+   identity of an unpaid bag). */
+.table-detail-name {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  overflow-wrap: anywhere;
+}
+/* The paid card's "went to the kitchen before they paid" line and its lane link (a counter order
+   sent unpaid): full width under the #CODE call-out on the two-column tablet layout. */
+.staff-handoff-early {
+  display: grid;
+  gap: var(--s2);
+}
+@media (min-width: 40em) {
+  .staff-handoff-counter .staff-handoff-early {
+    grid-column: 1 / -1;
+  }
+}
+/* Phase 2f — the KDS's "Unpaid — collect at pickup" line shares `.kds-slot`'s box and type (above);
+   only the glyph beside it is its own. */
+.kds-unpaid {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+/* A counter order's floor card: its Unpaid flag and its kitchen row, one wrapping line. */
+.counter-card-kitchen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
 }

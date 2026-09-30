@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { flushSync } from "react-dom";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button, Icon, Toast, categoryIconName, useSheetSubject } from "@mms/ui";
 import { tableDisplay, type TableDetail, type TableLineView } from "@/lib/floor-types";
 import { staffSetQty } from "@/lib/staff-cart";
@@ -26,6 +26,7 @@ import {
   padDishName,
   padPickCat,
   padSections,
+  padCounterDock,
   padSendView,
   padSettle,
   padSettleBusyKey,
@@ -136,6 +137,7 @@ export function OrderPad({
   counterOrder,
   initialName,
   hasPin,
+  focusName = false,
 }: {
   sessionId: string;
   /** A SEED: the pad owns the detail after mount (it never adopts a re-rendered prop). */
@@ -144,9 +146,13 @@ export function OrderPad({
   counterOrder: boolean;
   initialName: string | null;
   hasPin: boolean;
+  /** Phase 2f — `?name=1` (the table page's "Add a name →"): land on the counter order's name field
+   *  once, then drop the param so a reload does not re-focus. */
+  focusName?: boolean;
 }) {
   const lang = useStaffLang();
   const router = useRouter();
+  const pathname = usePathname();
   const readsRef = useRef(0);
   const refreshRef = useRef<() => void>(() => {});
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -505,6 +511,25 @@ export function OrderPad({
     [notify, say, sessionId, dishName, markLineUnread],
   );
 
+  // ── the counter order's name ───────────────────────────────────────────────────────────────────
+  // (Declared before the Send: a counter order's Send needs a name — decision 7c.)
+  const [name, setName] = useState(initialName ?? "");
+  const [savedName, setSavedName] = useState((initialName ?? "").trim());
+  const hasName = savedName !== "" || name.trim() !== "";
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  // Codex round 1 (P2) — the LATEST name, for Take payment's decision after its drain: the field
+  // stays editable while it waits, and a render-time `name` captured at the tap would save the old
+  // call-out (or skip a new one) and leave with the visible name thrown away. (Phase 2f: the Send's
+  // drain reads them too.)
+  const nameRef = useRef(name);
+  const savedNameRef = useRef(savedName);
+  useEffect(() => {
+    nameRef.current = name;
+    savedNameRef.current = savedName;
+  }, [name, savedName]);
+  // The latest `saveName` (declared with Take payment, below) for the Send's drain.
+  const saveNameRef = useRef<() => Promise<boolean>>(() => Promise.resolve(false));
+
   // ── the Send (the table page's controller, reused; owned HERE) ─────────────────────────────────
   const sendRaw = staffSendView({
     mode: detail.mode,
@@ -514,9 +539,21 @@ export function OrderPad({
     hostPresent: detail.hostPresent,
     counterAsk: counterAskLive(detail.counterRequestedAt),
     counts: detail.send,
+    // Phase 2f · pay at pickup — the arm (a phone order leads with its Send), whether the order has
+    // the name it needs to be sent (saved, or typed: the Send's drain saves it first), the switch.
+    counterArm: detail.counterArm,
+    hasName,
+    payAtPickup: detail.payAtPickup,
   });
-  const sendable = detail.mode === "dinein" && open;
-  const padSend = padSendView(sendRaw, { sendable, paying, pending: counts });
+  // Where a Send can exist at all: an open dine-in table, or (Phase 2f) an open counter order while
+  // pay-at-pickup is on — a counter order's Send fires unpaid, so the switch parks it here too.
+  const sendable = open && (detail.mode === "dinein" || (counterOrder && detail.payAtPickup));
+  const padSend = padSendView(sendRaw, {
+    sendable,
+    paying,
+    pending: counts,
+    counter: counterOrder ? { arm: detail.counterArm, hasName } : undefined,
+  });
   const lineEdits = useRef(new Map<string, StaffLineEdit>());
   const [lineState, setLineState] = useState<LineState>(NO_LINES);
   const onEditState = useCallback(
@@ -575,9 +612,23 @@ export function OrderPad({
       say(sendHoldMsg(addHold(b, dishName(b))));
       return false;
     }
+    // Phase 2f — a counter order's name typed but not saved goes to the server BEFORE the fire: the
+    // unpaid send refuses a nameless order in its own statement, and the kitchen ticket and the lane
+    // call the bag by the SAVED name. A failed save holds the fire (the pad says why).
+    if (counterOrder && nameRef.current.trim() !== savedNameRef.current) {
+      if (!(await saveNameRef.current())) {
+        notify(padSlotNotice("correction", "pad.nameNotSaved"));
+        return false;
+      }
+    }
     return true;
-  }, [writes, say, dishName]);
+  }, [writes, say, dishName, counterOrder, notify]);
   const onRefresh = useCallback(() => refreshRef.current(), []);
+  const onSendBlocked = useCallback((b: "paying" | "noName") => {
+    if (b !== "noName") return;
+    flushSync(() => setView("order"));
+    nameInputRef.current?.focus();
+  }, []);
   const send = useStaffSend({
     sessionId,
     view: padSend.view,
@@ -588,9 +639,18 @@ export function OrderPad({
     onNotice: onSendNotice,
     onRefresh,
     drain,
+    // Phase 2f — a no-name tap takes the finger to the name field (the order view first, on a phone).
+    onBlocked: onSendBlocked,
   });
   const sendBusy =
     send.phase === "sending" || send.phase === "undoing" || send.phase === "returning";
+  // ── Phase 2f · pay at pickup ── a counter order's dock: which control is filled and where each
+  // sits (`padCounterDock` — a walk-up leads with Take payment, a phone order with the Send; after
+  // everything went unpaid, "Done · Counter"). The Send's slot at its tap holds through its undo.
+  const [heldSlot, setHeldSlot] = useState<"primary" | "secondary" | null>(null);
+  const counterDock = counterOrder
+    ? padCounterDock(send.display.kind === "undo" ? sendRaw : padSend.view, send.phase, heldSlot)
+    : null;
   // A note hold on the phone's MENU view: the note field is in the hidden order view, so the view
   // flips first (synchronously) and the controller's focus lands on a field that exists. A REFUSED
   // tap says why, once, through the one region (§17): on a phone the hint under the Send is spoken
@@ -600,23 +660,16 @@ export function OrderPad({
     if (h?.kind === "note") flushSync(() => setView("order"));
     const why = send.phase === "idle" ? sendRefusalMsg(padSend.view, h) : null;
     if (why) say(why);
+    // Phase 2f — the Send keeps the dock slot it held at the tap for its whole tap → undo life, so the
+    // control never remounts under the finger (`padCounterDock`'s heldSlot).
+    if (counterOrder && send.phase === "idle")
+      setHeldSlot(counterDock?.primary === "send" ? "primary" : "secondary");
     send.onSend();
   };
 
-  // ── the counter order's name ───────────────────────────────────────────────────────────────────
-  const [name, setName] = useState(initialName ?? "");
-  const [savedName, setSavedName] = useState((initialName ?? "").trim());
+  // ── the counter order's name (its state is declared above the Send) ───────────────────────────
   const [savingName, setSavingName] = useState(false);
   const nameDirty = name.trim() !== savedName;
-  // Codex round 1 (P2) — the LATEST name, for Take payment's decision after its drain: the field
-  // stays editable while it waits, and a render-time `name` captured at the tap would save the old
-  // call-out (or skip a new one) and leave with the visible name thrown away.
-  const nameRef = useRef(name);
-  const savedNameRef = useRef(savedName);
-  useEffect(() => {
-    nameRef.current = name;
-    savedNameRef.current = savedName;
-  }, [name, savedName]);
   // ── Phase 2c · review fixes · pad2 ── Save is never a live-looking no-op (P11).
   const nameSave = padNameSave(name, savedName);
   const saveName = useCallback(async (): Promise<boolean> => {
@@ -625,6 +678,13 @@ export function OrderPad({
     try {
       const r = await setCartCustomerName({ sessionId, name: value });
       if (!r.ok) {
+        // Phase 2f — clearing the name of an order cooking unpaid is refused (the lock, decision
+        // 7c): the pad's own sentence, and the field goes back to the name the server holds.
+        if (r.code === "keepName") {
+          say({ k: "browse.name.keep" });
+          setName(savedNameRef.current);
+          return false;
+        }
         notify(padSentenceNotice(r.error));
         return false;
       }
@@ -641,7 +701,19 @@ export function OrderPad({
     } finally {
       setSavingName(false);
     }
-  }, [sessionId, notify]);
+  }, [sessionId, notify, say, setName]);
+  useEffect(() => {
+    saveNameRef.current = saveName;
+  }, [saveName]);
+  // `?name=1` — the name field, focused once; the param dropped so a reload does not re-focus.
+  const focusNameOnce = useRef(focusName);
+  useEffect(() => {
+    if (!focusNameOnce.current) return;
+    focusNameOnce.current = false;
+    flushSync(() => setView("order"));
+    nameInputRef.current?.focus();
+    router.replace(pathname, { scroll: false });
+  }, [router, pathname]);
 
   // ── Take payment ───────────────────────────────────────────────────────────────────────────────
   const settleInFlight = useRef(false);
@@ -661,6 +733,8 @@ export function OrderPad({
     settlePhase,
     // Phase 2c · gate — the server's unsent dine-in units; `padSettle` hands them to the gate.
     unsentUnits: detail.send.sendable,
+    // Phase 2f — a counter order's Take payment takes the emphasis its dock slot gives it.
+    variantOverride: counterDock?.settleVariant,
   };
   const settle = padSettle(settleInput);
   // What a refused Take payment names: the note's dish, the add it waits on (lost or still coming).
@@ -876,18 +950,50 @@ export function OrderPad({
         <Chrome lang={lang} k="pad.done" vars={{ id: table }} echo="stack" />
       </Button>
     ) : null;
-  // The status the Send's slot would otherwise speak (to-go at pay · everything sent · counter at
-  // pay) — a row in the ticket's foot, never a pill.
+  // Phase 2f — a counter order's Send (pay at pickup) and its way out once everything went unpaid.
+  const counterSendNode =
+    sendable && (send.display.kind === "send" || send.display.kind === "undo") ? (
+      <StaffSendButton
+        lang={lang}
+        ctl={{ ...send, onSend: onSendTap }}
+        controlRef={send.controlRef}
+        statusRef={send.statusRef}
+        hold={renderedHold}
+        hostName={null}
+        bare={padSend.bare}
+      />
+    ) : null;
+  const counterDone = (
+    <Button
+      variant="primary"
+      size="xl"
+      block
+      onClick={() => router.push(STAFF_DOOR_TARGET.counter)}
+    >
+      <Chrome lang={lang} k="pad.done.counter" echo="stack" />
+    </Button>
+  );
+  const counterSlot = (k: "send" | "settle" | "done" | null) =>
+    k === "send"
+      ? counterSendNode
+      : k === "settle"
+        ? settleNode
+        : k === "done"
+          ? counterDone
+          : null;
+  const dockPrimary = counterDock ? counterSlot(counterDock.primary) : sendSlot;
+  const dockSecondary = counterDock ? counterSlot(counterDock.secondary) : settleNode;
+  // The status the Send's slot would otherwise speak (to-go at pay · everything sent · a counter
+  // order sent unpaid) — a row in the ticket's foot, never a pill.
   const status =
-    sendRaw.kind === "allSent" ||
-    sendRaw.kind === "togoAtPay" ||
-    sendRaw.kind === "counterAtPay" ? (
+    sendRaw.kind === "allSent" || sendRaw.kind === "togoAtPay" || sendRaw.kind === "counterSent" ? (
       <p className="pad-status">
         <Icon
           name={
             sendRaw.kind === "allSent" ? "check" : sendRaw.kind === "togoAtPay" ? "bag" : "receipt"
           }
           size={18}
+          aria-hidden
         />
         <span>
           {sendRaw.kind === "allSent" ? (
@@ -900,7 +1006,7 @@ export function OrderPad({
               echo="stack"
             />
           ) : (
-            <Chrome lang={lang} k="table.send.counterAtPay" echo="stack" />
+            <Chrome lang={lang} k="table.send.counterSent" echo="stack" />
           )}
         </span>
       </p>
@@ -1125,6 +1231,7 @@ export function OrderPad({
                   saving: savingName,
                   saved: nameSave === "saved",
                   empty: nameSave === "empty",
+                  inputRef: nameInputRef,
                 }
               : null
           }
@@ -1175,8 +1282,8 @@ export function OrderPad({
           {/* ONE node each for the Send and Take payment, placed by CSS per tier: on a phone the
               primary slot rides the bar and a table's Take payment shows above it in the order
               view; from the tablet tier both sit under the ticket, the Send first. */}
-          <div className="pad-dock-primary">{counterOrder ? settleNode : sendSlot}</div>
-          {!counterOrder && settleNode && <div className="pad-dock-settle">{settleNode}</div>}
+          <div className="pad-dock-primary">{dockPrimary}</div>
+          {dockSecondary && <div className="pad-dock-settle">{dockSecondary}</div>}
         </div>
       </div>
 

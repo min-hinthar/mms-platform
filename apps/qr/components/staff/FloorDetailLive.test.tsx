@@ -73,6 +73,69 @@ vi.mock("@/lib/staff-send", () => ({
   staffUndoFire: vi.fn(),
 }));
 
+// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands (plan §9 "How C tests before B exists"). Three
+// PURE rules of B's are layered over the real modules with the PLANNED semantics (plan §5.1/§5.2/
+// §8 B2, copied, not re-derived): `staffSendView`'s counter branch + `sendRefusalMsg`'s noName arm,
+// `counterSettleVariant`, `laneHref`. A mocked pure rule hides a wiring bug once the real one exists,
+// so the integrator deletes these three blocks and the suite must stay green on B's real code.
+vi.mock("@/lib/staff-send-view", async (orig) => {
+  const real = await orig<typeof import("@/lib/staff-send-view")>();
+  type In = Parameters<typeof real.staffSendView>[0] & {
+    counterArm: "walkup" | "phone" | null;
+    hasName: boolean;
+    payAtPickup: boolean;
+    counts: { counterDraft?: number; counterSentPastGrace?: boolean };
+  };
+  return {
+    ...real,
+    staffSendView: (i: In) => {
+      if (!i.cartOpen || i.mode === "dinein") return real.staffSendView(i);
+      if (!i.counterOrder) return { kind: "none" };
+      const k = i.counts;
+      if ((k.counterDraft ?? 0) > 0 && i.payAtPickup) {
+        const hold = i.paymentInFlight ? "paying" : !i.hasName ? "noName" : null;
+        return {
+          kind: "send",
+          units: k.counterDraft,
+          counter: true,
+          emphasis: k.counterSentPastGrace || i.counterArm === "phone" ? "primary" : "secondary",
+          note: k.counterSentPastGrace ? "unpaidMore" : "payAtPickup",
+          blocked: hold,
+          staffAdded: k.counterDraft,
+          dinerUnits: 0,
+        };
+      }
+      return k.counterSentPastGrace ? { kind: "counterSent" } : { kind: "none" };
+    },
+    sendRefusalMsg: (
+      view: Parameters<typeof real.sendRefusalMsg>[0],
+      hold: Parameters<typeof real.sendRefusalMsg>[1],
+    ) =>
+      view.kind === "send" && (view.blocked as string) === "noName"
+        ? { k: "table.send.hold.noName" }
+        : real.sendRefusalMsg(view, hold),
+  };
+});
+vi.mock("@/lib/counter-order", () => ({
+  counterSettleVariant: (
+    v: { kind: string; counter?: boolean; emphasis?: string },
+    phase: string,
+  ): "primary" | "secondary" =>
+    phase !== "idle" || (v.kind === "send" && v.counter && v.emphasis === "primary")
+      ? "secondary"
+      : "primary",
+}));
+vi.mock("@/lib/staff-more", async (orig) => ({
+  ...(await orig<typeof import("@/lib/staff-more")>()),
+  laneHref: (inPane: boolean) => (inPane ? "#expo-h" : "/staff?floor=1#expo-h"),
+}));
+const recordCounterNoShow = vi.fn();
+vi.mock("@/lib/voids", () => ({
+  listApprovers: () => Promise.resolve([]),
+  voidLine: vi.fn(),
+  recordCounterNoShow: (...a: unknown[]) => recordCounterNoShow(...(a as [])),
+}));
+
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
@@ -133,6 +196,14 @@ const DETAIL: TableDetail = {
   // Both drafts were staff-added (no seat), so the Send is primary even at a hosted table.
   send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
   serverNow: NOW,
+  // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
+  counterOrder: false,
+  counterArm: null,
+  customerName: null,
+  unpaidSent: false,
+  sentLineIds: [],
+  payAtPickup: true,
+  mergeable: true,
 };
 
 const mount = () =>
@@ -354,7 +425,13 @@ describe("FloorDetailLive — the settle section (Phase 2c · register)", () => 
 });
 
 describe("FloorDetailLive — the paid card and the ONE polite region (P2r)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
 
   async function settleInCash(tender?: string) {
     fireEvent.click(settleButtons()[0]!);
@@ -517,7 +594,13 @@ describe("FloorDetailLive — a send line stays SHOWN while the reader's status 
 });
 
 describe("FloorDetailLive — a counter settle whose response was LOST holds the closed-bounce (critic finding)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
   async function lostSettle() {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -998,7 +1081,13 @@ describe("FloorDetailLive — a refusal's figure is settled by the page's NEXT r
 });
 
 describe("FloorDetailLive — a lost counter cash settle's 'most likely went through' is bounded (R2)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
   /** A counter cash settle whose response is lost, then Cancel — the order still reads open. */
   async function lostThenCancel(extra: { terminalReady?: boolean } = {}) {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
@@ -1192,5 +1281,189 @@ describe("FloorDetailLive — the full page never brings back a stashed paid car
     // change-due card until Clear; red.
     // The table card names no #CODE; its change-due line is the tell ($50.00 − $42.10).
     expect(document.querySelector("main")!.textContent).not.toContain("$7.90");
+  });
+});
+
+describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () => {
+  beforeEach(() => {
+    staffFireCart.mockReset();
+    recordCounterNoShow.mockReset();
+  });
+  const togo = (id: string, name: string, state = "draft"): TableLineView => ({
+    ...line(id, name),
+    state: state as TableLineView["state"],
+    sendable: false,
+    fulfillment: "togo",
+  });
+  // A walk-up, named, two dishes not yet sent, nothing in the kitchen.
+  const WALKUP: TableDetail = {
+    ...DETAIL,
+    label: "reg-ab12",
+    tableNumber: null,
+    mode: "pickup",
+    members: [],
+    hostPresent: false,
+    counterOrder: true,
+    counterArm: "walkup",
+    customerName: "Aye",
+    lines: [togo("l1", "Mohinga"), togo("l2", "Tea Leaf Salad")],
+    settleTotalCents: 2598,
+    settleTipBaseCents: 2400,
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 2,
+      counterSentPastGrace: false,
+    } as TableDetail["send"],
+  };
+  // One dish reached the kitchen unpaid (past its grace); one more to send.
+  const UNPAID_MORE: TableDetail = {
+    ...WALKUP,
+    lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad")],
+    unpaidSent: true,
+    sentLineIds: ["l1"],
+    mergeable: false,
+    send: {
+      ...WALKUP.send,
+      inKitchen: true,
+      counterDraft: 1,
+      counterSentPastGrace: true,
+    } as TableDetail["send"],
+  };
+  // Everything went to the kitchen unpaid.
+  const ALL_SENT: TableDetail = {
+    ...UNPAID_MORE,
+    lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad", "in_progress")],
+    sentLineIds: ["l1", "l2"],
+    send: {
+      ...UNPAID_MORE.send,
+      foodDraft: false,
+      counterDraft: 0,
+    } as TableDetail["send"],
+  };
+  const sendSlot = () => document.querySelector(".staff-send")!;
+  const cash = () => settleButtons()[0]!;
+  // The Send and every settle trigger: §20 — exactly ONE filled pill between them.
+  const filled = () =>
+    [
+      ...sendSlot().querySelectorAll(".ui-btn-primary"),
+      ...document
+        .getElementById("settle-h")!
+        .closest("section")!
+        .querySelectorAll(".ui-btn-primary"),
+    ].filter((b) => b.closest('[role="dialog"]') === null);
+
+  it("a walk-up with nothing sent: the Send is SECONDARY and Take payment the one primary", () => {
+    mountWith(WALKUP);
+    const send = sendSlot().querySelector("button")!;
+    expect(send.textContent).toBe(ts("en", "table.send.cta.counter.many").replace("{n}", "2"));
+    expect(send.className).toContain("ui-btn-secondary");
+    expect(cash().className).toContain("ui-btn-primary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("a PHONE order leads with the Send; Take payment steps back", () => {
+    mountWith({ ...WALKUP, counterArm: "phone" });
+    expect(sendSlot().querySelector("button")!.className).toContain("ui-btn-primary");
+    expect(cash().className).toContain("ui-btn-secondary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("more to send after food went unpaid: the Send is the ONE primary", () => {
+    mountWith(UNPAID_MORE);
+    expect(sendSlot().querySelector("button")!.className).toContain("ui-btn-primary");
+    expect(cash().className).toContain("ui-btn-secondary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("everything sent unpaid: a status row, and Take payment is the ONE primary", () => {
+    mountWith(ALL_SENT);
+    expect(sendSlot().querySelector("button")).toBeNull();
+    expect(sendSlot().textContent).toContain(ts("en", "table.send.counterSent"));
+    expect(cash().className).toContain("ui-btn-primary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("while this device's undo window is open, NOTHING is filled", async () => {
+    staffFireCart.mockResolvedValueOnce({
+      ok: true,
+      fired: 1,
+      undoUntil: new Date(Date.now() + 10_000).toISOString(),
+      serverNow: new Date(Date.now()).toISOString(),
+      undoBatch: "b1",
+    });
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...UNPAID_MORE, counterArm: "phone" } });
+    mountWith({ ...WALKUP, counterArm: "phone" });
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await tick(0);
+    expect(sendSlot().textContent).toContain(ts("en", "table.send.undo"));
+    expect(filled()).toHaveLength(0);
+  });
+
+  it("food in the kitchen unpaid: the name leads, the Unpaid flag shows, No-show replaces Clear, no Merge", () => {
+    mountWith(UNPAID_MORE);
+    const main = document.querySelector("main")!;
+    expect(main.querySelector(".table-detail-name")!.textContent).toBe("Aye");
+    expect(main.textContent).toContain(ts("en", "settle.unpaid"));
+    expect(screen.getByRole("button", { name: ts("en", "table.noshow.btn") })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: ts("en", "settle.clear.btn") })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Merge with another table/ })).toBeNull();
+  });
+
+  it("a counter order with drafts only keeps Clear AND Merge, and no Unpaid flag", () => {
+    mountWith(WALKUP);
+    expect(screen.getByRole("button", { name: ts("en", "settle.clear.btn") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Merge with another table/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: ts("en", "table.noshow.btn") })).toBeNull();
+    expect(document.querySelector("main")!.textContent).not.toContain(ts("en", "settle.unpaid"));
+  });
+
+  it("no name: the Send refuses, its hint links to the name field, and a tap takes focus there", async () => {
+    mountWith({ ...WALKUP, customerName: null });
+    const send = sendSlot().querySelector("button")!;
+    expect(send.getAttribute("aria-disabled")).toBe("true");
+    const link = document.getElementById("send-name-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/staff/table/s1/add?name=1");
+    await act(async () => {
+      fireEvent.click(send);
+    });
+    expect(staffFireCart).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(link);
+  });
+
+  it("a cash settle of an order sent unpaid carries that to the paid card (hand it over from the lane)", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 2598,
+      tipCents: 0,
+    });
+    mountWith(ALL_SENT);
+    fireEvent.click(cash());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    expect(document.getElementById("handoff-sent-early")!.textContent).toBe(
+      ts("en", "table.detail.handoff.sentEarly"),
+    );
+  });
+
+  it("a table page is untouched: a dine-in Send keeps its words and its primary", () => {
+    mountWith(DETAIL);
+    expect(sendSlot().querySelector("button")!.textContent).toBe(
+      ts("en", "table.send.cta.many").replace("{n}", "2"),
+    );
+    expect(document.querySelector(".table-detail-name")).toBeNull();
   });
 });
