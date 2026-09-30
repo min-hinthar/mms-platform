@@ -727,6 +727,20 @@ export const voidLineInput = z.object({
 
 export type VoidLineInput = z.infer<typeof voidLineInput>;
 
+/** recordCounterNoShow (Phase 2f · P2v) — write off a COUNTER order's SENT food when the guest never
+ *  came (owner decision 7b). Shape only: the server re-derives the open cart, the counter predicate,
+ *  the sent set, the loss gate and the approver's role (mms_counter_no_show). The client never
+ *  asserts a line, an amount or whether a manager is needed; the PIN rides only the step-up. */
+export const counterNoShowInput = z.object({
+  sessionId: uuid,
+  approverStaffId: uuid.optional(),
+  pin: z
+    .string()
+    .regex(/^\d{4,8}$/)
+    .optional(),
+});
+export type CounterNoShowInput = z.infer<typeof counterNoShowInput>;
+
 /**
  * requestApproval (S2.4) — a server REQUESTS a manager's approval for a gated void/comp when no manager
  * is at hand. Same shape as the void action minus the inline PIN: the loss gate is still SERVER-derived
