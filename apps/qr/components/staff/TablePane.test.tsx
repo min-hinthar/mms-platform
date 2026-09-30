@@ -1588,6 +1588,24 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
     expect(document.getElementById("order-h")).toBeNull();
   });
 
+  it("a Forward onto another table's entry is refused the same way: the paying table's entry comes back", async () => {
+    await collectingOn4();
+    pushSpy.mockClear();
+    await act(async () => {
+      window.history.replaceState(null, "", `/staff?floor=1#table-${B}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(table4());
+    expect(readerPanel()).not.toBeNull();
+    // MUTATION: a hash-driven pick refused as if it were a tap — nothing puts the entry back, and the
+    // URL names Table 7 while the pane shows Table 4; red.
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(getTableDetail).not.toHaveBeenCalledWith(B);
+    expect(region().textContent).toBe(heldLine());
+  });
+
   it("re-tapping the paying table is not a change: no refusal, the heading takes focus", async () => {
     await collectingOn4();
     await tap(card(A));
