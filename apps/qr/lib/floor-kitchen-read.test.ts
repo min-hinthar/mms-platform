@@ -226,6 +226,18 @@ describe("getFloorView — the kitchen row reads the table's paid carts too", ()
     expect(t.kitchen?.oldestFireAt).toBe(ago(10));
   });
 
+  it("food just out carries its bump's key — the line id and its stamp, from BOTH reads", async () => {
+    // Phase 2d · Codex round 1 · ready — the floor's cue is keyed to the bump, never the count.
+    // MUTATION: drop `id` from the paid-cart select → the paid round's key has no line in it.
+    rows.qr_cart_items = [
+      line({ id: "l-paid", cart_id: PAID, state: "served", fire_at: ago(20), bumped_at: ago(2) }),
+      line({ id: "l-open", state: "served", fire_at: ago(10), bumped_at: ago(1) }),
+    ];
+    const { t } = await table7();
+    expect(t.kitchen?.up).toBe(2);
+    expect([...(t.kitchen?.upKeys ?? [])].sort()).toEqual([`l-open@${ago(1)}`, `l-paid@${ago(2)}`]);
+  });
+
   it("the paid round never reaches the open cart's 'so far' figures", async () => {
     const { t } = await table7();
     expect(t.itemCount).toBe(2);

@@ -9422,8 +9422,9 @@ const MUTANTS = [
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — 'ready to serve' is the wall's five-minute window; without it a dish bumped an hour ago still reads ready, and the TV and the card disagree",
-    find: "      if (bumpedMs !== null && bumpedMs >= ctx.nowMs - lingerMs) up += r.qty;",
-    replace: "      if (bumpedMs !== null) up += r.qty;",
+    // Phase 2d · Codex round 1 · ready — re-anchored: the window now also admits the line's key.
+    find: "      if (bumpedMs !== null && bumpedMs >= ctx.nowMs - lingerMs) {",
+    replace: "      if (bumpedMs !== null) {",
   },
   {
     id: "p2d-floor/kitchen-oldest-is-the-newest",
@@ -9486,16 +9487,18 @@ const MUTANTS = [
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — only food coming OUT cues; a decay (the window closing) or a recall ringing the card is a cue with nothing to act on",
-    find: "  return prev !== undefined && next > prev;",
-    replace: "  return prev !== undefined && next !== prev;",
+    // Phase 2d · Codex round 1 · ready — re-anchored: keyed, a decay is a key LEAVING.
+    find: "  return now.some((k) => !heard.has(k));",
+    replace: "  return now.some((k) => !heard.has(k)) || [...heard].some((k) => !now.includes(k));",
   },
   {
     id: "p2d-floor/up-cues-on-first-sight",
     file: "apps/qr/lib/floor-kitchen.ts",
     suite: "lib/floor-kitchen.test.ts",
     why: "Phase 2d · floor — first sight is never a rise: a table already showing food up when the screen loads must not ring",
-    find: "  return prev !== undefined && next > prev;",
-    replace: "  return next > (prev ?? 0);",
+    // Phase 2d · Codex round 1 · ready — re-anchored: first sight treated as "nothing heard".
+    find: "  if (heard === undefined) return false;\n",
+    replace: "  if (heard === undefined) return now.length > 0;\n",
   },
   {
     id: "p2d-floor/strip-tile-ignores-its-number",
@@ -9774,7 +9777,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorBoard.tsx",
     suite: "components/staff/FloorBoard.test.tsx",
     why: "Phase 2d · floor — food coming out is the kitchen event a server can act on: the region says 'Ready to serve — Table 7' and the card rings",
-    find: "        if (!upRose(prevUp.current.get(t.sessionId), up)) continue;\n",
+    // Phase 2d · Codex round 1 · ready — re-anchored: the cue reads the table's keys.
+    find: "        if (!upRose(prevUp.current.get(t.sessionId), keys)) continue;\n",
     replace: "        continue;\n",
   },
   {
@@ -11059,6 +11063,64 @@ const MUTANTS = [
     why: "Codex round 1 (mint) — the API's generation must follow the selection's own `gen`: published from closes alone, A → B → A reads as never moved",
     find: "    selectionGen: sel ? sel.gen : floorGen,\n",
     replace: "    selectionGen: floorGen,\n",
+  },
+  // ── Phase 2d · Codex round 1 · ready ──
+  {
+    id: "p2d-cx1/ready-cues-on-the-count",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "Phase 2d · Codex round 1 · ready — 'Ready to serve' is keyed to the bump, never the count: a dish coming out in the poll another's window closed (or another was recalled) leaves the count where it was, and the one kitchen event a server can act on says nothing",
+    find: "  return now.some((k) => !heard.has(k));",
+    replace: "  return now.length > heard.size;",
+  },
+  {
+    id: "p2d-cx1/ready-heard-forgets",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "Phase 2d · Codex round 1 · ready — what a table was told is kept, not replaced by the last poll: a dish that drops out of one poll (a table paying between the cart and order reads) must not ring a second time when it returns",
+    find: "  return new Set([...(heard ?? []), ...now]);",
+    replace: "  return new Set(now);",
+  },
+  {
+    id: "p2d-cx1/ready-key-drops-the-bump",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "Phase 2d · Codex round 1 · ready — the key is the BUMP, not the line: a recalled dish bumped again is food coming out a second time, and keyed on the line alone it reads as heard and says nothing",
+    find: "const upKey = (id: string, bumpedAt: string): string => `${id}@${bumpedAt}`;",
+    replace: "const upKey = (id: string, bumpedAt: string): string => id;",
+  },
+  {
+    id: "p2d-cx1/ready-key-for-done-food",
+    file: "apps/qr/lib/floor-kitchen.ts",
+    suite: "lib/floor-kitchen.test.ts",
+    why: "Phase 2d · Codex round 1 · ready — a key only for food INSIDE the wall's window (the `up` count's own rule): keyed past it, a board back from a long freeze rings 'Ready to serve' over a card that says 'Kitchen done'",
+    find: '    if (r.state === "served") {\n      const bumpedMs = parse(r.bumped_at);\n',
+    replace:
+      '    if (r.state === "served") {\n      if (r.bumped_at !== null) upKeys.push(upKey(r.id, r.bumped_at));\n      const bumpedMs = parse(r.bumped_at);\n',
+  },
+  {
+    id: "p2d-cx1/ready-read-drops-the-line-id",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Phase 2d · Codex round 1 · ready — the paid-cart read must carry the line id: without it a paid round's key is `undefined@<stamp>`, a timestamp alone, and 'once per newly-ready line' rests on no two bumps ever sharing an instant rather than on the line",
+    find: '          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")',
+    replace: '          .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")',
+  },
+  {
+    id: "p2d-cx1/ready-board-forgets-what-it-heard",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · Codex round 1 · ready — the board carries each table's heard keys forward; rebuilt from the last poll alone, a dish that drops out of one poll rings 'Ready to serve' again on its return",
+    find: "              heardUp(prevUp.current.get(t.sessionId), t.kitchen?.upKeys ?? []),\n",
+    replace: "              heardUp(undefined, t.kitchen?.upKeys ?? []),\n",
+  },
+  {
+    id: "p2d-cx1/ready-board-seeds-nothing-heard",
+    file: "apps/qr/components/staff/FloorBoard.tsx",
+    suite: "components/staff/FloorBoard.test.tsx",
+    why: "Phase 2d · Codex round 1 · ready — the board is seeded with the keys the screen loaded with; seeded empty, every table already showing food up rings on the first poll",
+    find: "        : initial.tables.map((t) => [t.sessionId, heardUp(undefined, t.kitchen?.upKeys ?? [])]),\n",
+    replace: "        : initial.tables.map((t) => [t.sessionId, heardUp(undefined, [])]),\n",
   },
 ];
 
