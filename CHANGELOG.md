@@ -267,6 +267,81 @@ target modules (unchanged: 150 lib · 3 API routes · 43 components · 1 stylesh
 `check:mutant-anchors` clean (1622 anchors). The full `verify:slice` run with the gate at this head
 is not recorded here.
 
+**Self-review on #308 (Codex out of credits, 2026-09-30).** Codex's quota ran out after round 3, and
+the owner asked for the review to be done in-session: "review yourself, fix any issues
+comprehensively, then merge when ready after migrations applied". One BLIND pass over
+`d8a047d..ca62f2a` — three lenses (concurrency/money · product truth · security), given the diff
+bundle and no narrative; every finding was verified against source before it was acted on, and the
+confirmed ones were fixed on four worktree branches, merged `351f647` · `586aef1` · `5b49abd` ·
+`dae1140`:
+
+- **A resolve racing a counter Clear could approve a void on the cancelled cart (concurrency) —
+  `86af4fa`.** `mms_clear_counter_cart` now locks the cart's PENDING approvals between the cart and
+  its lines (the no-show's cart → approvals → lines order) and supersedes them on `ok`, so a waiting
+  `mms_resolve_approval` re-reads its row as `superseded` instead of approving onto a cancelled cart
+  (and, unraced, the request no longer stays pending forever). Reproduced red on the old body by the
+  counter-fire race's new order **(i)**; **(i2)** runs the other interleaving.
+- **The no-show's lines lock had no proof, and the line lockers could deadlock — same commit.** Order
+  **(j)** + mutant `p2f/no-show-lines-lock-dropped` pin the no-show's LINES lock against a kitchen
+  Start (`mms_line_transition` locks only the line). Every statement that locks a whole cart's lines
+  — the no-show, the Clear, the merge's counter source — takes them `order by id`, and
+  `mms_bump_ticket` (§6) pre-locks its lines in the same order, so a bump and any of them on one cart
+  cannot form a 40P01 cycle. The pre-existing bulk updaters are not re-ordered — filed **M247**.
+- **A comped-only counter order was swept with its cart left open (money) — same commit.** The
+  sweeper's exemption is now the KITCHEN set (`counterKitchenLine`: comps included, in-grace
+  included); SQL **P2F.19f** flipped to expect the exemption. Such an order keeps its exit (a Clear).
+- **An in-grace line kept its counter deadline through a merge (product truth) — same commit.**
+  `mms_merge_table_orders` (§8) now reverts a counter source's in-grace fired lines to draft —
+  `fire_at` and batch cleared, the undo's own edge — before moving them. This REPLACES round 3's
+  decision wording: an in-grace line moves as a DRAFT and fires on the TARGET cart's own schedule
+  (a pay-first target fires drafts only once paid, in its slot), never on the counter's clock.
+- **Coverage — same commit.** The race harness's FNS / TARGETS cover all eleven functions the file
+  defines (both kitchen functions added); SQL **P2F.30** asserts privileges on five functions
+  including SECURITY DEFINER `mms_bump_ticket`, and P2F.1 / P2F.30 count their checks; P2F.28e
+  extended; new **P2F.31a/b**. The header states the join refusal truthfully. Counter-fire race
+  **10 → 13 orders, 11 → 14 mutants**; mode-authority **127 → 130** (3 new, 1 inverted), the same
+  12 documented survivors; `verify-merge-race.mjs` unchanged at 11 scenarios / 14 mutants.
+- **A pre-existing member of a counter order could still add to it (security) — `19dab9c`.**
+  `assertCartMember` refuses (403 `not_member`) any member of an active `reg-` session, read off the
+  same `table_sessions` row as the liveness check (no extra round trip, the same fail-closed 503) —
+  defence in depth: prod held no such membership (measured). And `/api/session` refuses a JOIN to
+  an active session under ANY reserved prefix, `kiosk-` included: "That order can’t be joined from
+  a phone — please ask staff." Four `p2f-sr-authz/*` mutants; `p2f-cx3-join/kiosk-join-refused`
+  re-aimed. **M242** narrowed again (no diner path reaches the pickup slot on a counter cart).
+- **The no-show sheet could submit a set the manager never read (product truth) — `7c855cc`.** It
+  SNAPSHOTS its sent / dropped / comped sets (and their lines) when it opens and renders and submits
+  from the snapshot; a live move says "The order changed" in its one region, refuses the write, and
+  offers **Show the order as it is now** (`table.noshow.rearm`, focus to the new count). It names
+  comped kitchen dishes that leave the KDS — `getTableDetail` emits `compedKitchenLineIds` (DB clock)
+  — never as a loss. A server `noName` owes focus to `#send-name-link`, paid by the first read that
+  STARTS after it. After a pad name save, the first read started after it is authoritative
+  (`padNameReconcile`, `lib/order-pad.ts`). A roster retry restores "a manager needs to approve"
+  (`rosterRetryMsg`, both sheets). 24 `p2f-sr-sheet/*` mutants (one, `8786bbe`, pins the loss
+  sheet's recovery wiring); `staff/LossActionSheet.tsx` joined the mutate set (components 43 → 44,
+  **198 → 199** target modules).
+- **The lane mis-stated its truncation, charged a free bag and rang over unsent drafts (product
+  truth) — `86fe647` · `6195397` · `a8af825`.** Both counter reads fetch `REGISTER_QUEUE_CAP + 1`,
+  call a read truncated only on that extra row, and slice to the newest before reversing;
+  `floor.counter.truncated` now says "the oldest are not listed" (EN + MY) — orders past the cap
+  have no view yet (**P2fz**). A bag that owes nothing (`counterOwes`, the settle section's own
+  chargeable rule) shows a neutral **No charge** badge with a View link, not Unpaid / Take payment,
+  and is not counted unpaid (the saturation words stay slightly loose — **P2ga**). An unpaid bag with
+  a draft still unsent is never Kitchen done and never rings. 19 `p2f-sr-lane/*` mutants.
+
+Five new staff keys, four K15-HIGH (`table.noshow.body.comped.one` / `.many`, `table.noshow.rearm`,
+`expo.bag.noCharge`; plus `expo.a11y.cardNoCharge`) and one re-word — `STAFF_K15_HIGH` **132 →
+136**, measured at runtime; listed on K15. Filed **M247** (the residual scan-order line lockers) ·
+**M248** (the no-show's solo path records an unchecked approver) · **P2fz** (orders past the cap) ·
+**P2ga** (the unpaid-more words); amended **M242** · **P2fi** · **P2fk**. The migration is still
+**not on prod** and still defines eleven functions — the one-file apply at the final head carries
+every change above (HANDOFF).
+
+**Gate at this head (measured):** 1669 `verify:slice` mutants (1622 + 47 new) across 199 target
+modules (150 lib · 3 API routes · 44 components · 1 stylesheet · 1 `packages/db`) · 130
+mode-authority mutants · counter-fire race 13 orders / 14 mutants · 26 SQL test files · 4939 qr +
+287 ui tests · `check:docs` clean · `check:mutant-anchors` clean (1669 anchors) · `check:staff-lang`
+clean. The full `verify:slice` run with the gate at this head is not recorded here.
+
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
