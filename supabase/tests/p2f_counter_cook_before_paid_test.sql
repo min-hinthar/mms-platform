@@ -551,4 +551,63 @@ begin
   assert v = 'ok' and n = 1, format('P2F.22 · a null-fire_at fired line is written off as sent (%s, n=%s)', v, n);
 end $$;
 
+-- ══ P2F.23 · …and the kitchen can MOVE it (Codex r1 on #308): the per-line Start and Ready edges
+--    take a fired line with no fire_at as due. A HELD line (future fire_at) is still refused ═══════
+do $$
+declare c uuid; a uuid; b uuid; h uuid; n integer; st text; sa timestamptz; ba timestamptz;
+begin
+  c := pg_temp.p2f_counter('reg-P2F23LTR', 'Aye');
+  a := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', null);
+  b := pg_temp.p2f_line(c, 400, 1, 'togo', 'fired', null);
+  h := pg_temp.p2f_line(c, 300, 1, 'togo', 'fired', now() + interval '1 minute');
+  n := public.mms_line_transition(a, 'in_progress');
+  assert n = 1, format('P2F.23 · a null-fire_at fired line can be started (n=%s)', n);
+  n := public.mms_line_transition(a, 'served');
+  select state, started_at, bumped_at into st, sa, ba from public.qr_cart_items where id = a;
+  assert n = 1 and st = 'served' and sa is not null and ba is not null,
+    format('P2F.23 · a started null-fire_at line can be readied (n=%s, %s)', n, st);
+  n := public.mms_line_transition(b, 'served');
+  assert n = 1, format('P2F.23 · a null-fire_at fired line can be readied straight from fired (n=%s)', n);
+  n := public.mms_line_transition(h, 'in_progress') + public.mms_line_transition(h, 'served');
+  select state into st from public.qr_cart_items where id = h;
+  assert n = 0 and st = 'fired', format('P2F.23 · a HELD line is still refused by Start and Ready (n=%s, %s)', n, st);
+end $$;
+
+-- ══ P2F.24 · …and the ticket bump serves it too; a HELD line in the same bump stays fired ════════
+do $$
+declare c uuid; a uuid; b uuid; h uuid; n integer; m integer;
+begin
+  c := pg_temp.p2f_counter('reg-P2F24BMP', 'Aye');
+  a := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', null);
+  b := pg_temp.p2f_line(c, 400, 1, 'togo', 'in_progress', null);
+  h := pg_temp.p2f_line(c, 300, 1, 'togo', 'fired', now() + interval '1 minute');
+  n := public.mms_bump_ticket(c, array[a, b, h]);
+  select count(*) into m from public.qr_cart_items
+    where id in (a, b) and state = 'served' and bumped_at is not null and started_at is not null;
+  assert n = 2 and m = 2, format('P2F.24 · a ticket bump serves the null-fire_at lines (n=%s, m=%s)', n, m);
+  select count(*) into m from public.qr_cart_items where id = h and state = 'fired';
+  assert m = 1, 'P2F.24 · a HELD line in the same bump is not served';
+end $$;
+
+-- ══ P2F.25 · the state stops being made: `mms_line_transition`'s draft→fired edge stamps fire_at =
+--    now() — over a stale deadline left by an earlier un-fire too — and no other edge touches it ═══
+do $$
+declare c uuid; a uuid; b uuid; p uuid; n integer; f timestamptz;
+begin
+  c := pg_temp.p2f_counter('reg-P2F25STP', 'Aye');
+  a := pg_temp.p2f_line(c, 500, 1, 'togo', 'draft', null);
+  b := pg_temp.p2f_line(c, 400, 1, 'togo', 'draft', now() - interval '1 hour');
+  p := pg_temp.p2f_line(c, 300, 1, 'togo', 'fired', now() - interval '5 minutes');
+  n := public.mms_line_transition(a, 'fired');
+  select fire_at into f from public.qr_cart_items where id = a;
+  assert n = 1 and f = now(), format('P2F.25 · draft→fired stamps fire_at = now() (n=%s, %s)', n, f);
+  n := public.mms_line_transition(b, 'fired');
+  select fire_at into f from public.qr_cart_items where id = b;
+  assert n = 1 and f = now(), format('P2F.25 · draft→fired replaces a stale fire_at (n=%s, %s)', n, f);
+  n := public.mms_line_transition(p, 'in_progress');
+  select fire_at into f from public.qr_cart_items where id = p;
+  assert n = 1 and f = now() - interval '5 minutes',
+    format('P2F.25 · a kitchen edge keeps the line''s own fire_at (n=%s, %s)', n, f);
+end $$;
+
 rollback;

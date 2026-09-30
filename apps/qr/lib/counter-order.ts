@@ -51,8 +51,9 @@ const SENT_STATES: ReadonlySet<string> = new Set(["fired", "in_progress", "serve
 
 /**
  * When a line reached (or reaches) the kitchen, in ms. A line whose `fire_at` column is NULL was fired
- * at or before now: `mms_line_transition`'s draft→fired edge stamps none, and the SQL twins (the no-show's sent
- * set, the sweeper) read a null as "already fired" — Phase 2f review M2, one reading everywhere. An
+ * at or before now: `mms_line_transition`'s draft→fired edge stamped none before the Phase 2f migration §6,
+ * and the SQL twins (the no-show's sent set, the sweeper, the kitchen's Start/Ready/bump) read a null as
+ * "already fired" — Phase 2f review M2, one reading everywhere. An
  * unparseable stamp (no Postgres writer produces one) is NaN, which no comparison admits.
  */
 export function lineFireMs(fireAt: string | null | undefined, nowMs: number): number {

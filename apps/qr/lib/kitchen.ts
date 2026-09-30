@@ -172,8 +172,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     )
     .in("state", ["fired", "in_progress"])
     // Phase 2f review M2 — a fired line with NO fire_at (`mms_line_transition`'s draft→fired edge
-    // stamps none) was fired at or before now: the no-show writes it off and Clear refuses over it,
-    // so the kitchen must see it too. It is bounded by the SAME day floor on its creation time, so
+    // stamped none before the Phase 2f migration §6) was fired at or before now: the no-show writes
+    // it off and Clear refuses over it, so the kitchen must see it too — and §6 lets Start/Ready and
+    // the ticket bump move it (Codex r1 on #308), so a shown ticket can always leave the queue. It is bounded by the SAME day floor on its creation time, so
     // an unstamped orphan can never creep back into the capped read (M180).
     .or(`fire_at.gte.${floorIso},and(fire_at.is.null,created_at.gte.${floorIso})`)
     .order("fire_at", { ascending: true })
