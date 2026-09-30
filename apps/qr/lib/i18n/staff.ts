@@ -3304,6 +3304,15 @@ export const STAFF = {
   // The pane's head once a read has settled with no name to give (a link to a session that no
   // longer exists, a first read that failed): neutral — never the loading skeleton. (K15 draft.)
   "floor.pane.head.unnamed": { en: "Table", my: "စားပွဲ" },
+  // ── Phase 2d · Codex round 1 · pane ──
+  // A card tap, ✕, Escape or Back while the reader is taking a card on the table shown: the pane
+  // stays (its poll keeps the payment's hold and records a counter order's #CODE), and says why in
+  // its one region. K15 draft. Words: ကတ်နဲ့ ငွေရှင်းတာ (settle.reader.startFailed's), အရင်
+  // "first" (shell.lock.err.noPin's), ပြီးအောင် "until done".
+  "floor.pane.payingHeld": {
+    en: "Finish the card payment first.",
+    my: "ကတ်နဲ့ ငွေရှင်းတာ အရင် ပြီးအောင် လုပ်ပါ။",
+  }, // K15-HIGH — misread, the cashier leaves a card payment mid-collect and it is never recorded
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3518,6 +3527,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── Phase 2d · review fixes ──
   "floor.pane.lostSettle",
   "floor.pane.lostSettleUnknown",
+  // ── Phase 2d · Codex round 1 · pane ──
+  "floor.pane.payingHeld",
 ]);
 
 /**

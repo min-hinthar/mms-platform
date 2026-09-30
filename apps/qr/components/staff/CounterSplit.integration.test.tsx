@@ -96,6 +96,7 @@ const { FloorBoard } = await import("./FloorBoard");
 const { DEFAULT_KDS_THRESHOLDS } = await import("@/lib/kds-urgency");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const terminal = await import("@/lib/terminal");
 
 const table = (sessionId: string, n: number, over: Partial<FloorTable> = {}): FloorTable => ({
   sessionId,
@@ -189,12 +190,12 @@ const detail = (sessionId: string, tableNumber: number) =>
 const detailOk = (d: TableDetail) => () => Promise.resolve({ kind: "detail" as const, detail: d });
 
 let split = true;
-function mountCounter() {
+function mountCounter(terminalReady = false) {
   return render(
     <StaffLangProvider lang="en">
       <LiveConnectionProvider>
         <CounterBellProvider>
-          <CounterSplit terminalReady={false}>
+          <CounterSplit terminalReady={terminalReady}>
             <CounterMintProvider>
               <div className="staff-zone">
                 <h2 id="start-h">Start</h2>
@@ -351,5 +352,61 @@ describe("the bell never rings over a covered counter column", () => {
     await tick(5000);
     // MUTATION: treat any open pane as covering the column — a tablet mutes the bell all shift; red.
     expect(playCounter).toHaveBeenCalledWith("guest");
+  });
+});
+
+// ── Phase 2d · Codex round 1 · pane ── the real floor's two ways in (a TableCard, wired by
+// FloorBoard, and an occupied strip tile, wired by TableStrip) are both refused while the reader
+// collects on the table shown: the panel's poll keeps the payment's hold and records its outcome.
+describe("a reader collection holds the pane on its table", () => {
+  afterEach(() => {
+    vi.mocked(terminal.settleCard).mockReset();
+    vi.mocked(terminal.terminalStatus).mockReset();
+  });
+  it("a floor card and a strip tile are both refused mid-collect; the pane says why", async () => {
+    answers[A] = detailOk({
+      ...detail(A, 4),
+      settleTotalCents: 1307,
+      settleTipBaseCents: 1200,
+    });
+    vi.mocked(terminal.settleCard).mockResolvedValueOnce({
+      ok: true,
+      paymentIntentId: "pi_4",
+      totalCents: 1307,
+    });
+    vi.mocked(terminal.terminalStatus).mockResolvedValue({ ok: true, state: "collecting" });
+    mountCounter(true);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(card(A));
+    });
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tick(0);
+    const panel = () =>
+      within(pane()).queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
+    expect(panel()).not.toBeNull();
+    const tile = floorSection().querySelector<HTMLAnchorElement>('[data-tile="7"]')!;
+    await act(async () => {
+      fireEvent.click(tile);
+    });
+    await tick(0);
+    // MUTATION: the pane admits the strip's tap mid-collect — the reader panel unmounts; red.
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(panel()).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(card(B));
+    });
+    await tick(0);
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(document.getElementById("table-pane-h")!.textContent).toBe(
+      tf("en", "floor.table", { id: "4" }),
+    );
+    expect(panel()).not.toBeNull();
+    expect(polite(pane())).toHaveLength(1);
+    expect(polite(pane())[0]!.textContent).toBe(ts("en", "floor.pane.payingHeld"));
   });
 });
