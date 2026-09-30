@@ -4071,8 +4071,8 @@ const MUTANTS = [
     file: "apps/qr/lib/authz.ts",
     suite: "lib/authz.test.ts",
     why: "M108 review — a column PostgREST was never asked for is simply absent from the row, so dropping `mode` from the select makes `sess.mode` undefined and collapses every fork to to-go, with the return statement still reading as correct",
-    find: '    .select("status,expires_at,mode")',
-    replace: '    .select("status,expires_at")',
+    find: '    .select("status,expires_at,mode,qr_code")',
+    replace: '    .select("status,expires_at,qr_code")',
   },
   {
     id: "authz/session-read-fails-open",
@@ -4082,9 +4082,9 @@ const MUTANTS = [
     // Anchored through the mode SELECT: `assertSessionMember` a few lines down carries a
     // byte-identical guard, so the bare line matches twice and the mutant reports STALE. Only
     // assertCartMember asks for `mode`.
-    find: '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (sessErr) throw UNAVAILABLE();',
+    find: '    .select("status,expires_at,mode,qr_code")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (sessErr) throw UNAVAILABLE();',
     replace:
-      '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (false) throw UNAVAILABLE();',
+      '    .select("status,expires_at,mode,qr_code")\n    .eq("id", cart.session_id)\n    .maybeSingle();\n  if (false) throw UNAVAILABLE();',
   },
   {
     id: "cart/add-mode-fork-collapses-to-togo",
@@ -11631,8 +11631,8 @@ const MUTANTS = [
     file: "apps/qr/lib/session-code.ts",
     suite: "lib/session-code.test.ts",
     why: "Codex r3 on #308 — a diner who JOINS an active reg- counter order can add a to-go draft after staff reviewed it, and the counter Send fires every draft to the kitchen unpaid",
-    find: '  return i.code.startsWith(REG_PREFIX) ? "join" : null;',
-    replace: "  return null;",
+    find: '  return "join";\n}',
+    replace: "  return null;\n}",
   },
   {
     id: "p2f-cx3-join/create-refusal-dropped",
@@ -11646,9 +11646,42 @@ const MUTANTS = [
     id: "p2f-cx3-join/kiosk-join-refused",
     file: "apps/qr/lib/session-code.ts",
     suite: "lib/session-code.test.ts",
-    why: "Codex r3 on #308 — only a reg- join is refused; a kiosk- session is pay-first and stays joinable, so over-blocking it is a regression, not extra safety",
-    find: '? "join" : null;',
-    replace: '? "join" : "join";',
+    why: "Self-review SEC-3 on #308 — re-aimed: this restores the OLD allow-kiosk join. A kiosk DINE-IN cart is fired by its host through mms_fire_cart before payment, and the kiosk device inserts its own membership, so no real client joins a kiosk code — the join is refused for every reserved prefix (fail closed)",
+    find: '  return "join";\n}',
+    replace: '  return i.code.startsWith(REG_PREFIX) ? "join" : null;\n}',
+  },
+  // ── Phase 2f · self-review SEC-1 — assertCartMember refuses a member of a reg- counter order ──
+  {
+    id: "p2f-sr-authz/reg-member-allowed",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "Self-review SEC-1 on #308 — /api/session refuses only NEW joins; a membership that already existed (or one the pre-fix route made between the migration apply and the deploy) would pass the member check and add a to-go draft the counter Send fires to the kitchen unpaid",
+    find: "  if (sess.qr_code.startsWith(REG_PREFIX))\n",
+    replace: "  if (false)\n",
+  },
+  {
+    id: "p2f-sr-authz/qr-code-not-selected",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "Self-review SEC-1 — the refusal reads the code off the SAME session row as the liveness check; a column PostgREST was never asked for is absent, so dropping it from the select must not leave the refusal reading as correct",
+    find: '    .select("status,expires_at,mode,qr_code")\n    .eq("id", cart.session_id)',
+    replace: '    .select("status,expires_at,mode")\n    .eq("id", cart.session_id)',
+  },
+  {
+    id: "p2f-sr-authz/every-session-refused",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "Self-review SEC-1 — the OVER-BLOCKING direction: the refusal is scoped by the reg- prefix; widened to every session it locks every diner out of their own table",
+    find: "  if (sess.qr_code.startsWith(REG_PREFIX))\n",
+    replace: "  if (sess.qr_code.length > 0)\n",
+  },
+  {
+    id: "p2f-sr-authz/kiosk-member-refused",
+    file: "apps/qr/lib/authz.ts",
+    suite: "lib/authz.test.ts",
+    why: "Self-review SEC-1 — a kiosk- session's member IS the kiosk device (lib/kiosk.ts inserts it) and every kiosk cart write authorizes here; refusing every reserved prefix would strand the kiosk",
+    find: "  if (sess.qr_code.startsWith(REG_PREFIX))\n",
+    replace: '  if (sess.qr_code.startsWith(REG_PREFIX) || sess.qr_code.startsWith("kiosk-"))\n',
   },
   {
     id: "p2f-cx3-join/ordinary-join-refused",

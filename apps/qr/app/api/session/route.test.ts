@@ -24,6 +24,9 @@ type Sess = {
   table_number: number | null;
 };
 
+/** The refused-join copy — true for a counter order AND a kiosk order, so it names neither. */
+const JOIN_REFUSED = "That order can’t be joined from a phone — please ask staff.";
+
 /** The active session `findActive` sees for the requested code (null = none). */
 let active: Sess | null = null;
 /** Every write the route issued, as `table:op`. */
@@ -110,7 +113,7 @@ describe("/api/session — reserved codes (Codex r3 on #308)", () => {
       const res = await POST(req({ qrCode: "reg-ABCD1234", mode }));
       expect(res.status).toBe(403);
       const body = (await res.json()) as { error: string; cartId?: string };
-      expect(body.error).toMatch(/counter order/);
+      expect(body.error).toBe(JOIN_REFUSED);
       expect(body.cartId).toBeUndefined();
     }
     // No expiry slide, no host claim, no membership row, no cart — the join touched nothing.
@@ -123,12 +126,22 @@ describe("/api/session — reserved codes (Codex r3 on #308)", () => {
     expect(writes).toEqual([]);
   });
 
-  it("still lets a device join an active kiosk- session", async () => {
-    active = sess("kiosk-ABCD1234", "pickup", SEAT);
-    const res = await POST(req({ qrCode: "kiosk-ABCD1234", mode: "pickup" }));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { cartId: string; role: string; joinCode: string };
-    expect(body).toMatchObject({ cartId: "cart-1", role: "host", joinCode: "kiosk-ABCD1234" });
+  it("refuses a JOIN to an active kiosk- session too, before any write — dine-in or pickup", async () => {
+    // A kiosk DINE-IN cart fires through `mms_fire_cart` before payment, and the kiosk device
+    // inserts its OWN membership (lib/kiosk.ts) — no real client joins a kiosk code here. Even a
+    // seat that is the session's host_seat gets no pass: the kiosk never reaches this route.
+    for (const [mode, host] of [
+      ["dinein", null],
+      ["pickup", SEAT],
+    ] as const) {
+      active = sess("kiosk-ABCD1234", mode, host);
+      const res = await POST(req({ qrCode: "kiosk-ABCD1234", mode }));
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string; cartId?: string };
+      expect(body.error).toBe(JOIN_REFUSED);
+      expect(body.cartId).toBeUndefined();
+    }
+    expect(writes).toEqual([]);
   });
 
   it("an ordinary dine-in sticker join is unaffected", async () => {
