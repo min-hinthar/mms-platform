@@ -845,6 +845,36 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
     expect(visible).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
   });
 
+  // Phase 2f review (M1, lib's `unpaidTruncated` — resolves at integration): the unpaid read hit
+  // its cap. The paid bags stay; the lane SAYS the unpaid list is partial, in its visible line and
+  // its announcement, and never reads as an all-clear.
+  it("a saturated unpaid read: the count line and the announcement say more are unpaid", () => {
+    const q: ExpoQueue & { unpaidTruncated?: boolean } = {
+      ...withBag(bag(), [ticket()]),
+      unpaidTruncated: true,
+    };
+    const { container } = mount("en", q);
+    const [announced, visible] = container.querySelectorAll(".expo-status");
+    expect(visible!.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    expect(announced!.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    cleanup();
+    const plain = mount("en", withBag(bag(), [ticket()]));
+    expect(plain.container.textContent).not.toContain(ts("en", "expo.count.unpaidMore"));
+  });
+
+  it("a saturated unpaid read with nothing drawable is never 'No bags waiting'", () => {
+    const q: ExpoQueue & { unpaidTruncated?: boolean } = {
+      tickets: [],
+      unpaid: [],
+      serverNow: NOW,
+      unpaidTruncated: true,
+    };
+    const { container } = mount("en", q);
+    expect(container.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    expect(container.textContent).not.toContain(ts("en", "expo.none"));
+    expect(container.textContent).not.toContain(ts("en", "expo.empty"));
+  });
+
   it("a kitchen-done unpaid bag sorts beside the paid bags (never a second list)", () => {
     const { container } = mount(
       "en",

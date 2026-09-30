@@ -1355,6 +1355,15 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     expect(filled()).toHaveLength(1);
   });
 
+  it("sent unpaid with a draft LEFT under a parked switch: the row names what is NOT sent", () => {
+    mountWith({ ...UNPAID_MORE, payAtPickup: false });
+    expect(sendSlot().querySelector("button")).toBeNull();
+    expect(sendSlot().textContent).toContain(
+      ts("en", "table.send.counterSent.partial.one").replace("{n}", "1"),
+    );
+    expect(sendSlot().textContent).not.toContain(ts("en", "table.send.counterSent"));
+  });
+
   it("while this device's undo window is open, NOTHING is filled", async () => {
     staffFireCart.mockResolvedValueOnce({
       ok: true,

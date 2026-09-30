@@ -72,7 +72,7 @@ import { Chrome } from "./Chrome";
 import { MsgText } from "./StaffMsg";
 import { PadTile } from "./PadTile";
 import { StaffTicket } from "./StaffTicket";
-import { StaffSendButton } from "./StaffSendButton";
+import { StaffSendButton, counterSentMsg } from "./StaffSendButton";
 import { StaffModSheet, type StaffSheetFailure } from "./StaffModSheet";
 import { useStaffSend } from "./useStaffSend";
 import { usePadDetailLive } from "./usePadDetailLive";
@@ -1006,7 +1006,13 @@ export function OrderPad({
               echo="stack"
             />
           ) : (
-            <Chrome lang={lang} k="table.send.counterSent" echo="stack" />
+            // Phase 2f review — names the drafts still unsent, never "sent" over them.
+            <Chrome
+              lang={lang}
+              k={counterSentMsg(detail.send.counterDraft).k}
+              vars={counterSentMsg(detail.send.counterDraft).vars}
+              echo="stack"
+            />
           )}
         </span>
       </p>

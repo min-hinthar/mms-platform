@@ -2,10 +2,30 @@
 import { useId } from "react";
 import { Button, Icon } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
-import { sendRefusalMsg, type StaffSendHold } from "@/lib/staff-send-view";
+import { sendRefusalMsg, type StaffKeyMsg, type StaffSendHold } from "@/lib/staff-send-view";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import type { StaffSendController } from "./useStaffSend";
+
+/**
+ * Phase 2f review — what the `counterSent` row SAYS. The view reads `counterSent` whenever food is
+ * past its grace and no counter Send is offered — which includes drafts LEFT while the pay-at-pickup
+ * switch parks new sends. Over those it must name what is not sent (they cook at payment again),
+ * never read as if the whole order were in the kitchen. `notSent` is the detail's own
+ * `send.counterDraft` — what the counter Send would fire.
+ */
+export function counterSentMsg(notSent: number): StaffKeyMsg {
+  if (notSent > 0)
+    return {
+      k: plural(
+        notSent,
+        "table.send.counterSent.partial.one",
+        "table.send.counterSent.partial.many",
+      ),
+      vars: { n: notSent },
+    };
+  return { k: "table.send.counterSent" };
+}
 
 /** The controller's STATE — its two refs arrive as their own props, so this view never reads a ref
  *  off an object during render (react-hooks/refs). */
@@ -36,6 +56,7 @@ export function StaffSendButton({
   hostName,
   bare = false,
   nameHref,
+  counterNotSent = 0,
 }: {
   lang: StaffLang;
   ctl: SendState;
@@ -53,6 +74,9 @@ export function StaffSendButton({
    *  pad's name field). Set, the no-name hint ends with an "Add a name →" link (`#send-name-link`,
    *  which the host focuses on a blocked tap); unset (the pad), the pad focuses its own field. */
   nameHref?: string;
+  /** ── Phase 2f review ── a counter order's unsent drafts (`detail.send.counterDraft`), which the
+   *  `counterSent` row names instead of reading as all sent (`counterSentMsg`). */
+  counterNotSent?: number;
 }) {
   const ids = useId();
   const { display, phase } = ctl;
@@ -82,8 +106,14 @@ export function StaffSendButton({
               />
             ) : (
               // Phase 2f — a counter order's food went to the kitchen UNPAID: the money is still to
-              // take at pickup (the view only says this past the grace — the kitchen really has it).
-              <Chrome lang={lang} k="table.send.counterSent" echo="stack" />
+              // take at pickup (the view only says this past the grace — the kitchen really has it),
+              // and what is NOT sent when drafts remain (`counterSentMsg`).
+              <Chrome
+                lang={lang}
+                k={counterSentMsg(counterNotSent).k}
+                vars={counterSentMsg(counterNotSent).vars}
+                echo="stack"
+              />
             )}
           </span>
         </div>

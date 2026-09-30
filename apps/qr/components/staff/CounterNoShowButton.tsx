@@ -30,9 +30,12 @@ import { useTableNav } from "./TableNav";
  *
  * WHAT IT CLAIMS, AND WHY THAT IS TRUE. The body's count is the units of `sentLineIds` — the server's
  * own SENT set (`counterSentLine` on the DB clock: fired / cooking / served, not grocery, not comped,
- * past its grace), which is exactly the set `mms_counter_no_show` writes off. Unsent drafts are named
- * separately and said to be dropped, not counted as a loss. It never says anything is charged or
- * refunded, because nothing is: the order is cancelled, the loss is audited, no money moves.
+ * past its grace), which is exactly the set `mms_counter_no_show` writes off. What it DROPS is named
+ * separately and said to be dropped, not counted as a loss — every line the server drops, an
+ * in-grace fired one included (`noShowDroppedUnits`). The sent set rides the write as
+ * `expectedLineIds`, so a set that moved under the sheet is refused (`changed`), never written off
+ * unseen. It never says anything is charged or refunded, because nothing is: the order is
+ * cancelled, the loss is audited, no money moves.
  *
  * The loss gate is SERVER-authoritative (the sent value against the ceiling, or anything cooked): the
  * first tap goes solo, and a `needs_pin` reveals the manager step-up (the loss sheet's two-pass
@@ -77,9 +80,41 @@ export function CounterNoShowButton({
   );
 }
 
+/**
+ * Every refusal the sheet can hear. `changed` (the cross-area decision): the sent set
+ * `mms_counter_no_show` derives under its lock differs from the one the sheet SHOWED
+ * (`expectedLineIds`), so it wrote nothing. The explicit member is a no-op once the lib union carries
+ * it (resolves at integration) — the switch below stays exhaustive either way.
+ */
+export type NoShowRefusal =
+  | Exclude<RecordCounterNoShowResult, { ok: true }>
+  | { ok: false; reason: "changed" };
+
+/**
+ * What the no-show DROPS — never counted as a loss, said beside it. The server takes the SENT set
+ * (`sentLineIds`); of the rest, a draft stays on the cancelled cart and an IN-GRACE fired line is
+ * reverted to draft (`mms_counter_no_show`'s last edge) — both dropped. So a line is dropped when it
+ * is food (not grocery), not in the sent set, and a draft or an uncomped fired line (a comped fired
+ * line outside the sent set is past its grace — the kitchen had it, and the comp already audited it).
+ */
+export function noShowDroppedUnits(
+  lines: ReadonlyArray<Pick<TableLineView, "id" | "qty" | "state" | "fulfillment" | "comped">>,
+  sentLineIds: ReadonlyArray<string>,
+): number {
+  const sent = new Set(sentLineIds);
+  return lines
+    .filter(
+      (l) =>
+        l.fulfillment !== "grocery" &&
+        !sent.has(l.id) &&
+        (l.state === "draft" || (l.state === "fired" && !l.comped)),
+    )
+    .reduce((a, l) => a + l.qty, 0);
+}
+
 /** Every refusal → its sentence (null only for a lockout: the countdown IS that sentence). */
 export function noShowRefusalMsg(
-  res: Exclude<RecordCounterNoShowResult, { ok: true }>,
+  res: NoShowRefusal,
   setLockLeft: (seconds: number) => void,
 ): StaffMsg | null {
   switch (res.reason) {
@@ -102,6 +137,8 @@ export function noShowRefusalMsg(
       return { k: "table.noshow.err.notCounter" };
     case "nothing_sent":
       return { k: "table.noshow.err.nothingSent" };
+    case "changed":
+      return { k: "table.noshow.err.changed" };
     case "outage":
       return STAFF_WRITE_OUTAGE;
     case "error":
@@ -152,13 +189,11 @@ function NoShowSheet({
     };
   }, []);
 
-  // The SENT lines — the server's set, never re-derived here — and the drafts it leaves behind.
+  // The SENT lines — the server's set, never re-derived here — and what it drops beside them.
   const sent = new Set(sentLineIds);
   const sentLines = lines.filter((l) => sent.has(l.id));
   const sentUnits = sentLines.reduce((a, l) => a + l.qty, 0);
-  const draftUnits = lines
-    .filter((l) => l.state === "draft" && l.fulfillment !== "grocery")
-    .reduce((a, l) => a + l.qty, 0);
+  const droppedUnits = noShowDroppedUnits(lines, sentLineIds);
   const name = customerName?.trim() ? customerName.trim() : null;
 
   const pinOk = pin.length >= 4 && pin.length <= 8;
@@ -174,8 +209,11 @@ function NoShowSheet({
     startTransition(async () => {
       let res: RecordCounterNoShowResult;
       try {
+        // `expectedLineIds` — the sent set this sheet SHOWS (the list above), so the write-off and any
+        // manager's approval cover exactly what was on screen; a moved set answers `changed`.
         res = await recordCounterNoShow({
           sessionId,
+          expectedLineIds: sentLineIds,
           ...(stepUp ? { approverStaffId, pin } : {}),
         });
       } catch {
@@ -229,16 +267,16 @@ function NoShowSheet({
             </li>
           ))}
         </ul>
-        {draftUnits > 0 && (
+        {droppedUnits > 0 && (
           <p style={note}>
             <Chrome
               lang={lang}
               k={plural(
-                draftUnits,
+                droppedUnits,
                 "table.noshow.body.drafts.one",
                 "table.noshow.body.drafts.many",
               )}
-              vars={{ n: draftUnits }}
+              vars={{ n: droppedUnits }}
               echo="stack"
             />
           </p>

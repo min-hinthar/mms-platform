@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableLineView } from "@/lib/floor-types";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
+import type { NoShowRefusal } from "./CounterNoShowButton";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 
@@ -14,7 +15,8 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
  * `recordCounterNoShow` (Area B, plan §5.3) is mocked with the planned union — a Server Action has
  * no business running in a component suite.
  */
-const record = vi.fn<(raw: unknown) => Promise<RecordCounterNoShowResult>>();
+// `| NoShowRefusal` — the `changed` refusal the lib union gains (resolves at integration; a no-op then).
+const record = vi.fn<(raw: unknown) => Promise<RecordCounterNoShowResult | NoShowRefusal>>();
 vi.mock("@/lib/voids", () => ({
   listApprovers: () =>
     Promise.resolve([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]),
@@ -30,7 +32,7 @@ vi.mock("@/lib/floor-pane", async (orig) => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
-const { CounterNoShowButton } = await import("./CounterNoShowButton");
+const { CounterNoShowButton, noShowDroppedUnits } = await import("./CounterNoShowButton");
 
 const line = (over: Partial<TableLineView>): TableLineView =>
   ({
@@ -112,10 +114,29 @@ describe("CounterNoShowButton — what it claims", () => {
       "2× Mohinga",
       "1× Tea leaf salad",
     ]);
-    // The unsent to-go draft is said separately, as dropped (grocery excluded).
+    // What the server DROPS is said separately, not counted as a loss: the unsent to-go draft (2)
+    // AND the in-grace fired line (4) — `mms_counter_no_show` reverts an in-grace line to draft and
+    // leaves it on the cancelled cart. Grocery never counts; a comped line past its grace was sent.
     expect(dialog().textContent).toContain(
-      STAFF["table.noshow.body.drafts.many"].en.replace("{n}", "2"),
+      STAFF["table.noshow.body.drafts.many"].en.replace("{n}", "6"),
     );
+  });
+
+  it("the dropped count is every line the server drops — and nothing the kitchen kept", () => {
+    const L = (id: string, state: string, qty: number, over: Partial<TableLineView> = {}) =>
+      line({ id, state: state as TableLineView["state"], qty, ...over });
+    // An in-grace fired line (not in the sent set) is dropped like a draft.
+    expect(noShowDroppedUnits([L("a", "fired", 3)], [])).toBe(3);
+    expect(noShowDroppedUnits([L("a", "draft", 2)], [])).toBe(2);
+    // A sent line is the LOSS, never also "dropped".
+    expect(noShowDroppedUnits([L("a", "fired", 3), L("b", "draft", 1)], ["a"])).toBe(1);
+    // Grocery never counts; a comped fired line outside the sent set is past its grace (kept).
+    expect(noShowDroppedUnits([L("g", "draft", 5, { fulfillment: "grocery" })], [])).toBe(0);
+    expect(noShowDroppedUnits([L("c", "fired", 1, { comped: true })], [])).toBe(0);
+    // Cooking / served / voided lines outside the sent set are not reverted by the RPC.
+    expect(
+      noShowDroppedUnits([L("p", "in_progress", 1), L("s", "served", 1), L("v", "voided", 1)], []),
+    ).toBe(0);
   });
 
   it("titles the order by its name, or anonymously", async () => {
@@ -146,7 +167,9 @@ describe("CounterNoShowButton — the write", () => {
     await act(async () => {});
     await submit();
     expect(record).toHaveBeenCalledTimes(1);
-    expect(record).toHaveBeenCalledWith({ sessionId: "s-1" });
+    // The sent set the sheet SHOWED rides the write: the RPC refuses ('changed') when its own
+    // derived set differs, so an approval can never cover lines nobody saw.
+    expect(record).toHaveBeenCalledWith({ sessionId: "s-1", expectedLineIds: SENT });
     expect(drop).toHaveBeenCalledWith("s-1");
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
@@ -170,7 +193,7 @@ describe("CounterNoShowButton — the write", () => {
     open();
     await act(async () => {});
     await submit();
-    expect(record).toHaveBeenLastCalledWith({ sessionId: "s-1" });
+    expect(record).toHaveBeenLastCalledWith({ sessionId: "s-1", expectedLineIds: SENT });
     expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
     expect(confirmBtn().textContent).toBe(STAFF["table.loss.confirmApproval.void"].en);
     expect(replace).not.toHaveBeenCalled();
@@ -185,6 +208,7 @@ describe("CounterNoShowButton — the write", () => {
     await submit();
     expect(record).toHaveBeenLastCalledWith({
       sessionId: "s-1",
+      expectedLineIds: SENT,
       approverStaffId: "m1",
       pin: "1234",
     });
@@ -203,7 +227,7 @@ describe("CounterNoShowButton — the write", () => {
 });
 
 describe("CounterNoShowButton — every refusal speaks, in the ONE region", () => {
-  const REFUSALS: Exclude<RecordCounterNoShowResult, { ok: true }>[] = [
+  const REFUSALS: NoShowRefusal[] = [
     { ok: false, reason: "needs_pin" },
     { ok: false, reason: "pin_wrong", attemptsRemaining: 2 },
     { ok: false, reason: "pin_locked", lockedUntil: new Date(Date.now() + 60_000).toISOString() },
@@ -214,13 +238,14 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
     { ok: false, reason: "not_counter" },
     { ok: false, reason: "in_flight" },
     { ok: false, reason: "nothing_sent" },
+    { ok: false, reason: "changed" },
     { ok: false, reason: "outage" },
     { ok: false, reason: "error" },
   ];
   // Every member of the union is listed above: a new server reason is a compile error in the sheet's
   // switch AND a missing row here.
   type Listed = (typeof REFUSALS)[number]["reason"];
-  const exhaustive: Record<Exclude<RecordCounterNoShowResult, { ok: true }>["reason"], true> = {
+  const exhaustive: Record<NoShowRefusal["reason"], true> = {
     needs_pin: true,
     pin_wrong: true,
     pin_locked: true,
@@ -231,6 +256,7 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
     not_counter: true,
     in_flight: true,
     nothing_sent: true,
+    changed: true,
     outage: true,
     error: true,
   } satisfies Record<Listed, true>;
@@ -253,6 +279,7 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
       ["not_open", "table.noshow.err.notOpen"],
       ["in_flight", "table.noshow.err.inFlight"],
       ["not_counter", "table.noshow.err.notCounter"],
+      ["changed", "table.noshow.err.changed"],
       ["error", "table.noshow.err.failed"],
     ] as const;
     for (const [reason, k] of cases) {
