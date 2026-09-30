@@ -12769,6 +12769,31 @@ const MUTANTS = [
     find: '        if (r.code === "keepName") {\n          say({ k: "browse.name.keep" });\n          setName(savedNameRef.current);\n          return false;\n        }\n',
     replace: "",
   },
+  // ── Phase 2f blind review · db — the no-show's expected set (the cross-area decision) ──
+  {
+    id: "p2f-rev-db/no-show-expected-set-optional",
+    file: "packages/db/src/schemas.ts",
+    suite: "lib/counter-no-show-input.test.ts",
+    why: "Phase 2f blind review — the no-show carries the SENT set the approver saw; an optional set lets a caller reach mms_counter_no_show with none, and the approval is no longer tied to anything the sheet showed",
+    find: "  expectedLineIds: z.array(uuid).max(200),",
+    replace: "  expectedLineIds: z.array(uuid).max(200).optional(),",
+  },
+  {
+    id: "p2f-rev-db/no-show-expected-set-unbounded",
+    file: "packages/db/src/schemas.ts",
+    suite: "lib/counter-no-show-input.test.ts",
+    why: "Phase 2f blind review — the expected set is a client array bound into a uuid[] RPC argument; unbounded, one POST carries an arbitrarily large array into the no-show's set comparison",
+    find: "  expectedLineIds: z.array(uuid).max(200),",
+    replace: "  expectedLineIds: z.array(uuid),",
+  },
+  {
+    id: "p2f-rev-db/no-show-expected-set-any-string",
+    file: "packages/db/src/schemas.ts",
+    suite: "lib/counter-no-show-input.test.ts",
+    why: "Phase 2f blind review — a non-uuid element reaches PostgREST's uuid[] cast and fails the whole call as an error instead of a named refusal",
+    find: "  expectedLineIds: z.array(uuid).max(200),",
+    replace: "  expectedLineIds: z.array(z.string()).max(200),",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

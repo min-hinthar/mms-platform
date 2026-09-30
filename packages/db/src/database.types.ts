@@ -1926,7 +1926,12 @@ export type Database = {
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
       mms_counter_no_show: {
-        Args: { p_approver?: string; p_cart_id: string; p_initiator: string }
+        Args: {
+          p_approver?: string
+          p_cart_id: string
+          p_expected_line_ids: string[]
+          p_initiator: string
+        }
         Returns: string
       }
       mms_dropped_snapshot: {
@@ -1949,6 +1954,7 @@ export type Database = {
         Args: { p_cart_id: string }
         Returns: {
           batch: string
+          closed: boolean
           fire_deadline: string
           fired: number
           named: boolean

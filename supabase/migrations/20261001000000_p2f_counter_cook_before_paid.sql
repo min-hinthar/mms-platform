@@ -24,13 +24,37 @@
 -- draft→fired edge has no mode guard — `bumpLineInput.to` (`z.enum(["in_progress","served"])`) is
 -- what keeps that edge unreachable. Filed (OPEN-ITEMS, beside M107); not changed here.
 --
--- ## Lock order (all four new functions)
--- The qr_carts row FOR UPDATE first, then mms_approvals (no-show only), then qr_cart_items — the
--- order `mms_merge_table_orders` and every settlement already take (cart → approvals → lines), and
--- compatible with `mms_resolve_approval` (approvals → line) and `mms_void_line` (line only). Under
--- READ COMMITTED each statement after the lock sees the committed row, so a name clear, a fire, a
--- no-show and a settle claim on one cart are totally ordered by the cart row.
+-- ## Lock order, and what is PROVEN about it (the Phase 2f blind review corrected an overstatement)
+-- Every function below that takes a lock takes the qr_carts row FOR UPDATE first; then the fire takes
+-- the table_sessions row FOR SHARE, the no-show takes pending mms_approvals then qr_cart_items, and
+-- the sweeper takes the expired table_sessions rows it may close (FOR NO KEY UPDATE SKIP LOCKED) —
+-- cart → session everywhere, compatible with `mms_merge_table_orders` (cart → approvals → lines),
+-- `mms_resolve_approval` (approvals → line) and `mms_void_line` (line only).
+-- Two-session PROOF exists for exactly two pairs, in scripts/verify-counter-fire-race.mjs (both
+-- orders each, with the locks deleted as mutants): the fire against the name clear, and the fire
+-- against the sweeper. The fire/undo/no-show/settle orderings on one cart rest on the same cart-row
+-- lock by construction and are pinned single-session only (P2F.15e, P2F.18); the no-show's
+-- approvals-before-lines order and the undo's cart lock are documented survivors in
+-- scripts/verify-mode-authority.mjs with no two-session harness (filed). `clearTable`'s counter
+-- refusal is a TypeScript pre-read, NOT under this lock (stated in lib/floor.ts).
 --
+-- ## No freeze guard on the counter fire and undo — deliberately
+-- Neither refuses a live pay lock or settle freeze. Moving a line between draft and fired changes no
+-- amount (the settle charges every non-voided, non-comped line either way, and
+-- `mms_fire_pending_food` fires what is still draft once paid), and a counter order may cook unpaid
+-- by design, so a fire racing a settle is benign. The staff action refuses `paying` from its own
+-- pre-read for honest copy; the SQL decides only what moves. `mms_counter_no_show`, which DOES write
+-- money state, refuses a fresh freeze and a fresh pay lock in its statement (P2F.15e, P2F.15i).
+--
+-- ## SENT — one base definition, one refinement
+-- SENT = state in ('fired','in_progress','served') ∧ fulfillment <> 'grocery' ∧ not comped. A fired
+-- line with a NULL fire_at is SENT (`mms_line_transition` can put a line in `fired` without a
+-- deadline; the KDS shows it, so it counts as fired at or before now). The sweeper exempts a session
+-- holding ANY SENT line (in-grace included — it will reach the KDS within seconds). The no-show writes
+-- off SENT lines PAST their grace (`fire_at is null or fire_at <= now()`); an in-grace line is still
+-- the sender's to undo, and the no-show returns it to draft. So every exempt session has an exit: a
+-- settle, or a no-show that is never 'nothing_sent' once the grace has run.
+
 -- ## M171
 -- The sweeper restatement exempts a SENT, UNPAID counter order only; the dine-in half of M171 (a
 -- 4h-expired dine-in session orphaning fired food) is unchanged and still open.
@@ -56,24 +80,51 @@ begin
 end $$;
 
 -- ── 1. the staff-only unpaid fire ────────────────────────────────────────────────────────────────
--- One guarded UPDATE: open cart, active session, a counter order, a non-blank name (decision 7c —
--- the name is the only pre-payment identity), draft to-go lines only (grocery never fires; a dine-in
--- tagged line on a counter cart is not this send's). The same 10s grace and batch as `mms_fire_cart`,
--- so 2a's undo, grace and stash work unchanged. `named` is INFORMATIONAL (the app names the refusal
--- 'noName' when fired = 0); the name GUARD is the UPDATE's own conjunct.
+-- One guarded UPDATE: open cart, active and UNEXPIRED session, a counter order, a non-blank name
+-- (decision 7c — the name is the only pre-payment identity), draft to-go lines only (grocery never
+-- fires; a dine-in tagged line on a counter cart is not this send's). The same 10s grace and batch
+-- as `mms_fire_cart`, so 2a's undo, grace and stash work unchanged. `named` and `closed` are
+-- INFORMATIONAL (the app names the refusal: 'closed' when the order is no longer live, 'noName' when
+-- it is live but nameless); the GUARDS are the UPDATE's own conjuncts.
+--
+-- The session row is locked FOR SHARE after the cart (Phase 2f blind review, C1): the sweeper closes
+-- a session under a row lock and decides its exemption only AFTER holding it, so a Send and the cron
+-- sweep on one order are ordered by that row — a sweep that won first leaves this fire reading a
+-- closed session (fired = 0, closed = true); a fire that won first makes the sweep skip the row, and
+-- its committed lines exempt the session on every later sweep. `expires_at > now()` refuses the send
+-- on an expired session the sweeper has not reached yet.
+-- A return shape change (Phase 2f review: `closed`) needs a DROP — `create or replace` cannot change
+-- OUT columns. Guarded so a second apply is a no-op; grants are restated below.
+do $$
+begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname = 'public' and p.proname = 'mms_fire_counter_cart'
+                and pg_get_function_result(p.oid) not like '%closed boolean%') then
+    drop function public.mms_fire_counter_cart(uuid);
+  end if;
+end $$;
 create or replace function public.mms_fire_counter_cart(p_cart_id uuid)
-  returns table(fired integer, batch uuid, fire_deadline timestamptz, named boolean)
+  returns table(fired integer, batch uuid, fire_deadline timestamptz, named boolean, closed boolean)
   language plpgsql set search_path = '' as $$
 declare
   n integer;
   v_batch uuid := gen_random_uuid();
   v_deadline timestamptz := now() + interval '10 seconds';
   v_named boolean;
+  v_session uuid;
+  v_cart_open boolean;
+  v_live boolean;
 begin
   -- The cart row first: serializes with mms_clear_cart_name, mms_counter_no_show and a settle claim.
-  select nullif(btrim(c.customer_name), '') is not null into v_named
+  select nullif(btrim(c.customer_name), '') is not null, c.session_id, c.status = 'open'
+    into v_named, v_session, v_cart_open
     from public.qr_carts c where c.id = p_cart_id
     for update;
+  -- Then the session row: serializes with the sweeper (C1). Read AFTER the lock, so a sweep that
+  -- committed while this waited is what `v_live` sees.
+  select s.status = 'active' and s.expires_at > now() into v_live
+    from public.table_sessions s where s.id = v_session
+    for share;
   update public.qr_cart_items ci
     set state = 'fired', fire_at = v_deadline, fire_batch = v_batch
     from public.qr_carts c
@@ -83,12 +134,14 @@ begin
       and c.status = 'open'
       and nullif(btrim(c.customer_name), '') is not null
       and s.status = 'active'
+      and s.expires_at > now()
       and s.mode = 'pickup'
       and s.qr_code like 'reg-%'
       and ci.state = 'draft'
       and ci.fulfillment = 'togo';
   get diagnostics n = row_count;
-  return query select n, v_batch, v_deadline, coalesce(v_named, false);
+  return query select n, v_batch, v_deadline, coalesce(v_named, false),
+                      not (coalesce(v_cart_open, false) and coalesce(v_live, false));
 end $$;
 revoke all on function public.mms_fire_counter_cart(uuid) from public, anon, authenticated;
 grant execute on function public.mms_fire_counter_cart(uuid) to service_role;
@@ -145,18 +198,28 @@ revoke all on function public.mms_clear_cart_name(uuid) from public, anon, authe
 grant execute on function public.mms_clear_cart_name(uuid) to service_role;
 
 -- ── 4. a no-show — write off only what the kitchen got, invent no money (decision 7b) ──────────
--- SENT, named once (the SQL twin of `counterSentLine`): fired / in progress / served, not grocery,
--- not comped (a comp is already an audited loss), and PAST its grace (`fire_at <= now()` — an
--- in-grace line never reached the KDS). The loss gate is `mms_void_line`'s rule applied to the SENT
--- total: a manager when any sent dish was started or served, or the sent value exceeds
--- `mms_loss_config.max_loss_cents`. Drafts and grocery are left on the cancelled cart with NO row
--- (Clear's precedent) and never count toward the ceiling. In-grace fired lines return to draft (the
--- undo's own edge), so nothing sits `fired` unaudited. No qr_orders row, no charge, no refund.
+-- SENT past its grace (the header's definition; the SQL twin of `counterSentLine`): fired / in
+-- progress / served, not grocery, not comped (a comp is already an audited loss), and `fire_at` null
+-- or at/before now() — an in-grace line never reached the KDS. The loss gate is `mms_void_line`'s rule
+-- applied to the SENT total: a manager when any sent dish was started or served, or the sent value
+-- exceeds `mms_loss_config.max_loss_cents`. Drafts and grocery are left on the cancelled cart with NO
+-- row (Clear's precedent) and never count toward the ceiling. In-grace fired lines return to draft
+-- (the undo's own edge), so nothing sits `fired` unaudited. No qr_orders row, no charge, no refund.
+--
+-- `p_expected_line_ids` is the SENT set the staff member (and the approving manager) SAW on the
+-- sheet. The function derives its own under the locks and refuses 'changed' — writing nothing — when
+-- the two differ as SETS (order and duplicates ignored; NULL or a NULL element never matches), so an
+-- approval can never land on a write-off larger, smaller or different from the one approved.
+-- Split shares: a counter cart cannot carry qr_cart_shares (openSettlement refuses a non-dine-in
+-- session, lib/split.ts), so the freeze literals below are the whole in-flight test here.
 -- Returns 'ok' | 'not_found' | 'not_counter' | 'not_open' | 'in_flight' | 'nothing_sent' |
--- 'needs_approval' | 'self_approve' | 'bad_approver'. Every refusal returns BEFORE any write.
+-- 'changed' | 'needs_approval' | 'self_approve' | 'bad_approver'. Every refusal returns BEFORE any
+-- write. The pre-review signature (uuid, uuid, uuid) is dropped: one overload, one shape.
+drop function if exists public.mms_counter_no_show(uuid, uuid, uuid);
 create or replace function public.mms_counter_no_show(
   p_cart_id uuid,
   p_initiator uuid,
+  p_expected_line_ids uuid[],
   p_approver uuid default null
 ) returns text
   language plpgsql set search_path = '' as $$
@@ -185,15 +248,18 @@ begin
     where cart_id = p_cart_id and status = 'pending'
     for update;
   perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;
-  select array_agg(ci.id) into v_sent
+  select array_agg(ci.id order by ci.id) into v_sent
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id
       and ci.state in ('fired', 'in_progress', 'served')
       and ci.fulfillment <> 'grocery'
       and not ci.comped
-      and ci.fire_at is not null
-      and ci.fire_at <= now();
+      and (ci.fire_at is null or ci.fire_at <= now());
   if v_sent is null then return 'nothing_sent'; end if;
+  if (select array_agg(distinct e order by e) from unnest(p_expected_line_ids) e)
+       is distinct from v_sent then
+    return 'changed';
+  end if;
   select sum(ci.unit_price_cents * ci.qty), bool_or(ci.state in ('in_progress', 'served'))
     into v_loss, v_cooked
     from public.qr_cart_items ci where ci.id = any(v_sent);
@@ -226,27 +292,46 @@ begin
   update public.table_sessions set status = 'closed' where id = v_session and status = 'active';
   return 'ok';
 end $$;
-revoke all on function public.mms_counter_no_show(uuid, uuid, uuid) from public, anon, authenticated;
-grant execute on function public.mms_counter_no_show(uuid, uuid, uuid) to service_role;
+revoke all on function public.mms_counter_no_show(uuid, uuid, uuid[], uuid) from public, anon, authenticated;
+grant execute on function public.mms_counter_no_show(uuid, uuid, uuid[], uuid) to service_role;
 
 -- ── 5. the sweeper: a sent, unpaid counter order is never swept ─────────────────────────────────
--- Restated from 20260621000000_abuse_limits.sql. The ONLY change is the `and not (…)` conjunct: a
--- `reg-` session whose OPEN cart holds a fired / in-progress / served line stays active past its
--- expiry — otherwise the KDS drops a ticket mid-cook, the floor and the lane lose it, and Settle,
--- No-show and Clear all become unreachable over an open cart with food on it (the M171 shape). Such
--- an order stays flagged on the floor and the lane until it is paid or written off. The deletes,
--- SECURITY DEFINER, search_path, grants and the pg_cron job (which calls this by name) are unchanged.
+-- Restated from 20260621000000_abuse_limits.sql. A `reg-` session whose OPEN cart holds a SENT line
+-- (the header's definition, in-grace included) stays active past its expiry — otherwise the KDS
+-- drops a ticket mid-cook, the floor and the lane lose it, and Settle, No-show and Clear all become
+-- unreachable over an open cart with food on it (the M171 shape). Such an order stays flagged on the
+-- floor and the lane until it is paid or written off.
+--
+-- TWO statements, on purpose (Phase 2f blind review, C1): the candidates are LOCKED first, and the
+-- exemption is decided by a SECOND statement — a fresh READ COMMITTED snapshot taken while holding
+-- them. In one UPDATE the exemption's EXISTS is read from the statement's snapshot, and a row that
+-- was merely share-locked (not updated) by a concurrent Send is not re-checked when the lock frees, so
+-- a Send committing between the read and the write would leave fired food on a closed session.
+-- The second statement does not restate `status = 'active' and expires_at <= now()`: a row this
+-- transaction holds cannot change under it, and the lock re-checked both against the newest version.
+-- SKIP LOCKED: a session a Send holds right now is left for the next run (its fired lines then
+-- exempt it) — the cron never waits on a Send. FOR NO KEY UPDATE, not FOR UPDATE: a foreign-key check
+-- (a cart insert) takes KEY SHARE, which must not make the sweep skip a row. `order by` keeps two
+-- overlapping sweeps from deadlocking. The deletes, SECURITY DEFINER, search_path, grants and the
+-- pg_cron job (which calls this by name) are unchanged.
 create or replace function public.mms_sweep_expired_sessions() returns integer
 language plpgsql volatile security definer set search_path = '' as $$
-declare v_closed integer;
+declare v_closed integer; v_ids uuid[];
 begin
+  select array_agg(x.id) into v_ids from (
+    select s.id from public.table_sessions s
+     where s.status = 'active' and s.expires_at <= now()
+     order by s.id
+     for no key update skip locked) x;
   update public.table_sessions s set status = 'closed'
-    where s.status = 'active' and s.expires_at <= now()
+    where s.id = any(v_ids)
       and not (s.mode = 'pickup' and s.qr_code like 'reg-%' and exists (
             select 1 from public.qr_carts c
               join public.qr_cart_items ci on ci.cart_id = c.id
              where c.session_id = s.id and c.status = 'open'
-               and ci.state in ('fired', 'in_progress', 'served')));
+               and ci.state in ('fired', 'in_progress', 'served')
+               and ci.fulfillment <> 'grocery'
+               and not ci.comped));
   get diagnostics v_closed = row_count;
   delete from public.rate_events     where created_at  < now() - interval '1 day';
   delete from public.promo_attempts  where attempted_at < now() - interval '1 day';
