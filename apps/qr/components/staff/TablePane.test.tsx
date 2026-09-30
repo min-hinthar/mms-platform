@@ -128,6 +128,14 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     hostPresent: true,
     send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
     serverNow: NOW,
+    // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
+    counterOrder: false,
+    counterArm: null,
+    customerName: null,
+    unpaidSent: false,
+    sentLineIds: [],
+    payAtPickup: true,
+    mergeable: true,
     ...over,
   }) as TableDetail;
 const ok = (d: TableDetail) => () => Promise.resolve({ kind: "detail" as const, detail: d });
@@ -617,6 +625,7 @@ describe("TablePane — the paid card follows its table", () => {
   it("a settle that lands AFTER the pane moved on still leaves the card for its table", async () => {
     const counterA = detail(A, 4, {
       label: "reg-7f3a",
+      counterOrder: true,
       tableNumber: null,
       settleTotalCents: 4210,
       settleTipBaseCents: 4000,
@@ -1684,7 +1693,7 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
   });
 
   it("charged but not yet recorded still holds; the counter's #CODE card lands, and then a tap switches", async () => {
-    await collectingOn4({ label: "reg-7f3a", tableNumber: null });
+    await collectingOn4({ label: "reg-7f3a", tableNumber: null, counterOrder: true });
     // The charge went through; the webhook has not recorded the order yet.
     terminalStatus.mockResolvedValue({
       ok: true,

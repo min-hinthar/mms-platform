@@ -14306,3 +14306,23 @@ a.aisle-tile {
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
+/* A counter order's name leads the table page's chip row — the handle the kitchen and the lane call
+   it by. Heading size and weight from the scale; it wraps before it truncates (a name is the whole
+   identity of an unpaid bag). */
+.table-detail-name {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  overflow-wrap: anywhere;
+}
+/* The paid card's "went to the kitchen before they paid" line and its lane link (a counter order
+   sent unpaid): full width under the #CODE call-out on the two-column tablet layout. */
+.staff-handoff-early {
+  display: grid;
+  gap: var(--s2);
+}
+@media (min-width: 40em) {
+  .staff-handoff-counter .staff-handoff-early {
+    grid-column: 1 / -1;
+  }
+}

@@ -27,6 +27,9 @@ export function ClearTableButton({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Phase 2f — a counter order whose food reached the kitchen unpaid is refused by code (`sent`):
+  // the page's own sentence, which names the way out ("They didn't come"), not the server's English.
+  const [sentRefused, setSentRefused] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -43,11 +46,13 @@ export function ClearTableButton({
   async function confirm() {
     setBusy(true);
     setError(null);
+    setSentRefused(false);
     const res = await clearTable({ sessionId });
     if (!res.ok) {
       setBusy(false);
       setConfirming(false);
       setError(res.error);
+      setSentRefused(res.code === "sent");
       return;
     }
     // Session closed — return to the floor (this detail is now defunct). Phase 2a · tablet: the
@@ -113,7 +118,11 @@ export function ClearTableButton({
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
       {error && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
-          <OutageText lang={lang} error={error} />
+          {sentRefused ? (
+            <Chrome lang={lang} k="settle.clear.counterSent" echo="stack" />
+          ) : (
+            <OutageText lang={lang} error={error} />
+          )}
         </p>
       )}
     </div>

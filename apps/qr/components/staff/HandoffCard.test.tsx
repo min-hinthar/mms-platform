@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import type { Handoff } from "@/lib/register-ui";
@@ -10,6 +10,13 @@ import type { Handoff } from "@/lib/register-ui";
  * NAMED REGION that is focused, never a `role="status"`: the name carries the facts (Paid · Change ·
  * #CODE), so focus speaks them once.
  */
+// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands: `laneHref` (plan §5.4) is B's export in
+// staff-more.ts; the PLANNED rule is layered over the real module until then.
+vi.mock("@/lib/staff-more", async (orig) => ({
+  ...(await orig<typeof import("@/lib/staff-more")>()),
+  laneHref: (inPane: boolean) => (inPane ? "#expo-h" : "/staff?floor=1#expo-h"),
+}));
+
 const { HandoffCard } = await import("./HandoffCard");
 const { StaffLangProvider } = await import("./StaffLangProvider");
 
@@ -108,5 +115,40 @@ describe("HandoffCard — the paid moment", () => {
     show({ ...COUNTER, tenderedCents: null });
     expect(screen.getByRole("region", { name: /Paid.*\$13\.47.*#A1B2C3/ })).toBeTruthy();
     expect(document.querySelectorAll("dt")).toHaveLength(1);
+  });
+});
+
+describe("HandoffCard — Phase 2f · food sent before it was paid", () => {
+  it("names the early send in the card's NAME, and links to the lane (the page's zone; the pane's hash)", () => {
+    show({ ...COUNTER, sentEarly: true });
+    const card = screen.getByRole("region", {
+      name: new RegExp(`#A1B2C3.*${STAFF["table.detail.handoff.sentEarly"].en.slice(0, 20)}`),
+    });
+    const line = document.getElementById("handoff-sent-early")!;
+    expect(line.textContent).toBe(STAFF["table.detail.handoff.sentEarly"].en);
+    const lane = within(card).getByRole("link", { name: STAFF["expo.title"].en });
+    expect(lane.getAttribute("href")).toBe("/staff?floor=1#expo-h");
+    expect(lane.className).toContain("ui-btn-secondary");
+    // Never "ready": the lane says that (owner 7d).
+    expect(line.closest(".staff-handoff-early")!.textContent).not.toMatch(/ready/i);
+    cleanup();
+    render(
+      <StaffLangProvider lang="en">
+        <HandoffCard lang="en" handoff={{ ...COUNTER, sentEarly: true }} onDone={() => {}} />
+      </StaffLangProvider>,
+    );
+    expect(screen.getByRole("link", { name: STAFF["expo.title"].en }).getAttribute("href")).toBe(
+      "#expo-h",
+    );
+  });
+
+  it("without the flag — and on a table's card, ever — no line and no lane link", () => {
+    show(COUNTER);
+    expect(document.getElementById("handoff-sent-early")).toBeNull();
+    expect(screen.queryByRole("link", { name: STAFF["expo.title"].en })).toBeNull();
+    cleanup();
+    show({ ...COUNTER, isCounter: false, sentEarly: true });
+    expect(document.getElementById("handoff-sent-early")).toBeNull();
+    expect(screen.queryByRole("link", { name: STAFF["expo.title"].en })).toBeNull();
   });
 });
