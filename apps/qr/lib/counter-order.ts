@@ -179,6 +179,25 @@ export function mergeCounterRefusal(i: {
   return null;
 }
 
+/**
+ * The SAME refusal, decided by `mms_merge_table_orders` itself under its cart and line locks (Codex r3
+ * on #308): `mergeCounterRefusal` reads the lines BEFORE the RPC, so a Send committing in between was
+ * re-parented onto a table's cart. The RPC answers a refusal as a negative count — -2 the target is a
+ * counter order, -1 the counter source holds SENT food — and writes nothing. Any other value is a count.
+ */
+export function mergeRpcCounterRefusal(moved: number): "sent" | "target" | null {
+  if (moved === -2) return "target";
+  if (moved === -1) return "sent";
+  return null;
+}
+
+/** The one sentence per merge refusal — the pre-check and the RPC's answer read it from here. */
+export function mergeCounterRefusalMessage(r: "sent" | "target"): string {
+  return r === "target"
+    ? "You can’t merge into a counter order."
+    : "A counter order that’s in the kitchen can’t be merged.";
+}
+
 // ── the table page's one primary ─────────────────────────────────────────────────────────────────
 
 /**

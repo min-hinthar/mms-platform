@@ -8,6 +8,8 @@ import {
   isCounterOrder,
   kdsLineGate,
   mergeCounterRefusal,
+  mergeCounterRefusalMessage,
+  mergeRpcCounterRefusal,
   noShowOutcome,
   unpaidBag,
   type CounterLine,
@@ -288,6 +290,27 @@ describe("mergeCounterRefusal", () => {
     expect(
       mergeCounterRefusal({ src: table, tgt: { counterOrder: false }, nowMs: NOW }),
     ).toBeNull();
+  });
+});
+
+describe("mergeRpcCounterRefusal — the RPC's own refusal (Codex r3 on #308)", () => {
+  it("-1 is the sent source, -2 the counter target; every other value is a count", () => {
+    // p2f-cx3-sql/rpc-sent-unmapped · p2f-cx3-sql/rpc-target-unmapped
+    expect(mergeRpcCounterRefusal(-1)).toBe("sent");
+    expect(mergeRpcCounterRefusal(-2)).toBe("target");
+    // p2f-cx3-sql/rpc-count-read-as-refusal
+    expect(mergeRpcCounterRefusal(0)).toBeNull();
+    expect(mergeRpcCounterRefusal(1)).toBeNull();
+    expect(mergeRpcCounterRefusal(2)).toBeNull();
+    expect(mergeRpcCounterRefusal(-3)).toBeNull();
+  });
+
+  it("one sentence per refusal, shared by the pre-check and the RPC's answer", () => {
+    // p2f-cx3-sql/refusal-copy-swapped
+    expect(mergeCounterRefusalMessage("target")).toBe("You can’t merge into a counter order.");
+    expect(mergeCounterRefusalMessage("sent")).toBe(
+      "A counter order that’s in the kitchen can’t be merged.",
+    );
   });
 });
 

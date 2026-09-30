@@ -706,4 +706,162 @@ begin
     'P2F.27 · service_role executes mms_clear_counter_cart (the legit half)';
 end $$;
 
+-- ══ P2F.28 · merging a counter order (Codex r3 on #308): `mms_merge_table_orders` itself refuses a
+--    counter TARGET (-2) and a counter SOURCE holding SENT food (-1), writing nothing — the rule no
+--    longer rests on `mergeTables`' earlier read. Everything the kitchen never got merges as before ═══
+do $$
+declare s uuid; t uuid; l uuid; ap uuid; v integer; st text; ss text; lc uuid; aps text; tn integer;
+begin
+  -- a sent line past its grace on the counter source: refused, nothing moved, nothing superseded
+  s := pg_temp.p2f_counter('reg-P2F28SNT', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK1', 'Bo');
+  l := pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  ap := pg_temp.p2f_line(s, 2500, 1, 'togo', 'draft');
+  -- a pending S2.4 request on the counter source, written directly (not through the RPC P2F.29 pins)
+  insert into public.mms_approvals (kind, status, cart_id, line_id, amount_cents, reason_code, initiator_staff_id)
+    values ('void', 'pending', s, ap, 2500, 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  v := public.mms_merge_table_orders(s, t);
+  select c.status, se.status into st, ss
+    from public.qr_carts c join public.table_sessions se on se.id = c.session_id where c.id = s;
+  select cart_id into lc from public.qr_cart_items where id = l;
+  select status into aps from public.mms_approvals where line_id = ap;
+  select count(*) into tn from public.qr_cart_items where cart_id = t;
+  assert v = -1, format('P2F.28a · a counter source with sent food refuses the merge (-1) (%s)', v);
+  assert st = 'open' and ss = 'active' and lc = s and tn = 0 and aps = 'pending',
+    format('P2F.28a · the refusal writes nothing (cart %s, session %s, line on source %s, target lines %s, request %s)',
+           st, ss, lc = s, tn, aps);
+  -- a served dish, and a fired line with NO fire_at, are sent too
+  s := pg_temp.p2f_counter('reg-P2F28CKD', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK2', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'served', now() - interval '1 minute');
+  v := public.mms_merge_table_orders(s, t);
+  assert v = -1, format('P2F.28b · a served dish on the counter source refuses (%s)', v);
+  s := pg_temp.p2f_counter('reg-P2F28NUL', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK3', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', null);
+  v := public.mms_merge_table_orders(s, t);
+  assert v = -1, format('P2F.28c · a null-fire_at fired line on the counter source refuses (%s)', v);
+end $$;
+
+do $$
+declare s uuid; t uuid; v integer; st text; tn integer;
+begin
+  -- a counter TARGET: refused even when the source is a plain pickup with nothing sent
+  s := pg_temp.p2f_counter('P2F28-PK4', 'Bo');
+  t := pg_temp.p2f_counter('reg-P2F28TGT', 'Aye');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'draft');
+  v := public.mms_merge_table_orders(s, t);
+  select status into st from public.qr_carts where id = s;
+  select count(*) into tn from public.qr_cart_items where cart_id = t;
+  assert v = -2 and st = 'open' and tn = 0,
+    format('P2F.28d · a counter target refuses the merge (-2), nothing moved (%s, %s, %s)', v, st, tn);
+end $$;
+
+do $$
+declare s uuid; t uuid; v integer; st text; tn integer;
+begin
+  -- an in-grace fired line only: it never reached the KDS — merges
+  s := pg_temp.p2f_counter('reg-P2F28GRC', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK5', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() + interval '5 seconds');
+  v := public.mms_merge_table_orders(s, t);
+  select status into st from public.qr_carts where id = s;
+  assert v = 1 and st = 'cancelled', format('P2F.28e · an in-grace line merges (%s, %s)', v, st);
+  -- drafts only
+  s := pg_temp.p2f_counter('reg-P2F28DRF', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK6', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 2, 'togo', 'draft');
+  v := public.mms_merge_table_orders(s, t);
+  select count(*) into tn from public.qr_cart_items where cart_id = t;
+  assert v = 2 and tn = 1, format('P2F.28f · a drafts-only counter order merges (%s, %s)', v, tn);
+  -- a comped sent line: its loss is already audited, and the merge never moves it
+  s := pg_temp.p2f_counter('reg-P2F28CMP', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK7', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() - interval '1 minute', true);
+  v := public.mms_merge_table_orders(s, t);
+  select status into st from public.qr_carts where id = s;
+  assert v = 0 and st = 'cancelled', format('P2F.28g · a comped sent line does not block the merge (%s, %s)', v, st);
+  -- grocery past its "grace": never kitchen food
+  s := pg_temp.p2f_counter('reg-P2F28GRO', 'Aye');
+  t := pg_temp.p2f_counter('P2F28-PK8', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'grocery', 'fired', now() - interval '1 minute');
+  v := public.mms_merge_table_orders(s, t);
+  assert v = 1, format('P2F.28h · a grocery line does not block the merge (%s)', v);
+end $$;
+
+do $$
+declare s uuid; t uuid; v integer;
+begin
+  -- not a counter order: a diner's pickup with sent food merges (a TABLE's merge moves fired food —
+  -- the counter rule is a counter rule)
+  s := pg_temp.p2f_counter('P2F28-PK9', 'Bo');
+  t := pg_temp.p2f_counter('P2F28-PKA', 'Bo');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  v := public.mms_merge_table_orders(s, t);
+  assert v = 1, format('P2F.28i · a non-reg- pickup with sent food merges (%s)', v);
+  -- the mode term: a reg- code on a scan-and-go session is not a counter order, either side
+  s := pg_temp.p2f_counter('reg-P2F28SC1', 'Bo', 'scango');
+  t := pg_temp.p2f_counter('reg-P2F28SC2', 'Bo', 'scango');
+  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  v := public.mms_merge_table_orders(s, t);
+  assert v = 1, format('P2F.28j · reg- scango sessions merge (the mode term) (%s)', v);
+end $$;
+
+-- ══ P2F.29 · `mms_void_line` / `mms_request_approval` lock the cart before the line (Codex r3 on
+--    #308): an open cart still voids and requests; a counter cart the no-show cancelled is 'not_open'
+--    and writes nothing. The two-session race is verify-counter-fire-race.mjs h/h2 — this pins the
+--    refusal the cart lock makes reachable, and the legit half it must not over-block ═══════════════
+do $$
+declare c uuid; d uuid; big uuid; v text; n integer;
+begin
+  c := pg_temp.p2f_counter('reg-P2F29OPN', 'Aye');
+  d := pg_temp.p2f_line(c, 400, 1, 'togo', 'draft');
+  big := pg_temp.p2f_line(c, 2500, 1, 'togo', 'draft');
+  v := public.mms_void_line(d, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  select count(*) into n from public.mms_approvals where line_id = d and status = 'approved';
+  assert v = 'ok' and n = 1, format('P2F.29a · an open cart''s void lands with its audit row (%s, %s)', v, n);
+  v := public.mms_request_approval(big, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  select count(*) into n from public.mms_approvals where line_id = big and status = 'pending';
+  assert v = 'ok' and n = 1, format('P2F.29b · an open cart''s request lands pending (%s, %s)', v, n);
+  v := public.mms_void_line(gen_random_uuid(), 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  assert v = 'not_found', format('P2F.29c · no such line is not_found (%s)', v);
+end $$;
+
+do $$
+declare c uuid; sent uuid; d uuid; big uuid; v text; n integer; st text;
+begin
+  c := pg_temp.p2f_counter('reg-P2F29NSW', 'Aye');
+  sent := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  d := pg_temp.p2f_line(c, 400, 1, 'togo', 'draft');
+  big := pg_temp.p2f_line(c, 2500, 1, 'togo', 'draft');
+  v := public.mms_counter_no_show(c, '00000000-0000-0000-0000-0000002f0b00', array[sent]);
+  assert v = 'ok', format('P2F.29 · fixture: the no-show lands (%s)', v);
+  v := public.mms_void_line(d, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  select state into st from public.qr_cart_items where id = d;
+  select count(*) into n from public.mms_approvals where line_id = d;
+  assert v = 'not_open' and st = 'draft' and n = 0,
+    format('P2F.29d · a void on the cancelled cart is not_open, no row (%s, %s, %s)', v, st, n);
+  v := public.mms_request_approval(big, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  select count(*) into n from public.mms_approvals where line_id = big;
+  assert v = 'not_open' and n = 0,
+    format('P2F.29e · an approval request on the cancelled cart is not_open, no row (%s, %s)', v, n);
+end $$;
+
+-- ══ P2F.30 · the three restated functions keep their privileges: service_role only ════════════
+do $$
+declare r record;
+begin
+  for r in select p.oid, p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public'
+              and p.proname in ('mms_merge_table_orders','mms_void_line','mms_request_approval') loop
+    assert not has_function_privilege('anon', r.oid, 'execute')
+       and not has_function_privilege('authenticated', r.oid, 'execute')
+       and not has_function_privilege('public', r.oid, 'execute')
+       and has_function_privilege('service_role', r.oid, 'execute'),
+      format('P2F.30 · %s must be service_role-only', r.proname);
+    assert r.prosecdef = (r.proname = 'mms_merge_table_orders'),
+      format('P2F.30 · %s keeps its SECURITY mode (definer=%s)', r.proname, r.prosecdef);
+  end loop;
+end $$;
+
 rollback;
