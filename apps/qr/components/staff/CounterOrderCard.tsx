@@ -12,7 +12,7 @@ import { Chrome } from "./Chrome";
 import { RelativeTime } from "./RelativeTime";
 import { useEchoesShown } from "./StaffLangProvider";
 import { tableCardStyle } from "./TableCard";
-import { FloorKitchenLine } from "./FloorKitchenLine";
+import { FloorKitchenLine, kitchenSegKey } from "./FloorKitchenLine";
 
 /** Preformatted money — the repo's counter idiom. Latin in both tongues: it rides the `{m}` slot,
  *  which `fill()` never localizes. */
@@ -49,7 +49,11 @@ function subjectOf(lang: StaffLang, shown: boolean, r: CounterFloorRow): string 
   // kitchen's segments exactly as `FloorKitchenLine` renders them (no echo — a card row is a glance).
   const unpaid = r.unpaidSent ? `, ${chromeVisible(lang, "settle.unpaid", false, shown)}` : "";
   const kitchen = kitchenSegments(r.kitchen)
-    .map((seg) => (seg.k === "expo.kitchenDone" ? ts(lang, seg.k) : tf(lang, seg.k, { n: seg.n })))
+    .map((seg) =>
+      seg.k === "expo.kitchenDone"
+        ? ts(lang, seg.k)
+        : tf(lang, kitchenSegKey(seg.k, true), { n: seg.n }),
+    )
     .join(" · ");
   return `${name} · ${chip}, ${meta}${unpaid}${kitchen ? `, ${kitchen}` : ""}`;
 }
@@ -136,6 +140,7 @@ export function CounterOrderCard({
               lang={lang}
               frozen={frozen}
               wait={false}
+              pickup
             />
           )}
         </div>

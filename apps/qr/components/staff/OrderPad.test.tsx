@@ -1773,6 +1773,34 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     expect(push).toHaveBeenCalledWith("/staff?floor=1");
   });
 
+  it("sent unpaid with drafts LEFT under a parked switch: the foot names what is NOT sent", async () => {
+    const d = counter({
+      payAtPickup: false,
+      unpaidSent: true,
+      sentLineIds: ["l1"],
+      lines: [
+        line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" }),
+        line({ id: "l2", sendable: false, fulfillment: "togo", state: "draft", qty: 2 }),
+      ],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: true,
+        counterDraft: 2,
+        counterSentPastGrace: true,
+      },
+    });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    // Never "Sent to the kitchen" over two dishes the kitchen does not have.
+    expect(document.querySelector(".pad-status")!.textContent).toBe(
+      STAFF["table.send.counterSent.partial.many"].en.replace("{n}", "2"),
+    );
+  });
+
   it("a name typed but not saved is saved BEFORE the unpaid fire", async () => {
     const d = counter({ customerName: null });
     serve(d);

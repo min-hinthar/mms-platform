@@ -639,6 +639,12 @@ export function ExpoBoard({
   ).length;
   const bagCount = tickets.filter((t) => !isScanGoBasket(t.lines)).length + unpaid.length;
   const unpaidCount = unpaid.length;
+  // Phase 2f review (M1) — the unpaid read hit its cap: the paid bags are all here, the unpaid ones
+  // are not. Said beside the count, and the lane never reads as an all-clear over it. The widening
+  // is a no-op once lib's `ExpoQueue.unpaidTruncated` lands (resolves at integration).
+  const unpaidTruncated =
+    (snap as ExpoQueue & { unpaidTruncated?: boolean }).unpaidTruncated === true;
+  const empty = count === 0 && !unpaidTruncated;
 
   // What the lane's region ANNOUNCES (Codex round 1 on A4·2): the counts as they change — a bag
   // arriving or leaving is a state change a screen-reader user was hearing before this slice — and
@@ -651,13 +657,14 @@ export function ExpoBoard({
     ? floorState === "not_updating"
       ? ""
       : frozenBoardCopy(lang, snap.serverNow, nowMs - degraded.since, "what.bags", degraded.cause)
-    : count === 0
+    : empty
       ? ts(lang, "expo.none")
       : [
           bagCount > 0
             ? tf(lang, bagCount === 1 ? "expo.count.one" : "expo.count.many", { n: bagCount })
             : null,
           unpaidCount > 0 ? tf(lang, "expo.count.unpaid", { n: unpaidCount }) : null,
+          unpaidTruncated ? ts(lang, "expo.count.unpaidMore") : null,
           verifyCount > 0 ? tf(lang, "expo.count.verify", { n: verifyCount }) : null,
           handOverCount > 0 ? tf(lang, "expo.count.handOver", { n: handOverCount }) : null,
         ]
@@ -713,7 +720,7 @@ export function ExpoBoard({
               "what.bags",
               degraded.cause,
             )
-          ) : count === 0 ? (
+          ) : empty ? (
             <Chrome lang={lang} k="expo.none" />
           ) : (
             // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
@@ -730,6 +737,9 @@ export function ExpoBoard({
               ) : null,
               unpaidCount > 0 ? (
                 <Chrome key="unpaid" lang={lang} k="expo.count.unpaid" vars={{ n: unpaidCount }} />
+              ) : null,
+              unpaidTruncated ? (
+                <Chrome key="unpaidMore" lang={lang} k="expo.count.unpaidMore" />
               ) : null,
               verifyCount > 0 ? (
                 <Chrome key="verify" lang={lang} k="expo.count.verify" vars={{ n: verifyCount }} />
@@ -754,7 +764,7 @@ export function ExpoBoard({
         </p>
       </div>
 
-      {count === 0 ? (
+      {empty ? (
         // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
         <EmptyState
           title={

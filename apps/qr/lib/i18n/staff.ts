@@ -3192,6 +3192,9 @@ export const STAFF = {
   "floor.kitchen.notSent": { en: "{n} not sent", my: "{n} ခု မပို့ရသေး" }, // K15-HIGH — the cue that dishes never reached the kitchen
   "floor.kitchen.inKitchen": { en: "{n} in kitchen", my: "မီးဖိုချောင်မှာ {n} ခု" }, // grounded: kds.title မီးဖိုချောင်
   "floor.kitchen.up": { en: "{n} ready to serve", my: "{n} ခု ဟင်းထွက်ပြီ" }, // grounded: board.pulse.up
+  // Phase 2f review — the same segment on a COUNTER order's card: nobody serves a bag, it is bagged
+  // and handed over (the lane's own verb, `expo.verb.bagged`). K15 draft.
+  "floor.kitchen.up.pickup": { en: "{n} ready to bag", my: "{n} ခု ထုပ်လို့ရပြီ" }, // grounded: kds.line.bagit ထုပ်, board.status ယူလို့ရပြီ
   "floor.kitchen.wait": { en: "{n} min", my: "{n} မိနစ်" }, // grounded: time.minAgo မိနစ်
   // The floor's ONE region when food comes out: one table, or several joined ", " in {id}.
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
@@ -3399,6 +3402,18 @@ export const STAFF = {
     en: "Sent to the kitchen — unpaid. Take payment when they collect it.",
     my: "မီးဖိုချောင် ပို့ပြီး — ငွေ မရှင်းရသေးပါ။ လာယူချိန် ငွေ လက်ခံပါ။",
   }, // K15-HIGH — the food is cooking and the money is still to take
+  // Phase 2f review — the counterSent row when drafts REMAIN (the pay-at-pickup switch parked NEW
+  // sends): what is in the kitchen and what is not, never "sent" over unsent food. The rest is
+  // pay-first again, so it cooks at payment (`table.send.payAtPickupNote`'s own promise). K15 draft.
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.send.counterSent.partial.one": {
+    en: "Part of this order is in the kitchen, unpaid — {n} more item isn’t sent and cooks when they pay.",
+    my: "ဒီအော်ဒါ တစ်ချို့ ငွေမရှင်းဘဲ မီးဖိုချောင် ရောက်နေပြီ — နောက်ထပ် {n} ခု မပို့ရသေး၊ ငွေရှင်းတာနဲ့ ချက်ပါမယ်။",
+  }, // K15-HIGH — says which food is cooking unpaid and which is not
+  "table.send.counterSent.partial.many": {
+    en: "Part of this order is in the kitchen, unpaid — {n} more items aren’t sent and cook when they pay.",
+    my: "ဒီအော်ဒါ တစ်ချို့ ငွေမရှင်းဘဲ မီးဖိုချောင် ရောက်နေပြီ — နောက်ထပ် {n} ခု မပို့ရသေး၊ ငွေရှင်းတာနဲ့ ချက်ပါမယ်။",
+  }, // K15-HIGH — says which food is cooking unpaid and which is not
   "table.send.err.noName": {
     en: "Add a name before sending — nothing went to the kitchen.",
     my: "မပို့ခင် နာမည် ထည့်ပါ — မီးဖိုချောင်ကို ဘာမှ မရောက်သေးပါ။",
@@ -3418,6 +3433,12 @@ export const STAFF = {
   "expo.unpaid.more.one": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
   "expo.unpaid.more.many": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
   "expo.count.unpaid": { en: "{n} unpaid", my: "ငွေ မရှင်းရသေး {n} ခု" },
+  // Phase 2f review — the unpaid read hit its cap: the lane shows some unpaid bags, not all (the
+  // paid bags stay). K15 draft; grounded: expo.count.unpaid ငွေ မရှင်းရသေး.
+  "expo.count.unpaidMore": {
+    en: "more unpaid than shown",
+    my: "ငွေ မရှင်းရသေးတာ ပြထားတာထက် ပိုရှိ",
+  }, // K15-HIGH — an unpaid bag the lane cannot show is money nobody collects
   "table.noshow.btn": {
     en: "They didn’t come — remove the order",
     my: "လာမယူဘူး — အော်ဒါ ဖျက်",
@@ -3459,6 +3480,12 @@ export const STAFF = {
     en: "Nothing on this order reached the kitchen — clear it instead.",
     my: "ဒီအော်ဒါက မီးဖိုချောင် ဘာမှ မရောက်သေးပါ — စားပွဲ ရှင်း ကို သုံးပါ။",
   },
+  // The cross-area decision: the sent set changed between what the sheet showed and the write —
+  // nothing was removed. K15 draft; grounded: table.noshow.err.failed ထပ်စမ်းပါ.
+  "table.noshow.err.changed": {
+    en: "The order changed — check it and try again.",
+    my: "အော်ဒါ ပြောင်းသွားပြီ — ပြန်စစ်ပြီး ထပ်စမ်းပါ။",
+  }, // K15-HIGH — a write-off refused because the food on it moved; money
   "table.noshow.err.failed": {
     en: "Couldn’t remove the order — try again.",
     my: "အော်ဒါ မဖျက်နိုင်ပါ — ထပ်စမ်းပါ။",
@@ -3515,6 +3542,8 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["expo.unpaid.more.one", "expo.unpaid.more.many"],
   ["table.noshow.body.one", "table.noshow.body.many"],
   ["table.noshow.body.drafts.one", "table.noshow.body.drafts.many"],
+  // ── Phase 2f review ──
+  ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
 ];
 
 /**
@@ -3709,6 +3738,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.body.many",
   "table.noshow.confirm",
   "settle.clear.counterSent",
+  // ── Phase 2f review ──
+  "table.send.counterSent.partial.one",
+  "table.send.counterSent.partial.many",
+  "expo.count.unpaidMore",
+  "table.noshow.err.changed",
 ]);
 
 /**

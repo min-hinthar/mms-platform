@@ -1139,6 +1139,7 @@ export function FloorDetailLive({
             hold={sendHold}
             hostName={detail.members.find((m) => m.isHost)?.name ?? null}
             nameHref={isCounter ? `/staff/table/${sessionId}/add?name=1` : undefined}
+            counterNotSent={detail.send.counterDraft}
           />
           {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}

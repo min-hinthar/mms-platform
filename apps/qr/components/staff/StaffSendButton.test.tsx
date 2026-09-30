@@ -71,6 +71,7 @@ function Host({
   degraded = false,
   onBlocked,
   nameHref,
+  counterNotSent,
 }: {
   view: StaffSendView;
   seq: number;
@@ -80,6 +81,7 @@ function Host({
   degraded?: boolean;
   onBlocked?: (b: "paying" | "noName") => void;
   nameHref?: string;
+  counterNotSent?: number;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ctl = useStaffSend({
@@ -106,6 +108,7 @@ function Host({
           hold={renderedHold}
           hostName={null}
           nameHref={nameHref}
+          counterNotSent={counterNotSent}
         />
       )}
     </div>
@@ -557,6 +560,21 @@ describe("Phase 2f · pay at pickup — a counter order's Send", () => {
     expect(accessibleText(row)).toBe(STAFF["table.send.counterSent"].en);
     expect(row.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(document.querySelector("[role=status],[role=alert],[aria-live]")).toBeNull();
+  });
+
+  it("sent unpaid with drafts LEFT (the switch parked new sends): says what is not sent", async () => {
+    render(<Host view={{ kind: "counterSent" }} seq={0} counterNotSent={2} />);
+    await flush();
+    const row = document.querySelector(".staff-send-status")!;
+    expect(accessibleText(row)).toBe(
+      STAFF["table.send.counterSent.partial.many"].en.replace("{n}", "2"),
+    );
+    cleanup();
+    render(<Host view={{ kind: "counterSent" }} seq={0} counterNotSent={1} />);
+    await flush();
+    expect(accessibleText(document.querySelector(".staff-send-status")!)).toBe(
+      STAFF["table.send.counterSent.partial.one"].en.replace("{n}", "1"),
+    );
   });
 });
 
