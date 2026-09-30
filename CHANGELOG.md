@@ -37,8 +37,9 @@ block) and §6. No SQL.
   wrong word would stop service (Mark sold out, Done, Cook now, Undo, the cash and payment words,
   sign-in and lock-out messages, the outage and connection lines, late tickets), which keep their
   English for whoever else reads the kitchen tablet; the language controls keep theirs too. Its row
-  says so: "Burmese only — English stays where a wrong word would stop service". The kitchen ticket
-  and dish names do not change at all.
+  says so: "Burmese only — English stays where a wrong word would stop service". The dish names on
+  the kitchen ticket do not change at all (the order pad and other screens show a dish in the
+  device's language).
 - **The Help sheet's Text size preview shows its dish the way the ticket does on every device** —
   မုန့်ဟင်းခါး over "Mohinga" — where before it was English alone on an English tablet.
 - **Nothing changes for any device on deploy:** "Both" is exactly today's Burmese, and a rollback
@@ -47,9 +48,12 @@ block) and §6. No SQL.
 - **A language change that fails** (offline, a stale tab after a deploy, a hung connection after
   15 s) now says so in **both** Burmese and English beneath the controls and puts the choice back —
   it can no longer replace the whole board with the error screen. A quick mis-tap corrected at once
-  is written in order and the screen redraws once. Only ONE failure line ever shows; one that lands
-  while the person is reading How / Text size / Report is said beside the ? circle once they close.
-- **The keyboard focus ring on the front doors' pill is now fully visible** (drawn inside the pill).
+  is written in order and the screen redraws once. Only ONE failure line ever shows, and it is read
+  out once; one that lands while the person is reading How / Text size / Report is said beside the ?
+  circle once they close. A hung change that lands after all is answered then: the line clears, or
+  the person's latest choice is written again.
+- **The keyboard focus ring on the front doors' pill is now fully visible** — drawn inside the pill,
+  and in the cap's own ink on the chosen side, where the gold ring had vanished into the gold fill.
 
 **As built:**
 
@@ -58,29 +62,37 @@ block) and §6. No SQL.
   components still read a SCRIPT plus `echoes` (`scriptOf` · `echoesShown` · `modeOf` ·
   `modeForScript`). The generic chain `nextLangWrite` / `langChainOutcome` has the 2a spec's bodies
   byte for byte.
-- **The echo rule (`Chrome.tsx`):** `echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k)`
-  — Burmese only drops the echo, keeps the `.chrome-pair` wrapper with one child, and never drops the
-  K15-HIGH band. `keepEcho` marks the language surfaces.
+- **The echo rule (`echoDrawn`, `lib/staff-labels.ts`, since the blind review):** `<Chrome>` draws
+  the echo when `echoDrawn(k, useEchoesShown() || keepEcho)` — `shown || STAFF_K15_HIGH.has(key)` —
+  and `chromeVisible()` applies the same function to the call site's `shown`. Burmese only drops the
+  echo, keeps the `.chrome-pair` wrapper with one child, and never drops the K15-HIGH band.
+  `keepEcho` marks the language surfaces.
 - **One write chain, host-owned (`components/staff/useLangModeWrite.ts`):** a tap-time ref guard,
   serialized writes where the last pick wins with ONE refresh at the end, the cap reverted to the
-  confirmed mode on every failure, each write `raceTimeout(…, 15 000)` inside try/catch, and the
-  provider adopted only between chains (a refresh from an earlier write landing mid-chain moves
-  nothing). Never `disabled` or `aria-disabled`; the group says `aria-busy`.
+  confirmed mode on every failure, each write `raceTimeout(…, 15 000)` inside try/catch (a write the
+  timeout gave up on is kept and answered when it lands — blind review C1), and the provider adopted
+  only between chains (a refresh from an earlier write landing mid-chain moves nothing). Never
+  `disabled` or `aria-disabled`; the group says `aria-busy`, and the pending cap wears a static
+  stripe, never a dim (blind review A2).
 - **The controls.** `StaffLangSwitch.tsx` holds the front-door pill (writes a MODE resolved against
-  the confirmed mode), the three rows and the Profile card; `STAFF_LANG_MODE_KEY` (the three
-  descriptions) is exported there and read by the rows and the Help row's sub-line. `HelpButton.tsx`
-  gains the Language row and view (the host owns the write, so closing never cancels it; the sheet is
-  never `busy` for it); `lib/staff-more.ts` the last More tile (both views of More, the counter's
-  too) → `/staff/login?show=lang`; `StaffDoors.tsx` renders it; `StaffBar.tsx` mounts no control.
+  the chain's base — the mode confirmed when the chain began; blind review C2), the three rows and
+  the Profile card; `STAFF_LANG_MODE_KEY` (the three descriptions) is exported there and read by the
+  rows and the Help row's sub-line. `HelpButton.tsx` gains the Language row and view (the host owns
+  the write, so closing never cancels it; the sheet is never `busy` for it); `lib/staff-more.ts` the
+  last More tile (both views of More, the counter's too) → `/staff/login?show=lang`;
+  `StaffDoors.tsx` renders it; `StaffBar.tsx` mounts no control.
 - **2a's items built here:** the inset focus ring
-  (`.staff-lang-btn:focus-visible { outline-offset: -3px }`), the bilingual `.staff-bar-msg` alert
+  (`.staff-lang-btn:focus-visible { outline-offset: -3px }`, + the pressed segment's
+  `outline-color: var(--oa)` from the blind review), the bilingual `.staff-bar-msg` alert
   and its `.staff-bar-msg .chrome-en { color: inherit }` rule, `shell.lang.group`'s EN, and the
   `staff-lang-actions.ts` docblock (the false "a mutant re-adds staffGate" claim replaced by the real
   tripwire; `/board` removed from the control list).
 - **Guards.** `check-staff-lang` rule 4 becomes 4a–4e and rule 6 confines `keepEcho` (THIRTEEN
   rules): 4e mounts each control export only from its own hosts, 6 requires a language KEY
   (`shell.lang.*`, or StaffDoors' `t.k`). `app/staff/front-doors.test.tsx` renders `/staff/login`
-  and `/staff/lock` beside rule 4b's static proof.
+  and `/staff/lock` beside rule 4b's static proof. Blind review: 4c holds two controls inside ONE
+  host to exclusive branches, 4d resolves where each way up lands, and 6 refuses `keepEcho` as data
+  in any shipped `.ts` / `.tsx`.
 - **Critic round — nine findings, all verified on disk and fixed, none rejected.** A page with no
   Help door could put the pill on its own bar and pass (rule 4e, 13 self-tests); deleting `keepEcho`
   at six sites left every suite green (cases re-run under `en` and `my-only`, the English half
@@ -99,13 +111,15 @@ block) and §6. No SQL.
   KILLED by `--no-gate --only=p2e-lang` ("49 mutants caught, no orphans"). Re-anchored with meaning
   kept: `p2e-lang/help-stale-failure` (the close's `if (next || lineShown) langWrite.clearAlert();`)
   and `chrome/burmese-half-dropped` (it now spans the new middot line); `--only=chrome/` killed all 5
-  chrome mutants and `--only=staff-lang/` the 4 original staff-lang ones.
+  chrome mutants and `--only=staff-lang/` the 4 original staff-lang ones. (The blind review round's
+  mutants and the five files it added are in its block below.)
 - **Words (K15).** 6 new staff keys, each Burmese a Claude-authored draft — `shell.lang.row` ·
   `shell.lang.scope` · `shell.lang.mode.myOnly` (re-worded after review) · `shell.lang.mode.both` ·
-  `shell.lang.mode.en` · `shell.lang.note`; `pilot.gloss.autonyms` re-drafted (EN and MY);
-  `shell.lang.group`'s English "Console language" → "This device’s language" (Burmese unchanged). None
-  is K15-HIGH (Phase 2e leaves `STAFF_K15_HIGH` unchanged — 114 at its base; 115 on the merge with #306's Codex
-  round 1, measured). No key retired.
+  `shell.lang.mode.en` · `shell.lang.note` (re-worded, EN and MY, in the blind review);
+  `pilot.gloss.autonyms` re-drafted (EN and MY); `shell.lang.group`'s English "Console language" →
+  "This device’s language" (Burmese unchanged). None is K15-HIGH (Phase 2e leaves `STAFF_K15_HIGH`
+  unchanged — 114 at its base; 115 on the merge with #306's Codex round 1, measured). No key
+  retired.
 - **Owner decisions (2026-09-30).** **No one-time relocation notice:** the default (Both) renders
   exactly today's screen on every device, and a `HELP_SHEET_REVISION` bump would replay how-cards that
   never mention language — interrupting a shift while saying nothing about the move; the way back is
@@ -121,6 +135,89 @@ block) and §6. No SQL.
   3 API routes · 34 components · 1 `packages/db`) · 4512 qr + 278 ui tests · `check:docs` clean. The
   full 1369-mutant `verify:slice` run with the gate at the merged head is not recorded here. Nothing
   is device-measured — the preview gate is P2ey.
+
+**Blind review round (2026-09-30) — reviewed head `b852b27`; three lenses (concurrency · product
+truth · accessibility), all three REJECT.** Every finding was verified against source and fixed in
+ONE fix pass on three worktree areas off `31835e1` — `p2e-rev/chain`, `p2e-rev/surface`,
+`p2e-rev/guards` — merged `52e43a3` · `99531aa` · `40cbf5b`, plus `935d00c` (the late-landing
+region case now reads the bilingual announcement, where C1's and A3's fixes met). None rejected.
+
+- **C1 (concurrency, critical) — a write the 15 s timeout gave up on could still land, silently.**
+  Next 16.2.9 (read from its source) cannot cancel a Server Action, sends them one at a time through
+  one router queue, and a cookie write's own response re-renders the page — so a late landing
+  turned the console to a mode the person had corrected away from, or left "Couldn't save that"
+  beside a console that had changed. Fix: the chain keeps the abandoned call; when it lands as the
+  tab's newest write, the person's pick clears the line (and the Profile's region), and a mode they
+  left is corrected by writing their pick again.
+- **C2 (concurrency, critical) — a third မြန်မာ tap mid-chain turned Burmese only into Both.** The
+  pill resolved against a `confirmed` the chain moved mid-flight. Fix: a function pick resolves
+  against the chain's BASE, the mode confirmed when the chain began.
+- **C3 (concurrency, critical) — the Help sheet closed under a card or a report being sent.** The
+  "close when the board shows the written mode" wait fired from any view. Fix: leaving the Language
+  rows drops the wait.
+- **The concurrency lens's guard gaps.** No test let a timed-out write LAND (both 15 s tests used a
+  never-settling promise) → the "review C1" cases let it land after the timer; no test for "only
+  while on the rows" → added; rule 4c counted modules, not mounted chains (latent) → 4c now holds two
+  controls inside one host to provably exclusive branches.
+- **P1 (product truth, critical) — the Language note was false.** "Dish names and kitchen tickets
+  never change with this" — but the order pad's tiles, the mod sheet and the KDS's own messages name
+  a dish in the device's tongue. Fix: "Dish names on kitchen tickets never change with this. Some
+  screens aren’t fully in Burmese yet." (EN + a MY K15 draft), pinned word for word in
+  `KdsBoard.test` beside a render of the ticket's dish text under all three modes.
+- **Rule 6 was blind to `createElement(Chrome, { keepEcho: true })` and to `.ts` files.** Fix:
+  `keepEcho` as data (props objects, spreads, property access) is refused in every shipped
+  `.ts` / `.tsx`; the `<Chrome keepEcho>` attribute is the only door.
+- **Rule 4d accepted any `kind: "back"`, wherever its `href` went.** Fix: 4d resolves every way up
+  (the Screens circle, each Back pill's `href` and `paneHref`) to the staff page it opens, which
+  must reach a control or lead up to one, with no circle.
+- **Two stale comments.** `HelpButton.tsx`'s docblock placed the `help` slot "before the language
+  switch" (no bar carries one now) and `staff-lang-actions.test.ts` named an `unavailable` case that
+  does not exist. Fix: both corrected.
+- **A1 (accessibility, critical) — the pressed pill segment's focus ring was invisible.** The inset
+  ring was `--ac` on the `--ac` fill, 1:1. Fix: `outline-color: var(--oa)` there — 4.8426 light /
+  8.9138 Night on the fill — pinned by `StaffLangSwitch.test` and `composite-contrast.test.ts`.
+- **A2 — the busy dim broke contrast.** `opacity: 0.7` put the pressed label at 2.8353:1 in light.
+  Fix: a static stripe of page ink under the full-ink label (label on stripe 6.3422 light / 10.0483
+  Night), measured by `composite-contrast.test.ts`.
+- **A3 — the Profile's failure was announced in one tongue** while its `aria-hidden` line showed
+  both. Fix: `StaffMsg`'s `{ k: shell.lang.*, both: true }` shape; the region reads Burmese, then
+  English.
+- **A4 — one failure was re-announced on every menu ↔ Language flip,** and a test required it. Fix:
+  one failure, one announcement; later lines for the same failure are shown role-less.
+- **A5 — under Burmese only, composite accessible names spoke English the screen no longer shows**
+  (`CounterOrderCard`'s `subjectOf`; Mark refunded on `RefundsNeededStrip`), and `Chrome.test`'s
+  2.5.3 guard never ran with echoes off. Fix: `echoDrawn(key, shown)` in `lib/staff-labels.ts` is
+  the ONE echo decision for `<Chrome>` and the names; `al()`'s echoed arms require `shown`; the
+  2.5.3 cases run under both device states.
+- **Filed, not fixed:** **P2ez** (med — Next's ONE router queue: a Server Action that never settles
+  holds every later one on the tab; audit the staff client timeouts) · **P2fa** (the chain's
+  `router.refresh()` is a second render on 16.2.9) · **P2fb** (a navigation mid-hang can reorder two
+  language writes) · **P2fc** (`shown` is typed at each echoed call site, not traced) · **P2fd**
+  (4c cannot see one host mounted twice) · **P2fe** (rule 6 cannot settle a computed `keepEcho`
+  key). Closed **P2es** (A5). **P2ev** narrowed to the navigation case. The a11y lens's AT-only
+  notes (the rows' name `lang`, Back's focus landing, `aria-busy` masking the `aria-pressed` flip)
+  and the new visual cues joined the preview gate, **P2ey**.
+- **Mutants and the mutate set.** **27 new `p2e-rev/` mutants** — measured,
+  `grep -cE '^\s+id: "p2e-rev/' scripts/verify-slice.mjs` → 27: 15 in the chain, 7 in the surface,
+  5 in the guards, each area's `--no-gate --only=p2e-rev/` run catching all of its own. Five files
+  joined the set: `apps/qr/app/globals.css` — the FIRST stylesheet, so `verify:slice` now parses a
+  `.css` mutant with prettier's CSS parser — and `staff/StaffMsg.tsx`, `staff/KdsBoard.tsx`,
+  `staff/CounterOrderCard.tsx` and `staff/RefundsNeededStrip.tsx`. Re-anchored with meaning kept:
+  five `p2e-lang/` finds in the chain (`hang-never-ends`, `pill-writes-a-script`,
+  `help-bar-line-drops-english`, `help-menu-line-through-exit`, `unwritten-chain-ignores-provider`),
+  and `staff-labels/verb-label-not-the-verb-key`, `p2e-lang/keep-echo-ignored` and
+  `p2e-lang/k15-high-echo-dropped` (now in `lib/staff-labels.ts`) in the guards.
+- **Words.** No new staff key; `shell.lang.note` re-worded (EN + MY, on K15); `STAFF_K15_HIGH`
+  unchanged.
+- **LEARNINGS #185–#193** — the round's nine lessons (a timeout is not a cancellation; a relative
+  pick needs a fixed base; one failure, one announcement; a wait needs its WHERE; pin a ring by its
+  colour; pin a "never" beside its subject; a new parse path must be watched failing; a name's
+  derivation takes the render's inputs; #177 again, twice). #180 now records the router queue.
+- **Gate at this head (measured, after the #306 Codex round-1 merge):** 1429 `verify:slice` mutants
+  across 190 target modules (147 lib · 3 API routes · 38 components · 1 stylesheet · 1
+  `packages/db`) · 4595 qr + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean (1429
+  anchors, 190 files). The full `verify:slice` run with the gate at this head is not recorded here.
+  Nothing is browser- or device-measured — the preview gate is P2ey.
 
 ### Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database (2026-09-29)
 

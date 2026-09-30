@@ -38,6 +38,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > is P2ex). **6 new Burmese strings + 1 re-draft, none K15-HIGH, await Min's native check** (listed
 > on K15).
 >
+> **Then a blind review of `b852b27` (concurrency · product truth · accessibility) returned 3×
+> REJECT; every finding was verified on disk and fixed in ONE fix pass** — three worktree areas,
+> `p2e-rev/chain` (C1 · C2 · C3 · A4), `p2e-rev/surface` (P1 · A1 · A2 · A3) and `p2e-rev/guards`
+> (A5 + the rule 4c / 4d / 6 holes), merged `52e43a3` · `99531aa` · `40cbf5b` (+ `935d00c`, the
+> A3 × C1 test merge); the "Blind review round" block of the CHANGELOG entry. What the owner will
+> see: a language change the 15 s timeout gave up on is answered when it lands (the line clears, or
+> the pick is written again); the Language note says only what is true ("Dish names on kitchen
+> tickets never change with this. Some screens aren’t fully in Burmese yet."); the keyboard ring on
+> the pill's chosen side is visible; a choice being saved shows a fine stripe, not a fade; a failed
+> save on the Profile is announced in both tongues; and a Burmese-only accessible name says only
+> what the screen shows. Closed **P2es**; **P2ev** narrowed; new **P2ez–P2fe** — P2ez (med) is Next's
+> ONE router queue: a Server Action that never settles holds every later one on the tab, so audit
+> the staff client timeouts for "reported lost, still queued, will still go". 27 `p2e-rev/` mutants;
+> `globals.css` joined the mutate set as its first stylesheet; LEARNINGS **#185–#193**. No new
+> Burmese key — `shell.lang.note` re-worded, EN + MY, on K15.
+>
 > **Next: 2f — counter orders cook before paid** ("Unpaid — collect at pickup", P2v): a `reg-`-only
 > fire RPC plus an Unpaid channel on the KDS, the wall board and the lane — **a prod migration**
 > (one file at a time through the MCP `apply_migration`, verified, per CLAUDE.md; the histories are
@@ -51,19 +67,30 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   export. (4a reads the `StaffBar` module alone and 4c allows one host per page; neither would stop
 >   a page with no Help door putting the pill on its own bar.)
 > - **`keepEcho` only in the three rule-6 files** (`StaffLangSwitch.tsx`, `HelpButton.tsx`,
->   `StaffDoors.tsx`), and only on a language key (a literal `shell.lang.*`, or StaffDoors' `t.k`).
+>   `StaffDoors.tsx`), and only on a language key (a literal `shell.lang.*`, or StaffDoors' `t.k`) —
+>   and only as the `<Chrome keepEcho>` attribute, never as data (`createElement` / `jsx()` props, a
+>   spread object, a property), in any `.ts` / `.tsx`.
 > - **The provider stays `{ lang, echoes? }`**; a component reads `useStaffLang()` (the script) —
 >   never the mode — unless it IS a language control (`useStaffLangMode()`).
 > - **2f's "Unpaid — collect at pickup" strings gate food and money** → give them `// K15-HIGH`
 >   markers and `STAFF_K15_HIGH` entries, and they keep their English on a Burmese-only device by
->   construction (`Chrome.tsx`: `echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k)`).
-> - **A new screen with no Help door must lead UP** (`leading` absent · screens · back), or rule 4d
->   is red.
+>   construction (`Chrome.tsx`: `echoes = echoDrawn(k, useEchoesShown() || keepEcho)`; `echoDrawn`
+>   in `lib/staff-labels.ts` adds the band, and the accessible names read the same function).
+> - **A name that composes an echoed label takes the device's `shown`** —
+>   `al(lang, { kind: "verb", echo: "stack", shown: echoes, … })` with
+>   `const echoes = useEchoesShown()`; `chromeVisible(lang, key, echo, shown)`. `al()` refuses an
+>   `echo` without `shown` at compile time (that it is the DEVICE's `shown` is typed, not traced —
+>   P2fc).
+> - **A new screen with no Help door must lead UP** (`leading` absent · screens · back) to a page
+>   that reaches a control, or leads up to one — rule 4d resolves the `href` (and `paneHref`) to the
+>   page it opens — or it is red.
 >
 > **Gate today:** 1429 `verify:slice` mutants · 190 target modules (147 `apps/qr/lib`, 3 API routes,
-> **38** components, 1 stylesheet, 1 `packages/db`) · 4595 qr tests + 287 ui tests · `check:docs` clean. The full
-> 1429-mutant `verify:slice` run with the gate at this head is not recorded here; the lang
-> branch's `--no-gate --only=p2e-lang` run killed all 49 mutants it added.
+> **38** components, 1 stylesheet, 1 `packages/db`) · 4595 qr tests + 287 ui tests · `check:docs`
+> clean · `check:mutant-anchors` clean. The full 1429-mutant `verify:slice` run with the gate at this
+> head is not recorded here; the lang branch's `--no-gate --only=p2e-lang` run killed all 49
+> mutants it added, and each review area's `--no-gate --only=p2e-rev/` run caught all of its own
+> (15 · 7 · 5).
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-29 · Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database — on branch `claude/inspiring-cori-4rf37k`)
 >

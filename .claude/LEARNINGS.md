@@ -3004,8 +3004,9 @@ line must be `open &&`, or it doubles the bar tail's line for the length of the 
 mode is then OLDER than what the chain knows the server holds; adopting it moved the tick back and
 made a stale mode the chain's `confirmed`. Adopt the provider (the cap, `confirmed`) only BETWEEN
 chains, and cancel any "close when the provider shows X" wait on every new write — a refresh answers
-the write that asked for it, and Next does not say which write that was (the leftover window after
-a chain ends is OPEN-ITEMS P2ev).
+the write that asked for it. (Next 16.2.9 serializes refreshes and Server Actions in ONE router
+queue — `app-router-instance.js`, read from source in the Phase 2e review — so the window after a
+chain ends needs a navigation to reorder them: OPEN-ITEMS P2ev, narrowed to P2fb.)
 
 ## #181
 
@@ -3038,3 +3039,85 @@ drops `<Chrome>`'s English echo, but every Burmese size rule is `.x > .chrome-pa
 the `.chrome-pair` stays with ONE child — pinned three ways: `Chrome.test`'s tree assertion,
 `StaffBar.test`'s selector-vs-DOM run under `echoes={false}` (#101's rule, in the new mode), and the
 `p2e-lang/burmese-only-drops-the-pair` mutant. A mode switch is a new DOM; hold the stylesheet to it.
+
+## #185
+
+**A client timeout on a Server Action is a UI decision, not a cancellation.** `raceTimeout` rejects,
+but the action keeps its place in Next's single router queue (every later action waits UNSENT behind
+it — P2ez) and, when it lands, its own response re-renders the page with whatever it wrote (a
+cookie write revalidates the path). The language chain read the 15 s timeout as "nothing was
+written", so a late English write turned the console English after the person had corrected it
+(Phase 2e review C1). Keep the abandoned promise and answer its settlement — the newest-write check
+first, then adopt or correct — and never let a test's hang be a promise that NEVER settles: every
+earlier 15 s case did, so the landing was never exercised. Let it LAND after the timer.
+
+## #186
+
+**Resolve a RELATIVE pick against a base the chain cannot move.** The pill's
+`modeForScript(script, confirmed)` read a `confirmed` that the chain itself advanced mid-flight, so a
+third identical tap meant something else — Burmese only became Both (Phase 2e review C2). Fix the
+base when the chain starts (`base.current = confirmed.current` before `drain()`), and pin it with
+a sequence long enough to move `confirmed` between two identical taps; two taps never can.
+
+## #187
+
+**A `role="alert"` line that re-mounts per view re-announces per view.** The Help sheet drew the
+same language failure in the menu and in the Language view, so every flip between them mounted a new
+alert over the focus the flip had just moved — and a test REQUIRED the second announcement (Phase 2e
+review A4). One failure, one announcement: latch "said" at the render where the drawing view is
+left (store-previous-state, never an effect), render later copies role-less, and clear the latch
+with the failure so the next one is news.
+
+## #188
+
+**A render-time "close when X" needs the WHERE as well as the WHEN.** The Help sheet armed "close
+when the provider shows the written mode" on the Language rows and fired it from any view — under
+How, or a report mid-send, whose outcome was then never seen (Phase 2e review C3). A wait armed on
+one view must be dropped on leaving it; a guard term that the view lock already makes unreachable
+(`!pending`) is decorative, and its mutant cannot be killed — prove the lock instead.
+
+## #189
+
+**An inset focus ring on a FILLED pressed state inherits the global ring colour — which was the
+fill's own token.** Moving the pill's ring inside the segment (`outline-offset: -3px`, xcut-2) drew
+`--ac` on the pressed segment's `--ac` fill: 1:1, an invisible focus on the control focus lands on
+after every tap (Phase 2e review A1). The CSS-parse pin checked the offset alone. Pin a ring by its
+COLOUR against the ground it is drawn on — `composite-contrast.test.ts` now reads the ring, the fill
+and the track from `globals.css` and asserts ≥3:1 on each, in both themes.
+
+## #190
+
+**Copy that says what something "never" does is a claim with a SUBJECT — pin the sentence beside a
+render of that subject in every mode.** The Language note said "Dish names and kitchen tickets never
+change with this"; what actually holds is narrower (the dish text ON the kitchen ticket), and the
+order pad, the mod sheet and the KDS's own messages all name a dish in the device's tongue (Phase 2e
+review P1). `KdsBoard.test` now pins the sentence word for word and renders the ticket's dish text
+under English, Both and Burmese only, so an edit to either side reddens a suite.
+
+## #191
+
+**`verify:slice`'s parse check only knew TypeScript, so a stylesheet mutant could never be scored.**
+Every `.css` target read UNPARSEABLE until a `.css` file parsed through prettier's PostCSS parser
+(Phase 2e review — `globals.css` is the first stylesheet in the mutate set, so a dirty sheet now
+aborts a run). Before trusting a new parse path, watch a deliberately broken mutant (an unclosed
+block) read UNPARSEABLE through it; a parser that accepts everything scores every mutant as real.
+
+## #192
+
+**A derivation shared by a NAME and a RENDER must take the same inputs as the render.**
+`chromeVisible()` composed accessible names from the key and the echo, while `<Chrome>` also read
+the device (Burmese only drops the echo) — so under Burmese only the counter card's name spoke
+English the card no longer printed (WCAG 2.5.3), and `Chrome.test`'s `render === derive(...)` pin
+held only because it never turned the echoes off (Phase 2e review A5). If a renderer reads context,
+its pure twin takes that context as a REQUIRED argument (`shown`), one function decides for both
+(`echoDrawn`), and the pin runs under every value of it.
+
+## #193
+
+**#177 again, twice in one review: a guard that accepts a value by its KIND never asked where it
+POINTS, and a guard that holds a flag to ONE syntactic form must refuse every other form.** Rule 4d
+accepted any `kind: "back"` whatever its `href` (a Back to `/staff/nowhere` passed), and rule 6
+judged `keepEcho` only as a JSX attribute in `.tsx` files, so `createElement(Chrome, { keepEcho:
+true })`, or the same call in a `.ts`, undid Burmese only with the guard green (both put on disk,
+Phase 2e review). A file-extension filter is part of the matcher: aim red-first at it too, and at
+every syntax that carries the same meaning.

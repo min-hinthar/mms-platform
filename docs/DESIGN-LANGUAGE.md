@@ -182,8 +182,9 @@ No Claude-authored Burmese reaches a ticket — every string is a DB row K15 cor
 
 **On the staff console the language is a per-device setting (Phase 2e · lang, §17):** a device may
 drop the chrome's English echoes (Burmese only) except on the K15-HIGH band — the words where a wrong
-word would stop service — and on the language surfaces themselves; the pair stays, and dish names and
-the kitchen ticket never change with the device.
+word would stop service — and on the language surfaces themselves; the pair stays, and the dish names
+ON the kitchen ticket never change with the device (a dish named anywhere else — the order pad, the
+mod sheet, the KDS's own messages — follows it; Phase 2e review, P1).
 
 ## 7 · a11y — the floor, not the ceiling
 
@@ -761,6 +762,8 @@ built.
   the wrong element was updating). On a `.staff-btn`, busy is the attribute plus a dim; on the
   `@mms/ui` `.ui-btn` (the console's first is the table page's Send, Phase 2a) busy is `aria-busy`
   plus a full-ink spinner and a stated word ("Sending…", "Bringing it back…"), never dimmed (§20).
+  On the language controls (Phase 2e review) busy is `aria-busy` plus a static stripe under the
+  full-ink label — never dimmed (§17).
   Either way, never a label swap TO AN ELLIPSIS: `{pending ? "…" : label}` on a button with no `aria-label` makes its accessible name
   literally "…" for the round trip, and a 64px zone that collapses to an ellipsis moves under the
   thumb. A swap to a stated word is not that rule's subject — the register's Go says "Going…"
@@ -1373,39 +1376,77 @@ every in-service bar. The rules as built:
   that, in the band's own words ("English stays where a wrong word would stop service"), and never
   "only". `keepEcho` is confined by `check-staff-lang` rule 6 to three files, a literal `lang="my"`, a
   literal echo and a LANGUAGE KEY (a literal `shell.lang.*`, or the More tile's `k={t.k}` in
-  StaffDoors). The KDS ticket (`TicketText`), dish names and the P2m/K25 English never change with
-  the mode, and the note under the rows says so — the Help sheet's Text size preview is a dish name,
-  so it renders through the ticket's `TicketDishTitle` (Burmese over English in every mode). No
-  provider (the wall TV) keeps every echo.
+  StaffDoors) — and to the `<Chrome keepEcho>` ATTRIBUTE: `keepEcho` as data (a `createElement` /
+  `jsx()` props object, a spread object, a property access) is refused in every shipped `.ts` /
+  `.tsx` file (review). The dish text ON the kitchen ticket (`TicketText`, and `TicketDishTitle` in
+  the ⋯ sheet and the Text size preview — Burmese over English in every mode) and the P2m/K25
+  English never change with the mode, and the note under the rows says that and nothing wider: "Dish
+  names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet." A dish
+  named anywhere else follows the device — the pad's tiles (`padDishName`), the mod sheet, the KDS's
+  own messages (`dishVisible`). The first draft's "Dish names and kitchen tickets never change" was
+  false (review P1); the claim is pinned word for word in `KdsBoard.test` beside a render of the
+  ticket's dish text under all three modes. No provider (the wall TV) keeps every echo.
+  **Accessible names follow the same decision (review A5).** `echoDrawn(key, shown)`
+  (`lib/staff-labels.ts`) is the ONE echo decision — `<Chrome>` calls it with
+  `useEchoesShown() || keepEcho`, `chromeVisible(lang, key, echo, shown)` with the device's
+  `shown` — so a Burmese-only name holds exactly the Burmese the control shows, and a composite
+  name (`CounterOrderCard`'s `subjectOf`) keeps the card's text as ONE contiguous run (WCAG 2.5.3).
+  `al()`'s echoed arms require `shown` beside `echo`; every call site reads `useEchoesShown()`.
 - **One write chain, host-owned (`useLangModeWrite`).** The in-flight guard is a REF read at tap
   time; a tap while a write is out only replaces the intent, and the writes serialize so the LAST
   pick wins (§4.2) with ONE refresh at the end; the cap moves at the tap and snaps back to the
   CONFIRMED mode on every failure (§4.4); every write is `raceTimeout(…, 15 000)` inside try/catch,
   so a refusal, a rejected Server Action and a hang all end as the failure line — never the error
-  boundary. The pick and `confirmed` adopt the provider only BETWEEN chains: a refresh from an
-  earlier write can land while a newer one is out, and must neither move the cap back nor become
+  boundary. A write the timeout gave up on is not cancelled — Next (16.2.9, read from its source)
+  sends Server Actions one at a time through the router's single queue, and a cookie write's own
+  response re-renders the page — so the chain KEEPS it (review C1): when it lands and is still the
+  newest write on the tab, a landing that carried the person's latest pick clears the failure line
+  (and the Profile's region), and one they moved away from is corrected by writing their pick
+  again, judged against the mode it landed. The last pick is what the cookie ends on, or the line
+  says it is not — short of a navigation during a hang, which can reorder two writes (P2fb). The
+  pick and `confirmed` adopt the provider only BETWEEN chains: a refresh from an earlier write can
+  land while a newer one is out, and must neither move the cap back nor become
   what the chain thinks the server holds; a chain that wrote nothing adopts the provider's latest
   word. Nothing is ever `disabled` or `aria-disabled` (the control never refuses a tap); the group
-  says `aria-busy` and the pending cap dims. The Lock circle REFUSES re-entry — a lock is not a
-  choice you correct mid-flight; the language controls never do.
+  says `aria-busy`, and the pending cap wears a static stripe of page ink over its fill — never a
+  dim (review A2). Busy is not disabled, so the label keeps its full ink; the first cut's
+  `opacity: 0.7` put light's label at 2.8353:1. The stripe (`color-mix` of `--tx` at 20%) moves
+  the fill AWAY from the on-accent ink in both themes, so it can only raise the label's contrast —
+  `composite-contrast.test.ts` measures label on fill / on stripe at 4.8426 / 6.3422 light and
+  8.9138 / 10.0483 Night. The Lock circle REFUSES re-entry — a lock is not a choice you correct
+  mid-flight; the language controls never do.
 - **A language write never makes a Sheet `busy`** (M82 is for irreversible writes): ✕, Escape, the
   scrim and the drag stay live, and the Help host owns the write so closing never cancels it. A tap
   on the confirmed mode closes the sheet (like the size rows); a tap on another stays open until the
-  PROVIDER shows the written mode — the board behind is already in the new tongue as the sheet
-  slides away; a second tap on the pending mode does nothing, and every writing tap cancels the wait
-  for the last write (its late refresh must not close the sheet). A failure lands in the sheet while
-  it is open (`role="alert"`, both tongues, the menu and Language views) and as the bar tail's
-  `.staff-bar-msg` line beside the ? circle otherwise — ONE line ever: the in-sheet lines are
-  `open &&` (the content stays mounted through the exit slide, M76) and the tail's `!open &&`. The
-  next open answers it; a close answers only a line the person SAW, so a failure that landed on How,
-  Text size or Report is said in the bar tail after the close, never cleared unsaid. The Profile's
-  failure speaks through the view's ONE region (`ViewStatusProvider`) with its visible line
-  `aria-hidden`.
-- **The front-door pill writes a MODE**, resolved against the confirmed mode at tap time: the script
-  the device already reads keeps its mode (a Burmese-only device stays Burmese-only, and a brushed
-  "English" corrected mid-write returns to it); from a confirmed English device, မြန်မာ restores the
-  default, Both. Its focus ring is drawn INSIDE each segment (`outline-offset: -3px`, pill-shaped) —
-  the pill's `overflow: hidden` clipped the global +2px ring (xcut-2's language third).
+  PROVIDER shows the written mode — only while the person is still on the rows: leaving them (Back,
+  then How, Text size or Something's wrong) drops the wait, so the board catching up never closes
+  the sheet under a card or a report being sent (review C3). The board behind is already in the new
+  tongue as the sheet slides away; a second tap on the pending mode does nothing, and every writing
+  tap cancels the wait for the last write (its late refresh must not close the sheet). A failure
+  lands in the sheet while it is open (both tongues, the menu and Language views) and as the bar
+  tail's `.staff-bar-msg` line beside the ? circle otherwise — ONE line ever: the in-sheet lines are
+  `open &&` (the content stays mounted through the exit slide, M76) and the tail's `!open &&`. ONE
+  failure, ONE announcement (review A4): the first line drawn for it is the `role="alert"`; once the
+  view that drew it (the menu or the Language view) is left, later lines for the same failure — the
+  menu ↔ Language flip, the bar tail after a close — are plain text, never a second alert over the
+  focus a view change moves; the next write's failure is news again. The next open answers it; a
+  close answers only a line the person SAW, so a failure that landed on How, Text size or Report is
+  said in the bar tail after the close, never cleared unsaid. The Profile's failure speaks through
+  the view's ONE region (`ViewStatusProvider`) with its visible line `aria-hidden` — and the region
+  says it in BOTH tongues, Burmese marked then English (`StaffMsg`'s `{ k: shell.lang.*, both: true }`
+  shape): it stands in for a line that is both (review A3).
+- **The front-door pill writes a MODE**, resolved against the chain's BASE — the mode confirmed when
+  the chain began (between chains, the confirmed mode now), so a repeated မြန်မာ while a chain runs
+  never turns Burmese-only into Both (review C2): the script the device already reads keeps its mode
+  (a Burmese-only device stays Burmese-only, and a brushed "English" corrected mid-write returns to
+  it); from a confirmed English device, မြန်မာ restores the default, Both. Its focus ring is drawn
+  INSIDE each segment (`outline-offset: -3px`, pill-shaped) — the pill's `overflow: hidden` clipped
+  the global +2px ring (xcut-2's language third). On the PRESSED segment that inset ring sits on the
+  lit cap's fill, which is the ring's own `--ac` (1:1, invisible — review A1), so there it takes the
+  cap's on-accent ink
+  (`.staff-lang-btn[aria-pressed="true"]:focus-visible { outline-color: var(--oa) }`): 4.8426
+  light / 8.9138 Night on the fill, and the plain ring holds 4.8426 / 7.1028 on the track
+  (`composite-contrast.test.ts`).
 
 _As built — where the spec moved, in the places a reader relies on._
 
@@ -1413,23 +1454,33 @@ _As built — where the spec moved, in the places a reader relies on._
   Help sheet alike, the line next to the tap (the spec listed note-then-failure for one and
   rows-then-failure for the other). In the Help sheet it also shows in the MENU view, under the
   Language row, when the write fails after the person stepped Back from the rows.
-- **The Text size preview renders through `TicketDishTitle`, never `<Chrome>`** — it is a dish name,
-  and dish names never change with the mode. So it reads Burmese over English on an English device
-  too, like the ticket; the chrome render had shown English alone there since P7·3.
+- **The Text size preview renders through `TicketDishTitle`, never `<Chrome>`** — it is a dish name
+  as the kitchen ticket draws it, and the ticket's dish text never changes with the mode. So it
+  reads Burmese over English on an English device too, like the ticket; the chrome render had
+  shown English alone there since P7·3.
 - **`check-staff-lang` holds where the controls mount and what `keepEcho` may name** (the header
   counts THIRTEEN rules). Rule **4e**: each control export is mounted only by its own hosts — the
   pill by the four front doors (from the export that renders each), the rows by `HelpButton`, the
   card by the sign-in page — by module + export identity. Rule **6** checks the KEY as well as the
   file. Neither is in the spec; both close holes a blind critic reproduced on disk (4c alone let a
   page with no Help door put the pill on its own bar). 4d also refuses a spread on the bar and a
-  spread inside `leading`.
+  spread inside `leading`, and (review) RESOLVES every way up — the Screens circle's target read out
+  of `StaffBar`, each Back pill's `href` and split-width `paneHref` evaluated (literals, templates
+  whose runtime value is a whole `[param]` segment, consts and imported const objects,
+  conditionals, one-return functions) — to the staff page it opens, which must reach a control by
+  4c's walk or lead up the same way to one, with no circle. 4c also holds two controls inside ONE
+  host to provably exclusive branches (two returns of one function, the arms of one conditional,
+  then/else of one if).
 - **`globals.css` carries Phase 2e in FIVE places, not one labelled block** — each forced by the
   cascade or a shared list, so edit it there, never in a new block: (1) the pill/rows block where the
   old `.staff-lang-btn[aria-disabled]` and `.staff-lang-err` rules were (DELETED — their readers are
-  gone); (2) `.staff-lang-row[aria-pressed="true"]` in the ONE lit-cap list beside `.kds-chip`; (3)
-  `.staff-bar-msg .chrome-en` beside `.staff-bar-msg`; (4) `.help-lang` joined to the sheet views'
-  padding rule; (5) `.help-lang-back` joined to `.help-size-back`, which must follow `.staff-back` to
-  win at equal specificity.
+  gone), which since the review also holds the pressed segment's ring
+  (`.staff-lang-btn[aria-pressed="true"]:focus-visible`) and the two busy STRIPE rules that replaced
+  the `opacity: 0.7` pair — the first stylesheet in `verify:slice`'s mutate set, so a dirty
+  `globals.css` aborts a run; (2) `.staff-lang-row[aria-pressed="true"]` in the ONE lit-cap list
+  beside `.kds-chip`; (3) `.staff-bar-msg .chrome-en` beside `.staff-bar-msg`; (4) `.help-lang`
+  joined to the sheet views' padding rule; (5) `.help-lang-back` joined to `.help-size-back`, which
+  must follow `.staff-back` to win at equal specificity.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
