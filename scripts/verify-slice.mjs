@@ -10653,16 +10653,16 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CounterMint.tsx",
     suite: "components/staff/CounterMint.test.tsx",
     why: "Phase 2d · review (floor #1) — at split width nothing unmounts: a start that lands after the person picked a table in the pane must not push its add screen over that table, nor replace it with a converged one",
-    find: "          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {\n",
-    replace: "          if (false) {\n",
+    find: "(now?.selectedId ?? null) !== pickedAtTap || ",
+    replace: "",
   },
   {
     id: "p2d-rev/floor-mint-reads-the-tapping-render",
     file: "apps/qr/components/staff/CounterMint.tsx",
     suite: "components/staff/CounterMint.test.tsx",
     why: "Phase 2d · review (floor #1) — the action's closure holds the render that TAPPED; its `pane.selectedId` can never see the move, so the check must read the ref every render keeps current",
-    find: "          if ((paneNow.current?.selectedId ?? null) !== pickedAtTap) {\n",
-    replace: "          if ((pane?.selectedId ?? null) !== pickedAtTap) {\n",
+    find: "          const now = paneNow.current;\n",
+    replace: "          const now = pane;\n",
   },
   {
     id: "p2d-rev/floor-mint-pane-pick-holds-the-lock",
@@ -11034,6 +11034,31 @@ const MUTANTS = [
     why: "P2el — the reader button's `unreadable` arm; dropped, the server's English passes through",
     find: '              : res.code === "unreadable"\n',
     replace: "              : false\n",
+  },
+  // ── Phase 2d · Codex round 1 · mint ──
+  {
+    id: "p2d-cx1/mint-compares-the-id-alone",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Codex round 1 (mint) — a move that comes back ends on the id it left (A → B → A; the floor → a table → ✕): compared by id alone the landing reads 'never moved' and pushes the new order's add screen over the pane the person just worked in",
+    find: " || (now?.selectionGen ?? 0) !== genAtTap",
+    replace: "",
+  },
+  {
+    id: "p2d-cx1/split-close-takes-no-gen",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Codex round 1 (mint) — a close is a move too: without its own generation the floor → a table → ✕ reads as the floor the start was tapped over, and the add screen is pushed over it",
+    find: "    setFloorGen(++genSeq.current);\n",
+    replace: "",
+  },
+  {
+    id: "p2d-cx1/split-publishes-no-selection-gen",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Codex round 1 (mint) — the API's generation must follow the selection's own `gen`: published from closes alone, A → B → A reads as never moved",
+    find: "    selectionGen: sel ? sel.gen : floorGen,\n",
+    replace: "    selectionGen: floorGen,\n",
   },
 ];
 
