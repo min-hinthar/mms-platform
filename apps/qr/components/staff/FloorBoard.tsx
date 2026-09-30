@@ -460,7 +460,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                 serverNow={snap.serverNow}
                 lang={lang}
                 thresholds={snap.thresholds}
-                frozen={degraded !== null}
+                // Written apart from the table card's (an anchored line): the same freeze fact.
+                frozen={degraded != null}
               />
             )
           }
