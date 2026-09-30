@@ -793,9 +793,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       {/* P7·1b — the ONE staff bar: the Screens circle (on a kitchen tablet `/staff` is not a floor
           but the doors, and `?doors=1` wins over the remembered door, so the board can always be
           left), the title as the board's h1 (focus lands here after a bump/recall), the station
-          filter as a segmented control in the middle, and the Help door (P7·3 — the text size lives
-          inside it) before the switch. In
-          Night the bar is glass the tickets scroll under. */}
+          filter as a segmented control in the middle, and the Help door (P7·3 — the text size and,
+          since P2e, the language live inside it) before Lock. In Night the bar is glass the
+          tickets scroll under. */}
       <StaffBar
         lang={lang}
         title="kds.title"
@@ -1005,8 +1005,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               )}
             </nav>
           )}
-          {/* P2/1b — the language control is in the staff bar above (rule 4 reaches it through
-              `StaffBar`); the bar is sticky and 68px, and P4 measures the board under it. */}
+          {/* P2e — the language control is the Help sheet's Language row (rule 4 reaches it through
+              `HelpButton`); the bar is sticky and 68px, and P4 measures the board under it. */}
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
-import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { STAFF, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock, staffDate } from "@/lib/staff-clock";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
@@ -31,12 +31,16 @@ import {
   submitStaffReport,
   type StaffReportRow,
 } from "@/lib/staff-report-actions";
-import type { StaffLang } from "@/lib/staff-lang";
+import type { StaffLang, StaffLangMode } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
 import { useLiveConnection } from "./LiveConnection";
+import { useStaffLangMode } from "./StaffLangProvider";
+import { STAFF_LANG_MODE_KEY, StaffLangRows } from "./StaffLangSwitch";
+import { useLangModeWrite, type LangModeWrite } from "./useLangModeWrite";
+import { TicketDishTitle } from "./TicketText";
 
-type View = "menu" | "how" | "size" | "report";
+type View = "menu" | "how" | "size" | "lang" | "report";
 
 /** Slot values a card interpolates, keyed by card number. */
 type HelpCardVars = Partial<Record<number, Record<string, string | number>>>;
@@ -59,6 +63,18 @@ type HelpProps = {
     }
   | { screen: Exclude<HelpDoorScreen, "kitchen">; cardVars?: undefined }
 );
+
+/**
+ * P2e review — the Text size preview's word is a DISH, so it renders the way the ticket names a
+ * dish: `TicketDishTitle` (the catalog Burmese over its English), the same in every device mode,
+ * like `TicketText`. Through `<Chrome>` it followed the device — English alone on an English
+ * tablet, and no English line at all under Burmese only — so the preview stopped looking like the
+ * ticket it previews. The words stay in the dictionary (`help.size.sample`, one K15 home).
+ */
+const SIZE_SAMPLE = {
+  name: STAFF["help.size.sample"].en,
+  nameMy: STAFF["help.size.sample"].my,
+};
 
 /** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
 const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
@@ -101,6 +117,21 @@ function safe(read: () => string | undefined): string | undefined {
  * boolean); the size is a localStorage preference and the cards are reading. The circle is
  * icon-only to the eye and NAMED by sr-only dictionary text through <Chrome> (rule 3), like every
  * circle in the bar.
+ *
+ * P2e — LANGUAGE, the mid-service way back (owner decision 2): a row before "Something's wrong"
+ * (the report stays LAST), named "ဘာသာစကား / Language" in BOTH scripts on every device, its sub-line
+ * the current mode in the device's own; two taps, no navigation. The view is the three mode rows.
+ * THIS component owns the write (`useLangModeWrite`, the `useStaffSend` rule), so a view swap or a
+ * close never kills it, and the sheet is NOT `busy` for it: a display preference that reverts to
+ * confirmed is not an M82 irreversible write, and a hung write must never trap the kitchen behind a
+ * modal for 15 s — ✕, Escape, the scrim and the drag all stay live. A tap on the confirmed mode
+ * closes the sheet (like the size rows); a tap on another stays open until the provider's mode
+ * EQUALS the one written — the board behind is already in the new tongue as the sheet slides away
+ * (a render-time close, never a setState in an effect; only while the person is still looking at
+ * the rows). A failure with the sheet open is a `role="alert"` in the view; one that lands after
+ * the person closed the sheet is the bar tail's `.staff-bar-msg` line beside this circle (the Lock
+ * refusal's line) — only one of the two ever renders, and the next open clears it. A failure that
+ * lands while the person is on How, Text size or Report is kept through the close and said there.
  */
 export function HelpButton(props: HelpProps) {
   const { lang, screen, size, sheetClassName } = props;
@@ -128,6 +159,35 @@ export function HelpButton(props: HelpProps) {
   const [pending, startTransition] = useTransition();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const sentRef = useRef<HTMLDivElement>(null);
+
+  // ── P2e · the language ──
+  const mode = useStaffLangMode();
+  // The mode a SUCCESSFUL write left on the server, while the sheet waits for the provider to catch
+  // up (the refresh landing) before it closes. Only armed while the person is still on the rows.
+  const [awaiting, setAwaiting] = useState<StaffLangMode | null>(null);
+  const onRows = useRef(false);
+  useEffect(() => {
+    onRows.current = open && view === "lang";
+  }, [open, view]);
+  const langWrite = useLangModeWrite({
+    onSettled: (s) => {
+      if (s.wrote && !s.alert && onRows.current) setAwaiting(s.confirmed);
+    },
+  });
+  if (awaiting !== null && mode === awaiting) {
+    setAwaiting(null);
+    setOpen(false);
+  }
+  // Every tap that WRITES outdates the wait for the last write: a refresh from that earlier write,
+  // landing while the new one is out, must never close the sheet on a mode the person moved past.
+  const langRows: LangModeWrite = {
+    ...langWrite,
+    choose: (next) => {
+      const tap = langWrite.choose(next);
+      if (tap === "wrote") setAwaiting(null);
+      return tap;
+    },
+  };
 
   useEffect(() => {
     let active = true;
@@ -194,6 +254,14 @@ export function HelpButton(props: HelpProps) {
 
   function show(next: boolean) {
     if (!next && pending) return; // the sheet is busy — the choke point refuses too; belt and brace
+    // P2e — a language failure the person SAW (the menu or the Language view draw its line) is
+    // answered by closing the sheet, and a stale one must never greet the next open. One that
+    // landed while they were on How, Text size or Report was never shown (those views have no line
+    // of their own — one region per view), so the close KEEPS it and the bar tail says it. A
+    // failure that lands after the close is said there too.
+    const lineShown = open && (view === "menu" || view === "lang");
+    setAwaiting(null);
+    if (next || lineShown) langWrite.clearAlert();
     // M76 — the reset rides the OPEN, not the close: the content stays mounted for the whole exit
     // slide now, so a close-time reset flipped the "Report sent" card and the title back to the
     // menu in the first frame of the slide (the blind pass, slice 4). Resetting here is the same
@@ -298,12 +366,29 @@ export function HelpButton(props: HelpProps) {
           <Chrome lang={lang} k="help.title" />
         </span>
       </button>
+      {/* P2e — a language failure the sheet did not say: the bar tail's line, beside this circle
+          (the fragment's children are the tail's), both tongues on every device. ONE line ever:
+          this one only while the sheet is closed, the sheet's only while it is open — its content
+          stays mounted through the exit slide (M76), so those are `open &&`. */}
+      {!open && langWrite.alert && (
+        <span role="alert" className="staff-bar-msg">
+          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
+        </span>
+      )}
       <Sheet
         open={open}
         onOpenChange={show}
+        // The REPORT only (M82). Never the language write: a preference that reverts to confirmed is
+        // not an irreversible write, and a hung one must not trap the board behind this sheet.
         busy={pending}
         closeLabel={sheetCloseLabel(lang)}
-        title={<Chrome lang={lang} k={title} echo="stack" />}
+        title={
+          view === "lang" ? (
+            <Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />
+          ) : (
+            <Chrome lang={lang} k={title} echo="stack" />
+          )
+        }
         className={sheetClassName ? `help-sheet ${sheetClassName}` : "help-sheet"}
       >
         {view === "menu" && (
@@ -365,6 +450,30 @@ export function HelpButton(props: HelpProps) {
                   </button>
                 </li>
               )}
+              {/* P2e — the language, before the report (Something's wrong stays LAST). The name is
+                  BOTH scripts on every device: this row is the way back for whoever the current
+                  mode is wrong for. The sub-line is the current mode, in the device's own. */}
+              <li>
+                <button
+                  type="button"
+                  className="staff-row help-row staff-press"
+                  onClick={() => {
+                    haptic("pick");
+                    setView("lang");
+                  }}
+                >
+                  <span className="staff-row-glyph" aria-hidden>
+                    <Icon name="language" size={20} />
+                  </span>
+                  <span className="staff-row-name">
+                    <Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />
+                    <span className="help-row-sub">
+                      <Chrome lang={lang} k={STAFF_LANG_MODE_KEY[mode]} echo="stack" />
+                    </span>
+                  </span>
+                  <Icon name="chevron" size={20} className="staff-row-chev" aria-hidden />
+                </button>
+              </li>
               <li>
                 <button
                   type="button"
@@ -388,6 +497,13 @@ export function HelpButton(props: HelpProps) {
                 </button>
               </li>
             </ul>
+            {/* P2e — a language write that failed after the person stepped Back from the rows:
+                said here, under the row that leads back to them. */}
+            {open && langWrite.alert && (
+              <p role="alert" className="staff-lang-msg">
+                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
+              </p>
+            )}
           </div>
         )}
 
@@ -455,7 +571,7 @@ export function HelpButton(props: HelpProps) {
                   }}
                 >
                   <span className="help-size-sample" data-size={sz}>
-                    <Chrome lang={lang} k="help.size.sample" echo="stack" />
+                    <TicketDishTitle line={SIZE_SAMPLE} />
                   </span>
                   <span className="help-size-meta">
                     <Chrome lang={lang} k={`kds.size.${sz}`} echo="inline" />
@@ -477,6 +593,32 @@ export function HelpButton(props: HelpProps) {
             <button
               type="button"
               className="staff-back staff-press help-size-back"
+              onClick={() => setView("menu")}
+            >
+              <Chrome lang={lang} k="help.back" echo="inline" />
+            </button>
+          </div>
+        )}
+
+        {view === "lang" && (
+          <div className="help-lang">
+            <p className="help-sub">
+              <Chrome lang="my" k="shell.lang.scope" echo="stack" keepEcho />
+            </p>
+            {/* Focus lands on the pressed row as the view opens (QA §A — the row that opened it
+                is gone with the menu). */}
+            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />
+            {open && langWrite.alert && (
+              <p role="alert" className="staff-lang-msg">
+                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
+              </p>
+            )}
+            <p className="staff-lang-note">
+              <Chrome lang={lang} k="shell.lang.note" echo="stack" />
+            </p>
+            <button
+              type="button"
+              className="staff-back staff-press help-lang-back"
               onClick={() => setView("menu")}
             >
               <Chrome lang={lang} k="help.back" echo="inline" />

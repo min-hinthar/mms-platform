@@ -2,15 +2,37 @@ import type { IconName } from "@mms/ui";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { roleAtLeast, type StaffRole } from "@/lib/staff-roles";
 
-/** One row of the More list — a real link, named by a dictionary key, with a glyph. */
-export type MoreTile = { href: string; k: StaffKey; icon: IconName };
+/**
+ * One row of the More list — a real link, named by a dictionary key, with a glyph. `both` (P2e):
+ * the label renders in BOTH scripts on every device, whatever its mode — the language tile only.
+ */
+export type MoreTile = { href: string; k: StaffKey; icon: IconName; both?: true };
+
+/**
+ * P2e — where the doors' Language tile lands: the Profile's language card, focused on the pressed
+ * mode. A QUERY PARAM, never a `#hash` (§26): `/staff/login` has a `loading.tsx`, and a fragment
+ * landing behind a streamed boundary scrolls to nothing.
+ */
+export const STAFF_LANG_HREF = "/staff/login?show=lang";
+
+/** The language tile — last in both views; its label is both scripts on every device. */
+const LANGUAGE_TILE: MoreTile = {
+  href: STAFF_LANG_HREF,
+  k: "shell.lang.row",
+  icon: "language",
+  both: true,
+};
 
 /**
  * A4·5 — the More list, stated ONCE for both surfaces that render it (the doors and the counter's
  * one screen).
  *
- * Behind the doors sit THREE tiles — Menu · Tips · Sign-in — the three of the five screens that
- * are not a door (Kitchen and Counter & tables ARE the doors above). The counter's screen keeps a
+ * Behind the doors sit Menu · Tips · Sign-in — the three of the five screens that are not a door
+ * (Kitchen and Counter & tables ARE the doors above) — then, since P2e, Language LAST: the way back
+ * to the device's language from every screen that has no Help door, labelled in both scripts on
+ * every device (the tips, menu, glossary and table screens reach the doors in one tap, the wordless
+ * Screens circle, or through a Back pill to the counter, which has Help). The count is measured by
+ * the suite, not stated here. The counter's screen keeps a
  * fourth, first: the kitchen board as a plain LINK, because a manager on the counter tablet peeking
  * at the board must not walk through the Kitchen DOOR — a door remembers itself and would re-door
  * the counter tablet as a kitchen one (the P7 blind pass's CRITICAL 3). A tile is a look; a door is
@@ -41,8 +63,8 @@ export function moreTiles(input: {
     { href: "/staff/login", k: input.hasPin ? "floor.nav.pin" : "floor.nav.pinSet", icon: "lock" },
   ];
   return input.view === "floor"
-    ? [{ href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" }, ...three]
-    : three;
+    ? [{ href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" }, ...three, LANGUAGE_TILE]
+    : [...three, LANGUAGE_TILE];
 }
 
 /**

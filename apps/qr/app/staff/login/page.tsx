@@ -11,6 +11,7 @@ import { ViewStatusProvider } from "@/components/staff/ViewStatus";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { StaffLangSection, StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Staff sign-in — Mandalay Morning Star" };
@@ -42,6 +43,14 @@ export const dynamic = "force-dynamic";
  * P2 — the language control belongs HERE above all other staff surfaces: this is the first screen
  * the kitchen tablet shows, before anyone is signed in. It is also why `setStaffLang` is ungated —
  * a `staffGate` on the writer would make this control inert on exactly this page.
+ *
+ * P2e — this is the one page with TWO control branches, both from the control's one module
+ * (`check-staff-lang` rule 4c counts hosting modules, not exports): signed OUT, the form's bar
+ * carries the front door's two-script pill in its trailing slot; signed IN, the device's language
+ * card follows the person's own card (`StaffLangSection`, the three modes). The doors' More tile
+ * lands here as `?show=lang` — a QUERY PARAM, never a `#hash`: this route has a `loading.tsx`, and a
+ * fragment landing behind a streamed boundary is the §26 defect. With it, focus lands once on the
+ * pressed row. The form ignores `show`; a locked tablet goes to `/staff/lock`, which has the pill.
  */
 export default async function StaffLoginPage({
   searchParams,
@@ -50,7 +59,7 @@ export default async function StaffLoginPage({
   // query parameter (`?next=/board&next=/kiosk`) through as a `string[]`. The narrow `string` type
   // was a claim about the URL that a caller controls, and `safeNext` now rejects the array itself —
   // this signature just stops the lie (Codex round 2, P2).
-  searchParams: Promise<{ denied?: string; next?: string | string[] }>;
+  searchParams: Promise<{ denied?: string; next?: string | string[]; show?: string | string[] }>;
 }) {
   const auth = await getStaffAuth();
   const params = await searchParams;
@@ -77,8 +86,9 @@ export default async function StaffLoginPage({
   const lang = await readStaffLang();
 
   if (state.kind === "form") {
-    // P7·2 — the same bar as every other page (a static mark, the title, the switch; no Lock and no
-    // Screens circle, because there is nothing behind either door before a sign-in), and the form
+    // P7·2 — the same bar as every other page (a static mark, the title, the switch — since P2e in
+    // the TRAILING slot, one of the four front doors that keeps it; no Lock and no Screens circle,
+    // because there is nothing behind either door before a sign-in), and the form
     // beneath it speaks the device language too. `next` for the form is the VALIDATED destination
     // with the absent case at its default, exactly as before.
     return (
@@ -87,6 +97,7 @@ export default async function StaffLoginPage({
           lang={lang}
           title="entry.login.title"
           leading={{ kind: "here", icon: "people" }}
+          trailing={<StaffLangSwitch />}
         />
         <div className="staff-col entry-col">
           <StaffLogin lang={lang} denied={state.denied} next={next ?? DEFAULT_NEXT} />
@@ -136,6 +147,8 @@ export default async function StaffLoginPage({
             displayName={caller.displayName}
             email={caller.email}
           />
+          {/* P2e — the DEVICE's card follows the person's: the language, three ways. */}
+          <StaffLangSection focusOnMount={params.show === "lang"} />
           {manager && (
             // A6 — `callerRole` drives the ceiling in the UI: the role <select>s offer only what
             // this caller may actually grant, and a row they cannot reach loses its controls. The

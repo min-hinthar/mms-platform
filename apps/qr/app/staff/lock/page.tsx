@@ -4,6 +4,7 @@ import { isConsoleLocked } from "@/lib/staff-lock";
 import { PinUnlock } from "@/components/staff/PinUnlock";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Locked — Mandalay Morning Star" };
@@ -20,6 +21,10 @@ export const dynamic = "force-dynamic";
  * which matters MORE here than on most surfaces: a locked tablet is the one screen a person can reach
  * without being able to change anything else, so if the language is wrong this is where they must be
  * able to fix it. No Lock circle, for the obvious reason.
+ *
+ * P2e — the pill rides the bar's TRAILING slot: this is one of the four front doors that still
+ * carries it (no in-service bar does). It stays in the bar, never under the card, because PinUnlock
+ * focuses its field on mount and a control beneath the card would sit under the soft keyboard.
  */
 export default async function StaffLockScreen() {
   const auth = await getStaffAuth();
@@ -34,7 +39,12 @@ export default async function StaffLockScreen() {
   const lang = await readStaffLang();
   return (
     <main className="staff-main">
-      <StaffBar lang={lang} title="entry.lock.title" leading={{ kind: "here", icon: "lock" }} />
+      <StaffBar
+        lang={lang}
+        title="entry.lock.title"
+        leading={{ kind: "here", icon: "lock" }}
+        trailing={<StaffLangSwitch />}
+      />
       <div className="staff-col entry-col">
         <PinUnlock lang={lang} displayName={auth.caller.displayName} />
       </div>

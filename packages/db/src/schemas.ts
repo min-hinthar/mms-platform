@@ -278,12 +278,17 @@ export const provisionStaffInput = z.object({
 
 /**
  * setStaffLang (P2) — which language this DEVICE's staff console speaks. Deliberately the whole
- * validation: the value carries no authority (it picks between two translations of the same words),
- * so the action that writes it is ungated by design — see `lib/staff-lang-actions.ts` for why a
- * `staffGate` here would kill the control on the login, lock, board and outage screens.
+ * validation: the value carries no authority (it picks how the same words are drawn), so the action
+ * that writes it is ungated by design — see `lib/staff-lang-actions.ts` for why a `staffGate` here
+ * would kill the control on the login, lock, outage and error screens.
+ *
+ * P2e — the value is a MODE (`StaffLangMode` in `apps/qr/lib/staff-lang.ts`): Burmese only, both,
+ * or English. `"my"` is deliberately NOT a value — it is a script, and the old `{ lang }` shape a tab
+ * from before the deploy still sends is refused, never guessed at. The enum is pinned to
+ * `StaffLangMode` by a type test (`lib/staff-lang.test.ts`), so the two lists cannot drift.
  */
 export const staffLangInput = z.object({
-  lang: z.enum(["en", "my"]),
+  mode: z.enum(["my-only", "both", "en"]),
 });
 
 /** setStaffDoor (P7) — which of the two staff doors this DEVICE opens on; `null` forgets it. Same

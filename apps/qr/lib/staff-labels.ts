@@ -60,6 +60,16 @@ export function dishVisible(lang: StaffLang, name: string, nameMy: string | null
  * `Chrome.test.tsx` pins `render(<Chrome …/>).textContent === chromeVisible(…)`, so the two cannot
  * drift; `al()` composes every `visible` through it. Pass the SAME `echo` the call site renders —
  * `check-staff-lang.mjs` rule 3c is what checks you did.
+ *
+ * P2e — STATED SCOPE UNDER BURMESE ONLY. A Burmese-only device drops `<Chrome>`'s English echo
+ * (except on the K15-HIGH band and `keepEcho` sites), but names are NOT threaded through the mode:
+ * they keep the echo. WCAG 2.5.3 containment still holds PER KEY, because
+ * `chromeVisible("my", k, echo)` contains `chromeVisible("my", k, false)` — what the screen shows
+ * is a prefix of what the name says. A COMPOSITE name built from several pieces
+ * (`CounterOrderCard`'s `subjectOf`, `RefundsNeededStrip`) interleaves an English echo between
+ * Burmese pieces, so there the visible text is contained piecewise, not as one contiguous run.
+ * Deliberate (no assistive-tech users on these tablets) and filed low in OPEN-ITEMS, rather than
+ * claimed.
  */
 export type ChromeEcho = "stack" | "inline" | false;
 

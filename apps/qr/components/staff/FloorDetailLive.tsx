@@ -638,12 +638,12 @@ export function FloorDetailLive({
 
   return (
     <DetailRoot inPane={inPane} rootRef={rootRef} onFocusCapture={markFocus}>
-      {/* P7·1b — the staff bar is the h1 and the language control (rule 4 reaches the switch
-          through `StaffBar`). K2: the real table number; an unregistered/legacy sticker shows its
+      {/* P7·1b — the staff bar is the h1 (P2e: no in-service bar carries the language control; its
+          Back pill leads to the counter, whose Help sheet has the Language row — rule 4d). K2: the real table number; an unregistered/legacy sticker shows its
           raw token + flag. W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table —
           name it so, and never wave the unregistered-sticker warning at it. */}
-      {/* Phase 2d · split — the pane has no bar: the counter screen's bar is the page's ONE bar
-          (and rule 4's one language switch); the pane's head names the table. */}
+      {/* Phase 2d · split — the pane has no bar: the counter screen's bar is the page's ONE bar;
+          the pane's head names the table. */}
       {!inPane && (
         <StaffBar
           lang={lang}

@@ -73,9 +73,9 @@ import { useCounterAttention } from "./CounterBell";
  * pinned; pickup/scango bags headline the first name + short code. K10: an expired staff cookie or a
  * locked console redirects honestly instead of wearing "Reconnecting…" forever.
  *
- * A4·2 — a LANE of the counter's one screen, not a page: the page's bar carries the help door and
- * the language control (rule 4 holds a page to ONE), so the board mounts no bar and no column of
- * its own; its h2 is the section's name and the focus target after a bump. The kitchen's own
+ * A4·2 — a LANE of the counter's one screen, not a page: the page's bar carries the help door (and
+ * through it, since P2e, the language rows — rule 4 holds a page to ONE hosting module), so the
+ * board mounts no bar and no column of its own; its h2 is the section's name and the focus target after a bump. The kitchen's own
  * progress (K30 (B)) badges a bag whose to-go food is done and lifts it above bags still cooking.
  */
 export function ExpoBoard({

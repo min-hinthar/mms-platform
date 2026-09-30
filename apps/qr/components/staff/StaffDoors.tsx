@@ -147,8 +147,9 @@ export function StaffDoors({
  * board first as a plain link). P7·1b: INSET GROUPED ROWS (the iOS Settings idiom, Burmese first)
  * rather than a tile wall — a 62px row with a tinted glyph square, the name with its English echo
  * beneath, and a disclosure chevron; two columns on a tablet, one on a phone, hairlines drawn once.
- * Still one `role="list"` of real links, named by the visible "More" heading. A tile's label is a
- * plain key: the one label that carried a count (approvals) moved to the bar's circle with A4·2 and
+ * Still one `role="list"` of real links, named by the visible "More" heading. P2e — the ONE
+ * exception to "the label follows the device": the Language tile (`both`) is Burmese over English on
+ * every device and in every mode. A tile's label is a plain key: the one label that carried a count (approvals) moved to the bar's circle with A4·2 and
  * left the grid with A4·5. The list is `aria-labelledby` the heading (doors-2): the section around
  * it was, and a list with a role and no name of its own is announced as a bare "list".
  */
@@ -171,7 +172,13 @@ export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) 
                 <Icon name={t.icon} size={22} />
               </span>
               <span className="staff-row-name">
-                <Chrome lang={lang} k={t.k} echo="stack" />
+                {/* P2e — the language tile is both scripts on every device: it is the way back for
+                    whoever the current mode is wrong for. Every other tile follows the device. */}
+                {t.both ? (
+                  <Chrome lang="my" k={t.k} echo="stack" keepEcho />
+                ) : (
+                  <Chrome lang={lang} k={t.k} echo="stack" />
+                )}
               </span>
               <span className="staff-row-chev" aria-hidden>
                 <Icon name="chevron" size={18} />

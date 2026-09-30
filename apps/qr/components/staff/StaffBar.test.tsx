@@ -1,22 +1,25 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
+const setStaffLang = vi.fn();
+vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: (v: unknown) => setStaffLang(v) }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
 
 const { StaffBar } = await import("./StaffBar");
+const { StaffLangSwitch } = await import("./StaffLangSwitch");
+const { StaffLangProvider } = await import("./StaffLangProvider");
 const { NET_SHOW_MS } = await import("@/lib/live-connection");
 
 /**
  * P7·1b — the one chrome. What is worth pinning: the leading slot is a REAL link to the doors that
  * `resolveStaffHome` cannot override (`?doors=1`), or a static mark on the doors themselves, or a
  * back-up link whose accessible name is the dictionary's; the title is the page's h1 with the
- * Burmese marked `lang="my"`; the trailing group is named, always carries the language control, and
- * carries Lock ONLY when asked (a PIN exists); and every selector globals.css writes against the
+ * Burmese marked `lang="my"`; the trailing group is named, carries NO language control (P2e — the
+ * four front doors pass the pill through `trailing`), and carries Lock ONLY when asked (a PIN exists); and every selector globals.css writes against the
  * bar's title matches the DOM the bar renders (LEARNINGS #101 — dead CSS for a title is a title at
  * body size).
  */
@@ -89,7 +92,7 @@ describe("StaffBar", () => {
     expect(h1.tabIndex).toBe(-1);
     expect(ref.current).toBe(h1);
   });
-  it("trailing order is a contract: page utilities, then Help, then the language switch, then Lock LAST", () => {
+  it("trailing order is a contract: page utilities, then Help, then Lock LAST", () => {
     const { container } = render(
       <StaffBar
         lang="my"
@@ -101,13 +104,11 @@ describe("StaffBar", () => {
     );
     const tail = screen.getByTestId("tail");
     const help = screen.getByTestId("help");
-    const lang = container.querySelector(".staff-lang")!;
     const lock = screen.getByRole("button", { name: "ဒီတက်ဘလက်ကို လော့ခ်ချ" });
     const before = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(before(tail, help)).toBe(true);
-    expect(before(help, lang)).toBe(true);
-    expect(before(lang, lock)).toBe(true);
+    expect(before(help, lock)).toBe(true);
     expect(lock.parentElement).toBe(container.querySelector(".staff-bar-tail"));
     expect(help.parentElement).toBe(container.querySelector(".staff-bar-tail"));
   });
@@ -123,10 +124,10 @@ describe("StaffBar", () => {
     // alpha here would be a second pane that no guard measures.
     expect(rule![1]).toMatch(/background:\s*var\(--glass-chrome\)/);
   });
-  it("the trailing group is named, always has the language control, and Lock only when asked", () => {
+  it("the trailing group is named, carries no language control, and Lock only when asked", () => {
     const { rerender } = render(<StaffBar lang="my" title="kds.title" />);
     const tools = screen.getByRole("group", { name: "စက် ကိရိယာများ" });
-    expect(tools.querySelector(".staff-lang")).not.toBeNull();
+    expect(tools.querySelector(".staff-lang, .staff-lang-rows")).toBeNull();
     expect(screen.queryByRole("button", { name: /လော့ခ်ချ/ })).toBeNull();
     rerender(<StaffBar lang="my" title="kds.title" lock />);
     expect(screen.getByRole("button", { name: "ဒီတက်ဘလက်ကို လော့ခ်ချ" }).className).toContain(
@@ -144,6 +145,60 @@ describe("StaffBar", () => {
     );
     expect(screen.getByTestId("mid").closest(".staff-bar-mid")).not.toBeNull();
     expect(screen.getByTestId("tail").closest(".staff-bar-tail")).not.toBeNull();
+  });
+});
+
+// ── Phase 2e · lang ──
+describe("P2e — the language left the in-service bar", () => {
+  it("NO prop combination mounts a language control — every leading, with and without the slots", () => {
+    const leadings = [
+      undefined,
+      { kind: "screens" } as const,
+      { kind: "here" } as const,
+      { kind: "here", icon: "lock" } as const,
+      { kind: "back", href: "/staff", k: "floor.back" } as const,
+    ];
+    for (const leading of leadings)
+      for (const lock of [false, true])
+        for (const slots of [false, true]) {
+          const { container, unmount } = render(
+            <StaffBar
+              lang="my"
+              title="kds.title"
+              leading={leading}
+              lock={lock}
+              trailing={slots ? <span>Aa</span> : undefined}
+              help={slots ? <span>?</span> : undefined}
+              middle={slots ? <span>stations</span> : undefined}
+              live={slots ? "live" : undefined}
+            />,
+          );
+          expect(container.querySelectorAll(".staff-lang, .staff-lang-rows")).toHaveLength(0);
+          unmount();
+        }
+  });
+
+  it("a front door's pill rides TRAILING, and its failure lands BENEATH the tail's row — never inside the pill", async () => {
+    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+    const { container } = render(
+      <StaffLangProvider lang="my">
+        <StaffBar
+          lang="my"
+          title="entry.lock.title"
+          leading={{ kind: "here", icon: "lock" }}
+          trailing={<StaffLangSwitch />}
+        />
+      </StaffLangProvider>,
+    );
+    const tail = container.querySelector(".staff-bar-tail")!;
+    expect(tail.querySelectorAll(".staff-lang")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.parentElement).toBe(tail);
+    expect(alert.className).toBe("staff-bar-msg");
+    expect(alert.closest(".staff-lang")).toBeNull();
+    const pill = tail.querySelector(".staff-lang")!;
+    expect(pill.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
 
@@ -169,6 +224,21 @@ describe("the bar-title CSS matches the DOM the bar renders", () => {
       unmount();
     }
   });
+  // P2e — Burmese ONLY drops the echo and keeps the pair: every title rule that is not about the
+  // echo itself must still match, or a Burmese-only bar title loses its 30px (the one-child pair).
+  it.each(selectors.filter((sel) => !/\.chrome-en\s*$/.test(sel)))(
+    "%s still matches a Burmese-only bar",
+    (selector) => {
+      const live = /\.staff-bar-head/.test(selector) ? ("live" as const) : undefined;
+      const { container } = render(
+        <StaffLangProvider lang="my" echoes={false}>
+          <StaffBar lang="my" title="kds.title" live={live} />
+        </StaffLangProvider>,
+      );
+      expect(container.querySelector(selector), selector).not.toBeNull();
+      expect(container.querySelector(".staff-bar-title .chrome-en")).toBeNull();
+    },
+  );
 });
 
 /**

@@ -30,10 +30,10 @@ export const dynamic = "force-dynamic";
  * The catalog read is the same public-RLS one the diner menu uses, so this page shows exactly the
  * prices a guest would be charged — the point of the screen.
  *
- * P2 — the chrome speaks the device language, and the switch is mounted HERE rather than by
- * `app/staff/layout.tsx`: the layout renders no chrome of its own, because a strip it added would be
- * silently subtracted from every measured surface beneath it. `check-staff-lang.mjs` rule 4 is what
- * holds this surface to the mount.
+ * P2 — the chrome speaks the device language. P2e — this screen carries NO language control (no
+ * in-service bar does): its Screens circle is one tap from the doors, whose More ends with the
+ * bilingual Language tile. `check-staff-lang.mjs` rule 4d is what holds that way up to a wordless
+ * leading control.
  *
  * A4·5 — this is the MENU screen, one of the five. The printed word-check sheet (`/staff/glossary`,
  * P5 — a list of every staff word with its Burmese, and the dish names are checked on the ticket)

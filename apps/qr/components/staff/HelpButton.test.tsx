@@ -1,9 +1,18 @@
 /** @vitest-environment jsdom */
-import { StrictMode } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode, type ReactElement, type ReactNode } from "react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
+import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -16,7 +25,36 @@ vi.mock("@/lib/staff-report-actions", () => ({
   listMyStaffReports: () => listMyStaffReports(),
 }));
 
+// P2e — the Help sheet owns the language write, so it reaches the action and the router.
+const setStaffLang = vi.fn();
+const refresh = vi.fn();
+vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: (v: unknown) => setStaffLang(v) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+
 const { HelpButton } = await import("./HelpButton");
+const { StaffLangProvider } = await import("./StaffLangProvider");
+
+/**
+ * P2e — HelpButton reads the device's MODE (`useStaffLangMode`, which throws outside a provider —
+ * every production mount sits under `app/staff/layout.tsx`). Every render here is wrapped in the
+ * provider of the language the HelpButton element itself was given, so the suite's existing cases
+ * are unchanged; the language cases pass `echoes` explicitly.
+ */
+function langOf(ui: ReactElement): "en" | "my" {
+  const props = ui.props as { lang?: "en" | "my"; children?: ReactElement };
+  if (props.lang) return props.lang;
+  return props.children ? langOf(props.children) : "en";
+}
+const render = (ui: ReactElement, echoes = true) => {
+  const lang = langOf(ui);
+  return rtlRender(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <StaffLangProvider lang={lang} echoes={echoes}>
+        {children}
+      </StaffLangProvider>
+    ),
+  });
+};
 
 /**
  * P7·3 — the Help door. What is worth pinning: the circle is a named 44px control that opens ONE
@@ -31,6 +69,9 @@ afterEach(() => {
 });
 beforeEach(() => {
   localStorage.clear();
+  setStaffLang.mockReset();
+  refresh.mockReset();
+  setStaffLang.mockImplementation(async (v: { mode: string }) => ({ ok: true, mode: v.mode }));
   submitStaffReport.mockReset();
   listMyStaffReports.mockReset();
   // Settles after a MACROTASK, the way a real round-trip does. A same-tick fixture hid the first
@@ -465,4 +506,446 @@ describe("M76 — the help sheet through its exit", () => {
     expect(screen.queryByText(step2)).toBeNull();
     vi.restoreAllMocks();
   });
+});
+
+// ── Phase 2e · lang ──
+/**
+ * P2e — Language, the mid-service way back: a row before the report, both scripts on every device,
+ * the three mode rows behind it. What is pinned: the row order (report LAST); the row, title and
+ * scope are bilingual under English AND under Burmese-only; the sheet is NEVER busy for a language
+ * write (✕ and Escape stay live, the write still lands); it closes when the PROVIDER catches up,
+ * never on the chain's end; a second tap on the pending row keeps it open; a failure lands in the
+ * view while it is open and in the bar tail after the person closed it; the next open clears it.
+ */
+describe("P2e — the Help sheet's Language row", () => {
+  const Host = ({ mode, children }: { mode: StaffLangMode; children: ReactNode }) => (
+    <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
+      {children}
+    </StaffLangProvider>
+  );
+  /** The bar tail as the page renders it: the circle's fragment children are the tail's. The
+   *  page hands the circle the provider's script, as `app/staff/page.tsx` does. */
+  const Tail = ({ mode }: { mode: StaffLangMode }) => (
+    <div className="staff-bar-tail">
+      <HelpButton lang={scriptOf(mode)} screen="counter" />
+    </div>
+  );
+  /** An ENGLISH device, so the sheet's chrome is queried by its English names; the rows are named
+   *  by their autonyms on every device. */
+  const mountLang = (mode: StaffLangMode = "en") =>
+    rtlRender(
+      <Host mode={mode}>
+        <Tail mode={mode} />
+      </Host>,
+    );
+  const openLang = async () => {
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /Language/ }));
+    return screen.findByRole("group", { name: "This device’s language" });
+  };
+  function held<T>() {
+    let release!: (v: T) => void;
+    const p = new Promise<T>((r) => {
+      release = r;
+    });
+    return { p, release };
+  }
+
+  it("the menu reads How · Text size (board) · Language · Something's wrong — the report LAST", async () => {
+    seen("kitchen");
+    render(
+      <HelpButton
+        lang="en"
+        screen="kitchen"
+        size={{ value: "m", onPick: vi.fn() }}
+        cardVars={kitchenVars}
+      />,
+    );
+    fireEvent.click(circle());
+    const list = await screen.findByRole("list", { name: "Help topics" });
+    const names = [...list.querySelectorAll(".staff-row-name")].map((n) => n.textContent);
+    expect(names.map((t) => /How|Text size|Language|Something/.exec(t ?? "")?.[0])).toEqual([
+      "How",
+      "Text size",
+      "Language",
+      "Something",
+    ]);
+  });
+
+  it.each([
+    ["en", true],
+    ["my", false],
+  ] as const)(
+    "under lang=%s (echoes %s) the row is BOTH scripts; its sub-line is the mode in the device's own",
+    async (lang, echoes) => {
+      seen("counter");
+      render(<HelpButton lang={lang} screen="counter" />, echoes);
+      fireEvent.click(screen.getByRole("button", { name: lang === "en" ? "Help" : "အကူအညီ" }));
+      const row = await screen.findByRole("button", { name: /ဘာသာစကား/ });
+      const name = row.querySelector(".staff-row-name")!;
+      expect(name.querySelector(':scope > .chrome-pair > [lang="my"]')?.textContent).toBe(
+        STAFF["shell.lang.row"].my,
+      );
+      expect(name.querySelector(":scope > .chrome-pair > .chrome-en")?.textContent).toBe(
+        STAFF["shell.lang.row"].en,
+      );
+      const sub = row.querySelector(".help-row-sub")!;
+      const key = lang === "en" ? "shell.lang.mode.en" : "shell.lang.mode.myOnly";
+      expect(sub.textContent).toBe(STAFF[key][lang]);
+    },
+  );
+
+  /** Mode-aware handles: the circle and the chrome are named in the device's tongue, the Language
+   *  row and the rows by words that read the same in every mode. */
+  const circleOf = () => document.querySelector<HTMLElement>(".staff-circ-gold")!;
+  const openLangIn = async (mode: StaffLangMode) => {
+    fireEvent.click(circleOf());
+    fireEvent.click(
+      await screen.findByRole("button", { name: new RegExp(STAFF["shell.lang.row"].my) }),
+    );
+    return screen.findByRole("group", { name: STAFF["shell.lang.group"][scriptOf(mode)] });
+  };
+  /** A both-tongues line, measured as its two parts — the English half EXACTLY, the part a
+   *  Burmese-only device drops unless `keepEcho` holds it. */
+  const expectBoth = (
+    el: Element | null,
+    k: "shell.lang.row" | "shell.lang.scope" | "shell.lang.failed",
+  ) => {
+    expect(el?.querySelector('[lang="my"]')?.textContent).toBe(STAFF[k].my);
+    expect(el?.querySelector(".chrome-en")?.textContent).toBe(STAFF[k].en);
+  };
+  // The keepEcho sites only CHANGE anything on a Burmese-only device — on English and Both the
+  // echo draws anyway — so each case below runs there too (review: six sites could lose keepEcho
+  // with every suite green).
+  const MODES = ["en", "my-only"] as const;
+
+  it.each(MODES)(
+    "under %s: opens onto a bilingual TITLE and scope, three rows, the note and Back — focus on the PRESSED row",
+    async (mode) => {
+      seen("counter");
+      mountLang(mode);
+      const rows = await openLangIn(mode);
+      const d = dialog();
+      // The sheet's title is what names the dialog — measured there, never "any element with an id".
+      const title = document.getElementById(d.getAttribute("aria-labelledby")!);
+      expectBoth(title, "shell.lang.row");
+      expectBoth(d.querySelector(".help-lang > .help-sub"), "shell.lang.scope");
+      expect(d.querySelector(".staff-lang-note")?.textContent).toBe(
+        STAFF["shell.lang.note"][scriptOf(mode)],
+      );
+      expect(rows.querySelectorAll(".staff-lang-row")).toHaveLength(3);
+      expect(screen.getByRole("button", { name: STAFF["help.back"][scriptOf(mode)] })).toBeTruthy();
+      const pressed = mode === "en" ? "English" : "မြန်မာ";
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByRole("button", { name: pressed })),
+      );
+    },
+  );
+
+  it("a tap on the CONFIRMED mode closes the sheet — no write", async () => {
+    seen("counter");
+    mountLang("en");
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "English" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(setStaffLang).not.toHaveBeenCalled();
+  });
+
+  it("the sheet is NEVER busy for a language write: ✕ stays live, Escape closes it, and the write still lands", async () => {
+    seen("counter");
+    const w = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValue(w.p);
+    mountLang("en");
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close.hasAttribute("aria-disabled")).toBe(false);
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await act(async () => w.release({ ok: true, mode: "both" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "both" }]]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays open after the write until the PROVIDER shows the written mode, then closes", async () => {
+    seen("counter");
+    const { rerender } = mountLang("en");
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // The chain ended and the refresh is in flight: the board behind has not changed yet.
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    rerender(
+      <Host mode="my-only">
+        <Tail mode="my-only" />
+      </Host>,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("a refresh from the EARLIER write, landing while a newer write is out, neither closes the sheet nor moves the tick back", async () => {
+    seen("counter");
+    const { rerender } = mountLang("en");
+    await openLang();
+    // Write 1 (Both) lands; its refresh is still on the wire.
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // Before it lands the person picks Burmese only — write 2 is out.
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValue(w2.p);
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ" }));
+    // Write 1's refresh lands now: the provider says Both.
+    rerender(
+      <Host mode="both">
+        <Tail mode="both" />
+      </Host>,
+    );
+    expect(screen.getByRole("dialog")).toBeTruthy(); // not closed on a mode the person moved past
+    const pressed = () =>
+      [...document.querySelectorAll('.staff-lang-row[aria-pressed="true"]')].map((b) =>
+        b.getAttribute("data-mode"),
+      );
+    expect(pressed()).toEqual(["my-only"]); // the tick stays on the pick in flight
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    rerender(
+      <Host mode="my-only">
+        <Tail mode="my-only" />
+      </Host>,
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it.each(MODES)(
+    "under %s: a second tap on the PENDING row keeps the sheet open, and the later failure is said in it — both tongues",
+    async (mode) => {
+      seen("counter");
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      mountLang(mode);
+      await openLangIn(mode);
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      expect(screen.getByRole("dialog")).toBeTruthy();
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      const alert = within(dialog()).getByRole("alert");
+      expect(alert.closest(".help-lang")).not.toBeNull(); // the Language view's own line
+      expectBoth(alert, "shell.lang.failed");
+      expect(setStaffLang).toHaveBeenCalledTimes(1);
+      // The cap is back on what the server holds.
+      const confirmed = mode === "en" ? "English" : "မြန်မာ";
+      expect(screen.getByRole("button", { name: confirmed }).getAttribute("aria-pressed")).toBe(
+        "true",
+      );
+    },
+  );
+
+  it.each(MODES)(
+    "under %s: closed mid-write, then refused — the BAR TAIL's line beside the circle, both tongues; the next open clears it",
+    async (mode) => {
+      seen("counter");
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      const { container } = mountLang(mode);
+      await openLangIn(mode);
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      fireEvent.click(screen.getByRole("button", { name: STAFF["shell.close"][scriptOf(mode)] }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      const line = screen.getByRole("alert");
+      expect(line.className).toBe("staff-bar-msg");
+      expect(line.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+      expectBoth(line, "shell.lang.failed");
+      // The next open answers it: no bar line, and no stale line in the reopened view.
+      await openLangIn(mode);
+      expect(screen.queryByRole("alert")).toBeNull();
+    },
+  );
+
+  it.each(MODES)(
+    "under %s: Back to the rows mid-write, then Language again — the outcome is still there, both tongues (the host owns the write)",
+    async (mode) => {
+      seen("counter");
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      mountLang(mode);
+      await openLangIn(mode);
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      fireEvent.click(screen.getByRole("button", { name: STAFF["help.back"][scriptOf(mode)] }));
+      await screen.findByRole("list", { name: STAFF["help.a11y.rows"][scriptOf(mode)] });
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      // Said under the row that leads back to the rows — the MENU view's own line…
+      const menuLine = within(dialog()).getByRole("alert");
+      expect(menuLine.closest(".help-menu")).not.toBeNull();
+      expectBoth(menuLine, "shell.lang.failed");
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(STAFF["shell.lang.row"].my) }));
+      // …and still said in the view.
+      const viewLine = await within(dialog()).findByRole("alert");
+      expect(viewLine.closest(".help-lang")).not.toBeNull();
+      expectBoth(viewLine, "shell.lang.failed");
+      expect(setStaffLang).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+/**
+ * P2e review — the Text size preview is a DISH NAME, and a dish name never changes with the
+ * device's language (the ticket's `TicketText` path). Rendered through the chrome, the sample lost
+ * its English line on a Burmese-only device (and was English alone on an English one), so the
+ * preview stopped showing what the ticket shows. It is the ticket's own dish-title render now:
+ * byte-identical to `TicketDishTitle` for the same dish, in every mode.
+ */
+describe("P2e — the Text size sample reads as the ticket does, in every mode", () => {
+  it.each(["my-only", "both", "en"] as const)("under %s", async (mode) => {
+    seen("kitchen");
+    stubMatchMedia(true);
+    const { TicketDishTitle } = await import("./TicketText");
+    rtlRender(
+      <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
+        <HelpButton
+          lang={scriptOf(mode)}
+          screen="kitchen"
+          size={{ value: "m", onPick: vi.fn() }}
+          cardVars={kitchenVars}
+        />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(document.querySelector(".staff-circ-gold")!);
+    await screen.findByRole("dialog");
+    fireEvent.click(document.querySelector(".help-glyph-aa")!.closest("button")!);
+    const samples = await waitFor(() => {
+      const found = [...document.querySelectorAll(".help-size-sample")];
+      expect(found).toHaveLength(3);
+      return found;
+    });
+    const dish = {
+      name: STAFF["help.size.sample"].en,
+      nameMy: STAFF["help.size.sample"].my,
+    };
+    const ticket = rtlRender(<TicketDishTitle line={dish} />).container.innerHTML;
+    for (const s of samples) {
+      // The CSS's shape: `.help-size-sample > .chrome-pair > [lang="my"]` and `> .chrome-en`.
+      expect(s.querySelector(':scope > .chrome-pair > [lang="my"]')?.textContent).toBe(dish.nameMy);
+      expect(s.querySelector(":scope > .chrome-pair > .chrome-en")?.textContent).toBe(dish.name);
+      expect(s.innerHTML).toBe(ticket);
+    }
+  });
+});
+
+/**
+ * P2e review — ONE failure line at a time, and never a failure lost unsaid.
+ *
+ * Radix hides everything outside an open dialog from assistive tech, so `getByRole` can never see a
+ * second alert BEHIND the sheet — these count `[role="alert"]` in the whole document instead. The
+ * sheet's content stays mounted through its exit slide (M76), so a failure landing during the
+ * slide would draw the in-sheet line AND the bar tail's unless the in-sheet lines are `open &&`.
+ * And a failure that lands while the person is on How, Text size or Report (views with no line of
+ * their own) is said in the bar tail once they close — the close answers only a line they SAW.
+ */
+describe("P2e — one language failure line, never a lost one", () => {
+  // The exit-slide case stubs getComputedStyle; restored here so a red run cannot leak it onward.
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+  const Host = ({ mode, children }: { mode: StaffLangMode; children: ReactNode }) => (
+    <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
+      {children}
+    </StaffLangProvider>
+  );
+  const mount = () =>
+    rtlRender(
+      <Host mode="en">
+        <div className="staff-bar-tail">
+          <HelpButton lang="en" screen="counter" />
+        </div>
+      </Host>,
+    );
+  const alerts = () => [...document.querySelectorAll('[role="alert"]')];
+  const openLang = async () => {
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /Language/ }));
+    await screen.findByRole("group", { name: "This device’s language" });
+  };
+  function held<T>() {
+    let release!: (v: T) => void;
+    const p = new Promise<T>((r) => {
+      release = r;
+    });
+    return { p, release };
+  }
+
+  it("with the sheet open, the whole document holds ONE failure line — the sheet's", async () => {
+    seen("counter");
+    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+    mount();
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    await within(dialog()).findByRole("alert");
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.closest(".help-lang")).not.toBeNull();
+    // …and on the menu view too.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.closest(".help-menu")).not.toBeNull();
+  });
+
+  it.each([
+    ["the Language view", ".help-lang", false],
+    ["the menu", ".help-menu", true],
+  ] as const)(
+    "a failure landing during the exit slide from %s is ONE line — the bar tail's, never the sliding sheet's too",
+    async (_, viewClass, backToMenu) => {
+      seen("counter");
+      stubComputedStyle();
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      mount();
+      await openLang();
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      if (backToMenu) {
+        fireEvent.click(screen.getByRole("button", { name: "Back" }));
+        await screen.findByRole("list", { name: "Help topics" });
+      }
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      });
+      // Held by the stubbed exit: the view is still mounted, sliding away.
+      expect(dialog().getAttribute("data-state")).toBe("closed");
+      expect(document.querySelector(viewClass)).not.toBeNull();
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      expect(alerts()).toHaveLength(1);
+      expect(alerts()[0]!.className).toBe("staff-bar-msg");
+    },
+  );
+
+  it.each([
+    ["How", /How this screen works/],
+    ["Something's wrong", /Something/],
+  ] as const)(
+    "a failure landing while the person reads %s is said in the bar tail once they close — never cleared unsaid",
+    async (_, rowName) => {
+      seen("counter");
+      const w = held<{ ok: false; error: string }>();
+      setStaffLang.mockReturnValue(w.p);
+      const { container } = mount();
+      await openLang();
+      fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(await screen.findByRole("button", { name: rowName }));
+      await act(async () => w.release({ ok: false, error: "nope" }));
+      expect(alerts()).toHaveLength(0); // this view has no line of its own (one region per view)
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      const line = screen.getByRole("alert");
+      expect(line.className).toBe("staff-bar-msg");
+      expect(line.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+      expect(line.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
+      // The next open answers it.
+      fireEvent.click(circle());
+      await screen.findByRole("dialog");
+      expect(alerts()).toHaveLength(0);
+    },
+  );
 });

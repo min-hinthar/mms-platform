@@ -2,7 +2,6 @@ import type { ReactNode, Ref } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "@mms/ui";
 import { Chrome } from "./Chrome";
-import { StaffLangSwitch } from "./StaffLangSwitch";
 import { LockButton } from "./LockButton";
 import { LiveDot } from "./LiveDot";
 import { StaffBarNet } from "./StaffBarNet";
@@ -17,19 +16,25 @@ import type { StaffLang } from "@/lib/staff-lang";
  * then never looks. Leading = where you are (the Screens circle, the one way to the doors — or, on a
  * sub-page, the way back up); title = the page's own name, Burmese first with the English echo
  * beneath (the only English in the bar); middle = the page's own control, if it has one (the KDS
- * stations); trailing = utilities, always in the same order, Lock LAST because it is the thing you do
- * on the way out. Sign out is not a bar button on any page — a mis-tap on it costs a login, a
+ * stations); trailing = the page's utilities, then Help, then Lock LAST because it is the thing you
+ * do on the way out. Sign out is not a bar button on any page — a mis-tap on it costs a login, a
  * mis-tap on Lock costs a PIN — it ends the sign-in screen's signed-in card (A4·4).
  *
- * Help (the gold circle, P7·3) rides the `help` slot — BEFORE the language switch, after the page's
- * own utilities — on the three screens the parents run; a page that has no help door passes nothing
- * and no circle renders. A circle that does nothing is the exact thing DESIGN-LANGUAGE §16 forbids,
- * which is why the slot is a node the page supplies, never a default.
+ * Help (the gold circle, P7·3) rides the `help` slot — after the page's own utilities, before Lock —
+ * on the screens the parents run; a page that has no help door passes nothing and no circle
+ * renders. A circle that does nothing is the exact thing DESIGN-LANGUAGE §16 forbids, which is why
+ * the slot is a node the page supplies, never a default.
+ *
+ * P2e — NO IN-SERVICE BAR CARRIES A LANGUAGE CONTROL (owner decision 2, 2026-09-24). The pill sat
+ * 10px from Help and Lock on every bar — a mis-tap target mid-service — and cost ~152px of tablet
+ * bar. The language is a device setting now: the Profile's card, the Help sheet's Language row (the
+ * kitchen and the counter), and a Language tile LAST in the doors' More, each labelled in both
+ * scripts. The four FRONT DOORS (the sign-in form, the lock, the outage shell, the error screen)
+ * keep the two-script pill exactly where it was, by passing it through `trailing` — this component
+ * mounts none, and `check-staff-lang.mjs` rule 4a holds that.
  *
  * This is plain JSX — no `server-only`, no hooks — so a server page and the client KDS board render
- * the SAME component. `check-staff-lang.mjs` rule 4 (every staff page reaches the language control)
- * is satisfied THROUGH this component: the walk follows a page's imports to the `<StaffLangSwitch>`
- * mounted below, exactly as it already followed `kitchen/page.tsx` into `KdsBoard`.
+ * the SAME component.
  */
 export type StaffBarLeading =
   /** The Screens circle → `/staff?doors=1`, honoured over any remembered door (the default). */
@@ -82,7 +87,7 @@ export function StaffBar({
   leading?: StaffBarLeading;
   /** The page's own control (the KDS station filter). */
   middle?: ReactNode;
-  /** Page utilities rendered BEFORE the help door and the language switch. */
+  /** Page utilities rendered before the help door (the four front doors pass the language pill here). */
   trailing?: ReactNode;
   /** The gold Help circle (`<HelpButton>`), on the screens that have a help door. */
   help?: ReactNode;
@@ -153,7 +158,6 @@ export function StaffBar({
       <div className="staff-bar-tail" role="group" aria-label={sx(lang, "shell.a11y.tools")}>
         {trailing}
         {help}
-        <StaffLangSwitch lang={lang} />
         {lock && <LockButton lang={lang} />}
       </div>
       {/* ALWAYS last: the offline row on a feedless page, and the bar's measured height. */}

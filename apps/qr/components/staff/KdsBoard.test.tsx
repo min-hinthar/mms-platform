@@ -992,6 +992,8 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     ".orb-table-up",
     // ── Phase 2d · split ── the selected floor card's NAME (a pick from a live list, not "you are here").
     '.floor-card[aria-current="true"] .floor-card-label',
+    // ── Phase 2e · lang ── the pressed language ROW (Help sheet · Profile) wears the same cap.
+    '.staff-lang-row[aria-pressed="true"]',
   ];
   // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
   // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
@@ -1014,7 +1016,7 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
       expect(f, `${PRESSED[i]} declares its fill exactly once`).toHaveLength(1);
     const bodies = new Set(fills.map((f) => f[0]![2]!.trim()));
     // MUTATION: give the switch back its own `background: var(--ac)` block — two blocks, red.
-    expect(bodies.size, "all seven pressed selectors resolve to one declaration").toBe(1);
+    expect(bodies.size, "every pressed selector resolves to one declaration").toBe(1);
     expect([...bodies][0]).toMatch(/background:\s*var\(--ac\)/);
     expect([...bodies][0]).toMatch(/--glow-gold/);
   });

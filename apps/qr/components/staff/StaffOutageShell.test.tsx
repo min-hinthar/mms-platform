@@ -10,19 +10,25 @@ vi.mock("next/navigation", () => ({
 }));
 
 const { StaffOutageShell } = await import("./StaffOutageShell");
+const { StaffLangProvider } = await import("./StaffLangProvider");
 const { STAFF } = await import("@/lib/i18n/staff");
 
 /**
  * signin-5 — the outage takeover wears the SAME bar as the page it replaces: a static, marked
  * leading slot (no Screens link — the doors need the auth answer this shell says is unknowable —
- * and no Lock), the page's name as the one h1, the language switch in the tail's fixed slot and
- * NOWHERE else; the card beneath is the entry column's, its heading an h2 that still takes focus.
+ * and no Lock), the page's name as the one h1, the language switch in the tail (P2e: through the
+ * bar's TRAILING slot — one of the four front doors that keeps it) and NOWHERE else; the card beneath is the entry column's, its heading an h2 that still takes focus.
  */
 afterEach(cleanup);
 
 describe("StaffOutageShell — the takeover wears the bar", () => {
   it("leads with the bar (static mark, switch in the tail); the card's heading is the h2 and takes focus", async () => {
-    const { container } = render(await StaffOutageShell({ what: "what.floor" }));
+    // Every production mount sits under app/staff/layout.tsx's provider (the pill reads the mode).
+    const { container } = render(
+      <StaffLangProvider lang="my">
+        {await StaffOutageShell({ what: "what.floor" })}
+      </StaffLangProvider>,
+    );
     const main = container.querySelector("main.staff-main")!;
     expect(main).not.toBeNull();
     const bar = main.firstElementChild!;

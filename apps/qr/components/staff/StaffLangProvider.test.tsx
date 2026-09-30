@@ -1,7 +1,12 @@
 /** @vitest-environment jsdom */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { StaffLangProvider, useStaffLang } from "./StaffLangProvider";
+import {
+  StaffLangProvider,
+  useEchoesShown,
+  useStaffLang,
+  useStaffLangMode,
+} from "./StaffLangProvider";
 
 afterEach(cleanup);
 
@@ -46,5 +51,78 @@ describe("StaffLangProvider", () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() => render(<Probe />)).toThrow(/useStaffLang/);
     spy.mockRestore();
+  });
+});
+
+// ── Phase 2e · lang ──
+function ModeProbe() {
+  return (
+    <>
+      <span data-testid="script">{useStaffLang()}</span>
+      <span data-testid="mode">{useStaffLangMode()}</span>
+      <span data-testid="echoes">{String(useEchoesShown())}</span>
+    </>
+  );
+}
+function EchoProbe() {
+  return <span data-testid="echoes">{String(useEchoesShown())}</span>;
+}
+
+/**
+ * P2e — the prop stayed a SCRIPT and the one new fact rides `echoes`, so every existing
+ * `<StaffLangProvider lang="my">` fixture still means Both. The three hooks read the one mode.
+ */
+describe("P2e — the mode behind the script", () => {
+  it.each([
+    ["en", true, "en", "en", "true"],
+    ["en", false, "en", "en", "true"], // the impossible pair is English — nothing to drop
+    ["my", true, "my", "both", "true"],
+    ["my", false, "my", "my-only", "false"],
+  ] as const)(
+    "lang=%s echoes=%s → script %s · mode %s · echoes %s",
+    (lang, echoes, script, mode, shown) => {
+      const { getByTestId } = render(
+        <StaffLangProvider lang={lang} echoes={echoes}>
+          <ModeProbe />
+        </StaffLangProvider>,
+      );
+      expect(getByTestId("script").textContent).toBe(script);
+      expect(getByTestId("mode").textContent).toBe(mode);
+      expect(getByTestId("echoes").textContent).toBe(shown);
+    },
+  );
+
+  it("a fixture that never heard of echoes is Both — the default, byte-identical to before P2e", () => {
+    const { getByTestId, container } = render(
+      <StaffLangProvider lang="my">
+        <ModeProbe />
+      </StaffLangProvider>,
+    );
+    expect(getByTestId("mode").textContent).toBe("both");
+    // Burmese-only still stamps the SCRIPT, never the mode, and never `lang`.
+    expect(container.querySelector(".stx-root")!.getAttribute("data-lang")).toBe("my");
+  });
+
+  it("Burmese-only stamps the script on the wrapper, and still no `lang`", () => {
+    const { container } = render(
+      <StaffLangProvider lang="my" echoes={false}>
+        <EchoProbe />
+      </StaffLangProvider>,
+    );
+    const root = container.querySelector(".stx-root")!;
+    expect(root.getAttribute("data-lang")).toBe("my");
+    expect(root.hasAttribute("lang")).toBe(false);
+  });
+
+  it("useStaffLangMode THROWS outside a provider; useEchoesShown answers true (the wall TV)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    function ModeOnly() {
+      return <span>{useStaffLangMode()}</span>;
+    }
+    expect(() => render(<ModeOnly />)).toThrow(/useStaffLangMode/);
+    spy.mockRestore();
+    cleanup();
+    const { getByTestId } = render(<EchoProbe />);
+    expect(getByTestId("echoes").textContent).toBe("true");
   });
 });
