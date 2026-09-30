@@ -2,8 +2,10 @@
 --
 -- Pins supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql: the staff-only unpaid
 -- fire and its undo, the name lock, the no-show write-off (SENT food only, the loss gate, the
--- pending-request supersede, the two-tablet reverse race) and the sweeper's counter exemption — and,
--- for every refusal, the legitimate half it must NOT over-block.
+-- pending-request supersede, the two-tablet reverse race, the 'changed' refusal when the sent set is
+-- not the one the approver saw) and the sweeper's counter exemption — and, for every refusal, the
+-- legitimate half it must NOT over-block. The fire-vs-sweep and fire-vs-clear ORDERINGS need two
+-- sessions and live in scripts/verify-counter-fire-race.mjs; nothing here can interleave.
 --
 -- ⚠️ `now()` is the TRANSACTION start and this file is ONE transaction: every deadline a fire stamps
 -- is now()+10s, and `fire_at > now()` stays true in here. A line "past its grace" is therefore made
@@ -147,7 +149,8 @@ begin
   c := pg_temp.p2f_counter('reg-P2F6NULL', null);
   perform pg_temp.p2f_line(c, 800);
   select * into r from public.mms_fire_counter_cart(c);
-  assert r.fired = 0 and not r.named, 'P2F.6 · a NULL name refuses the fire, named=false';
+  assert r.fired = 0 and not r.named and not r.closed,
+    'P2F.6 · a NULL name refuses the fire, named=false — and the order is NOT closed (noName, not closed)';
   c := pg_temp.p2f_counter('reg-P2F6BLNK', '   ');
   perform pg_temp.p2f_line(c, 800);
   select * into r from public.mms_fire_counter_cart(c);
@@ -162,7 +165,8 @@ begin
   perform pg_temp.p2f_line(c, 800);
   update public.qr_carts set status = 'paid' where id = c;
   select * into r from public.mms_fire_counter_cart(c);
-  assert r.fired = 0, 'P2F.7 · a paid cart must not fire through the counter send';
+  assert r.fired = 0 and r.closed,
+    format('P2F.7 · a paid cart must not fire through the counter send, and says closed (fired=%s closed=%s)', r.fired, r.closed);
 end $$;
 
 -- ══ P2F.8 · a CLOSED reg- session fires nothing ════════════════════════════════════════════════
@@ -172,7 +176,23 @@ begin
   c := pg_temp.p2f_counter('reg-P2F8CLSD', 'Aye', 'pickup', 'closed');
   perform pg_temp.p2f_line(c, 800);
   select * into r from public.mms_fire_counter_cart(c);
-  assert r.fired = 0, 'P2F.8 · a closed session must not fire';
+  assert r.fired = 0 and r.closed,
+    format('P2F.8 · a closed session must not fire, and says closed (fired=%s closed=%s)', r.fired, r.closed);
+end $$;
+
+-- ══ P2F.8b · an EXPIRED session the sweeper has not reached yet fires nothing (C1) ═══════════════
+do $$
+declare c uuid; r record; st text;
+begin
+  c := pg_temp.p2f_counter('reg-P2F8BEXP', 'Aye');
+  perform pg_temp.p2f_line(c, 800);
+  update public.table_sessions set expires_at = now() - interval '1 second'
+    where id = (select session_id from public.qr_carts where id = c);
+  select * into r from public.mms_fire_counter_cart(c);
+  select state into st from public.qr_cart_items where cart_id = c;
+  assert r.fired = 0 and r.closed and st = 'draft',
+    format('P2F.8b · an expired, unswept session gains no fired food and says closed (fired=%s closed=%s %s)',
+           r.fired, r.closed, st);
 end $$;
 
 -- ══ P2F.9–12 · the undo: wrong batch 0; own batch 2; after the deadline 0; a comped line skipped ══
@@ -256,42 +276,64 @@ end $$;
 -- ══ P2F.15 · no-show refusals: each writes nothing ════════════════════════════════════════════
 do $$
 declare mgr uuid := '00000000-0000-0000-0000-0000002f0a00'; srv uuid := '00000000-0000-0000-0000-0000002f0b00';
-        c uuid; t uuid; v text; n0 integer; n1 integer; st text;
+        c uuid; t uuid; l uuid; v text; n0 integer; n1 integer; st text;
 begin
   select count(*) into n0 from public.mms_approvals;
   t := pg_temp.p2f_counter('P2F15TABLE', 'Aye', 'dinein');
   perform pg_temp.p2f_line(t, 800, 1, 'dinein', 'served', now() - interval '5 minutes');
-  v := public.mms_counter_no_show(t, srv, mgr);
+  v := public.mms_counter_no_show(t, srv, '{}', mgr);
   assert v = 'not_counter', format('P2F.15a · a dine-in cart is not a counter order (%s)', v);
   c := pg_temp.p2f_counter('reg-P2F15DRF', 'Aye');
   perform pg_temp.p2f_line(c, 800);
-  v := public.mms_counter_no_show(c, srv, mgr);
+  v := public.mms_counter_no_show(c, srv, '{}', mgr);
   assert v = 'nothing_sent', format('P2F.15b · drafts only is nothing_sent (%s)', v);
   c := pg_temp.p2f_counter('reg-P2F15GRC', 'Aye');
   perform pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() + interval '10 seconds');
-  v := public.mms_counter_no_show(c, srv, mgr);
+  v := public.mms_counter_no_show(c, srv, '{}', mgr);
   assert v = 'nothing_sent', format('P2F.15c · an in-grace line never reached the KDS (%s)', v);
   c := pg_temp.p2f_counter('reg-P2F15PAY', 'Aye');
-  perform pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() - interval '1 minute');
+  l := pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() - interval '1 minute');
   update public.qr_carts set status = 'paid' where id = c;
-  v := public.mms_counter_no_show(c, srv, mgr);
+  v := public.mms_counter_no_show(c, srv, array[l], mgr);
   assert v = 'not_open', format('P2F.15d · a paid cart is not_open (%s)', v);
   c := pg_temp.p2f_counter('reg-P2F15FRZ', 'Aye');
-  perform pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() - interval '1 minute');
+  l := pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() - interval '1 minute');
   update public.qr_carts set settle_at = now() where id = c;
-  v := public.mms_counter_no_show(c, srv, mgr);
+  v := public.mms_counter_no_show(c, srv, array[l], mgr);
   assert v = 'in_flight', format('P2F.15e · a fresh settle freeze is in_flight (%s)', v);
+  c := pg_temp.p2f_counter('reg-P2F15LCK', 'Aye');
+  l := pg_temp.p2f_line(c, 800, 1, 'togo', 'fired', now() - interval '1 minute');
+  update public.qr_carts set locked = true, locked_at = now() where id = c;
+  v := public.mms_counter_no_show(c, srv, array[l], mgr);
+  assert v = 'in_flight', format('P2F.15i · a fresh single-pay lock is in_flight (%s)', v);
   c := pg_temp.p2f_counter('reg-P2F15GAT', 'Aye');
-  perform pg_temp.p2f_line(c, 800, 1, 'togo', 'served', now() - interval '5 minutes');
-  v := public.mms_counter_no_show(c, srv, null);
+  l := pg_temp.p2f_line(c, 800, 1, 'togo', 'served', now() - interval '5 minutes');
+  v := public.mms_counter_no_show(c, srv, array[l], null);
   assert v = 'needs_approval', format('P2F.15f · a served dish needs a manager (%s)', v);
-  v := public.mms_counter_no_show(c, mgr, mgr);
+  v := public.mms_counter_no_show(c, mgr, array[l], mgr);
   assert v = 'self_approve', format('P2F.15g · the initiator cannot approve (%s)', v);
-  v := public.mms_counter_no_show(c, mgr, srv);
+  v := public.mms_counter_no_show(c, mgr, array[l], srv);
   assert v = 'bad_approver', format('P2F.15h · a server cannot approve (%s)', v);
   select count(*) into n1 from public.mms_approvals;
   select status into st from public.qr_carts where id = c;
   assert n1 = n0 and st = 'open', 'P2F.15 · no refusal writes an approval row or moves the cart';
+end $$;
+
+-- ══ P2F.15i · the legit half of the pay-lock refusal: a STALE lock (an abandoned attempt, past its
+--    5-minute TTL) does not block, and an UNLOCKED cart with a stamp left behind does not either ═══
+do $$
+declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; l uuid; v text;
+begin
+  c := pg_temp.p2f_counter('reg-P2F15STL', 'Aye');
+  l := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  update public.qr_carts set locked = true, locked_at = now() - interval '6 minutes' where id = c;
+  v := public.mms_counter_no_show(c, srv, array[l], null);
+  assert v = 'ok', format('P2F.15i · a stale pay lock does not block the no-show (%s)', v);
+  c := pg_temp.p2f_counter('reg-P2F15UNL', 'Aye');
+  l := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  update public.qr_carts set locked = false, locked_at = now() where id = c;
+  v := public.mms_counter_no_show(c, srv, array[l], null);
+  assert v = 'ok', format('P2F.15i · an unlocked cart with a fresh stamp left behind does not block (%s)', v);
 end $$;
 
 -- ══ P2F.16 · no-show, manager-approved: only SENT food is written off ═════════════════════════
@@ -317,7 +359,7 @@ begin
   insert into public.mms_approvals (kind, status, cart_id, session_id, line_id, line_name, qty,
                                     amount_cents, reason_code, cooked, initiator_staff_id)
     values ('void', 'pending', c, s, fp, 'Mohinga', 1, 600, 'mistake', false, srv);
-  v := public.mms_counter_no_show(c, srv, mgr);
+  v := public.mms_counter_no_show(c, srv, array[fp, sv], mgr);
   assert v = 'ok', format('P2F.16 · the manager-approved no-show lands (%s)', v);
   select count(*) into n from public.mms_approvals
     where cart_id = c and status = 'approved' and reason_code = 'no_show' and gate_reason = 'cooked'
@@ -347,12 +389,12 @@ end $$;
 
 -- ══ P2F.17 · no-show within solo authority: the $30 DRAFT never counts toward the ceiling ════════
 do $$
-declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; v text; n integer; g text;
+declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; l uuid; v text; n integer; g text;
 begin
   c := pg_temp.p2f_counter('reg-P2F17SLO', 'Aye');
-  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  l := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
   perform pg_temp.p2f_line(c, 3000);
-  v := public.mms_counter_no_show(c, srv, null);
+  v := public.mms_counter_no_show(c, srv, array[l], null);
   assert v = 'ok', format('P2F.17 · a $5 sent line is within solo authority, drafts ignored (%s)', v);
   select count(*), max(gate_reason) into n, g from public.mms_approvals
     where cart_id = c and reason_code = 'no_show';
@@ -361,11 +403,11 @@ end $$;
 
 -- ══ P2F.18 · the reverse two-tablet race: a no-show committed first, the cash settle raises ═════
 do $$
-declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; v text; raised boolean := false; n integer;
+declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; l uuid; v text; raised boolean := false; n integer;
 begin
   c := pg_temp.p2f_counter('reg-P2F18RAC', 'Aye');
-  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
-  v := public.mms_counter_no_show(c, srv, null);
+  l := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  v := public.mms_counter_no_show(c, srv, array[l], null);
   assert v = 'ok', 'P2F.18 · setup: the no-show lands';
   begin
     perform public.mms_fulfill_cash_order(c, srv, 500, 0, 0, 0, 0, 0);
@@ -401,6 +443,110 @@ begin
   assert st = 'closed', format('P2F.19c · dine-in M171 is unchanged — swept (%s)', st);
   select status into st from public.table_sessions where id = s4;
   assert st = 'closed', format('P2F.19d · the exemption is reg- only — a diner pickup is swept (%s)', st);
+end $$;
+
+-- ══ P2F.19e-h · the exemption is an OPEN cart's SENT food, nothing wider; and in-grace / null-fire_at
+--    SENT lines do exempt ══════════════════════════════════════════════════════════════════════════
+do $$
+declare c uuid; s uuid; st text;
+begin
+  -- e · a PAID reg- cart with fired lines: nothing to collect — the session expires.
+  c := pg_temp.p2f_counter('reg-P2F19EPD', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  update public.qr_carts set status = 'paid' where id = c;
+  select session_id into s from public.qr_carts where id = c;
+  update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
+  perform public.mms_sweep_expired_sessions();
+  select status into st from public.table_sessions where id = s;
+  assert st = 'closed', format('P2F.19e · a paid counter order is swept — only an OPEN cart is exempt (%s)', st);
+  -- f · only a COMPED fired line: nothing the no-show could write off — swept.
+  c := pg_temp.p2f_counter('reg-P2F19FCP', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute', true);
+  select session_id into s from public.qr_carts where id = c;
+  update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
+  perform public.mms_sweep_expired_sessions();
+  select status into st from public.table_sessions where id = s;
+  assert st = 'closed', format('P2F.19f · a comped-only counter order is swept (%s)', st);
+  -- g · only a GROCERY line marked fired: shelf stock, not kitchen food — swept.
+  c := pg_temp.p2f_counter('reg-P2F19GGR', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'grocery', 'fired', now() - interval '1 minute');
+  select session_id into s from public.qr_carts where id = c;
+  update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
+  perform public.mms_sweep_expired_sessions();
+  select status into st from public.table_sessions where id = s;
+  assert st = 'closed', format('P2F.19g · a grocery-only counter order is swept (%s)', st);
+  -- h · the legit half: an IN-GRACE line and a NULL-fire_at fired line each keep it alive.
+  c := pg_temp.p2f_counter('reg-P2F19HGR', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() + interval '10 seconds');
+  select session_id into s from public.qr_carts where id = c;
+  update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
+  perform public.mms_sweep_expired_sessions();
+  select status into st from public.table_sessions where id = s;
+  assert st = 'active', format('P2F.19h · an in-grace sent line keeps the order alive (%s)', st);
+  c := pg_temp.p2f_counter('reg-P2F19HNL', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', null);
+  select session_id into s from public.qr_carts where id = c;
+  update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
+  perform public.mms_sweep_expired_sessions();
+  select status into st from public.table_sessions where id = s;
+  assert st = 'active', format('P2F.19h · a null-fire_at fired line keeps the order alive (%s)', st);
+end $$;
+
+-- ══ P2F.20 · 'changed': the write-off lands only on the SENT set the approver saw ═════════════════
+do $$
+declare mgr uuid := '00000000-0000-0000-0000-0000002f0a00'; srv uuid := '00000000-0000-0000-0000-0000002f0b00';
+        c uuid; a uuid; b uuid; v text; n0 integer; n1 integer; st text;
+begin
+  select count(*) into n0 from public.mms_approvals;
+  c := pg_temp.p2f_counter('reg-P2F20CHG', 'Aye');
+  a := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  b := pg_temp.p2f_line(c, 400, 1, 'togo', 'fired', now() - interval '1 minute');
+  v := public.mms_counter_no_show(c, srv, array[a], null);
+  assert v = 'changed', format('P2F.20 · a sent line the sheet did not show refuses (%s)', v);
+  v := public.mms_counter_no_show(c, srv, array[a, b, gen_random_uuid()], null);
+  assert v = 'changed', format('P2F.20 · a line the sheet showed that is no longer sent refuses (%s)', v);
+  v := public.mms_counter_no_show(c, srv, null, null);
+  assert v = 'changed', format('P2F.20 · no expected set refuses (%s)', v);
+  v := public.mms_counter_no_show(c, srv, array[a, b, null], null);
+  assert v = 'changed', format('P2F.20 · a NULL element never matches (%s)', v);
+  -- the cooked gate is reached only once the set matches: a line cooked after the sheet loaded is a
+  -- CHANGE the approver never saw, but with the set intact the loss gate still asks for a manager.
+  update public.qr_cart_items set state = 'in_progress' where id = b;
+  v := public.mms_counter_no_show(c, srv, array[b, a], null);
+  assert v = 'needs_approval', format('P2F.20 · a matching set still meets the loss gate (%s)', v);
+  select count(*) into n1 from public.mms_approvals;
+  select status into st from public.qr_carts where id = c;
+  assert n1 = n0 and st = 'open', 'P2F.20 · a changed refusal writes nothing';
+  -- the legit half: order and duplicates are not a change.
+  v := public.mms_counter_no_show(c, srv, array[b, a, a], mgr);
+  assert v = 'ok', format('P2F.20 · the same set in another order, with a duplicate, lands (%s)', v);
+end $$;
+
+-- ══ P2F.21 · the loss CEILING: a sent line nobody started, worth more than max_loss_cents, needs a
+--    manager — and records gate 'ceiling' ═══════════════════════════════════════════════════════════
+do $$
+declare mgr uuid := '00000000-0000-0000-0000-0000002f0a00'; srv uuid := '00000000-0000-0000-0000-0000002f0b00';
+        c uuid; l uuid; v text; g text; mx integer;
+begin
+  select coalesce(max_loss_cents, 2000) into mx from public.mms_loss_config where id;
+  c := pg_temp.p2f_counter('reg-P2F21CEI', 'Aye');
+  l := pg_temp.p2f_line(c, coalesce(mx, 2000) + 1, 1, 'togo', 'fired', now() - interval '1 minute');
+  v := public.mms_counter_no_show(c, srv, array[l], null);
+  assert v = 'needs_approval', format('P2F.21 · over the ceiling needs a manager (%s)', v);
+  v := public.mms_counter_no_show(c, srv, array[l], mgr);
+  select gate_reason into g from public.mms_approvals where cart_id = c and reason_code = 'no_show';
+  assert v = 'ok' and g = 'ceiling', format('P2F.21 · the manager-approved write-off records ceiling (%s, %s)', v, g);
+end $$;
+
+-- ══ P2F.22 · a fired line with NO fire_at counts as sent (the KDS shows it) ═══════════════════════
+do $$
+declare srv uuid := '00000000-0000-0000-0000-0000002f0b00'; c uuid; l uuid; v text; n integer;
+begin
+  c := pg_temp.p2f_counter('reg-P2F22NUL', 'Aye');
+  l := pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', null);
+  v := public.mms_counter_no_show(c, srv, array[l], null);
+  select count(*) into n from public.mms_approvals where cart_id = c and line_id = l and reason_code = 'no_show';
+  assert v = 'ok' and n = 1, format('P2F.22 · a null-fire_at fired line is written off as sent (%s, n=%s)', v, n);
 end $$;
 
 rollback;

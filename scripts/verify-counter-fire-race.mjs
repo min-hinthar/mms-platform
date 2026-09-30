@@ -1,19 +1,32 @@
 #!/usr/bin/env node
 /**
- * Phase 2f · P2v — the two-session harness for the counter fire's and the name clear's cart lock.
+ * Phase 2f · P2v — the two-session harness for the counter fire's locks: against the name clear
+ * (the cart row) and against the expired-session sweeper (the session row).
  *
  * `20261001000000_p2f_counter_cook_before_paid.sql` lets staff send a `reg-` counter order to the
  * kitchen before it is paid, and only with a name on it (owner decision 7c): the name is the only
  * pre-payment identity, so `mms_clear_cart_name` refuses (`keep_name`) once food is in, and
  * `mms_fire_counter_cart` fires nothing (`named = false`) while the name is blank. Each decides
  * under the SAME lock — the `qr_carts` row `FOR UPDATE`, taken first — so a clear and a fire on one
- * cart are totally ordered and neither can act on the other's stale read. Delete either lock and
- * every single-session case still passes: `supabase/tests/p2f_counter_cook_before_paid_test.sql`
- * runs in one transaction, where nothing interleaves. `verify-mode-authority.mjs` lists both
- * deletions as documented SURVIVORS for exactly that reason; this is the second session that
- * kills them.
+ * cart are ordered and neither can act on the other's stale read.
  *
- * ── The two orders ───────────────────────────────────────────────────────────────────────────────
+ * The cron sweeper (`mms_sweep_expired_sessions`) closes expired sessions and exempts a `reg-` order
+ * with SENT food. The fire takes the `table_sessions` row `FOR SHARE` after the cart; the sweeper
+ * LOCKS its candidates (`FOR NO KEY UPDATE SKIP LOCKED`) and only then decides the exemption in a
+ * second statement, with a fresh snapshot. Without both halves a Send overlapping the sweep leaves
+ * fired, unpaid food on a CLOSED session — off the KDS, the lane, every settle and the no-show
+ * (Phase 2f blind review, C1).
+ *
+ * Delete any of those locks and every single-session case still passes:
+ * `supabase/tests/p2f_counter_cook_before_paid_test.sql` runs in one transaction, where nothing
+ * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
+ * that reason; this is the second session that kills them.
+ *
+ * WHAT THIS PROVES, and no more: the four orderings below, on one cart. The no-show, the undo and a
+ * settle claim take the same cart-row lock, but no scenario here interleaves them — those orderings
+ * are argued from construction and pinned single-session (P2F.15e, P2F.18), not proven here.
+ *
+ * ── The four orders ──────────────────────────────────────────────────────────────────────────────
  *
  *   (a) clear-first — B clears the name inside an open transaction ('ok'); A's fire must BLOCK on B
  *       (read from `pg_blocking_pids`, never a sleep). Once B commits, A must answer `0|false` (nothing
@@ -23,6 +36,20 @@
  *       commits, B must answer 'keep_name' and the name must be unchanged. Without the clear's lock
  *       B's sent-food check reads A's uncommitted lines as drafts and clears the name of an order
  *       the kitchen is now making.
+ *   (c) sweep-first — A opens its transaction while the session is still live (its `now()` is
+ *       pinned before expiry), the session expires, S sweeps it closed inside an open transaction;
+ *       A's fire must BLOCK on S. Once S commits, A must answer `0|false-open` (nothing fired,
+ *       closed) and the line must still be a draft on a closed session. Without the fire's session
+ *       lock A's UPDATE reads the still-active session through its own snapshot and fires food onto
+ *       the session S is closing.
+ *   (d) fire-first — A fires inside an open transaction while the session is live; the session
+ *       expires; S sweeps and must NOT wait (SKIP LOCKED) and must not close it; A commits, and a
+ *       second sweep must leave it active too (the committed SENT line exempts it). Without the
+ *       fire's session lock, or with the sweeper deciding in the same statement that locks, S reads
+ *       A's uncommitted lines as drafts and closes a session the kitchen is now cooking for.
+ *
+ * The sweeper closes EVERY expired active session in the database it runs against — what its cron
+ * does anyway; on a throwaway cluster there are only these fixtures.
  *
  * ── `--mutants` ─────────────────────────────────────────────────────────────────────────────────
  *
@@ -301,11 +328,12 @@ const NAME = "P2FR Guest";
 const RUN = `${process.pid.toString(36)}${Date.now().toString(36)}`;
 let fixtureSeq = 0;
 
-function fixture(id) {
+/** `ttl` — the session's remaining life; the sweep scenarios give it seconds and wait it out. */
+function fixture(id, ttl = "12 hours") {
   const out = q(`with s as (
       insert into public.table_sessions (qr_code, mode, status, expires_at)
       values ('${CODE_PREFIX}${id}-${RUN}-${++fixtureSeq}', 'pickup', 'active',
-              now() + interval '12 hours') returning id
+              clock_timestamp() + interval '${ttl}') returning id
     ), c as (
       insert into public.qr_carts (session_id, customer_name, counter_arm)
       select id, '${NAME}', 'phone' from s returning id
@@ -326,11 +354,38 @@ function fixture(id) {
       q(`select coalesce(c.customer_name, '<none>') || '|' || i.state
            from public.qr_carts c join public.qr_cart_items i on i.cart_id = c.id
           where c.id = '${cart}';`),
+    // What the sweep decided: the session's status · the line's state.
+    swept: () =>
+      q(`select s.status || '|' || i.state
+           from public.table_sessions s join public.qr_carts c on c.session_id = s.id
+           join public.qr_cart_items i on i.cart_id = c.id
+          where c.id = '${cart}';`),
   };
+}
+
+/** Observe (never assume) that the fixture's session has expired by the database's clock. */
+async function untilExpired(f) {
+  const t0 = Date.now();
+  while (
+    q(
+      `select clock_timestamp() > expires_at from public.table_sessions where id = '${f.session}';`,
+    ) !== "t"
+  ) {
+    if (Date.now() - t0 > 15000) throw new Error(`${TAG} TIMEOUT — the fixture never expired`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
 }
 
 const fire = (f) =>
   `select fired || '|' || named from public.mms_fire_counter_cart('${f.cart}'::uuid);`;
+/** The fire as the sweep scenarios read it: fired · closed. */
+const fireClosed = (f) =>
+  `select fired || '|' || closed from public.mms_fire_counter_cart('${f.cart}'::uuid);`;
+const sweep = `select public.mms_sweep_expired_sessions() >= 0;`;
+/** A's transaction start, compared with the fixture's expiry — `now()` is what the fire's
+ *  expiry term reads, so (c) must pin it BEFORE the session expires or the term alone refuses. */
+const nowBeforeExpiry = (f) =>
+  `select now() < expires_at from public.table_sessions where id = '${f.session}';`;
 const clearName = (f) => `select public.mms_clear_cart_name('${f.session}'::uuid);`;
 
 /** Each scenario returns [label, got, want] triples; any mismatch reddens it. */
@@ -382,6 +437,64 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  async c() {
+    const f = fixture("c", "2 seconds");
+    const a = await new Session("a").open();
+    const s = await new Session("s").open();
+    try {
+      await a.run("begin;");
+      const pinned = await a.run(nowBeforeExpiry(f));
+      await untilExpired(f);
+      await s.run("begin;");
+      await s.run(sweep);
+      const closedByS = await s.run(
+        `select status from public.table_sessions where id = '${f.session}';`,
+      );
+      a.fire(fireClosed(f));
+      const how = await blockedOrDone(a, s);
+      await s.run("commit;");
+      const fired = await a.collect();
+      await a.run("commit;");
+      return [
+        ["A's transaction began before the expiry", pinned, "t"],
+        ["S swept the session closed", closedByS, "closed"],
+        ["A's fire waited for the sweep", how, "blocked"],
+        ["A fired nothing and read the order closed", fired, "0|true"],
+        ["no food on the closed session", f.swept(), "closed|draft"],
+      ];
+    } finally {
+      await a.close();
+      await s.close();
+    }
+  },
+  async d() {
+    const f = fixture("d", "2 seconds");
+    const a = await new Session("a").open();
+    const s = await new Session("s").open();
+    try {
+      await a.run("begin;");
+      const fired = await a.run(fireClosed(f));
+      await untilExpired(f);
+      s.fire(sweep);
+      const how = await blockedOrDone(s, a);
+      // A sweep that waited cannot finish until A commits; one that did not ran against A's
+      // uncommitted fire — the real race — so A commits only after it.
+      if (how === "blocked") await a.run("commit;");
+      await s.collect();
+      if (how === "done") await a.run("commit;");
+      const afterFirst = f.swept();
+      await s.run(sweep);
+      return [
+        ["A fired the live bag", fired, "1|false"],
+        ["S's sweep did not wait on the Send", how, "done"],
+        ["the sweep left the cooking order open", afterFirst, "active|fired"],
+        ["a later sweep leaves it open too (SENT exempts it)", f.swept(), "active|fired"],
+      ];
+    } finally {
+      await a.close();
+      await s.close();
+    }
+  },
 };
 
 /** Run both scenarios; returns the ids that went red (printing when `loud`). */
@@ -394,7 +507,9 @@ async function battery(loud) {
     if (bad.length) red_.push(id);
     for (const [label, got] of bad) red_.why.push(`${id}: ${label} ✗ (${got})`);
     if (loud) {
-      const name = id === "a" ? "clear-first" : "fire-first";
+      const name = { a: "clear-first", b: "fire-first", c: "sweep-first", d: "fire-before-sweep" }[
+        id
+      ];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
         console.log(`      ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
@@ -434,8 +549,14 @@ function statementFor(fn) {
   const head = `create or replace function public.${fn}(`;
   const at = MIGRATION_TEXT.indexOf(head);
   if (at < 0 || MIGRATION_TEXT.indexOf(head, at + 1) >= 0) return null;
-  const end = MIGRATION_TEXT.indexOf("\nend $$;", at);
-  return end < 0 ? null : MIGRATION_TEXT.slice(at, end + "\nend $$;".length);
+  // The sweeper is restated in its original file's style (`end; $$;`); the rest end `end $$;`.
+  const ends = ["\nend $$;", "\nend; $$;"]
+    .map((t) => [MIGRATION_TEXT.indexOf(t, at), t])
+    .filter(([i]) => i >= 0)
+    .sort((x, y) => x[0] - y[0]);
+  if (!ends.length) return null;
+  const [end, term] = ends[0];
+  return MIGRATION_TEXT.slice(at, end + term.length);
 }
 
 const MUTANTS = [
@@ -457,6 +578,46 @@ const MUTANTS = [
     // Measured: (b) only. In (a) the clear's own UPDATE still takes the row lock the fire waits on.
     expect: ["b"],
     why: "the clear checks for sent food before the fire commits, then strips the name off it",
+  },
+  {
+    id: "p2f/counter-fire-session-lock-dropped",
+    fn: "mms_fire_counter_cart",
+    find: "    from public.table_sessions s where s.id = v_session\n    for share;",
+    replace: "    from public.table_sessions s where s.id = v_session;",
+    // (c): A's UPDATE reads the session through its own snapshot — active — and fires onto the
+    // session S is closing. (d): S's lock step does not see A, so S closes the session under food.
+    expect: ["c", "d"],
+    why: "a Send overlapping the cron sweep leaves fired, unpaid food on a CLOSED session (C1)",
+  },
+  {
+    id: "p2f/sweeper-decides-without-locking-first",
+    fn: "mms_sweep_expired_sessions",
+    find: "     order by s.id\n     for no key update skip locked) x;",
+    replace: "     order by s.id) x;",
+    // (d): the UPDATE itself waits on A's share lock, then closes the row WITHOUT re-reading the
+    // exemption (a merely-locked row is not re-checked) — food on a closed session, and S waited.
+    expect: ["d"],
+    why: "the exemption is read from a snapshot older than the Send it waited for",
+  },
+  {
+    id: "p2f/sweeper-waits-on-a-send",
+    fn: "mms_sweep_expired_sessions",
+    find: "     for no key update skip locked) x;",
+    replace: "     for no key update) x;",
+    // (d): the outcome is right (the second statement re-reads), but the cron sweep now stalls
+    // behind every in-flight Send — and a stalled sweep holds every expired row it locked.
+    expect: ["d"],
+    why: "the cron sweep blocks behind an in-flight Send instead of leaving that row to the next run",
+  },
+  {
+    id: "p2f/sweeper-closes-rows-it-skipped",
+    fn: "mms_sweep_expired_sessions",
+    find: "    where s.id = any(v_ids)\n      and not (",
+    replace: "    where s.status = 'active' and s.expires_at <= now()\n      and not (",
+    // (d): the lock step skips A's row, but the UPDATE reaches it anyway — waits on A, then closes it
+    // without re-reading the exemption. The decision must be confined to the rows the sweep holds.
+    expect: ["d"],
+    why: "the sweep closes a session it never locked, from a snapshot older than the Send it waited for",
   },
 ];
 
@@ -486,7 +647,7 @@ async function runMutants() {
       `${TAG} REFUSED — the UNMUTATED functions are already red on (${base.join(", ")})`,
     );
   }
-  console.log(`  ${green("baseline")} ${dim("both orders green on the real functions")}`);
+  console.log(`  ${green("baseline")} ${dim("all four orders green on the real functions")}`);
 
   let bad = 0;
   for (const m of MUTANTS) {
@@ -567,7 +728,9 @@ async function main() {
     if (process.argv.includes("--mutants")) {
       failed += await runMutants();
     } else {
-      console.log(`\n${TAG} — the counter fire and the name clear, one cart, two sessions\n`);
+      console.log(
+        `\n${TAG} — the counter fire vs the name clear and the sweep, one cart, two sessions\n`,
+      );
       failed += (await battery(true)).length;
     }
   } finally {
@@ -586,7 +749,11 @@ async function main() {
     process.exit(1);
   }
   if (!process.argv.includes("--mutants")) {
-    console.log(green(`\n✓ verify:counter-race — clear-first · fire-first\n`));
+    console.log(
+      green(
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep\n`,
+      ),
+    );
   }
 }
 

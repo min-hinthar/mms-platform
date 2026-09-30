@@ -255,22 +255,23 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 77 mutations (measured below; was "20" while the file held 27) across eleven LIVE functions
+      # 97 mutations (measured below; was "20" while the file held 27) across eleven LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, and — Phase 2f · P2v — mms_fire_counter_cart,
       # mms_undo_counter_fire, mms_clear_cart_name, mms_counter_no_show and
       # mms_sweep_expired_sessions) plus one of mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
-      # and the NAMED case (not just some case) to be the one that goes red. Eight mutants are
+      # and the NAMED case (not just some case) to be the one that goes red. Twelve mutants are
       # documented SURVIVORS and are asserted as such rather than left as untested comments.
       # The battery replays an ordered migration CHAIN and verifies from the migration FILENAMES that
       # its chain is complete: a function whose last definition moves outside the chain ABORTS the
       # run, because every verdict about it would otherwise be about a body the database never runs.
       # Keep this count in step — measured with:
       #   grep -c 'id: "' scripts/verify-mode-authority.mjs
+      # ~95s measured locally at 97 mutants (each replays the chain) — the timeout has headroom for CI.
       - name: Mode-authority mutants (can the guards fail?)
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: node scripts/verify-mode-authority.mjs
       # P2dk — the P2cy cart lock (`for share`) on the three line RPCs is only observable with TWO
       # sessions: a settlement claim interleaved with an add. Each RPC, both orders (claim-first →
@@ -287,17 +288,22 @@ jobs:
         run: node scripts/verify-line-guard-race.mjs --mutants
       # Phase 2f · P2v — the counter fire (`mms_fire_counter_cart`) and the name clear
       # (`mms_clear_cart_name`) decide under ONE lock, the qr_carts row FOR UPDATE, so a name can
-      # never be stripped off food that is cooking and an unnamed bag can never cook. Only two
-      # sessions can interleave them: clear-first (the fire waits, then fires nothing) and fire-first
-      # (the clear waits, then answers keep_name). Commits `reg-P2FR-` fixtures, so the script
-      # refuses anything that is not the local stack. ~1s measured locally.
+      # never be stripped off food that is cooking and an unnamed bag can never cook; and the fire
+      # and the cron sweeper (`mms_sweep_expired_sessions`) are ordered by the table_sessions row, so
+      # a Send overlapping a sweep never leaves fired food on a closed session (blind review, C1).
+      # Only two sessions can interleave them: clear-first · fire-first · sweep-first ·
+      # fire-before-sweep. Commits `reg-P2FR-` fixtures (and runs the sweeper, which closes every
+      # expired session in the DB), so the script refuses anything that is not the local stack.
+      # ~5s measured locally (the sweep scenarios wait out a 2s session expiry).
       - name: Counter-fire race harness (two concurrent sessions)
         timeout-minutes: 3
         run: node scripts/verify-counter-fire-race.mjs
-      # Can it fail? Each function's cart lock deleted — the fire's reddens both orders, the clear's
-      # reddens fire-first — md5-checked apply, byte-identical restore. These are the two lock
-      # mutants verify-mode-authority.mjs lists as documented survivors. ~3s measured locally.
-      - name: Counter-fire race mutants (can the cart lock fail?)
+      # Can it fail? Six lock mutants — the fire's cart lock (clear-first + fire-first), the clear's
+      # (fire-first), the fire's session lock (sweep-first + fire-before-sweep), and the sweeper's
+      # lock-then-decide, SKIP LOCKED and held-rows-only confinement (fire-before-sweep) —
+      # md5-checked apply, byte-identical restore. These are the six lock mutants
+      # verify-mode-authority.mjs lists as documented survivors. ~40s measured locally.
+      - name: Counter-fire race mutants (can the locks fail?)
         timeout-minutes: 5
         run: node scripts/verify-counter-fire-race.mjs --mutants
       - name: Stop stack

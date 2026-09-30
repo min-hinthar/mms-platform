@@ -24,7 +24,7 @@
  *
  * DOCUMENTED SURVIVORS
  * --------------------
- * Four mutations (eight with Phase 2f, below) are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ * Four mutations (twelve with Phase 2f, below) are expected to SURVIVE, and asserting that is the point. They are not one kind:
  *
  *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
  *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
@@ -47,7 +47,10 @@
  * more documented survivors, all row locks no single session can observe: the fire's and the name
  * clear's cart lock are KILLED by `scripts/verify-counter-fire-race.mjs --mutants`; the no-show's
  * approvals-before-lines order (deadlock avoidance) and the undo's cart lock have no two-session
- * harness yet and are filed in OPEN-ITEMS. Eight survivors in all.
+ * harness yet and are filed in OPEN-ITEMS. The Phase 2f blind review (C1) adds FOUR more: the fire's
+ * session-row lock and the sweeper's lock-then-decide, SKIP LOCKED and held-rows-only confinement —
+ * all KILLED by `verify-counter-fire-race.mjs --mutants` (sweep-first · fire-before-sweep). Twelve
+ * survivors in all.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -738,8 +741,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.8 ·",
     why: "a closed session's drafts are abandoned basket, not an order; firing them cooks food nobody can settle",
-    find: "      and s.status = 'active'\n      and s.mode = 'pickup'",
-    replace: "      and s.mode = 'pickup'",
+    find: "      and s.status = 'active'\n      and s.expires_at > now()",
+    replace: "      and s.expires_at > now()",
   },
   {
     id: "p2f/counter-fire-grocery-fires",
@@ -758,8 +761,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.6 ·",
     why: "`named` is how the app tells 'add a name first' from 'nothing to send'; a constant true reports a name refusal as an empty basket",
-    find: "  return query select n, v_batch, v_deadline, coalesce(v_named, false);",
-    replace: "  return query select n, v_batch, v_deadline, true;",
+    find: "  return query select n, v_batch, v_deadline, coalesce(v_named, false),",
+    replace: "  return query select n, v_batch, v_deadline, true,",
   },
   {
     id: "p2f/counter-undo-batch-term-dropped",
@@ -839,7 +842,7 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.15c ·",
     why: "an in-grace line never reached the KDS — writing it off records a loss for food nobody made",
-    find: "      and ci.fire_at is not null\n      and ci.fire_at <= now();",
+    find: "      and (ci.fire_at is null or ci.fire_at <= now());",
     replace: ";",
   },
   {
@@ -907,8 +910,8 @@ const MUTANTS = [
     fn: "mms_counter_no_show",
     src: "p2f",
     suite: "p2f",
-    expect: "P2F.16 ·",
-    why: "drafts never reached the kitchen — writing them off as a no-show loss inflates the loss with food nobody made (measured: survives without the old-fire_at draft fixture)",
+    expect: "P2F.15b ·",
+    why: "drafts never reached the kitchen — writing them off as a no-show loss inflates the loss with food nobody made. Since a NULL fire_at counts as sent (Phase 2f review, M2) the state term is the ONLY thing between a plain draft and the sent set, so the drafts-only case (P2F.15b) catches it first; P2F.16's old-fire_at draft pins it too",
     find: "      and ci.state in ('fired', 'in_progress', 'served')\n      and ci.fulfillment <> 'grocery'",
     replace: "      and ci.state <> 'voided'\n      and ci.fulfillment <> 'grocery'",
   },
@@ -919,8 +922,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.16 ·",
     why: "a grocery line is shelf stock, not kitchen food — the no-show leaves it on the cancelled cart with no row (Clear's precedent) and never books it as a loss",
-    find: "      and ci.fulfillment <> 'grocery'\n      and not ci.comped\n      and ci.fire_at is not null",
-    replace: "      and not ci.comped\n      and ci.fire_at is not null",
+    find: "      and ci.fulfillment <> 'grocery'\n      and not ci.comped\n      and (ci.fire_at is null",
+    replace: "      and not ci.comped\n      and (ci.fire_at is null",
   },
   {
     id: "p2f/no-show-comped-line-re-audited",
@@ -990,8 +993,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.19a ·",
     why: "the M171 shape for counter orders: without the exemption an expired reg- session with food cooking is closed and the KDS, the lane and every settle door lose it",
-    find: "    where s.status = 'active' and s.expires_at <= now()\n      and not (",
-    replace: "    where s.status = 'active' and s.expires_at <= now()\n      and true or not (",
+    find: "      and not (s.mode = 'pickup' and s.qr_code like 'reg-%' and exists (",
+    replace: "      and not (false and s.mode = 'pickup' and s.qr_code like 'reg-%' and exists (",
   },
   {
     id: "p2f/sweeper-exemption-covers-every-pickup",
@@ -1010,8 +1013,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: "P2F.19b ·",
     why: "a drafts-only counter order is an abandoned basket — nothing is cooking, so the sweep must close it",
-    find: "               and ci.state in ('fired', 'in_progress', 'served')));",
-    replace: "               and ci.state <> 'voided'));",
+    find: "               and ci.state in ('fired', 'in_progress', 'served')\n",
+    replace: "               and ci.state <> 'voided'\n",
   },
   {
     id: "p2f/sweeper-exemption-covers-tables",
@@ -1030,9 +1033,8 @@ const MUTANTS = [
     suite: "p2f",
     expect: null,
     why: "DOCUMENTED SURVIVOR HERE — the fire's cart-row lock is what orders it against a name clear (and a no-show or settle claim); only TWO sessions can interleave them. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (clear-first and fire-first must both go red). A kill HERE means the single-session suite has started to depend on the lock",
-    find: "    from public.qr_carts c where c.id = p_cart_id\n    for update;\n  update public.qr_cart_items ci\n    set state = 'fired'",
-    replace:
-      "    from public.qr_carts c where c.id = p_cart_id;\n  update public.qr_cart_items ci\n    set state = 'fired'",
+    find: "    from public.qr_carts c where c.id = p_cart_id\n    for update;\n  -- Then the session row",
+    replace: "    from public.qr_carts c where c.id = p_cart_id;\n  -- Then the session row",
   },
   {
     id: "p2f/clear-name-cart-lock-dropped",
@@ -1063,6 +1065,209 @@ const MUTANTS = [
     why: "DOCUMENTED SURVIVOR — the undo's cart-row lock orders it against a no-show or a settle claim on the same cart; only two sessions can interleave them and no harness drives the undo yet. Filed (OPEN-ITEMS, P2fi-row: two-session proof of the undo's cart lock)",
     find: "  perform 1 from public.qr_carts where id = p_cart_id for update;\n",
     replace: "",
+  },
+  // ── Phase 2f blind review (db) — the fire's closed signal and expiry term (C1), the no-show's
+  // expected set ('changed', the cross-area decision), the untested pay-lock / ceiling / null-fire_at
+  // rules (M4 · M3 · M2), and the sweeper's OPEN-cart and SENT terms (M5 · one definition).
+  {
+    id: "p2f/counter-fire-expired-session-fires",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.8b ·",
+    why: "C1 — an expired session the sweeper has not reached yet must not gain fired food: the next sweep would close it under the food, off the KDS, the lane and every settle",
+    find: "      and s.status = 'active'\n      and s.expires_at > now()\n",
+    replace: "      and s.status = 'active'\n",
+  },
+  {
+    id: "p2f/counter-fire-closed-ignores-expiry",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.8b ·",
+    why: "an expired order answers 'nothing to send' instead of closed — the app names a refusal from `closed`, so the counter is told the basket is empty",
+    find: "  select s.status = 'active' and s.expires_at > now() into v_live",
+    replace: "  select s.status = 'active' into v_live",
+  },
+  {
+    id: "p2f/counter-fire-closed-ignores-cart",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.7 ·",
+    why: "a Send that lost the race to a settle (the cart is paid) must say closed, not 'add a name' or 'nothing to send'",
+    find: "                      not (coalesce(v_cart_open, false) and coalesce(v_live, false));",
+    replace: "                      not coalesce(v_live, false);",
+  },
+  {
+    id: "p2f/counter-fire-closed-ignores-session",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.8 ·",
+    why: "a Send that lost the race to a sweep or a clear (the session is closed) must say closed",
+    find: "                      not (coalesce(v_cart_open, false) and coalesce(v_live, false));",
+    replace: "                      not coalesce(v_cart_open, false);",
+  },
+  {
+    id: "p2f/counter-fire-closed-always",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.6 ·",
+    why: "a live, nameless order must read 'add a name first' — a constant closed hides the one refusal the counter can fix",
+    find: "                      not (coalesce(v_cart_open, false) and coalesce(v_live, false));",
+    replace: "                      true;",
+  },
+  {
+    id: "p2f/no-show-pay-lock-ignored",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15i ·",
+    why: "M4 — a guest's single-pay attempt is live (fresh lock): voiding the food under it cancels a cart a card is being charged for",
+    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')\n     or (v_settle_at",
+    replace: "  if (v_settle_at",
+  },
+  {
+    id: "p2f/no-show-pay-lock-ttl-widened",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15i ·",
+    why: "over-block: an ABANDONED pay lock (past mms_void_line's 5-minute literal) must not strand a no-show — the TTL is what releases it",
+    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')",
+    replace: "  if (v_locked and v_locked_at > now() - interval '10 minutes')",
+  },
+  {
+    id: "p2f/no-show-pay-lock-flag-ignored",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15i ·",
+    why: "over-block: a released lock leaves its stamp behind; only `locked` says a payment is live",
+    find: "  if (v_locked and v_locked_at > now() - interval '5 minutes')",
+    replace: "  if (v_locked_at > now() - interval '5 minutes')",
+  },
+  {
+    id: "p2f/no-show-ceiling-arm-dropped",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.21 ·",
+    why: "M3 — the ceiling leg of the loss gate: a large sent order nobody started is written off by a server alone",
+    find: "when v_cooked then 'cooked' when v_loss > v_max_loss then 'ceiling' else 'solo' end;",
+    replace: "when v_cooked then 'cooked' else 'solo' end;",
+  },
+  {
+    id: "p2f/no-show-null-fire-at-not-sent",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.22 ·",
+    why: "M2 — a fired line with no deadline is on the KDS; reading it as unsent answers nothing_sent and steers staff to Clear, cancelling food the kitchen saw with no loss row",
+    find: "      and (ci.fire_at is null or ci.fire_at <= now());",
+    replace: "      and ci.fire_at <= now();",
+  },
+  {
+    id: "p2f/no-show-expected-set-ignored",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.20 ·",
+    why: "the approval is tied to what the approver SAW: without the check a line sent after the sheet loaded is written off under a PIN that never covered it",
+    find: "  if (select array_agg(distinct e order by e) from unnest(p_expected_line_ids) e)\n       is distinct from v_sent then\n    return 'changed';\n  end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-expected-set-order-sensitive",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.20 ·",
+    why: "over-block: the sheet's order and a repeated id are not a change — compared as a list, every real no-show refuses",
+    find: "array_agg(distinct e order by e) from unnest(p_expected_line_ids) e)",
+    replace: "array_agg(e) from unnest(p_expected_line_ids) e)",
+  },
+  {
+    id: "p2f/no-show-missing-expected-set-passes",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.20 ·",
+    why: "a NULL expected set compares as unknown under `<>` and falls through to the write — a caller that sends nothing approves anything",
+    find: "       is distinct from v_sent then",
+    replace: "       <> v_sent then",
+  },
+  {
+    id: "p2f/sweeper-paid-cart-exempt",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19e ·",
+    why: "M5 — a PAID counter order has nothing to collect; exempting it keeps a finished order squatting in the active set and the register queue forever",
+    find: "             where c.session_id = s.id and c.status = 'open'\n",
+    replace: "             where c.session_id = s.id\n",
+  },
+  {
+    id: "p2f/sweeper-comped-exempts",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19f ·",
+    why: "one definition of SENT: a comped-only order is nothing the no-show can write off (nothing_sent), so exempting it leaves an order no door can close",
+    find: "               and ci.fulfillment <> 'grocery'\n               and not ci.comped));",
+    replace: "               and ci.fulfillment <> 'grocery'));",
+  },
+  {
+    id: "p2f/sweeper-grocery-exempts",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19g ·",
+    why: "one definition of SENT: a grocery line marked fired is shelf stock, not kitchen food — exempting it keeps an order alive that the no-show refuses",
+    find: "               and ci.fulfillment <> 'grocery'\n               and not ci.comped));",
+    replace: "               and not ci.comped));",
+  },
+  {
+    id: "p2f/counter-fire-session-lock-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — the fire's session-row lock orders it against the cron sweep (C1); only TWO sessions can interleave them. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (sweep-first and fire-before-sweep)",
+    find: "    from public.table_sessions s where s.id = v_session\n    for share;",
+    replace: "    from public.table_sessions s where s.id = v_session;",
+  },
+  {
+    id: "p2f/sweeper-decides-without-locking-first",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — lock-then-decide is what makes the exemption read a snapshot newer than any Send the sweep waited for; single-session it is indistinguishable. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (fire-before-sweep)",
+    find: "     order by s.id\n     for no key update skip locked) x;",
+    replace: "     order by s.id) x;",
+  },
+  {
+    id: "p2f/sweeper-waits-on-a-send",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — SKIP LOCKED keeps the cron from stalling behind an in-flight Send; only a second session holds a lock to skip. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (fire-before-sweep)",
+    find: "     for no key update skip locked) x;",
+    replace: "     for no key update) x;",
+  },
+  {
+    id: "p2f/sweeper-closes-rows-it-skipped",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — the UPDATE is confined to the rows the lock step HOLDS; single-session every candidate is held. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (fire-before-sweep)",
+    find: "    where s.id = any(v_ids)\n      and not (",
+    replace: "    where s.status = 'active' and s.expires_at <= now()\n      and not (",
   },
 ];
 
