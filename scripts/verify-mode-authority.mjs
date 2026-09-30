@@ -24,7 +24,7 @@
  *
  * DOCUMENTED SURVIVORS
  * --------------------
- * Four mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ * Four mutations (eight with Phase 2f, below) are expected to SURVIVE, and asserting that is the point. They are not one kind:
  *
  *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
  *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
@@ -39,6 +39,15 @@
  *     add against a settlement claim, which no single session can interleave. It is KILLED — for all
  *     three line RPCs — by `scripts/verify-line-guard-race.mjs --mutants`; it is listed here so this
  *     battery's own count stays honest.
+ *
+ * PHASE 2f · P2v adds suite `p2f`: the four staff-only counter functions (`mms_fire_counter_cart`,
+ * `mms_undo_counter_fire`, `mms_clear_cart_name`, `mms_counter_no_show`) and the restated
+ * `mms_sweep_expired_sessions` (its counter exemption) — one mutant per named `P2F.<id> ·` case, the
+ * `expect` string carrying the middle dot because `runTest` matches by substring. It brings FOUR
+ * more documented survivors, all row locks no single session can observe: the fire's and the name
+ * clear's cart lock are KILLED by `scripts/verify-counter-fire-race.mjs --mutants`; the no-show's
+ * approvals-before-lines order (deadlock avoidance) and the undo's cart lock have no two-session
+ * harness yet and are filed in OPEN-ITEMS. Eight survivors in all.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -89,9 +98,17 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20260929000000_p2dd_p2cy_line_guards.sql"),
     test: path.join(ROOT, "supabase/tests/p2dd_p2cy_line_guards_test.sql"),
   },
+  // Phase 2f · P2v — four new counter functions and the sweeper restated (its exemption).
+  p2f: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/p2f_counter_cook_before_paid_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -670,6 +687,383 @@ const MUTANTS = [
     find: "    from public.qr_carts c where c.id = p_cart_id\n    for share;",
     replace: "    from public.qr_carts c where c.id = p_cart_id;",
   },
+  // ── Phase 2f · P2v — the counter cook-before-paid functions (20261001000000). One mutant per named
+  // case; `expect` carries the trailing " ·" because `runTest` matches by substring and a bare
+  // "P2F.1" would be satisfied by "P2F.15…".
+  {
+    id: "p2f/counter-fire-reg-prefix-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.3 ·",
+    why: "the reg- half of the counter predicate: without it a DINER's pickup cart (a scanned sticker, pay-first by M107) cooks unpaid on a staff Send",
+    find: "      and s.mode = 'pickup'\n      and s.qr_code like 'reg-%'\n      and ci.state = 'draft'\n      and ci.fulfillment = 'togo';",
+    replace:
+      "      and s.mode = 'pickup'\n      and ci.state = 'draft'\n      and ci.fulfillment = 'togo';",
+  },
+  {
+    id: "p2f/counter-fire-mode-term-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.5 ·",
+    why: "the mode half: a reg- code on a scan-and-go session is not a counter order, and nothing but this conjunct keeps its drafts from firing unpaid",
+    find: "      and s.mode = 'pickup'\n      and s.qr_code like 'reg-%'\n      and ci.state = 'draft'",
+    replace: "      and s.qr_code like 'reg-%'\n      and ci.state = 'draft'",
+  },
+  {
+    id: "p2f/counter-fire-name-term-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.6 ·",
+    why: "decision 7c — the name is the only pre-payment identity. Without the UPDATE's own conjunct an anonymous bag cooks and nobody can call it at pickup (the returned `named` is informational, never the guard)",
+    find: "      and nullif(btrim(c.customer_name), '') is not null\n      and s.status = 'active'",
+    replace: "      and s.status = 'active'",
+  },
+  {
+    id: "p2f/counter-fire-open-term-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.7 ·",
+    why: "a paid or cancelled cart's drafts must not fire through the unpaid path — the paid path (mms_fire_pending_food) already owns them",
+    find: "      and c.status = 'open'\n      and nullif(btrim(c.customer_name), '') is not null",
+    replace: "      and nullif(btrim(c.customer_name), '') is not null",
+  },
+  {
+    id: "p2f/counter-fire-session-active-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.8 ·",
+    why: "a closed session's drafts are abandoned basket, not an order; firing them cooks food nobody can settle",
+    find: "      and s.status = 'active'\n      and s.mode = 'pickup'",
+    replace: "      and s.mode = 'pickup'",
+  },
+  {
+    id: "p2f/counter-fire-grocery-fires",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.2 ·",
+    why: "grocery never fires, and a dine-in-tagged line on a counter cart is not this send's — the to-go conjunct is what leaves both as drafts",
+    find: "      and ci.state = 'draft'\n      and ci.fulfillment = 'togo';\n  get diagnostics n = row_count;\n  return query",
+    replace: "      and ci.state = 'draft';\n  get diagnostics n = row_count;\n  return query",
+  },
+  {
+    id: "p2f/counter-fire-named-lies",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.6 ·",
+    why: "`named` is how the app tells 'add a name first' from 'nothing to send'; a constant true reports a name refusal as an empty basket",
+    find: "  return query select n, v_batch, v_deadline, coalesce(v_named, false);",
+    replace: "  return query select n, v_batch, v_deadline, true;",
+  },
+  {
+    id: "p2f/counter-undo-batch-term-dropped",
+    fn: "mms_undo_counter_fire",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.9 ·",
+    why: "the undo must return THIS tap's batch only — without the batch term one device's undo pulls back another device's send still in its grace",
+    find: "      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
+    replace: "      and ci.fire_at > now();",
+  },
+  {
+    id: "p2f/counter-undo-grace-term-dropped",
+    fn: "mms_undo_counter_fire",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.11 ·",
+    why: "past the 10s grace the ticket is on the KDS; an undo then silently unsends food a cook may already be making",
+    find: "      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
+    replace: "      and ci.fire_batch = p_batch;",
+  },
+  {
+    id: "p2f/counter-undo-comped-reverted",
+    fn: "mms_undo_counter_fire",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.12 ·",
+    why: "a comped line is an audited loss; the undo turning it back into a draft makes it billable again with the comp row still standing",
+    find: "      and ci.state = 'fired'\n      and not ci.comped\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
+    replace:
+      "      and ci.state = 'fired'\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
+  },
+  {
+    id: "p2f/clear-name-sent-check-dropped",
+    fn: "mms_clear_cart_name",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.14 ·",
+    why: "decision 7c — once food is in, the name is how the counter finds the bag; clearing it strands a cooked, unpaid order with no one to call",
+    find: "    return 'keep_name';",
+    replace: "    null;",
+  },
+  {
+    id: "p2f/clear-name-lock-covers-tables",
+    fn: "mms_clear_cart_name",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.14 ·",
+    why: "over-block: the name lock is a COUNTER rule; a dine-in cart with fired lines must still clear its name (P2F.14's legit half)",
+    find: "  if v_mode = 'pickup' and v_code like 'reg-%' and exists (",
+    replace: "  if exists (",
+  },
+  {
+    id: "p2f/no-show-counter-check-dropped",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15a ·",
+    why: "the no-show writes off food without a charge — on a table or a diner pickup that is a free meal behind one button",
+    find: "  if v_mode <> 'pickup' or v_code not like 'reg-%' then return 'not_counter'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-nothing-sent-check-dropped",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15b ·",
+    why: "with nothing sent there is no loss to record; the call must steer to Clear rather than cancel a live order and write zero rows",
+    find: "  if v_sent is null then return 'nothing_sent'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-grace-line-written-off",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15c ·",
+    why: "an in-grace line never reached the KDS — writing it off records a loss for food nobody made",
+    find: "      and ci.fire_at is not null\n      and ci.fire_at <= now();",
+    replace: ";",
+  },
+  {
+    id: "p2f/no-show-open-check-dropped",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15d ·",
+    why: "a paid cart's lines are revenue; voiding them after the fact erases a sale from the books",
+    find: "  if v_status <> 'open' then return 'not_open'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-settle-freeze-ignored",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15e ·",
+    why: "two tablets: a cashier's settle freeze is live — the no-show must refuse (in_flight) rather than void food the reader is charging for",
+    find: "     or (v_settle_at is not null and v_settle_at > now() - interval '10 minutes') then\n    return 'in_flight';",
+    replace: "     then\n    return 'in_flight';",
+  },
+  {
+    id: "p2f/no-show-approver-gate-dropped",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15f ·",
+    why: "decision 7b — the existing loss gate: a started or served dish needs a manager, and without the null check a server writes it off alone",
+    find: "    if p_approver is null then return 'needs_approval'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-self-approve-allowed",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15g ·",
+    why: "a manager approving their own write-off is no second pair of eyes — the same rule mms_void_line enforces",
+    find: "    if p_approver = p_initiator then return 'self_approve'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-server-approves",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15h ·",
+    why: "the approver must be an active manager/owner; a server's id in the approver slot is the gate in name only",
+    find: "v_role not in ('manager', 'owner') then",
+    replace: "v_role not in ('manager', 'owner', 'server') then",
+  },
+  {
+    id: "p2f/no-show-cooked-gate-ignored",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.15f ·",
+    why: "the cooked leg of the gate: a served dish under the ceiling must still need a manager, as it does for a single void",
+    find: "  v_gate := case when v_cooked then 'cooked' when v_loss > v_max_loss then 'ceiling' else 'solo' end;",
+    replace: "  v_gate := case when v_loss > v_max_loss then 'ceiling' else 'solo' end;",
+  },
+  {
+    id: "p2f/no-show-drafts-written-off",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "drafts never reached the kitchen — writing them off as a no-show loss inflates the loss with food nobody made (measured: survives without the old-fire_at draft fixture)",
+    find: "      and ci.state in ('fired', 'in_progress', 'served')\n      and ci.fulfillment <> 'grocery'",
+    replace: "      and ci.state <> 'voided'\n      and ci.fulfillment <> 'grocery'",
+  },
+  {
+    id: "p2f/no-show-grocery-written-off",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "a grocery line is shelf stock, not kitchen food — the no-show leaves it on the cancelled cart with no row (Clear's precedent) and never books it as a loss",
+    find: "      and ci.fulfillment <> 'grocery'\n      and not ci.comped\n      and ci.fire_at is not null",
+    replace: "      and not ci.comped\n      and ci.fire_at is not null",
+  },
+  {
+    id: "p2f/no-show-comped-line-re-audited",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "a comped line is already an audited loss; auditing it again as a no-show double-counts it",
+    find: "      and ci.fulfillment <> 'grocery'\n      and not ci.comped\n",
+    replace: "      and ci.fulfillment <> 'grocery'\n",
+  },
+  {
+    id: "p2f/no-show-pending-left-open",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "a pending S2.4 request on a cancelled cart can later be approved against a line that no longer exists — supersede it in the same statement",
+    find: "  update public.mms_approvals set status = 'superseded', resolved_at = now()\n    where cart_id = p_cart_id and status = 'pending';\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-grace-line-left-fired",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "an in-grace fired line on a cancelled cart sits 'fired' with no audit row and no bill — return it to draft (the undo's own edge)",
+    find: "  update public.qr_cart_items set state = 'draft', fire_at = null, fire_batch = null\n    where cart_id = p_cart_id and state = 'fired' and fire_at > now();\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-cart-left-open",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "the write-off must close the cart, or the voided order stays payable and the counter keeps showing it",
+    find: "  update public.qr_carts set status = 'cancelled' where id = p_cart_id and status = 'open';\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-session-left-active",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.16 ·",
+    why: "the session must close with the cart, or the reg- code keeps a live session a diner can still join",
+    find: "  update public.table_sessions set status = 'closed' where id = v_session and status = 'active';\n",
+    replace: "",
+  },
+  {
+    id: "p2f/no-show-ceiling-counts-drafts",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.17 ·",
+    why: "the loss ceiling is over SENT value only; counting drafts sends a $5 no-show with a $30 unsent basket to a manager for nothing",
+    find: "    from public.qr_cart_items ci where ci.id = any(v_sent);\n  select max_loss_cents",
+    replace:
+      "    from public.qr_cart_items ci where ci.cart_id = p_cart_id and ci.state <> 'voided' and not ci.comped;\n  select max_loss_cents",
+  },
+  {
+    id: "p2f/sweeper-counter-exemption-dropped",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19a ·",
+    why: "the M171 shape for counter orders: without the exemption an expired reg- session with food cooking is closed and the KDS, the lane and every settle door lose it",
+    find: "    where s.status = 'active' and s.expires_at <= now()\n      and not (",
+    replace: "    where s.status = 'active' and s.expires_at <= now()\n      and true or not (",
+  },
+  {
+    id: "p2f/sweeper-exemption-covers-every-pickup",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19d ·",
+    why: "the exemption is for STAFF counter orders only; a diner's pickup session with fired food must still expire",
+    find: "      and not (s.mode = 'pickup' and s.qr_code like 'reg-%' and exists (",
+    replace: "      and not (s.mode = 'pickup' and exists (",
+  },
+  {
+    id: "p2f/sweeper-exemption-covers-drafts",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19b ·",
+    why: "a drafts-only counter order is an abandoned basket — nothing is cooking, so the sweep must close it",
+    find: "               and ci.state in ('fired', 'in_progress', 'served')));",
+    replace: "               and ci.state <> 'voided'));",
+  },
+  {
+    id: "p2f/sweeper-exemption-covers-tables",
+    fn: "mms_sweep_expired_sessions",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.19c ·",
+    why: "the dine-in half of M171 is unchanged here: a dine-in session with fired lines still expires (P2F.19c pins that this PR did not widen it)",
+    find: "      and not (s.mode = 'pickup' and s.qr_code like 'reg-%' and exists (",
+    replace: "      and not (s.qr_code like '%' and exists (",
+  },
+  {
+    id: "p2f/counter-fire-cart-lock-dropped",
+    fn: "mms_fire_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — the fire's cart-row lock is what orders it against a name clear (and a no-show or settle claim); only TWO sessions can interleave them. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants (clear-first and fire-first must both go red). A kill HERE means the single-session suite has started to depend on the lock",
+    find: "    from public.qr_carts c where c.id = p_cart_id\n    for update;\n  update public.qr_cart_items ci\n    set state = 'fired'",
+    replace:
+      "    from public.qr_carts c where c.id = p_cart_id;\n  update public.qr_cart_items ci\n    set state = 'fired'",
+  },
+  {
+    id: "p2f/clear-name-cart-lock-dropped",
+    fn: "mms_clear_cart_name",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — the name clear decides keep_name under the cart-row lock the fire also takes; without it a fire committing between its read and its update leaves a cooking order with no name. KILLED in CI by scripts/verify-counter-fire-race.mjs --mutants",
+    find: "    where c.session_id = p_session_id and c.status = 'open'\n    for update of c;",
+    replace: "    where c.session_id = p_session_id and c.status = 'open';",
+  },
+  {
+    id: "p2f/no-show-approvals-locked-after-lines",
+    fn: "mms_counter_no_show",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR — locking pending approvals BEFORE lines is deadlock avoidance against mms_resolve_approval (approval → line); a deadlock needs two sessions and no harness drives this one yet. Filed (OPEN-ITEMS, P2fi-row: two-session proof of the no-show's lock order)",
+    find: "  perform 1 from public.mms_approvals\n    where cart_id = p_cart_id and status = 'pending'\n    for update;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/counter-undo-cart-lock-dropped",
+    fn: "mms_undo_counter_fire",
+    src: "p2f",
+    suite: "p2f",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR — the undo's cart-row lock orders it against a no-show or a settle claim on the same cart; only two sessions can interleave them and no harness drives the undo yet. Filed (OPEN-ITEMS, P2fi-row: two-session proof of the undo's cart lock)",
+    find: "  perform 1 from public.qr_carts where id = p_cart_id for update;\n",
+    replace: "",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -678,12 +1072,6 @@ const sources = Object.fromEntries(
 );
 const chainSource = CHAIN.map((k) => sources[k]).join("\n");
 let failures = 0;
-
-console.log(
-  c.bold(
-    `\nverify:mode-authority — ${MUTANTS.length} mutants over 6 functions, ${CHAIN.length} suites\n`,
-  ),
-);
 
 /**
  * `restore()` re-applies THIS migration, which is only a restore while this migration is still the
@@ -722,7 +1110,19 @@ const TARGETS = [
   "mms_merge_table_orders",
   "mms_cart_item_inc_qty",
   "mms_cart_item_set_qty_if_open",
+  "mms_fire_counter_cart",
+  "mms_undo_counter_fire",
+  "mms_clear_cart_name",
+  "mms_counter_no_show",
+  "mms_sweep_expired_sessions",
 ];
+
+// TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.
+console.log(
+  c.bold(
+    `\nverify:mode-authority — ${MUTANTS.length} mutants over ${TARGETS.length} functions, ${CHAIN.length} suites\n`,
+  ),
+);
 
 /**
  * Which migration LAST defines a function, read from the migration directory in apply order.
