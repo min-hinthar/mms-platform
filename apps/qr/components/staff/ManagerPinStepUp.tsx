@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Button } from "@mms/ui";
 import type { Approver } from "@/lib/voids";
 import { plural, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
@@ -84,8 +85,71 @@ export function pinFailureCopy(
 }
 
 /**
+ * The manager roster a loss sheet reads on mount — with its OUTAGE kept distinct from an empty answer.
+ * `listApprovers` THROWS on a failed read precisely so "we couldn't read the list" never renders as
+ * "no managers on shift" (W10b); a `.catch(() => [])` at the call site undid that, and a write-off that
+ * needs a manager became impossible with one standing there (Codex round 2 on #308, P2). So a failure
+ * is `failed`, never `[]`, and `retry()` re-reads it on a tap.
+ *
+ * `load` is passed in (the sheet's own `listApprovers` import) so this module stays free of the Server
+ * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule). The
+ * `alive` ref is the `live` guard: re-armed at every setup (a cleanup-only latch stays false after the
+ * first Strict-Mode pass) and checked before any state lands on an unmounted sheet.
+ */
+export function useApproverRoster(load: () => Promise<Approver[]>) {
+  const [approvers, setApprovers] = useState<Approver[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const alive = useRef(false);
+  // The tap-time guard: two taps in one frame see the same render, so only a ref refuses the second.
+  const retryInFlight = useRef(false);
+
+  useEffect(() => {
+    alive.current = true;
+    load().then(
+      (a) => {
+        if (alive.current) setApprovers(a);
+      },
+      () => {
+        // Deliberate: an unreadable roster is an OUTAGE — never an empty roster.
+        if (alive.current) setFailed(true);
+      },
+    );
+    return () => {
+      alive.current = false;
+    };
+  }, [load]);
+
+  /** Re-read after a failure. Resolves `true` when the roster loaded, `false` when it failed again. */
+  const retry = useCallback(async (): Promise<boolean> => {
+    if (retryInFlight.current) return false;
+    retryInFlight.current = true;
+    setRetrying(true);
+    try {
+      const a = await load();
+      if (!alive.current) return false;
+      setApprovers(a);
+      setFailed(false);
+      return true;
+    } catch {
+      return false; // still `failed` — the caller says so in its one region
+    } finally {
+      retryInFlight.current = false;
+      if (alive.current) setRetrying(false);
+    }
+  }, [load]);
+
+  return { approvers, failed, retrying, retry };
+}
+
+/** The roster-failure sentence a sheet puts in its ONE region when a retry fails again. */
+export const ROSTER_FAILED_COPY: StaffMsg = { k: "pin.manager.loadFailed" };
+
+/**
  * The manager <select> + PIN <input>. `approvers === null` reads as "Loading…"; an empty roster shows the
- * honest dead-end note (a manager has to approve and none are on shift). `idPrefix` keeps the label↔control
+ * honest dead-end note (a manager has to approve and none are on shift). A roster that could not be READ
+ * (`rosterFailed`) says exactly that — never "none on shift" — with a Try again that calls `onRetry`
+ * (focus moves to the picker once it loads; a second failure is the caller's region's to say). `idPrefix` keeps the label↔control
  * `htmlFor` wiring unique when several cards render at once (the approvals queue).
  */
 export function ManagerPinFields({
@@ -96,6 +160,9 @@ export function ManagerPinFields({
   pin,
   onPinChange,
   locked,
+  rosterFailed = false,
+  retrying = false,
+  onRetry,
 }: {
   idPrefix: string;
   approvers: Approver[] | null;
@@ -104,11 +171,25 @@ export function ManagerPinFields({
   pin: string;
   onPinChange: (pin: string) => void;
   locked: boolean;
+  /** The roster read FAILED (an outage, not an empty answer) — see `useApproverRoster`. */
+  rosterFailed?: boolean;
+  retrying?: boolean;
+  onRetry?: () => Promise<boolean>;
 }) {
   const lang = useStaffLang();
   const managers = approvers ?? [];
-  const loading = approvers === null;
-  const noManagers = !loading && managers.length === 0;
+  const loading = !rosterFailed && approvers === null;
+  const noManagers = !rosterFailed && !loading && managers.length === 0;
+  const selectRef = useRef<HTMLSelectElement>(null);
+  // Set by the Try again tap; the picker takes focus when the failure clears (the button that held it
+  // unmounts), and is dropped when the retry fails again (focus stays on the button).
+  const focusPicker = useRef(false);
+  useEffect(() => {
+    if (!rosterFailed && focusPicker.current) {
+      focusPicker.current = false;
+      selectRef.current?.focus();
+    }
+  }, [rosterFailed]);
 
   return (
     <>
@@ -116,21 +197,25 @@ export function ManagerPinFields({
         <Chrome lang={lang} k="pin.manager.label" echo="stack" />
       </label>
       <select
+        ref={selectRef}
         id={`${idPrefix}-mgr`}
         value={approverStaffId}
         onChange={(e) => onApproverChange(e.target.value)}
-        // A dead-end state, not a tapped control: with no manager on shift there is nothing to
-        // pick. The lockout no longer disables it (§17 — the lockout is the PIN field's, read-only).
-        disabled={noManagers}
+        // A dead-end state, not a tapped control: with no manager on shift — or no list to read —
+        // there is nothing to pick. The lockout no longer disables it (§17 — the lockout is the PIN
+        // field's, read-only).
+        disabled={noManagers || rosterFailed}
         style={select}
       >
         {/* An <option> can hold only text, so the mark rides the element itself (rule 5). */}
         <option value="" lang={lang}>
-          {loading
-            ? ts(lang, "pin.manager.loading")
-            : noManagers
-              ? ts(lang, "pin.manager.none")
-              : ts(lang, "pin.manager.pick")}
+          {rosterFailed
+            ? ts(lang, "pin.manager.unavailable")
+            : loading
+              ? ts(lang, "pin.manager.loading")
+              : noManagers
+                ? ts(lang, "pin.manager.none")
+                : ts(lang, "pin.manager.pick")}
         </option>
         {managers.map((m) => (
           <option key={m.staffId} value={m.staffId}>
@@ -143,6 +228,32 @@ export function ManagerPinFields({
         <p style={noteCopy}>
           <Chrome lang={lang} k="pin.manager.noneNote" echo="stack" />
         </p>
+      )}
+      {rosterFailed && (
+        // The list could not be READ — said as that, never as "nobody on shift". A static note (the
+        // caller's region carries any announcement), and the one way forward: read it again.
+        <>
+          <p style={noteCopy} data-roster-failed="">
+            <Chrome lang={lang} k="pin.manager.loadFailed" echo="stack" />
+          </p>
+          {onRetry && (
+            <div style={{ marginTop: 8 }}>
+              <Button
+                type="button"
+                variant="secondary"
+                block
+                busy={retrying}
+                busyLabel={<Chrome lang={lang} k="out.shell.retrying" />}
+                onClick={async () => {
+                  focusPicker.current = true;
+                  if (!(await onRetry())) focusPicker.current = false;
+                }}
+              >
+                <Chrome lang={lang} k="out.shell.retry" echo="stack" />
+              </Button>
+            </div>
+          )}
+        </>
       )}
       <label htmlFor={`${idPrefix}-pin`} style={{ ...label, marginTop: 12 }}>
         <Chrome lang={lang} k="pin.label" echo="stack" />
