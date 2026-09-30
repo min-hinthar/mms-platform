@@ -48,8 +48,9 @@
 --
 -- ## SENT — one base definition, one refinement
 -- SENT = state in ('fired','in_progress','served') ∧ fulfillment <> 'grocery' ∧ not comped. A fired
--- line with a NULL fire_at is SENT (`mms_line_transition` can put a line in `fired` without a
--- deadline; the KDS shows it, so it counts as fired at or before now). The sweeper exempts a session
+-- line with a NULL fire_at is SENT (`mms_line_transition`'s draft→fired edge stamped no deadline
+-- until §6 below, so such rows exist; the KDS shows it, so it counts as fired at or before now, and
+-- §6 makes the kitchen's Start/Ready/bump treat it the same way). The sweeper exempts a session
 -- holding ANY SENT line (in-grace included — it will reach the KDS within seconds). The no-show writes
 -- off SENT lines PAST their grace (`fire_at is null or fire_at <= now()`); an in-grace line is still
 -- the sender's to undo, and the no-show returns it to draft. So every exempt session has an exit: a
@@ -339,3 +340,71 @@ begin
 end; $$;
 revoke all on function public.mms_sweep_expired_sessions() from public, anon, authenticated;
 grant execute on function public.mms_sweep_expired_sessions() to service_role;
+
+-- ── 6. a fired line with no fire_at is DUE — to the kitchen's writes as well as its read ─────────
+-- Codex r1 on #308 (P2): the KDS read admits a fired line whose fire_at is NULL (it counts as SENT
+-- above, and the no-show writes it off), but both kitchen writes refused it — `fire_at is not null`
+-- in `mms_line_transition`'s Start/Ready guard and in `mms_bump_ticket` — so the ticket showed and
+-- every bump answered "already updated": a card that could never leave the live queue.
+-- The ONLY writer of that state is `mms_line_transition`'s own draft→fired edge (every other fire —
+-- `mms_fire_cart`, `mms_fire_line`, `mms_fire_pending_food`, `mms_fire_counter_cart` — stamps a
+-- deadline). So both halves:
+--   a) the edge stops making it: draft→fired stamps fire_at = now(). Not coalesce — the only fire_at a
+--      DRAFT can carry is the leftover of this same function's fired→draft edge (which keeps it), and
+--      keeping it would back-date the ticket (instant red) or re-hold it on a deadline nobody set.
+--   b) the two kitchen guards read a NULL fire_at as due (`fire_at is null or fire_at <= now()`), so a
+--      row made before this migration is movable too. A HELD or in-grace line always carries a future
+--      fire_at, so neither guard admits anything the board had not already shown as live.
+-- Restated from 20260716000000_w3_kitchen.sql §4 and §7 (the latest definitions); every other
+-- clause is byte-identical. The draft→fired edge's missing MODE guard is M240 and is NOT changed here.
+create or replace function public.mms_line_transition(p_line uuid, p_to text) returns integer
+  language plpgsql set search_path = '' as $$
+declare n integer;
+begin
+  if p_to not in ('draft','fired','in_progress','served','voided') then
+    raise exception 'illegal target line state %', p_to;
+  end if;
+  update public.qr_cart_items ci
+    set state = p_to,
+        fire_at    = case when p_to = 'fired' then now() else ci.fire_at end,
+        started_at = case when p_to in ('in_progress','served') then coalesce(ci.started_at, now())
+                          else ci.started_at end,
+        bumped_at  = case when p_to = 'served' then now() else ci.bumped_at end
+    from public.qr_carts c
+    where ci.id = p_line and c.id = ci.cart_id
+      and (c.status = 'open' or (c.status = 'paid' and p_to in ('in_progress','served')))
+      and (p_to not in ('in_progress','served')
+           or (ci.fire_at is null or ci.fire_at <= now()))
+      and (
+        (p_to = 'fired'       and ci.state = 'draft') or
+        (p_to = 'in_progress' and ci.state = 'fired') or
+        (p_to = 'served'      and ci.state in ('fired','in_progress')) or
+        (p_to = 'draft'       and ci.state = 'fired') or
+        (p_to = 'voided'      and ci.state in ('draft','fired','in_progress','served'))
+      );
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke all on function public.mms_line_transition(uuid, text) from public, anon, authenticated;
+grant execute on function public.mms_line_transition(uuid, text) to service_role;
+
+create or replace function public.mms_bump_ticket(p_cart uuid, p_lines uuid[]) returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  update public.qr_cart_items ci
+    set state = 'served',
+        started_at = coalesce(ci.started_at, now()),
+        bumped_at = now()
+    from public.qr_carts c
+    where ci.id = any(p_lines)
+      and ci.cart_id = p_cart
+      and c.id = ci.cart_id
+      and c.status in ('open','paid')
+      and ci.state in ('fired','in_progress')
+      and (ci.fire_at is null or ci.fire_at <= now());
+  get diagnostics n = row_count;
+  return n;
+end $$;
+revoke all on function public.mms_bump_ticket(uuid, uuid[]) from public, anon, authenticated;
+grant execute on function public.mms_bump_ticket(uuid, uuid[]) to service_role;
