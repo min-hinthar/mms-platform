@@ -11085,8 +11085,8 @@ const MUTANTS = [
     file: "apps/qr/lib/counter-order.ts",
     suite: "lib/counter-order.test.ts",
     why: "Phase 2f — a comp is already an audited loss; counted as sent, the no-show would count it twice",
-    find: " && !l.comped && fireMs",
-    replace: " && fireMs",
+    find: "  return counterKitchenLine(l, nowMs) && !l.comped;\n",
+    replace: "  return counterKitchenLine(l, nowMs);\n",
   },
   {
     id: "p2f-lib/kds-gate/unpaid-counter-hidden",
@@ -11165,7 +11165,7 @@ const MUTANTS = [
     file: "apps/qr/lib/counter-order.ts",
     suite: "lib/counter-order.test.ts",
     why: "Phase 2f — the lane's unpaid bag lists the food the kitchen HAS; with every line, drafts read as cooking and a bag shows dishes nobody sent",
-    find: "    lines: sent,\n",
+    find: "    lines: inKitchen,\n",
     replace: "    lines: [...i.lines],\n",
   },
   {
@@ -11173,7 +11173,7 @@ const MUTANTS = [
     file: "apps/qr/lib/counter-order.ts",
     suite: "lib/counter-order.test.ts",
     why: "Phase 2f — nothing sent (drafts only, or a send still in its grace) is not a bag; without the null the lane draws an empty unpaid bag the counter cannot hand over",
-    find: "  if (sent.length === 0) return null;\n",
+    find: "  if (inKitchen.length === 0) return null;\n",
     replace: "",
   },
   {
@@ -13366,14 +13366,9 @@ const MUTANTS = [
     find: "    if (paidCarts.has(c.id)) return [];\n",
     replace: "",
   },
-  {
-    id: "p2f-cx1-lane/unpaid-cap-comped",
-    file: "apps/qr/lib/register-queue.ts",
-    suite: "lib/register-queue.test.ts",
-    why: "Codex r1 on #308 — a comped-only cart yields no bag; unfiltered before the cap it consumes a slot and pushes a genuine older bag off the page",
-    find: '    .eq("sent.comped", false)\n',
-    replace: "",
-  },
+  // p2f-cx1-lane/unpaid-cap-comped RETIRED by Codex r3 on #308: its rule (a comped-only cart yields no
+  // bag) was the defect — a comp is in the kitchen and in the bag. Its inverse guards the live rule:
+  // p2f-cx3-bag/unpaid-cap-drops-comped below.
   {
     id: "p2f-cx1-lane/unpaid-cap-grocery",
     file: "apps/qr/lib/register-queue.ts",
@@ -13445,6 +13440,40 @@ const MUTANTS = [
     why: "Codex r3 on #308 — reconcile on the server name's CHANGE, not its value: a read already on the wire before this pad's own save would otherwise revert the name just saved",
     find: "  if (serverName !== seenServerName) {",
     replace: "  if (serverName !== seenServerName || serverName !== savedName) {",
+  },
+  // ── Codex round 3 on #308 · the unpaid bag bags what the kitchen HAS, comps included ──
+  {
+    id: "p2f-cx3-bag/bag-drops-comped",
+    file: "apps/qr/lib/counter-order.ts",
+    suite: "lib/counter-order.test.ts",
+    why: "Codex r3 on #308 — built from the unpaid set (`counterSentLine`), a comped dish still cooking falls out of the bag and the lane says Kitchen done early; a comped-only bag never reaches the lane",
+    find: "  const inKitchen = i.lines.filter((l) => counterKitchenLine(l, i.nowMs));\n",
+    replace: "  const inKitchen = i.lines.filter((l) => counterSentLine(l, i.nowMs));\n",
+  },
+  {
+    id: "p2f-cx3-bag/kitchen-line-drops-comped",
+    file: "apps/qr/lib/counter-order.ts",
+    suite: "lib/counter-order.test.ts",
+    why: "Codex r3 on #308 — the bag's membership predicate must admit a comp the kitchen has (the KDS shows it); excluding comps there collapses it back into the unpaid set",
+    find: '  return SENT_STATES.has(l.state) && l.fulfillment !== "grocery" && fireMs <= nowMs;\n',
+    replace:
+      '  return SENT_STATES.has(l.state) && l.fulfillment !== "grocery" && !l.comped && fireMs <= nowMs;\n',
+  },
+  {
+    id: "p2f-cx3-bag/bag-kitchen-over-all-lines",
+    file: "apps/qr/lib/counter-order.ts",
+    suite: "lib/counter-order.test.ts",
+    why: "Codex r3 on #308 — the bag's kitchen state reads the lines in the kitchen; over the whole order a draft or an in-grace send keeps a finished bag cooking forever",
+    find: "  const kitchen = kitchenStateOf(inKitchen);\n",
+    replace: "  const kitchen = kitchenStateOf(i.lines);\n",
+  },
+  {
+    id: "p2f-cx3-bag/unpaid-cap-drops-comped",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r3 on #308 — the lane read's candidate filter is the bag's membership; filtered on comped, a comped-only bag the KDS is cooking never reaches the lane",
+    find: '    .neq("sent.fulfillment", "grocery")\n',
+    replace: '    .eq("sent.comped", false)\n    .neq("sent.fulfillment", "grocery")\n',
   },
 ];
 

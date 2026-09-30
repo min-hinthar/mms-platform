@@ -64,15 +64,28 @@ export function lineFireMs(fireAt: string | null | undefined, nowMs: number): nu
 }
 
 /**
- * SENT — the kitchen HAS it: fired / in progress / served, not grocery (bag-and-go, never cooked),
- * not comped (a comp is already an audited loss), and PAST its grace (an in-grace line never reached
- * the KDS and can still be taken back; a line with no `fire_at` is past it — `lineFireMs`). The SQL
- * twin is `mms_counter_no_show`'s sent set; `nowMs` must be the DB clock wherever the answer gates a
- * write-off path. The KDS's Unpaid flag reads THIS predicate too (`kdsLineGate`).
+ * IN THE KITCHEN — the kitchen HAS it, comped or not: fired / in progress / served, not grocery
+ * (bag-and-go, never cooked), and PAST its grace (an in-grace line never reached the KDS and can
+ * still be taken back; a line with no `fire_at` is past it — `lineFireMs`). This is what an open
+ * counter order puts in front of the cook: `kdsLineGate` shows an open counter order's fired / in
+ * progress lines past the grace, comped or not (a comp is cooked like any dish), so the lane's unpaid
+ * BAG and its kitchen state are built from THIS set — a comped dish still cooking keeps the bag
+ * "cooking", and a comped-only bag is still a bag the customer collects (Codex r3 on #308).
+ */
+export function counterKitchenLine(l: CounterLine, nowMs: number): boolean {
+  const fireMs = lineFireMs(l.fire_at, nowMs);
+  return SENT_STATES.has(l.state) && l.fulfillment !== "grocery" && fireMs <= nowMs;
+}
+
+/**
+ * SENT — `counterKitchenLine` and NOT comped: the sent UNPAID food, the loss a no-show writes off (a
+ * comp is already an audited loss, never written off twice). The SQL twin is `mms_counter_no_show`'s
+ * sent set; `nowMs` must be the DB clock wherever the answer gates a write-off path. The KDS's Unpaid
+ * flag reads THIS predicate too (`kdsLineGate`). Never the bag's membership — that is
+ * `counterKitchenLine` (a comp is in the bag, it is just not owed).
  */
 export function counterSentLine(l: CounterLine, nowMs: number): boolean {
-  const fireMs = lineFireMs(l.fire_at, nowMs);
-  return SENT_STATES.has(l.state) && l.fulfillment !== "grocery" && !l.comped && fireMs <= nowMs;
+  return counterKitchenLine(l, nowMs) && !l.comped;
 }
 
 /**
@@ -199,7 +212,8 @@ export type UnpaidBag<L> = {
   cartId: string;
   sessionId: string;
   customerName: string | null;
-  /** The SENT lines only — what the kitchen is cooking (or has cooked) for this bag. */
+  /** The lines IN THE KITCHEN only (`counterKitchenLine`, comps included) — what the kitchen is
+   *  cooking (or has cooked) for this bag. */
   lines: L[];
   /** Units still draft (not grocery) — on the order, not in the bag. */
   moreUnits: number;
@@ -213,8 +227,12 @@ export type UnpaidBag<L> = {
 };
 
 /**
- * An open counter order as the takeaway lane draws it, or null when nothing is SENT (drafts only, or
- * a send still inside its grace): the lane shows food the kitchen has, never food it might get.
+ * An open counter order as the takeaway lane draws it, or null when nothing is in the kitchen (drafts
+ * only, or a send still inside its grace): the lane shows food the kitchen has, never food it might
+ * get. Membership is `counterKitchenLine`, NOT `counterSentLine` (Codex r3 on #308): the bag is what
+ * the customer collects, and a comped dish is collected like any other. Built from the unpaid set, a
+ * served dish beside a comped one still cooking announced "Kitchen done" early, and a comped-only
+ * bag never reached the lane. The card quotes no amount, so a comp in it claims nothing about money.
  */
 export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: string | null }>(i: {
   cartId: string;
@@ -223,19 +241,19 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
   lines: readonly L[];
   nowMs: number;
 }): UnpaidBag<L> | null {
-  const sent = i.lines.filter((l) => counterSentLine(l, i.nowMs));
-  if (sent.length === 0) return null;
+  const inKitchen = i.lines.filter((l) => counterKitchenLine(l, i.nowMs));
+  if (inKitchen.length === 0) return null;
   const moreUnits = i.lines
     .filter((l) => l.state === "draft" && l.fulfillment !== "grocery")
     .reduce((a, l) => a + l.qty, 0);
   let sentMs = Number.POSITIVE_INFINITY;
-  for (const l of sent) sentMs = Math.min(sentMs, lineFireMs(l.fire_at, i.nowMs));
-  const kitchen = kitchenStateOf(sent);
+  for (const l of inKitchen) sentMs = Math.min(sentMs, lineFireMs(l.fire_at, i.nowMs));
+  const kitchen = kitchenStateOf(inKitchen);
   return {
     cartId: i.cartId,
     sessionId: i.sessionId,
     customerName: i.customerName,
-    lines: sent,
+    lines: inKitchen,
     moreUnits,
     kitchen,
     doneAt: kitchen === "done" ? kitchenDoneAt(i.lines) : null,
