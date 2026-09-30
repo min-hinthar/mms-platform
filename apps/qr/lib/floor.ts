@@ -234,11 +234,16 @@ export async function getFloorView(): Promise<FloorPoll> {
   const cartRows = carts ?? [];
   const cartIds = cartRows.map((c) => c.id);
   // Phase 2d · floor — the table's PAID carts, for the kitchen row only: a table that paid a round
-  // is still eating, and its food is on that cart. Never an open cart id (a cart is one or the
-  // other), and never folded into the "so far" aggregate below, which stays keyed by the OPEN cart.
+  // is still eating, and its food is on that cart. Never folded into the "so far" aggregate below,
+  // which stays keyed by the OPEN cart. And never an id the open read already holds (Codex #306
+  // round 3): the cart and order reads are separate requests, so a settle committing between them
+  // returns the cart as open AND its order as paid — read by both line reads, its kitchen lines
+  // would fold twice. The open read owns it this poll; the next one sees it paid.
+  const openCartIds = new Set(cartIds);
   const paidCartSession = new Map<string, string>();
   for (const o of orders ?? [])
-    if (o.cart_id && o.session_id) paidCartSession.set(o.cart_id, o.session_id);
+    if (o.cart_id && o.session_id && !openCartIds.has(o.cart_id))
+      paidCartSession.set(o.cart_id, o.session_id);
   const paidCartIds = [...paidCartSession.keys()];
   // Lines for the open carts → aggregate count + running subtotal + latest line time per cart in TS.
   // `created_at` is the activity signal (NOT qr_carts.updated_at — nothing bumps it; the cart RPCs

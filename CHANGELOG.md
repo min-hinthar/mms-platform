@@ -285,6 +285,16 @@ counter screen's per-zone regions).
     drafted in the row) · **P2eq–P2es** — the pane holds one lost outcome; start controls do not look
     held mid-collect; a start that stands down mid-collect is silent. P2em narrowed (the counter's
     Start is held now).
+- **Codex round 3 on #306 (2026-09-30) — two findings (1 P1 · 1 P2), both real; the small one fixed,
+  the structural one filed under the two-round budget.**
+  - _P2 — a table paying between the floor's two reads counted its kitchen twice (was P2ep)._ The
+    paid-cart read now skips any cart the open-cart read holds, so a cart that pays mid-poll folds
+    once. Mutant `p2d-cx3/paid-read-rereads-an-open-cart`, caught.
+  - _P1 — every other way off the counter screen still unmounts a live reader collection._ The
+    header's Screens link, a counter-order card, the More links and Lock route away mid-collect.
+    Filed by widening **P2em** (now high): the sound fix hoists the collection above navigation or
+    holds every exit — structural, not a round-3 fix. The charge itself is safe (the verified webhook
+    fulfils it without the panel); what is lost is the counter's #CODE card.
 
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
