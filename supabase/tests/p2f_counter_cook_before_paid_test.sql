@@ -610,4 +610,100 @@ begin
     format('P2F.25 · a kitchen edge keeps the line''s own fire_at (n=%s, %s)', n, f);
 end $$;
 
+-- ══ P2F.26 · clearing a counter order (Codex r2 on #308): the SENT check and the cancel are ONE
+--    decision in `mms_clear_counter_cart` — SENT past its grace refuses and writes nothing; anything
+--    the kitchen never got clears ═══════════════════════════════════════════════════════════════════
+do $$
+declare c uuid; v text; st text;
+begin
+  -- a sent line past its grace: refused, the cart stays open
+  c := pg_temp.p2f_counter('reg-P2F26SNT', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  perform pg_temp.p2f_line(c, 400, 1, 'togo', 'draft');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'sent' and st = 'open', format('P2F.26a · a sent line refuses the clear, cart stays open (%s, %s)', v, st);
+  -- a served dish, and a fired line with NO fire_at, are sent too
+  c := pg_temp.p2f_counter('reg-P2F26CKD', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'served', now() - interval '1 minute');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'sent' and st = 'open', format('P2F.26b · a served dish refuses the clear (%s, %s)', v, st);
+  c := pg_temp.p2f_counter('reg-P2F26NUL', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', null);
+  v := public.mms_clear_counter_cart(c);
+  assert v = 'sent', format('P2F.26c · a null-fire_at fired line is sent (%s)', v);
+end $$;
+
+do $$
+declare c uuid; v text; st text; ss text;
+begin
+  -- an in-grace fired line only: it never reached the KDS, so the order clears
+  c := pg_temp.p2f_counter('reg-P2F26GRC', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() + interval '5 seconds');
+  v := public.mms_clear_counter_cart(c);
+  select c2.status, s.status into st, ss
+    from public.qr_carts c2 join public.table_sessions s on s.id = c2.session_id where c2.id = c;
+  assert v = 'ok' and st = 'cancelled', format('P2F.26d · an in-grace line clears, cart cancelled (%s, %s)', v, st);
+  assert ss = 'active', 'P2F.26d · the function cancels the cart only — the session is the caller''s';
+  -- drafts only
+  c := pg_temp.p2f_counter('reg-P2F26DRF', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'draft', now() - interval '1 hour');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'ok' and st = 'cancelled', format('P2F.26e · a drafts-only order clears (%s, %s)', v, st);
+  -- a comped sent line: its loss is already audited
+  c := pg_temp.p2f_counter('reg-P2F26CMP', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute', true);
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'ok' and st = 'cancelled', format('P2F.26f · a comped sent line does not block the clear (%s, %s)', v, st);
+  -- grocery past its "grace": never kitchen food
+  c := pg_temp.p2f_counter('reg-P2F26GRO', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'grocery', 'fired', now() - interval '1 minute');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'ok' and st = 'cancelled', format('P2F.26g · a grocery line does not block the clear (%s, %s)', v, st);
+end $$;
+
+do $$
+declare c uuid; v text; st text;
+begin
+  -- not a counter order: a dine-in table, and a DINER's pickup (no reg- code) — nothing written
+  c := pg_temp.p2f_counter('P2F26-T', null, 'dinein');
+  perform pg_temp.p2f_line(c, 500, 1, 'dinein', 'fired', now() - interval '1 minute');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'not_counter' and st = 'open', format('P2F.26h · a dine-in cart is not_counter (%s, %s)', v, st);
+  c := pg_temp.p2f_counter('P2F26-PK', 'Aye');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'not_counter' and st = 'open', format('P2F.26i · a non-reg- pickup is not_counter (%s, %s)', v, st);
+  c := pg_temp.p2f_counter('reg-P2F26SCN', 'Aye', 'scango');
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'not_counter' and st = 'open', format('P2F.26l · a reg- scango session is not_counter (the mode term) (%s, %s)', v, st);
+  -- a cart that is no longer open
+  c := pg_temp.p2f_counter('reg-P2F26PAD', 'Aye');
+  update public.qr_carts set status = 'paid' where id = c;
+  v := public.mms_clear_counter_cart(c);
+  select status into st from public.qr_carts where id = c;
+  assert v = 'not_open' and st = 'paid', format('P2F.26j · a paid cart is not_open and untouched (%s, %s)', v, st);
+  v := public.mms_clear_counter_cart(gen_random_uuid());
+  assert v = 'not_found', format('P2F.26k · no such cart is not_found (%s)', v);
+end $$;
+
+-- ══ P2F.27 · `mms_clear_counter_cart` is staff-only: the service role executes it, no diner can ══
+do $$
+begin
+  assert not has_function_privilege('anon', 'public.mms_clear_counter_cart(uuid)', 'execute'),
+    'P2F.27 · anon must not execute mms_clear_counter_cart';
+  assert not has_function_privilege('authenticated', 'public.mms_clear_counter_cart(uuid)', 'execute'),
+    'P2F.27 · authenticated must not execute mms_clear_counter_cart';
+  assert not has_function_privilege('public', 'public.mms_clear_counter_cart(uuid)', 'execute'),
+    'P2F.27 · PUBLIC must not execute mms_clear_counter_cart';
+  assert has_function_privilege('service_role', 'public.mms_clear_counter_cart(uuid)', 'execute'),
+    'P2F.27 · service_role executes mms_clear_counter_cart (the legit half)';
+end $$;
+
 rollback;

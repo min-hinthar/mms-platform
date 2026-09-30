@@ -142,18 +142,8 @@ export function kdsLineGate(i: KdsGateInput): KdsGate {
 
 // ── the floor's refusals ──────────────────────────────────────────────────────────────────────────
 
-/**
- * Clear refuses a counter order whose food reached the kitchen: a cancel there would write off cooked
- * food with no audit row — "They didn't come" (the loss-gated no-show) is that order's exit. A table
- * with fired lines still clears (Clear's own precedent); a counter order with drafts only clears.
- */
-export function counterClearRefusal(i: {
-  counterOrder: boolean;
-  lines: readonly CounterLine[];
-  nowMs: number;
-}): "sent" | null {
-  return i.counterOrder && counterSent(i.lines, i.nowMs) ? "sent" : null;
-}
+// Clear's counter refusal lives in SQL (`mms_clear_counter_cart`, Codex r2 on #308): the SENT check
+// and the cancel are one locked decision there, so there is no TypeScript twin to drift from it.
 
 /**
  * Merge: never INTO a counter order (its name, arm and pay-at-pickup posture are not a table's), and

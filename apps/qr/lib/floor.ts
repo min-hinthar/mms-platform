@@ -18,7 +18,6 @@ import { sendFiresLine, sendRoute, staffSendCounts } from "./staff-send-view";
 // ── Phase 2f · P2v ──
 import {
   counterArmOf,
-  counterClearRefusal,
   counterSent,
   counterSentLine,
   isCounterOrder,
@@ -1012,32 +1011,6 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   if (inFlight)
     return { ok: false, error: "This table has a split payment in progress — settle it first." };
 
-  // Phase 2f · P2v — a counter order whose food reached the kitchen is NOT cleared: a cancel would
-  // write off cooked food with no audit row. "They didn't come" (the loss-gated no-show,
-  // `recordCounterNoShow`) is that order's exit. Fails CLOSED on an unreadable check (it guards a
-  // write-off path). "Sent" is measured on the DB clock. Residual, stated: a line crossing its grace
-  // between this read and the cancel below lands on a cancelled cart the KDS never reads
-  // (milliseconds wide). A table's fired lines still clear, as before.
-  if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code }) && cart) {
-    const [counterLines, clock] = await Promise.all([
-      db.from("qr_cart_items").select("state,fire_at,fulfillment,comped").eq("cart_id", cart.id),
-      db.rpc("mms_now"),
-    ]);
-    if (counterLines.error || clock.error) return { ok: false, error: STAFF_WRITE_OUTAGE };
-    const refusal = counterClearRefusal({
-      counterOrder: true,
-      lines: counterLines.data ?? [],
-      nowMs: Date.parse(clock.data as string),
-    });
-    if (refusal === "sent")
-      return {
-        ok: false,
-        error:
-          "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
-        code: "sent",
-      };
-  }
-
   // Cancel the open cart FIRST, then close the session: each is a status flip the diner-side guards
   // already honor (a cancelled cart + a closed session both fail is_member / the mutation guards), so a
   // racing diner write lands on a closed door rather than a half-cleared table.
@@ -1048,12 +1021,36 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
       .select("id", { count: "exact", head: true })
       .eq("cart_id", cart.id);
     hadItems = (count ?? 0) > 0;
-    const { error: cartErr } = await db
-      .from("qr_carts")
-      .update({ status: "cancelled" })
-      .eq("id", cart.id)
-      .eq("status", "open");
-    if (cartErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+    if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code })) {
+      // Phase 2f · P2v — a counter order whose food reached the kitchen is NOT cleared: a cancel
+      // would write off cooked food with no audit row. "They didn't come" (the loss-gated no-show,
+      // `recordCounterNoShow`) is that order's exit. The SENT check and the cancel are ONE locked
+      // decision in SQL (`mms_clear_counter_cart`, Codex r2 on #308): a Send or a kitchen fire that
+      // commits mid-clear, or a line crossing its grace, can no longer land between a read here and
+      // the cancel. Fails CLOSED on an error or an unexpected verdict (it guards a write-off path).
+      // 'not_open' — the cart left `open` since the read above — proceeds, as a plain cancel that
+      // matched no row always has. A table's fired lines still clear, below, as before.
+      const { data: verdict, error: clearErr } = await db.rpc("mms_clear_counter_cart", {
+        p_cart_id: cart.id,
+      });
+      if (clearErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+      if (verdict === "sent")
+        return {
+          ok: false,
+          error:
+            "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
+          code: "sent",
+        };
+      if (verdict !== "ok" && verdict !== "not_open")
+        return { ok: false, error: STAFF_WRITE_OUTAGE };
+    } else {
+      const { error: cartErr } = await db
+        .from("qr_carts")
+        .update({ status: "cancelled" })
+        .eq("id", cart.id)
+        .eq("status", "open");
+      if (cartErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+    }
   }
   const { error: sessErr } = await db
     .from("table_sessions")

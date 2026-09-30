@@ -8,7 +8,7 @@
 -- ## Why a NEW staff-only fire, not a widening of `mms_fire_cart`
 -- `mms_fire_cart` is also the DINER's send (`sendToKitchen` in lib/cart.ts), and a diner may JOIN a
 -- `reg-` session by its code (/api/session refuses only to CREATE a reserved code). Widening it would
--- hand an unpaid fire to a phone. The four functions below are revoked from public/anon/authenticated
+-- hand an unpaid fire to a phone. The functions below are revoked from public/anon/authenticated
 -- and granted to service_role only; their callers are staff Server Actions behind the staff gate.
 --
 -- ## The `reg-` authority chain
@@ -36,7 +36,8 @@
 -- lock by construction and are pinned single-session only (P2F.15e, P2F.18); the no-show's
 -- approvals-before-lines order and the undo's cart lock are documented survivors in
 -- scripts/verify-mode-authority.mjs with no two-session harness (filed). `clearTable`'s counter
--- refusal is a TypeScript pre-read, NOT under this lock (stated in lib/floor.ts).
+-- refusal decides under the cart lock AND the lines' locks (§7, `mms_clear_counter_cart`); its two
+-- orderings — against a kitchen fire and against a settle — are the harness's (e) and (f).
 --
 -- ## No freeze guard on the counter fire and undo — deliberately
 -- Neither refuses a live pay lock or settle freeze. Moving a line between draft and fired changes no
@@ -62,7 +63,7 @@
 --
 -- ## Applying to prod (the QR history is divergent — CLAUDE.md, M125)
 -- Apply THIS ONE FILE with the Supabase MCP `apply_migration`, at the final Codex-reviewed head,
--- before merge; verify per docs/HANDOFF.md (signatures, grants, md5 of the five bodies against the
+-- before merge; verify per docs/HANDOFF.md (signatures, grants, md5 of every body against the
 -- committed file). `db push` is unusable here. Idempotent: every statement re-runs as a no-op.
 
 -- ── 0. the counter arm (decision 7a) ─────────────────────────────────────────────────────────────
@@ -408,3 +409,49 @@ begin
 end $$;
 revoke all on function public.mms_bump_ticket(uuid, uuid[]) from public, anon, authenticated;
 grant execute on function public.mms_bump_ticket(uuid, uuid[]) to service_role;
+
+-- ── 7. clearing a counter order — the SENT check and the cancel, one locked decision ─────────────
+-- Codex r2 on #308 (P2): `clearTable` read the lines + `mms_now` and cancelled the cart in a SEPARATE
+-- write, so a Send committing, or a line crossing its grace, between the two cancelled a cart holding
+-- due kitchen food — the KDS drops the ticket and the no-show (its only audited exit) is unreachable.
+-- Here the refusal and the cancel are one transaction under the locks: the cart row FOR UPDATE first
+-- (the fire's, the undo's and the no-show's lock order), then the cart's lines FOR UPDATE — the
+-- kitchen's own writers (`mms_line_transition`, `mms_bump_ticket`) lock only the line, so without
+-- this a draft→fired edge committing mid-decision would still slip past the cart lock. `now()` is
+-- fixed for the transaction, so no line crosses its grace between the check and the cancel.
+-- SENT is `mms_counter_no_show`'s predicate EXACTLY (past its grace) — an in-grace line is still the
+-- sender's to undo and never reached the KDS, so it clears, as before.
+-- Returns 'ok' (cancelled) | 'sent' | 'not_found' | 'not_counter' | 'not_open'; every refusal returns
+-- before any write. A payment in flight is NOT re-checked here: the caller refuses it first
+-- (`paymentInFlightReason`, which also reads the split shares), exactly as for a table's clear.
+create or replace function public.mms_clear_counter_cart(p_cart_id uuid)
+  returns text
+  language plpgsql set search_path = '' as $$
+declare v_sess uuid; v_cart_status text; v_qr text; v_sess_mode text;
+begin
+  -- Different local names from the no-show's on purpose: every line here is unique in this file,
+  -- so each mutant in scripts/verify-mode-authority.mjs patches exactly one function.
+  select c.session_id, c.status, s.qr_code, s.mode
+    into v_sess, v_cart_status, v_qr, v_sess_mode
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where c.id = p_cart_id
+    for update of c;
+  if v_sess is null then return 'not_found'; end if;
+  if v_sess_mode <> 'pickup' or v_qr not like 'reg-%' then return 'not_counter'; end if;
+  if v_cart_status <> 'open' then return 'not_open'; end if;
+  perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;
+  if exists (
+       select 1 from public.qr_cart_items ci
+        where ci.cart_id = p_cart_id
+          and ci.state in ('fired', 'in_progress', 'served')
+          and ci.fulfillment <> 'grocery'
+          and not ci.comped
+          and (ci.fire_at is null or ci.fire_at <= now())) then
+    return 'sent';
+  end if;
+  update public.qr_carts c set status = 'cancelled' where c.id = p_cart_id and c.status = 'open';
+  return 'ok';
+end $$;
+revoke all on function public.mms_clear_counter_cart(uuid) from public, anon, authenticated;
+grant execute on function public.mms_clear_counter_cart(uuid) to service_role;
