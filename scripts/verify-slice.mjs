@@ -13543,6 +13543,14 @@ const MUTANTS = [
     replace: "    setMsg((m) => rosterRetryMsg(m, ok, false));\n",
   },
   {
+    id: "p2f-sr-sheet/loss-sheet/recovery-drops-needs-manager",
+    file: "apps/qr/components/staff/LossActionSheet.tsx",
+    suite: "components/staff/LossActionSheet.test.tsx",
+    why: "Phase 2f self-review — the loss sheet shares the roster retry rule: a recovered roster must put back 'a manager needs to approve' while the step-up is still pending, not leave the region empty",
+    find: "    setMsg((m) => rosterRetryMsg(m, ok, stepUp));\n",
+    replace: "    setMsg((m) => rosterRetryMsg(m, ok, false));\n",
+  },
+  {
     id: "p2f-sr-sheet/snapshot/moved-unsaid",
     file: "apps/qr/components/staff/CounterNoShowButton.tsx",
     suite: "components/staff/CounterNoShowButton.test.tsx",
