@@ -701,7 +701,7 @@ export function OrderPad({
     } finally {
       setSavingName(false);
     }
-  }, [sessionId, notify, say]);
+  }, [sessionId, notify, say, setName]);
   useEffect(() => {
     saveNameRef.current = saveName;
   }, [saveName]);
