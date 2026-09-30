@@ -33,7 +33,7 @@ import { al, sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import { RefundActionSheet } from "./RefundActionSheet";
 import { StaggerList } from "./StaggerList";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { useZoneFocus } from "./ZoneFocus";
 import { ExpoLineMy } from "./TicketText";
 
@@ -503,6 +503,9 @@ function LineRow({
   onRefund: () => void;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   // W23b — states the amount rather than crossing the line out: a clamped refund returns part of a
   // dish, and a strike-through would claim the whole of it came back.
   const mark = lineRefundLabel(l.refundedCents);
@@ -546,6 +549,7 @@ function LineRow({
             al(lang, {
               kind: "verb",
               echo: "stack",
+              shown: echoes,
               verb: "floor.settled.verb.refund",
               subject: l.name,
             }).aria

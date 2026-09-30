@@ -71,7 +71,7 @@ export function LockButton({ lang }: { lang: StaffLang }) {
   return (
     <>
       {/* NEVER native `disabled` while busy: disabling the button that was just tapped drops focus
-          to <body> in a real browser (StaffLangSwitch's measured rule), so the busy name below would
+          to <body> in a real browser (the language switch's measured rule), so the busy name below would
           be spoken from a node nobody is on and a failure's alert would fire with the place lost.
           `aria-disabled` states it; the handler refuses re-entry. */}
       <button
@@ -87,8 +87,10 @@ export function LockButton({ lang }: { lang: StaffLang }) {
           <Chrome lang={lang} k={busy ? "shell.locking" : "shell.lock"} />
         </span>
       </button>
-      {/* `role="alert"`: the tail's assertive channel, the same one the language switch's failure
-          uses — a lock that did not happen is news the person is waiting on. */}
+      {/* `role="alert"`: the tail's assertive channel, the same one the front doors' language pill
+          uses for its failure — a lock that did not happen is news the person is waiting on. P2e:
+          the Lock REFUSES re-entry (a lock is not a choice you correct mid-flight); the language
+          controls never refuse — the latest pick wins. */}
       {err && (
         <span role="alert" className="staff-bar-msg">
           <MsgText lang={lang} msg={err} />

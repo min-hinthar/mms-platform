@@ -5,6 +5,7 @@ const cookiesMock = vi.fn(async () => ({ set }));
 vi.mock("next/headers", () => ({ cookies: () => cookiesMock() }));
 
 const { setStaffLang } = await import("./staff-lang-actions");
+const { staffLangCookieOptions } = await import("./staff-lang");
 
 /**
  * P2 · G2 — the writer.
@@ -17,9 +18,10 @@ const { setStaffLang } = await import("./staff-lang-actions");
  *   symptom at all.
  *
  *   NO `staffGate`. The action is ungated on purpose: gating it would kill the control on
- *   `/staff/login` (nobody signed in yet), `/staff/lock`, `/board` (a device token, no staff
- *   session) and inside the outage shell (auth unreachable by definition). The `unavailable` case
- *   below is the one that goes red the moment somebody "hardens" this.
+ *   `/staff/login` (nobody signed in yet), `/staff/lock`, the outage shell and the error screen
+ *   (auth unreachable by definition) — and, since P2e, the Help sheet and the Profile under an auth
+ *   outage. The "SETS THE COOKIE WITH NO STAFF SESSION" case below is the one that goes red the
+ *   moment somebody "hardens" this (the `staffGate` import lands unmocked).
  */
 beforeEach(() => {
   set.mockReset();
@@ -29,8 +31,8 @@ beforeEach(() => {
 
 describe("setStaffLang", () => {
   it("writes the cookie site-wide, httpOnly and lax", async () => {
-    const res = await setStaffLang({ lang: "en" });
-    expect(res).toEqual({ ok: true, lang: "en" });
+    const res = await setStaffLang({ mode: "en" });
+    expect(res).toEqual({ ok: true, mode: "en" });
     expect(set).toHaveBeenCalledTimes(1);
     const [name, value, options] = set.mock.calls[0]!;
     expect(name).toBe("mms_staff_lang");
@@ -41,15 +43,33 @@ describe("setStaffLang", () => {
     expect(options.maxAge).toBeGreaterThan(0);
   });
 
-  it("writes Burmese too", async () => {
-    await setStaffLang({ lang: "my" });
-    expect(set.mock.calls[0]![1]).toBe("my");
-  });
+  it.each(["my-only", "both", "en"] as const)(
+    "P2e — writes the mode %s VERBATIM (a mode literal, never a script)",
+    async (mode) => {
+      const res = await setStaffLang({ mode });
+      expect(res).toEqual({ ok: true, mode });
+      expect(set.mock.calls[0]![1]).toBe(mode);
+      expect(set.mock.calls[0]![2]).toEqual(staffLangCookieOptions());
+    },
+  );
 
-  it("refuses a value outside the enum and writes nothing", async () => {
-    for (const raw of [{ lang: "fr" }, { lang: "EN" }, { lang: "" }, {}, null, "my"]) {
+  it("refuses a value outside the enum and writes nothing — the legacy script and the old SHAPE included", async () => {
+    // P2e — "my" is a SCRIPT, never a mode, and `{ lang }` is the shape a tab from before the deploy
+    // still sends: both are refused (the control's bilingual failure line, never the error boundary),
+    // and a reload fixes the tab. Red-first: add "my" to the enum and the first row goes green → red.
+    for (const raw of [
+      { mode: "my" },
+      { lang: "en" },
+      { lang: "my" },
+      { mode: "EN" },
+      { mode: "" },
+      { mode: "my-only " },
+      {},
+      null,
+      "both",
+    ]) {
       const res = await setStaffLang(raw);
-      expect(res.ok).toBe(false);
+      expect(res.ok, JSON.stringify(raw)).toBe(false);
     }
     expect(set).not.toHaveBeenCalled();
   });
@@ -59,16 +79,16 @@ describe("setStaffLang", () => {
     cookiesMock.mockImplementation(async () => {
       throw new Error("outside a request scope");
     });
-    const res = await setStaffLang({ lang: "my" });
+    const res = await setStaffLang({ mode: "both" });
     expect(res).toEqual({ ok: false, error: expect.any(String) });
   });
 
-  it("SETS THE COOKIE WITH NO STAFF SESSION — the control works on login, lock, board and outage", async () => {
+  it("SETS THE COOKIE WITH NO STAFF SESSION — the control works on login, lock, outage and error", async () => {
     // There is nothing to mock away: this module imports no auth at all. If a future edit adds
     // `staffGate`, that import lands here unmocked and this case fails — which is the point.
     const mod = await import("./staff-lang-actions");
     expect(mod.setStaffLang).toBeTypeOf("function");
-    const res = await setStaffLang({ lang: "my" });
+    const res = await setStaffLang({ mode: "my-only" });
     expect(res.ok).toBe(true);
     expect(set).toHaveBeenCalledTimes(1);
   });

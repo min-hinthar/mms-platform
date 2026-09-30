@@ -1,6 +1,7 @@
 import { OutageRefresh } from "@/components/OutageRefresh";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
@@ -28,7 +29,8 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
  * wears the same `<StaffBar>` as the page it replaces, in the front-door shape: a STATIC mark in the
  * leading slot (no Screens circle — the doors need the very auth answer this shell says is
  * unknowable — and no Lock, which needs a verified PIN), the page's name, the switch in the tail's
- * fixed slot. The bar's h1 is the page's; the card's heading is an h2 and still takes focus on
+ * fixed slot. P2e — the pill rides the bar's TRAILING slot: this is one of the four front doors that
+ * still carries it (no in-service bar does), and the one with the strongest claim on it. The bar's h1 is the page's; the card's heading is an h2 and still takes focus on
  * mount, so what a screen reader hears first is unchanged. The card's heading repeats the bar's
  * words on purpose: `OutageState` requires a heading (it is the focus target), and a second key for
  * a screen that exists to be rare would be one more Burmese draft for K15.
@@ -53,7 +55,12 @@ export async function StaffOutageShell({ what = "what.console" }: { what?: WhatK
   const lang = await readStaffLang();
   return (
     <main className="staff-main">
-      <StaffBar lang={lang} title="out.shell.title" leading={{ kind: "here", icon: "alert" }} />
+      <StaffBar
+        lang={lang}
+        title="out.shell.title"
+        leading={{ kind: "here", icon: "alert" }}
+        trailing={<StaffLangSwitch />}
+      />
       <div className="staff-col entry-col">
         <OutageRefresh
           focusOnMount

@@ -22,10 +22,12 @@ export default function ConsoleLoading() {
           >
             <Skeleton width={110} height={26} radius={8} />
             <Skeleton width={220} height={40} radius={10} />
-            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8 }}>
-              <Skeleton width={64} height={44} radius={999} />
-              <Skeleton width={64} height={44} radius={999} />
-              <Skeleton width={120} height={44} radius={999} />
+            {/* P2e — the live tail is three 44px circles (the wall · Help · Lock); the language
+                pill left the kitchen's bar for the Help sheet. */}
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 10 }}>
+              <Skeleton width={44} height={44} radius={999} />
+              <Skeleton width={44} height={44} radius={999} />
+              <Skeleton width={44} height={44} radius={999} />
             </span>
           </div>
           <div

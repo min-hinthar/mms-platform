@@ -21,8 +21,9 @@ export const dynamic = "force-dynamic";
  * category's slug and sort, and it binds its error: an unreadable menu is an OUTAGE the pad says out
  * loud ("the order still works"), never an empty menu that reads as "nothing matches".
  *
- * P2 — the language control reaches this page through `OrderPad` → `StaffBar` (`check-staff-lang`
- * rule 4 walks that import).
+ * P2e — the pad carries NO language control (no in-service bar does): `OrderPad`'s bar leads Back
+ * to the table or the counter, and the counter's Help sheet has the Language row
+ * (`check-staff-lang` rule 4d holds every leading arm to that wordless way up).
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
   const caller = await requireStaffPage();

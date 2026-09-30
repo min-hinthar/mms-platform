@@ -2,8 +2,9 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Chrome, OutageText } from "./Chrome";
+import { StaffLangProvider } from "./StaffLangProvider";
 import { al, chromeVisible, type ChromeEcho } from "@/lib/staff-labels";
-import { STAFF } from "@/lib/i18n/staff";
+import { STAFF, STAFF_K15_HIGH, type StaffKey } from "@/lib/i18n/staff";
 import {
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
@@ -197,56 +198,90 @@ function renderedParts(container: HTMLElement): string[] {
   return spans.length ? [...spans].map((e) => e.textContent ?? "") : [container.textContent ?? ""];
 }
 
+/**
+ * The device's half of the echo decision, both ways — P2e review (A5). Every case below renders
+ * `<Chrome>` under a provider carrying `shown` and derives with the SAME `shown`, beside the SAME
+ * `echo` the call site renders: the name follows the mode exactly as the chrome does, so a
+ * Burmese-only device's name never holds an English word the screen stopped showing.
+ */
+const DEVICE: ReadonlyArray<readonly [boolean, string]> = [
+  [true, "echoes shown"],
+  [false, "Burmese only"],
+];
+const underDevice = (lang: "en" | "my", shown: boolean, ui: React.ReactElement) =>
+  render(
+    <StaffLangProvider lang={lang} echoes={shown}>
+      {ui}
+    </StaffLangProvider>,
+  ).container.querySelector(".stx-root") as HTMLElement;
+
 describe("what Chrome puts ON SCREEN is what chromeVisible() says it does", () => {
   const CASES: ReadonlyArray<readonly [ChromeEcho, string]> = [
     [false, "no echo"],
     ["stack", "stacked echo"],
     ["inline", "inline echo"],
   ];
-  for (const [echo, what] of CASES) {
-    for (const lang of ["en", "my"] as const) {
-      it(`${lang} · ${what}: the derivation al() reads accounts for every rendered part, and adds none`, () => {
-        const { container } = render(
-          <Chrome lang={lang} k="table.appr.verb.approve" echo={echo} />,
-        );
-        const parts = renderedParts(container);
-        expect(parts.filter(Boolean)).toHaveLength(parts.length);
+  for (const [shown, device] of DEVICE)
+    for (const [echo, what] of CASES) {
+      for (const lang of ["en", "my"] as const) {
+        it(`${lang} · ${device} · ${what}: the derivation al() reads accounts for every rendered part, and adds none`, () => {
+          const container = underDevice(
+            lang,
+            shown,
+            <Chrome lang={lang} k="table.appr.verb.approve" echo={echo} />,
+          );
+          const parts = renderedParts(container);
+          expect(parts.filter(Boolean)).toHaveLength(parts.length);
 
-        // Two-way: every rendered part is IN the derivation, and once they are struck out nothing
-        // but separators is left — so the derivation can neither miss a visible word nor invent one.
-        let rest = chromeVisible(lang, "table.appr.verb.approve", echo);
-        for (const part of parts) {
-          expect(rest).toContain(part);
-          rest = rest.replace(part, "");
-        }
-        expect(rest.trim()).toMatch(/^[·\s]*$/u);
-      });
+          // Two-way: every rendered part is IN the derivation, and once they are struck out nothing
+          // but separators is left — so the derivation can neither miss a visible word nor invent one.
+          let rest = chromeVisible(lang, "table.appr.verb.approve", echo, shown);
+          for (const part of parts) {
+            expect(rest).toContain(part);
+            rest = rest.replace(part, "");
+          }
+          expect(rest.trim()).toMatch(/^[·\s]*$/u);
+        });
+      }
     }
-  }
 });
 
 describe("a labelled control's NAME contains every word the control SHOWS", () => {
   const ECHOES: readonly ChromeEcho[] = [false, "stack", "inline"];
-  for (const echo of ECHOES) {
-    for (const lang of ["en", "my"] as const) {
-      it(`${lang} · echo=${String(echo)}: WCAG 2.5.3 on the rendered text, not on the key`, () => {
-        const { container } = render(
-          <Chrome lang={lang} k="table.appr.verb.approve" echo={echo} />,
-        );
-        const { aria } = al(lang, {
-          kind: "verb",
-          echo,
-          verb: "table.appr.verb.approve",
-          subject: "Mohinga",
+  for (const [shown, device] of DEVICE)
+    for (const echo of ECHOES) {
+      for (const lang of ["en", "my"] as const) {
+        it(`${lang} · ${device} · echo=${String(echo)}: WCAG 2.5.3 on the rendered text, not on the key`, () => {
+          // ONE call site's props, handed to both halves: the element renders `<Chrome echo>` under
+          // the device's provider, and its name is `al()` with that same `echo` and that same `shown`.
+          const site = { echo, shown } as const;
+          const container = underDevice(
+            lang,
+            shown,
+            <Chrome lang={lang} k="table.appr.verb.approve" echo={site.echo} />,
+          );
+          const { visible, aria } = al(lang, {
+            kind: "verb",
+            ...site,
+            verb: "table.appr.verb.approve",
+            subject: "Mohinga",
+          });
+          // The mutation this separates: drop `echo` from the al() call and, under `my` WITH an echo,
+          // the English half of the visible label stops appearing in the name. Under `en` and under
+          // `my`-without-echo the two are identical either way, so those arms cannot catch it — which
+          // is exactly why every echo mode is exercised here.
+          const parts = renderedParts(container);
+          for (const part of parts) expect(aria).toContain(part);
+          // P2e review (A5) — and the name's label is the rendered label EXACTLY, leading the name as
+          // one run: on a Burmese-only device the English echo is gone from the screen, so it must be
+          // gone from the name too, or the label a speech-input user reads is split by a word they
+          // cannot see. `parts.join(" ")` is how `chromeVisible` spells a stacked pair.
+          const shownLabel = echo === "inline" ? parts.join(" · ") : parts.join(" ");
+          expect(visible).toBe(shownLabel);
+          expect(aria.startsWith(`${shownLabel} — `)).toBe(true);
         });
-        // The mutation this separates: drop `echo` from the al() call and, under `my` WITH an echo,
-        // the English half of the visible label stops appearing in the name. Under `en` and under
-        // `my`-without-echo the two are identical either way, so those arms cannot catch it — which
-        // is exactly why every echo mode is exercised here.
-        for (const part of renderedParts(container)) expect(aria).toContain(part);
-      });
+      }
     }
-  }
 
   it("a SLOTTED key pins too — the count is Burmese in the my half and Latin in the echo", () => {
     // The register row is the reason this case exists: its subject is built from two echoed Chromes
@@ -256,7 +291,7 @@ describe("a labelled control's NAME contains every word the control SHOWS", () =
       <Chrome lang="my" k="reg.row.many" vars={{ n: 2, m: "$12.00" }} echo="inline" />,
     );
     const parts = renderedParts(container);
-    let rest = chromeVisible("my", "reg.row.many", "inline", { n: 2, m: "$12.00" });
+    let rest = chromeVisible("my", "reg.row.many", "inline", true, { n: 2, m: "$12.00" });
     for (const part of parts) {
       expect(rest).toContain(part);
       rest = rest.replace(part, "");
@@ -270,11 +305,143 @@ describe("a labelled control's NAME contains every word the control SHOWS", () =
     const { aria } = al("my", {
       kind: "verb",
       echo: "stack",
+      shown: true,
       verb: "table.appr.verb.approve",
       subject: "Mohinga",
     });
     expect(aria).toContain("Approve"); // the VISIBLE English word — absent before this fix
     expect(aria).toContain("ခွင့်ပြု");
     expect(aria).toContain("Mohinga");
+  });
+});
+
+// ── Phase 2e · lang ──
+/**
+ * P2e — Burmese only drops the ECHO, never the PAIR, and never on the K15-HIGH band.
+ *
+ * Every Burmese size rule in globals.css is written `.x > .chrome-pair > [lang="my"]`, so the one-
+ * child pair is what keeps a Burmese-only bar title at its 30px — the render is measured here as a
+ * TREE (the parent, its one element child), never as a substring (`startsWith` would pass a render
+ * that still carried the echo after the Burmese). The K15-HIGH keys keep their English line because
+ * the kitchen tablet is shared with an English reader (Dad's line) and a wrong word there would stop
+ * service (the band's definition — wider than food and money).
+ */
+const burmeseOnly = (ui: React.ReactElement) =>
+  render(
+    <StaffLangProvider lang="my" echoes={false}>
+      {ui}
+    </StaffLangProvider>,
+  ).container;
+
+describe("P2e — Burmese only keeps the pair and drops its echo", () => {
+  // Deliberately NOT in the K15-HIGH band — the cross-check below keeps the fixture honest.
+  const PLAIN = [
+    ["kds.title", "stack"],
+    ["help.back", "inline"],
+  ] as const;
+  it("the fixture keys are outside the K15-HIGH band (or the case below proves nothing)", () => {
+    for (const [k] of PLAIN) expect(STAFF_K15_HIGH.has(k), k).toBe(false);
+    expect(STAFF_K15_HIGH.has("kds.err.bump")).toBe(false);
+  });
+
+  it.each(PLAIN)("%s · echo=%s: the Burmese alone, EXACTLY, inside a one-child pair", (k, echo) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo={echo} />);
+    // The derivation takes the CALL SITE's echo and the device's `shown` (A5) — never a hand-picked
+    // `false` that agrees with the render only because the author chose it to.
+    expect(c.querySelector(".stx-root")!.textContent).toBe(chromeVisible("my", k, echo, false));
+    const my = c.querySelector('[lang="my"]')!;
+    const pair = my.parentElement!;
+    expect(pair.classList.contains("chrome-pair")).toBe(true);
+    expect(pair.classList.contains("chrome-pair-inline")).toBe(echo === "inline");
+    expect(pair.children).toHaveLength(1);
+    expect(c.querySelector(".chrome-en")).toBeNull();
+  });
+
+  it("a slotted key keeps its Latin value marked inside the one Burmese run", () => {
+    const c = burmeseOnly(
+      <Chrome lang="my" k="kds.err.bump" vars={{ x: "Mohinga" }} echo="inline" />,
+    );
+    expect(c.querySelector(".stx-root")!.textContent).toBe(
+      chromeVisible("my", "kds.err.bump", "inline", false, { x: "Mohinga" }),
+    );
+    expect(c.querySelector('[lang="my"] [lang="en"]')!.textContent).toBe("Mohinga");
+    expect(c.querySelector(".chrome-pair")!.children).toHaveLength(1);
+  });
+
+  it("under Both (a provider with the default) and with NO provider (the wall TV), the echo stays", () => {
+    for (const [k, echo] of PLAIN) {
+      cleanup();
+      const both = render(
+        <StaffLangProvider lang="my">
+          <Chrome lang="my" k={k} echo={echo} />
+        </StaffLangProvider>,
+      ).container;
+      expect(renderedParts(both)).toEqual([STAFF[k].my, STAFF[k].en]);
+      cleanup();
+      const bare = render(<Chrome lang="my" k={k} echo={echo} />).container;
+      expect(renderedParts(bare)).toEqual([STAFF[k].my, STAFF[k].en]);
+    }
+  });
+
+  it("English is untouched by the flag — still one bare text node", () => {
+    const c = render(
+      <StaffLangProvider lang="en" echoes={false}>
+        <Chrome lang="en" k="kds.title" echo="stack" />
+      </StaffLangProvider>,
+    ).container;
+    expect(c.querySelector(".stx-root")!.querySelectorAll("*")).toHaveLength(0);
+    expect(c.textContent).toBe(STAFF["kds.title"].en);
+  });
+});
+
+describe("P2e — the K15-HIGH band keeps its English line on a Burmese-only device", () => {
+  const HIGH: readonly StaffKey[] = ["kds.bump", "kds.86"];
+  it("the fixture keys ARE in the band — the case cannot rot into a plain-key test", () => {
+    for (const k of HIGH) expect(STAFF_K15_HIGH.has(k), k).toBe(true);
+  });
+
+  it.each(HIGH)("%s · echo=stack keeps .chrome-en with its English", (k) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo="stack" />);
+    expect(c.querySelector(".chrome-en")?.textContent).toBe(STAFF[k].en);
+    expect(renderedParts(c.querySelector(".stx-root") as HTMLElement)).toEqual([
+      STAFF[k].my,
+      STAFF[k].en,
+    ]);
+  });
+
+  it("the Burmese-only row says what THIS band keeps, in the band's own words — never a narrower claim", () => {
+    // The band is "the strings a wrong word takes SERVICE down over" (the word-check sheet heads it
+    // "A wrong word here stops service"), and it holds keys that gate neither food nor money — so a
+    // row promising "English stays only where a wrong word costs food or money" was untrue on the
+    // first sign-in refusal. The row reuses the band's own phrase in both tongues and claims no
+    // exclusivity (the language surfaces keep their English too, `keepEcho`).
+    const band = STAFF["pilot.gloss.band.high.why"];
+    const row = STAFF["shell.lang.mode.myOnly"];
+    const MY_PHRASE = "စာလုံးမှားရင် အလုပ် ရပ်သွား";
+    expect(band.my).toContain(MY_PHRASE);
+    expect(row.my).toContain(MY_PHRASE);
+    expect(band.en).toMatch(/wrong word here stops service/);
+    expect(row.en).toMatch(/wrong word would stop service/);
+    for (const k of ["entry.login.denied", "pin.outage", "shell.net.offline"] as const)
+      expect(STAFF_K15_HIGH.has(k), k).toBe(true);
+    expect(row.en).not.toMatch(/stays only|food or money/);
+  });
+
+  it.each(HIGH)("%s · echo={false} is still the bare Burmese span — the flag adds nothing", (k) => {
+    const c = burmeseOnly(<Chrome lang="my" k={k} echo={false} />);
+    expect(c.querySelector(".chrome-pair")).toBeNull();
+    expect(c.querySelector(".chrome-en")).toBeNull();
+    expect(c.querySelector('[lang="my"]')!.textContent).toBe(STAFF[k].my);
+  });
+});
+
+describe("P2e — keepEcho is the language surfaces' way through", () => {
+  it("a keepEcho Chrome speaks both tongues on a Burmese-only device", () => {
+    const c = burmeseOnly(<Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />);
+    expect(STAFF_K15_HIGH.has("shell.lang.failed")).toBe(false); // it is keepEcho doing this
+    // `shown` is what `<Chrome>` ORs before the band — the device (false here) OR `keepEcho` (set).
+    expect(c.querySelector(".stx-root")!.textContent).toBe(
+      chromeVisible("my", "shell.lang.failed", "inline", true),
+    );
   });
 });

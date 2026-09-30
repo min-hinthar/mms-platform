@@ -389,7 +389,13 @@ the plan state.
         selected table from 48em — K24's counter/table half); and, from the integration, the line
         RPCs' database guards (P2dd · P2cy — a prod migration, applied and verified) and the staff
         doors failing closed on an unreadable unsent count (P2dc).
-  - [ ] **2e — staff language: Burmese / Both / English, per device, in Profile** (owner-chosen).
+  - [x] **2e — staff language: Burmese / Both / English, per device** (2026-09-29, owner-chosen —
+        P2x): three modes in the existing cookie, Both the default and exactly the old Burmese;
+        Burmese only drops the chrome's English echo, never on the K15-HIGH band; the pill leaves every
+        in-service bar and stays on the four front doors (sign-in, lock, outage, error); a Language row
+        in the kitchen and counter Help sheet, a last Language tile on the doors' More and a language
+        card on the Profile, each in both scripts on every device; one hardened write chain behind
+        them all (a rejected or hung write is a bilingual line, never the error screen). No SQL.
   - [ ] **2f — counter orders cook before paid** ("Unpaid — collect at pickup"; needs a migration).
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
 
