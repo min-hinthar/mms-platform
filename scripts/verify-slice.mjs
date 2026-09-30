@@ -11574,6 +11574,39 @@ const MUTANTS = [
     find: " && !isReservedSessionCode(i.code)",
     replace: "",
   },
+  // ── Phase 2f · Codex r3 on #308 — the join refusal ──
+  {
+    id: "p2f-cx3-join/join-to-active-counter-order",
+    file: "apps/qr/lib/session-code.ts",
+    suite: "lib/session-code.test.ts",
+    why: "Codex r3 on #308 — a diner who JOINS an active reg- counter order can add a to-go draft after staff reviewed it, and the counter Send fires every draft to the kitchen unpaid",
+    find: '  return i.code.startsWith(REG_PREFIX) ? "join" : null;',
+    replace: "  return null;",
+  },
+  {
+    id: "p2f-cx3-join/create-refusal-dropped",
+    file: "apps/qr/lib/session-code.ts",
+    suite: "lib/session-code.test.ts",
+    why: "W6b — the join refusal must not swallow the CREATE refusal: a client-minted reserved code is a spoofed counter-queue entry (a kiosk- create would then pass outright)",
+    find: '  if (!i.found) return "create";\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx3-join/kiosk-join-refused",
+    file: "apps/qr/lib/session-code.ts",
+    suite: "lib/session-code.test.ts",
+    why: "Codex r3 on #308 — only a reg- join is refused; a kiosk- session is pay-first and stays joinable, so over-blocking it is a regression, not extra safety",
+    find: '? "join" : null;',
+    replace: '? "join" : "join";',
+  },
+  {
+    id: "p2f-cx3-join/ordinary-join-refused",
+    file: "apps/qr/lib/session-code.ts",
+    suite: "lib/session-code.test.ts",
+    why: "Codex r3 on #308 — an ordinary sticker / invite / solo code is never refused: the reserved-prefix check is what scopes the gate",
+    find: "  if (!i.code || !isReservedSessionCode(i.code)) return null;",
+    replace: "  if (!i.code) return null;",
+  },
   // ── Phase 2e · lang ──
   {
     id: "p2e-lang/mode-default-drops-echoes",

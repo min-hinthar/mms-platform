@@ -1,3 +1,5 @@
+import { REG_PREFIX } from "./register-queue";
+
 /**
  * Server-issued join code for the dine-in group cart (M3·P3.1). When a host starts a dine-in
  * session with no physical sticker token, the SERVER (this generator, called only from the
@@ -26,10 +28,10 @@ export function generateJoinCode(len = 8): string {
  * Reserved session-code prefixes (W6a/W6b): `reg-` marks staff-minted counter orders, `kiosk-`
  * marks kiosk-device-minted orders. Both are SERVER-ISSUED identities that downstream surfaces
  * trust (the register queue keys on them; the floor board excludes them; the kiosk reset's scope
- * predicate matches them) — so /api/session must never let a CLIENT mint one. Joining an existing
- * active session by its (unguessable) code stays allowed; creating is refused.
+ * predicate matches them) — so /api/session must never let a CLIENT mint one. Creating is refused
+ * for both; joining an existing active one is refused for `reg-` (`reservedCodeRefusal`, below).
  */
-export const RESERVED_SESSION_PREFIXES = ["reg-", "kiosk-"] as const;
+export const RESERVED_SESSION_PREFIXES = [REG_PREFIX, "kiosk-"] as const;
 
 export function isReservedSessionCode(code: string): boolean {
   return RESERVED_SESSION_PREFIXES.some((p) => code.startsWith(p));
@@ -48,4 +50,28 @@ export function sweepsExpiredSquatter(i: {
   joinOnly: boolean;
 }): boolean {
   return !i.found && !!i.code && !i.joinOnly && !isReservedSessionCode(i.code);
+}
+
+/**
+ * Phase 2f · P2v (Codex r3 on #308) — the ONE reserved-code gate `/api/session` runs before it
+ * attaches a diner to a code. `create` = no active session and the code is reserved (W6b: a client
+ * never mints a server-issued identity). `join` = an ACTIVE staff-minted (`reg-`) counter order.
+ *
+ * A `reg-` session is minted by the register with NO member row and is built by staff through
+ * service-role actions (`lib/register.ts` — never this route). A diner who joined one by its code
+ * became a member — and, on its null `host_seat`, its HOST — and could add a to-go draft after staff
+ * reviewed the order but before Send; the counter fire (`mms_fire_counter_cart`) sends every draft,
+ * so an item nobody at the counter saw reached the kitchen before anyone paid. So that join is
+ * refused, for any `reg-` code whatever its mode (fail closed — no diner flow joins one).
+ *
+ * A `kiosk-` session stays JOINABLE, exactly as before: its order is pay-first (never fired unpaid,
+ * `isCounterOrder` is false for it), so a member there adds nothing that cooks before payment.
+ */
+export function reservedCodeRefusal(i: {
+  found: boolean;
+  code: string | null | undefined;
+}): "create" | "join" | null {
+  if (!i.code || !isReservedSessionCode(i.code)) return null;
+  if (!i.found) return "create";
+  return i.code.startsWith(REG_PREFIX) ? "join" : null;
 }
