@@ -22,9 +22,12 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the ten orderings below, on one cart (two, for the merge). The no-show, the undo and a
- * settle claim take the same cart-row lock, but no scenario here interleaves them — those orderings
- * are argued from construction and pinned single-session (P2F.15e, P2F.18), not proven here.
+ * WHAT THIS PROVES, and no more: the thirteen orderings below, on one cart (two, for the merge). The
+ * no-show, the undo and a settle claim take the same cart-row lock, but no scenario here interleaves
+ * THEM — those orderings are argued from construction and pinned single-session (P2F.15e, P2F.18),
+ * not proven here. The no-show IS interleaved with a void, a request (h, h2) and a kitchen Start (j).
+ * The `order by id` on every whole-cart lines lock (and `mms_bump_ticket`'s pre-lock) is deadlock
+ * AVOIDANCE between a bump and a no-show/Clear/merge; no order here drives that pair.
  *
  * ── The orders ──────────────────────────────────────────────────────────────────────────────
  *
@@ -76,6 +79,26 @@
  *       statement snapshot saw — 'open' — recording an approved void on a cancelled cart.
  *   (h2) no-show-before-request — the same, for an approval request on a draft over the ceiling:
  *       'not_open' and no pending row, never a manager asked to approve a loss on a cancelled cart.
+ *
+ *   The Phase 2f self-review gave `mms_clear_counter_cart` the cart's PENDING approvals (locked
+ *   before its lines, superseded on 'ok') and named the no-show's lines lock. Three more orders:
+ *   (i) clear-before-resolve — B clears a drafts-only counter order holding a pending request inside
+ *       an open transaction ('ok'); A resolves the request (approve) and must BLOCK on B, then answer
+ *       'already_resolved' with the request 'superseded' and the line still a draft. Without the
+ *       supersede the request is left pending on a cancelled cart; without the whole change A waits
+ *       only on the Clear's LINE lock and resumes reading the cart 'open' — an approved void (a loss)
+ *       on the cancelled cart.
+ *   (i2) resolve-mid-clear — A takes the request's row FOR UPDATE (`mms_resolve_approval`'s first
+ *       lock) in an open transaction; B's Clear must BLOCK on A; then A runs the resolve itself (its
+ *       second lock is the LINE) and must answer 'ok' without waiting, and once A commits B must answer
+ *       'ok' (the request resolved first, the order then cleared). Without the Clear's approvals lock
+ *       B holds the lines when it reaches the supersede, A's resolve then waits on B's line — a cycle,
+ *       and one of them dies 40P01 (both are wrapped so a deadlock comes back as DATA, 'deadlock').
+ *   (j) kitchen-start-before-no-show — A starts the SENT line (`mms_line_transition` → in_progress,
+ *       the LINE lock only) in an open transaction; B's no-show (no approver) must BLOCK on A and,
+ *       once A commits, answer 'needs_approval' (the dish is now cooked) with the line untouched.
+ *       Without the no-show's lines lock B reads the line as merely fired, decides a solo write-off,
+ *       waits at the void, and voids a started dish with no manager.
  *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
@@ -473,6 +496,38 @@ const merge = (f, t) =>
 const STAFF = "00000000-0000-0000-0000-00000000f2f0";
 const noShow = (f) =>
   `select public.mms_counter_no_show('${f.cart}'::uuid, '${STAFF}'::uuid, array['${f.sent}']::uuid[]);`;
+/** The approving manager `mms_resolve_approval` checks against `staff` — committed once per run
+ *  (`setupManager`) and removed by `cleanup`. Distinct from STAFF (the initiator), or it self-approves. */
+const MGR = "00000000-0000-0000-0000-00000000f2f1";
+/** Each helper answers 'deadlock' as DATA instead of an ERROR that would end the session: (i2)'s
+ *  mutant is a lock-order inversion, and the deadlock detector may pick either side. */
+const DEADLOCK_SAFE = `
+  create function pg_temp.p2fr_clear(p uuid) returns text language plpgsql as $f$
+  begin return public.mms_clear_counter_cart(p);
+  exception when deadlock_detected then return 'deadlock'; end $f$;
+  create function pg_temp.p2fr_resolve(p uuid) returns text language plpgsql as $f$
+  begin return public.mms_resolve_approval(p, '${MGR}'::uuid, 'approve');
+  exception when deadlock_detected then return 'deadlock'; end $f$;`;
+const resolve = (id) => `select pg_temp.p2fr_resolve('${id}'::uuid);`;
+const approvalStatus = (id) => q(`select status from public.mms_approvals where id = '${id}';`);
+const lineState = (id) => q(`select state from public.qr_cart_items where id = '${id}';`);
+
+/** A drafts-only counter order (nothing sent — the Clear lands) with a PENDING S2.4 request on a
+ *  draft over the loss ceiling. */
+function requestFixture(id) {
+  const f = fixture(id);
+  const big = q(`insert into public.qr_cart_items
+      (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+    values ('${f.cart}', '${TAG}-dish', 'Feast platter', 1, 2500, 262, 'togo') returning id;`);
+  const asked = q(requestApproval(big));
+  const approval = q(
+    `select id from public.mms_approvals where line_id = '${big}' and status = 'pending';`,
+  );
+  if (asked !== "ok" || !approval) {
+    throw new Error(`${TAG} request fixture ${id} did not resolve: ${asked} ${approval}`);
+  }
+  return { ...f, big, approval };
+}
 const voidLine = (line) =>
   `select public.mms_void_line('${line}'::uuid, 'void', 'wrong_item', '${STAFF}'::uuid);`;
 const requestApproval = (line) =>
@@ -749,6 +804,93 @@ const SCENARIOS = {
       await b.close();
     }
   },
+  async i() {
+    const f = requestFixture("i");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run(DEADLOCK_SAFE);
+      await b.run("begin;");
+      const cleared = await b.run(clearCounter(f));
+      a.fire(resolve(f.approval));
+      const how = await blockedOrDone(a, b);
+      // A resolve that did NOT wait decided against B's uncommitted Clear — the real race — so B
+      // commits only after it. A resolve that waited cannot finish until B commits.
+      if (how === "blocked") await b.run("commit;");
+      const resolved = await a.collect();
+      if (how === "done") await b.run("commit;");
+      return [
+        ["B cleared the order", cleared, "ok"],
+        ["A's resolve waited for the clear", how, "blocked"],
+        ["A found the request already resolved", resolved, "already_resolved"],
+        ["the request was superseded, not approved", approvalStatus(f.approval), "superseded"],
+        ["no void landed on the cancelled cart", lineState(f.big), "draft"],
+        ["the cart is cancelled", f.cartStatus(), "cancelled"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async i2() {
+    const f = requestFixture("i2");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      await a.run(DEADLOCK_SAFE);
+      await b.run(DEADLOCK_SAFE);
+      // `mms_resolve_approval`'s first lock, taken on its own so the Clear starts MID-resolve.
+      await a.run("begin;");
+      const held = await a.run(
+        `select status from public.mms_approvals where id = '${f.approval}' for update;`,
+      );
+      b.fire(`select pg_temp.p2fr_clear('${f.cart}'::uuid);`);
+      const how = await blockedOrDone(b, a);
+      // …then the rest of the resolve: its LINE lock must be free (the Clear waits before its lines).
+      const resolved = await a.run(resolve(f.approval));
+      await a.run("commit;");
+      const cleared = await b.collect();
+      return [
+        ["A holds the pending request", held, "pending"],
+        ["B's clear waited for the resolve", how, "blocked"],
+        ["A's resolve finished (no deadlock)", resolved, "ok"],
+        ["B's clear finished after it (no deadlock)", cleared, "ok"],
+        ["the request was approved — it resolved first", approvalStatus(f.approval), "approved"],
+        ["the cart is cancelled", f.cartStatus(), "cancelled"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async j() {
+    const f = noShowFixture("j");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // The kitchen's Start: it locks only the LINE — the cart-row lock cannot order a no-show after it.
+      await a.run("begin;");
+      const started = await a.run(
+        `select public.mms_line_transition('${f.sent}'::uuid, 'in_progress');`,
+      );
+      b.fire(noShow(f));
+      const how = await blockedOrDone(b, a);
+      if (how === "blocked") await a.run("commit;");
+      const wrote = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A started the sent dish", started, "1"],
+        ["B's no-show waited for the Start", how, "blocked"],
+        ["B needs a manager: the dish is cooked now", wrote, "needs_approval"],
+        ["the started dish was not written off", lineState(f.sent), "in_progress"],
+        ["no loss row", f.audits(f.sent), "0"],
+        ["the cart is still open", f.cartStatus(), "open"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
 /** Run every scenario; returns the ids that went red (printing when `loud`). */
@@ -772,6 +914,9 @@ async function battery(loud) {
         g2: "kitchen-fire-before-merge",
         h: "no-show-before-void",
         h2: "no-show-before-request",
+        i: "clear-before-resolve",
+        i2: "resolve-mid-clear",
+        j: "kitchen-start-before-no-show",
       }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
@@ -783,8 +928,16 @@ async function battery(loud) {
 }
 
 let lockOwned = false;
+/** The manager (i, i2) — `staff.user_id` references `auth.users`, so both rows. Tagged by its id. */
+function setupManager() {
+  q(`insert into auth.users (id) values ('${MGR}') on conflict do nothing;
+     insert into public.staff (user_id, role, display_name, active)
+       values ('${MGR}', 'manager', '${TAG} Manager', true) on conflict (user_id) do nothing;`);
+}
 function cleanup() {
   if (!localVerified || !lockOwned) return; // never sweep unverified, nor under another run
+  q(`delete from public.staff where user_id = '${MGR}';
+     delete from auth.users where id = '${MGR}';`);
   for (const prefix of [CODE_PREFIX, TGT_PREFIX]) {
     q(`delete from public.mms_approvals a using public.qr_carts c, public.table_sessions s
          where a.cart_id = c.id and c.session_id = s.id and s.qr_code like '${prefix}%';
@@ -800,10 +953,12 @@ function cleanup() {
 const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
 /** Every function this migration defines — the restore re-applies them all, so all are compared. */
 const FNS = [
+  "mms_bump_ticket",
   "mms_clear_cart_name",
   "mms_clear_counter_cart",
   "mms_counter_no_show",
   "mms_fire_counter_cart",
+  "mms_line_transition",
   "mms_merge_table_orders",
   "mms_request_approval",
   "mms_sweep_expired_sessions",
@@ -893,7 +1048,7 @@ const MUTANTS = [
   {
     id: "p2f/clear-counter-lines-lock-dropped",
     fn: "mms_clear_counter_cart",
-    find: "  perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;\n  if exists (",
+    find: "  perform 1 from public.qr_cart_items where cart_id = p_cart_id order by id for update;\n  if exists (",
     replace: "  if exists (",
     // (e): the kitchen's fire locks only the line, so without this the Clear reads it as a draft,
     // cancels, and the ticket A just made due vanishes from the KDS — the finding, via a line writer.
@@ -913,7 +1068,7 @@ const MUTANTS = [
   {
     id: "p2f/merge-counter-lines-lock-dropped",
     fn: "mms_merge_table_orders",
-    find: "    perform 1 from public.qr_cart_items where cart_id = p_source_cart for update;\n",
+    find: "    perform 1 from public.qr_cart_items where cart_id = p_source_cart order by id for update;\n",
     replace: "",
     // (g2): the kitchen's fire locks only the line, so the merge reads the draft, passes the check,
     // waits at the re-parent and then moves the fired line onto the target (Codex r3 on #308).
@@ -938,6 +1093,38 @@ const MUTANTS = [
     replace: "",
     expect: ["h2"],
     why: "a request racing a no-show leaves a manager a pending loss on a cancelled cart",
+  },
+  {
+    id: "p2f/clear-counter-supersede-dropped",
+    fn: "mms_clear_counter_cart",
+    find: "  update public.mms_approvals a set status = 'superseded', resolved_at = now()\n    where a.cart_id = p_cart_id and a.status = 'pending';\n",
+    replace: "",
+    // (i): the resolve waits on the Clear's approvals lock, then reads its request still 'pending' on
+    // a cart that is now cancelled and answers not_open — the request stays pending forever.
+    // (i2) stays green: there the resolve wins, so nothing is left to supersede.
+    expect: ["i"],
+    why: "a Clear leaves a pending request on the cancelled cart — a manager's queue holds a loss nobody can resolve",
+  },
+  {
+    id: "p2f/clear-counter-approvals-lock-dropped",
+    fn: "mms_clear_counter_cart",
+    find: "  perform 1 from public.mms_approvals where cart_id = p_cart_id and status = 'pending' order by id for update;\n",
+    replace: "",
+    // (i2): the Clear takes the lines first and meets the resolve's approval lock only at the
+    // supersede, while the resolve waits on a line the Clear holds — 40P01. (i) stays green: the
+    // supersede's own row lock still makes a later resolve wait and read 'superseded'.
+    expect: ["i2"],
+    why: "a Clear racing a resolve deadlocks (lines → approval against the resolve's approval → line)",
+  },
+  {
+    id: "p2f/no-show-lines-lock-dropped",
+    fn: "mms_counter_no_show",
+    find: "  perform 1 from public.qr_cart_items where cart_id = p_cart_id order by id for update;\n  select array_agg",
+    replace: "  select array_agg",
+    // (j): the no-show reads the started dish as merely fired (A's Start is uncommitted), decides a
+    // solo write-off, waits at the void and then voids a cooked dish with no manager.
+    expect: ["j"],
+    why: "a no-show racing a kitchen Start writes off a cooked dish as uncooked — past the manager gate",
   },
 ];
 
@@ -967,7 +1154,9 @@ async function runMutants() {
       `${TAG} REFUSED — the UNMUTATED functions are already red on (${base.join(", ")})`,
     );
   }
-  console.log(`  ${green("baseline")} ${dim("all ten orders green on the real functions")}`);
+  console.log(
+    `  ${green("baseline")} ${dim(`all ${Object.keys(SCENARIOS).length} orders green on the real functions`)}`,
+  );
 
   let bad = 0;
   for (const m of MUTANTS) {
@@ -1045,6 +1234,7 @@ async function main() {
   let failed = 0;
   try {
     cleanup(); // a previous run killed mid-flight
+    setupManager();
     if (process.argv.includes("--mutants")) {
       failed += await runMutants();
     } else {
@@ -1072,7 +1262,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear · send-before-merge · kitchen-fire-before-merge · no-show-before-void · no-show-before-request · clear-before-resolve · resolve-mid-clear · kitchen-start-before-no-show\n`,
       ),
     );
   }
