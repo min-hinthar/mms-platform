@@ -588,7 +588,10 @@ describe("StaffLangSection — the Profile's language card", () => {
       await vi.advanceTimersByTimeAsync(15_000);
     });
     const region = container.querySelector('[role="status"]')!;
-    expect(region.textContent).toBe(STAFF["shell.lang.failed"].my);
+    // Both tongues (review A3): the region stands in for the aria-hidden line.
+    expect(region.textContent).toBe(
+      `${STAFF["shell.lang.failed"].my} · ${STAFF["shell.lang.failed"].en}`,
+    );
     await act(async () => w1.release({ ok: true, mode: "en" }));
     expect(container.querySelector(".staff-lang-msg")).toBeNull();
     expect(region.textContent).toBe(""); // no stale "Couldn't save that" left for a reader to find
