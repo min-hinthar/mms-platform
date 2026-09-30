@@ -56,9 +56,10 @@
  * Codex r3 on #308 restates `mms_merge_table_orders` in the p2f migration (§8 — the counter refusal
  * decided under the merge's own locks; M109's seven mutants now patch THAT text, still judged by the
  * m109 suite) and `mms_void_line` / `mms_request_approval` (§9 — the cart locked before the line). Its
- * non-lock checks are killed here (P2F.28, P2F.29) with NO new survivor: the merge's approvals and
- * lines locks and the two writers' cart locks are killed by `verify-counter-fire-race.mjs --mutants`
- * (orders g, g2, h and h2) instead.
+ * non-lock checks are killed here (P2F.28, P2F.29) with NO new survivor: the merge's LINES lock and
+ * the two writers' cart locks are killed by `verify-counter-fire-race.mjs --mutants` (orders g2, h and
+ * h2) instead. The merge's APPROVALS lock has no mutant anywhere yet (nothing races a resolve against
+ * a merge) — filed under OPEN-ITEMS P2fi, not claimed here.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
