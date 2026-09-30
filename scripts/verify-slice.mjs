@@ -12843,9 +12843,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/ExpoBoard.tsx",
     suite: "components/staff/ExpoBoard.test.tsx",
     why: "Phase 2f — an unpaid bag has ONE action, Take payment; a Bagged / Picked up control on it would hand food over with the money still owed",
-    find: '        <Chrome lang={lang} k={owes ? "expo.verb.takePayment" : "floor.verb.view"} echo="stack" />\n      </Link>\n',
+    find: '          <Chrome lang={lang} k="floor.verb.view" echo="stack" />\n        )}\n      </Link>\n',
     replace:
-      '        <Chrome lang={lang} k={owes ? "expo.verb.takePayment" : "floor.verb.view"} echo="stack" />\n      </Link>\n      <button type="button" className="staff-btn">\n        <Chrome lang={lang} k="expo.verb.bagged" echo="stack" />\n      </button>\n',
+      '          <Chrome lang={lang} k="floor.verb.view" echo="stack" />\n        )}\n      </Link>\n      <button type="button" className="staff-btn">\n        <Chrome lang={lang} k="expo.verb.bagged" echo="stack" />\n      </button>\n',
   },
   {
     id: "p2f-ui/expo/unpaid-count-unsaid",
@@ -13660,16 +13660,17 @@ const MUTANTS = [
     file: "apps/qr/components/staff/ExpoBoard.tsx",
     suite: "components/staff/ExpoBoard.test.tsx",
     why: "Phase 2f self-review PT-2 — a free bag's action reads View; 'Take payment' on it asks for money nobody owes",
-    find: '<Chrome lang={lang} k={owes ? "expo.verb.takePayment" : "floor.verb.view"} echo="stack" />',
-    replace: '<Chrome lang={lang} k="expo.verb.takePayment" echo="stack" />',
+    find: '        ) : (\n          <Chrome lang={lang} k="floor.verb.view" echo="stack" />',
+    replace:
+      '        ) : (\n          <Chrome lang={lang} k="expo.verb.takePayment" echo="stack" />',
   },
   {
     id: "p2f-sr-lane/expo-board/free-bag-named-take-payment",
     file: "apps/qr/components/staff/ExpoBoard.tsx",
     suite: "components/staff/ExpoBoard.test.tsx",
     why: "Phase 2f self-review PT-2 — the link's accessible name must match its visible View (WCAG 2.5.3); named Take payment it contradicts the card",
-    find: '            verb: owes ? "expo.verb.takePayment" : "floor.verb.view",',
-    replace: '            verb: "expo.verb.takePayment",',
+    find: '                verb: "floor.verb.view",',
+    replace: '                verb: "expo.verb.takePayment",',
   },
   {
     id: "p2f-sr-lane/expo-board/free-bag-counted-unpaid",

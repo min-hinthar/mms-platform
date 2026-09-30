@@ -1194,8 +1194,8 @@ function UnpaidBagCard({
   // The card's NAME carries the visible badge words exactly as the badge draws them (no echo in a
   // badge — the device's `shown` decides nothing there, but the name follows the same call).
   const cardName = owes
-    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${badgeWords(lang, "settle.unpaid", echoes)}`
-    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${badgeWords(lang, "expo.bag.noCharge", echoes)}`;
+    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}`
+    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${noChargeBadgeWords(lang, echoes)}`;
   const href = owes ? `/staff/table/${bag.sessionId}?settle=1` : `/staff/table/${bag.sessionId}`;
   return (
     <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
@@ -1259,13 +1259,21 @@ function UnpaidBagCard({
           block: true,
         })}
         aria-label={
-          al(lang, {
-            kind: "verb",
-            echo: "stack",
-            shown: echoes,
-            verb: owes ? "expo.verb.takePayment" : "floor.verb.view",
-            subject: who,
-          }).aria
+          owes
+            ? al(lang, {
+                kind: "verb",
+                echo: "stack",
+                shown: echoes,
+                verb: "expo.verb.takePayment",
+                subject: who,
+              }).aria
+            : al(lang, {
+                kind: "verb",
+                echo: "stack",
+                shown: echoes,
+                verb: "floor.verb.view",
+                subject: who,
+              }).aria
         }
         onClick={(e) => {
           const split =
@@ -1286,7 +1294,11 @@ function UnpaidBagCard({
           router.push(paneUrl(bag.sessionId, { settle: owes }));
         }}
       >
-        <Chrome lang={lang} k={owes ? "expo.verb.takePayment" : "floor.verb.view"} echo="stack" />
+        {owes ? (
+          <Chrome lang={lang} k="expo.verb.takePayment" echo="stack" />
+        ) : (
+          <Chrome lang={lang} k="floor.verb.view" echo="stack" />
+        )}
       </Link>
     </article>
   );
@@ -1294,12 +1306,13 @@ function UnpaidBagCard({
 
 /** Phase 2f — the bag badge's words exactly as it draws them (a badge: no echo), for the card's
  *  name. */
-function badgeWords(
-  lang: StaffLang,
-  k: "settle.unpaid" | "expo.bag.noCharge",
-  shown: boolean,
-): string {
-  return chromeVisible(lang, k, false, shown);
+function unpaidBadgeWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "settle.unpaid", false, shown);
+}
+
+/** Self-review PT-2 — the same for a bag that owes nothing ("No charge"). */
+function noChargeBadgeWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "expo.bag.noCharge", false, shown);
 }
 
 function ExpoLineRow({ line }: { line: ExpoLine }) {
