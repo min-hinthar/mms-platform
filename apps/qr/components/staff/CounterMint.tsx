@@ -53,6 +53,14 @@ import { useTablePane } from "./TablePaneContext";
  *     compared alone waved the landing through over the pane the person had just worked in. The
  *     generation is new on every pick of another table and every close, and kept by a re-tap of
  *     the table shown — re-tapping it is still not a move.
+ *   · Phase 2d · Codex round 2 — a start moves NO selection, yet its landing leaves the pane all the
+ *     same: a new order's add screen (a converged table's page, below 48em) replaces the counter
+ *     screen, and a reader collection live in the pane unmounts with it — the poll that holds the
+ *     payment and records a counter order's #CODE. So while the pane says a start is held
+ *     (`startHeld`, `paneStartHeld`), a tap is REFUSED before the server is asked (no order, no
+ *     lock) and the pane says why in its one region; a start already out when the collection began
+ *     stands down as it lands, like a move. A converged table at split width still goes to the pane
+ *     first (`openSession`), whose own admission refuses it and says why.
  *
  * A rejection is an UNKNOWN outcome, not a failure: the response may have been lost after the
  * server started the order. It is said that way (`floor.mint.unknown`), never "wasn't saved" — if it
@@ -133,6 +141,13 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     (id: MintId, input: MintInput, { onStart, onRefusal }: MintCallbacks) => {
       if (inFlight.current !== null) return;
+      // ── Phase 2d · Codex round 2 · pane ── the pane's reader is collecting (docblock): refused
+      // BEFORE the server is asked — no order, no lock, no haptic — and said by the pane, in its
+      // detail's one region, never this caller's.
+      if (paneNow.current?.startHeld()) {
+        paneNow.current.sayStartHeld();
+        return;
+      }
       inFlight.current = id;
       setMinting(id);
       // What the pane showed when the person tapped — the landing's "did they move it" baseline.
@@ -166,6 +181,13 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
           if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {
             // Re-armed: the screen stays (no route swap will unmount it).
             landed = false;
+            return;
+          }
+          // ── Phase 2d · Codex round 2 · pane ── the pane's reader began collecting while this start
+          // was out (docblock): any route now takes the counter screen, the collect panel with it.
+          // Stand down, as for a move — silent, re-armed; the next poll shows the start.
+          if (paneNow.current?.startHeld()) {
+            landed = false; // re-armed: the pane's reader is collecting
             return;
           }
           router.push(mintLanding(r.sessionId, r.created));

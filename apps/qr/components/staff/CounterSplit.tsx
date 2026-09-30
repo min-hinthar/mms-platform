@@ -23,6 +23,7 @@ import {
   paneOwned,
   paneSelectionFromHash,
   paneSelectionHeld,
+  paneStartHeld,
   type LostKind,
 } from "@/lib/floor-pane";
 import { haptic } from "@/lib/haptics";
@@ -121,6 +122,14 @@ export function CounterSplit({
     },
     [],
   );
+  // ── Phase 2d · Codex round 2 · pane ── a START (Walk-up, Phone order, a free table) is held by the
+  // same collection (`paneStartHeld`): the mint asks at the instant of its tap, and a refused one is
+  // said by the same count, in the detail's one region. Stable for the mount: read through refs.
+  const startHeld = useCallback(
+    () => paneStartHeld({ paying: paying.current, shown: selRef.current?.id ?? null }),
+    [],
+  );
+  const sayStartHeld = useCallback(() => setHeldSeq((n) => n + 1), []);
 
   // Phase 2d · review fixes — below 48em a selected table covers the counter's column, and the
   // bell's visible half with it: the bell asks this at the instant of each ring (never captured —
@@ -198,7 +207,10 @@ export function CounterSplit({
       selRef.current = null;
       setSel(null);
       setFloorGen(++genSeq.current);
-      setLostWrite(null);
+      // ── Phase 2d · Codex round 2 · pane ── a lost outcome STAYS: a close answers nothing about
+      // it — it names a table the person left (a payment that may have to be collected again, a
+      // dish that never saved), and the floor shows it at every width (`data-pane="lost"`). Only
+      // going back to its table clears it (`select`), or a newer loss that outranks it (`nextLost`).
       // The paid card leaves with its table (✕, Escape, Back, Clear); a SWITCH keeps it.
       dropHandoffStash(cur.id);
       if (via === "control") {
@@ -319,6 +331,8 @@ export function CounterSplit({
     openFromCard,
     openSession,
     publishFloor,
+    startHeld,
+    sayStartHeld,
   };
 
   return (

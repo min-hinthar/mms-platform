@@ -39,10 +39,15 @@ const { CounterMintProvider, useCounterMint } = await import("./CounterMint");
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  collecting = false;
 });
 
 type Landing = { ok: true; sessionId: string; created: boolean };
 const openSession = vi.fn((_id: string, _hint: unknown) => true);
+/** Phase 2d · Codex round 2 — whether the pane's reader is collecting, as the split answers it at
+ *  the instant of asking (a case flips it), and the pane's "say it" for a refused start. */
+let collecting = false;
+const sayStartHeld = vi.fn();
 
 /** Start table 7 through the ONE lock; `held` mirrors what every start control would say. */
 function StartTable7() {
@@ -83,6 +88,8 @@ function Pane({
       return true;
     },
     publishFloor: () => {},
+    startHeld: () => collecting,
+    sayStartHeld,
   };
   return (
     <TablePaneContext.Provider value={api}>
@@ -243,5 +250,60 @@ describe("CounterMint — a start that lands after the pane moved and came back"
       landing: { ok: true, sessionId: "s-new", created: true },
     });
     expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+});
+
+/**
+ * Phase 2d · Codex round 2 · pane — a START while the pane's reader collects. A start does not move
+ * the pane's selection, so neither check above sees it: a NEW order's landing pushed its add screen,
+ * and the route swap unmounted the collect panel (the payment's hold, a counter order's #CODE). The
+ * lock asks the pane (`startHeld`) at the tap — refused before the server is asked, said by the
+ * pane — and again as a start already out lands.
+ */
+describe("CounterMint — a start while the pane's reader collects", () => {
+  it("a tap mid-collect is refused BEFORE the server is asked, said by the pane, and takes no lock", async () => {
+    collecting = true;
+    render(<Pane selectedId="s-A" />);
+    const button = screen.getByRole("button", { name: "start 7" });
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    // MUTATION: drop the tap-time hold — the server starts table 7 mid-collect; red.
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    // MUTATION: refuse silently — the tap does nothing and nothing says why; red.
+    expect(sayStartHeld).toHaveBeenCalledTimes(1);
+    // MUTATION: refuse after taking the lock — every start control stays held for good; red.
+    expect(button.getAttribute("aria-disabled")).toBeNull();
+    // The collection ends: the next tap starts.
+    collecting = false;
+    openRegisterOrder.mockReturnValueOnce(new Promise(() => {}));
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(sayStartHeld).toHaveBeenCalledTimes(1);
+  });
+
+  it("a start out when the collection begins stands down as it lands — silently, and the lock re-arms", async () => {
+    const d = deferred<Landing>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    render(<Pane selectedId="s-A" />);
+    const button = () => screen.getByRole("button", { name: "start 7" });
+    await act(async () => {
+      fireEvent.click(button());
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    collecting = true; // the reader began on the table shown; the pane did not move
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s-new", created: true });
+      await d.promise;
+    });
+    await act(async () => {});
+    // MUTATION: land with no collection check — the add screen is pushed over the collect panel; red.
+    expect(push).not.toHaveBeenCalled();
+    // MUTATION: stand down without re-arming — every start control stays held; red.
+    expect(button().getAttribute("aria-disabled")).toBeNull();
+    // A landing is never a refusal the person made: the pane says nothing (a move's stand-down).
+    expect(sayStartHeld).not.toHaveBeenCalled();
   });
 });

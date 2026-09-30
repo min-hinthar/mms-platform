@@ -1759,15 +1759,250 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
       fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
     });
     await tick(0);
+    openRegisterOrder.mockClear();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "start 7" }));
     });
     await tick(0);
-    // A refused open still answers "handled" — `false` would send the mint to the table's own page
-    // and take the whole counter screen (the panel with it) away.
+    // Codex round 2 — the mint now refuses the tap itself, before the server is asked (the pane's
+    // `startHeld`); the pane's own answer to a converged open is pinned on its own below.
+    expect(openRegisterOrder).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
     expect(paneHeading().textContent).toBe(table4());
     expect(readerPanel()).not.toBeNull();
     expect(region().textContent).toBe(heldLine());
+  });
+});
+
+// ── Phase 2d · Codex round 2 · pane ── a lost outcome SURVIVES a close. The split used to clear it on
+// every close, so a payment on Table 4 whose answer never came (said above Table 7, the table shown
+// when it landed) vanished the moment the cashier closed Table 7 — ✕, Escape or Back — though it is
+// about Table 4 and nothing answered it: the only warning against taking the money twice. The floor
+// with nothing picked already shows a lost outcome (`data-pane="lost"`), so a close keeps it; only
+// going back to its table, or a newer loss that outranks it (`nextLost`), replaces it.
+describe("TablePane — a lost outcome outlives a close of another table (Codex #306 round 2)", () => {
+  const settleable = (id: string, n: number) =>
+    detail(id, n, {
+      settleTotalCents: 4210,
+      settleTipBaseCents: 4000,
+      lines: [line(`l-${n}`, "Mohinga", false)],
+      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+    });
+  const table4 = () => tf("en", "floor.table", { id: "4" });
+  const lostLine = () => pane().querySelector<HTMLElement>(".staff-pane-lost");
+  const paneRegion = () => pane().querySelectorAll('[role="status"]');
+  const unknownOn4 = () => tf("en", "floor.pane.lostSettleUnknown", { x: table4() });
+  const closeBtn = () => within(pane()).getByRole("button", { name: ts("en", "shell.close") });
+  /** Cash on Table 4 whose answer never came, landing while Table 7 is shown. */
+  async function unknownCashOn4ThenShow7() {
+    answers[A] = ok(settleable(A, 4));
+    let fail!: (e: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => {
+      fireEvent.click(
+        within(dialog)
+          .getAllByRole("button")
+          .find((b) => b.textContent?.startsWith("Take $"))!,
+      );
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      fail(new Error("fetch failed"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    expect(lostLine()?.textContent).toContain(unknownOn4());
+  }
+  const closes: [string, () => Promise<void>][] = [
+    [
+      "✕",
+      async () => {
+        await act(async () => {
+          fireEvent.click(closeBtn());
+        });
+        await tick(0);
+      },
+    ],
+    [
+      "Escape",
+      async () => {
+        await act(async () => {
+          fireEvent.keyDown(paneHeading(), { key: "Escape" });
+        });
+        await tick(0);
+      },
+    ],
+    [
+      "Back",
+      async () => {
+        await act(async () => {
+          window.history.replaceState(null, "", "/staff?floor=1");
+          window.dispatchEvent(new HashChangeEvent("hashchange"));
+        });
+        await tick(0);
+      },
+    ],
+  ];
+
+  it.each(closes)(
+    "cash on Table 4 with no answer, Table 7 shown, %s on Table 7: the warning stays on the floor, shown and said",
+    async (_how, close) => {
+      await unknownCashOn4ThenShow7();
+      await close();
+      expect(document.getElementById("order-h")).toBeNull(); // Table 7 closed: nothing picked
+      const split = document.querySelector<HTMLElement>(".staff-split")!;
+      // MUTATION: the close clears the lost outcome — the floor reads "empty", the one warning
+      // against collecting Table 4's money again is gone, and nothing answered it; red.
+      expect(split.dataset.pane).toBe("lost");
+      expect(lostLine()?.textContent).toContain(unknownOn4());
+      // Said once, through the pane's ONE region (the detail that carried it is gone).
+      expect(paneRegion()).toHaveLength(1);
+      expect(paneRegion()[0]!.textContent).toContain(unknownOn4());
+    },
+  );
+
+  it("a DISH that did not save outlives the close too — only its table's own detail can show it again", async () => {
+    let refuse!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (refuse = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!);
+    });
+    await tap(card(B));
+    await tick(0);
+    await act(async () => {
+      refuse({ ok: false, error: "That line just changed." });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(closeBtn());
+    });
+    await tick(0);
+    // MUTATION: a close keeps a payment's loss but drops a dish's — a dish the cashier changed on
+    // Table 4 that never saved is forgotten the moment Table 7 closes; red.
+    const said = tf("en", "floor.pane.lostWrite", { x: table4() });
+    expect(document.querySelector<HTMLElement>(".staff-split")!.dataset.pane).toBe("lost");
+    expect(lostLine()?.textContent).toContain(said);
+    expect(paneRegion()[0]!.textContent).toContain(said);
+  });
+
+  // The clears that DO answer it still clear it: going back to its table.
+  it("after the close, the line's own 'View' goes back to Table 4 and the warning goes with the answer", async () => {
+    await unknownCashOn4ThenShow7();
+    await act(async () => {
+      fireEvent.click(closeBtn());
+    });
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(within(lostLine()!).getByRole("button"));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(table4());
+    expect(lostLine()).toBeNull();
+    expect(document.querySelector<HTMLElement>(".staff-split")!.dataset.pane).toBe("open");
+  });
+
+  it("after the close, Table 4's own card on the floor answers it too", async () => {
+    await unknownCashOn4ThenShow7();
+    await act(async () => {
+      fireEvent.click(closeBtn());
+    });
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(paneHeading().textContent).toBe(table4());
+    expect(lostLine()).toBeNull();
+  });
+
+  it("another table picked after the close keeps it — a switch answers nothing either", async () => {
+    await unknownCashOn4ThenShow7();
+    await act(async () => {
+      fireEvent.click(closeBtn());
+    });
+    await tick(0);
+    await tap(card(B));
+    await tick(0);
+    expect(lostLine()?.textContent).toContain(unknownOn4());
+  });
+});
+
+// ── Phase 2d · Codex round 2 · pane ── `openSession` is the pane's API, and its answer is a contract:
+// `false` tells the caller to navigate instead (the mint's converged landing does exactly that). The
+// mint no longer reaches it mid-collect — it refuses the tap and stands a late landing down — so the
+// contract is pinned HERE, by a caller that navigates on `false` the way the mint does.
+describe("TablePane — openSession mid-collect answers HANDLED (Codex #306 round 2)", () => {
+  it("refused, the pane stays on the paying table, says why, and the caller is told not to navigate", async () => {
+    let answered: boolean | null = null;
+    function OpenSeven() {
+      const api = useTablePane()!;
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            answered = api.openSession(B, { counter: false, display: "7" });
+            if (!answered) push(`/staff/table/${B}`);
+          }}
+        >
+          open 7
+        </button>
+      );
+    }
+    terminalReady = true;
+    answers[A] = ok(
+      detail(A, 4, {
+        settleTotalCents: 4210,
+        settleTipBaseCents: 4000,
+        lines: [line("l-4", "Mohinga", false)],
+        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      }),
+    );
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(
+      <StaffLangProvider lang="en">
+        <LiveConnectionProvider>
+          <CounterSplit terminalReady>
+            <Floor />
+            <OpenSeven />
+          </CounterSplit>
+        </LiveConnectionProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 7" }));
+    });
+    await tick(0);
+    // MUTATION: answer `false` when refused — the caller routes to Table 7's page and the counter
+    // screen, the collect panel with it, goes; red.
+    expect(answered).toBe(true);
+    expect(push).not.toHaveBeenCalled();
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    expect(
+      screen.queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") }),
+    ).not.toBeNull();
+    expect(
+      document.getElementById("order-h")!.closest("section")!.querySelector('[role="status"]')!
+        .textContent,
+    ).toBe(ts("en", "floor.pane.payingHeld"));
   });
 });

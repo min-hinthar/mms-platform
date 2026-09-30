@@ -22,6 +22,13 @@ export type TablePaneApi = {
   openSession: (sessionId: string, hint: TableHint) => boolean;
   /** The floor's live rows, for a hash selection's heading and a closed table's live twin. */
   publishFloor: (rows: readonly PaneRow[]) => void;
+  /** Phase 2d · Codex round 2 — is a START held right now: the pane's reader collecting on the
+   *  table shown (`paneStartHeld`). A ref read at the instant of asking — the mint asks at a tap,
+   *  and again as a start already out lands — never a render's. */
+  startHeld: () => boolean;
+  /** Say a start refused at its tap, in the pane's detail's ONE region ("Finish the card payment
+   *  first." — the count a refused switch bumps), so the screen keeps one region for the hold. */
+  sayStartHeld: () => void;
 };
 
 export const TablePaneContext = createContext<TablePaneApi | null>(null);
