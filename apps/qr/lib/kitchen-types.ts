@@ -76,6 +76,9 @@ export type KitchenTicket = {
   /** W3a HELD: a scheduled order whose fire time hasn't arrived. Renders dimmed with its slot time;
    *  turns live (and chimes) when the clock passes fire_at. Manual fire-early allowed. */
   held: boolean;
+  /** Phase 2f · P2v — an OPEN counter (`reg-`) order's ticket, past its grace: the food is cooking
+   *  before it is paid ("Unpaid — collect at pickup"). False on every other ticket. */
+  unpaid: boolean;
   lines: KitchenLine[];
   /** Earliest fire on the ticket (its age for the urgency strip; the due time while held). */
   firedAt: string;

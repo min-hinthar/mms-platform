@@ -34,8 +34,27 @@ export type RegisterQueueRow = {
   source: "register" | "kiosk";
 };
 
+/** Phase 2f — one counter order's line as the floor folds it (every state; `foldFloorKitchen` and
+ *  `counterSent` pick what they read). */
+export type CounterQueueLine = {
+  id: string;
+  qty: number;
+  state: string;
+  fulfillment: string;
+  fire_at: string | null;
+  bumped_at: string | null;
+  comped: boolean;
+  by_seat: string | null;
+};
+
 export type RegisterQueue =
-  | { ok: true; rows: RegisterQueueRow[]; truncated: boolean }
+  | {
+      ok: true;
+      rows: RegisterQueueRow[];
+      truncated: boolean;
+      /** Phase 2f — each row's lines, by `sessionId` (the SAME read, no extra round trip). */
+      lines: ReadonlyMap<string, CounterQueueLine[]>;
+    }
   | { ok: false; reason: "outage" };
 
 /**
@@ -49,7 +68,7 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
   const { data: carts, error: cartErr } = await db
     .from("qr_carts")
     .select(
-      "id,session_id,customer_name,created_at,qr_cart_items(qty,unit_price_cents,state,comped),table_sessions!inner(qr_code,mode,status)",
+      "id,session_id,customer_name,created_at,qr_cart_items(id,qty,unit_price_cents,state,comped,fulfillment,fire_at,bumped_at,by_seat),table_sessions!inner(qr_code,mode,status)",
     )
     .eq("status", "open")
     .eq("table_sessions.mode", "pickup")
@@ -75,6 +94,21 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
       startedAt: cart.created_at,
     };
   });
+  const lines = new Map<string, CounterQueueLine[]>(
+    (carts ?? []).map((cart) => [
+      cart.session_id,
+      (cart.qr_cart_items ?? []).map((l) => ({
+        id: l.id,
+        qty: l.qty,
+        state: l.state,
+        fulfillment: l.fulfillment,
+        fire_at: l.fire_at,
+        bumped_at: l.bumped_at,
+        comped: l.comped,
+        by_seat: l.by_seat,
+      })),
+    ]),
+  );
   const truncated = queueEmptiness(rows.length, REGISTER_QUEUE_CAP) === "cannot-say";
   if (truncated)
     console.warn(
@@ -83,5 +117,61 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
         cap: REGISTER_QUEUE_CAP,
       },
     );
-  return { ok: true, rows, truncated };
+  return { ok: true, rows, truncated, lines };
+}
+
+// ── Phase 2f · P2v — the lane's unpaid bags ──────────────────────────────────────────────────────
+
+/** One open counter order with food in the kitchen, as the takeaway lane reads it (`expo.ts` shapes
+ *  it through `unpaidBag`, which keeps only the lines past their grace). */
+export type UnpaidCartRow = {
+  id: string;
+  session_id: string;
+  customer_name: string | null;
+  items: {
+    id: string;
+    name: string;
+    qty: number;
+    modifiers: unknown;
+    modifier_option_ids: unknown;
+    fulfillment: string;
+    notes: string | null;
+    menu_item_id: string;
+    state: string;
+    fire_at: string | null;
+    bumped_at: string | null;
+    comped: boolean;
+  }[];
+};
+
+/**
+ * The OPEN `reg-` counter orders that hold a line the kitchen has (fired / in progress / served) —
+ * the lane's unpaid bags. The `reg-` predicate lives HERE (the one module that names `REG_PREFIX`),
+ * never the kiosk's: a kiosk order is pay-first. `sent:qr_cart_items!inner(id)` filtered to the sent
+ * states makes the cap count CANDIDATE bags only (a cart of drafts never consumes a slot); `items`
+ * is the unfiltered embed the bag is built from. A full page is `truncated` — the caller treats it
+ * as an outage of the lane rather than hiding the newest bag. Plain query; no amount is read.
+ */
+export async function readUnpaidCounterCarts(
+  db: Db,
+): Promise<{ ok: true; carts: UnpaidCartRow[]; truncated: boolean } | { ok: false }> {
+  const { data, error } = await db
+    .from("qr_carts")
+    .select(
+      "id,session_id,customer_name,created_at,items:qr_cart_items(id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id,state,fire_at,bumped_at,comped),sent:qr_cart_items!inner(id),table_sessions!inner(qr_code,mode,status)",
+    )
+    .eq("table_sessions.mode", "pickup")
+    .eq("table_sessions.status", "active")
+    .like("table_sessions.qr_code", `${REG_PREFIX}%`)
+    .eq("status", "open")
+    .in("sent.state", ["fired", "in_progress", "served"])
+    .order("created_at", { ascending: true })
+    .limit(REGISTER_QUEUE_CAP);
+  if (error) {
+    console.error("[register-queue] unpaid counter read failed", { message: error.message });
+    return { ok: false };
+  }
+  const carts: UnpaidCartRow[] = data ?? [];
+  const truncated = queueEmptiness(carts.length, REGISTER_QUEUE_CAP) === "cannot-say";
+  return { ok: true, carts, truncated };
 }

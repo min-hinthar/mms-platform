@@ -41,6 +41,7 @@ const ticket = (cartId: string, lines: KitchenLine[]): KitchenTicket => ({
   shortCode: null,
   pickupSlot: null,
   held: false,
+  unpaid: false,
   firedAt: "2026-09-20T18:00:00.000Z",
   lines,
 });

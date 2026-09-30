@@ -16,6 +16,8 @@ import {
   undoNotice,
   sendNoteAfterCommit,
   sendViewFact,
+  sendRoute,
+  undoRoute,
   type SendRow,
   type StaffSendCounts,
   type StaffSendViewInput,
@@ -45,6 +47,8 @@ describe("staffSendCounts — one count, the one mms_fire_cart fires", () => {
       togoDraft: 1,
       inKitchen: true,
       foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
     });
   });
 
@@ -81,6 +85,8 @@ const counts = (over: Partial<StaffSendCounts> = {}): StaffSendCounts => ({
   togoDraft: 0,
   inKitchen: false,
   foodDraft: true,
+  counterDraft: 0,
+  counterSentPastGrace: false,
   ...over,
 });
 const input = (over: Partial<StaffSendViewInput> = {}): StaffSendViewInput => ({
@@ -91,6 +97,9 @@ const input = (over: Partial<StaffSendViewInput> = {}): StaffSendViewInput => ({
   hostPresent: true,
   counterAsk: false,
   counts: counts(),
+  counterArm: null,
+  hasName: true,
+  payAtPickup: true,
   ...over,
 });
 
@@ -142,14 +151,10 @@ describe("staffSendView — the owner's decision #3, as recommended", () => {
     expect(v).toEqual({ kind: "allSent" });
   });
 
-  it("a register counter order with a food draft: the kitchen starts it at pay — never a Send", () => {
-    // Counts that WOULD offer a Send if the view trusted them over the session mode.
-    const v = staffSendView(input({ mode: "pickup", counterOrder: true, counts: counts() }));
-    expect(v).toEqual({ kind: "counterAtPay" });
-  });
-
   it("a NON-counter pickup cart with a draft (a slotted diner pickup): no line at all", () => {
-    const v = staffSendView(input({ mode: "pickup", counterOrder: false, counts: counts() }));
+    const v = staffSendView(
+      input({ mode: "pickup", counterOrder: false, counts: counts({ counterDraft: 3 }) }),
+    );
     expect(v).toEqual({ kind: "none" });
   });
 
@@ -216,6 +221,7 @@ describe("sendHoldMsg / sendRefusalMsg — one sentence per hold, wherever it is
     blocked: null,
     staffAdded: 2,
     dinerUnits: 0,
+    counter: false,
   };
   it("each hold names its fix; a LOST add is never worded as a wait", () => {
     expect(sendHoldMsg({ kind: "note", lineId: "l1", name: "Tea" })).toEqual({
@@ -342,6 +348,7 @@ describe("sendNoteAfterCommit — a send line lives until the fact it speaks to 
         blocked: null,
         staffAdded: 3,
         dinerUnits: 0,
+        counter: false,
       }),
     ).toBe("send:3");
   });
@@ -392,5 +399,211 @@ describe("settleGateUnits — the count the line names", () => {
     expect(settleGateUnits({ trigger: "cash", units: 2, raisedAt: 1 }, true, 3)).toBe(3);
     expect(settleGateUnits({ trigger: "cash", units: 2, raisedAt: 1 }, false, 0)).toBe(2);
     expect(settleGateUnits({ trigger: "tab", units: null, raisedAt: 1 }, true, 4)).toBe(4);
+  });
+});
+
+// ── Phase 2f · P2v — a counter order may cook before it is paid ──────────────────────────────────
+describe("staffSendCounts — the counter's draft and 'sent', on the DB clock", () => {
+  const NOW = Date.parse("2026-10-01T18:00:00.000Z");
+  const iso = (dSec: number) => new Date(NOW + dSec * 1000).toISOString();
+  const rows: SendRow[] = [
+    { state: "draft", fulfillment: "togo", qty: 2, by_seat: null },
+    { state: "draft", fulfillment: "grocery", qty: 4, by_seat: null },
+    { state: "draft", fulfillment: "dinein", qty: 8, by_seat: null },
+  ];
+
+  it("counterDraft counts to-go drafts only — what mms_fire_counter_cart fires", () => {
+    // counter-draft-counts-grocery
+    expect(staffSendCounts("pickup", rows, NOW).counterDraft).toBe(2);
+    // a table never has a counter draft
+    expect(staffSendCounts("dinein", rows, NOW).counterDraft).toBe(0);
+  });
+
+  it("sent means past the grace by the clock it is given — not merely fired", () => {
+    const inGrace = [
+      ...rows,
+      { state: "fired", fulfillment: "togo", qty: 1, by_seat: null, fire_at: iso(5) },
+    ];
+    const past = [
+      ...rows,
+      { state: "fired", fulfillment: "togo", qty: 1, by_seat: null, fire_at: iso(-5) },
+    ];
+    // in-grace-counts-as-sent
+    expect(staffSendCounts("pickup", inGrace, NOW).counterSentPastGrace).toBe(false);
+    expect(staffSendCounts("pickup", inGrace, NOW).inKitchen).toBe(true);
+    expect(staffSendCounts("pickup", past, NOW).counterSentPastGrace).toBe(true);
+    // a comped line is not "sent" (an audited loss already)
+    const comped = [
+      {
+        state: "fired",
+        fulfillment: "togo",
+        qty: 1,
+        by_seat: null,
+        fire_at: iso(-5),
+        comped: true,
+      },
+    ];
+    expect(staffSendCounts("pickup", comped, NOW).counterSentPastGrace).toBe(false);
+  });
+});
+
+describe("staffSendView — the counter's pay-at-pickup Send (owner decisions 1 + 7)", () => {
+  const counter = (over: Partial<StaffSendViewInput> = {}) =>
+    staffSendView(
+      input({
+        mode: "pickup",
+        counterOrder: true,
+        counts: counts({ sendable: 0, counterDraft: 3 }),
+        counterArm: "walkup",
+        ...over,
+      }),
+    );
+
+  it("a named walk-up with 3 drafts: a SECONDARY counter Send — they pay first", () => {
+    expect(counter()).toEqual({
+      kind: "send",
+      units: 3,
+      counter: true,
+      emphasis: "secondary",
+      note: "payAtPickup",
+      blocked: null,
+      staffAdded: 3,
+      dinerUnits: 0,
+    });
+    // an arm from before the column reads as a walk-up
+    expect(counter({ counterArm: null })).toMatchObject({ emphasis: "secondary" });
+  });
+
+  it("a phone order leads with the Send", () => {
+    // phone-arm-settle-primary · counter-send-primary-before-pay
+    expect(counter({ counterArm: "phone" })).toMatchObject({
+      kind: "send",
+      emphasis: "primary",
+      note: "payAtPickup",
+    });
+  });
+
+  it("food past its grace + more drafts: send the rest, primary, with the unpaid-more note", () => {
+    expect(
+      counter({ counts: counts({ sendable: 0, counterDraft: 1, counterSentPastGrace: true }) }),
+    ).toMatchObject({ kind: "send", units: 1, emphasis: "primary", note: "unpaidMore" });
+  });
+
+  it("food still inside its grace does not count as sent", () => {
+    expect(
+      counter({
+        counts: counts({
+          sendable: 0,
+          counterDraft: 1,
+          inKitchen: true,
+          counterSentPastGrace: false,
+        }),
+      }),
+    ).toMatchObject({ kind: "send", emphasis: "secondary", note: "payAtPickup" });
+  });
+
+  it("no name: the Send holds with noName; a payment in flight outranks it", () => {
+    expect(counter({ hasName: false })).toMatchObject({ kind: "send", blocked: "noName" });
+    // counter-name-outranks-paying
+    expect(counter({ hasName: false, paymentInFlight: true })).toMatchObject({ blocked: "paying" });
+    expect(counter({ paymentInFlight: true })).toMatchObject({ blocked: "paying" });
+  });
+
+  it("everything sent past the grace: counterSent — also with the switch off", () => {
+    const allSent = counts({
+      sendable: 0,
+      counterDraft: 0,
+      inKitchen: true,
+      counterSentPastGrace: true,
+    });
+    expect(counter({ counts: allSent })).toEqual({ kind: "counterSent" });
+    // switch-hides-sent-food: parking NEW sends never hides food already in the kitchen
+    expect(counter({ counts: allSent, payAtPickup: false })).toEqual({ kind: "counterSent" });
+    expect(
+      counter({
+        counts: counts({ sendable: 0, counterDraft: 2, counterSentPastGrace: true }),
+        payAtPickup: false,
+      }),
+    ).toEqual({ kind: "counterSent" });
+  });
+
+  it("in-grace only, nothing left to send: nothing", () => {
+    expect(counter({ counts: counts({ sendable: 0, counterDraft: 0, inKitchen: true }) })).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("the switch off, drafts, nothing sent: no Send (pay-first)", () => {
+    expect(counter({ payAtPickup: false })).toEqual({ kind: "none" });
+  });
+
+  it("a kiosk order is never offered a Send", () => {
+    // kiosk-offered-a-send
+    expect(counter({ counterOrder: false })).toEqual({ kind: "none" });
+  });
+
+  it("a table's Send says it is not a counter Send", () => {
+    expect(staffSendView(input({ hostPresent: false }))).toMatchObject({
+      kind: "send",
+      counter: false,
+    });
+  });
+});
+
+describe("sendRoute / undoRoute — which RPC answers, decided by the session", () => {
+  const T = { mode: "dinein", qrCode: "T7" };
+  const REG = { mode: "pickup", qrCode: "reg-ab12" };
+  const KIOSK = { mode: "pickup", qrCode: "kiosk-ab12" };
+  const DINER = { mode: "pickup", qrCode: "T7" };
+  const SCAN = { mode: "scango", qrCode: "reg-ab12" };
+
+  it("a table fires through the dine-in RPC; a counter order through the counter RPC", () => {
+    expect(sendRoute(T, true)).toEqual({ rpc: "dinein" });
+    expect(sendRoute(T, false)).toEqual({ rpc: "dinein" });
+    expect(sendRoute(REG, true)).toEqual({ rpc: "counter" });
+  });
+
+  it("everything else refuses — and the switch parks the counter's NEW sends", () => {
+    for (const s of [KIOSK, DINER, SCAN]) expect(sendRoute(s, true)).toEqual({ refuse: "counter" });
+    // pay-at-pickup-drawn-not-answered
+    expect(sendRoute(REG, false)).toEqual({ refuse: "counter" });
+  });
+
+  it("undo follows the session, never the switch (a send in its grace can always come back)", () => {
+    expect(undoRoute(T)).toEqual({ rpc: "dinein" });
+    expect(undoRoute(REG)).toEqual({ rpc: "counter" });
+    for (const s of [KIOSK, DINER, SCAN]) expect(undoRoute(s)).toEqual({ refuse: "counter" });
+  });
+});
+
+describe("the counter's noName, said", () => {
+  const SEND_NONAME = {
+    kind: "send" as const,
+    units: 2,
+    emphasis: "secondary" as const,
+    note: "payAtPickup" as const,
+    blocked: "noName" as const,
+    staffAdded: 2,
+    dinerUnits: 0,
+    counter: true,
+  };
+
+  it("a refused fire for want of a name says so", () => {
+    // noname-refusal-unsaid
+    expect(fireNotice({ ok: false, reason: "noName" })).toEqual({
+      tone: "warn",
+      msg: { k: "table.send.err.noName" },
+    });
+  });
+
+  it("the held Send says why — after a payment, before a hold", () => {
+    // noname-hold-unsaid
+    expect(sendRefusalMsg(SEND_NONAME, null)).toEqual({ k: "table.send.hold.noName" });
+    expect(sendRefusalMsg(SEND_NONAME, { kind: "writing" })).toEqual({
+      k: "table.send.hold.noName",
+    });
+    expect(sendRefusalMsg({ ...SEND_NONAME, blocked: "paying" }, null)).toEqual({
+      k: "table.send.paying",
+    });
   });
 });

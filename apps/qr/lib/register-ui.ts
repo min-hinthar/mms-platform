@@ -60,4 +60,8 @@ export type Handoff = {
   isCounter: boolean;
   /** The cart that paid — `handoffStillCurrent` hides a table's card once a different one opens. */
   cartId: string | null;
+  /** Phase 2f · P2v — a counter order whose food went to the kitchen BEFORE it was paid (captured from
+   *  `detail.unpaidSent` at the settle tap): the card says so and points at the takeaway lane. Never a
+   *  claim that the food is ready. Absent (or false) on every other handoff. */
+  sentEarly?: boolean;
 };

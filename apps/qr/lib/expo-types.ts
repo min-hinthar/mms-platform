@@ -29,6 +29,10 @@ export type ExpoLine = {
  *  → [picked_up drops off the board]); `label` is what the expo calls out (table code, or the channel). */
 export type ExpoTicket = {
   orderId: string;
+  /** Phase 2f — the order's cart (`qr_orders.cart_id`), or null on an order that carries none. The
+   *  counter bell keys a bag's food by its CART, so an unpaid bag and the paid bag that replaces it
+   *  are one bell, never two. */
+  cartId: string | null;
   label: string;
   /** K2: the registered table (1–10) a dine-in to-go bag came from, or null for a pickup/scango bag
    *  (no table) or an unregistered sticker. Denormalized snapshot — durable past session expiry. */
@@ -58,8 +62,27 @@ export type ExpoTicket = {
   createdAt: string;
 };
 
+/** Phase 2f · P2v — an OPEN counter order whose food the kitchen has, before it is paid ("Unpaid —
+ *  collect at pickup"). Read off the cart (there is no order yet); its one action is Take payment. */
+export type ExpoUnpaidBag = {
+  cartId: string;
+  sessionId: string;
+  customerName: string | null;
+  /** The SENT lines only (past their grace), Burmese-first names like every bag line. */
+  lines: ExpoLine[];
+  /** Units still draft (not grocery) — on the order, not in the bag. */
+  moreUnits: number;
+  /** `kitchenStateOf` over the sent lines — "done" when every sent line is served. */
+  kitchen: KitchenState;
+  /** The earliest sent line's fire_at — the bag's age on the lane (`expoAge`'s `createdAt`). */
+  sentAt: string;
+};
+
 export type ExpoQueue = {
   tickets: ExpoTicket[];
+  /** Phase 2f — the unpaid counter bags ([] when none). An unreadable or saturated unpaid read makes
+   *  the whole poll an `outage`, never an empty list. */
+  unpaid: ExpoUnpaidBag[];
   /** Server clock at snapshot (ISO) — the client seeds relative-time ticks from this (clock-skew safe). */
   serverNow: string;
 };

@@ -1,4 +1,5 @@
 import { kitchenDraftUnitsFromRows } from "./checkout-stage";
+import { counterSent, isCounterOrder, type CounterArm } from "./counter-order";
 import { plural } from "./i18n/fill";
 import type { StaffKey } from "./i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "./staff-outage";
@@ -28,6 +29,9 @@ export type SendRow = {
   fulfillment: string;
   qty: number;
   by_seat: string | null;
+  /** Phase 2f — read only by the counter's "sent" (past the grace); absent where no caller needs it. */
+  fire_at?: string | null;
+  comped?: boolean;
 };
 
 export type StaffSendCounts = {
@@ -42,11 +46,21 @@ export type StaffSendCounts = {
   inKitchen: boolean;
   /** Any unsent draft that is FOOD (not grocery) — what a counter order cooks at payment. */
   foodDraft: boolean;
+  /** Phase 2f · counter orders only (mode "pickup"): Σqty of draft TO-GO lines — what
+   *  `mms_fire_counter_cart` fires. 0 otherwise. */
+  counterDraft: number;
+  /** Phase 2f — `counterSent(rows, nowMs)`: something reached the KDS (PAST the grace, on the clock
+   *  the caller passes — the DB clock wherever it gates anything). */
+  counterSentPastGrace: boolean;
 };
 
 const IN_KITCHEN = new Set(["fired", "in_progress", "served"]);
 
-export function staffSendCounts(mode: string, rows: ReadonlyArray<SendRow>): StaffSendCounts {
+export function staffSendCounts(
+  mode: string,
+  rows: ReadonlyArray<SendRow>,
+  nowMs: number = Date.now(),
+): StaffSendCounts {
   const dinein = mode === "dinein";
   return {
     sendable: dinein ? kitchenDraftUnitsFromRows(rows) : 0,
@@ -58,6 +72,13 @@ export function staffSendCounts(mode: string, rows: ReadonlyArray<SendRow>): Sta
       : 0,
     inKitchen: rows.some((r) => IN_KITCHEN.has(r.state)),
     foodDraft: rows.some((r) => r.state === "draft" && r.fulfillment !== "grocery"),
+    counterDraft:
+      mode === "pickup"
+        ? rows
+            .filter((r) => r.state === "draft" && r.fulfillment === "togo")
+            .reduce((a, r) => a + r.qty, 0)
+        : 0,
+    counterSentPastGrace: counterSent(rows, nowMs),
   };
 }
 
@@ -69,19 +90,29 @@ export type StaffSendView =
       /** Primary when staff own the send; secondary (with the host hint) when a diner host runs the
        *  table and every unsent dish is theirs — the owner's decision #3, as recommended. */
       emphasis: "primary" | "secondary";
-      note: null | "host" | "mixed" | "counterAsk";
-      /** A payment holds the cart: the Send stays rendered but refuses, and says why. */
-      blocked: null | "paying";
+      /** `payAtPickup` / `unpaidMore` (Phase 2f) — a counter order's Send, before and after food
+       *  reached the kitchen. */
+      note: null | "host" | "mixed" | "counterAsk" | "payAtPickup" | "unpaidMore";
+      /** A payment holds the cart: the Send stays rendered but refuses, and says why. `noName`
+       *  (Phase 2f): a counter order sends only with a name on it — the only pre-payment identity. */
+      blocked: null | "paying" | "noName";
       staffAdded: number;
       dinerUnits: number;
+      /** A counter order's pay-at-pickup Send (its label and notes differ). false on every table's. */
+      counter: boolean;
     }
   | { kind: "allSent" }
   | { kind: "togoAtPay"; units: number }
-  | { kind: "counterAtPay" };
+  /** Phase 2f — everything on a counter order is in the kitchen, unpaid: take payment at pickup. */
+  | { kind: "counterSent" };
+
+/** The life of ONE send on this device (useStaffSend re-exports it as `StaffSendPhase`). */
+export type SendPhase = "idle" | "sending" | "undo" | "undoing" | "returning";
 
 export type StaffSendViewInput = {
   mode: string;
-  /** A register (`reg-`) counter order — the only non-table order that cooks at payment. */
+  /** A register (`reg-`) counter order (`isCounterOrder`) — the only non-table order staff may send
+   *  before it is paid (Phase 2f). */
   counterOrder: boolean;
   cartOpen: boolean;
   paymentInFlight: boolean;
@@ -90,15 +121,44 @@ export type StaffSendViewInput = {
   /** The table asked to pay at the counter (a live ask). */
   counterAsk: boolean;
   counts: StaffSendCounts;
+  /** Phase 2f — the counter order's arm (`qr_carts.counter_arm`); null reads as a walk-up. */
+  counterArm: CounterArm | null;
+  /** Phase 2f — the counter order carries a non-blank name (the SQL fire refuses without one). */
+  hasName: boolean;
+  /** Phase 2f — `surfaceOpen("payAtPickup")`: parks NEW counter sends, never hides sent food. */
+  payAtPickup: boolean;
 };
 
 export function staffSendView(i: StaffSendViewInput): StaffSendView {
   if (!i.cartOpen) return { kind: "none" };
-  // A counter order cooks when it is PAID (owner decision 1 files cook-before-pay as its own slice);
-  // until then the screen says so rather than offering a Send the server refuses. A pickup cart with
-  // a slot fires at slot − prep, so it gets no line at all.
-  if (i.mode !== "dinein")
-    return i.counterOrder && i.counts.foodDraft ? { kind: "counterAtPay" } : { kind: "none" };
+  // Phase 2f · P2v — a COUNTER order may cook before it is paid, on staff's explicit Send (owner
+  // decisions 1 + 7). A walk-up pays first, so its Send is secondary beside Take payment; a phone
+  // order leads with Send; once food is past its grace the rest follows it (primary, "unpaidMore").
+  // Any other non-table cart (a kiosk order, a diner's pickup, scan-and-go) stays pay-first and gets
+  // no line at all. The switch (`payAtPickup`) parks NEW sends only: food already in the kitchen is
+  // still said.
+  if (i.mode !== "dinein") {
+    if (!i.counterOrder) return { kind: "none" };
+    const k = i.counts;
+    if (k.counterDraft > 0 && i.payAtPickup) {
+      const hold = i.paymentInFlight
+        ? ("paying" as const)
+        : !i.hasName
+          ? ("noName" as const)
+          : null;
+      return {
+        kind: "send",
+        units: k.counterDraft,
+        counter: true,
+        emphasis: k.counterSentPastGrace || i.counterArm === "phone" ? "primary" : "secondary",
+        note: k.counterSentPastGrace ? "unpaidMore" : "payAtPickup",
+        blocked: hold,
+        staffAdded: k.counterDraft,
+        dinerUnits: 0,
+      };
+    }
+    return k.counterSentPastGrace ? { kind: "counterSent" } : { kind: "none" };
+  }
   const c = i.counts;
   if (c.sendable > 0) {
     const blocked = i.paymentInFlight ? ("paying" as const) : null;
@@ -108,6 +168,7 @@ export function staffSendView(i: StaffSendViewInput): StaffSendView {
       blocked,
       staffAdded: c.staffAdded,
       dinerUnits: c.sendable - c.staffAdded,
+      counter: false,
     };
     // The table has asked to pay: whatever is unsent is now the counter's to settle, so the Send is
     // the counter's to press — with the question to ask first.
@@ -189,10 +250,12 @@ export function sendHoldMsg(hold: NonNullable<StaffSendHold>): StaffKeyMsg {
 }
 
 /** Why the Send refuses a tap right now, or null when it would go: a payment holding the cart
- *  outranks a hold (it is the one nobody at the counter can clear). */
+ *  outranks a hold (it is the one nobody at the counter can clear); a counter order without a name
+ *  (Phase 2f) comes next — the fix is the name, not a wait. */
 export function sendRefusalMsg(view: StaffSendView, hold: StaffSendHold): StaffKeyMsg | null {
   if (view.kind !== "send") return null;
   if (view.blocked === "paying") return { k: "table.send.paying" };
+  if (view.blocked === "noName") return { k: "table.send.hold.noName" };
   return hold === null ? null : sendHoldMsg(hold);
 }
 
@@ -203,6 +266,31 @@ export function sendRefusalMsg(view: StaffSendView, hold: StaffSendHold): StaffK
  */
 export function settleBlockedTarget(trigger: "cash" | "reader" | "tab"): "send" | "lines" {
   return trigger === "tab" ? "lines" : "send";
+}
+
+// ── Phase 2f · which RPC answers ──
+/** Which fire / undo RPC a session's Send goes through, or the refusal (a CODE, mapped to words by
+ *  `fireNotice`). */
+export type SendRoute = { rpc: "dinein" | "counter" } | { refuse: "counter" };
+
+/**
+ * The Send's route, ANSWERED server-side (`staffFireCart`): a table fires through `mms_fire_cart`; a
+ * counter order (`isCounterOrder`) through the staff-only `mms_fire_counter_cart` — unless
+ * `SURFACES.payAtPickup` is parked, which refuses NEW sends and nothing else; every other non-table
+ * order is pay-first and refuses.
+ */
+export function sendRoute(s: { mode: string; qrCode: string }, payAtPickup: boolean): SendRoute {
+  if (s.mode === "dinein") return { rpc: "dinein" };
+  if (!isCounterOrder(s)) return { refuse: "counter" };
+  if (!payAtPickup) return { refuse: "counter" };
+  return { rpc: "counter" };
+}
+
+/** The undo's route: the session decides, never the switch — a send inside its grace can always
+ *  come back, even if the switch was parked in between. */
+export function undoRoute(s: { mode: string; qrCode: string }): SendRoute {
+  if (s.mode === "dinein") return { rpc: "dinein" };
+  return isCounterOrder(s) ? { rpc: "counter" } : { refuse: "counter" };
 }
 
 // ── the send line's lifetime ──────────────────────────────────────────────────────────────────────
@@ -248,7 +336,8 @@ export function sendNoteAfterCommit<N extends HeldSendNote>(
 /**
  * Every refusal the two actions can return, decided by WHERE it happened (never by message text):
  * the gate (signin · outage), the input (invalid), the reads (closed · outage), the session
- * (counter), the payment guard (paying), the write (nothing · expired · gone · failed).
+ * (counter), the payment guard (paying), the write (noName · nothing · expired · gone · failed).
+ * `noName` (Phase 2f): the counter fire moved nothing and its row says the cart had no name.
  */
 export type StaffSendReason =
   | "signin"
@@ -257,6 +346,7 @@ export type StaffSendReason =
   | "closed"
   | "counter"
   | "paying"
+  | "noName"
   | "nothing"
   | "expired"
   | "gone"
@@ -275,7 +365,7 @@ export type StaffFireResult =
 
 export type StaffUndoResult =
   | { ok: true; unfired: number }
-  | { ok: false; reason: Exclude<StaffSendReason, "nothing"> };
+  | { ok: false; reason: Exclude<StaffSendReason, "nothing" | "noName"> };
 
 /** A region line: a dictionary key (rendered through <MsgText>), or the outage sentence, whose
  *  Burmese twin `<OutageText>` supplies. Structurally the staff `StaffMsg`. */
@@ -313,6 +403,8 @@ export function fireNotice(res: StaffFireResult): SendNotice {
       return warn("table.send.err.closed");
     case "counter":
       return warn("table.send.err.counter");
+    case "noName":
+      return warn("table.send.err.noName");
     case "nothing":
       return { tone: "ok", msg: { k: "table.send.err.nothing" } };
     case "invalid":

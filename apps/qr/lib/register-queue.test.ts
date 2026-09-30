@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readRegisterQueue, REG_PREFIX, REGISTER_QUEUE_CAP } from "./register-queue";
+import {
+  readRegisterQueue,
+  readUnpaidCounterCarts,
+  REG_PREFIX,
+  REGISTER_QUEUE_CAP,
+} from "./register-queue";
 
 /**
  * A4·2 — the counter queue read, asserted as a QUERY (every predicate recorded) and by value.
@@ -11,6 +16,8 @@ type Rec = {
   cols: string;
   eqs: [string, unknown][];
   ors: [string, unknown][];
+  likes: [string, unknown][];
+  ins: [string, unknown][];
   order: [string, { ascending?: boolean } | undefined] | null;
   limit: number | null;
 };
@@ -21,7 +28,16 @@ let fail = false;
 function fakeDb() {
   return {
     from(table: string) {
-      const r: Rec = { table, cols: "", eqs: [], ors: [], order: null, limit: null };
+      const r: Rec = {
+        table,
+        cols: "",
+        eqs: [],
+        ors: [],
+        likes: [],
+        ins: [],
+        order: null,
+        limit: null,
+      };
       rec = r;
       const api = {
         select(cols: string) {
@@ -34,6 +50,14 @@ function fakeDb() {
         },
         or(expr: string, opts?: unknown) {
           r.ors.push([expr, opts]);
+          return api;
+        },
+        like(col: string, val: unknown) {
+          r.likes.push([col, val]);
+          return api;
+        },
+        in(col: string, val: unknown) {
+          r.ins.push([col, val]);
           return api;
         },
         order(col: string, opts?: { ascending?: boolean }) {
@@ -127,5 +151,104 @@ describe("readRegisterQueue — the open counter orders, oldest first", () => {
   it("a failed read is an outage, never an empty queue", async () => {
     fail = true;
     expect(await readRegisterQueue(fakeDb())).toEqual({ ok: false, reason: "outage" });
+  });
+});
+
+// ── Phase 2f · P2v ──
+describe("readRegisterQueue — the counter orders' lines ride the same read", () => {
+  it("returns each session's lines (every state — the floor folds them), keyed by session", async () => {
+    rows = [
+      cart({
+        qr_cart_items: [
+          {
+            id: "l1",
+            qty: 1,
+            unit_price_cents: 600,
+            state: "fired",
+            comped: false,
+            fulfillment: "togo",
+            fire_at: "2026-09-13T18:01:00Z",
+            bumped_at: null,
+            by_seat: null,
+          },
+          {
+            id: "l2",
+            qty: 2,
+            unit_price_cents: 600,
+            state: "voided",
+            comped: false,
+            fulfillment: "togo",
+            fire_at: null,
+            bumped_at: null,
+            by_seat: null,
+          },
+        ],
+      }),
+    ];
+    const res = await readRegisterQueue(fakeDb());
+    if (!res.ok) throw new Error("expected ok");
+    expect(rec?.cols).toContain("fire_at");
+    expect(res.lines.get("sess-1")).toEqual([
+      {
+        id: "l1",
+        qty: 1,
+        state: "fired",
+        fulfillment: "togo",
+        fire_at: "2026-09-13T18:01:00Z",
+        bumped_at: null,
+        comped: false,
+        by_seat: null,
+      },
+      {
+        id: "l2",
+        qty: 2,
+        state: "voided",
+        fulfillment: "togo",
+        fire_at: null,
+        bumped_at: null,
+        comped: false,
+        by_seat: null,
+      },
+    ]);
+    // the card's count and subtotal are still the live lines only
+    expect(res.rows[0]).toMatchObject({ itemCount: 1, subtotalCents: 600 });
+  });
+});
+
+describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", () => {
+  const unpaid = (over: Partial<Record<string, unknown>> = {}) => ({
+    id: "cart-1",
+    session_id: "sess-1",
+    customer_name: "Aye",
+    created_at: "2026-09-13T18:00:00Z",
+    items: [],
+    sent: [{ id: "l1" }],
+    table_sessions: { qr_code: "reg-ABCD", mode: "pickup", status: "active" },
+    ...over,
+  });
+
+  it("reads OPEN carts on ACTIVE reg- pickup sessions that hold a SENT line, oldest first, capped", async () => {
+    rows = [unpaid()];
+    const res = await readUnpaidCounterCarts(fakeDb());
+    expect(res).toEqual({ ok: true, carts: [unpaid()], truncated: false });
+    expect(rec?.table).toBe("qr_carts");
+    expect(rec?.eqs).toContainEqual(["status", "open"]);
+    expect(rec?.eqs).toContainEqual(["table_sessions.mode", "pickup"]);
+    expect(rec?.eqs).toContainEqual(["table_sessions.status", "active"]);
+    // unpaid-read-reaches-kiosk: reg- only — a kiosk order never cooks unpaid
+    expect(rec?.likes).toEqual([["table_sessions.qr_code", `${REG_PREFIX}%`]]);
+    // unsent-carts-consume-the-cap: the inner-joined sent lines are filtered to the SENT states
+    expect(rec?.ins).toEqual([["sent.state", ["fired", "in_progress", "served"]]]);
+    expect(rec?.cols).toContain("sent:qr_cart_items!inner(id)");
+    expect(rec?.order).toEqual(["created_at", { ascending: true }]);
+    expect(rec?.limit).toBe(REGISTER_QUEUE_CAP);
+  });
+
+  it("a full page is truncated; a failed read is not ok", async () => {
+    rows = Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) => unpaid({ id: `c${i}` }));
+    const res = await readUnpaidCounterCarts(fakeDb());
+    expect(res.ok && res.truncated).toBe(true);
+    fail = true;
+    expect(await readUnpaidCounterCarts(fakeDb())).toEqual({ ok: false });
   });
 });

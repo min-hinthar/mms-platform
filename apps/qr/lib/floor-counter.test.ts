@@ -1,0 +1,419 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * Phase 2f · P2v — the FLOOR's half of "a counter order may cook before it is paid".
+ *
+ *  - `getTableDetail` carries the counter order's facts (counter / arm / name / unpaid / the sent
+ *    line ids / mergeable / the switch), with "sent" measured on the DATABASE clock;
+ *  - `clearTable` refuses a counter order whose food reached the kitchen (fail CLOSED on an
+ *    unreadable check — it guards a write-off path) and writes nothing when it refuses;
+ *  - `mergeTables` refuses any counter TARGET and a counter source with sent food, before the RPC;
+ *  - `getFloorView` flags a register row's unpaid food and folds its kitchen row.
+ *
+ * The database clock is an hour AHEAD of the process clock on purpose: a line fired two minutes
+ * before the DB clock is past its grace there and still in the FUTURE on the app clock, so a read
+ * that measures the grace on the wrong clock separates. Each case is the one a `p2f-lib/floor/*`
+ * mutant in `scripts/verify-slice.mjs` turns red.
+ */
+vi.mock("server-only", () => ({}));
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("next/server", () => ({ after: () => {} }));
+vi.mock("./posthog-server", () => ({
+  getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
+}));
+vi.mock("./authz", () => ({ AuthzError: class AuthzError extends Error {} }));
+vi.mock("./staff", () => ({
+  getStaffAuth: () =>
+    Promise.resolve({
+      kind: "staff",
+      caller: { uid: "u", staffId: "st", role: "server", displayName: "S", email: null },
+    }),
+  requireStaff: () => Promise.resolve({}),
+  staffGate: () => Promise.resolve({ ok: true, caller: { staffId: "st", role: "server" } }),
+  STAFF_WRITE_OUTAGE: "outage",
+}));
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
+vi.mock("./pay-guard", () => ({
+  isFresh: () => false,
+  paymentInFlightReason: () => Promise.resolve(null),
+}));
+vi.mock("@mms/db/schemas", () => ({
+  clearTableInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
+  mergeTablesInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
+}));
+vi.mock("./totals", () => ({
+  getCartTotals: () =>
+    Promise.resolve({
+      subtotalCents: 1200,
+      discountCents: 0,
+      rewardCents: 0,
+      rewardFaceCents: 0,
+      promoCents: 0,
+      serviceChargeCents: 0,
+      taxCents: 0,
+      tipCents: 0,
+      totalCents: 1200,
+    }),
+}));
+vi.mock("./line-names", () => ({
+  loadLineNames: () => Promise.resolve({ optionNameMy: new Map() }),
+}));
+const rq = vi.hoisted(() => ({ value: null as unknown }));
+vi.mock("./register-queue", async (orig) => ({
+  ...(await orig<typeof import("./register-queue")>()),
+  readRegisterQueue: () => Promise.resolve(rq.value),
+}));
+
+type Row = Record<string, unknown>;
+const DB_NOW_MS = Date.now() + 60 * 60_000;
+const DB_NOW = new Date(DB_NOW_MS).toISOString();
+const dbAgo = (sec: number) => new Date(DB_NOW_MS - sec * 1000).toISOString();
+
+const REG = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const TABLE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const KIOSK = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+let sessions: Record<string, Row> = {};
+let carts: Record<string, Row | null> = {};
+let items: Record<string, Row[]> = {};
+let itemsError: { message: string } | null = null;
+let nowError: { message: string } | null = null;
+let updates: { table: string; patch: Row }[] = [];
+let rpcCalls: string[] = [];
+
+function pick(row: Row, cols: string): Row {
+  const out: Row = {};
+  for (const c of cols.split(",").map((s) => s.trim())) if (c in row) out[c] = row[c];
+  return out;
+}
+
+function tableApi(name: string) {
+  let cols = "*";
+  let head = false;
+  const eqs: Record<string, unknown> = {};
+  let patch: Row | null = null;
+  const api: Record<string, unknown> = {
+    select(c: string, opts?: { head?: boolean }) {
+      cols = c;
+      head = !!opts?.head;
+      return api;
+    },
+    update(p: Row) {
+      patch = p;
+      return api;
+    },
+    eq(col: string, val: unknown) {
+      eqs[col] = val;
+      return api;
+    },
+    neq() {
+      return api;
+    },
+    in() {
+      return api;
+    },
+    order() {
+      return api;
+    },
+    limit() {
+      return api;
+    },
+    gt() {
+      return api;
+    },
+    not() {
+      return api;
+    },
+    or() {
+      return api;
+    },
+    maybeSingle() {
+      if (name === "table_sessions")
+        return Promise.resolve({ data: sessions[eqs.id as string] ?? null, error: null });
+      if (name === "qr_carts")
+        return Promise.resolve({ data: carts[eqs.session_id as string] ?? null, error: null });
+      return Promise.resolve({ data: null, error: null });
+    },
+    then(resolve: (r: unknown) => void) {
+      if (patch) {
+        updates.push({ table: name, patch });
+        return resolve({ data: null, error: null });
+      }
+      if (name === "qr_cart_items") {
+        if (head) return resolve({ count: (items[eqs.cart_id as string] ?? []).length });
+        if (itemsError) return resolve({ data: null, error: itemsError });
+        return resolve({
+          data: (items[eqs.cart_id as string] ?? []).map((r) => pick(r, cols)),
+          error: null,
+        });
+      }
+      resolve({ data: [], error: null });
+    },
+  };
+  return api;
+}
+vi.mock("@mms/db/server", () => ({
+  serviceClient: () => ({
+    from: (name: string) => tableApi(name),
+    rpc: (fn: string) => {
+      rpcCalls.push(fn);
+      if (fn === "mms_now")
+        return Promise.resolve(
+          nowError ? { data: null, error: nowError } : { data: DB_NOW, error: null },
+        );
+      if (fn === "mms_merge_table_orders") return Promise.resolve({ data: 1, error: null });
+      return Promise.resolve({ data: null, error: null });
+    },
+  }),
+}));
+
+const { getTableDetail, clearTable, mergeTables, getFloorView } = await import("./floor");
+
+const line = (over: Row): Row => ({
+  id: "l",
+  name: "Mohinga",
+  qty: 1,
+  unit_price_cents: 1200,
+  by_seat: null,
+  created_at: "2026-10-01T00:01:00.000Z",
+  menu_item_id: null,
+  state: "draft",
+  comped: false,
+  notes: null,
+  modifiers: [],
+  fulfillment: "togo",
+  modifier_option_ids: null,
+  fire_at: null,
+  ...over,
+});
+const cart = (id: string, over: Row = {}): Row => ({
+  id,
+  locked: false,
+  locked_at: null,
+  settle_at: null,
+  settle_by: null,
+  counter_requested_at: null,
+  tab_type: "none",
+  tab_opened_at: null,
+  intended_tip_cents: null,
+  promo_code: null,
+  customer_name: "Aye",
+  counter_arm: "phone",
+  ...over,
+});
+const session = (id: string, qr_code: string, mode: string): Row => ({
+  id,
+  qr_code,
+  table_number: mode === "dinein" ? 7 : null,
+  mode,
+  status: "active",
+  host_seat: null,
+  created_at: "2026-10-01T00:00:00.000Z",
+});
+
+beforeEach(() => {
+  sessions = {
+    [REG]: session(REG, "reg-ab12", "pickup"),
+    [TABLE]: session(TABLE, "t-7", "dinein"),
+    [KIOSK]: session(KIOSK, "kiosk-ab12", "pickup"),
+  };
+  carts = {
+    [REG]: cart("cart-reg"),
+    [TABLE]: cart("cart-t", { customer_name: null, counter_arm: null }),
+  };
+  items = {
+    // fired 2 minutes before the DB clock — past the grace there, an hour ahead of the app clock
+    "cart-reg": [
+      line({ id: "sent", state: "fired", fire_at: dbAgo(120) }),
+      line({ id: "draft", qty: 2 }),
+    ],
+    "cart-t": [line({ id: "t1", state: "fired", fulfillment: "dinein", fire_at: dbAgo(120) })],
+  };
+  itemsError = null;
+  nowError = null;
+  updates = [];
+  rpcCalls = [];
+  rq.value = null;
+});
+
+async function detail(id: string) {
+  const r = await getTableDetail(id);
+  if (r.kind !== "detail") throw new Error(`expected a detail, got ${r.kind}`);
+  return r.detail;
+}
+
+describe("getTableDetail — a counter order's facts, on the DB clock", () => {
+  it("food past its grace BY THE DB CLOCK: unpaid, its sent line ids, not mergeable", async () => {
+    const d = await detail(REG);
+    expect(d.counterOrder).toBe(true);
+    expect(d.counterArm).toBe("phone");
+    expect(d.customerName).toBe("Aye");
+    // detail-unpaid-on-the-app-clock
+    expect(d.unpaidSent).toBe(true);
+    expect(d.sentLineIds).toEqual(["sent"]);
+    // mergeable-with-sent-food
+    expect(d.mergeable).toBe(false);
+    expect(d.payAtPickup).toBe(true);
+    expect(d.send.counterDraft).toBe(2);
+    // the page's clock is the DB clock on a counter order
+    expect(d.serverNow).toBe(DB_NOW);
+  });
+
+  it("a send still inside its grace is not unpaid-sent, and the order merges", async () => {
+    items["cart-reg"] = [line({ id: "g", state: "fired", fire_at: dbAgo(-5) })];
+    const d = await detail(REG);
+    expect(d.unpaidSent).toBe(false);
+    expect(d.sentLineIds).toEqual([]);
+    expect(d.mergeable).toBe(true);
+  });
+
+  it("a table with fired food is never unpaid, never a counter order, and merges", async () => {
+    const d = await detail(TABLE);
+    expect(d.counterOrder).toBe(false);
+    expect(d.counterArm).toBeNull();
+    expect(d.unpaidSent).toBe(false);
+    expect(d.sentLineIds).toEqual([]);
+    expect(d.mergeable).toBe(true);
+    // no DB clock read off a counter order
+    expect(rpcCalls).not.toContain("mms_now");
+  });
+
+  it("an unreadable DB clock falls back to the app clock (advisory — the SQL decides writes)", async () => {
+    nowError = { message: "boom" };
+    const d = await detail(REG);
+    // an hour ahead of the app clock, so on the fallback the line is still in its grace
+    expect(d.unpaidSent).toBe(false);
+  });
+
+  it("no open cart: no arm, no name, nothing unpaid, nothing to merge", async () => {
+    carts[REG] = null;
+    const d = await detail(REG);
+    expect(d.counterOrder).toBe(true);
+    expect(d.counterArm).toBeNull();
+    expect(d.customerName).toBeNull();
+    expect(d.unpaidSent).toBe(false);
+    expect(d.mergeable).toBe(false);
+  });
+});
+
+describe("clearTable — a counter order with food in the kitchen is not cleared", () => {
+  it("refuses with code `sent` and writes NOTHING", async () => {
+    const r = await clearTable({ sessionId: REG });
+    // counter-clear-writes-off-food
+    expect(r).toMatchObject({ ok: false, code: "sent" });
+    expect(updates).toEqual([]);
+  });
+
+  it("a send still inside its grace clears (it never reached the kitchen)", async () => {
+    items["cart-reg"] = [line({ id: "g", state: "fired", fire_at: dbAgo(-5) })];
+    expect(await clearTable({ sessionId: REG })).toEqual({ ok: true });
+    expect(updates.map((u) => u.table)).toEqual(["qr_carts", "table_sessions"]);
+  });
+
+  it("a table with fired lines still clears (Clear's own precedent)", async () => {
+    expect(await clearTable({ sessionId: TABLE })).toEqual({ ok: true });
+  });
+
+  it("an unreadable check refuses as an outage and writes nothing (fail closed)", async () => {
+    // counter-clear-unreadable-proceeds
+    nowError = { message: "boom" };
+    expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
+    nowError = null;
+    itemsError = { message: "boom" };
+    expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
+    expect(updates).toEqual([]);
+  });
+});
+
+describe("mergeTables — never into a counter order, never one whose food is in the kitchen", () => {
+  it("a sent counter source is refused before the RPC", async () => {
+    sessions[TABLE] = session(TABLE, "reg-zz99", "pickup");
+    carts[TABLE] = cart("cart-t2", { customer_name: "Ko" });
+    items["cart-t2"] = [];
+    // counter-order-merged
+    const r = await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE });
+    expect(r.ok).toBe(false);
+    expect(rpcCalls).not.toContain("mms_merge_table_orders");
+  });
+
+  it("a drafts-only counter source into a table-kind target reaches the RPC", async () => {
+    // Same mode needed: a second pickup, NOT a counter order (a diner's own pickup).
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    items["cart-reg"] = [line({ id: "d" })];
+    const r = await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE });
+    expect(r).toMatchObject({ ok: true });
+    expect(rpcCalls).toContain("mms_merge_table_orders");
+  });
+
+  it("a counter TARGET is refused, even from a source with nothing sent", async () => {
+    sessions[KIOSK] = session(KIOSK, "T9", "pickup");
+    carts[KIOSK] = cart("cart-k", { customer_name: null });
+    items["cart-k"] = [];
+    items["cart-reg"] = [line({ id: "d" })];
+    // merge-into-a-counter-order
+    const r = await mergeTables({ sourceSessionId: KIOSK, targetSessionId: REG });
+    expect(r.ok).toBe(false);
+    expect(rpcCalls).not.toContain("mms_merge_table_orders");
+  });
+
+  it("an unreadable check refuses as an outage", async () => {
+    sessions[TABLE] = session(TABLE, "T9", "pickup");
+    itemsError = { message: "boom" };
+    expect(await mergeTables({ sourceSessionId: REG, targetSessionId: TABLE })).toEqual({
+      ok: false,
+      error: "outage",
+    });
+  });
+});
+
+describe("getFloorView — a register row's unpaid food and kitchen row", () => {
+  const qline = (over: Row) => ({
+    id: "q",
+    qty: 1,
+    state: "fired",
+    fulfillment: "togo",
+    fire_at: dbAgo(120),
+    bumped_at: null,
+    comped: false,
+    by_seat: null,
+    ...over,
+  });
+  const row = (sessionId: string, source: "register" | "kiosk") => ({
+    sessionId,
+    customerName: "Aye",
+    itemCount: 1,
+    subtotalCents: 1200,
+    startedAt: "2026-10-01T00:00:00.000Z",
+    source,
+  });
+
+  it("a register row with a line past its grace is unpaid-sent with a kitchen row; a kiosk row never", async () => {
+    rq.value = {
+      ok: true,
+      rows: [row(REG, "register"), row(KIOSK, "kiosk")],
+      truncated: false,
+      lines: new Map([
+        [REG, [qline({ id: "r1" })]],
+        [KIOSK, [qline({ id: "k1" })]],
+      ]),
+    };
+    const r = await getFloorView();
+    if (!r.ok) throw new Error("expected a snapshot");
+    const [reg, kiosk] = r.snapshot.counter;
+    expect(reg).toMatchObject({ sessionId: REG, unpaidSent: true });
+    expect(reg?.kitchen).toMatchObject({ inKitchen: 1 });
+    // unpaid-flag-on-a-kiosk-order
+    expect(kiosk).toMatchObject({ sessionId: KIOSK, unpaidSent: false, kitchen: null });
+  });
+
+  it("a register row whose only send is inside its grace is not unpaid-sent", async () => {
+    rq.value = {
+      ok: true,
+      rows: [row(REG, "register")],
+      truncated: false,
+      lines: new Map([[REG, [qline({ id: "r1", fire_at: dbAgo(-5) })]]]),
+    };
+    const r = await getFloorView();
+    if (!r.ok) throw new Error("expected a snapshot");
+    expect(r.snapshot.counter[0]).toMatchObject({ unpaidSent: false });
+  });
+});

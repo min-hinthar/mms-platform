@@ -223,7 +223,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   }
   if (!expo.ok && expo.reason !== "outage")
     redirect(expo.reason === "locked" ? "/staff/lock" : "/staff/login");
-  const lane = expo.ok ? expo.queue : { tickets: [], serverNow: new Date().toISOString() };
+  const lane = expo.ok
+    ? expo.queue
+    : { tickets: [], unpaid: [], serverNow: new Date().toISOString() };
 
   return (
     <main className="staff-main">

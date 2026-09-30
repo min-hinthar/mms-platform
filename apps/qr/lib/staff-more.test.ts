@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { approvalsHref, APPROVALS_ZONE, moreTiles, STAFF_LANG_HREF } from "./staff-more";
+import {
+  approvalsHref,
+  APPROVALS_ZONE,
+  LANE_ZONE,
+  laneHref,
+  moreTiles,
+  STAFF_LANG_HREF,
+} from "./staff-more";
 import { resolveStaffHome } from "./staff-door";
 import { STAFF } from "./i18n/staff";
 
@@ -142,5 +149,15 @@ describe("every More tile label is slot-free, because MoreGrid fills no slots", 
             expect(entry.my).not.toMatch(/\{/);
           }
         }
+  });
+});
+
+// ── Phase 2f · P2v ──
+describe("laneHref — the takeaway lane, a zone of the counter screen", () => {
+  it("in the counter's split pane a bare fragment (the lane is on this page); elsewhere the zone", () => {
+    // lane-href-page-in-pane
+    expect(laneHref(true)).toBe("#expo-h");
+    expect(laneHref(false)).toBe(LANE_ZONE);
+    expect(LANE_ZONE).toBe("/staff?floor=1#expo-h");
   });
 });

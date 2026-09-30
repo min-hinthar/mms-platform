@@ -29,6 +29,7 @@ import { dayStartIso, resolveServiceTz } from "./day-window";
 import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
 import { shapeKdsThresholds } from "./kds-urgency";
+import { isCounterOrder, kdsLineGate } from "./counter-order";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -45,6 +46,11 @@ import { shapeKdsThresholds } from "./kds-urgency";
  * dimmed HELD card and turns live when the clock passes it. Dine-in still fires on the batch send;
  * grocery never fires. Bumps reuse mms_line_transition / mms_bump_ticket (legal-edge graphs, atomic,
  * cart-status guarded IN the SQL).
+ *
+ * Phase 2f · P2v — pay-first has exactly ONE exception, and it is staff-only: an OPEN `reg-` counter
+ * order sent through `mms_fire_counter_cart` (the Send on the table page / order pad). Its ticket shows
+ * once past the grace, flagged `unpaid`. Which lines the board shows is decided by `kdsLineGate`
+ * (lib/counter-order.ts) — one pure rule, falsified by values — never inline here.
  */
 
 const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound the read regardless.
@@ -259,14 +265,18 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     const channel: KitchenChannel =
       sess.mode === "dinein" ? "dinein" : sess.mode === "pickup" ? "pickup" : "scango";
     const fireMs = new Date(l.fire_at ?? nowIso).getTime();
-    if (channel === "dinein") {
-      if (sess.status !== "active") continue; // cleared/closed table — nothing left to cook
-      if (fireMs > nowMs) continue; // inside the 10s undo grace — the kitchen must not see it yet
-    } else if (cart.status !== "paid") {
-      // Non-dine-in food only legitimately fires at settlement; a pre-payment fired line on an open
-      // pickup cart is an edge no diner surface produces — skip rather than cook unpaid food.
-      continue;
-    }
+    // Dine-in: an active table past the grace. Counter (`reg-`) order: open → past the grace on an
+    // active session, flagged unpaid; paid → past the grace. Everything else: a PAID cart only (a
+    // future fire_at there is the slot − prep schedule — held).
+    const gate = kdsLineGate({
+      mode: sess.mode,
+      counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
+      sessionStatus: sess.status,
+      cartStatus: cart.status,
+      fireMs,
+      nowMs,
+    });
+    if (!gate.show) continue;
     const modifiers = Array.isArray(l.modifiers) ? (l.modifiers as string[]) : [];
     const line: KitchenLine = {
       id: l.id,
@@ -289,7 +299,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       existing.lines.push(line);
       // A ticket is HELD only while EVERY line is future-fired (mms_fire_pending_food stamps one
       // uniform fire_at per settlement, so a mixed ticket only arises from a manual fire-early race).
-      if (fireMs <= nowMs) existing.held = false;
+      if (!gate.held) existing.held = false;
     } else {
       const orderId = orderByCart.get(l.cart_id);
       ticketByCart.set(l.cart_id, {
@@ -301,7 +311,8 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         customerName: channel === "dinein" ? null : (cart.customer_name ?? null),
         shortCode: channel === "dinein" || !orderId ? null : orderId.slice(-6).toUpperCase(),
         pickupSlot: cart.pickup_slot ?? null,
-        held: channel !== "dinein" && fireMs > nowMs,
+        held: gate.held,
+        unpaid: gate.unpaid,
         lines: [line],
         firedAt: line.firedAt, // first (oldest) line's fire time = the ticket's age / due time
       });

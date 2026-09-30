@@ -318,7 +318,15 @@ describe("parseHandoffStash — register's canonical shape, display-only", () =>
     tenderedCents: 5000,
     isCounter: true,
     cartId: "c1",
+    sentEarly: true,
   };
+  it("Phase 2f — sentEarly round-trips; a stash from before the field (or a non-true) reads false", () => {
+    // handoff/stash-drops-sent-early
+    expect(parseHandoffStash(JSON.stringify(ok))?.sentEarly).toBe(true);
+    const { sentEarly: _drop, ...legacy } = ok;
+    expect(parseHandoffStash(JSON.stringify(legacy))).toEqual({ ...ok, sentEarly: false });
+    expect(parseHandoffStash(JSON.stringify({ ...ok, sentEarly: "yes" }))?.sentEarly).toBe(false);
+  });
   it("a valid stash round-trips", () => {
     expect(parseHandoffStash(JSON.stringify(ok))).toEqual(ok);
     expect(

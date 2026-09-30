@@ -7,10 +7,12 @@ import { setTogoStatusInput } from "@mms/db/schemas";
 import { getStaffAuth, STAFF_SIGNIN_REQUIRED, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
-import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
+import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket, ExpoUnpaidBag } from "./expo-types";
 import { compareExpoTickets, kitchenStateOf, type KitchenLineRow } from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
+import { readUnpaidCounterCarts } from "./register-queue";
+import { unpaidBag } from "./counter-order";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -44,6 +46,11 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  * due — a 6pm slot paid at noon no longer heads the queue all afternoon while a walk-up scango bag
  * waits at the bottom. K10: gate failures return a discriminant (signin/locked), never a throw the
  * client can't tell from a dropped socket.
+ *
+ * Phase 2f · P2v — beside the paid bags, the OPEN counter (`reg-`) orders whose food the kitchen has
+ * (`readUnpaidCounterCarts`, shaped by `unpaidBag`): "Unpaid — collect at pickup", whose one action is
+ * Take payment. That read is NOT advisory — an unreadable or saturated one is an outage of the lane,
+ * because an empty unpaid list over cooked food is the lie the W10b posture refuses.
  */
 export async function getExpoQueue(): Promise<ExpoPoll> {
   const auth = await getStaffAuth();
@@ -60,6 +67,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // W10b — every read that feeds ticket assembly checks its error → `outage`: a failed orders read
   // rendered "No bags waiting" over a counter of paid bags; a failed items/sessions read silently
   // dropped or mislabeled them. The freeze-on-outage client keeps the last-known queue regardless.
+  const unpaidPromise = readUnpaidCounterCarts(db);
   const { data: orders, error: ordersError } = await db
     .from("qr_orders")
     .select(
@@ -91,16 +99,35 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
-  if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], serverNow: nowIso } };
+  const unpaidRead = await unpaidPromise;
+  if (!unpaidRead.ok) return { ok: false, reason: "outage" };
+  if (unpaidRead.truncated) {
+    console.error("[expo] unpaid counter read saturated — refusing to render a partial counter", {
+      rows: unpaidRead.carts.length,
+    });
+    return { ok: false, reason: "outage" };
+  }
+  const nowMs = Date.parse(nowIso);
+  const bags = unpaidRead.carts.flatMap((c) => {
+    const b = unpaidBag({
+      cartId: c.id,
+      sessionId: c.session_id,
+      customerName: c.customer_name ?? null,
+      lines: c.items ?? [],
+      nowMs,
+    });
+    return b ? [b] : [];
+  });
 
-  const orderIds = orders.map((o) => o.id);
+  const orderIds = (orders ?? []).map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.
-  const { data: items, error: itemsError } = await db
-    .from("qr_order_items")
-    .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
-    .in("order_id", orderIds)
-    .in("fulfillment", ["togo", "grocery"]);
+  const { data: items, error: itemsError } = orderIds.length
+    ? await db
+        .from("qr_order_items")
+        .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
+        .in("order_id", orderIds)
+        .in("fulfillment", ["togo", "grocery"])
+    : { data: [], error: null };
   if (itemsError) return { ok: false, reason: "outage" };
 
   // P1 — the Burmese half of every bag line, from the LIVE catalog, through the ONE loader (F18,
@@ -108,12 +135,23 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // IN-lists and ADVISORY by table, so a failed name read logs and that half renders English (what
   // the counter showed before P1), never `outage`. A name read cannot misidentify a bag; freezing
   // the counter over a label is the over-blocking direction.
-  const { nameMyByRef, optionNameMy } = await loadLineNames(db, items ?? [], { tag: "expo" });
-
-  const linesByOrder = new Map<string, ExpoLine[]>();
-  for (const it of items ?? []) {
+  const { nameMyByRef, optionNameMy } = await loadLineNames(
+    db,
+    [...(items ?? []), ...bags.flatMap((b) => b.lines)],
+    { tag: "expo" },
+  );
+  const toExpoLine = (it: {
+    id: string;
+    name: string;
+    qty: number;
+    modifiers: unknown;
+    modifier_option_ids: unknown;
+    fulfillment: string;
+    notes: string | null;
+    menu_item_id: string;
+  }): ExpoLine => {
     const modifiers = Array.isArray(it.modifiers) ? (it.modifiers as string[]) : [];
-    const line: ExpoLine = {
+    return {
       id: it.id,
       name: it.name,
       nameMy: catalogNameMy(nameMyByRef.get(it.menu_item_id), it.name),
@@ -123,6 +161,14 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       fulfillment: it.fulfillment === "grocery" ? "grocery" : "togo",
       notes: it.notes ?? null,
     };
+  };
+  const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
+  if (!orders || orders.length === 0)
+    return { ok: true, queue: { tickets: [], unpaid, serverNow: nowIso } };
+
+  const linesByOrder = new Map<string, ExpoLine[]>();
+  for (const it of items ?? []) {
+    const line = toExpoLine(it);
     const arr = linesByOrder.get(it.order_id);
     if (arr) arr.push(line);
     else linesByOrder.set(it.order_id, [line]);
@@ -197,6 +243,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
     tickets.push({
       orderId: o.id,
+      cartId: o.cart_id ?? null,
       label: sess?.qr_code ?? "Order",
       // K2: the denormalized table snapshot (stamped at fulfillment) — durable past session expiry,
       // and null for a pickup/scango bag (no table). Read off the ORDER, not the (maybe-gone) session.
@@ -218,7 +265,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // finished, then the effective due time (the pickup slot when one exists, else payment time), then
   // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
   tickets.sort(compareExpoTickets);
-  return { ok: true, queue: { tickets, serverNow: nowIso } };
+  return { ok: true, queue: { tickets, unpaid, serverNow: nowIso } };
 }
 
 export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };

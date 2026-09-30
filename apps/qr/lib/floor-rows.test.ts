@@ -8,8 +8,7 @@ import {
   stripKey,
   tableStrip,
 } from "./floor-rows";
-import type { FloorTable } from "./floor-types";
-import type { RegisterQueueRow } from "./register-queue";
+import type { CounterFloorRow, FloorTable } from "./floor-types";
 
 /**
  * A4·2 — the merge decides only where the two lists MEET; each list's own order is its own rule
@@ -39,13 +38,15 @@ const table = (
   openedAt: "2026-09-13T17:00:00Z",
   kitchen: null,
 });
-const order = (id: string): RegisterQueueRow => ({
+const order = (id: string): CounterFloorRow => ({
   sessionId: id,
   customerName: null,
   itemCount: 1,
   subtotalCents: 900,
   startedAt: "2026-09-13T18:00:00Z",
   source: "register",
+  unpaidSent: false,
+  kitchen: null,
 });
 const keys = (rows: ReturnType<typeof mergeFloorRows>) => rows.map(floorRowKey);
 
