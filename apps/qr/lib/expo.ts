@@ -73,24 +73,41 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // W10b — every read that feeds ticket assembly checks its error → `outage`: a failed orders read
   // rendered "No bags waiting" over a counter of paid bags; a failed items/sessions read silently
   // dropped or mislabeled them. The freeze-on-outage client keeps the last-known queue regardless.
-  const unpaidPromise = readUnpaidCounterCarts(db);
-  const { data: orders, error: ordersError } = await db
-    .from("qr_orders")
-    .select(
-      "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
-    )
-    .in("togo_status", ["preparing", "ready"])
-    // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
-    // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
-    // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
-    // still-future bag off the counter before staff should even start it. The kitchen's floor never
-    // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
-    // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
-    .or(
-      `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
-    )
-    .order("created_at", { ascending: true })
-    .limit(QUEUE_CAP);
+  //
+  // ⚠️ THE UNPAID READ FINISHES BEFORE THE PAID READ STARTS (Codex round 1 on #308, P2). Settlement
+  // moves a counter order from one list to the other; issued concurrently, the two statements take
+  // their snapshots in either order, and with the paid snapshot FIRST a bag settled between them is
+  // in neither list. Awaited in sequence (each PostgREST statement snapshots at its start), a cart
+  // the unpaid read saw leave `open` already has its settled order row for the paid read — so the
+  // only interleaving left is the harmless one, the same bag in BOTH lists, and the dedupe below
+  // (the paid bag wins) takes it out. One round trip of latency buys the ordering.
+  //
+  // RESIDUAL, NOT FIXED HERE: a settled order joins the paid read only once `mms_init_togo_status`
+  // stamps `togo_status`, which runs in the settle's `after()` drain (backstop: the pg_cron
+  // reconciler), not in the settling transaction. For that window — normally milliseconds — the bag
+  // is in neither list for one poll, and the next poll shows it paid. Closing it needs the stamp in
+  // the settle itself, a migration on the money path.
+  const paidRead = () =>
+    db
+      .from("qr_orders")
+      .select(
+        "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
+      )
+      .in("togo_status", ["preparing", "ready"])
+      // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
+      // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
+      // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
+      // still-future bag off the counter before staff should even start it. The kitchen's floor never
+      // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
+      // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
+      .or(
+        `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
+      )
+      .order("created_at", { ascending: true })
+      .limit(QUEUE_CAP);
+  const unpaidRead = await readUnpaidCounterCarts(db, nowIso);
+  if (!unpaidRead.ok) return { ok: false, reason: "outage" };
+  const { data: orders, error: ordersError } = await paidRead();
   if (ordersError) return { ok: false, reason: "outage" };
   // ⚠️ SATURATION IS AN OUTAGE, NOT A FOOTNOTE (Codex round 2, P2). Logging and continuing returned
   // `ok: true` with a partial list — the oldest-first cap silently omits every newer order, so a
@@ -105,8 +122,6 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
-  const unpaidRead = await unpaidPromise;
-  if (!unpaidRead.ok) return { ok: false, reason: "outage" };
   // Phase 2f review M1 — a SATURATED unpaid read degrades the unpaid section only. A sent-unpaid
   // counter order is exempt from the sweep, so uncollected ones accrue; turning the whole lane into
   // an outage at the cap hid every PAID bag over orders nobody came for. The read keeps the NEWEST
@@ -118,7 +133,11 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       rows: unpaidRead.carts.length,
     });
   const nowMs = Date.parse(nowIso);
+  // A cart the paid read already holds settled between the two reads: it is a PAID bag now, drawn
+  // once, as paid (Codex round 1 on #308 — never twice, once each way).
+  const paidCarts = new Set((orders ?? []).map((o) => o.cart_id).filter((c) => !!c));
   const bags = unpaidRead.carts.flatMap((c) => {
+    if (paidCarts.has(c.id)) return [];
     const b = unpaidBag({
       cartId: c.id,
       sessionId: c.session_id,

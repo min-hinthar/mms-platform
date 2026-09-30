@@ -22,10 +22,14 @@ vi.mock("./line-names", () => ({
 }));
 
 // Phase 2f — the lane's unpaid read, answered per case.
-const uq = vi.hoisted(() => ({ value: { ok: true, carts: [], truncated: false } as unknown }));
+const uq = vi.hoisted(() => ({
+  value: { ok: true, carts: [], truncated: false } as unknown,
+  /** When set, answers the read instead of `value` (the settlement-race fake below). */
+  impl: null as null | (() => Promise<unknown>),
+}));
 vi.mock("./register-queue", async (orig) => ({
   ...(await orig<typeof import("./register-queue")>()),
-  readUnpaidCounterCarts: () => Promise.resolve(uq.value),
+  readUnpaidCounterCarts: () => (uq.impl ? uq.impl() : Promise.resolve(uq.value)),
 }));
 
 const NOW = "2026-09-13T18:00:00.000Z";
@@ -41,6 +45,8 @@ let cartLinesFail = false;
 /** The `count: "exact"` the cart-lines read carries — more than the rows means PostgREST truncated. */
 let cartLinesCount: number | null = null;
 let orderRows: Row[] = [];
+/** When set, the orders read takes its snapshot here (the settlement-race fake). */
+let ordersSnapshot: (() => Row[]) | null = null;
 let cartLineRows: Row[] = [];
 
 function tableApi(name: string) {
@@ -58,7 +64,10 @@ function tableApi(name: string) {
     },
     then(resolve: (v: { data: unknown; error: unknown; count?: number | null }) => unknown) {
       const answer = (): { data: unknown; error: unknown; count?: number | null } => {
-        if (name === "qr_orders") return { data: orderRows, error: null };
+        if (name === "qr_orders") {
+          if (ordersSnapshot) orderRows = ordersSnapshot();
+          return { data: orderRows, error: null };
+        }
         if (name === "qr_order_items")
           return {
             data: orderRows.map((o) => ({
@@ -117,6 +126,8 @@ const order = (id: string, cartId: string | null, createdAt: string): Row => ({
 beforeEach(() => {
   recs = [];
   uq.value = { ok: true, carts: [], truncated: false };
+  uq.impl = null;
+  ordersSnapshot = null;
   cartLinesFail = false;
   cartLinesCount = null;
   // B is due EARLIER than A; only the kitchen state can put A first.
@@ -352,5 +363,79 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
       [ORDER_A]: CART_A,
       [ORDER_B]: CART_B,
     });
+  });
+});
+
+// ── Codex round 1 on #308 — settlement between the two lane reads ────────────────────────────────
+/**
+ * A fake DB in which ONE counter order settles between the lane's two snapshots: whichever read
+ * snapshots first sees the cart open (unpaid) and no paid order; whichever snapshots second sees it
+ * settled (no longer open; its paid order present). Each read snapshots when its statement RUNS.
+ * The unpaid read here runs a macrotask after it is issued — so a paid read issued while it is still
+ * in flight (the concurrent shape) snapshots FIRST, the adversary's order; a paid read issued after
+ * it resolved (the serial shape) snapshots second.
+ */
+describe("getExpoQueue — a bag settled between the two reads is drawn once, as paid (Codex r1 on #308)", () => {
+  const CART_U = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const ORDER_U = "33333333-3333-4333-8333-333333333333";
+  const openCart = {
+    id: CART_U,
+    session_id: "sess-u",
+    customer_name: "Aye",
+    items: [
+      {
+        id: "s",
+        name: "Mohinga",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: null,
+        fulfillment: "togo",
+        notes: null,
+        menu_item_id: "dish-1",
+        state: "fired",
+        fire_at: "2026-09-13T17:50:00.000Z",
+        bumped_at: null,
+        comped: false,
+      },
+    ],
+  };
+  let settled = false;
+  const snapshot = (): boolean => {
+    const was = settled;
+    settled = true; // the settlement commits right after the FIRST snapshot, whichever it is
+    return was;
+  };
+  beforeEach(() => {
+    settled = false;
+    ordersSnapshot = () => (snapshot() ? [order(ORDER_U, CART_U, "2026-09-13T17:58:00Z")] : []);
+  });
+
+  it("unpaid read first, then the paid read: one bag, PAID — never once each way", async () => {
+    // p2f-cx1-lane/lane-settled-bag-twice
+    uq.impl = () =>
+      Promise.resolve({ ok: true, truncated: false, carts: snapshot() ? [] : [openCart] });
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets.map((t) => t.cartId)).toEqual([CART_U]);
+    expect(res.queue.unpaid).toEqual([]);
+  });
+
+  it("the paid read is not issued until the unpaid read has answered: the bag never vanishes", async () => {
+    // p2f-cx1-lane/lane-reads-concurrent — issued together, the paid snapshot can come first: the
+    // bag is settled for the unpaid read and not yet paid for the paid one, and is in NEITHER list.
+    uq.impl = () =>
+      new Promise((resolve) =>
+        setTimeout(
+          () => resolve({ ok: true, truncated: false, carts: snapshot() ? [] : [openCart] }),
+          0,
+        ),
+      );
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const where = [
+      ...res.queue.tickets.map((t) => `paid:${t.cartId}`),
+      ...res.queue.unpaid.map((b) => `unpaid:${b.cartId}`),
+    ];
+    expect(where).toEqual([`paid:${CART_U}`]);
   });
 });

@@ -15,6 +15,7 @@ type Rec = {
   table: string;
   cols: string;
   eqs: [string, unknown][];
+  neqs: [string, unknown][];
   ors: [string, unknown][];
   likes: [string, unknown][];
   ins: [string, unknown][];
@@ -32,6 +33,7 @@ function fakeDb() {
         table,
         cols: "",
         eqs: [],
+        neqs: [],
         ors: [],
         likes: [],
         ins: [],
@@ -46,6 +48,10 @@ function fakeDb() {
         },
         eq(col: string, val: unknown) {
           r.eqs.push([col, val]);
+          return api;
+        },
+        neq(col: string, val: unknown) {
+          r.neqs.push([col, val]);
           return api;
         },
         or(expr: string, opts?: unknown) {
@@ -228,6 +234,8 @@ describe("readRegisterQueue — the counter orders' lines ride the same read", (
   });
 });
 
+const UNPAID_NOW = "2026-09-13T18:00:00.000Z";
+
 describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", () => {
   const unpaid = (over: Partial<Record<string, unknown>> = {}) => ({
     id: "cart-1",
@@ -242,7 +250,7 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
 
   it("reads OPEN carts on ACTIVE reg- pickup sessions that hold a SENT line, newest first, capped", async () => {
     rows = [unpaid()];
-    const res = await readUnpaidCounterCarts(fakeDb());
+    const res = await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW);
     expect(res).toEqual({ ok: true, carts: [unpaid()], truncated: false });
     expect(rec?.table).toBe("qr_carts");
     expect(rec?.eqs).toContainEqual(["status", "open"]);
@@ -253,6 +261,13 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
     // unsent-carts-consume-the-cap: the inner-joined sent lines are filtered to the SENT states
     expect(rec?.ins).toEqual([["sent.state", ["fired", "in_progress", "served"]]]);
     expect(rec?.cols).toContain("sent:qr_cart_items!inner(id)");
+    // Codex r1 on #308 — and to the REST of `counterSentLine`, at the DB clock (the answering fake
+    // below proves each clause keeps its decoys off the page)
+    expect(rec?.eqs).toContainEqual(["sent.comped", false]);
+    expect(rec?.neqs).toEqual([["sent.fulfillment", "grocery"]]);
+    expect(rec?.ors).toEqual([
+      ["fire_at.is.null,fire_at.lt.2026-09-13T18:00:00.001Z", { referencedTable: "sent" }],
+    ]);
     // p2f-rev-lib/register-queue/stale-unpaid-take-the-cap — the NEWEST bags under the cap (the lane
     // sorts its own rows); a saturated read then hides the stalest, and says so (review M1).
     expect(rec?.order).toEqual(["created_at", { ascending: false }]);
@@ -261,9 +276,157 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
 
   it("a full page is truncated; a failed read is not ok", async () => {
     rows = Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) => unpaid({ id: `c${i}` }));
-    const res = await readUnpaidCounterCarts(fakeDb());
+    const res = await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW);
     expect(res.ok && res.truncated).toBe(true);
     fail = true;
-    expect(await readUnpaidCounterCarts(fakeDb())).toEqual({ ok: false });
+    expect(await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW)).toEqual({ ok: false });
+  });
+});
+
+/**
+ * Codex round 1 on #308 (P2) — the candidate filter is `counterSentLine` WHOLE. A fake that ANSWERS
+ * the query (evaluates each `sent.*` filter on the embedded lines, drops a cart whose inner join is
+ * empty, then orders and caps) — a recorded-chain fake cannot say whether a filter reaches the cap.
+ * Unknown filter shapes throw: the fake refuses what it cannot evaluate rather than passing it.
+ */
+describe("readUnpaidCounterCarts — every capped candidate yields a bag (Codex r1 on #308)", () => {
+  type Line = {
+    id: string;
+    state: string;
+    comped: boolean;
+    fulfillment: string;
+    fire_at: string | null;
+  };
+  type Cart = { id: string; created_at: string; lines: Line[] };
+  const line = (over: Partial<Line> = {}): Line => ({
+    id: "l",
+    state: "fired",
+    comped: false,
+    fulfillment: "togo",
+    fire_at: "2026-09-13T17:50:00.000Z",
+    ...over,
+  });
+
+  function answeringDb(carts: Cart[]) {
+    const preds: ((l: Line) => boolean)[] = [];
+    let limit = Infinity;
+    let desc = false;
+    const col = (c: string) => {
+      if (!c.startsWith("sent.")) return null;
+      return c.slice(5) as keyof Line;
+    };
+    const cond = (term: string): ((l: Line) => boolean) => {
+      const m = /^(\w+)\.(is|lt|lte)\.(.+)$/.exec(term);
+      if (!m) throw new Error(`fake cannot evaluate ${term}`);
+      const [, c, op, v] = m as unknown as [string, keyof Line, string, string];
+      if (op === "is") {
+        if (v !== "null") throw new Error(`fake cannot evaluate ${term}`);
+        return (l) => l[c] === null;
+      }
+      const bound = Date.parse(v);
+      return (l) =>
+        l[c] !== null &&
+        (op === "lt" ? Date.parse(String(l[c])) < bound : Date.parse(String(l[c])) <= bound);
+    };
+    const api = {
+      select: () => api,
+      like: () => api,
+      eq(c: string, v: unknown) {
+        const k = col(c);
+        if (k) preds.push((l) => l[k] === v);
+        return api;
+      },
+      neq(c: string, v: unknown) {
+        const k = col(c);
+        if (!k) throw new Error(`fake cannot evaluate neq ${c}`);
+        preds.push((l) => l[k] !== v);
+        return api;
+      },
+      in(c: string, v: unknown[]) {
+        const k = col(c);
+        if (!k) throw new Error(`fake cannot evaluate in ${c}`);
+        preds.push((l) => v.includes(l[k]));
+        return api;
+      },
+      or(expr: string, opts?: { referencedTable?: string }) {
+        if (opts?.referencedTable !== "sent") throw new Error(`fake cannot evaluate or ${expr}`);
+        const terms = expr.split(",").map(cond);
+        preds.push((l) => terms.some((t) => t(l)));
+        return api;
+      },
+      order(c: string, o?: { ascending?: boolean }) {
+        if (c !== "created_at") throw new Error(`fake cannot order by ${c}`);
+        desc = o?.ascending === false;
+        return api;
+      },
+      limit(n: number) {
+        limit = n;
+        return api;
+      },
+      then(res: (v: { data: unknown; error: unknown }) => unknown) {
+        const joined = carts
+          .map((c) => ({ c, sent: c.lines.filter((l) => preds.every((p) => p(l))) }))
+          .filter((x) => x.sent.length > 0)
+          .sort((a, b) =>
+            desc
+              ? b.c.created_at.localeCompare(a.c.created_at)
+              : a.c.created_at.localeCompare(b.c.created_at),
+          )
+          .slice(0, limit)
+          .map((x) => ({ id: x.c.id, sent: x.sent.map((l) => ({ id: l.id })), items: x.c.lines }));
+        return Promise.resolve({ data: joined, error: null }).then(res);
+      },
+    };
+    return { from: () => api } as unknown as Parameters<typeof readUnpaidCounterCarts>[0];
+  }
+
+  // Forty NEWER carts that hold no SENT line by `counterSentLine` — ten each of comped-only,
+  // grocery-only, in-grace-only, and a mix of all three — ahead of one genuine older bag.
+  const decoys = (): Cart[] =>
+    Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) => {
+      const kind = i % 4;
+      const at = `2026-09-13T17:${String(10 + i).padStart(2, "0")}:00.000Z`;
+      const comp = line({ id: `c${i}`, comped: true });
+      const groc = line({ id: `g${i}`, fulfillment: "grocery" });
+      const grace = line({ id: `w${i}`, fire_at: "2026-09-13T18:00:05.000Z" });
+      const lines =
+        kind === 0 ? [comp] : kind === 1 ? [groc] : kind === 2 ? [grace] : [comp, groc, grace];
+      return { id: `decoy-${i}`, created_at: at, lines };
+    });
+  const genuine: Cart = {
+    id: "genuine",
+    created_at: "2026-09-13T17:00:00.000Z",
+    lines: [line({ id: "real", fire_at: null })],
+  };
+
+  it("forty comped / grocery / in-grace carts never push a genuine older bag past the cap", async () => {
+    // p2f-cx1-lane/unpaid-cap-comped · -grocery · -in-grace — each clause of `counterSentLine`
+    // dropped from the candidate filter lets its decoys consume the page.
+    const res = await readUnpaidCounterCarts(answeringDb([...decoys(), genuine]), UNPAID_NOW);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.carts.map((c) => c.id)).toEqual(["genuine"]);
+    expect(res.truncated).toBe(false);
+  });
+
+  it("a line fired at exactly the DB clock, or with no stamp, is a candidate; one a millisecond later is not", async () => {
+    // p2f-cx1-lane/unpaid-cap-grace-edge — `counterSentLine` admits fire_at == now (`<=`)
+    const res = await readUnpaidCounterCarts(
+      answeringDb([
+        {
+          id: "at-now",
+          created_at: "2026-09-13T17:03:00.000Z",
+          lines: [line({ fire_at: UNPAID_NOW })],
+        },
+        { id: "null", created_at: "2026-09-13T17:02:00.000Z", lines: [line({ fire_at: null })] },
+        {
+          id: "next-ms",
+          created_at: "2026-09-13T17:01:00.000Z",
+          lines: [line({ fire_at: "2026-09-13T18:00:00.001Z" })],
+        },
+      ]),
+      UNPAID_NOW,
+    );
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.carts.map((c) => c.id)).toEqual(["at-now", "null"]);
   });
 });
