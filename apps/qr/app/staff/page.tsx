@@ -1,4 +1,4 @@
-import { type CSSProperties } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -15,16 +15,19 @@ import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
+import { CounterMintProvider } from "@/components/staff/CounterMint";
 import { DayCash } from "@/components/staff/DayCash";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
 import { SettledToday } from "@/components/staff/SettledToday";
 import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
+import { CounterBellProvider, CounterSoundChip } from "@/components/staff/CounterBell";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
 import { approvalsHref, moreTiles } from "@/lib/staff-more";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
+import { CounterSplit } from "@/components/staff/CounterSplit";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
@@ -65,7 +68,8 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  *   doors  — no door yet, or `?doors=1` (the Screens chip), or an in-app arrival on a kitchen
  *            device: two big tiles, Kitchen and Counter, and the three other screens beneath as More.
  *   floor  — a counter device: the counter's one screen (A4·2 · A4·3), in the order the counter
- *            person works it — START an order (walk-up · phone · a table), the TABLES and the
+ *            person works it — START an order (walk-up · phone; a table starts from the strip
+ *            atop the next zone since Phase 2d), the TABLES and the
  *            counter orders being built in one list, the TO-GO BAGS lane, then the manager rails
  *            (manager+): REFUNDS NEEDED · APPROVALS · TODAY'S TAKINGS · SETTLED TODAY (the refund
  *            console reading the receipt) — then More. `/staff/register`, `/staff/expo`,
@@ -156,11 +160,22 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       live={home.view === "floor" ? "counter" : undefined}
     />
   );
-  const greeting = (
+  const hello = (
     <p className="staff-greeting">
       <Chrome lang={lang} k="floor.hi" vars={{ x: caller.displayName }} echo="inline" />
     </p>
   );
+  // Phase 2d · bell — on the counter home the greeting line carries the bell's chip at its right
+  // (the counter's own control, not a bar circle); the doors' greeting stays the plain line.
+  const greeting =
+    home.view === "floor" ? (
+      <div className="staff-greet-row">
+        {hello}
+        <CounterSoundChip />
+      </div>
+    ) : (
+      hello
+    );
 
   if (home.view === "doors") {
     return (
@@ -200,6 +215,8 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   ]);
   if (!floor.ok) {
     if (floor.reason === "outage") return <StaffOutageShell what="what.floor" />;
+    // Phase 2d · floor (K14) — locked between requireStaffPage and the read: the lock screen.
+    if (floor.reason === "locked") redirect("/staff/lock");
     redirect("/staff/login"); // gate race between requireStaffPage and the read
   }
   if (!expo.ok && expo.reason !== "outage")
@@ -210,26 +227,33 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     <main className="staff-main">
       {/* A4·2 — the two live boards report their feed to the bar's help door through this
           provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
-      <LiveConnectionProvider>
+      <CounterLive>
         {header}
         {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
-            thumb-zone Undo pill. */}
-        <div className="staff-col staff-col-dock" style={wrapWide}>
+            thumb-zone Undo pill. Phase 2d · split — the column IS the split (`CounterSplit`): the
+            zones in its main column, the selected table's pane beside them on a tablet. One tree
+            around the boards (the bell's seam: no second provider, no remount on rotation). */}
+        <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
           {greeting}
-          {/* 1 · START — the one action taken most, first. The zone's region is `RegisterStart`'s own,
-            named by this heading. */}
-          <div className="staff-zone">
-            <h2 id="start-h" className="staff-zone-head">
-              <Chrome lang={lang} k="floor.zone.start" />
-            </h2>
-            <p style={sub}>
-              <Chrome lang={lang} k="reg.sub" echo="stack" />
-            </p>
-            <RegisterStart labelledBy="start-h" />
-          </div>
+          {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
+              order in zone 1 and every free table on the strip in zone 2 (`CounterMint.tsx`). */}
+          <CounterMintProvider>
+            {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
+              strip in zone 2. The zone's region is `RegisterStart`'s own, named by this heading. */}
+            <div className="staff-zone">
+              <h2 id="start-h" className="staff-zone-head">
+                <Chrome lang={lang} k="floor.zone.start" />
+              </h2>
+              <p style={sub}>
+                <Chrome lang={lang} k="reg.sub" echo="stack" />
+              </p>
+              <RegisterStart labelledBy="start-h" />
+            </div>
 
-          {/* 2 · TABLES & COUNTER ORDERS — one list, keyed by session; the board owns its heading. */}
-          <FloorBoard initial={floor.snapshot} />
+            {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
+              one list keyed by session; the board owns its heading. */}
+            <FloorBoard initial={floor.snapshot} />
+          </CounterMintProvider>
 
           {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
           <ExpoBoard initial={lane} initialOutage={!expo.ok} />
@@ -258,9 +282,22 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           <div style={{ marginTop: "var(--s6)" }}>
             <MoreGrid lang={lang} more={more} />
           </div>
-        </div>
-      </LiveConnectionProvider>
+        </CounterSplit>
+      </CounterLive>
     </main>
+  );
+}
+
+/**
+ * Phase 2d · bell — the counter home's live stack: the boards' feed reports (A4·2) and, INSIDE
+ * them, the counter bell (owner decision 5c: it rings on the counter home and nowhere else — the two
+ * boards hear their facts and ring through it; the chip in the greeting arms it).
+ */
+function CounterLive({ children }: { children: ReactNode }) {
+  return (
+    <LiveConnectionProvider>
+      <CounterBellProvider>{children}</CounterBellProvider>
+    </LiveConnectionProvider>
   );
 }
 

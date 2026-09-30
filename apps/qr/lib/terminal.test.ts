@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { UNSENT_UNREADABLE_REFUSAL } from "./settle-refusal";
 
 /**
  * W6c — the Terminal settle's authority rules, asserted as CALL SHAPES + ordering (the
@@ -102,9 +103,10 @@ let cartFreeze: { settle_at: string | null; settle_by: string | null } = {
 /** Phase 2c · gate — the session's mode, per case (a counter order by default). */
 let sessionMode: "pickup" | "dinein" = "pickup";
 /** Phase 2c · gate — what the unsent read answers: the dine-in dishes still to send. */
-let unsentUnits = 0;
+let unsentUnits: number | null = 0;
 vi.mock("./unsent-read", () => ({
-  kitchenDraftUnits: (cartId: string) => {
+  // P2dc — settleCard reads the error-aware twin (`null` = unreadable).
+  readKitchenDraftUnits: (cartId: string) => {
     log("unsent-read", { cartId });
     return Promise.resolve(unsentUnits);
   },
@@ -795,6 +797,25 @@ describe("settleCard — the reader is a settle door too: refused while dine-in 
       attemptId: string;
     };
     expect(rel).toEqual({ cartId: "cart-1", attemptId: acq.uid });
+  });
+
+  // P2dc (owner decision 5a) — no PaymentIntent is minted over a gate nobody could check.
+  it("an UNREADABLE unsent count refuses, typed `unreadable`, before any PaymentIntent (P2dc · P2el)", async () => {
+    // MUTATION (p2d-dc/card-unreadable-fails-open): treat null as 0 — the reader charges a table
+    // whose unsent dishes nobody could count, and the webhook fires them after pay; red.
+    sessionMode = "dinein";
+    unsentUnits = null;
+    const r = await settleCard({ sessionId: SESSION });
+    // P2el — typed, so the reader button says it in the device language; never the write-outage line.
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
+    expect(calls.map((c) => c.op)).toEqual(["acquire", "unsent-read", "releaseFor"]);
+  });
+
+  it("…a counter order's unreadable count changes nothing (the gate never applies there)", async () => {
+    sessionMode = "pickup";
+    unsentUnits = null;
+    const r = await settleCard({ sessionId: SESSION });
+    expect(r).toMatchObject({ ok: true });
   });
 
   it("a counter order is never gated — paying IS ordering there", async () => {

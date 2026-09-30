@@ -2793,3 +2793,194 @@ another, each abandoned in turn (three calls behind one hang in 45s). Watch the 
 from its timeout: start nothing while it is unanswered, and owe the refused asks ONE read when it
 answers (`usePadDetailLive`'s `rawPending` / `owed`). The same queue is why #144's queued add never
 started its dispatch clock.
+
+## #158
+
+**Never read `useTransition`'s `pending` as a lock in a provider that shares a page with other async
+transitions.** #149 is the test-side face of this; Phase 2d found the product-side one. React 19
+entangles every pending async transition, so the counter's one-per-screen start lock
+(`CounterMintProvider`), which read `pending`, stayed HELD while the expo lane's or the approvals
+queue's action ran on the same page — Walk-up and every free tile dimmed for someone else's work.
+Keep a lock in a ref + state you write yourself (`inFlight` / `minting`). And in a suite, an async
+action's `isPending` clears one tick AFTER the action returns: `await act(async () => {})` once more
+before asserting a re-armed control.
+
+## #159
+
+**A pre-check in every caller makes the callee's own guard unreachable.** The mint lock's ref check
+SURVIVED its mutant (`p2d-floor/mint-lock-without-the-ref`) because Walk-up, Phone order and every
+strip tile checked `isBusy()` before calling `run()` — the lock inside could never be the thing that
+refused. One admission point, with the caller's side effects passed IN (`onStart`, run only for a
+start that goes; `onRefusal`), keeps the guard reachable and the side effect ordered. A surviving
+mutant on a guard is often a caller doing the guard's job.
+
+## #160
+
+**The React Compiler's purity rule can flag `Date.now()` inside an effect** when the effect's
+dependency is derived (via `.map`) from a value the compiler treats as a fresh mutable array — a false
+positive (the strip's flip-guard memory, written in a layout effect). Moving the clock into a lib
+helper with an injected `now` (`createFlipGuard`) fixed the lint AND made the rule falsifiable by
+value (`floor-rows.test.ts`), which the effect never was.
+
+## #161
+
+**`window.location.assign` cannot be spied under jsdom — but the `location` global can be stubbed
+whole.** `vi.stubGlobal("location", { ...window.location, assign })`, with `vi.unstubAllGlobals()` in
+`afterEach`. The first cut of the floor's locked arm filed the redirect as untestable (#127
+says it "cannot be observed", which is true of a spy on the real object); the stub pinned it and
+gave it a mutant (`p2d-floor/board-locked-goes-to-login`). Routing the redirect through one mockable
+module remains the other good shape.
+
+## #162
+
+**A regex that finds CSS rules as `(^|})\s*sel\s*\{…\}` with the `g` flag skips every other rule** —
+each match consumes the `}` the next one needs. Match `([^{}]+)\{([^{}]*)\}` and split the selector
+list instead. Found because the floor's new tone-parity guard read ZERO rules and went red for the
+wrong reason: a red that is not the red you induced proves nothing (#60's red-first-at-the-matcher,
+again).
+
+## #163
+
+**Back restores an App Router page from its client cache with the FIRST load's props.** There is no
+`cacheComponents` here, so the tree REMOUNTS with that stale `initial` — and any per-mount memory
+seeded from it (a seen set, a "last announced" value) is re-seeded with old data. The counter bell's
+per-mount heard set re-rang every ask an earlier mount had already rung for, on every trip into a
+table and Back (an error-boundary reset and a re-parent reach the same path). Memory that must not
+repeat itself belongs at DOCUMENT scope (`counterHeard`, merge-only, never pruned). The router
+behaviour itself is reasoned, not browser-run (P2eb).
+
+## #164
+
+**A mutable singleton shared across a test file's cases needs RELATIVE assertions.** The counter bell's
+engine is a module singleton by design (the arm survives a soft navigation), so its fake
+AudioContext — and its resume count — outlive each test: `expect(resumed).toBe(1)` passed only for the
+first test in the file. Assert `before + 1`, and reset the context's STATE (not the module) in
+`beforeEach`. `vi.resetModules()` is not the answer for a component suite: it re-imports React under
+the component while testing-library keeps the old one. The same goes for a document-scoped set by
+design — give each case fresh ids.
+
+## #165
+
+**A realtime subscribe triggers a catch-up read ~400ms after mount.** A board test that sets the NEXT
+poll's answer before the first tick has that answer read at 400ms, not at the 5s poll — a one-shot
+visual that clears after ~1s is gone by the 5s tick, and the case asserts on nothing. Settle one tick
+first, then change the answer.
+
+## #166
+
+**`autonyms.test.ts` matches its marker in COMMENTS above a dictionary entry.** A comment that merely
+said "neither is K15-HIGH" above the bell's two keys marked them HIGH to the guard. Phrase such a
+comment without the token. (A guard that scans text will read your prose — #60.)
+
+## #167
+
+**Two guards on one landing make each single-guard mutant equivalent — defence in depth hides from
+a whole-path test.** The bell's provider `mounted` guard and `ExpoBoard`'s `alive` guard both stop a
+ring after the counter home leaves, so deleting either stayed green; the split's effect `live` flag
+and its selection check both stop a late pane read the same way. Either give each layer a case that
+BYPASSES the others (a lane unmounting under a LIVE provider; a bare ear calling `hear` after the
+provider left) or mutate the gate WHOLE (`table-pane/late-read-lands` removes both halves) — a
+survivor on one half is noise, not a finding.
+
+## #168
+
+**A mutant that survives can mean the RULE is wrong, not the fixture.** The split's lost-write
+selection filter (drop a refused write when the same table is shown again) survived its mutant because
+the only reachable case — a refusal from A's unmounted detail landing after A was picked again — was
+exactly the case the filter got wrong: it dropped a refusal no mounted region could say. The fix was
+to delete the filter, not to find a fixture that killed it. Before separating fixtures (CLAUDE.md's
+"find inputs that separate them"), ask whether the path the mutant removes should exist.
+
+## #169
+
+**A prop callback in an effect's dependency list is an identity contract.** `CounterSplit` passed a
+new `selectedNow` arrow per render, which silently turned the pane's once-per-selection first read
+into a once-per-render read — and a re-run could land a `closed` past the detail's terminal hold. Green
+in every test whose parent never re-rendered. Make the callback stable (one `useCallback` over refs)
+and pin it (`counter-split/selected-now-per-render`).
+
+## #170
+
+**A context that only CONSUMERS need belongs in its own module.** Exporting `useTablePane` from
+`CounterSplit`'s file dragged the provider's children — the table drill-down and its `server-only`
+actions — into every board that asked "am I in a pane?", and three unrelated suites failed on
+`server-only`. `TablePaneContext.tsx` holds the context alone.
+
+## #171
+
+**A spread of `history.state` in a jsdom test is `{}` when the fixture's state is null.** The split's
+hash writes must never carry Next's `__NA` (a revalidating action would `replaceState` the hash
+away); the mutant that copied it SURVIVED until the fixture seeded the entry with Next's own state.
+Seed the state you are guarding against — a guard proved over an empty object proves nothing about
+the object it will meet.
+
+## #172
+
+**#145's substring trap bites on the LEADING side too.** Re-anchoring a mutant after
+`insertOrIncLine`'s dedent, a find of `"  const x…"` (two spaces) also matched inside a four-space
+`"    const x…"` and went AMBIGUOUS (or, worse, the wrong one). Trailing context does not help a
+leading-indent match: anchor on `"\n" + indent`, or on a token that precedes it. `check:mutant-anchors`
+(~1s) says so before a 20-minute `verify:slice` does.
+
+## #173
+
+**A test's fake DB that never answers a read silently exercises a FAIL-OPEN branch.** `cash-tip.test`'s
+fake never answered the settle gate's `qr_cart_items` read, so every case walked `kitchenDraftUnits`'
+fail-open `0` and passed — testing a path the suite never named. Phase 2c's R5 found the same shape in
+the CAS suites; Phase 2d found this one only because P2dc made the staff doors fail CLOSED and the
+suite went red with the outage sentence. Wherever a production read degrades gracefully, a fixture
+that forgets to answer it is invisible: answer every read a code path makes explicitly (here
+`vi.mock("./unsent-read", …)`), and treat "a fail-closed change broke an unrelated suite" as that
+suite's hidden dependency coming to light, not as noise.
+
+## #174
+
+**A single-session SQL suite cannot kill a row-lock mutant — measure it with two sessions and
+document the survivor.** P2cy's fix is `FOR SHARE` on the parent cart row: it conflicts with the
+settlement claim's `UPDATE … settle_at`, so an add and a claim are totally ordered. In one
+transaction nothing ever waits, so `insert/for-share-deleted` survives every plpgsql case, and a
+predicate on the insert's own `select` would pass them all while locking nothing (it reads a
+snapshot). The only honest proof was two live psql sessions (measured 2026-09-29: with the lock each
+order waited ~1.5 s and then saw the other; without it an add landed under a live freeze in 0.04 s),
+written into the test header, and the survivor asserted AS a survivor in `verify-mode-authority.mjs`
+with its reason — never left as a comment. Turning it into a killed mutant needs a two-session
+harness in CI (P2dk; `verify-merge-race.mjs` is the pattern).
+
+## #175
+
+**Compare a GENERATION, not the value: a move that comes back ends where it began.** A counter start
+in flight stood down only when the pane's selected table id at the answer differed from the id at
+the tap — so A → B → A, or the floor → A → ✕, read as "never moved", and the new order's screen
+landed over a pane the cashier had used twice (Codex #306 round 1). Equality on a value answers "is
+it the same now?", never "did anything happen in between?". Where the question is the second one,
+compare a counter that only moves forward: the pane now publishes `selectionGen` (new on every pick
+of another table and every close, kept by a re-tap) and the start compares it beside the id. Pin
+BOTH halves with separate fixtures — every A → B case is killed by the id alone, so only a move that
+comes back can catch a dropped generation check (`p2d-cx1/mint-compares-the-id-alone`).
+
+## #176
+
+**A cue keyed to an aggregate count misses the event that nets to zero — key it to the event's
+identity.** The floor's "Ready to serve" compared each table's ready count between polls; a dish
+coming out in the same poll that another left the five-minute window (a clock expiry — no row
+changes, so nothing notifies realtime) or was recalled left the count unchanged, and the card never
+rang (Codex #306 round 1). The same count also rang twice for a dish that dropped out of one poll and
+came back (1 → 0 → 1). Give each event its identity — here `<line id>@<bumped_at>`, pushed in the
+same branch that adds to the count, so it keeps the window's rule — ring on a key not yet heard, and
+KEEP what was heard (a re-bump is a new key, so a kept key never hides real news). Red-first means
+the netting case: a fixture whose count visibly rises passes on the old code and reproduces nothing.
+
+## #177
+
+**Hold the invariant, not the exit the report named — and let only an ANSWER clear a notice.** Codex
+#306 round 1 found that switching tables unmounted a live card collection, so the fix held every
+change of SELECTION. Round 2 found a start (Walk-up, Phone order, a free tile) that moves no
+selection yet lands on a route push that replaces the counter screen — the same reader panel,
+unmounted by an exit the hold never named. The invariant was "the panel stays mounted while it
+collects"; the hold was written against the one path in the finding. Before writing a hold,
+enumerate every way the protected thing can END (select, close, Back/Forward, a route push, the
+page's own exits — P2em is the rest) and guard or file each. Round 2's other P1 is the mirror image:
+`close()` cleared a lost payment outcome about a table the person had already left — an event that
+answers nothing about it — so the notice's lifetime was bound to UI tidy-up instead of to its own
+resolution. A money notice ends when something ANSWERS it (going back to its table; a newer loss
+that outranks it), never as a side effect of an unrelated gesture.

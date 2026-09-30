@@ -2,6 +2,10 @@ import { STAFF, ts, type StaffKey } from "./i18n/staff";
 import { fill, localizeCount, plural, tf, type SlotsOf } from "./i18n/fill";
 import type { FloorStatus } from "./floor-types";
 import type { StaffLang } from "./staff-lang";
+// ── Phase 2d · floor ──
+import type { KitchenSegment } from "./floor-kitchen";
+import type { RefundState } from "./refund-view";
+import type { RelativeAge } from "./relative-time";
 
 /**
  * P2 — accessible names for the staff controls that HAVE a visible label.
@@ -153,6 +157,23 @@ export type StaffControl =
    * add a second `subject` call site, that is the trap.
    */
   | { kind: "subject"; verb: VerbKey; subject: string }
+  /**
+   * Phase 2d · review — an OCCUPIED TABLE-STRIP TILE: a link whose visible content is the table's
+   * NUMBER alone (its glyph and its owed-Send mark are aria-hidden). Neither arm above fits: it shows
+   * no verb (`verb` would name a word it never renders), and `subject` — its first draft — makes the
+   * whole sentence the visible label, a string the tile never prints (the trap `subject`'s own
+   * docblock names). So `visible` is the number, Latin in both tongues as the tile prints it, and
+   * the name leads with the verb (`floor.verb.view`, `recall`'s inversion hard-coded for one
+   * control), then the table, the SAME status word the chip, the card and the strip's key say
+   * (`floorStatusKey`), and — when the table owes a Send — the card's own "· 2 not sent".
+   */
+  | {
+      kind: "tile";
+      n: number;
+      status: FloorStatus;
+      refundState: RefundState | null;
+      notSent: number;
+    }
   | {
       kind: "table";
       /** The table's display token — the number off the physical tent card. Latin, always. */
@@ -170,6 +191,16 @@ export type StaffControl =
       /** K33 — the settled figure above is money that came BACK, not money kept. The spoken name
        *  has to say so: a colour swap on the card reaches nobody listening to it. */
       paidRefunded: boolean;
+      // ── Phase 2d · floor ── REQUIRED, so the one production caller (TableCard) must decide.
+      /** The settled order's refund state — the status WORD reads it (`floorStatusKey`), so a
+       *  refunded table is never announced "Paid" (K33, the chip's half). */
+      refundState: RefundState | null;
+      /** The card's kitchen row, as `kitchenSegments` renders it. */
+      kitchen: readonly KitchenSegment[];
+      /** The wait pill in whole minutes, and whether the KDS rule calls it late. */
+      wait: { min: number; late: boolean } | null;
+      /** The card's "Opened {ago}" — the same relative age the visible clock prints. */
+      opened: RelativeAge;
     };
 
 export function al(lang: StaffLang, control: StaffControl): StaffLabel {
@@ -217,6 +248,16 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
     case "subject": {
       return { visible: control.subject, aria: `${ts(lang, control.verb)} — ${control.subject}` };
     }
+    case "tile": {
+      const visible = String(control.n);
+      const word = ts(lang, floorStatusKey(control.status, control.refundState));
+      const owed =
+        control.notSent > 0
+          ? ` · ${tf(lang, "floor.kitchen.notSent", { n: control.notSent })}`
+          : "";
+      const table = tf(lang, "floor.table", { id: visible });
+      return { visible, aria: `${ts(lang, "floor.verb.view")} — ${table} · ${word}${owed}` };
+    }
     case "table": {
       const visible = tf(lang, "floor.table", { id: control.label });
       // Built as a list of localized fragments rather than one template, because WHICH fragments
@@ -225,10 +266,18 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       // one, and the joiner would land in the wrong place in one of the two tongues.
       const parts = [visible];
       if (control.unregistered) parts.push(ts(lang, "floor.unregisteredSticker"));
-      parts.push(ts(lang, FLOOR_STATUS_KEY[control.status]));
+      parts.push(ts(lang, floorStatusKey(control.status, control.refundState)));
       if (control.tabOpen) parts.push(ts(lang, "floor.tabOpen"));
       if (control.tabOverCeiling) parts.push(ts(lang, "floor.tabOverLimit"));
       parts.push(tf(lang, "floor.party", { n: control.partySize }));
+      // Phase 2d · floor — the kitchen row, in the order the card draws it: its segments, then the
+      // wait (with the KDS's own "Late" when the pill is red).
+      for (const seg of control.kitchen)
+        parts.push(seg.k === "expo.kitchenDone" ? ts(lang, seg.k) : tf(lang, seg.k, { n: seg.n }));
+      if (control.wait) {
+        parts.push(tf(lang, "floor.kitchen.wait", { n: control.wait.min }));
+        if (control.wait.late) parts.push(ts(lang, "kds.stat.late"));
+      }
       if (control.itemCount > 0) {
         parts.push(
           tf(lang, plural(control.itemCount, "floor.card.item.one", "floor.card.item.many"), {
@@ -243,6 +292,11 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
             m: control.paidTotal,
           }),
         );
+      // Phase 2d · floor — the card's clock, last, where the card prints it.
+      const age = control.opened;
+      parts.push(
+        `${ts(lang, "floor.card.opened")} ${age.n === undefined ? ts(lang, age.k) : tf(lang, age.k, { n: age.n })}`,
+      );
       // ", " in both tongues, matching the `line` case above. A flat accessible name carries no
       // markup and no `lang`, so its punctuation is a pause hint rather than typography; inventing
       // a second joiner for Burmese would make the two cases disagree for no gain a reader hears.
@@ -267,6 +321,22 @@ export const FLOOR_STATUS_KEY = {
   counter: "floor.status.counter",
   paid: "floor.status.paid",
 } as const satisfies Record<FloorStatus, StaffKey>;
+
+// ── Phase 2d · floor ──
+/**
+ * The status WORD, with the one correction `FLOOR_STATUS_KEY` cannot make on its own: a paid table
+ * whose money came back reads "Refunded" / "Partly refunded", never "Paid" (K33 — returned money is
+ * never a success word). Read by the chip, the card's name, the strip tile's name and the drill-down
+ * header, so the four can never name one table two ways.
+ */
+export function floorStatusKey(
+  status: FloorStatus,
+  refundState: RefundState | null | undefined,
+): StaffKey {
+  if (status === "paid" && refundState === "full") return "floor.status.refunded";
+  if (status === "paid" && refundState === "partial") return "floor.status.partlyRefunded";
+  return FLOOR_STATUS_KEY[status];
+}
 
 /**
  * An aria-only string, for a control or region with NO visible text to contain — a `‹ ›` pager

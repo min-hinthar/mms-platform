@@ -28,6 +28,9 @@ vi.mock("./staff", () => ({
   staffGate: () => Promise.resolve({ ok: true, caller: {} }),
   STAFF_WRITE_OUTAGE: "outage",
 }));
+// Phase 2d · floor — `getFloorView` checks the console lock (K14); `cookies()` throws outside a
+// request, so the lock answers "unlocked" here (lib/floor-kitchen-read.test.ts pins the locked arm).
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
 // Phase 2c · register (P2w) — per case: whether the freeze reads fresh, and the mutex's answer.
 let fresh = false;
 let payReason: "mid_payment" | "split_in_progress" | "split_unreadable" | null = null;
@@ -64,6 +67,8 @@ let orderItemRows: Row[] = [];
 let memberRows: Row[] = [];
 let cartItemRows: Row[] = [];
 let orderItemsFail = false;
+/** Phase 2d · split — the drill-down's session status (a closed table's verdict carries its name). */
+let sessionStatus = "active";
 /** Phase 2c · register — every status flip a clear would write (none may run on a refusal). */
 const updates: string[] = [];
 
@@ -142,7 +147,7 @@ function tableApi(name: string) {
             qr_code: "t-7",
             table_number: 7,
             mode: "dinein",
-            status: "active",
+            status: sessionStatus,
             host_seat: null,
             created_at: "2026-09-09T00:00:00.000Z",
           },
@@ -251,6 +256,7 @@ beforeEach(() => {
   cartItemRows = [];
   memberRows = [];
   orderItemsFail = false;
+  sessionStatus = "active";
 });
 
 describe("K33 — a settled table still shows what it ordered", () => {
@@ -479,6 +485,9 @@ describe("K33 — the settled record names the round it is showing", () => {
     // The LATEST, not the first: 5330 and 1100 are separable, so a read sorted ascending fails here
     // rather than passing on a tie. That assertion was VACUOUS until the fake applied `.order()`.
     expect(r.detail.paidTotalCents).toBe(5330);
+    // MUTANT p2d-cx1/detail-drops-paid-order-id — Codex #306 round 1: the paid card compares the
+    // table's LATEST paid order with its own, so the id must be the same row the total came from.
+    expect(r.detail.paidOrderId).toBe("o-1");
   });
 
   it("counts ONE round for the ordinary table, so the note stays off", async () => {
@@ -633,5 +642,15 @@ describe("clearTable — a FAILED share read refuses (fail closed), never clears
     payReason = null;
     expect((await clearTable({ sessionId: SESSION })).ok).toBe(true);
     expect(updates).toEqual(["qr_carts", "table_sessions"]);
+  });
+});
+
+describe("getTableDetail — a closed table's verdict names it (Phase 2d · split)", () => {
+  it("carries the session's own label and number, and nothing else", async () => {
+    sessionStatus = "closed";
+    const r = await getTableDetail(SESSION);
+    // MUTATION: the bare `{ kind: "closed" }` — a pane opened straight onto a cleared table can
+    // neither name it nor find the live namesake a new party sat at; red.
+    expect(r).toEqual({ kind: "closed", label: "t-7", tableNumber: 7 });
   });
 });

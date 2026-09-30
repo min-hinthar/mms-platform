@@ -5,6 +5,7 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
+import { handoffStashKey } from "@/lib/floor-pane";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -117,6 +118,7 @@ const DETAIL: TableDetail = {
   refund: null,
   settledOrderCount: 0,
   settledOrderCountCapped: false,
+  paidOrderId: null,
   promoCode: null,
   settlePromoCents: null,
   tab: "none",
@@ -413,6 +415,29 @@ describe("FloorDetailLive — the paid card and the ONE polite region (P2r)", ()
     answer = () => Promise.resolve({ kind: "detail", detail: { ...SETTLEABLE, cartId: "c2" } });
     await tick(5000);
     expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
+  });
+
+  // ── Phase 2d · Codex round 1 · pane ── the card the next round replaced is DEAD, not hidden.
+  it("round two settling with NO tender never brings back round one's change (Codex #306)", async () => {
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o-2", totalCents: 4210, tipCents: 0 });
+    const paid = { ...SETTLEABLE, cartId: null, settled: true };
+    answer = () => Promise.resolve({ kind: "detail", detail: paid });
+    mountWith(SETTLEABLE);
+    await settleInCash("50");
+    await tick(400);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90/ })).toBeTruthy();
+    // Round two opens on the same session (cart c2)…
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...SETTLEABLE, cartId: "c2" } });
+    await tick(5000);
+    expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
+    // …and settles with no tender entered: no card of its own, the paid state is the signal.
+    answer = () => Promise.resolve({ kind: "detail", detail: paid });
+    await tick(5000);
+    // MUTATION: the card is only HIDDEN while c2 is open (never dropped) — with no live cart again
+    // it reads as current, and last round's "$7.90 change" is shown as this round's; red.
+    expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
+    // …and its stash is gone with it (a pane would restore it on the next visit).
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).toBeNull();
   });
 
   it("the reader's status is SAID through the page's one region, SHOWN in its panel with no region of its own", async () => {
@@ -1147,5 +1172,25 @@ describe("FloorDetailLive — the programmatic focus landings keep the focus rin
       expect(h.style.outline).toBe("");
       expect(h.style.outlineStyle).toBe("");
     }
+  });
+});
+
+describe("FloorDetailLive — the full page never brings back a stashed paid card (Phase 2d · split)", () => {
+  it("a stash for this table is the PANE's to restore; the page (a phone) keeps its card in memory", async () => {
+    const { stashHandoff } = await import("@/lib/floor-pane");
+    stashHandoff("s1", {
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: 5000,
+      isCounter: false,
+      cartId: null,
+    });
+    mountWith({ ...SETTLEABLE, cartId: null, settled: true });
+    await tick(0);
+    // MUTATION: restore in every variant — a reopened settled table on a phone shows an old
+    // change-due card until Clear; red.
+    // The table card names no #CODE; its change-due line is the tell ($50.00 − $42.10).
+    expect(document.querySelector("main")!.textContent).not.toContain("$7.90");
   });
 });

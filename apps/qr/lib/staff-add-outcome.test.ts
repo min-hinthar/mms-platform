@@ -12,6 +12,7 @@ vi.mock("@mms/db/server", () => ({ serviceClient: () => ({}) }));
 
 const { addFailureCode } = await import("./staff-add-outcome");
 const { ItemUnsellableError, ItemUnreadableError, CartClosedError } = await import("./order-lines");
+const { CartPayingError } = await import("./line-rpc-refusal");
 
 describe("addFailureCode — the write phase", () => {
   it("any throw after pricing is UNCONFIRMED — it may have landed", () => {
@@ -51,5 +52,14 @@ describe("addFailureCode — the price phase (nothing was written)", () => {
   it("anything else (a cardinality refusal) is a definite FAILED", () => {
     expect(addFailureCode("price", new Error("This item needs a required choice"))).toBe("failed");
     expect(addFailureCode("price", undefined)).toBe("failed");
+  });
+});
+
+describe("addFailureCode — the settlement froze the table mid-add (P2cy)", () => {
+  it("a CartPayingError from the write is `paying` — a definite non-write, not `unconfirmed`", () => {
+    expect(addFailureCode("write", new CartPayingError())).toBe("paying");
+  });
+  it("…but only from the write phase", () => {
+    expect(addFailureCode("price", new CartPayingError())).toBe("failed");
   });
 });

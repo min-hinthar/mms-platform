@@ -29,6 +29,7 @@ import { refusedPromoReason } from "./promo-refusal";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
+import { CartPayingError, lineRpcRefusal } from "./line-rpc-refusal";
 import { safeImageUrl } from "./media-url";
 import { TABLE_STARTER_MID } from "./confirm-copy";
 
@@ -169,10 +170,17 @@ export async function setQty(cartItemId: string, qty: number) {
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
   // statement (migration 20260619000200), matching the addItem paths. 0 rows ⇒ paid/closed (or gone).
-  const { data: affected } = await db.rpc("mms_cart_item_set_qty_if_open", {
+  const { data: affected, error: qtyErr } = await db.rpc("mms_cart_item_set_qty_if_open", {
     p_id: input.cartItemId,
     p_qty: input.qty,
   });
+  // P2dd · P2cy — the RPC re-checks, under the cart's row lock, the two facts read above: the host
+  // (or staff) sent it to the kitchen, or the table started paying, in between. Both are definite
+  // refusals and say what the pre-checks would have said.
+  const refusal = lineRpcRefusal(qtyErr);
+  if (refusal === "sent")
+    throw new Error("Ask our staff to change an item that’s already gone to the kitchen");
+  if (refusal === "paying") throw new CartPayingError();
   if (!affected) throw new Error("Cart is no longer open");
   const { error: touchErr } = await db
     .from("qr_carts")

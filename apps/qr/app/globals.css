@@ -7405,6 +7405,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
   border-color: transparent;
   background: var(--ac);
@@ -10104,7 +10105,7 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
-/* counter-4 — the Start zone's three arms (Walk-up · Phone order · Start a table; `register-stage.ts`
+/* counter-4 — the Start zone's arm (Phone order; Walk-up is the primitive Button since Phase 2d; `register-stage.ts`
    names the class, `RegisterStart` and the help card wear it). A hairline pill at rest; the press
    rides `.staff-press`; the OPEN arm wears the console's one lit cap through the shared pressed
    rule beside the KDS chips (`.staff-arm[aria-expanded="true"]`, §2/§17) — never the accent
@@ -13236,7 +13237,7 @@ a.aisle-tile {
 
 /* The phone tier: one pane at a time, and the dock's hints are spoken, not drawn (the bar is one
    64px row; a hint below it would sit off the screen). */
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-shell[data-view="menu"] .pad-ticket,
   .pad-shell[data-view="order"] .pad-tiles,
   .pad-shell[data-view="order"] .pad-tools {
@@ -13402,7 +13403,7 @@ a.aisle-tile {
     display: block;
   }
 }
-@media (max-width: 47.99em) {
+@media (max-width: 63.99em) {
   .pad-skeleton .pad-ticket {
     display: none;
   }
@@ -13642,4 +13643,520 @@ a.aisle-tile {
   .pad-ticket {
     overflow: visible;
   }
+}
+
+/* ── Phase 2d · floor ── */
+/* The Start zone (owner decision 5c): Walk-up — the zone's ONE primary, the primitive Button at
+   `xl` — over the Phone order arm on a phone; side by side, 2fr 1fr, from 48em, the arm grown to
+   the Button's height so the row reads as one. A table starts from the strip below, not here. */
+.reg-start {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s3);
+  align-items: stretch;
+}
+@media (min-width: 48em) {
+  .reg-start {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  }
+  .reg-start .staff-arm {
+    min-height: var(--tap-bump);
+  }
+}
+
+/* THE STRIP — the room's map and its one-tap start: one tile per registered table, 5 across on a
+   390 phone (two rows of ten), one row on a tablet, tiles capped at 96px and left-aligned on the
+   1080 column. Occupancy is carried by SHAPE and GLYPH as well as tone: a free tile is a dashed
+   "empty seat" with the verb; an occupied one a solid tile with a glyph and a bottom bar; the ask
+   (a table waiting to pay at the counter) the one filled tile. */
+.floor-strip-wrap {
+  display: grid;
+  gap: var(--s2);
+}
+.floor-strip-label {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--t2);
+}
+.floor-strip {
+  display: grid;
+  /* 60px…96px: five across a 390 phone's column, one row of ten on a tablet (3 × --s8 = 96). */
+  grid-template-columns: repeat(auto-fit, minmax(var(--s15), calc(3 * var(--s8))));
+  gap: var(--s2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.floor-tile {
+  --floor-edge: transparent;
+  --floor-ink: var(--t2);
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1);
+  width: 100%;
+  min-height: var(--tap-bump);
+  padding: var(--s1);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  /* The tone's bar, INSIDE the tile (a 4px inset at the bottom edge). */
+  box-shadow: inset 0 calc(-1 * var(--s1)) 0 var(--floor-edge);
+  /* Tone changes are INSTANT (transform/opacity only move) — this overrides `.staff-press`'s
+     box-shadow transition, which would otherwise fade the bar between tones. */
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+/* A FREE tile: the dashed "empty seat" edge, ≥3:1 against the card and the page in both themes. */
+.floor-tile[data-free] {
+  border: 2px dashed var(--t2);
+}
+.floor-tile[data-tone="ask"] {
+  background: var(--warnb);
+}
+.floor-tile[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: default;
+}
+/* The ONE tile starting keeps its full ink (and wears the kit's spinner) — AFTER the held rule,
+   which it must out-order at equal specificity: busy is not disabled (the primitive Button's rule). */
+.floor-tile[aria-busy="true"] {
+  cursor: progress;
+  opacity: 1;
+}
+.floor-tile-n {
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-tight);
+  color: var(--tx);
+}
+.floor-tile-verb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--ac-strong);
+}
+.floor-tile-glyph {
+  color: var(--floor-ink);
+}
+/* The ONE tone map, as tokens (`floorTone`, lib/floor-tone.ts): the tile's bar and glyph, the
+   card's status edge and the key's glyphs all read it, and the chip's inline ink (`CHIP_TONE`) is
+   pinned to each `--floor-ink` here. `--warn` is act-now or money in flight, `--ac` ordering, `--ok`
+   paid; returned money is `--t3`/`--t2` — NEVER the success tone (K33), never the act-now warn.
+   `rest` has no bar. */
+.floor-tile[data-tone="ask"],
+.floor-tile[data-tone="inflight"],
+.floor-edge[data-tone="ask"],
+.floor-edge[data-tone="inflight"],
+.floor-key-item[data-tone="ask"],
+.floor-key-item[data-tone="inflight"] {
+  --floor-edge: var(--warn);
+  --floor-ink: var(--warn);
+}
+.floor-tile[data-tone="live"],
+.floor-edge[data-tone="live"],
+.floor-key-item[data-tone="live"] {
+  --floor-edge: var(--ac);
+  --floor-ink: var(--ac);
+}
+.floor-tile[data-tone="done"],
+.floor-edge[data-tone="done"],
+.floor-key-item[data-tone="done"] {
+  --floor-edge: var(--ok);
+  --floor-ink: var(--ok);
+}
+.floor-tile[data-tone="returned"],
+.floor-edge[data-tone="returned"],
+.floor-key-item[data-tone="returned"] {
+  --floor-edge: var(--t3);
+  --floor-ink: var(--t2);
+}
+/* THE OWED-SEND MARK: a warn dot in the tile's corner when the table owes a Send (the card's "not
+   sent"), and the same dot in the key. A shape, not a tint — the tile's tone is untouched. */
+.floor-owed-dot {
+  display: inline-block;
+  flex: none;
+  width: var(--s2);
+  height: var(--s2);
+  border-radius: var(--r-full);
+  background: var(--warn);
+}
+.floor-tile > .floor-owed-dot {
+  position: absolute;
+  inset-block-start: var(--s1);
+  inset-inline-end: var(--s1);
+}
+/* THE KEY under the strip: each glyph on screen, in the tile's own word; the owed dot last. */
+.floor-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.floor-key-item {
+  --floor-ink: var(--t2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+.floor-key-glyph {
+  flex: none;
+  color: var(--floor-ink);
+}
+/* The card's STATUS EDGE: a 4px rail down the left, drawn as an inset shadow on a full-card overlay
+   so it follows the card's own corner (a 4px-wide box cannot carry a 20px radius). Out-specifies
+   `.card-textured > *`, which would force it back into the flow. */
+.card-textured > .floor-edge {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset var(--s1) 0 0 var(--floor-edge, transparent);
+}
+
+/* The card's KITCHEN ROW: the segments (plain inline text, so the middots keep their spaces), and
+   the wait pill at the right. One colour dimension per segment; the words carry the state. */
+.floor-kitchen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  min-height: calc(var(--s6) + var(--s1));
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.floor-kitchen-glyph {
+  margin-right: var(--s1);
+  vertical-align: text-bottom;
+}
+/* "Not sent" is the one kitchen fact a server must ACT on (K15-HIGH): the warn ink, bold — never the
+   row's quiet grey beside a bold "in kitchen". The word carries it; the colour says "act". */
+.floor-kitchen-seg[data-seg="floor.kitchen.notSent"] {
+  font-weight: var(--fw-bold);
+  color: var(--warn);
+}
+.floor-kitchen-seg[data-seg="floor.kitchen.inKitchen"] {
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.floor-kitchen-seg[data-seg="floor.kitchen.up"] {
+  font-weight: var(--fw-bold);
+  color: var(--ok);
+}
+/* THE WAIT PILL — the kitchen's own clock and rule (`kdsUrgency`). ok is quiet; amber is the audited
+   gold-tint pair with a gold edge (the edge is amber's SHAPE cue against ok); red is the warn pair
+   with an edge and the alert glyph. Inline-flex so the one-shot `.mms-pop` can transform it (its RM
+   rule covers it); no loop, ever. */
+.floor-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: calc(var(--s6) + var(--s1));
+  padding: 0 var(--s2);
+  border: 1.5px solid transparent;
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--t2);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.floor-wait-amber {
+  border-color: var(--gold-strong);
+  background: color-mix(in srgb, var(--gold) 16%, var(--cd));
+  color: var(--gold-strong);
+}
+.floor-wait-red {
+  border-color: var(--warn);
+  background: var(--warnb);
+  color: var(--warn);
+}
+
+/* The help card's Start picture: the zone's grid beside one free tile, wrapping on a narrow sheet.
+   Placement only (HelpPicture.test.tsx "pictures are declarations, never drawings"). */
+.help-pic-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+}
+
+/* ── Phase 2d · bell ── */
+/* The counter's greeting line carries the bell's chip at its right (the counter branch of /staff
+   only — the doors' greeting keeps its own margin and no row). The row wraps on a phone: the chip
+   drops under the greeting, right-aligned. The row is the chip's transient line's anchor (below). */
+.staff-greet-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2) var(--s3);
+  margin: 0 0 var(--s4);
+}
+.staff-greet-row > .staff-greeting {
+  margin: 0;
+}
+.staff-greet-row > .staff-sound-chip {
+  margin-left: auto;
+}
+/* The chip's glyph beside its word (`volume` when on, `volume-off` otherwise); the lit cap, the
+   dimmed busy state and the rest are `.staff-chip`'s own — the pressed state is the ONE shared
+   selector list, never a fill of this chip's. */
+.staff-sound-chip {
+  gap: var(--s2);
+}
+/* PAUSED — the counter wanted the bell and the context is not running: a warn hairline + warn ink,
+   the kitchen chip's `data-muted` idiom (a state tone, not a selection). */
+.staff-chip[data-muted="true"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+/* The post-arm hint (plain) or the refusal (warn, role=alert): a note hung under the chip, ending
+   where it ends — OUT of the flow. In the flow it pushed the whole counter column (the Start zone,
+   the floor, the lane) down a line the moment the bell armed and pulled it back 8s later, under the
+   counter person's finger (the boards must not move under a finger). Floating, nothing moves: it
+   sits over the top of the zone below for its dwell, on the chip's own --sf ground with the paper
+   lift, under the sticky bar (never over it), and lets every tap through to what it covers. */
+.staff-sound-line {
+  position: absolute;
+  top: calc(100% + var(--s1));
+  inset-inline-end: 0;
+  z-index: calc(var(--z-toolbar) - 1);
+  max-width: 100%;
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  box-shadow: var(--sh-md);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+  text-align: end;
+  pointer-events: none;
+}
+.staff-sound-line-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* ── Phase 2d · split ── */
+/* The counter's TABLET SPLIT (K24, DESIGN-LANGUAGE §17): the floor in the main column, the selected
+   table in a pane beside it. The selection is the URL hash (`lib/floor-pane.ts`), and the breakpoints
+   are named ONCE there and parity-tested against the two `display: grid` rules below. One mounted
+   tree around the boards — a rotation reflows it, it never remounts FloorBoard or the lane.
+
+     phone    < 48em   today's column; a selection (a deep link, a narrowed iPad) TAKES the column
+                       — the floor stays mounted and polling, just not displayed.
+     tablet   48–64em  side by side only while a table is open (`data-pane="open"`).
+     desktop  ≥ 64em   the pane column is always there (the empty state), so the grid keeps one
+                       shape all shift and a table keeps its place. */
+:root {
+  --w-staff-pane: clamp(22rem, 34vw, 34rem);
+  --w-staff-split: 96rem;
+}
+.staff-split {
+  max-width: 67.5rem;
+}
+.staff-split-main {
+  min-width: 0;
+}
+.staff-split-pane {
+  display: none;
+}
+.staff-split[data-pane="open"] > .staff-split-main {
+  display: none;
+}
+.staff-split[data-pane="open"] > .staff-split-pane {
+  display: block;
+}
+@media (min-width: 48em) {
+  .staff-split[data-pane="open"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--w-staff-pane);
+    column-gap: var(--s6);
+    align-items: start;
+    max-width: var(--w-staff-split);
+  }
+  .staff-split[data-pane="open"] > .staff-split-main {
+    display: block;
+  }
+  /* A column on the page's lines, not a card: sticky UNDER the bar (never the notch inset, which
+     stays the bar's), its own scroller. The axis longhand — overscroll-contract.test refuses the
+     shorthand. The end padding keeps a 2.5px focus ring unclipped by the scroller. */
+  .staff-split-pane {
+    position: sticky;
+    top: calc(var(--staff-bar-h, 76px) + var(--s4));
+    max-height: calc(100dvh - var(--staff-bar-h, 76px) - var(--s8));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    border-inline-start: 1px solid var(--bd);
+    /* The end reserve is the dock's (`.staff-col-dock`): the pane scrolls itself, so without it its
+       last controls sit under the lane's fixed thumb-zone Undo pill. */
+    padding: 0 var(--s2) calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px))
+      var(--s6);
+  }
+}
+@media (min-width: 64em) {
+  .staff-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--w-staff-pane);
+    column-gap: var(--s6);
+    align-items: start;
+    max-width: var(--w-staff-split);
+  }
+  .staff-split > .staff-split-pane {
+    display: block;
+  }
+}
+/* A change refused AFTER the pane closed (`data-pane="lost"`): below 64em the pane is hidden when
+   empty, so the warning would be neither shown nor said. There it comes back as ONE line above the
+   floor — the floor stays in place, the "Pick a table" page stays hidden, the pane is not a column.
+   ≥64em the always-there pane column already carries it. */
+@media (max-width: 63.99em) {
+  .staff-split[data-pane="lost"] {
+    display: flex;
+    flex-direction: column;
+  }
+  .staff-split[data-pane="lost"] > .staff-split-pane {
+    display: block;
+    order: -1;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    border-inline-start: 0;
+    padding: 0;
+  }
+  .staff-split[data-pane="lost"] .staff-pane-empty {
+    display: none;
+  }
+}
+/* The pane head: opaque page ground (the bar is §17's one frosted pane), a hairline, the table's
+   name one line with an ellipsis, and the ✕. Sticks under the bar on a phone (the page scrolls), at
+   the pane's top from 48em (the pane scrolls). */
+.staff-pane-head {
+  position: sticky;
+  top: var(--staff-bar-h, 128px);
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 60px;
+  margin-bottom: var(--s4);
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+}
+@media (min-width: 48em) {
+  .staff-pane-head {
+    top: 0;
+  }
+}
+.staff-pane-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.staff-pane-title [lang="my"],
+.staff-pane-title:lang(my) {
+  font-family: var(--font-my);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-my);
+}
+/* A change on another table that did not save: warn ink and the words, never colour alone. */
+.staff-pane-lost {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+}
+.staff-pane-actions {
+  margin-top: var(--s4);
+}
+/* The body rises once per SELECTION (keyed), never on a live refresh: --dur-base, not the kit's
+   --dur-slow, so a switch mid-rush never trails. */
+.staff-pane-body.mms-rise {
+  animation-duration: var(--dur-base);
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-pane-body,
+  .staff-pane-body.mms-rise {
+    animation: none;
+  }
+}
+/* The selected card: the console's ONE lit cap on the table's NAME (the shared rule above), a gold
+   edge and a halo on the card. The label carries the cap's padding at rest, so selecting paints and
+   moves nothing. Not the door's 18%-gold ground — Night --t3/--warn/--ok fall below 4.5:1 on it. */
+.floor-card-label {
+  display: inline-block;
+  padding: 0 var(--s2);
+  margin-inline-start: calc(-1 * var(--s2));
+  border-radius: var(--r-full);
+}
+.floor-card[aria-current="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    inset 0 -1px 0 var(--edge-lo),
+    var(--sh-paper),
+    0 0 18px -8px var(--glow-gold);
+}
+/* Restated at (0,3,0): `.card-interactive:hover`/`:active` set their own shadow and would erase the
+   halo exactly when the finger is on the card. */
+@media (hover: hover) {
+  .floor-card.card-interactive[aria-current="true"]:hover {
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-paper-hover),
+      0 0 18px -8px var(--glow-gold);
+  }
+}
+.floor-card.card-interactive[aria-current="true"]:active {
+  box-shadow:
+    inset 0 1px 0 var(--edge-lo),
+    inset 0 -1px 0 var(--sheen),
+    var(--sh),
+    0 0 18px -8px var(--glow-gold);
+}
+/* Staff routes opt out of the root drift (TransitionNav: ops tools need no theatre): the pane's ✕
+   walks history back, and a 16px slide of the whole counter screen — whose overlay swallows the
+   next tap — is exactly what a cashier mid-rush must not get. Every staff Back is instant now. */
+@supports (view-transition-name: none) {
+  html:has(.staff-main) {
+    view-transition-name: none;
+  }
+  html:has(.staff-main)::view-transition {
+    pointer-events: none;
+  }
+}
+/* The loading skeleton's reserved pane column: space only — no divider, no shapes. */
+.staff-split-pane.staff-split-pane-idle {
+  border-inline-start: 0;
 }

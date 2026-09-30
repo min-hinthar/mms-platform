@@ -19,7 +19,13 @@ import { inFlightRefusalFor } from "./inflight-read";
 import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
+import {
+  settleRefusal,
+  unreadableRefusal,
+  unsentRefusal,
+  type UnreadableRefusal,
+  type UnsentRefusal,
+} from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
@@ -27,8 +33,15 @@ import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
 import { maybeRenewSession } from "./authz";
 // ── Phase 2c · gate ──
-import { staffSettleBlockedByUnsent } from "./checkout-stage";
-import { kitchenDraftUnits } from "./unsent-read";
+import { staffSettleUnsentVerdict } from "./checkout-stage";
+import { readKitchenDraftUnits } from "./unsent-read";
+import { lineRpcRefusal } from "./line-rpc-refusal";
+
+// Named once for this module's refusals (a "use server" file may export only async functions, so
+// these stay local). Plain words — never "void"/"fire"/"settle" in staff copy.
+const PAYING_REFUSAL = "This table is mid-payment — wait until they’ve finished.";
+const SENT_LINE_REFUSAL =
+  "That dish already went to the kitchen — use Remove or Make it free instead.";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -71,13 +84,16 @@ export type SettleCashResult =
  *  - `unsent` — the settle gate (Phase 2c · gate): dine-in dishes have not gone to the kitchen.
  *    `units` is the server's count of them, read under the freeze; the component renders
  *    `table.send.settleBlocked.*` and jumps to the Send. Nothing was recorded; the freeze released.
+ *  - `unreadable` — P2dc · P2el: the same gate could not READ the lines (dine-in only), so it refused
+ *    rather than pass unchecked. The component says `settle.unsentUnreadable`; the tap retries.
  * A union member per code, so each carries exactly the facts its sentence needs.
  */
 export type SettleCashRefusal =
   | { ok: false; error: string; code?: undefined }
   | { ok: false; error: string; code: "moved"; totalCents: number }
   | InFlightRefusal
-  | UnsentRefusal;
+  | UnsentRefusal
+  | UnreadableRefusal;
 export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
@@ -112,11 +128,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   if (!session) return { ok: false, error: "That table is closed.", code: "closed" };
   if (!cart) return { ok: false, error: "This table has no open order.", code: "no-cart" };
   if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "This table is mid-payment — wait until they’ve finished.",
-      code: "paying",
-    };
+    return { ok: false, error: PAYING_REFUSAL, code: "paying" };
 
   // Phase 2a · padserver — WHERE a throw happens decides what it means (lib/staff-add-outcome.ts):
   // pricing writes nothing, so its failures are definite; the write may have committed with its
@@ -173,7 +185,12 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     const code = addFailureCode(phase, phase === "write" ? e : priceFailure);
     return {
       ok: false,
-      error: code === "closed" ? "This table has no open order." : "Couldn’t add that item.",
+      error:
+        code === "closed"
+          ? "This table has no open order."
+          : code === "paying"
+            ? PAYING_REFUSAL
+            : "Couldn’t add that item.",
       code,
     };
   }
@@ -215,8 +232,7 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
-  if (await paymentInFlightReason(cart))
-    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
 
   const db = serviceClient();
   // The line must belong to THIS table's open cart (an id from another table is a not-found, not an edit).
@@ -230,16 +246,13 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
     .maybeSingle();
   if (lineError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!line) return { ok: false, error: "That item isn’t on this table." };
-  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. The RPC guards only
-  // the open cart, so a stepper tap queued behind a Send (Next runs actions one at a time) would
-  // otherwise land on the just-fired line and the kitchen would cook a different quantity from the
-  // ticket. A sent dish changes through Remove / Make it free (the loss flow), never here. (The same
-  // guard inside the RPC — against another device's Send racing this read — needs a migration: filed.)
-  if (line.state !== "draft")
-    return {
-      ok: false,
-      error: "That dish already went to the kitchen — use Remove or Make it free instead.",
-    };
+  // Phase 2c · Codex round 3 (P1) — a quantity change or removal is a DRAFT edit. A stepper tap queued
+  // behind a Send (Next runs actions one at a time) would otherwise land on the just-fired line and
+  // the kitchen would cook a different quantity from the ticket. A sent dish changes through Remove /
+  // Make it free (the loss flow), never here. This read answers the common case; the race it cannot
+  // see — another device's Send landing after it — is closed inside the RPC since P2dd
+  // (20260929000000: `and ci.state = 'draft'` + the 'line already sent' raise, mapped below).
+  if (line.state !== "draft") return { ok: false, error: SENT_LINE_REFUSAL };
 
   // Status-atomic set/delete (qty<=0 removes) — applies only while the cart is 'open' (same RPC the
   // diner path uses). 0 rows ⇒ the cart flipped paid/closed under us.
@@ -247,6 +260,12 @@ export async function staffSetQty(sessionId: string, raw: unknown): Promise<Staf
     p_id: cartItemId,
     p_qty: qty,
   });
+  // P2dd · P2cy — the RPC now re-checks, under the cart's row lock, the two facts this action read
+  // above: a Send from another device, or a settlement, can land in between. Both raises are definite
+  // refusals (nothing written), so they get their own sentence — never the outage copy.
+  const refusal = lineRpcRefusal(rpcError);
+  if (refusal === "sent") return { ok: false, error: SENT_LINE_REFUSAL };
+  if (refusal === "paying") return { ok: false, error: PAYING_REFUSAL };
   if (rpcError) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!affected) return { ok: false, error: "This table’s order is no longer open." };
   await touchCart(cart.id, "staffSetQty");
@@ -272,8 +291,7 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order." };
-  if (await paymentInFlightReason(cart))
-    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+  if (await paymentInFlightReason(cart)) return { ok: false, error: PAYING_REFUSAL };
 
   // One statement carries every guard: this table's cart + still-draft. 0 rows ⇒ fired/removed under us.
   // W10b — a failed UPDATE is not "the note is frozen" (a false verdict); it's an unsaved change.
@@ -368,19 +386,17 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     // ── Phase 2c · gate ── the settle gate (owner decision 3): a dine-in table pays only once every
     // dish has gone to the kitchen — otherwise this settle charges for dishes nobody sent and the
     // after() fire below cooks them once the table has paid. UNDER the freeze, BEFORE the totals (a
-    // refusal costs no totals read). The read fails OPEN (lib/unsent-read), which is today's
-    // settle-fires behaviour. Returned from INSIDE the try: the `finally` below releases this
+    // refusal costs no totals read). Returned from INSIDE the try: the `finally` below releases this
     // attempt's freeze.
-    // ⚠️ THE FREEZE DOES NOT STOP AN ADD LANDING AFTER THIS READ (Phase 2c · review, R7 — this
-    // comment used to claim "no add or fire can move the verdict before the RPC"). `staffAddItem`
-    // (and the diner's add) check the freeze with a READ before their write, and
-    // `mms_cart_item_insert_if_open` guards only `status = 'open'`, never `settle_at` — so an add
-    // whose check passed just before the acquire can insert a draft after this read. What catches it
-    // HERE is the compare-and-swap below: the new dish moves the live total off `quotedCents` and the
-    // settle refuses `moved` (whenever the sheet sent a quote). `settleCard` (lib/terminal) has no
-    // such compare; the real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
-    const unsentUnits = await kitchenDraftUnits(cart.id);
-    if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);
+    // P2cy (20260929000000) — the add RPCs now take the cart row FOR SHARE and refuse under a fresh
+    // freeze, so no add can land after the acquire above: an add that locked first committed before
+    // the acquire returned (and this read sees it); one that locks after sees the freeze and refuses.
+    // P2dc (owner decision 5a) — an UNREADABLE count refuses here: the staff doors fail CLOSED (this
+    // read used to fail open, into the settle-fires behaviour); the `finally` releases the freeze.
+    const unsentUnits = await readKitchenDraftUnits(cart.id);
+    const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
+    if (unsent === "unreadable") return unreadableRefusal();
+    if (unsent === "unsent") return unsentRefusal(unsentUnits ?? 0);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -660,12 +676,12 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // and long before any PaymentIntent. This close is the one where "the guest may have left", so a
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
-  // (R7: the freeze does not stop an add landing after this read — see settleCash; here too the
-  // compare-and-swap below is what refuses it, when the confirm sent its quote.)
-  const unsentUnits = await kitchenDraftUnits(cart.id);
-  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+  // (P2cy: no add lands after the acquire — see settleCash. P2dc: an unreadable count refuses.)
+  const unsentUnits = await readKitchenDraftUnits(cart.id);
+  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
+  if (unsent !== null) {
     await releaseSettlementFor(cart.id, attempt);
-    return unsentRefusal(unsentUnits);
+    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
   }
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the

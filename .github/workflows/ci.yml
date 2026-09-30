@@ -223,7 +223,7 @@ jobs:
           # count is not enough: once a third file lands, deleting or renaming one of these would still
           # satisfy the count and leave the job green with a whole guard silently gone. Add a new .sql
           # to this list when it becomes load-bearing.
-          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql; do
+          for required in supabase/tests/rls_membership_test.sql supabase/tests/tax_parity_test.sql supabase/tests/scan_dedupe_test.sql supabase/tests/cash_tip_bound_test.sql supabase/tests/reward_follows_owner_test.sql supabase/tests/pickup_phone_bound_test.sql supabase/tests/w23d_dropped_visibility_test.sql supabase/tests/m87_order_item_seat_test.sql supabase/tests/m96_merge_keeps_adder_test.sql supabase/tests/m151_live_payment_intent_test.sql supabase/tests/pilot15_promo_test.sql supabase/tests/m97_merge_matches_fulfillment_test.sql supabase/tests/m98_merge_matches_price_test.sql supabase/tests/m100_session_mode_authority_test.sql supabase/tests/m17_line_tax_category_test.sql supabase/tests/m109_merge_matches_mode_test.sql supabase/tests/advisor_sweep_test.sql supabase/tests/m22_promo_consumed_on_its_own_contribution_test.sql supabase/tests/m70_promo_grant_survives_settlement_test.sql supabase/tests/m72_settlement_derives_availability_test.sql supabase/tests/p7_staff_reports_test.sql supabase/tests/a1_counter_pay_test.sql supabase/tests/m218_cash_refund_line_test.sql supabase/tests/staff_fire_undo_test.sql supabase/tests/p2dd_p2cy_line_guards_test.sql; do
             if [ ! -f "$required" ]; then
               echo "::error::Required SQL test missing: $required (renamed or deleted?)"
               exit 1
@@ -255,10 +255,12 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 20 mutations across three LIVE functions (mms_set_line_fulfillment, mms_fire_line and
-      # mms_cart_item_insert_if_open) plus one of mms_init_togo_status — the only way to falsify the
+      # 40 mutations (measured below; was "20" while the file held 27) across six LIVE functions
+      # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
+      # mms_merge_table_orders, and — P2dd · P2cy — mms_cart_item_inc_qty and
+      # mms_cart_item_set_qty_if_open) plus one of mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
-      # and the NAMED case (not just some case) to be the one that goes red. Two mutants are
+      # and the NAMED case (not just some case) to be the one that goes red. Four mutants are
       # documented SURVIVORS and are asserted as such rather than left as untested comments.
       # The battery replays an ordered migration CHAIN and verifies from the migration FILENAMES that
       # its chain is complete: a function whose last definition moves outside the chain ABORTS the
@@ -268,6 +270,19 @@ jobs:
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 5
         run: node scripts/verify-mode-authority.mjs
+      # P2dk — the P2cy cart lock (`for share`) on the three line RPCs is only observable with TWO
+      # sessions: a settlement claim interleaved with an add. Each RPC, both orders (claim-first →
+      # the add waits then refuses; add-first → the claim waits and its next read sees the line) and
+      # a control (two adds never serialize). Commits tagged fixtures, so the script refuses
+      # anything that is not the local stack. ~3s measured locally.
+      - name: Line-guard race harness (two concurrent sessions)
+        timeout-minutes: 3
+        run: node scripts/verify-line-guard-race.mjs
+      # Can it fail? `for share` deleted (claim-first and add-first must go red) and turned into a
+      # mutex (the control must), per function; md5-checked apply, byte-identical restore. ~10s.
+      - name: Line-guard race mutants (can the row lock fail?)
+        timeout-minutes: 5
+        run: node scripts/verify-line-guard-race.mjs --mutants
       - name: Stop stack
         if: always()
         run: supabase stop || true

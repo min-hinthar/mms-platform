@@ -24,7 +24,7 @@
  *
  * DOCUMENTED SURVIVORS
  * --------------------
- * Three mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
+ * Four mutations are expected to SURVIVE, and asserting that is the point. They are not one kind:
  *
  *   · A survivor that measures a PROPERTY. `toggle/in-write-mode-term-deleted` rests on
  *     `table_sessions.mode` having no writer; the migration's header states that in writing and this
@@ -35,6 +35,10 @@
  *     because a pre-check refuses first, the second because the gate above it proves both carts
  *     exist. They are listed rather than omitted so a maintainer reworking either predicate sees the
  *     row instead of an absence.
+ *   · A survivor that needs TWO sessions. `insert/for-share-deleted` (P2cy): the row lock orders an
+ *     add against a settlement claim, which no single session can interleave. It is KILLED — for all
+ *     three line RPCs — by `scripts/verify-line-guard-race.mjs --mutants`; it is listed here so this
+ *     battery's own count stays honest.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -79,9 +83,15 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20260827000000_m109_merge_matches_mode.sql"),
     test: path.join(ROOT, "supabase/tests/m109_merge_matches_mode_test.sql"),
   },
+  // P2dd · P2cy restate all three line RPCs, `mms_cart_item_insert_if_open` included — so M17's
+  // insert mutants patch THIS file now (the last definition), and are still judged by the m17 suite.
+  p2dd: {
+    migration: path.join(ROOT, "supabase/migrations/20260929000000_p2dd_p2cy_line_guards.sql"),
+    test: path.join(ROOT, "supabase/tests/p2dd_p2cy_line_guards_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109"];
+const CHAIN = ["m100", "m17", "m109", "p2dd"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -345,7 +355,7 @@ const MUTANTS = [
   {
     id: "insert/tax-category-not-stamped",
     fn: "mms_cart_item_insert_if_open",
-    src: "m17",
+    src: "p2dd",
     suite: "m17",
     expect: "M17.1",
     why: "the whole premise: a line minted without its category is a line whose tax the catalog can revoke later. Everything else in this suite rests on the stamp happening at insert, while the item is certain to exist",
@@ -410,7 +420,7 @@ const MUTANTS = [
   {
     id: "insert/uuid-guard-deleted",
     fn: "mms_cart_item_insert_if_open",
-    src: "m17",
+    src: "p2dd",
     suite: "m17",
     // Not a case name: without the CASE guard the cast RAISES at insert, before any assert can run.
     // That 22P02 is precisely the symptom case 6 exists to keep out of a diner's face.
@@ -513,6 +523,153 @@ const MUTANTS = [
     find: M109_GATE,
     replace: "  if v_src_mode <> v_tgt_mode then",
   },
+  // ── P2dd · P2cy — the line RPCs (20260929000000). One mutant per named case. ──
+  {
+    id: "setqty/remove-sends-a-sent-line",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.2",
+    why: "the delete branch's own draft guard. Without it staff or a diner REMOVES a dish the kitchen is already cooking — a line that vanishes from the bill while the plate still comes out",
+    find: "where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped\n        and ci.state = 'draft';\n  else",
+    replace:
+      "where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped;\n  else",
+  },
+  {
+    id: "setqty/qty-changes-a-sent-line",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.1",
+    why: "P2dd itself: another device's Send lands between staffSetQty's read and this RPC, and the quantity of a line the kitchen was just handed changes — the ticket says 2, the bill says 5",
+    find: "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped\n        and ci.state = 'draft';",
+    replace:
+      "    update public.qr_cart_items ci set qty = p_qty\n      from public.qr_carts c\n      where ci.id = p_id and c.id = ci.cart_id and c.status = 'open' and not ci.comped;",
+  },
+  {
+    id: "setqty/sent-refusal-silent",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.1",
+    why: 'the refusal\'s NAME. A silent 0 reads as "no longer open" in both callers, telling staff a live table closed when the truth is "that dish already went to the kitchen"',
+    find: "    if v_state is not null and v_state <> 'draft' then\n      raise exception 'line already sent' using errcode = 'P0001';",
+    replace:
+      "    if false then\n      raise exception 'line already sent' using errcode = 'P0001';",
+  },
+  {
+    id: "inc/grows-a-sent-line",
+    fn: "mms_cart_item_inc_qty",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.3",
+    why: "the merge bump's draft guard: the sibling read filters state='draft', but a Send between that read and this bump grows a fired line — the cook plates 2, the bill charges 3",
+    find: "and ci.qty < 99 and not ci.comped\n      and ci.state = 'draft';",
+    replace: "and ci.qty < 99 and not ci.comped;",
+  },
+  {
+    id: "inc/sent-bump-silent",
+    fn: "mms_cart_item_inc_qty",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.3",
+    why: "a bump refused on a sent line must be NAMED so the caller inserts a fresh draft; silent, the add is reported as landed and exists nowhere",
+    find: "    if v_state is distinct from 'draft' then\n      raise exception 'line already sent'",
+    replace: "    if false then\n      raise exception 'line already sent'",
+  },
+  {
+    id: "inc/grows-a-comped-line",
+    fn: "mms_cart_item_inc_qty",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2DD.4",
+    why: "the comped guard on the bump: a repeat tap of a dish staff comped grows the comped line, so every extra unit is cooked and billed at zero. P2DD.4 called the bump on the comped draft and never read it back until the Phase 2d blind review — this mutant survived the file (measured)",
+    find: "ci.qty < 99 and not ci.comped",
+    replace: "ci.qty < 99",
+  },
+  {
+    id: "insert/freeze-ignored",
+    fn: "mms_cart_item_insert_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.1",
+    why: "P2cy itself: an add under a live settlement rides the Terminal PaymentIntent (no quote CAS there) and is fired after pay by mms_fire_pending_food",
+    find: "  -- its null / raise below.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+    replace: "  -- its null / raise below.\n",
+  },
+  {
+    id: "inc/freeze-ignored",
+    fn: "mms_cart_item_inc_qty",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.2",
+    why: "the same hole on the merge branch: a repeat tap of a dish already in the basket grows its quantity under the settlement",
+    find: "  -- answers idempotently; the raise rolls a fresh claim back.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then",
+    replace:
+      "  -- answers idempotently; the raise rolls a fresh claim back.\n  if false and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then",
+  },
+  {
+    id: "setqty/freeze-ignored",
+    fn: "mms_cart_item_set_qty_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.3",
+    why: "a quantity change or removal under a live settlement moves a total staff are collecting",
+    find: "  if v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then",
+    replace:
+      "  if false and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then",
+  },
+  {
+    id: "insert/freeze-checked-before-claim",
+    fn: "mms_cart_item_insert_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.4",
+    why: "ordering: checking the freeze BEFORE the claim tells a replayed scan that already landed that it did not — the offline queue then keeps retrying (or drops) a write that is on the bill",
+    edits: [
+      {
+        find: "  -- its null / raise below.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+        replace: "  -- its null / raise below.\n",
+      },
+      {
+        find: "    for share;\n  if p_scan_id is not null then\n    insert into public.mms_scan_events (scan_id, cart_id) values",
+        replace:
+          "    for share;\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n  if p_scan_id is not null then\n    insert into public.mms_scan_events (scan_id, cart_id) values",
+      },
+    ],
+  },
+  {
+    id: "insert/freeze-never-goes-stale",
+    fn: "mms_cart_item_insert_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.5",
+    why: "the TTL: an abandoned settlement (the tab died mid-collect) must stop freezing the table after SETTLE_TTL_MS, exactly as assertCartMember reads it — or the table is dead until someone clears settle_at by hand",
+    find: "  -- its null / raise below.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+    replace:
+      "  -- its null / raise below.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '12 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+  },
+  {
+    id: "insert/freeze-refuses-a-closed-cart",
+    fn: "mms_cart_item_insert_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: "P2CY.6",
+    why: 'a paid cart with a fresh settle_at must keep its "no longer open" answer (null → CartClosedError → start a fresh order), never "being paid", which tells the diner to wait for a payment that already happened',
+    find: "  -- its null / raise below.\n  if v_status = 'open' and v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+    replace:
+      "  -- its null / raise below.\n  if v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then\n    raise exception 'cart is being paid' using errcode = 'P0001';\n  end if;\n",
+  },
+  {
+    id: "insert/for-share-deleted",
+    fn: "mms_cart_item_insert_if_open",
+    src: "p2dd",
+    suite: "p2dd",
+    expect: null,
+    why: "DOCUMENTED SURVIVOR HERE — the row lock is what orders an add against a settlement claim, and it is only observable with TWO sessions, which no file this battery runs can open. It is KILLED in CI by scripts/verify-line-guard-race.mjs --mutants (P2dk), which deletes `for share` from all three line RPCs and watches both orders go red. A kill HERE would mean the single-session suite has started to depend on the lock — re-read that harness before trusting it",
+    find: "    from public.qr_carts c where c.id = p_cart_id\n    for share;",
+    replace: "    from public.qr_carts c where c.id = p_cart_id;",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -524,7 +681,7 @@ let failures = 0;
 
 console.log(
   c.bold(
-    `\nverify:mode-authority — ${MUTANTS.length} mutants over 4 functions, ${CHAIN.length} suites\n`,
+    `\nverify:mode-authority — ${MUTANTS.length} mutants over 6 functions, ${CHAIN.length} suites\n`,
   ),
 );
 
@@ -563,6 +720,8 @@ const TARGETS = [
   "mms_fire_line",
   "mms_cart_item_insert_if_open",
   "mms_merge_table_orders",
+  "mms_cart_item_inc_qty",
+  "mms_cart_item_set_qty_if_open",
 ];
 
 /**

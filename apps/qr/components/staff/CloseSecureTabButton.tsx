@@ -29,7 +29,9 @@ type CloseError =
   | { kind: "inflight"; holder: InFlightHolder }
   // Phase 2c · gate — the settle gate refused the close (dishes the kitchen never got), with the
   // server's count. Shown here in the running bill's words, SAID by the page's one region.
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
+  | { kind: "unreadable" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -55,6 +57,7 @@ export function CloseSecureTabButton({
   gateLive,
   readTicket = 0,
   readsStarted,
+  onSettleOutcome,
 }: {
   sessionId: string;
   totalCents: number;
@@ -78,6 +81,10 @@ export function CloseSecureTabButton({
    *  ticket, and the last read STARTED (called when a refusal lands, never in render). */
   readTicket?: number;
   readsStarted?: () => number;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's settle, as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -150,9 +157,11 @@ export function CloseSecureTabButton({
       setBusy(false);
       setConfirming(false);
       setError({ kind: "local" });
+      onSettleOutcome?.("unknown");
       return;
     }
     if (!res.ok) {
+      onSettleOutcome?.("refused"); // nothing was charged, whichever refusal it is
       inFlight.current = false;
       setBusy(false);
       setConfirming(false);
@@ -178,6 +187,11 @@ export function CloseSecureTabButton({
           onBlockedTap(res.units);
         }
         onChanged?.();
+        return;
+      }
+      if (res.code === "unreadable") {
+        // P2dc · P2el — nothing charged, the freeze released: the dictionary's words; retry = tap.
+        setError({ kind: "unreadable" });
         return;
       }
       setError({ kind: "server", text: res.error });
@@ -286,6 +300,8 @@ export function CloseSecureTabButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {alertMsg.kind === "server" ? (
             <OutageText lang={lang} error={alertMsg.text} />
+          ) : alertMsg.kind === "unreadable" ? (
+            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
           ) : alertMsg.kind === "moved" ? (
             <Chrome
               lang={lang}

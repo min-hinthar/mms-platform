@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { UNSENT_SETTLE_REFUSAL } from "./settle-refusal";
+import { UNSENT_SETTLE_REFUSAL, UNSENT_UNREADABLE_REFUSAL } from "./settle-refusal";
 
 /**
  * Phase 2c · gate — the staff settle gate on the two `staff-cart` doors (owner decision 3,
@@ -206,11 +206,27 @@ describe("settleCash — refused while dine-in dishes are unsent", () => {
     expect(cashRecorded()).toBe(true);
   });
 
-  it("an unreadable line read fails OPEN — today's settle-fires behaviour, never a stranded table", async () => {
+  // P2dc (owner decision 5a, 2026-09-29) — the STAFF doors fail CLOSED. This case used to pin the
+  // opposite (fail-open, "today's settle-fires behaviour"); the owner chose never to take money past
+  // a gate nobody could check, because a person at the register can simply try again.
+  it("an unreadable line read REFUSES, typed `unreadable` — nothing recorded, freeze released (P2el)", async () => {
+    // MUTATION (p2d-dc/cash-unreadable-fails-open): treat null as 0 — cash is recorded over dishes
+    // nobody could count, and the after() fire cooks them once the table has paid; red.
     rowsFail = true;
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
-    expect(r.ok).toBe(true);
-    expect(cashRecorded()).toBe(true);
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
+    expect(cashRecorded()).toBe(false);
+    expect(ops).toEqual(["acquire", "unsent-read", "release"]);
+    releasedOwnFreeze();
+  });
+
+  it("…but a counter order's unreadable read changes nothing — the gate never applies there", async () => {
+    // MUTATION (p2d-dc/verdict-null-closes-every-mode): refuse on null in ANY mode — a counter sale is
+    // blocked by a read whose answer cannot matter; red.
+    session = { id: SESSION, mode: "pickup", qr_code: "reg-7K2Q" };
+    rowsFail = true;
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
+    expect(r).toMatchObject({ ok: true, orderId: "order-1" });
   });
 });
 
@@ -228,6 +244,18 @@ describe("closeSecureTab — the running-bill close is gated too, before any Pay
     // no edits, and the Send the refusal points at is refused too; red.
     // MUTATION (settle/tab-close-unsent-read-before-the-freeze): check above the acquire; red.
     // MUTATION (settle/tab-close-unsent-read-after-the-totals): read the totals first; red.
+    expect(ops).toEqual(["acquire", "unsent-read", "release"]);
+    releasedOwnFreeze();
+  });
+
+  it("an unreadable line read refuses (P2dc) — no PaymentIntent, and the freeze released", async () => {
+    // MUTATION (p2d-dc/tab-close-unreadable-fails-open): treat null as 0 — the card on file is
+    // charged off-session over a gate nobody could check; red.
+    tabType = "secure";
+    rowsFail = true;
+    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 });
+    expect(r).toEqual({ ok: false, code: "unreadable", error: UNSENT_UNREADABLE_REFUSAL });
+    expect(charged()).toBe(false);
     expect(ops).toEqual(["acquire", "unsent-read", "release"]);
     releasedOwnFreeze();
   });

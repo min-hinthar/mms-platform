@@ -627,7 +627,7 @@ describe("board-4 — the sound chip is a toggle that stays", () => {
     ]);
     render(<ReadyBoard token="t" lang="en" />);
     await tick(1);
-    const chip = () => screen.getByRole("button", { name: /Enable sound|Sound on/ });
+    const chip = () => screen.getByRole("button", { name: /Turn on sound|Sound on/ });
     expect(chip().getAttribute("aria-pressed")).toBe("false");
     chip().focus(); // a remote's OK lands on a focused control; a tap alone would not focus it
     await act(async () => {
@@ -660,12 +660,12 @@ describe("board-4 — the sound chip is a toggle that stays", () => {
     const status = () => screen.getByRole("status");
     const before = status().textContent;
     await act(async () => {
-      screen.getByRole("button", { name: "Enable sound" }).click();
+      screen.getByRole("button", { name: "Turn on sound" }).click();
     });
     // MUTATION: swallow the `false` again — nothing says why nothing happened; red.
     expect(status().textContent).toBe(STAFF["board.sound.refused"].en);
     expect(screen.getAllByRole("status")).toHaveLength(1);
-    const chip = screen.getByRole("button", { name: "Enable sound" });
+    const chip = screen.getByRole("button", { name: "Turn on sound" });
     expect(chip.getAttribute("aria-disabled")).toBeNull();
     expect(chip.getAttribute("aria-pressed")).toBe("false");
     await tick(6_000);
@@ -688,7 +688,7 @@ describe("board-4 — the sound chip is a toggle that stays", () => {
     pollSequence([{ orders: [] }]);
     render(<ReadyBoard token="t" lang="en" />);
     await tick(1);
-    const chip = () => screen.getByRole("button", { name: /Enable sound|Sound on/ });
+    const chip = () => screen.getByRole("button", { name: /Turn on sound|Sound on/ });
     await act(async () => {
       chip().click();
       chip().click(); // a remote's OK bounces; a nervous thumb taps twice

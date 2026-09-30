@@ -15,6 +15,11 @@ import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
 import { staffSendCounts } from "./staff-send-view";
+// ── Phase 2d · floor ──
+import { isConsoleLocked } from "./staff-lock";
+import { shapeKdsThresholds } from "./kds-urgency";
+import { foldFloorKitchen, type FloorKitchenRow } from "./floor-kitchen";
+import { queueEmptiness } from "./queue-window";
 // ── Phase 2c · pad ──
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
@@ -65,6 +70,26 @@ const ORDER_LINE_CAP = 500;
  *  shape for the 500-row LINE read, where a reader who trusted the old wording would assume a
  *  truncation that never happens and render one row too many. */
 const SETTLED_ORDER_CAP = 20;
+/** Phase 2d · floor — the floor's LINE reads are bounded, below PostgREST's `max_rows` (1000,
+ *  `supabase/config.toml`), which truncates SILENTLY. A read that comes back AT the cap cannot tell
+ *  "exactly this many" from "we stopped counting" (`queueEmptiness`), and a truncated fold would
+ *  misstate the kitchen row and the running total — never drawn as the room.
+ *
+ *  Phase 2d · review (floor #6) — and never a whole-room outage for it either: one long night on
+ *  one table used to take the strip, every card and every table start down. The two reads now
+ *  answer a full page differently, by what they carry:
+ *    · the OPEN carts' lines carry the MONEY on the cards (the item count, the "so far" total, the
+ *      seated/ordering word), so they are read WHOLE — keyset pages of this size on
+ *      `(created_at, id)` under the poll's own database clock (`readOpenLines`, Phase 2d · Codex
+ *      round 2 · lines), up to `FLOOR_OPEN_LINE_PAGES`; past that ceiling a card's money would be a
+ *      partial sum, and that alone is still an outage;
+ *    · the PAID carts' lines feed only the kitchen row, so a full page makes the kitchen picture
+ *      honestly UNKNOWN for the poll (`kitchenUnknown`: no kitchen row on any card, one note in the
+ *      board's region) while the room — cards, strip, starts — keeps working. */
+const FLOOR_LINE_CAP = 900;
+/** Phase 2d · review — pages of `FLOOR_LINE_CAP` the open-cart read may walk (4,500 lines in the
+ *  room's open carts, a ceiling no real service reaches) before it refuses to draw a partial sum. */
+const FLOOR_OPEN_LINE_PAGES = 5;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const laterIso = (a: string, b: string | null | undefined): string =>
@@ -84,13 +109,17 @@ export async function getFloorView(): Promise<FloorPoll> {
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
   if (auth.kind !== "staff") return { ok: false, reason: "signin" };
+  // Phase 2d · floor (K14) — a console locked from another tab stops drawing the live room here,
+  // exactly as the KDS and the lane already do (`kitchen.ts`, `expo.ts`): the lock is attribution,
+  // not a boundary, but a locked shared tablet must not keep polling a board past its lock screen.
+  if (await isConsoleLocked()) return { ok: false, reason: "locked" };
   const db = serviceClient();
   const nowIso = new Date().toISOString();
 
   // A4·2 — the counter orders ride the SAME snapshot (`readRegisterQueue`, the read the register
   // page owned until it became a redirect): one poll, one outage posture. The floor's own read
   // keeps excluding exactly those sessions below, so the one list cannot key a session twice.
-  const [{ data: sessions, error: sessionsError }, counter] = await Promise.all([
+  const [{ data: sessions, error: sessionsError }, counter, floorExtras] = await Promise.all([
     db
       .from("table_sessions")
       .select("id,qr_code,table_number,mode,host_seat,created_at")
@@ -111,10 +140,42 @@ export async function getFloorView(): Promise<FloorPoll> {
       .order("created_at", { ascending: true })
       .limit(ACTIVE_SESSION_CAP),
     readRegisterQueue(db),
+    // ── Phase 2d · floor ── three more reads in the same round trip.
+    Promise.all([
+      // The strip's tiles: every ACTIVE registered number (the sticker tokens stay server-side —
+      // the strip never needs them).
+      db.from("qr_tables").select("table_number").eq("active", true).order("table_number"),
+      // The kitchen's own lateness thresholds, so the floor's wait pill is the KDS's rule (advisory).
+      db
+        .from("mms_kds_config")
+        .select("dinein_amber_min,dinein_red_min,pickup_amber_min,pickup_red_min,rechime_sec")
+        .maybeSingle(),
+      // The DATABASE clock: the send grace, the "ready" window and the wait are measured on it, as
+      // the KDS and the wall measure them (advisory — the app clock is the fallback).
+      db.rpc("mms_now"),
+    ]),
   ]);
+  const [registryRes, cfgRes, nowRes] = floorExtras;
   // A failed counter read misstates the counter the way a failed party read misstates a table —
   // an outage, never an empty queue beside a live room.
   if (sessionsError || !counter.ok) return { ok: false, reason: "outage" };
+  // Phase 2d · floor — the strip is now the ONLY way to start a table, so an unreadable registry is
+  // an outage of the whole floor read: on SSR the counter screen renders its outage shell, exactly
+  // as a failed sessions read does (stated, and pinned in lib/floor-kitchen-read.test.ts).
+  if (registryRes.error) return { ok: false, reason: "outage" };
+  const registry = [
+    ...new Set((registryRes.data ?? []).map((r) => r.table_number).filter(Number.isInteger)),
+  ].sort((a, b) => a - b);
+  if (cfgRes.error)
+    console.error("[floor] mms_kds_config read failed — the wait pill uses the defaults", {
+      message: cfgRes.error.message,
+    });
+  const thresholds = shapeKdsThresholds(cfgRes.error ? null : cfgRes.data);
+  if (nowRes.error)
+    console.error("[floor] mms_now failed — the kitchen row is timed on the app clock", {
+      message: nowRes.error.message,
+    });
+  const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
@@ -128,7 +189,10 @@ export async function getFloorView(): Promise<FloorPoll> {
         tables: [],
         counter: counter.rows,
         counterTruncated: counter.truncated,
-        serverNow: nowIso,
+        serverNow,
+        registry,
+        thresholds,
+        kitchenUnknown: false,
       },
     };
 
@@ -146,7 +210,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       .eq("status", "open"),
     db
       .from("qr_orders")
-      .select("session_id,total_cents,created_at,status,refunded_cents")
+      .select("session_id,cart_id,total_cents,created_at,status,refunded_cents")
       .in("session_id", sessionIds)
       // K33 — the SAME settled-status policy as `getTableDetail`, and it has to be the same one.
       // The two reads pick a settled order by the same rule (latest by `created_at`), so a
@@ -169,26 +233,161 @@ export async function getFloorView(): Promise<FloorPoll> {
 
   const cartRows = carts ?? [];
   const cartIds = cartRows.map((c) => c.id);
+  // Phase 2d · floor — the table's PAID carts, for the kitchen row only: a table that paid a round
+  // is still eating, and its food is on that cart. Never folded into the "so far" aggregate below,
+  // which stays keyed by the OPEN cart. And never an id the open read already holds (Codex #306
+  // round 3): the cart and order reads are separate requests, so a settle committing between them
+  // returns the cart as open AND its order as paid — read by both line reads, its kitchen lines
+  // would fold twice. The open read owns it this poll; the next one sees it paid.
+  const openCartIds = new Set(cartIds);
+  const paidCartSession = new Map<string, string>();
+  for (const o of orders ?? [])
+    if (o.cart_id && o.session_id && !openCartIds.has(o.cart_id))
+      paidCartSession.set(o.cart_id, o.session_id);
+  const paidCartIds = [...paidCartSession.keys()];
   // Lines for the open carts → aggregate count + running subtotal + latest line time per cart in TS.
   // `created_at` is the activity signal (NOT qr_carts.updated_at — nothing bumps it; the cart RPCs
   // don't write it, so it's stuck at cart creation): the most recent line add is "last activity".
-  const { data: lines, error: linesError } = cartIds.length
-    ? await db
+  // Phase 2d · floor — the kitchen columns ride the same read, and the read is BOUNDED (above).
+  type FloorLineRow = {
+    id: string;
+    cart_id: string;
+    qty: number;
+    unit_price_cents: number;
+    created_at: string;
+    state: string;
+    comped: boolean;
+    fulfillment: string;
+    fire_at: string | null;
+    bumped_at: string | null;
+    by_seat: string | null;
+  };
+  type PaidLineRow = Pick<
+    FloorLineRow,
+    "id" | "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
+  >;
+  // Phase 2d · review — the open carts' lines, read WHOLE (above), in pages until one comes back
+  // short; past the ceiling, `saturated`.
+  //
+  // ⚠️ Phase 2d · Codex round 2 · lines — WHICH ROOM THE PAGES DESCRIBE. Every page is its own
+  // request, so its own snapshot. The seek used to be `id`, a RANDOM uuid: a line added between two
+  // pages landed below the cursor or above it by chance, so one mid-read line was skipped while
+  // another, added after it, was counted — and the short page after them still called the read
+  // complete, publishing an item count, a "so far" total and a kitchen row for a room that never
+  // existed. Now:
+  //   · the seek is `(created_at, id)` — `created_at` is `not null default now()`, set at insert and
+  //     written by nothing after it (a merge moves a line with `update … set cart_id`, so it keeps
+  //     its place), and `id` breaks the ties one transaction's lines share. The cursor is the row's
+  //     OWN string: through `Date` it would lose the column's microseconds and name another instant;
+  //   · every page is bounded by `linesAsOf`, the database clock this poll already read (`mms_now`,
+  //     the instant it reports as `serverNow`), taken before page one. A line whose transaction
+  //     began after it is in NO page — the next poll's — so a line added mid-read is never skipped
+  //     while a later one is counted.
+  // What that guarantees: every line committed before `linesAsOf` and still on one of this poll's
+  // open carts is counted exactly once (its place in the order cannot move), and none begun after
+  // it is. What it does NOT: one snapshot. A line whose transaction was already open at
+  // `linesAsOf` and commits after the page past its place has been read is missed by this poll
+  // (`now()` is the transaction's START, so it sorts behind the cursor) — the cart RPCs are single
+  // statements, so that is a write in flight across the read; and a write to a line already read
+  // (a qty change, a merge folding one line into another) reaches the next poll. Only a read in ONE
+  // statement closes both: a `SECURITY DEFINER` function, i.e. a prod migration (filed; the same
+  // shape as M222's ledger read). With the clock unreadable there is no bound — never the APP
+  // clock, whose skew would hide the newest lines on every poll — and the seek alone still keeps a
+  // mid-read line from landing behind a cursor unless its transaction spans a page boundary.
+  const linesAsOf = typeof nowRes.data === "string" ? nowRes.data : null;
+  const readOpenLines = async (): Promise<
+    { data: FloorLineRow[]; error: null; saturated: boolean } | { data: null; error: unknown }
+  > => {
+    const all: FloorLineRow[] = [];
+    let after: { createdAt: string; id: string } | null = null;
+    for (let page = 0; page < FLOOR_OPEN_LINE_PAGES; page++) {
+      let q = db
         .from("qr_cart_items")
-        .select("cart_id,qty,unit_price_cents,created_at,state,comped")
-        .in("cart_id", cartIds)
-    : {
-        data: [] as {
-          cart_id: string;
-          qty: number;
-          unit_price_cents: number;
-          created_at: string;
-          state: string;
-          comped: boolean;
-        }[],
-        error: null,
-      };
-  if (linesError) return { ok: false, reason: "outage" };
+        .select(
+          "id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
+        )
+        .in("cart_id", cartIds);
+      if (linesAsOf !== null) q = q.lte("created_at", linesAsOf);
+      // Top-level filters AND together, so this NARROWS the page (`refund-ledger.ts`'s seek).
+      if (after !== null)
+        q = q.or(
+          `created_at.gt."${after.createdAt}",and(created_at.eq."${after.createdAt}",id.gt."${after.id}")`,
+        );
+      const { data, error } = await q
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(FLOOR_LINE_CAP);
+      if (error) return { data: null, error };
+      const got = data ?? [];
+      all.push(...got);
+      if (queueEmptiness(got.length, FLOOR_LINE_CAP) !== "cannot-say")
+        return { data: all, error: null, saturated: false };
+      const last = got[got.length - 1]!;
+      after = { createdAt: last.created_at, id: last.id };
+    }
+    return { data: all, error: null, saturated: true };
+  };
+  const [open, { data: paidLines, error: paidLinesError }] = await Promise.all([
+    cartIds.length
+      ? readOpenLines()
+      : Promise.resolve({ data: [] as FloorLineRow[], error: null, saturated: false }),
+    paidCartIds.length
+      ? db
+          .from("qr_cart_items")
+          // `id` — Phase 2d · Codex round 1 · ready: half of a served line's ready key (`upKey`).
+          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
+          .in("cart_id", paidCartIds)
+          .in("state", ["fired", "in_progress", "served"])
+          .limit(FLOOR_LINE_CAP)
+      : Promise.resolve({ data: [] as PaidLineRow[], error: null }),
+  ]);
+  if (open.data === null || paidLinesError) return { ok: false, reason: "outage" };
+  // Past the ceiling a card's money would be a partial sum: that alone still freezes the room.
+  if (open.saturated) {
+    console.error("[floor] open-cart line read past its page ceiling — refusing a partial total", {
+      cap: FLOOR_LINE_CAP * FLOOR_OPEN_LINE_PAGES,
+    });
+    return { ok: false, reason: "outage" };
+  }
+  const lines = open.data;
+  // A full paid-cart page: the kitchen is unknown this poll — said once, never folded partial.
+  const kitchenUnknown = queueEmptiness((paidLines ?? []).length, FLOOR_LINE_CAP) === "cannot-say";
+  if (kitchenUnknown)
+    console.error("[floor] paid-cart line read saturated — the kitchen row is unknown this poll", {
+      cap: FLOOR_LINE_CAP,
+    });
+  // Phase 2d · floor — each session's kitchen rows, flagged by which cart they came from.
+  const sessionByOpenCart = new Map(cartRows.map((c) => [c.id, c.session_id]));
+  const kitchenRowsBySession = new Map<string, FloorKitchenRow[]>();
+  const addKitchenRow = (sessionId: string | undefined, row: FloorKitchenRow) => {
+    if (!sessionId) return;
+    const arr = kitchenRowsBySession.get(sessionId) ?? [];
+    arr.push(row);
+    kitchenRowsBySession.set(sessionId, arr);
+  };
+  for (const l of lines ?? [])
+    addKitchenRow(sessionByOpenCart.get(l.cart_id), {
+      id: l.id,
+      qty: l.qty,
+      state: l.state,
+      fulfillment: l.fulfillment,
+      fire_at: l.fire_at,
+      bumped_at: l.bumped_at,
+      by_seat: l.by_seat,
+      onOpenCart: true,
+    });
+  for (const l of paidLines ?? [])
+    addKitchenRow(paidCartSession.get(l.cart_id), {
+      id: l.id,
+      qty: l.qty,
+      state: l.state,
+      fulfillment: l.fulfillment,
+      fire_at: l.fire_at,
+      bumped_at: l.bumped_at,
+      by_seat: l.by_seat,
+      onOpenCart: false,
+    });
+  const serverNowMs = Date.parse(serverNow);
 
   // Index by session for O(1) assembly.
   const cartBySession = new Map(cartRows.map((c) => [c.session_id, c]));
@@ -258,6 +457,15 @@ export async function getFloorView(): Promise<FloorPoll> {
       // T11: flag only a TRUST tab over the ceiling (a secure tab is card-backed). A flag, never an action.
       tabOverCeiling: tab === "trust" && agg.subtotal >= ceilingCents,
       lastActivityAt: lastActivity,
+      // ── Phase 2d · floor ──
+      openedAt: s.created_at ?? nowIso,
+      kitchen: kitchenUnknown
+        ? null
+        : foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
+            mode: s.mode,
+            hostPresent: s.host_seat != null,
+            nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
+          }),
     };
   });
 
@@ -284,7 +492,10 @@ export async function getFloorView(): Promise<FloorPoll> {
       tables,
       counter: counter.rows,
       counterTruncated: counter.truncated,
-      serverNow: nowIso,
+      serverNow,
+      registry,
+      thresholds,
+      kitchenUnknown,
     },
   };
 }
@@ -313,7 +524,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     .maybeSingle();
   // An unread session is not a cleared table — `closed` on error would bounce staff off a live order.
   if (sessionError) return { kind: "outage" };
-  if (!session || session.status === "closed") return { kind: "closed" };
+  if (!session) return { kind: "closed" };
+  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
+  // its live-namesake button); nothing else is read or returned for a closed session.
+  if (session.status === "closed")
+    return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
 
   const [membersRes, cartRes, paidRes, tabConfigRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
@@ -639,6 +854,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
      *
      *  M212 — clamped to the cap, and paired with the flag below rather than reported as exact. */
     settledOrderCount: Math.min(settledOrders.length, SETTLED_ORDER_CAP),
+    paidOrderId: paid?.id ?? null,
     /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
      *  surface must say "20+" instead of stating a number it cannot know. */
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,

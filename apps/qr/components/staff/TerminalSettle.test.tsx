@@ -243,6 +243,22 @@ describe("TerminalSettleButton — the settle gate (refused while dishes are uns
     expect(trigger.getAttribute("aria-describedby")).toBe("terminal-hint");
   });
 
+  // ── Phase 2d · P2el ──
+  it("a server `unreadable` refusal is said in Burmese in the one alert — the reader was never asked", async () => {
+    settleCard.mockResolvedValueOnce({ ok: false, code: "unreadable", error: "english" });
+    render(
+      <StaffLangProvider lang="my">
+        <TerminalSettleButton sessionId="s1" totalCents={4210} onStarted={vi.fn()} />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    // MUTATION (p2d-el/reader-unreadable-said-as-server): drop the `unreadable` arm; red.
+    expect(screen.getByRole("alert").textContent).toBe(tf("my", "settle.unsentUnreadable", {}));
+    expect(document.body.textContent).not.toContain("english");
+  });
+
   it("a server `unsent` refusal renders the dictionary sentence in Burmese with ITS count, hands the jump up once, and mounts no second alert", async () => {
     const english = "Some dishes haven’t gone to the kitchen.";
     settleCard.mockResolvedValueOnce({ ok: false, code: "unsent", units: 3, error: english });

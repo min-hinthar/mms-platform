@@ -38,7 +38,9 @@ type SheetError =
   | { kind: "moved"; from: number; to: number }
   | { kind: "inflight"; holder: InFlightHolder }
   | { kind: "unknown" }
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
+  | { kind: "unreadable" };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
 export type CashSettled = {
@@ -89,6 +91,7 @@ export function CashSettleButton({
   onSettled,
   onChanged,
   onOutcomeUnknown,
+  onSettleOutcome,
   // Named `gateBlocked` inside: `blocked` below is the SHEET's binding (`cashSettleBlocked`).
   blocked: gateBlocked = false,
   blockedNoteId,
@@ -130,6 +133,10 @@ export function CashSettleButton({
    *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
    *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
   onOutcomeUnknown?: (unknown: boolean) => void;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's settle, as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
   /** Phase 2c · gate — the settle gate holds (`staffSettleBlockedByUnsent`, read by the page from
    *  `detail.send`): the trigger stays rendered with its amount but is `aria-disabled`, described by
    *  the page's note, and a tap opens NOTHING — it hands up (`onBlockedTap`). */
@@ -295,12 +302,14 @@ export function CashSettleButton({
           console.error("[CashSettleButton] settle rejected — outcome unknown", e);
           setError({ kind: "unknown" });
           onOutcomeUnknown?.(true);
+          onSettleOutcome?.("unknown");
           onChanged?.();
           return;
         }
         // An answer came back: whatever it says, the outcome is KNOWN again.
         onOutcomeUnknown?.(false);
         if (!res.ok) {
+          onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
           // The sheet stays open with the refusal inside it — the cashier reads why where they
           // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
           // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
@@ -331,6 +340,12 @@ export function CashSettleButton({
             setError({ kind: "unsent", units: res.units });
             unsentJump.current = res.units;
             onChanged?.();
+            return;
+          }
+          if (res.code === "unreadable") {
+            // P2dc · P2el — nothing recorded, the freeze released: said in the dictionary's words,
+            // and Take stays armed in the open sheet — the retry is the same tap.
+            setError({ kind: "unreadable" });
             return;
           }
           setError({ kind: "server", text: res.error });
@@ -709,6 +724,8 @@ export function CashSettleButton({
                 >
                   {alertMsg.kind === "server" ? (
                     <OutageText lang={lang} error={alertMsg.text} />
+                  ) : alertMsg.kind === "unreadable" ? (
+                    <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
                   ) : alertMsg.kind === "moved" ? (
                     <Chrome
                       lang={lang}

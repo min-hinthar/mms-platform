@@ -15,9 +15,10 @@ import type { RefundSummary } from "./refund-view";
 import type { RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
+import type { KdsThresholds } from "./kitchen-types";
 
-/** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
- *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
+/** A table's at-a-glance state on the floor. Payment-level only — the kitchen picture rides beside
+ *  it as `FloorTable.kitchen` (Phase 2d), never folded into this word; a paid order rests at "paid". */
 export type FloorStatus =
   | "seated" // active session, empty cart, no order yet
   | "ordering" // an open cart with items (building)
@@ -61,6 +62,36 @@ export type FloorTable = {
   counterRequestedAt: string | null;
   /** Most recent activity (cart mutation, order, or session open) as an ISO instant. */
   lastActivityAt: string;
+  // ── Phase 2d · floor ──
+  /** When the session was opened (`table_sessions.created_at`) — the card's "Opened {ago}". What
+   *  the data records, not a claim about when THIS party sat: a session outlives payment until
+   *  Clear table. */
+  openedAt: string;
+  /** The table's kitchen picture (`foldFloorKitchen`, lib/floor-kitchen.ts) — null when nothing on
+   *  it is unsent, cooking, ready or served. */
+  kitchen: FloorKitchen | null;
+};
+
+/**
+ * Phase 2d · floor — one table's kitchen picture, folded once server-side from the open cart and
+ * the table's paid carts (`foldFloorKitchen`). Counts are dish UNITS (qty), like every count here.
+ */
+export type FloorKitchen = {
+  /** What staff can Send right now — `staffOwedSendUnits(hostPresent, staffSendCounts(…))` (2a):
+   *  every sendable dish on a hostless table, only staff-added ones on a host table. */
+  notSent: number;
+  /** Fired or cooking past the send grace (`PULSE_COOKING_STATES`), open and paid carts alike. */
+  inKitchen: number;
+  /** Served with `bumped_at` inside the wall's `PULSE_PASS_LINGER_MS` — the wall's "Ready to serve". */
+  up: number;
+  /** Phase 2d · Codex round 1 · ready — one key per served line inside that same window, its
+   *  bump's `<line id>@<bumped_at>` (`floor-kitchen.ts`). The floor's cue reads these, never `up`:
+   *  a count holds still when one dish leaves the window as another comes out. */
+  upKeys: string[];
+  /** Served before that window (or with no bump stamp). */
+  done: number;
+  /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */
+  oldestFireAt: string | null;
 };
 
 export type FloorSnapshot = {
@@ -74,6 +105,18 @@ export type FloorSnapshot = {
   /** Server clock at snapshot time (ISO) — the client seeds its relative-time ticks from this so a
    *  clock skew between the staff device and the server doesn't show "in 3m" for a fresh table. */
   serverNow: string;
+  // ── Phase 2d · floor ──
+  /** Every ACTIVE registered table number, ascending (`qr_tables`) — the strip's one tile per table.
+   *  Required, never defaulted: an absent registry would silently hide the only way to start one. */
+  registry: number[];
+  /** The kitchen's own lateness thresholds (`mms_kds_config`, or the defaults) — the wait pill reads
+   *  `kdsUrgency` with these, never a second 8/12. */
+  thresholds: KdsThresholds;
+  // ── Phase 2d · review ──
+  /** The paid-cart kitchen read came back full this poll (`lib/floor.ts`, floor #6): every table's
+   *  `kitchen` is null because it is UNKNOWN, not empty, and the board says so once in its region.
+   *  Required, never defaulted — a producer that forgot it would draw "nothing in the kitchen". */
+  kitchenUnknown: boolean;
 };
 
 /** W10b: the floor poll discriminant (K10 parity with KitchenPoll/ExpoPoll). A failed gate/read used
@@ -81,7 +124,8 @@ export type FloorSnapshot = {
  *  `outage` freezes the board on its last-known snapshot. */
 export type FloorPoll =
   | { ok: true; snapshot: FloorSnapshot }
-  | { ok: false; reason: "signin" | "outage" };
+  // Phase 2d · floor — `locked` (K14): a console locked from another tab stops drawing the room.
+  | { ok: false; reason: "signin" | "outage" | "locked" };
 
 /** One line on the per-table drill-down. by_seat → which guest added it (split attribution). */
 export type TableLineView = {
@@ -187,6 +231,11 @@ export type TableDetail = {
    *  and `paidTotalCents` describe the LATEST one, matching the floor board's own reduction, so a
    *  count above 1 means the record on screen is one round of several and must say so. */
   settledOrderCount: number;
+  /** Phase 2d · Codex round 1 — the id of the table's LATEST paid (or refunded) order, the same row
+   *  `paidTotalCents` describes; null when none. The paid card compares it with its own `orderId`
+   *  (`handoffStillCurrent`): a round that opened and paid while the screen looked elsewhere is seen
+   *  only here, as a newer order, never as a live cart. */
+  paidOrderId: string | null;
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
@@ -267,7 +316,10 @@ export type ClearTableResult = { ok: true } | { ok: false; error: string };
  *  `outage` freezes the last-known detail. */
 export type TableDetailResult =
   | { kind: "detail"; detail: TableDetail }
-  | { kind: "closed" }
+  /** Phase 2d · split — the session's own label and number when the row still exists (a table
+   *  cleared or merged away), so a pane opened straight onto it can name it and find the live
+   *  namesake a new party sat at. Absent for a malformed id or a vanished row. */
+  | { kind: "closed"; label?: string; tableNumber?: number | null }
   | { kind: "signin" }
   | { kind: "outage" };
 

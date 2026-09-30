@@ -17,12 +17,18 @@ import {
   settlementHeldBy,
 } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
-import { settleRefusal, unsentRefusal, type UnsentRefusal } from "./settle-refusal";
+import {
+  settleRefusal,
+  unreadableRefusal,
+  unsentRefusal,
+  type UnreadableRefusal,
+  type UnsentRefusal,
+} from "./settle-refusal";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 // ── Phase 2c · gate ──
-import { staffSettleBlockedByUnsent } from "./checkout-stage";
-import { kitchenDraftUnits } from "./unsent-read";
+import { staffSettleUnsentVerdict } from "./checkout-stage";
+import { readKitchenDraftUnits } from "./unsent-read";
 
 /**
  * Stripe Terminal at the register (W6c — M6·P6.2). SERVER-DRIVEN: the S700 is commanded through the
@@ -82,7 +88,8 @@ export type SettleCardResult =
   // Phase 2c · register (P2w) — money already moving on the cart, with who holds it.
   | InFlightRefusal
   // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
-  | UnsentRefusal;
+  | UnsentRefusal
+  | UnreadableRefusal;
 
 /**
  * Start a card-present settle: freeze the cart, mint the card_present PI, hand it to the reader.
@@ -146,14 +153,15 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   // ── Phase 2c · gate ── the settle gate (lib/staff-cart's rule, the same binding): under the freeze,
   // before the totals, so no PaymentIntent is minted over dishes THIS READ saw unsent. Released here,
   // scoped to THIS attempt (no blanket `finally` — the success path holds the freeze).
-  // ⚠️ Phase 2c · review (R7) — not a lock against a racing add: the add paths check the freeze with a
-  // read before their write and the insert RPC guards only `status = 'open'`, so a dish added after
-  // this read rides the PaymentIntent below (this path has no compare-and-swap) and is fired after
-  // the table pays. The real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
-  const unsentUnits = await kitchenDraftUnits(cart.id);
-  if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
+  // P2cy (20260929000000) — the add RPCs take the cart row FOR SHARE and refuse under a fresh freeze,
+  // so no dish can land after the acquire above and ride the PaymentIntent below (this path has no
+  // compare-and-swap; the lock is what closes the race). P2dc (owner decision 5a) — an UNREADABLE
+  // count refuses: no PaymentIntent is minted over a gate nobody could check.
+  const unsentUnits = await readKitchenDraftUnits(cart.id);
+  const unsent = staffSettleUnsentVerdict(session.mode, unsentUnits);
+  if (unsent !== null) {
     await releaseSettlementFor(cart.id, attemptId);
-    return unsentRefusal(unsentUnits);
+    return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
   }
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success

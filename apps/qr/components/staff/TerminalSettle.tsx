@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
@@ -28,7 +28,9 @@ type SettleError =
   | { kind: "inflight"; holder: InFlightHolder }
   // Phase 2c · gate — the settle gate refused the start (dishes the kitchen never got), with the
   // server's count. Shown here, SAID by the page's one region (the jump hands it up).
-  | { kind: "unsent"; units: number };
+  | { kind: "unsent"; units: number }
+  // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
+  | { kind: "unreadable" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -69,6 +71,7 @@ export function TerminalSettleButton({
   running = false,
   gateLive,
   onChanged,
+  onSettleOutcome,
 }: {
   sessionId: string;
   totalCents: number;
@@ -96,6 +99,10 @@ export function TerminalSettleButton({
    *  retired (a send, a later read with nothing unsent, another setter): the raced line never
    *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
   gateLive?: boolean;
+  /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
+   *  answer never came) of this control's reader START (a refused start takes nothing), as it lands. The page says it where this control
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
+  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
 }) {
   const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
@@ -124,12 +131,15 @@ export function TerminalSettleButton({
       const res = await settleCard({ sessionId });
       setBusy(false);
       if (!res.ok) {
+        onSettleOutcome?.("refused"); // the reader was never asked for the money
         setError(
           res.code === "inflight"
             ? { kind: "inflight", holder: res.holder }
             : res.code === "unsent"
               ? { kind: "unsent", units: res.units }
-              : { kind: "server", text: res.error },
+              : res.code === "unreadable"
+                ? { kind: "unreadable" }
+                : { kind: "server", text: res.error },
         );
         // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
         // the page says it in its one region and takes the cashier to the Send.
@@ -145,6 +155,8 @@ export function TerminalSettleButton({
       // "Starting…" — the W10c bug class.
       setBusy(false);
       setError({ kind: "local" });
+      // The start's answer never came: the reader may be asking for the money right now.
+      onSettleOutcome?.("unknown");
     } finally {
       inFlight.current = false;
     }
@@ -190,6 +202,8 @@ export function TerminalSettleButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "unreadable" ? (
+            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
           ) : error.kind === "inflight" ? (
             <Chrome
               lang={lang}
@@ -225,6 +239,7 @@ export function TerminalCollectPanel({
   onDone,
   onStatus,
   onChanged,
+  onLive,
 }: {
   sessionId: string;
   collect: TerminalCollect;
@@ -234,6 +249,11 @@ export function TerminalCollectPanel({
   onStatus?: (s: ReaderStatus) => void;
   /** The page's own detail refresh. */
   onChanged?: () => void;
+  /** Codex round 1 (#306) — whether this panel's poll is LIVE: collecting, or charged and waiting
+   *  for the order (the poll is what slides the freeze forward and records a counter's #CODE). The
+   *  counter's pane holds its selection on this table while it is. Reported at commit (a layout
+   *  effect), so a tap in the next event already meets the hold; `false` on unmount. */
+  onLive?: (live: boolean) => void;
 }) {
   const lang = useStaffLang();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
@@ -301,6 +321,14 @@ export function TerminalCollectPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- poll keyed on the PI + phase; onDone/onChanged read from the closure per tick
   }, [collect.paymentIntentId, sessionId, phase]);
+
+  // Codex round 1 (#306) — declined or cancelled ends the collection (the poll above stops, the
+  // freeze is released): the hold goes with it, even while the panel stays up saying so.
+  const live = phase === "collecting" || phase === "recording";
+  useLayoutEffect(() => {
+    onLive?.(live);
+    return () => onLive?.(false);
+  }, [live, onLive]);
 
   const cancelInFlight = useRef(false);
   async function cancel() {

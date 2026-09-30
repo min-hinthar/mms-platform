@@ -10,7 +10,16 @@ import { openTab } from "@/lib/tabs";
  * (openTab → mms_open_tab) re-derives authority + the dine-in/open guards; this is just the affordance.
  * On success the parent's realtime re-fetch picks up the new tab state; router.refresh nudges it now.
  */
-export function OpenTabButton({ cartId }: { cartId: string }) {
+export function OpenTabButton({
+  cartId,
+  onChanged,
+}: {
+  cartId: string;
+  /** Phase 2d · split — the parent's own detail re-read (register's `onChanged`, the one binding):
+   *  a `router.refresh()` re-renders the whole route and cannot update the detail's own state. The
+   *  refresh stays only as the no-parent fallback. */
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +33,8 @@ export function OpenTabButton({ cartId }: { cartId: string }) {
       setError(res.error);
       return;
     }
-    router.refresh();
+    if (onChanged) onChanged();
+    else router.refresh();
   }
 
   return (

@@ -41,11 +41,20 @@ export function HandoffCard({
   lang,
   handoff,
   ref,
+  onDone,
+  headingLevel = 2,
 }: {
   lang: StaffLang;
   handoff: Handoff;
   ref?: Ref<HTMLElement>;
+  /** Phase 2d · split — inside the counter's pane the counter is already beside it: "Back to the
+   *  counter" CLOSES the pane (the same link, so a modified click still opens the floor). */
+  onDone?: () => void;
+  /** Phase 2d · review fixes — h3 inside the counter's pane (Table 7 › Paid), under the pane's own
+   *  h2 like every other section there; h2 on the table page. The StaffPromoControl pattern. */
+  headingLevel?: 2 | 3;
 }) {
+  const Title = headingLevel === 3 ? "h3" : "h2";
   const rows = handoffRows(handoff.totalCents, handoff.tipCents, handoff.tenderedCents);
   // The row the name speaks: the change (or what is still owed) when a tender was entered, else the
   // total — the one figure a cashier needs from the card.
@@ -68,12 +77,12 @@ export function HandoffCard({
     >
       <div className="staff-handoff-rows">
         {/* `echo={false}`: an aria-labelledby target — an echo would put both scripts in the name. */}
-        <h2 id="handoff-title" className="staff-handoff-title">
+        <Title id="handoff-title" className="staff-handoff-title">
           <span className="staff-handoff-check" aria-hidden="true">
             ✓
           </span>{" "}
           <Chrome lang={lang} k="table.detail.handoff.title" echo={false} />
-        </h2>
+        </Title>
         <dl className="staff-handoff-dl">
           {rows.map((r) => (
             <div
@@ -102,6 +111,15 @@ export function HandoffCard({
       {handoff.isCounter && (
         <Link
           href={STAFF_DOOR_TARGET.counter}
+          onClick={
+            onDone
+              ? (e) => {
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  onDone();
+                }
+              : undefined
+          }
           className={buttonClass({
             variant: "primary",
             size: "xl",
