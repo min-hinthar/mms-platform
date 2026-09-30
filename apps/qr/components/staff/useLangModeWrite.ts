@@ -30,7 +30,8 @@ let lastWrite = 0;
 export type LangModeWrite = {
   /** The mode the cap shows: the latest pick while a write is out, else the provider's. */
   shown: StaffLangMode;
-  /** A write is in flight — the group says `aria-busy`, the pending row dims. Never a Sheet's busy. */
+  /** A write is in flight — the group says `aria-busy`, and the pending row wears the busy stripe
+   *  (never a dim: it kept the label below AA). Never a Sheet's busy. */
   busy: boolean;
   /** The last chain ended short of the person's wish — the host renders the failure line. */
   alert: boolean;
