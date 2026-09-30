@@ -164,6 +164,7 @@ describe("the wait pill ticks on its own", () => {
             notSent: 0,
             inKitchen: 1,
             up: 0,
+            upKeys: [],
             done: 0,
             oldestFireAt: ago(9 * 60_000 + 50_000),
           },
@@ -189,6 +190,7 @@ describe("the wait pill ticks on its own", () => {
             notSent: 0,
             inKitchen: 1,
             up: 0,
+            upKeys: [],
             done: 0,
             oldestFireAt: ago(7 * 60_000 + 50_000),
           },
@@ -224,6 +226,7 @@ describe("the wait pill on a FROZEN floor", () => {
             notSent: 0,
             inKitchen: 1,
             up: 0,
+            upKeys: [],
             done: 0,
             oldestFireAt: ago(9 * 60_000 + 57_000),
           },
@@ -250,6 +253,7 @@ describe("the wait pill on a FROZEN floor", () => {
       notSent: 0,
       inKitchen: 1,
       up: 0,
+      upKeys: [],
       done: 0,
       oldestFireAt: ago(9 * 60_000 + 20_000),
     };
@@ -486,7 +490,15 @@ describe("the strip starts a table through the screen's ONE lock", () => {
 
 describe("the ONE region", () => {
   it("(h) food coming out says 'Ready to serve — Table 7' AND rings that card; an ask adds its segment", async () => {
-    const up = (n: number) => ({ notSent: 0, inKitchen: 0, up: n, done: 1, oldestFireAt: null });
+    // Phase 2d · Codex round 1 · ready — each dish up carries its bump's key; the cue reads those.
+    const up = (n: number) => ({
+      notSent: 0,
+      inKitchen: 0,
+      up: n,
+      upKeys: Array.from({ length: n }, (_, i) => `l${i}@${NOW}`),
+      done: 1,
+      oldestFireAt: null,
+    });
     const { region, section } = mount(snap([table(7, { kitchen: up(0) }), table(3)]));
     expect(region().textContent).toBe("2 active tables");
     answer = ok(
@@ -523,7 +535,14 @@ describe("the ONE region", () => {
   });
 
   it("(h) a first sight of food already up never rings — only a RISE between polls does", async () => {
-    const up = { notSent: 0, inKitchen: 0, up: 1, done: 0, oldestFireAt: null };
+    const up = {
+      notSent: 0,
+      inKitchen: 0,
+      up: 1,
+      upKeys: [`l0@${NOW}`],
+      done: 0,
+      oldestFireAt: null,
+    };
     const { region, section } = mount(snap([table(7, { kitchen: up })]));
     answer = ok(snap([table(7, { kitchen: up })]));
     await tick(5000);
@@ -532,22 +551,98 @@ describe("the ONE region", () => {
   });
 });
 
+// ── Phase 2d · Codex round 1 · ready ──
+describe("'Ready to serve' is keyed to the BUMP, never the count", () => {
+  // The cue used to compare the table's aggregate "ready" count between polls, so a dish coming out
+  // in the same poll another's five-minute window closed (or another was recalled) left the count
+  // where it was — and the one kitchen event a server can act on said nothing. Each served line in
+  // the window now carries its bump's key (`<line id>@<bumped_at>`), and the board cues on a key it
+  // has not heard.
+  const ready = (keys: string[]) => ({
+    notSent: 0,
+    inKitchen: 0,
+    up: keys.length,
+    done: 1,
+    oldestFireAt: null,
+    upKeys: keys,
+  });
+  const card7 = (section: () => HTMLElement) =>
+    section().querySelector('.card-textured[data-session-id="s7"]')!;
+
+  it("a dish coming out as another's window closes still rings — the count held at 1", async () => {
+    // MUTATION: cue on the count (`now.length > heard.size`) → 1 → 1, silence.
+    const { region, section } = mount(snap([table(7, { kitchen: ready(["a@t1"]) })]));
+    answer = ok(snap([table(7, { kitchen: ready(["b@t2"]) })]));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe("Ready to serve — Table 7");
+    expect(card7(section).querySelector(".floor-card-pulse")).not.toBeNull();
+  });
+
+  it("a recall never rings; the same dish bumped again rings ONCE, and the next poll is quiet", async () => {
+    const { region, section } = mount(snap([table(7, { kitchen: ready(["a@t1"]) })]));
+    // The recall: the key leaves (and `bumped_at` is cleared) — nothing came out.
+    answer = ok(snap([table(7, { kitchen: ready([]) })]));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe("1 active table");
+    expect(card7(section).querySelector(".floor-card-pulse")).toBeNull();
+    // Bumped again: a new stamp, so a new key — food came out.
+    answer = ok(snap([table(7, { kitchen: ready(["a@t3"]) })]));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe("Ready to serve — Table 7");
+    expect(card7(section).querySelector(".floor-card-pulse")).not.toBeNull();
+    // Nothing new: the ring has run its course and no second one starts.
+    await tick(POLL_MS);
+    expect(card7(section).querySelector(".floor-card-pulse")).toBeNull();
+    await tick(UP_NOTICE_DWELL_MS);
+    expect(region().textContent).toBe("1 active table");
+  });
+
+  it("a dish that drops out of one poll and comes back is not news — it rang once, when it came out", async () => {
+    // The floor's open-cart and paid-order reads are two requests: a table paying between them
+    // can drop its lines from one poll. MUTATION: remember only the last poll's keys → the dish
+    // that was already out rings a second time on its return.
+    const { region, section } = mount(snap([table(7, { kitchen: ready(["a@t1"]) })]));
+    answer = ok(snap([table(7, { kitchen: null })]));
+    await tick(POLL_MS);
+    answer = ok(snap([table(7, { kitchen: ready(["a@t1"]) })]));
+    await tick(POLL_MS);
+    expect(region().textContent).toBe("1 active table");
+    expect(card7(section).querySelector(".floor-card-pulse")).toBeNull();
+  });
+});
+
 describe("a kitchen the floor could not read (Phase 2d · review, floor #6)", () => {
   it("(s) is said ONCE in the region, draws no kitchen row, and its return never rings 'Ready to serve'", async () => {
     // A full paid-cart read used to take the whole room down; now the room stays and the kitchen
     // is honestly unknown. MUTATION: drop the region's segment → nothing says why every kitchen row
-    // vanished. MUTATION: keep an unknown poll's zeros as the baseline → the kitchen's return reads
-    // as food coming out on every table that already had it up.
-    const up = (n: number) => ({ notSent: 0, inKitchen: 0, up: n, done: 0, oldestFireAt: null });
+    // vanished. MUTATION: keep an unknown poll as a baseline → table 3, seated while the kitchen
+    // was unknown, has "heard nothing" rather than never been seen, and its food on the return
+    // rings as coming out (Phase 2d · Codex round 1 · ready: with keys, table 7's own dish is kept
+    // by what it heard, so the table the board never saw is the case that separates).
+    const up = (n: number) => ({
+      notSent: 0,
+      inKitchen: 0,
+      up: n,
+      upKeys: Array.from({ length: n }, (_, i) => `l${i}@${NOW}`),
+      done: 0,
+      oldestFireAt: null,
+    });
     const { region, section } = mount(snap([table(7, { kitchen: up(1) })]));
     expect(region().textContent).toBe("1 active table");
-    answer = ok(snap([table(7, { kitchen: null })], { kitchenUnknown: true }));
+    answer = ok(
+      snap([table(7, { kitchen: null }), table(3, { kitchen: null })], { kitchenUnknown: true }),
+    );
     await tick(POLL_MS);
-    expect(region().textContent).toBe(`1 active table · ${ts("en", "floor.kitchen.unknown")}`);
+    expect(region().textContent).toBe(`2 active tables · ${ts("en", "floor.kitchen.unknown")}`);
     expect(section().querySelector(".floor-kitchen")).toBeNull();
-    answer = ok(snap([table(7, { kitchen: up(1) })]));
+    answer = ok(
+      snap([
+        table(7, { kitchen: up(1) }),
+        table(3, { kitchen: { ...up(1), upKeys: [`t3-l0@${NOW}`] } }),
+      ]),
+    );
     await tick(POLL_MS);
-    expect(region().textContent).toBe("1 active table");
+    expect(region().textContent).toBe("2 active tables");
     expect(section().querySelector(".floor-card-pulse")).toBeNull();
   });
 });
@@ -641,7 +736,7 @@ describe("the strip's shape", () => {
   });
 
   it("(o) a table owing a Send wears the owed mark and says it; the key decodes every glyph on the strip", () => {
-    const owes = { notSent: 2, inKitchen: 0, up: 0, done: 0, oldestFireAt: null };
+    const owes = { notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 0, oldestFireAt: null };
     const { tile, section } = mount(
       snap([
         table(3, { status: "counter", counterRequestedAt: ago(1000) }),

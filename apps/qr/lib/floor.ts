@@ -258,7 +258,7 @@ export async function getFloorView(): Promise<FloorPoll> {
   };
   type PaidLineRow = Pick<
     FloorLineRow,
-    "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
+    "id" | "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
   >;
   // Phase 2d · review — the open carts' lines, read WHOLE (above): keyset pages on `id`, each
   // page after the last id seen, until a page comes back short; past the ceiling, `saturated`.
@@ -292,7 +292,8 @@ export async function getFloorView(): Promise<FloorPoll> {
     paidCartIds.length
       ? db
           .from("qr_cart_items")
-          .select("cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
+          // `id` — Phase 2d · Codex round 1 · ready: half of a served line's ready key (`upKey`).
+          .select("id,cart_id,qty,state,fulfillment,fire_at,bumped_at,by_seat")
           .in("cart_id", paidCartIds)
           .in("state", ["fired", "in_progress", "served"])
           .limit(FLOOR_LINE_CAP)
@@ -324,6 +325,7 @@ export async function getFloorView(): Promise<FloorPoll> {
   };
   for (const l of lines ?? [])
     addKitchenRow(sessionByOpenCart.get(l.cart_id), {
+      id: l.id,
       qty: l.qty,
       state: l.state,
       fulfillment: l.fulfillment,
@@ -334,6 +336,7 @@ export async function getFloorView(): Promise<FloorPoll> {
     });
   for (const l of paidLines ?? [])
     addKitchenRow(paidCartSession.get(l.cart_id), {
+      id: l.id,
       qty: l.qty,
       state: l.state,
       fulfillment: l.fulfillment,

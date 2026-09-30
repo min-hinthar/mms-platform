@@ -16,7 +16,7 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 import { useReportLive } from "./LiveConnection";
 // ── Phase 2d · floor ──
-import { UP_NOTICE_DWELL_MS, upRose } from "@/lib/floor-kitchen";
+import { UP_NOTICE_DWELL_MS, heardUp, upRose } from "@/lib/floor-kitchen";
 import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { plural } from "@/lib/i18n/fill";
 import { tableDisplay } from "@/lib/floor-types";
@@ -73,15 +73,18 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // schedule pulse timers the cleanup already ran past + setState on a dead component.
   const alive = useRef(true);
   // ── Phase 2d · floor ── the region's two notices (precedence in the render), each with its own
-  // dwell, and each table's last "ready to serve" count so a RISE between polls can cue. Seeded from
-  // the initial snapshot: a table already showing food up when the screen loads never rings.
+  // dwell, and the "ready to serve" keys each table has HEARD (`heardUp`) so a bump it has not can
+  // cue. Seeded from the initial snapshot: a table already showing food up when the screen loads
+  // never rings. Phase 2d · Codex round 1 · ready — keys, never the count (`upRose`).
   const [stripNotice, setStripNotice] = useState<StaffMsg | null>(null);
   const [upNotice, setUpNotice] = useState<string[] | null>(null);
   const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevUp = useRef<Map<string, number>>(
+  const prevUp = useRef<Map<string, ReadonlySet<string>>>(
     new Map(
-      initial.kitchenUnknown ? [] : initial.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]),
+      initial.kitchenUnknown
+        ? []
+        : initial.tables.map((t) => [t.sessionId, heardUp(undefined, t.kitchen?.upKeys ?? [])]),
     ),
   );
   const onStripNotice = useCallback((n: StaffMsg | null) => {
@@ -136,8 +139,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       // same nonce machinery, once per card per poll) and the region's "Ready to serve — Table 7".
       const upNow: string[] = [];
       for (const t of next.tables) {
-        const up = t.kitchen?.up ?? 0;
-        if (!upRose(prevUp.current.get(t.sessionId), up)) continue;
+        const keys = t.kitchen?.upKeys ?? [];
+        if (!upRose(prevUp.current.get(t.sessionId), keys)) continue;
         upNow.push(tableDisplay(t).text);
         if (!bumped.some(([id]) => id === t.sessionId)) {
           nonceRef.current += 1;
@@ -149,7 +152,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
       // was already out.
       prevUp.current = next.kitchenUnknown
         ? new Map()
-        : new Map(next.tables.map((t) => [t.sessionId, t.kitchen?.up ?? 0]));
+        : new Map(
+            next.tables.map((t) => [
+              t.sessionId,
+              heardUp(prevUp.current.get(t.sessionId), t.kitchen?.upKeys ?? []),
+            ]),
+          );
       if (upNow.length > 0) {
         if (upTimer.current) clearTimeout(upTimer.current);
         setUpNotice(upNow);

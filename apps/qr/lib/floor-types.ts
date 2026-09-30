@@ -84,6 +84,10 @@ export type FloorKitchen = {
   inKitchen: number;
   /** Served with `bumped_at` inside the wall's `PULSE_PASS_LINGER_MS` — the wall's "Ready to serve". */
   up: number;
+  /** Phase 2d · Codex round 1 · ready — one key per served line inside that same window, its
+   *  bump's `<line id>@<bumped_at>` (`floor-kitchen.ts`). The floor's cue reads these, never `up`:
+   *  a count holds still when one dish leaves the window as another comes out. */
+  upKeys: string[];
   /** Served before that window (or with no bump stamp). */
   done: number;
   /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */

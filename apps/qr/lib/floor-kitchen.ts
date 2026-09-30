@@ -29,6 +29,8 @@ import type { KdsThresholds } from "./kitchen-types";
 
 /** A `qr_cart_items` row as the floor reads it, flagged by which cart it came from. */
 export type FloorKitchenRow = {
+  /** The line's id — half of its ready key (`upKey`), so BOTH line reads select it. */
+  id: string;
   qty: number;
   state: string;
   fulfillment: string;
@@ -50,6 +52,14 @@ export type FloorKitchenContext = {
   nowMs: number;
 };
 
+/**
+ * Phase 2d · Codex round 1 · ready — one BUMP of one served line: `<line id>@<bumped_at>`. The
+ * floor's "Ready to serve" cue is keyed to this, never to the `up` count: a count cannot tell "one
+ * dish left the window and another came out" from "nothing happened". `mms_recall_ticket` nulls
+ * `bumped_at` and the next bump stamps a new one, so food that comes out AGAIN is a new key.
+ */
+const upKey = (id: string, bumpedAt: string): string => `${id}@${bumpedAt}`;
+
 const parse = (iso: string | null): number | null => {
   if (iso === null) return null;
   const ms = Date.parse(iso);
@@ -70,6 +80,7 @@ export function foldFloorKitchen(
   );
   let inKitchen = 0;
   let up = 0;
+  const upKeys: string[] = [];
   let done = 0;
   let oldestMs = Number.POSITIVE_INFINITY;
   let oldestFireAt: string | null = null;
@@ -93,12 +104,14 @@ export function foldFloorKitchen(
     }
     if (r.state === "served") {
       const bumpedMs = parse(r.bumped_at);
-      if (bumpedMs !== null && bumpedMs >= ctx.nowMs - lingerMs) up += r.qty;
-      else done += r.qty;
+      if (bumpedMs !== null && bumpedMs >= ctx.nowMs - lingerMs) {
+        up += r.qty;
+        upKeys.push(upKey(r.id, r.bumped_at!));
+      } else done += r.qty;
     }
   }
   if (notSent === 0 && inKitchen === 0 && up === 0 && done === 0) return null;
-  return { notSent, inKitchen, up, done, oldestFireAt };
+  return { notSent, inKitchen, up, upKeys, done, oldestFireAt };
 }
 
 /** One segment of the card's kitchen row — a count key with its `{n}`, or the all-done word. */
@@ -150,12 +163,30 @@ export const FLOOR_WAIT_RANK: Readonly<Record<FloorWaitLevel, number>> = {
 };
 
 /**
- * Did this table's "ready to serve" count RISE between two polls? First sight is never a rise (a
- * table already showing food up when the screen loads must not ring), and a decay — the window
- * closing, a recall — never cues: only food coming OUT is an event a server can act on.
+ * Did food come OUT at this table since the last poll — a ready key (`upKey`) the table has not
+ * heard? First sight is never news (a table already showing food up when the screen loads must not
+ * ring), and a key LEAVING — the window closing, a recall — never cues: only food coming out is an
+ * event a server can act on. Phase 2d · Codex round 1 · ready — keyed, never counted: the old
+ * `next > prev` over the `up` count stayed silent when a dish came out in the same poll another's
+ * window closed, because the count held.
  */
-export function upRose(prev: number | undefined, next: number): boolean {
-  return prev !== undefined && next > prev;
+export function upRose(heard: ReadonlySet<string> | undefined, now: readonly string[]): boolean {
+  if (heard === undefined) return false;
+  return now.some((k) => !heard.has(k));
+}
+
+/**
+ * What the table has now been told: every key it heard before, plus this poll's. Kept, never
+ * replaced by the last poll alone — the floor's open-cart and paid-order reads are two requests, so
+ * a table paying between them can drop its lines from ONE poll, and a dish that comes back must not
+ * ring a second time. A stamp only moves forward (a re-bump is a new key), so a kept key can never
+ * mask real news; the set lives only as long as the table is on the floor.
+ */
+export function heardUp(
+  heard: ReadonlySet<string> | undefined,
+  now: readonly string[],
+): ReadonlySet<string> {
+  return new Set([...(heard ?? []), ...now]);
 }
 
 /**

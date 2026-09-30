@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   floorWait,
   foldFloorKitchen,
+  heardUp,
   kitchenSegments,
   upRose,
   type FloorKitchenRow,
@@ -23,6 +24,7 @@ const at = (msFromNow: number) => new Date(NOW + msFromNow).toISOString();
 const MIN = 60_000;
 
 const row = (over: Partial<FloorKitchenRow>): FloorKitchenRow => ({
+  id: "l-1",
   qty: 1,
   state: "fired",
   fulfillment: "dinein",
@@ -126,7 +128,14 @@ describe("foldFloorKitchen — what the floor may say about the kitchen", () => 
 describe("kitchenSegments — the row's words, in visible order", () => {
   it("names every non-zero count in order: not sent · in kitchen · ready", () => {
     expect(
-      kitchenSegments({ notSent: 2, inKitchen: 3, up: 1, done: 4, oldestFireAt: null }),
+      kitchenSegments({
+        notSent: 2,
+        inKitchen: 3,
+        up: 1,
+        upKeys: ["l-1@t"],
+        done: 4,
+        oldestFireAt: null,
+      }),
     ).toEqual([
       { k: "floor.kitchen.notSent", n: 2 },
       { k: "floor.kitchen.inKitchen", n: 3 },
@@ -137,10 +146,10 @@ describe("kitchenSegments — the row's words, in visible order", () => {
   it("'Kitchen done' only when nothing is unsent, cooking or ready — a table still owing a Send is never 'done'", () => {
     // MUTATION: drop `notSent === 0` from the done test → ['notSent', 'kitchenDone'].
     expect(
-      kitchenSegments({ notSent: 2, inKitchen: 0, up: 0, done: 3, oldestFireAt: null }),
+      kitchenSegments({ notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 3, oldestFireAt: null }),
     ).toEqual([{ k: "floor.kitchen.notSent", n: 2 }]);
     expect(
-      kitchenSegments({ notSent: 0, inKitchen: 0, up: 0, done: 3, oldestFireAt: null }),
+      kitchenSegments({ notSent: 0, inKitchen: 0, up: 0, upKeys: [], done: 3, oldestFireAt: null }),
     ).toEqual([{ k: "expo.kitchenDone" }]);
     expect(kitchenSegments(null)).toEqual([]);
   });
@@ -151,6 +160,7 @@ describe("floorWait — the kitchen's own clock, in whole minutes", () => {
     notSent: 0,
     inKitchen,
     up: 0,
+    upKeys: [],
     done: 0,
     oldestFireAt: oldest,
   });
@@ -183,16 +193,59 @@ describe("floorWait — the kitchen's own clock, in whole minutes", () => {
 });
 
 describe("upRose — food coming OUT is the one kitchen event that cues", () => {
-  it("a rise cues; the same count, a decay and a recall do not", () => {
-    expect(upRose(0, 1)).toBe(true);
-    expect(upRose(1, 2)).toBe(true);
-    // MUTATION: `!==` → a decay (the five-minute window closing) would ring the card.
-    expect(upRose(1, 1)).toBe(false);
-    expect(upRose(2, 1)).toBe(false);
+  // Phase 2d · Codex round 1 · ready — keyed to the BUMP (`<line id>@<bumped_at>`), never the
+  // count: the count cannot tell "one dish left the window and another came out" from "nothing
+  // happened", and it is the first of those a server must hear.
+  const heard = (...keys: string[]) => new Set(keys);
+
+  it("a key never heard cues — even when another left in the same poll and the count held", () => {
+    // MUTATION: cue on the count (`now.length > heard.size`) → the swap is silent.
+    expect(upRose(heard("a@1"), ["b@2"])).toBe(true);
+    expect(upRose(heard(), ["a@1"])).toBe(true);
+    expect(upRose(heard("a@1"), ["a@1", "b@2"])).toBe(true);
+  });
+
+  it("the same keys, a key leaving (the window closing, a recall), and nothing at all never cue", () => {
+    // MUTATION: cue on any difference → a recall or the window closing rings the card.
+    expect(upRose(heard("a@1"), ["a@1"])).toBe(false);
+    expect(upRose(heard("a@1", "b@2"), ["b@2"])).toBe(false);
+    expect(upRose(heard("a@1"), [])).toBe(false);
   });
 
   it("first sight is never a rise — a table already showing food up on load must not ring", () => {
-    // MUTATION: treat `undefined` as 0 → every table with food up rings on the first poll.
-    expect(upRose(undefined, 1)).toBe(false);
+    // MUTATION: treat `undefined` as nothing heard → every table with food up rings on the first poll.
+    expect(upRose(undefined, ["a@1"])).toBe(false);
+  });
+});
+
+describe("heardUp — what the table has already been told", () => {
+  it("keeps every key it heard: a dish that drops out of one poll is not news when it returns", () => {
+    // MUTATION: keep only this poll's keys → [a] → [] → [a] cues twice for one dish.
+    const once = heardUp(undefined, ["a@1"]);
+    const gap = heardUp(once, []);
+    expect(upRose(gap, ["a@1"])).toBe(false);
+    expect([...heardUp(gap, ["b@2"])].sort()).toEqual(["a@1", "b@2"]);
+  });
+});
+
+describe("foldFloorKitchen — the ready keys", () => {
+  it("one key per served line INSIDE the window, `<line id>@<bumped_at>` — none for cooking or done food", () => {
+    // MUTATION: a key for every served line → the window's own rule forked for the cue.
+    const inWindow = at(-(4 * MIN + 59_000));
+    const k = fold([
+      row({ id: "l-up", state: "served", bumped_at: inWindow, fire_at: at(-20 * MIN) }),
+      row({ id: "l-done", state: "served", bumped_at: at(-(5 * MIN + 1_000)) }),
+      row({ id: "l-never", state: "served", bumped_at: null }),
+      row({ id: "l-cooking", state: "in_progress" }),
+    ]);
+    expect(k?.upKeys).toEqual([`l-up@${inWindow}`]);
+  });
+
+  it("a recalled dish bumped AGAIN is a new key — food came out a second time", () => {
+    // `mms_recall_ticket` nulls `bumped_at`; the next bump stamps a new one. MUTATION: key on the
+    // line id alone → the re-bump reads as the dish heard before, and says nothing.
+    const first = fold([row({ id: "l-a", state: "served", bumped_at: at(-3 * MIN) })]);
+    const again = fold([row({ id: "l-a", state: "served", bumped_at: at(-10_000) })]);
+    expect(upRose(heardUp(undefined, first?.upKeys ?? []), again?.upKeys ?? [])).toBe(true);
   });
 });
