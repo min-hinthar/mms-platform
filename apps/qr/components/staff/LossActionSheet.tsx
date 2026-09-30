@@ -11,8 +11,8 @@ import { sx } from "@/lib/staff-labels";
 import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
-  ROSTER_FAILED_COPY,
   pinFailureCopy,
+  rosterRetryMsg,
   useApproverRoster,
   useLockout,
 } from "./ManagerPinStepUp";
@@ -283,10 +283,11 @@ export function LossActionSheet({
   }
 
   // The lockout countdown takes precedence over a transient message.
-  // Try again on the roster: a second failure is said in the ONE region; a recovery clears only that.
+  // Try again on the roster: a second failure is said in the ONE region; a recovery clears only that
+  // — and puts back "a manager needs to approve" while the server's step-up is still pending.
   async function retryRoster(): Promise<boolean> {
     const ok = await roster.retry();
-    setMsg((m) => (ok ? (m === ROSTER_FAILED_COPY ? null : m) : ROSTER_FAILED_COPY));
+    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
     return ok;
   }
 

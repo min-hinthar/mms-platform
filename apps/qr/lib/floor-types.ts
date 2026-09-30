@@ -321,6 +321,12 @@ export type TableDetail = {
    *  or grocery included (the SQL reverts those and cancels the cart). Disjoint from `sentLineIds`.
    *  Empty off a counter order. */
   droppedLineIds: string[];
+  /** The open-cart lines that are `counterKitchenLine` AND comped, on the SAME DB clock — a no-charge
+   *  dish the kitchen already has. A no-show neither writes it off (the comp is already an audited
+   *  loss) nor drops it, but cancelling the cart takes it off the kitchen screen, so the no-show sheet
+   *  says so (never as a loss, never with an amount). Disjoint from both sets above. Empty off a
+   *  counter order. */
+  compedKitchenLineIds: string[];
   /** `surfaceOpen("payAtPickup")` — the counter Send is DRAWN only while it is true. */
   payAtPickup: boolean;
   /** The merge tool may be offered: an open cart, and not a counter order with food in the kitchen

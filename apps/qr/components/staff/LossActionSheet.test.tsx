@@ -185,4 +185,32 @@ describe("LossActionSheet — a roster that could not be read (Codex round 2 on 
     expect(document.activeElement).toBe(select);
     expect(dialog.textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
   });
+
+  it("a recovery after a failed Try again puts back “a manager needs to approve” while the step-up is pending", async () => {
+    // An uncooked void the server escalates (`needs_pin`), with the roster read failing on mount.
+    approvers.mockRejectedValueOnce(new Error("503"));
+    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    mount();
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(reason());
+    });
+    await act(async () => {
+      fireEvent.submit(confirmVoid().closest("form")!);
+    });
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+    // Try again fails: the failure takes the region.
+    approvers.mockRejectedValueOnce(new Error("503"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
+    });
+    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
+    // Try again recovers: the step-up is still pending, so its sentence comes back — never silence.
+    approvers.mockResolvedValueOnce([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
+    });
+    // MUTATION (p2f-sr-sheet/roster/recovery-drops-needs-manager): the region reads "" — red.
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+  });
 });

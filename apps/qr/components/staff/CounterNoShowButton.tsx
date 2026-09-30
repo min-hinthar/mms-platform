@@ -13,8 +13,8 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
-  ROSTER_FAILED_COPY,
   pinFailureCopy,
+  rosterRetryMsg,
   useApproverRoster,
   useLockout,
 } from "./ManagerPinStepUp";
@@ -35,8 +35,19 @@ import { useTableNav } from "./TableNav";
  * every draft and every in-grace fired line, comped or grocery included — the SQL reverts those and
  * cancels the cart with them). Neither set is re-derived here. The sent set rides the write as
  * `expectedLineIds`, so a set that moved under the sheet is refused (`changed`), never written off
- * unseen. It never says anything is charged or refunded, because nothing is: the order is
- * cancelled, the loss is audited, no money moves.
+ * unseen. A comped dish the kitchen already has (`compedKitchenLineIds`) is neither — the comp is
+ * already an audited loss — but the cancelled cart takes it off the kitchen screen, so the sheet
+ * says THAT, in its own sentence, never as a loss. It never says anything is charged or refunded,
+ * because nothing is: the order is cancelled, the loss is audited, no money moves.
+ *
+ * WHAT THE MANAGER READ IS WHAT IS SUBMITTED (Phase 2f review, PT-3). The table page keeps polling
+ * while the sheet is open, so the three sets — and the lines they name — are SNAPSHOTTED when the
+ * sheet opens, rendered from the snapshot, and the write carries the snapshot's sent set. When the
+ * live sets stop matching it, the sheet does not adopt them silently: its one region says the order
+ * changed, the confirm refuses, and an explicit "Show the order as it is now" adopts the new sets
+ * (focus goes to the new count). Nothing is re-snapshotted when the manager step-up opens: a
+ * `needs_pin` answer means the server just matched the snapshot's sent set (`changed` is checked
+ * first), so the snapshot IS what the manager is being asked to approve.
  *
  * The loss gate is SERVER-authoritative (the sent value against the ceiling, or anything cooked): the
  * first tap goes solo, and a `needs_pin` reveals the manager step-up (the loss sheet's two-pass
@@ -51,6 +62,7 @@ export function CounterNoShowButton({
   lines,
   sentLineIds,
   droppedLineIds,
+  compedKitchenLineIds,
   lang,
 }: {
   sessionId: string;
@@ -60,6 +72,9 @@ export function CounterNoShowButton({
   sentLineIds: string[];
   /** The server's DROPPED set on the same clock (`TableDetail.droppedLineIds`) — what goes unrecorded. */
   droppedLineIds: string[];
+  /** The server's comped-in-the-kitchen set (`TableDetail.compedKitchenLineIds`) — off the kitchen
+   *  screen with the cart, never a loss. */
+  compedKitchenLineIds: string[];
   lang: StaffLang;
 }) {
   const [open, setOpen] = useState(false);
@@ -77,6 +92,7 @@ export function CounterNoShowButton({
           lines={lines}
           sentLineIds={sentLineIds}
           droppedLineIds={droppedLineIds}
+          compedKitchenLineIds={compedKitchenLineIds}
           lang={lang}
           onOpenChange={setOpen}
         />
@@ -108,6 +124,32 @@ export function noShowDroppedUnits(
   const dropped = new Set(droppedLineIds);
   return lines.filter((l) => dropped.has(l.id)).reduce((a, l) => a + l.qty, 0);
 }
+
+/** The three server sets a no-show touches, as the sheet read them (the PT-3 snapshot). */
+export type NoShowSets = {
+  sent: ReadonlyArray<string>;
+  dropped: ReadonlyArray<string>;
+  comped: ReadonlyArray<string>;
+};
+
+/** Set equality over ids (order-free — the server's arrays follow the cart's order, not a key). */
+export function sameIdSet(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  return sa.size === sb.size && [...sb].every((id) => sa.has(id));
+}
+
+/** Did any of the three sets move since the snapshot? Any one moving changes a sentence on screen. */
+export function noShowSetsMoved(snap: NoShowSets, live: NoShowSets): boolean {
+  return (
+    !sameIdSet(snap.sent, live.sent) ||
+    !sameIdSet(snap.dropped, live.dropped) ||
+    !sameIdSet(snap.comped, live.comped)
+  );
+}
+
+/** The sentence the one region says while the live sets differ from what the sheet shows. */
+const CHANGED_COPY: StaffMsg = { k: "table.noshow.err.changed" };
 
 /** Every refusal → its sentence (null only for a lockout: the countdown IS that sentence). */
 export function noShowRefusalMsg(
@@ -153,6 +195,7 @@ function NoShowSheet({
   lines,
   sentLineIds,
   droppedLineIds,
+  compedKitchenLineIds,
   lang,
   onOpenChange,
 }: {
@@ -161,6 +204,7 @@ function NoShowSheet({
   lines: TableLineView[];
   sentLineIds: string[];
   droppedLineIds: string[];
+  compedKitchenLineIds: string[];
   lang: StaffLang;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -179,16 +223,37 @@ function NoShowSheet({
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
+  const bodyRef = useRef<HTMLParagraphElement>(null);
 
-  // The SENT lines and the DROPPED ones — both the server's sets, never re-derived here.
-  const sent = new Set(sentLineIds);
-  const sentLines = lines.filter((l) => sent.has(l.id));
+  // PT-3 — the sets (and the lines they name) as they were when the sheet OPENED: what renders and
+  // what the write carries. The live props only ever decide whether that snapshot is still true.
+  const liveSets: NoShowSets = {
+    sent: sentLineIds,
+    dropped: droppedLineIds,
+    comped: compedKitchenLineIds,
+  };
+  const [snap, setSnap] = useState(() => ({ lines, sets: liveSets }));
+  const moved = noShowSetsMoved(snap.sets, liveSets);
+
+  // The SENT lines, the DROPPED ones and the comped ones the kitchen has — all the server's sets,
+  // never re-derived here, and all read from the snapshot.
+  const sent = new Set(snap.sets.sent);
+  const sentLines = snap.lines.filter((l) => sent.has(l.id));
   const sentUnits = sentLines.reduce((a, l) => a + l.qty, 0);
-  const droppedUnits = noShowDroppedUnits(lines, droppedLineIds);
+  const droppedUnits = noShowDroppedUnits(snap.lines, snap.sets.dropped);
+  const compedUnits = noShowDroppedUnits(snap.lines, snap.sets.comped);
   const name = customerName?.trim() ? customerName.trim() : null;
 
   const pinOk = pin.length >= 4 && pin.length <= 8;
-  const canSubmit = !locked && (!stepUp || (approverStaffId !== "" && pinOk));
+  const canSubmit = !locked && !moved && (!stepUp || (approverStaffId !== "" && pinOk));
+
+  // The explicit re-arm: adopt the order as it is now, and take the finger to the new count. A stale
+  // server `changed` goes with it (it spoke of the old sets); any other sentence stays.
+  function rearm() {
+    setSnap({ lines, sets: liveSets });
+    setMsg((m) => (typeof m === "object" && m?.k === "table.noshow.err.changed" ? null : m));
+    bodyRef.current?.focus();
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -200,11 +265,12 @@ function NoShowSheet({
     startTransition(async () => {
       let res: RecordCounterNoShowResult;
       try {
-        // `expectedLineIds` — the sent set this sheet SHOWS (the list above), so the write-off and any
-        // manager's approval cover exactly what was on screen; a moved set answers `changed`.
+        // `expectedLineIds` — the sent set this sheet SHOWS (the snapshot's, the list above), so the
+        // write-off and any manager's approval cover exactly what was on screen; a moved set answers
+        // `changed`.
         res = await recordCounterNoShow({
           sessionId,
-          expectedLineIds: sentLineIds,
+          expectedLineIds: [...snap.sets.sent],
           ...(stepUp ? { approverStaffId, pin } : {}),
         });
       } catch {
@@ -227,14 +293,16 @@ function NoShowSheet({
   }
 
   // Try again on the roster: a second failure is said in the sheet's ONE region; a recovery clears
-  // that sentence (and only that one — a pending "a manager needs to approve" stays).
+  // that sentence (and only that one) — and puts back "a manager needs to approve" while the step-up
+  // is still pending (`rosterRetryMsg`).
   async function retryRoster(): Promise<boolean> {
     const ok = await roster.retry();
-    setMsg((m) => (ok ? (m === ROSTER_FAILED_COPY ? null : m) : ROSTER_FAILED_COPY));
+    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
     return ok;
   }
 
-  const shown = lockCopy ?? msg;
+  // The lockout countdown outranks everything; a moved order outranks a transient message.
+  const shown = lockCopy ?? (moved ? CHANGED_COPY : msg);
   return (
     <Sheet
       open
@@ -250,7 +318,7 @@ function NoShowSheet({
       }
     >
       <form onSubmit={submit} style={{ marginTop: "var(--s2)" }} noValidate>
-        <p id={bodyId} style={body}>
+        <p id={bodyId} ref={bodyRef} tabIndex={-1} style={body}>
           <Chrome
             lang={lang}
             k={plural(sentUnits, "table.noshow.body.one", "table.noshow.body.many")}
@@ -280,6 +348,22 @@ function NoShowSheet({
             />
           </p>
         )}
+        {compedUnits > 0 && (
+          // Neither a loss nor dropped: a no-charge dish the kitchen has, gone from its screen with the
+          // cancelled order. No amount — nothing is owed on it and nothing is written off.
+          <p style={note} data-noshow-comped="">
+            <Chrome
+              lang={lang}
+              k={plural(
+                compedUnits,
+                "table.noshow.body.comped.one",
+                "table.noshow.body.comped.many",
+              )}
+              vars={{ n: compedUnits }}
+              echo="stack"
+            />
+          </p>
+        )}
         {stepUp && (
           <fieldset style={fieldset}>
             <legend style={legend}>
@@ -298,6 +382,13 @@ function NoShowSheet({
               onRetry={retryRoster}
             />
           </fieldset>
+        )}
+        {moved && (
+          <div style={{ marginTop: "var(--s3)" }}>
+            <Button type="button" variant="secondary" block onClick={rearm}>
+              <Chrome lang={lang} k="table.noshow.rearm" echo="stack" />
+            </Button>
+          </div>
         )}
         <div style={{ marginTop: "var(--s4)" }}>
           <Button
