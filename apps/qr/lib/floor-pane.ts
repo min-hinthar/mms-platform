@@ -13,7 +13,7 @@
  */
 import { STAFF_DOOR_TARGET } from "./staff-door";
 import type { LiveBoardState } from "./live-connection";
-import type { Handoff } from "./register-ui";
+import { handoffStillCurrent, type Handoff } from "./register-ui";
 import type { StaffKey } from "./i18n/staff";
 
 /** Side by side from here (JS reads it at CLICK time). Parity-tested against globals.css. */
@@ -154,6 +154,25 @@ export function acceptPaneRead(requested: string, selected: string | null): bool
 }
 
 /**
+ * Codex round 1 (#306) — a reader collection live in the pane HOLDS the pane on its table. The
+ * collect panel's poll is what slides the settlement freeze forward (`terminalStatus` →
+ * `extendSettlementFor`) and what turns a counter order's charge into its #CODE card; a selection
+ * change unmounts the panel mid-collect, and the webhook then closes a counter order behind its
+ * charge, so there is no card to come back to. While `paying` names the table shown, ANY change of
+ * selection — a card or strip tap, ✕, Escape, Back — is refused; a re-tap of that same table is not a
+ * change. A table CLEARED is a server fact (and the server refuses a Clear mid-payment), never held.
+ */
+export function paneSelectionHeld(p: {
+  paying: string | null;
+  from: string | null;
+  to: string | null;
+  cleared: boolean;
+}): boolean {
+  if (p.cleared) return false;
+  return p.paying !== null && p.paying === p.from && p.to !== p.from;
+}
+
+/**
  * Where focus goes after the pane closes. A CLEARED table's card is still in the DOM until the
  * floor's next poll, so focus goes to the floor heading, never onto a card about to vanish. A close
  * by a control lands on the table's card (else the heading). A close by history (Back) moves focus
@@ -237,6 +256,25 @@ export function liveTwinOf(
 /** The paid card follows its table across a switch: this tab's sessionStorage, `mms-*:{id}`. */
 export function handoffStashKey(sessionId: string): string {
   return `mms-handoff:${sessionId}`;
+}
+
+/**
+ * Codex round 1 (#306) — a table's paid card is SUPERSEDED the moment a DIFFERENT live cart is seen
+ * on its session: the next round opened, so the card's total and change describe a round that is
+ * over. Hidden is not enough — `handoffStillCurrent` hides it only while that cart is open, and once
+ * the next round settles with no tender (no card of its own) the live cart is null again and the old
+ * card would read as current: last round's change due, shown as this one's. So a superseded card is
+ * DROPPED, from state and from the stash, and never comes back. The exact complement of
+ * `handoffStillCurrent` (name it once): a counter order's card (its session closes behind its
+ * settle) is never superseded, and with no cart open only a NEWER paid order supersedes a table's
+ * card — a round that opened and paid while this screen looked elsewhere.
+ */
+export function handoffSuperseded(
+  h: Pick<Handoff, "isCounter" | "cartId" | "orderId">,
+  liveCartId: string | null,
+  paidOrderId: string | null,
+): boolean {
+  return !handoffStillCurrent(h, liveCartId, paidOrderId);
 }
 
 const cents = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;

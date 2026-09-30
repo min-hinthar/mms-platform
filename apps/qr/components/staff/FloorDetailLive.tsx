@@ -56,7 +56,14 @@ import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
 // ── Phase 2d · split ──
-import { paneFreezeSpoken, readHandoffStash, stashHandoff, type LostKind } from "@/lib/floor-pane";
+import {
+  dropHandoffStash,
+  handoffSuperseded,
+  paneFreezeSpoken,
+  readHandoffStash,
+  stashHandoff,
+  type LostKind,
+} from "@/lib/floor-pane";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { useTableNav } from "./TableNav";
 // ── Phase 2c · gate ──
@@ -100,6 +107,8 @@ export function FloorDetailLive({
   onClosed,
   onLostWrite,
   paneNotice,
+  onReaderLive,
+  paneHeld = 0,
 }: {
   initial: TableDetail;
   sessionId: string;
@@ -119,6 +128,12 @@ export function FloorDetailLive({
   ) => void;
   /** Pane — the lost-write sentence for ANOTHER table, spoken through this view's one region. */
   paneNotice?: ReactNode;
+  /** Pane · Codex round 1 (#306) — the reader's collection on this table went live / ended (the
+   *  collect panel's own report): the counter's split holds the pane here while it is live. */
+  onReaderLive?: (sessionId: string, live: boolean) => void;
+  /** Pane · Codex round 1 (#306) — a count of selection changes the split REFUSED while the reader
+   *  collects here; each new one says why in this view's one region. */
+  paneHeld?: number;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
    *  Send (or the status row, if a colleague sent in between), then drop the param. */
   arrivedToSend?: boolean;
@@ -213,6 +228,15 @@ export function FloorDetailLive({
     [sessionId],
   );
   const [restoredHandoff, setRestoredHandoff] = useState<Handoff | null>(null);
+  // ── Phase 2d · Codex round 1 · pane ── a table's card the next round SUPERSEDED (a different live
+  // cart seen on this session) is dropped, never merely hidden: once that round settles with no
+  // tender, the live cart is null again and a hidden card read as current — last round's total and
+  // change shown as this round's. Render-time (the guarded set-during-render `seenDetail` uses), so
+  // the dead card is never committed; its stash goes in the effect below.
+  if (handoff && handoffSuperseded(handoff, detail.cartId, detail.paidOrderId))
+    setHandoffState(null);
+  if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId, detail.paidOrderId))
+    setRestoredHandoff(null);
   const shownHandoff = handoff ?? restoredHandoff;
   // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
   // freeze flips paymentInFlight, which unmounts the settle section seconds after the start),
@@ -248,10 +272,33 @@ export function FloorDetailLive({
     const id = setTimeout(() => setRestoredHandoff(readHandoffStash(sessionId)), 0);
     return () => clearTimeout(id);
   }, [sessionId, inPane]);
+  // ── Phase 2d · Codex round 1 · pane ── the stash half of the drop above: on every cart this detail
+  // observes, a stashed card that cart supersedes leaves storage too, so no later visit (the pane
+  // restores on mount) brings it back. Re-read at the time, never a closure; a card still current
+  // (its own cart, or no live cart) is left alone.
+  useEffect(() => {
+    const stashed = readHandoffStash(sessionId);
+    if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))
+      dropHandoffStash(sessionId);
+  }, [sessionId, detail.cartId, detail.paidOrderId]);
   // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
   // panel shows it, and carries no region of its own). A STATE mirrored from the live panel, not a
   // one-shot note: no other setter clears it, and it goes when the panel goes.
   const [readerStatus, setReaderStatus] = useState<ReaderStatus | null>(null);
+  // ── Phase 2d · Codex round 1 · pane ── the split REFUSED a selection change while the reader
+  // collects here (`paneHeld` counts them): said in the ONE region below, beside `writeError` at the
+  // top of its precedence — the newer of the two speaks (each clears the other). It goes when the
+  // collection ends (`onPanelLive(false)`), and gives way to every other setter, like `writeError`
+  // (the reader's own next status included: a newer money fact).
+  const [held, setHeld] = useState(false);
+  const [seenHeld, setSeenHeld] = useState(paneHeld);
+  const onPanelLive = useCallback(
+    (live: boolean) => {
+      if (!live) setHeld(false);
+      onReaderLive?.(sessionId, live);
+    },
+    [sessionId, onReaderLive, setHeld],
+  );
   const setTerminalCollect = useCallback(
     (c: TerminalCollect | null) => {
       setTerminalCollectState(c);
@@ -280,6 +327,7 @@ export function FloorDetailLive({
   const onReaderStatus = useCallback((s: ReaderStatus) => {
     setReaderStatus(s);
     setWriteError(null);
+    setHeld(false); // Phase 2d · Codex round 1 · pane — the reader's newer money fact speaks
   }, []);
   const handoffRef = useRef<HTMLElement>(null);
   // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
@@ -486,6 +534,14 @@ export function FloorDetailLive({
     const gate = settleGateAfterCommit(settleGate, readTicket, settleBlocked);
     if (gate !== settleGate) setSettleGate(gate);
   }
+  // ── Phase 2d · Codex round 1 · pane ── a refused selection change, as it lands (see `held`).
+  if (paneHeld !== seenHeld) {
+    setSeenHeld(paneHeld);
+    setHeld(true);
+    setWriteError(null);
+    setSendNote(null);
+    setSettleGate(null);
+  }
   // Phase 2d · split — the name the pane gives this table in a lost-write sentence.
   const paneName = { counter: isCounter, display: tableDisplay(detail).text };
   const paneNameRef = useRef(paneName);
@@ -506,10 +562,11 @@ export function FloorDetailLive({
       setWriteError(e);
       setSendNote(null);
       setSettleGate(null); // Phase 2c · gate — every setter clears the others
+      setHeld(false);
       // `setSendNote` is named because the React Compiler cannot prove a setter stable once the render
       // body also calls it (the supersede check above); it IS stable, so this changes nothing.
     },
-    [setSendNote, setSettleGate, sessionId],
+    [setSendNote, setSettleGate, setHeld, sessionId],
   );
   // Phase 2d · review fixes — a settle's refusal or unknown outcome, as it lands. While this detail
   // is mounted the control says it itself (its sheet's alert, its line); once the detail UNMOUNTED
@@ -539,8 +596,9 @@ export function FloorDetailLive({
       if (n) setWriteError(null);
       // Phase 2c · gate — a send outcome is the newer fact ("Sent 2 items" after the jump to Send).
       if (n) setSettleGate(null);
+      if (n) setHeld(false);
     },
-    [setSendNote, setSettleGate],
+    [setSendNote, setSettleGate, setHeld],
   );
   // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
   // the Send reads at tap time; the state re-renders only when the derived hold actually changes.
@@ -573,6 +631,7 @@ export function FloorDetailLive({
       setSettleGate({ trigger, units, raisedAt: reads.current });
       setWriteError(null);
       setSendNote(null);
+      setHeld(false);
       const target =
         (settleBlockedTarget(trigger) === "send" ? send.controlRef.current : null) ??
         orderHeadingRef.current;
@@ -589,7 +648,7 @@ export function FloorDetailLive({
       });
       target?.focus({ preventScroll: true });
     },
-    [send.controlRef, setSendNote, setSettleGate],
+    [send.controlRef, setSendNote, setSettleGate, setHeld],
   );
   const gateLine = settleGate
     ? settleBlockedMsg(
@@ -1065,6 +1124,9 @@ export function FloorDetailLive({
             - writeError — a line edit or promo refusal the person just caused. Every other setter
               clears it, and so does each reader status change (Phase 2c · review, R3): the reader's
               money sentences are the newer fact, never masked by a refusal from before the collect.
+              Beside it, the same rank and the same lifetime: the pane's "Finish the card payment
+              first" (Phase 2d · Codex round 1, `held` — a switch refused mid-collect), which also
+              goes the moment the collection ends.
             - settle line — the settle gate's "send them first" warn (Phase 2c · gate: a refused
               settle tap, or a server `unsent`), rendered VISIBLY — it is the sentence beside the
               Send the tap just jumped to; else the reader's status while its collect panel is live
@@ -1084,6 +1146,7 @@ export function FloorDetailLive({
               // appearing never pushes the settle triggers below it.
               minHeight:
                 writeError ||
+                held ||
                 paneNotice ||
                 gateLine ||
                 degraded ||
@@ -1092,7 +1155,12 @@ export function FloorDetailLive({
                   ? 16
                   : 0,
               color:
-                writeError || paneNotice || gateLine || degraded || sendNote?.tone === "warn"
+                writeError ||
+                held ||
+                paneNotice ||
+                gateLine ||
+                degraded ||
+                sendNote?.tone === "warn"
                   ? "var(--warn)"
                   : sendNote
                     ? "var(--t2)"
@@ -1103,6 +1171,9 @@ export function FloorDetailLive({
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
+            ) : held ? (
+              // Phase 2d · Codex round 1 · pane — a switch refused mid-collect: why, in plain words.
+              <Chrome lang={lang} k="floor.pane.payingHeld" echo="stack" />
             ) : paneNotice ? (
               // Phase 2d · split — a change on ANOTHER table that did not save (the pane shows the
               // line and its "View" button above; this is where it is SAID). Below this view's own
@@ -1326,6 +1397,7 @@ export function FloorDetailLive({
             isCounter={isCounter}
             onStatus={onReaderStatus}
             onChanged={onChange}
+            onLive={onPanelLive}
             onDone={(h) => {
               setTerminalCollect(null);
               // The reader records neither a tip nor a tender — the card is Total and #CODE.
@@ -1370,7 +1442,7 @@ export function FloorDetailLive({
         {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
             named by its facts; never a status region. A table's card leaves once the next round's
             cart opens (`handoffStillCurrent`). */}
-        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId) && (
+        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId, detail.paidOrderId) && (
           <HandoffCard
             ref={handoffRef}
             lang={lang}

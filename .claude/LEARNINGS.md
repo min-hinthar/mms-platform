@@ -2948,6 +2948,30 @@ harness in CI (P2dk; `verify-merge-race.mjs` is the pattern).
 
 ## #175
 
+**Compare a GENERATION, not the value: a move that comes back ends where it began.** A counter start
+in flight stood down only when the pane's selected table id at the answer differed from the id at
+the tap — so A → B → A, or the floor → A → ✕, read as "never moved", and the new order's screen
+landed over a pane the cashier had used twice (Codex #306 round 1). Equality on a value answers "is
+it the same now?", never "did anything happen in between?". Where the question is the second one,
+compare a counter that only moves forward: the pane now publishes `selectionGen` (new on every pick
+of another table and every close, kept by a re-tap) and the start compares it beside the id. Pin
+BOTH halves with separate fixtures — every A → B case is killed by the id alone, so only a move that
+comes back can catch a dropped generation check (`p2d-cx1/mint-compares-the-id-alone`).
+
+## #176
+
+**A cue keyed to an aggregate count misses the event that nets to zero — key it to the event's
+identity.** The floor's "Ready to serve" compared each table's ready count between polls; a dish
+coming out in the same poll that another left the five-minute window (a clock expiry — no row
+changes, so nothing notifies realtime) or was recalled left the count unchanged, and the card never
+rang (Codex #306 round 1). The same count also rang twice for a dish that dropped out of one poll and
+came back (1 → 0 → 1). Give each event its identity — here `<line id>@<bumped_at>`, pushed in the
+same branch that adds to the count, so it keeps the window's rule — ring on a key not yet heard, and
+KEEP what was heard (a re-bump is a new key, so a kept key never hides real news). Red-first means
+the netting case: a fixture whose count visibly rises passes on the old code and reproduces nothing.
+
+## #177
+
 **A guard that allows "at most ONE host per page" never asked WHICH host.** `check-staff-lang` rule
 4c counted the modules a page reaches the language control through and stopped at one — so a page
 with no Help door could put the pill on its own bar and read as "hosted" (a blind critic reproduced
@@ -2957,7 +2981,7 @@ guard must name them too — rule 4e checks module + export identity, from the h
 guard is only proved against the easy evasion (#60's "what text satisfies this without shipping the
 behaviour?").
 
-## #176
+## #178
 
 **A flag that only matters in one mode needs its tests IN that mode.** `keepEcho` changes nothing on
 an English or Both device (the echo draws anyway), and every language case ran there — so six sites
@@ -2966,7 +2990,7 @@ mode where the flag bites (`my-only`), and assert the text exactly (`.chrome-en`
 `STAFF[k].en`), never `toBeTruthy()` on "some element": each of the 11 sites, deleted alone, now
 reddens its suite.
 
-## #177
+## #179
 
 **Radix `aria-hidden`s everything outside an open dialog, so `getByRole("alert")` can never see a
 second alert BEHIND the sheet.** Count `document.querySelectorAll('[role="alert"]')` to prove "one
@@ -2974,16 +2998,16 @@ line". And a Radix sheet's content stays mounted through its exit slide (M76, #1
 line must be `open &&`, or it doubles the bar tail's line for the length of the slide — dropping
 `open &&` left every test green until the count was taken during the slide.
 
-## #178
+## #180
 
 **A late `router.refresh()` can land mid-way through the NEXT write.** The language chain's provider
 mode is then OLDER than what the chain knows the server holds; adopting it moved the tick back and
 made a stale mode the chain's `confirmed`. Adopt the provider (the cap, `confirmed`) only BETWEEN
 chains, and cancel any "close when the provider shows X" wait on every new write — a refresh answers
 the write that asked for it, and Next does not say which write that was (the leftover window after
-a chain ends is OPEN-ITEMS P2er).
+a chain ends is OPEN-ITEMS P2ev).
 
-## #179
+## #181
 
 **Confirmed red-first: React 19 rethrows a rejection from `startTransition(async …)` to the nearest
 error boundary.** The pre-P2e language switch awaited `setStaffLang(…)` inside an async transition
@@ -2991,23 +3015,23 @@ with no try/catch, and a rejected Server Action put the test's error boundary on
 the alert (`StaffLangSwitch.test`'s "a REJECTED action … throws NOTHING", run against the old
 component). A transition is not a catch: wrap the await in try/catch (or use a plain async handler,
 like `LockButton`), and bound it (`raceTimeout`) so a hang ends as the same failure line. Two more
-live instances are OPEN-ITEMS P2ep (the Help report send, the approval form).
+live instances are OPEN-ITEMS P2et (the Help report send, the approval form).
 
-## #180
+## #182
 
 **jsdom's accessible-name computation pads element boundaries on its own.**
 `getByRole(…, { name: "မြန်မာ English" })` matched two adjacent spans with NO whitespace between
 them, so deleting the Both row's literal space left the query green. A test about a literal separator in a name must
 assert the labelling element's DOM text as well, or it is green for the wrong reason.
 
-## #181
+## #183
 
 **#166 bit again, from a block comment.** `autonyms.test.ts` reads an own-line comment ABOVE a key
 as that key's severity marker, so the words "…none is K15-HIGH" in the block comment above Phase 2e's
 new keys MARKED them, and the set-equality went red. Write about the band above a key without the
 marker's literal text ("none carries the first-band marker").
 
-## #182
+## #184
 
 **A render mode that drops markup must keep the wrapper the CSS is written against.** Burmese only
 drops `<Chrome>`'s English echo, but every Burmese size rule is `.x > .chrome-pair > [lang="my"]`, so

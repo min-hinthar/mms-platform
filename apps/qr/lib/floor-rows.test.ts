@@ -245,7 +245,7 @@ describe("stripKey — the strip's KEY: every glyph on screen, decoded, and noth
 
   it("an all-free strip has nothing to decode; a table owing a Send adds the owed mark", () => {
     expect(stripKey([free(1), free(2)])).toEqual({ entries: [], owed: false });
-    const kitchen = { notSent: 2, inKitchen: 0, up: 0, done: 0, oldestFireAt: null };
+    const kitchen = { notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 0, oldestFireAt: null };
     // MUTATION: never set `owed` → the red dot on the tile has no word anywhere on screen.
     expect(stripKey([on(6, "ordering", { kitchen })]).owed).toBe(true);
   });

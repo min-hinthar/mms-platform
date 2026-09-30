@@ -59,9 +59,13 @@ vi.mock("@/lib/tabs", () => ({ openTab: vi.fn() }));
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.fn() }));
-vi.mock("@/lib/register", () => ({ openRegisterOrder: vi.fn() }));
+const openRegisterOrder = vi.fn((_input: unknown) => new Promise<unknown>(() => {}));
+vi.mock("@/lib/register", () => ({
+  openRegisterOrder: (input: unknown) => openRegisterOrder(input),
+}));
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }),
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push }),
   usePathname: () => "/staff",
 }));
 vi.mock("next/link", () => ({
@@ -96,6 +100,7 @@ const { FloorBoard } = await import("./FloorBoard");
 const { DEFAULT_KDS_THRESHOLDS } = await import("@/lib/kds-urgency");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const terminal = await import("@/lib/terminal");
 
 const table = (sessionId: string, n: number, over: Partial<FloorTable> = {}): FloorTable => ({
   sessionId,
@@ -172,6 +177,7 @@ const detail = (sessionId: string, tableNumber: number) =>
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,
     tab: "none",
@@ -189,12 +195,12 @@ const detail = (sessionId: string, tableNumber: number) =>
 const detailOk = (d: TableDetail) => () => Promise.resolve({ kind: "detail" as const, detail: d });
 
 let split = true;
-function mountCounter() {
+function mountCounter(terminalReady = false) {
   return render(
     <StaffLangProvider lang="en">
       <LiveConnectionProvider>
         <CounterBellProvider>
-          <CounterSplit terminalReady={false}>
+          <CounterSplit terminalReady={terminalReady}>
             <CounterMintProvider>
               <div className="staff-zone">
                 <h2 id="start-h">Start</h2>
@@ -240,6 +246,8 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   getTableDetail.mockClear();
+  openRegisterOrder.mockClear();
+  push.mockClear();
   sessionStorage.clear();
 });
 
@@ -351,5 +359,153 @@ describe("the bell never rings over a covered counter column", () => {
     await tick(5000);
     // MUTATION: treat any open pane as covering the column — a tablet mutes the bell all shift; red.
     expect(playCounter).toHaveBeenCalledWith("guest");
+  });
+});
+
+/**
+ * Phase 2d · Codex round 1 (mint) — a start in flight while the person moves the pane and comes
+ * BACK. The landing compared the pane's selected id at tap and at answer, so a move that ends on
+ * the id it left (A → B → A; the floor → a table → ✕) passed as "never moved" and the add screen
+ * of the new order was pushed over the pane they had just worked in. The real split and the real
+ * mint lock, so the generation the lock compares is the one `CounterSplit` actually publishes.
+ */
+describe("a start that lands after the pane moved and came back", () => {
+  type Landing = { ok: true; sessionId: string; created: boolean };
+  function held() {
+    let resolve!: (v: Landing) => void;
+    const promise = new Promise<Landing>((r) => {
+      resolve = r;
+    });
+    openRegisterOrder.mockReturnValueOnce(promise);
+    return { promise, resolve };
+  }
+  const walkup = () =>
+    document
+      .getElementById("start-h")!
+      .parentElement!.querySelector<HTMLButtonElement>("button.ui-btn")!;
+  const tap = async (el: HTMLElement) => {
+    await act(async () => {
+      fireEvent.click(el);
+    });
+    await tick(0);
+  };
+  const land = async (d: ReturnType<typeof held>) => {
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s-new", created: true });
+      await d.promise;
+    });
+    await tick(0);
+  };
+
+  it("A → B → A: the new order's add screen is never pushed over the table they came back to — and the lock re-arms", async () => {
+    mountCounter();
+    await tick(0);
+    await tap(card(A));
+    const d = held();
+    await tap(walkup());
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    await tap(card(B));
+    await tap(card(A));
+    expect(location.hash).toBe(`#table-${A}`); // the same id the start was tapped over
+    await land(d);
+    // MUTATION: compare the selected id alone (or publish no generation) — A at tap, A at the
+    // answer: push('/staff/table/s-new/add') yanks them off table A; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("the floor → a table → ✕: a close is a move too — nothing is pushed over the floor", async () => {
+    mountCounter();
+    await tick(0);
+    const d = held();
+    await tap(walkup());
+    await tap(card(A));
+    expect(splitRoot().dataset.pane).toBe("open");
+    await tap(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    expect(splitRoot().dataset.pane).not.toBe("open");
+    await land(d);
+    // MUTATION: a close takes no generation of its own — the floor reads as it did at the tap; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  // Over-blocking is as bad as under-blocking: the ordinary starts must still go where they went.
+  it("an untouched floor still lands the new order on its add screen", async () => {
+    mountCounter();
+    await tick(0);
+    const d = held();
+    await tap(walkup());
+    await land(d);
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+
+  it("re-tapping the table already shown is not a move — the new order still lands", async () => {
+    mountCounter();
+    await tick(0);
+    await tap(card(A));
+    const d = held();
+    await tap(walkup());
+    await tap(card(A));
+    await land(d);
+    // MUTATION: a re-tap of the table shown takes a new generation — every start made with a table
+    // open beside the floor would silently stay put; red.
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+});
+
+// ── Phase 2d · Codex round 1 · pane ── the real floor's two ways in (a TableCard, wired by
+// FloorBoard, and an occupied strip tile, wired by TableStrip) are both refused while the reader
+// collects on the table shown: the panel's poll keeps the payment's hold and records its outcome.
+describe("a reader collection holds the pane on its table", () => {
+  afterEach(() => {
+    vi.mocked(terminal.settleCard).mockReset();
+    vi.mocked(terminal.terminalStatus).mockReset();
+  });
+  it("a floor card and a strip tile are both refused mid-collect; the pane says why", async () => {
+    answers[A] = detailOk({
+      ...detail(A, 4),
+      settleTotalCents: 1307,
+      settleTipBaseCents: 1200,
+    });
+    vi.mocked(terminal.settleCard).mockResolvedValueOnce({
+      ok: true,
+      paymentIntentId: "pi_4",
+      totalCents: 1307,
+    });
+    vi.mocked(terminal.terminalStatus).mockResolvedValue({ ok: true, state: "collecting" });
+    mountCounter(true);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(card(A));
+    });
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tick(0);
+    const panel = () =>
+      within(pane()).queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
+    expect(panel()).not.toBeNull();
+    const tile = floorSection().querySelector<HTMLAnchorElement>('[data-tile="7"]')!;
+    await act(async () => {
+      fireEvent.click(tile);
+    });
+    await tick(0);
+    // MUTATION: the pane admits the strip's tap mid-collect — the reader panel unmounts; red.
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(panel()).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(card(B));
+    });
+    await tick(0);
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(document.getElementById("table-pane-h")!.textContent).toBe(
+      tf("en", "floor.table", { id: "4" }),
+    );
+    expect(panel()).not.toBeNull();
+    expect(polite(pane())).toHaveLength(1);
+    expect(polite(pane())[0]!.textContent).toBe(ts("en", "floor.pane.payingHeld"));
   });
 });

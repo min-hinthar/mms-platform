@@ -8,7 +8,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
 merged onto Phase 2d's #306 head `f00024d` as `b852b27` — the `verify:slice` set a union (1271 +
-49 + 49 = 1369). Owner decision 2 (2026-09-24): Burmese only · Both · English, per device. Phase 2a's
+49 + 49 = 1369). #306's Codex round-1 head `ed47ef6` then merged in: its OPEN-ITEMS
+P2em–P2ep and LEARNINGS #175–#176 landed first, so Phase 2e's rows are P2eq–P2ey and its LEARNINGS
+#177–#184. Owner decision 2 (2026-09-24): Burmese only · Both · English, per device. Phase 2a's
 language hardening was NOT on disk at the base (`grep -rn "nextLangWrite\|langChainOutcome"` found
 nothing, and `StaffLangSwitch.tsx` was still the pre-2a `useTransition` switch), so it is built here
 as the generic chain the three-way spec lifts it into (`useLangModeWrite`), not as a separate 2a
@@ -102,14 +104,15 @@ block) and §6. No SQL.
   `shell.lang.scope` · `shell.lang.mode.myOnly` (re-worded after review) · `shell.lang.mode.both` ·
   `shell.lang.mode.en` · `shell.lang.note`; `pilot.gloss.autonyms` re-drafted (EN and MY);
   `shell.lang.group`'s English "Console language" → "This device’s language" (Burmese unchanged). None
-  is K15-HIGH (`STAFF_K15_HIGH` unchanged at 114). No key retired.
+  is K15-HIGH (Phase 2e leaves `STAFF_K15_HIGH` unchanged — 114 at its base; 115 on the merge with #306's Codex
+  round 1, measured). No key retired.
 - **Owner decisions (2026-09-30).** **No one-time relocation notice:** the default (Both) renders
   exactly today's screen on every device, and a `HELP_SHEET_REVISION` bump would replay how-cards that
   never mention language — interrupting a shift while saying nothing about the move; the way back is
   two taps (Help → Language) and the front doors keep the pill; revisit only if staff report hunting
   for it. **Burmese only keeps the K15-HIGH English**, as built.
-- **OPEN-ITEMS.** Closed **P2x**. New **P2em–P2eu**: P2em and P2en are the two owner decisions above,
-  recorded decided; P2eu is the preview gate (no browser here); P2ep (med) the two other
+- **OPEN-ITEMS.** Closed **P2x**. New **P2eq–P2ey**: P2eq and P2er are the two owner decisions above,
+  recorded decided; P2ey is the preview gate (no browser here); P2et (med) the two other
   `startTransition(async …)` awaits with no try/catch that this phase's red-first confirmed can
   replace a whole board with the error screen (the Help report send, the approval form). K15 and K37
   grow; P2d (`<html lang>`) and P2m/K25 (English still under a Burmese console) stay open — the
@@ -117,7 +120,7 @@ block) and §6. No SQL.
 - **Gate at this head (measured):** 1369 `verify:slice` mutants across 184 target modules (146 lib ·
   3 API routes · 34 components · 1 `packages/db`) · 4512 qr + 278 ui tests · `check:docs` clean. The
   full 1369-mutant `verify:slice` run with the gate at the merged head is not recorded here. Nothing
-  is device-measured — the preview gate is P2eu.
+  is device-measured — the preview gate is P2ey.
 
 ### Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database (2026-09-29)
 
@@ -342,6 +345,40 @@ counter screen's per-zone regions).
     `mms_merge_table_orders` writes both tables and it locks carts first), freeze expiry mid-collect
     (the reader poll extends it), the grocery queue (it pre-checks the freeze), and consolidating the
     counter screen's per-zone regions (a redesign, not a defect).
+
+- **Codex round 1 on #306 (2026-09-30) — four findings (2 P1 · 2 P2), all real, all fixed red-first
+  with mutants.**
+  - _P1 — switching tables stopped a card payment on the reader._ A tap on another table, the strip,
+    ✕, Escape or Back unmounted the reader panel mid-collect, and its poll is what keeps the payment's
+    hold alive and records a counter order's #CODE. A live collection now HOLDS the pane
+    (`paneSelectionHeld`): the change is refused, a refused Back puts the table's entry back, and the
+    pane says "Finish the card payment first." The hold ends with the collection.
+  - _P1 — last round's change came back as this round's._ A paid card the next round replaced was
+    only hidden while that round's cart was open; paid with no tender, the old total and change read
+    as current again. A superseded card is now dropped from state and from the stash.
+  - _P2 — a start in flight landed over the pane after a move that came back._ The start compared
+    only the pane's table id at tap and at answer, so A → B → A or the floor → A → ✕ read as "never
+    moved". The pane now publishes a `selectionGen`, and the start stands down when it moved.
+  - _P2 — "Ready to serve" could miss a dish._ The cue compared each table's ready COUNT, so a dish
+    coming out as another left the five-minute window (or was recalled) netted to zero and never
+    rang. It is keyed to each bump now (`<line id>@<bumped_at>`): once per new bump, never on a
+    recall or an expiry, never twice for a dish that drops out of one poll. No migration.
+  - _The residual, fixed after:_ a round that opened AND paid while the pane showed another table
+    was never seen as a live cart, so round one's card came back on the next visit.
+    `TableDetail.paidOrderId` (the latest paid or refunded order, from `getTableDetail`'s existing
+    paid read) joins `handoffStillCurrent(h, liveCartId, paidOrderId)`: with no cart open, a table's
+    card is current only while that latest order is its own (an unknown latest keeps it).
+  - _Mutants:_ 33 new `p2d-cx1/*` (mint 3 · ready 7 · pane 20 · residual 3), all caught;
+    `lib/register-ui.ts` joins the mutate set (lib 145 → 146). Re-anchored with meaning kept:
+    `p2d-rev/floor-mint-lands-over-the-pane-pick` · `p2d-rev/floor-mint-reads-the-tapping-render`,
+    `p2d-floor/kitchen-ready-never-lapses` · `up-cues-on-a-decay` · `up-cues-on-first-sight` ·
+    `ready-rise-ignored`, `counter-split/a-tap-navigates-anyway`;
+    `p2d-rev/floor-unknown-kitchen-is-a-baseline` is now caught on an extended fixture. 1353 mutants
+    across 180 files; 4390 qr + 278 ui tests (measured).
+  - _Words (K15):_ one new key, K15-HIGH — `floor.pane.payingHeld` (`STAFF_K15_HIGH` 114 → 115).
+  - _Filed, not fixed:_ **P2em–P2ep** — leaving the phone's table page mid-collect; a reader start
+    that lands after the pane moved; food bumped during a kitchen-unknown gap; one poll's double
+    count when a table pays between the floor's two reads.
 
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 

@@ -84,6 +84,10 @@ export type FloorKitchen = {
   inKitchen: number;
   /** Served with `bumped_at` inside the wall's `PULSE_PASS_LINGER_MS` — the wall's "Ready to serve". */
   up: number;
+  /** Phase 2d · Codex round 1 · ready — one key per served line inside that same window, its
+   *  bump's `<line id>@<bumped_at>` (`floor-kitchen.ts`). The floor's cue reads these, never `up`:
+   *  a count holds still when one dish leaves the window as another comes out. */
+  upKeys: string[];
   /** Served before that window (or with no bump stamp). */
   done: number;
   /** The OLDEST in-kitchen line's fire time (ISO) — the instant the table's oldest ticket counts from. */
@@ -227,6 +231,11 @@ export type TableDetail = {
    *  and `paidTotalCents` describe the LATEST one, matching the floor board's own reduction, so a
    *  count above 1 means the record on screen is one round of several and must say so. */
   settledOrderCount: number;
+  /** Phase 2d · Codex round 1 — the id of the table's LATEST paid (or refunded) order, the same row
+   *  `paidTotalCents` describes; null when none. The paid card compares it with its own `orderId`
+   *  (`handoffStillCurrent`): a round that opened and paid while the screen looked elsewhere is seen
+   *  only here, as a newer order, never as a live cart. */
+  paidOrderId: string | null;
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
