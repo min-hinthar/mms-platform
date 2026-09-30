@@ -1,5 +1,4 @@
 import type { serviceClient } from "@mms/db/server";
-import { queueEmptiness } from "./queue-window";
 
 /**
  * A4·2 — the open COUNTER orders, read in ONE place.
@@ -17,11 +16,16 @@ type Db = ReturnType<typeof serviceClient>;
 export const REG_PREFIX = "reg-";
 
 /**
- * A teahouse has a handful of open counter orders; bound the read regardless. A FULL page is
+ * A teahouse has a handful of open counter orders; bound the read regardless. A TRUNCATED page is
  * reported (`truncated`) rather than passed off as the whole queue. The page is read NEWEST first
  * (Phase 2f review M1): a sent-unpaid counter order is exempt from the expiry sweep, so uncollected
  * ones accrue, and an oldest-first cap let them push the order just started off the counter. A
  * saturated read now hides the STALEST orders — and says so.
+ *
+ * Both reads fetch CAP + 1 (M212's shape, `lib/floor.ts` SETTLED_ORDER_CAP): exactly CAP rows is the
+ * whole queue, and only the (CAP+1)th row proves one is hidden — a `rows >= CAP` test said "not
+ * listed" over a full page that listed everything. The extra row is the OLDEST (newest-first
+ * order), so it is the one dropped.
  */
 export const REGISTER_QUEUE_CAP = 40;
 
@@ -80,11 +84,15 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
     // at this counter — one queue.
     .or(`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" })
     .order("created_at", { ascending: false })
-    .limit(REGISTER_QUEUE_CAP);
+    .limit(REGISTER_QUEUE_CAP + 1);
   if (cartErr) return { ok: false, reason: "outage" };
 
+  // CAP + 1 read: a (CAP+1)th row proves the page is truncated; keep the CAP NEWEST, dropping the
+  // oldest, BEFORE the reverse (after it, the slice would drop the newest).
+  const page = carts ?? [];
+  const truncated = page.length > REGISTER_QUEUE_CAP;
   // Read newest first (the cap keeps the live orders); shown oldest first, as the counter always was.
-  const oldestFirst = [...(carts ?? [])].reverse();
+  const oldestFirst = [...page.slice(0, REGISTER_QUEUE_CAP)].reverse();
   const rows: RegisterQueueRow[] = oldestFirst.map((cart) => {
     const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
     return {
@@ -114,7 +122,6 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
       })),
     ]),
   );
-  const truncated = queueEmptiness(rows.length, REGISTER_QUEUE_CAP) === "cannot-say";
   if (truncated)
     console.warn(
       "[register-queue] counter queue read saturated — the oldest orders are not shown",
@@ -158,8 +165,9 @@ export type UnpaidCartRow = {
  * every row the page holds yields a bag, so a cart of drafts, grocery or in-grace sends never
  * consumes a slot, and a comped-only bag still reaches the lane (Codex r3 on #308); `items`
  * is the unfiltered embed the bag is built from. Read NEWEST first under the cap (review M1: the
- * sweep exempts these, so stale ones accrue); a full page is `truncated` — the lane keeps its paid
- * bags and says its unpaid list is partial, and what it drops is the stalest bag, never the newest.
+ * sweep exempts these, so stale ones accrue); an over-full page (CAP + 1 rows) is `truncated` —
+ * the lane keeps its paid bags and says its unpaid list is partial, and what it drops is the
+ * stalest bag, never the newest. A page of exactly CAP candidates is whole and says nothing.
  * Plain query; no amount is read.
  */
 export async function readUnpaidCounterCarts(
@@ -189,12 +197,14 @@ export async function readUnpaidCounterCarts(
     .or(`fire_at.is.null,fire_at.lt.${graceBound}`, { referencedTable: "sent" })
     .in("sent.state", ["fired", "in_progress", "served"])
     .order("created_at", { ascending: false })
-    .limit(REGISTER_QUEUE_CAP);
+    .limit(REGISTER_QUEUE_CAP + 1);
   if (error) {
     console.error("[register-queue] unpaid counter read failed", { message: error.message });
     return { ok: false };
   }
-  const carts: UnpaidCartRow[] = data ?? [];
-  const truncated = queueEmptiness(carts.length, REGISTER_QUEUE_CAP) === "cannot-say";
-  return { ok: true, carts, truncated };
+  // CAP + 1 (see `REGISTER_QUEUE_CAP`): only a (CAP+1)th candidate proves one is hidden; the page is
+  // newest first, so the dropped row is the oldest bag.
+  const page: UnpaidCartRow[] = data ?? [];
+  const truncated = page.length > REGISTER_QUEUE_CAP;
+  return { ok: true, carts: page.slice(0, REGISTER_QUEUE_CAP), truncated };
 }

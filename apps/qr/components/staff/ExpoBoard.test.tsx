@@ -799,7 +799,8 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
         notes: null,
       },
     ],
-    moreUnits: 1,
+    moreUnits: 0,
+    owes: true,
     kitchen: "done",
     sentAt: iso(-4),
     ...over,
@@ -810,12 +811,14 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
     root.querySelector<HTMLElement>("article[data-unpaid]")!;
 
   it("draws the Unpaid flag, the SENT lines, what is not sent yet, and ONE link — to take payment", () => {
-    const { container } = mount("en", withBag());
+    // A bag with a draft still unsent is never "done" (lib's `unpaidBag`, self-review PT-4).
+    const { container } = mount("en", withBag(bag({ moreUnits: 1, kitchen: "cooking" })));
     const card = unpaidCard(container);
     expect(card.textContent).toContain(ts("en", "settle.unpaid"));
+    expect(card.textContent).not.toContain(ts("en", "expo.bag.noCharge"));
     expect(card.textContent).toContain("Tea Leaf Salad");
     expect(card.textContent).toContain(tf("en", "expo.unpaid.more.one", { n: 1 }));
-    expect(card.textContent).toContain(ts("en", "expo.kitchenDone"));
+    expect(card.textContent).not.toContain(ts("en", "expo.kitchenDone"));
     // ONE action, and never the lane's stage buttons: an unpaid bag is not bagged or handed over.
     expect(within(card).queryAllByRole("button")).toHaveLength(0);
     const links = within(card).getAllByRole("link");
@@ -824,6 +827,56 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
     expect(links[0]!.className).toContain("ui-btn-primary");
     expect(links[0]!.getAttribute("aria-label")).toContain("Aye");
     expect(links[0]!.textContent).toBe(ts("en", "expo.verb.takePayment"));
+  });
+
+  it("a finished bag with nothing unsent says Kitchen done, and no 'more not sent' line", () => {
+    const { container } = mount("en", withBag());
+    const card = unpaidCard(container);
+    expect(card.textContent).toContain(ts("en", "expo.kitchenDone"));
+    expect(card.textContent).not.toContain(tf("en", "expo.unpaid.more.one", { n: 1 }));
+  });
+
+  // Self-review PT-2 — every chargeable line made free: the bag is still collected, but nothing is
+  // owed. Never "Unpaid", never counted unpaid, never a Take payment into a page with no payment.
+  it("a bag that owes nothing: 'No charge', a plain View link to its page, and no Unpaid anywhere", () => {
+    // p2f-sr-lane/expo-board/free-bag-reads-unpaid · free-bag-takes-payment
+    const { container } = mount("en", withBag(bag({ owes: false })));
+    const card = unpaidCard(container);
+    expect(card.textContent).toContain(ts("en", "expo.bag.noCharge"));
+    expect(card.textContent).not.toContain(ts("en", "settle.unpaid"));
+    const name = card.getAttribute("aria-label")!;
+    expect(name).toContain(tf("en", "expo.a11y.cardNoCharge", { x: "Aye" }));
+    expect(name).toContain(ts("en", "expo.bag.noCharge"));
+    expect(name).not.toContain(ts("en", "settle.unpaid"));
+    const links = within(card).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute("href")).toBe("/staff/table/sess-reg");
+    expect(links[0]!.className).toContain("ui-btn-secondary");
+    expect(links[0]!.textContent).toBe(ts("en", "floor.verb.view"));
+    expect(links[0]!.textContent).not.toBe(ts("en", "expo.verb.takePayment"));
+    const linkName = links[0]!.getAttribute("aria-label")!;
+    expect(linkName).toContain("Aye");
+    expect(linkName).toContain(ts("en", "floor.verb.view"));
+    expect(linkName).not.toContain(ts("en", "expo.verb.takePayment"));
+  });
+
+  it("the unpaid count counts only the bags that OWE — a free bag is still counted as a bag", () => {
+    // p2f-sr-lane/expo-board/free-bag-counted-unpaid
+    const q = {
+      tickets: [],
+      unpaid: [bag({ owes: false }), bag({ cartId: "cart-2", sessionId: "sess-2", owes: true })],
+      serverNow: NOW,
+    } satisfies ExpoQueue;
+    const { container } = mount("en", q);
+    const [announced, visible] = container.querySelectorAll(".expo-status");
+    expect(visible!.textContent).toContain(tf("en", "expo.count.many", { n: 2 }));
+    expect(visible!.textContent).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+    expect(announced!.textContent).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+    cleanup();
+    const free = mount("en", withBag(bag({ owes: false })));
+    const line = free.container.querySelectorAll(".expo-status")[1]!.textContent!;
+    expect(line).toContain(tf("en", "expo.count.one", { n: 1 }));
+    expect(line).not.toContain(tf("en", "expo.count.unpaid", { n: 1 }));
   });
 
   it("its name says whose bag it is and the visible Unpaid words — in every language mode", () => {
@@ -896,6 +949,22 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
     try {
       fireEvent.click(within(unpaidCard(container)).getByRole("link"));
       expect(push).toHaveBeenCalledWith("/staff?floor=1&settle=1#table-sess-reg");
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("at split width a bag that owes nothing opens its pane on the order — no settle section", () => {
+    // p2f-sr-lane/expo-board/free-bag-pane-settles
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mount("en", withBag(bag({ owes: false })));
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      push.mockClear();
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(push).toHaveBeenCalledWith("/staff?floor=1#table-sess-reg");
     } finally {
       if (had) window.matchMedia = prev;
       else delete (window as { matchMedia?: unknown }).matchMedia;

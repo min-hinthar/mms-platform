@@ -237,6 +237,13 @@ export type UnpaidBag<L> = {
   lines: L[];
   /** Units still draft (not grocery) — on the order, not in the bag. */
   moreUnits: number;
+  /** Whether taking payment would collect anything (`counterOwes` over the cart's lines). False for
+   *  a bag whose every chargeable line was comped: the customer collects it, nobody pays for it. */
+  owes: boolean;
+  /** The ORDER's kitchen state: `kitchenStateOf` over the lines in the kitchen, but never "done"
+   *  while a draft is still unsent (`moreUnits > 0`) — the floor card's rule (`kitchenSegments`
+   *  never says "Kitchen done" over "N not sent"). Such a bag reads "cooking": more of its food is
+   *  still to come (it cooks at payment), which is also how the lane sorts it. */
   kitchen: KitchenState;
   /** When the kitchen FINISHED this bag (`kitchenDoneAt` over the cart's lines — the latest bump), or
    *  null while it is not done. The counter bell keys finished food by it: one finish, one ring. */
@@ -245,6 +252,33 @@ export type UnpaidBag<L> = {
    *  at or before now, so it dates from now). */
   sentAt: string;
 };
+
+/**
+ * CHARGEABLE — what the table page's settle section counts and charges: every line that is neither
+ * voided nor comped, in any state (a draft, an in-grace send, a grocery line and a sent dish all
+ * reach `getCartTotals`). The SAME filter as `lib/floor.ts`'s `chargeable` (whose `itemCount > 0`
+ * gates the settle section) and `readRegisterQueue`'s card count — restated, not imported, because
+ * `register-queue.ts` is imported here (a cycle) and `floor.ts` is server-only.
+ */
+export function counterChargeableLine(l: {
+  state: string;
+  comped?: boolean;
+  qty: number;
+}): boolean {
+  return l.state !== "voided" && !l.comped && l.qty > 0;
+}
+
+/**
+ * Does the order still OWE money (Phase 2f · self-review PT-2)? True exactly when the settle
+ * section would render — some chargeable line remains. A counter order whose only kitchen food was
+ * comped owes nothing: its bag is still on the lane (the customer collects it) but it is not
+ * "Unpaid", and "Take payment" would open a table page with no payment to take.
+ */
+export function counterOwes(
+  lines: readonly { state: string; comped?: boolean; qty: number }[],
+): boolean {
+  return lines.some(counterChargeableLine);
+}
 
 /**
  * An open counter order as the takeaway lane draws it, or null when nothing is in the kitchen (drafts
@@ -269,14 +303,19 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
   let sentMs = Number.POSITIVE_INFINITY;
   for (const l of inKitchen) sentMs = Math.min(sentMs, lineFireMs(l.fire_at, i.nowMs));
   const kitchen = kitchenStateOf(inKitchen);
+  // Self-review PT-4 — while a draft is unsent the ORDER is not done, whatever its sent lines say
+  // (the floor card's rule), so no "Kitchen done" and no bell: the ring comes when the LAST batch
+  // finishes, keyed by that batch's bump (`kitchenDoneAt`), after every draft is sent.
+  const orderKitchen: KitchenState = moreUnits > 0 && kitchen === "done" ? "cooking" : kitchen;
   return {
     cartId: i.cartId,
     sessionId: i.sessionId,
     customerName: i.customerName,
     lines: inKitchen,
     moreUnits,
-    kitchen,
-    doneAt: kitchen === "done" ? kitchenDoneAt(i.lines) : null,
+    owes: counterOwes(i.lines),
+    kitchen: orderKitchen,
+    doneAt: orderKitchen === "done" ? kitchenDoneAt(i.lines) : null,
     sentAt: new Date(sentMs).toISOString(),
   };
 }

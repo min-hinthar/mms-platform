@@ -638,7 +638,9 @@ export function ExpoBoard({
     (t) => t.status === "ready" && isScanGoBasket(t.lines),
   ).length;
   const bagCount = tickets.filter((t) => !isScanGoBasket(t.lines)).length + unpaid.length;
-  const unpaidCount = unpaid.length;
+  // Self-review PT-2 — "{n} unpaid" counts the bags that OWE money; a bag whose food was all made
+  // free is still a bag (in `bagCount`) but nothing is collected for it.
+  const unpaidCount = unpaid.filter((b) => b.owes).length;
   // Phase 2f review (M1) — the unpaid read hit its cap: the paid bags are all here, the unpaid ones
   // are not. Said beside the count, and the lane never reads as an all-clear over it. The widening
   // is a no-op once lib's `ExpoQueue.unpaidTruncated` lands (resolves at integration).
@@ -1168,6 +1170,11 @@ function ExpoCard({
  * the SENT lines only (plus how many more are not sent yet), and ONE action: take the payment, on the
  * table page's settle section (the pane at split width). No Bagged / Picked up — an unpaid bag never
  * leaves the counter; once paid it comes back as an ordinary bag under the same cart.
+ *
+ * Self-review PT-2 — a bag that OWES nothing (every chargeable line made free, `bag.owes` false) is
+ * still drawn (the customer still collects it) but never as Unpaid: a neutral "No charge" badge, no
+ * unpaid count, and a plain link to the order's page (where it is cleared) instead of Take payment,
+ * which would open a page with no payment on it.
  */
 function UnpaidBagCard({
   bag,
@@ -1183,10 +1190,13 @@ function UnpaidBagCard({
   const router = useRouter();
   const who = bag.customerName ?? ts(lang, "reg.row.walkup");
   const age = expoAge({ arrivedAt: null, pickupSlot: null, createdAt: bag.sentAt }, nowMs);
-  // The card's NAME carries the visible Unpaid words exactly as the badge draws them (no echo in a
+  const owes = bag.owes;
+  // The card's NAME carries the visible badge words exactly as the badge draws them (no echo in a
   // badge — the device's `shown` decides nothing there, but the name follows the same call).
-  const cardName = `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}`;
-  const href = `/staff/table/${bag.sessionId}?settle=1`;
+  const cardName = owes
+    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${badgeWords(lang, "settle.unpaid", echoes)}`
+    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${badgeWords(lang, "expo.bag.noCharge", echoes)}`;
+  const href = owes ? `/staff/table/${bag.sessionId}?settle=1` : `/staff/table/${bag.sessionId}`;
   return (
     <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
       {pulse != null && <span key={pulse} className="floor-card-pulse" aria-hidden />}
@@ -1212,10 +1222,16 @@ function UnpaidBagCard({
       </header>
       <p style={{ margin: 0 }}>
         {/* A badge is a 44px object: no echo inside it (the table page's rule). */}
-        <Badge tone="warn" bordered>
-          <Icon name="receipt" size={14} aria-hidden />
-          <Chrome lang={lang} k="settle.unpaid" />
-        </Badge>
+        {owes ? (
+          <Badge tone="warn" bordered>
+            <Icon name="receipt" size={14} aria-hidden />
+            <Chrome lang={lang} k="settle.unpaid" />
+          </Badge>
+        ) : (
+          <Badge tone="neutral" bordered>
+            <Chrome lang={lang} k="expo.bag.noCharge" />
+          </Badge>
+        )}
       </p>
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
         {bag.lines.map((l) => (
@@ -1237,13 +1253,17 @@ function UnpaidBagCard({
           at CLICK time, so SSR never guesses a width (SplitAwareLink's rule). */}
       <Link
         href={href}
-        className={buttonClass({ variant: "primary", size: "xl", block: true })}
+        className={buttonClass({
+          variant: owes ? "primary" : "secondary",
+          size: "xl",
+          block: true,
+        })}
         aria-label={
           al(lang, {
             kind: "verb",
             echo: "stack",
             shown: echoes,
-            verb: "expo.verb.takePayment",
+            verb: owes ? "expo.verb.takePayment" : "floor.verb.view",
             subject: who,
           }).aria
         }
@@ -1263,19 +1283,23 @@ function UnpaidBagCard({
           )
             return;
           e.preventDefault();
-          router.push(paneUrl(bag.sessionId, { settle: true }));
+          router.push(paneUrl(bag.sessionId, { settle: owes }));
         }}
       >
-        <Chrome lang={lang} k="expo.verb.takePayment" echo="stack" />
+        <Chrome lang={lang} k={owes ? "expo.verb.takePayment" : "floor.verb.view"} echo="stack" />
       </Link>
     </article>
   );
 }
 
-/** Phase 2f — the unpaid badge's words exactly as it draws them (a badge: no echo), for the card's
+/** Phase 2f — the bag badge's words exactly as it draws them (a badge: no echo), for the card's
  *  name. */
-function unpaidBadgeWords(lang: StaffLang, shown: boolean): string {
-  return chromeVisible(lang, "settle.unpaid", false, shown);
+function badgeWords(
+  lang: StaffLang,
+  k: "settle.unpaid" | "expo.bag.noCharge",
+  shown: boolean,
+): string {
+  return chromeVisible(lang, k, false, shown);
 }
 
 function ExpoLineRow({ line }: { line: ExpoLine }) {
