@@ -34,8 +34,8 @@ export default function TableDetailLoading() {
         <div className="staff-bar">
           <Skeleton width={44} height={44} radius={999} />
           <Skeleton width={180} height={30} radius={8} />
+          {/* P2e — the tail is Lock alone: no in-service bar carries the language pill. */}
           <div className="staff-bar-tail">
-            <Skeleton width={152} height={44} radius={999} />
             <Skeleton width={44} height={44} radius={999} />
           </div>
         </div>

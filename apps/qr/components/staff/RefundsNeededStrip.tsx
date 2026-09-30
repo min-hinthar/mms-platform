@@ -6,6 +6,7 @@ import { al, sx } from "@/lib/staff-labels";
 import { ts } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
 import { Chrome } from "./Chrome";
+import { useEchoesShown } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -49,6 +50,10 @@ export function RefundsNeededStrip({
   const [failedId, setFailedId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: the Mark refunded name
+  // composes its echoed label with it, so a Burmese-only device never announces the English word
+  // its button stopped printing.
+  const echoes = useEchoesShown();
   // Which row is marking — `pending` is the strip's one flag (one mark at a time), this names it.
   const [markingId, setMarkingId] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -220,9 +225,10 @@ export function RefundsNeededStrip({
               ) : (
                 /* Every row shows the same two words, so the visible label alone names nothing —
                    the name carries the payment intent, which is what the manager matches against
-                   the processor. `al()` takes the same `echo` this button renders and composes
-                   through `chromeVisible()`, so under `my` the name contains both visible strings
-                   (WCAG 2.5.3); rule 3c compares the two echoes. */
+                   the processor. `al()` takes the same `echo` this button renders, and the
+                   device's `shown`, and composes through `chromeVisible()` — so the name holds
+                   exactly the visible strings, both under Both and the Burmese alone under
+                   Burmese only (WCAG 2.5.3); rule 3c compares the two echoes. */
                 <button
                   id={`refund-mark-${r.id}`}
                   type="button"
@@ -234,6 +240,7 @@ export function RefundsNeededStrip({
                     al(lang, {
                       kind: "verb",
                       echo: "stack",
+                      shown: echoes,
                       verb: "table.appr.verb.markRefunded",
                       subject: r.paymentIntent,
                     }).aria

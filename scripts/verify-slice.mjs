@@ -3828,8 +3828,10 @@ const MUTANTS = [
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
     why: "P2 — an echoed pair that renders only its English half looks correct to the author testing in English and silently un-translates the surface for the reader it was written for",
-    find: '      {my}\n      {echo === "inline" && " · "}',
-    replace: '      {echo === "inline" && " · "}',
+    // P2e — re-anchored on the middot line as it now reads (`echoes &&` gates it on a
+    // Burmese-only device); the mutant still drops the Burmese half of every echoed pair.
+    find: '      {my}\n      {echoes && echo === "inline" && " · "}',
+    replace: '      {echoes && echo === "inline" && " · "}',
   },
   {
     id: "chrome/outage-twin-never-reached",
@@ -3903,7 +3905,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",
     why: "P2 — the `verb` arm's whole contract is that the control's VISIBLE word and the word its name leads with are ONE dictionary lookup. Return the subject as the visible label instead and every call site still compiles, the containment loop still passes (the name contains the subject), and WCAG 2.5.3 breaks at every one of them: the button reads the Burmese verb and announces a person's name",
-    find: '    case "verb": {\n      const visible = chromeVisible(lang, control.verb, control.echo);',
+    // P2e review (A5) — re-anchored: the arm now passes the device's `shown` too; the mutant keeps
+    // its meaning — the visible label is the subject, not the verb key.
+    find: '    case "verb": {\n      const visible = chromeVisible(lang, control.verb, control.echo ?? false, !!control.shown);',
     replace: '    case "verb": {\n      const visible = control.subject;',
   },
   {
@@ -11041,6 +11045,638 @@ const MUTANTS = [
     find: '              : res.code === "unreadable"\n',
     replace: "              : false\n",
   },
+  // ── Phase 2e · lang ──
+  {
+    id: "p2e-lang/mode-default-drops-echoes",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: 'P2e — the default mode is Both, which renders exactly what the legacy "my" rendered; a Burmese-only default would silently strip the English echo from every existing device on deploy',
+    find: 'export const STAFF_LANG_MODE_DEFAULT: StaffLangMode = "both";',
+    replace: 'export const STAFF_LANG_MODE_DEFAULT: StaffLangMode = "my-only";',
+  },
+  {
+    id: "p2e-lang/mode-both-falls-to-fallback",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — an explicitly chosen Both must survive a later change of the default; without its own line it is indistinguishable from an unset cookie",
+    find: '  if (value === "both") return "both";\n',
+    replace: "",
+  },
+  {
+    id: "p2e-lang/mode-legacy-my-reads-burmese-only",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: 'P2e — the legacy "my" cookie is Both, never Burmese-only: reading it as the new mode would drop English from every device that picked Burmese before P2e',
+    find: '  if (value === "my-only") return "my-only";',
+    replace: '  if (value === "my-only" || value === "my") return "my-only";',
+  },
+  {
+    id: "p2e-lang/mode-lax-parse",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: 'P2e — a cookie jar is untrusted input: a trim + case-fold admits " en" and "EN" and flips a device to English',
+    find: '  if (value === "en") return "en";',
+    replace: '  if (value?.trim().toLowerCase() === "en") return "en";',
+  },
+  {
+    id: "p2e-lang/script-of-both-is-english",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: 'P2e — Both is a Burmese mode; its script must be "my", or the default device renders in English',
+    find: '  return mode === "en" ? "en" : "my";',
+    replace: '  return mode === "my-only" ? "my" : "en";',
+  },
+  {
+    id: "p2e-lang/echoes-mode-inert",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — the one new fact: Burmese-only must turn the echoes OFF, or the mode the owner chose does nothing",
+    find: '  return mode !== "my-only";',
+    replace: "  return true;",
+  },
+  {
+    id: "p2e-lang/echoes-off-for-both",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — Both keeps its echoes; turning them off makes the default device Burmese-only",
+    find: '  return mode !== "my-only";',
+    replace: '  return mode === "en";',
+  },
+  {
+    id: "p2e-lang/echoes-off-without-provider",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — no provider (the wall TV's ReadyBoard) keeps every echo: a guest must never lose English",
+    find: '  return mode !== "my-only";',
+    replace: '  return mode !== null && mode !== "my-only";',
+  },
+  {
+    id: "p2e-lang/mode-of-en-reads-both",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — an English script is English whatever the echo flag; without the line the provider hands an English device a Burmese mode",
+    find: '  if (script === "en") return "en";\n',
+    replace: "",
+  },
+  {
+    id: "p2e-lang/mode-of-echoes-ignored",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — the provider's echoes flag must reach the mode, or Burmese-only is unreachable from the layout",
+    find: '  return echoes ? "both" : "my-only";',
+    replace: '  return "both";',
+  },
+  {
+    id: "p2e-lang/script-switch-drops-burmese-only",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — the front door's မြန်မာ on a Burmese-only device keeps it Burmese-only (and a corrected mis-tap returns to it), never demotes it to Both",
+    find: "  if (script === scriptOf(current)) return current;\n",
+    replace: "",
+  },
+  {
+    id: "p2e-lang/script-switch-to-burmese-only",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2e — from English the pill restores the DEFAULT, Both; jumping to Burmese-only drops English the device never chose to drop",
+    find: '  return script === "en" ? "en" : STAFF_LANG_MODE_DEFAULT;',
+    replace: '  return script === "en" ? "en" : "my-only";',
+  },
+  {
+    id: "p2e-lang/next-write-ignores-confirmed",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "§4.2 — the chain writes the latest pick only when the server does not already hold it; returning the intent re-writes a held value and a correction back refreshes twice",
+    find: "  return intent !== null && intent !== confirmed ? intent : null;",
+    replace: "  return intent;",
+  },
+  {
+    id: "p2e-lang/chain-alerts-a-met-wish",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "§4.4 — a failed write the person already corrected back must say nothing: the server holds what they want",
+    find: "    alert: failed && wanted !== confirmed,",
+    replace: "    alert: failed,",
+  },
+  {
+    id: "p2e-lang/chain-skips-refresh-after-partial-write",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "§4.4 — a partial chain (first ok, correction failed) changed the cookie: the page must refresh to what WAS written",
+    find: "    refresh: wrote,",
+    replace: "    refresh: wrote && !failed,",
+  },
+  {
+    id: "p2e-lang/chain-cap-drops-written",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "§4.4 — after a write the cap snaps to the value the server is KNOWN to hold; dropping it shows the stale provider mode until the refresh lands",
+    find: "    cap: wrote ? confirmed : null,",
+    replace: "    cap: null,",
+  },
+  {
+    id: "p2e-lang/burmese-only-keeps-the-echo",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e — Burmese only drops the English echo; keeping it means the mode the owner chose changes nothing on screen",
+    find: '      {echoes && <span className="chrome-en">{en}</span>}',
+    replace: '      <span className="chrome-en">{en}</span>',
+  },
+  {
+    id: "p2e-lang/burmese-only-keeps-the-middot",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: 'P2e — an inline pair under Burmese only must drop its middot with its echo; a trailing " · " is a dangling glyph on every inline label',
+    find: '      {echoes && echo === "inline" && " · "}',
+    replace: '      {echo === "inline" && " · "}',
+  },
+  {
+    id: "p2e-lang/burmese-only-drops-the-pair",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e — Burmese only keeps the .chrome-pair WRAPPER: every Burmese size rule is `.x > .chrome-pair > [lang=my]`, so the bare span loses the bar title's 30px",
+    find: "  if (echo === false) return my;",
+    replace: "  if (echo === false || !echoes) return my;",
+  },
+  {
+    id: "p2e-lang/keep-echo-ignored",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e — keepEcho is the language surfaces' way through Burmese only; ignoring it leaves the way back unreadable to the person the mode is wrong for",
+    // P2e review (A5) — re-anchored: the band check moved into `echoDrawn` (lib/staff-labels.ts),
+    // which Chrome and chromeVisible() share; the mutant still drops keepEcho from Chrome's decision.
+    find: "  const echoes = echoDrawn(k, useEchoesShown() || keepEcho);",
+    replace: "  const echoes = echoDrawn(k, useEchoesShown());",
+  },
+  {
+    id: "p2e-lang/k15-high-echo-dropped",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e — the K15-HIGH band (the strings a wrong word would stop service over) keeps its English on a Burmese-only device: the shared kitchen tablet's cross-check (Dad's line) under Mark sold out, Done and the money words",
+    // P2e review (A5) — re-anchored into `echoDrawn`, the ONE echo decision Chrome now reads (and
+    // chromeVisible() with it); the mutant still drops the band from what Chrome draws.
+    find: "  return shown || STAFF_K15_HIGH.has(key);",
+    replace: "  return shown;",
+  },
+  {
+    id: "p2e-lang/pending-tap-rewrites",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "LEARNINGS #126 — a second tap on the pick already in flight is nothing: no buzz without a visible change, no second intent",
+    find: '    if (inFlight.current && target === intent.current) return "same-pending";\n',
+    replace: "",
+  },
+  {
+    id: "p2e-lang/pending-tap-closes-help",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: 'P2e — a tap on the row whose write is still out must never read as "the mode the server holds": the Help sheet would close and the failure would land out of sight',
+    find: '    if (inFlight.current && target === intent.current) return "same-pending";',
+    replace: '    if (inFlight.current && target === intent.current) return "same-confirmed";',
+  },
+  {
+    id: "p2e-lang/hang-never-ends",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e — a write on a tablet with Wi-Fi but no route must give up at 15 s; unraced, the control stays busy forever with no line",
+    find: "        res = await raceTimeout(call);",
+    replace: "        res = await call;",
+  },
+  {
+    id: "p2e-lang/rejection-escapes",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e — a rejected Server Action (offline, a retired action id after a deploy) is the failure line, never a thrown error",
+    find: '        console.error("[lang] setStaffLang rejected or hung", e);',
+    replace: "        throw e;",
+  },
+  {
+    id: "p2e-lang/failed-chain-refreshes",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e — a chain that changed nothing must not refresh: an offline refresh is a request the tablet cannot make",
+    find: "    if (out.refresh) router.refresh();",
+    replace: "    router.refresh();",
+  },
+  {
+    id: "p2e-lang/pill-writes-a-script",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e — the pill writes a MODE resolved from the confirmed one: a hard-coded Both demotes a Burmese-only device on its own မြန်မာ",
+    find: "  const tap = (script: StaffLang) => write.choose((base) => modeForScript(script, base));",
+    replace: '  const tap = (script: StaffLang) => write.choose(script === "en" ? "en" : "both");',
+  },
+  {
+    id: "p2e-lang/pill-failure-follows-the-device",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e — the failure line speaks BOTH tongues: the person the write failed for may be exactly the one who cannot read the current mode",
+    find: '        <span role="alert" className="staff-bar-msg">\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />',
+    replace:
+      '        <span role="alert" className="staff-bar-msg">\n          <Chrome lang={lang} k="shell.lang.failed" echo="inline" />',
+  },
+  {
+    id: "p2e-lang/profile-second-region",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "QA §A — the Profile's view has ONE region (ViewStatusProvider); the card's failure line is its aria-hidden echo, never a second speaker",
+    find: '          role={announce ? undefined : "alert"}',
+    replace: '          role="alert"',
+  },
+  {
+    id: "p2e-lang/help-sheet-busy-for-a-preference",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "M82 — busy is for an irreversible write; a language write that reverts to confirmed must never trap the kitchen behind a modal for 15 s",
+    find: "        busy={pending}",
+    replace: "        busy={pending || langWrite.busy}",
+  },
+  {
+    id: "p2e-lang/help-closes-before-the-board-changes",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e — the sheet closes when the PROVIDER shows the written mode (the board behind already in the new tongue), not when the chain ends",
+    find: "      if (s.wrote && !s.alert && onRows.current) setAwaiting(s.confirmed);",
+    replace: "      if (s.wrote && !s.alert && onRows.current) setOpen(false);",
+  },
+  {
+    id: "p2e-lang/help-stale-failure",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e — a failure the person saw is answered by the next open or close; kept, it greets the next open and doubles in the bar tail",
+    find: "    if (next || lineShown) langWrite.clearAlert();\n",
+    replace: "",
+  },
+  {
+    id: "p2e-lang/more-drops-language",
+    file: "apps/qr/lib/staff-more.ts",
+    suite: "lib/staff-more.test.ts",
+    why: "P2e — the doors' More ends with the bilingual Language tile: every screen without a Help door reaches the language through it",
+    find: "    : [...three, LANGUAGE_TILE];",
+    replace: "    : three;",
+  },
+  {
+    id: "p2e-lang/more-tile-follows-the-device",
+    file: "apps/qr/components/staff/StaffDoors.tsx",
+    suite: "components/staff/StaffDoors.test.tsx",
+    why: "P2e — the Language tile is both scripts on every device; following the device leaves it unreadable to the person the mode is wrong for",
+    find: "                {t.both ? (",
+    replace: "                {false ? (",
+  },
+  {
+    id: "p2e-lang/help-title-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's TITLE is both tongues on every device: on a Burmese-only tablet its English is the way back for the English reader",
+    find: '          view === "lang" ? (\n            <Chrome lang="my" k="shell.lang.row" echo="stack" keepEcho />',
+    replace:
+      '          view === "lang" ? (\n            <Chrome lang="my" k="shell.lang.row" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-scope-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's scope line keeps its English on a Burmese-only device (the rows' context for whoever the mode is wrong for)",
+    find: '              <Chrome lang="my" k="shell.lang.scope" echo="stack" keepEcho />',
+    replace: '              <Chrome lang="my" k="shell.lang.scope" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-bar-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the bar tail's failure line is both tongues on a Burmese-only device: the write may have failed for the English reader",
+    find: '        <span role={langAlert} className="staff-bar-msg">\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />',
+    replace:
+      '        <span role={langAlert} className="staff-bar-msg">\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" />',
+  },
+  {
+    id: "p2e-lang/help-menu-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the menu view's failure line keeps its English on a Burmese-only device",
+    find: '                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+    replace:
+      '                <Chrome lang="my" k="shell.lang.failed" echo="inline" />\n              </p>\n            )}\n          </div>',
+  },
+  {
+    id: "p2e-lang/help-view-line-drops-english",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Language view's failure line keeps its English on a Burmese-only device",
+    find: '                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n            <p className="staff-lang-note">',
+    replace:
+      '                <Chrome lang="my" k="shell.lang.failed" echo="inline" />\n              </p>\n            )}\n            <p className="staff-lang-note">',
+  },
+  {
+    id: "p2e-lang/profile-line-drops-english",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — the Profile card's failure line keeps its English on a Burmese-only device (the card is where a person comes when the mode is wrong for them)",
+    find: '          aria-hidden={announce ? true : undefined}\n        >\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />',
+    replace:
+      '          aria-hidden={announce ? true : undefined}\n        >\n          <Chrome lang="my" k="shell.lang.failed" echo="inline" />',
+  },
+  {
+    id: "p2e-lang/help-sample-follows-the-device",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — the Text size preview is a dish name, and a dish name never changes with the device (TicketText): through the chrome it lost Dad's line under Burmese only",
+    find: "                    <TicketDishTitle line={SIZE_SAMPLE} />",
+    replace: '                    <Chrome lang={lang} k="help.size.sample" echo="stack" />',
+  },
+  {
+    id: "p2e-lang/help-stale-refresh-closes",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — a new write outdates the wait for the last one: the earlier write's refresh landing mid-write must not close the sheet on a mode the person left",
+    find: '      if (tap === "wrote") setAwaiting(null);\n',
+    replace: "",
+  },
+  {
+    id: "p2e-lang/pick-drops-mid-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — a provider change landing mid-write (the earlier write's refresh) must not move the cap off the pick in flight",
+    find: "    if (!busy) setPick(null);",
+    replace: "    setPick(null);",
+  },
+  {
+    id: "p2e-lang/confirmed-stale-mid-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — mid-chain, confirmed is what THIS chain's writes returned; adopting a stale refresh then reverts the cap to a mode the server no longer holds",
+    find: "    if (!inFlight.current) confirmed.current = mode;",
+    replace: "    confirmed.current = mode;",
+  },
+  {
+    id: "p2e-lang/unwritten-chain-ignores-provider",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review — a chain that wrote nothing must judge its failure against the provider's latest word: the server may already hold the wish (another tab)",
+    find: "    if (!wrote && !learned) confirmed.current = provider.current;\n",
+    replace: "",
+  },
+  {
+    id: "p2e-lang/help-view-line-through-exit",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the sheet's content stays mounted through the exit slide (M76), so an unguarded in-sheet line doubles the bar tail's",
+    find: "            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />\n            {open && langWrite.alert && (",
+    replace:
+      "            <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />\n            {langWrite.alert && (",
+  },
+  {
+    id: "p2e-lang/help-menu-line-through-exit",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the menu view's line must not survive into the exit slide beside the bar tail's",
+    find: '            {open && langWrite.alert && (\n              <p role={langAlert} className="staff-lang-msg">\n                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+    replace:
+      '            {langWrite.alert && (\n              <p role={langAlert} className="staff-lang-msg">\n                <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />\n              </p>\n            )}\n          </div>',
+  },
+  {
+    id: "p2e-lang/help-bar-line-while-open",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — ONE failure line: the bar tail's line only while the sheet is closed (Radix hides it from getByRole, never from the eye)",
+    find: "      {!open && langWrite.alert && (",
+    replace: "      {langWrite.alert && (",
+  },
+  {
+    id: "p2e-lang/help-close-clears-unseen",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review — a failure that landed on How / Text size / Report was never shown; a close that clears it loses it unsaid",
+    find: '    const lineShown = open && (view === "menu" || view === "lang");',
+    replace: "    const lineShown = true;",
+  },
+  // ── Phase 2e · review fixes · chain ──
+  {
+    id: "p2e-rev/late-landing-ignored",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — a write the 15 s timeout gave up on is not cancelled and re-renders the page when it lands; unanswered, the device ends on a mode the person corrected away from, or beside a failure line that is no longer true",
+    find: "        call.then(\n          (late) => settleLate(late, id),\n          () => {},\n        );",
+    replace: "        call.catch(() => {});",
+  },
+  {
+    id: "p2e-rev/late-landing-keeps-stale-line",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — a late write that carried the person's pick makes \"Couldn't save that\" false; kept, the line sits beside a console that already changed",
+    find: '    // It carried the latest pick after all: "Couldn\'t save that" is no longer true.\n    setAlert(false);\n',
+    replace:
+      '    // It carried the latest pick after all: "Couldn\'t save that" is no longer true.\n',
+  },
+  {
+    id: "p2e-rev/late-landing-no-correction",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — the auditor's case: English corrected to Both, English lands after 15 s; without the corrective write the console turns English silently",
+    find: "      setPick(intent.current);\n      void drain(true);\n      return;",
+    replace: "      return;",
+  },
+  {
+    id: "p2e-rev/late-landing-cap-leaves-the-pick",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — while the correction is out the cap shows the person's pick (§4.1), not the mode the late write's own re-render just painted",
+    find: "      setPick(intent.current);\n      void drain(true);",
+    replace: "      void drain(true);",
+  },
+  {
+    id: "p2e-rev/late-landing-superseded-decides",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — Next sends a later write after the abandoned one, so the later one decides; a stale landing that reconciles anyway writes over a newer pick (and, across hosts, over another control's)",
+    find: "    if (!late.ok || id !== lastWrite) return;",
+    replace: "    if (!late.ok) return;",
+  },
+  {
+    id: "p2e-rev/late-refusal-adopted",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — a late REFUSAL changed nothing on the server; treating it as a landing invents a mode and writes again",
+    find: "    if (!late.ok || id !== lastWrite) return;",
+    replace: "    if (id !== lastWrite) return;",
+  },
+  {
+    id: "p2e-rev/correction-judged-by-stale-provider",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — the correction starts from the mode the late write KNOWN-landed; judged by the provider's not-yet-caught-up word, a refused correction says nothing while the device sits on the mode the person left",
+    find: "    if (!wrote && !learned) confirmed.current = provider.current;",
+    replace: "    if (!wrote) confirmed.current = provider.current;",
+  },
+  {
+    id: "p2e-rev/accepted-mode-not-a-pick",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — after the line, a tap on the mode the device holds is the person's latest pick; forgotten, the abandoned English lands and is adopted over it",
+    find: '      intent.current = target;\n      setAlert(false);\n      return "same-confirmed";',
+    replace: '      setAlert(false);\n      return "same-confirmed";',
+  },
+  {
+    id: "p2e-rev/pill-base-moves-mid-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review C2 — resolved against a confirmed value that moves mid-chain, a THIRD tap on မြန်မာ turns Burmese-only into Both",
+    find: '      typeof next === "function" ? next(inFlight.current ? base.current : confirmed.current) : next;',
+    replace: '      typeof next === "function" ? next(confirmed.current) : next;',
+  },
+  {
+    id: "p2e-rev/pill-base-from-an-older-chain",
+    file: "apps/qr/components/staff/useLangModeWrite.ts",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review C2 — the base is the mode confirmed when THIS chain began; a base left from mount (or an older chain) restores a Burmese-only the device no longer holds",
+    find: "      base.current = confirmed.current;\n",
+    replace: "",
+  },
+  {
+    id: "p2e-rev/profile-region-keeps-late-failure",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review C1 — a late landing that clears the Profile's line must clear the view's region too: a reader must not find a failure the device has outlived",
+    find: "      else if (s.wrote) announce?.(null);\n",
+    replace: "",
+  },
+  {
+    id: "p2e-rev/help-closes-off-the-rows",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review C3 — the provider-driven close belongs to the Language rows alone; kept armed, it closes the sheet under How or a report being sent, and the report's outcome is lost",
+    find: '  if (awaiting !== null && view !== "lang") setAwaiting(null);\n  else if (awaiting !== null && mode === awaiting) {',
+    replace: "  if (awaiting !== null && mode === awaiting) {",
+  },
+  {
+    id: "p2e-rev/help-failure-reannounced",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review A4 — one failure, one announcement: every menu ↔ Language flip mounted a new role=alert for the same failure, over the focus the view moves",
+    find: '  const langAlert = langSaid ? undefined : "alert";',
+    replace: '  const langAlert = "alert";',
+  },
+  {
+    id: "p2e-rev/help-failure-said-only-from-lang",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review A4 — the menu draws the failure line too; a failure said there must not be said again on the Language view",
+    find: '    if (langWrite.alert && (drawnView === "menu" || drawnView === "lang")) setLangSaid(true);',
+    replace: '    if (langWrite.alert && drawnView === "lang") setLangSaid(true);',
+  },
+  {
+    id: "p2e-rev/help-new-failure-unsaid",
+    file: "apps/qr/components/staff/HelpButton.tsx",
+    suite: "components/staff/HelpButton.test.tsx",
+    why: "P2e review A4 — a NEW failure is news: the latch must clear with the line, or the next write's failure is never announced",
+    find: "  if (!langWrite.alert && langSaid) setLangSaid(false);",
+    replace: "",
+  },
+  // ── Phase 2e · review fixes · surface ──
+  {
+    id: "p2e-rev/profile-failure-announced-in-one-tongue",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A3) — the Profile's region stands in for an aria-hidden line that shows BOTH tongues; announcing the key in the device's tongue says the failure in one language, possibly the one the person cannot read",
+    find: '      if (s.alert) announce?.({ k: "shell.lang.failed", both: true });',
+    replace: '      if (s.alert) announce?.({ k: "shell.lang.failed" });',
+  },
+  {
+    id: "p2e-rev/msg-both-follows-the-device",
+    file: "apps/qr/components/staff/StaffMsg.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A3) — the region's `both` shape renders the key in both tongues, Burmese marked then English; following the device undoes the bilingual announcement at the one renderer every region shares",
+    find: '  if ("both" in msg)\n    return (\n      <>\n        <Chrome lang="my" k={msg.k} />\n        {" · "}\n        <Chrome lang="en" k={msg.k} />\n      </>\n    );\n',
+    replace: '  if ("both" in msg) return <Chrome lang={lang} k={msg.k} />;\n',
+  },
+  {
+    id: "p2e-rev/note-claims-every-dish-name",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2e review (P1) — the Language note may claim only what never changes with the mode: dish names on KITCHEN TICKETS. \"Dish names and kitchen tickets\" is false — the order pad, the mod sheet and the KDS's own messages name a dish in the device's tongue",
+    find: '    en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",',
+    replace:
+      '    en: "Dish names and kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",',
+  },
+  {
+    id: "p2e-rev/ticket-dish-follows-the-device",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2e review (P1) — the note promises the kitchen ticket's dish text never changes with the mode (Burmese over English, every device); a ticket that drops the Burmese on an English device makes the note false with the rest of the board green",
+    find: "            <TicketLineText line={line} />\n",
+    replace:
+      '            <TicketLineText line={lang === "my" ? line : { ...line, nameMy: null }} />\n',
+  },
+  {
+    id: "p2e-rev/pill-pressed-ring-is-the-fill",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review (A1) — the pill's ring is drawn INSIDE the segment, so on the pressed segment it sits on the lit cap's --ac fill; ringing it in --ac is a 1:1, invisible focus on the segment focus lands on after every tap",
+    find: '.staff-lang-btn[aria-pressed="true"]:focus-visible {\n  outline-color: var(--oa);\n}\n',
+    replace:
+      '.staff-lang-btn[aria-pressed="true"]:focus-visible {\n  outline-color: var(--ac);\n}\n',
+  },
+  {
+    id: "p2e-rev/pill-busy-dims-the-label",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review (A2) — busy is not disabled: the pending segment is still live, so its label keeps full ink (the dim measured 2.84:1 in light) and the cue is a stripe under it",
+    find: '.staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {\n  background-image: repeating-linear-gradient(\n    135deg,\n    transparent 0 var(--s1),\n    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)\n  );\n}\n',
+    replace:
+      '.staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {\n  opacity: 0.7;\n}\n',
+  },
+  {
+    id: "p2e-rev/rows-busy-dims-the-label",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A2) — the pending ROW is still live too: its autonym and description keep full ink, and the cue is the pill's stripe, never a dim",
+    find: '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  background-image: repeating-linear-gradient(\n    135deg,\n    transparent 0 var(--s1),\n    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)\n  );\n}\n',
+    replace:
+      '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  opacity: 0.7;\n}\n',
+  },
+  // ── Phase 2e · review fixes · guards ──
+  {
+    id: "p2e-rev/name-ignores-the-device",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e review (A5) — the derivation every accessible name composes through must drop the English echo exactly where <Chrome> does; ignore the device and a Burmese-only name holds an English word the screen stopped showing, splitting the visible label into pieces (WCAG 2.5.3 contiguity)",
+    find: "  if (echo === false || !echoDrawn(key, shown)) return my;",
+    replace: "  if (echo === false) return my;",
+  },
+  {
+    id: "p2e-rev/verb-name-ignores-the-device",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e review (A5) — al()'s verb arm must hand the call site's `shown` through; hard-wire it and every Approve / Deny / Mark refunded name on a Burmese-only device announces the English its button no longer prints",
+    find: "      const visible = chromeVisible(lang, control.verb, control.echo ?? false, !!control.shown);",
+    replace:
+      "      const visible = chromeVisible(lang, control.verb, control.echo ?? false, true);",
+  },
+  {
+    id: "p2e-rev/counter-card-name-ignores-the-device",
+    file: "apps/qr/components/staff/CounterOrderCard.tsx",
+    suite: "components/staff/CounterOrderCard.test.tsx",
+    why: 'P2e review (A5) — the counter card\'s composite name read with echoes always on spliced "Walk-up" and "2 items · …" between Burmese runs a Burmese-only card no longer shows; the card\'s text must be ONE contiguous run of its name in every mode',
+    find: "  const shown = useEchoesShown();",
+    replace: "  const shown = true;",
+  },
+  {
+    id: "p2e-rev/counter-card-meta-ignores-the-device",
+    file: "apps/qr/components/staff/CounterOrderCard.tsx",
+    suite: "components/staff/CounterOrderCard.test.tsx",
+    why: 'P2e review (A5) — every echoed piece of the composite name follows the device, not only the first: the line meta hard-wired to echoes-on leaves "2 items · $12.00 + tax" in a Burmese-only name after the Burmese meta the card shows',
+    find: '    "inline",\n    shown,\n    { n: r.itemCount, m: fmt(r.subtotalCents) },',
+    replace: '    "inline",\n    true,\n    { n: r.itemCount, m: fmt(r.subtotalCents) },',
+  },
+  {
+    id: "p2e-rev/refund-mark-name-ignores-the-device",
+    file: "apps/qr/components/staff/RefundsNeededStrip.tsx",
+    suite: "components/staff/RefundsNeededStrip.test.tsx",
+    why: "P2e review (A5) — Mark refunded's name composes its echoed label with the device's state; hard-wired, a Burmese-only strip announces \"Mark refunded\" beside a button that prints only the Burmese",
+    find: '                      shown: echoes,\n                      verb: "table.appr.verb.markRefunded",',
+    replace:
+      '                      shown: true,\n                      verb: "table.appr.verb.markRefunded",',
+  },
   // ── Phase 2d · Codex round 1 · mint ──
   {
     id: "p2d-cx1/mint-compares-the-id-alone",
@@ -11660,8 +12296,25 @@ const unparseable = [];
  *
  * `typescript` is already a dependency and its parser reports syntactic diagnostics without a
  * program or a typecheck, so this costs milliseconds per mutant.
+ *
+ * Phase 2e review — a STYLESHEET joins the mutate set (`apps/qr/app/globals.css`: the rules the
+ * language control's suites pin — its pressed ring, its in-flight stripe). `typescript` cannot parse
+ * CSS, so without this branch every stylesheet mutant read UNPARSEABLE and could never be scored. The
+ * same hazard exists in CSS — an unclosed block swallows the rules after it, and a suite that reads
+ * the sheet then goes red for a reason unrelated to its rule — so a `.css` mutant must parse too:
+ * prettier (a root devDependency) carries PostCSS's parser, which throws a CssSyntaxError on an
+ * unclosed block or a stray brace. Seconds on the 13k-line sheet, and only for a `.css` target.
  */
-const parses = (rel, code) => {
+const parses = async (rel, code) => {
+  if (rel.endsWith(".css")) {
+    const { format } = await import("prettier");
+    try {
+      await format(code, { parser: "css" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const kind = rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sf = ts.createSourceFile(rel, code, ts.ScriptTarget.Latest, true, kind);
   return sf.parseDiagnostics.length === 0;
@@ -11681,7 +12334,7 @@ try {
       continue;
     }
     const mutated = src.replace(m.find, m.replace);
-    if (!parses(m.file, mutated)) {
+    if (!(await parses(m.file, mutated))) {
       // Not a pass and not a failure of the CODE — a failure of the MUTATION. See `parses` above.
       unparseable.push(m);
       console.log(

@@ -6,7 +6,7 @@ import type { KdsMsg } from "@/lib/kds-errors";
 import type { KdsSize } from "@/lib/kds-size";
 import { canEightySix } from "@/lib/kds-line";
 import { al } from "@/lib/staff-labels";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { MsgText } from "./StaffMsg";
 import { sheetCloseLabel } from "./SheetCloseLabel";
@@ -60,6 +60,9 @@ export function KdsLineMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [openedAt] = useState(() => performance.now());
   const hintId = `kds-menu-hint-${line.id}`;
   const offer = canEightySix(line);
@@ -112,8 +115,13 @@ export function KdsLineMenu({
             disabled={!open || blocked}
             aria-describedby={hintId}
             aria-label={
-              al(lang, { kind: "eighty6", echo: "stack", name: line.name, nameMy: line.nameMy })
-                .aria
+              al(lang, {
+                kind: "eighty6",
+                echo: "stack",
+                shown: echoes,
+                name: line.name,
+                nameMy: line.nameMy,
+              }).aria
             }
             onClick={() => {
               // Refused with no visual (the Stepper's precedent): an exiting sheet, or the second

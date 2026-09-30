@@ -43,7 +43,7 @@ import type {
 } from "@/lib/kitchen-types";
 import Link from "next/link";
 import { EmptyState, Icon, removeHeld, useSheetSubject } from "@mms/ui";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
 import { KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
@@ -793,9 +793,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       {/* P7·1b — the ONE staff bar: the Screens circle (on a kitchen tablet `/staff` is not a floor
           but the doors, and `?doors=1` wins over the remembered door, so the board can always be
           left), the title as the board's h1 (focus lands here after a bump/recall), the station
-          filter as a segmented control in the middle, and the Help door (P7·3 — the text size lives
-          inside it) before the switch. In
-          Night the bar is glass the tickets scroll under. */}
+          filter as a segmented control in the middle, and the Help door (P7·3 — the text size and,
+          since P2e, the language live inside it) before Lock. In Night the bar is glass the
+          tickets scroll under. */}
       <StaffBar
         lang={lang}
         title="kds.title"
@@ -1005,8 +1005,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               )}
             </nav>
           )}
-          {/* P2/1b — the language control is in the staff bar above (rule 4 reaches it through
-              `StaffBar`); the bar is sticky and 68px, and P4 measures the board under it. */}
+          {/* P2e — the language control is the Help sheet's Language row (rule 4 reaches it through
+              `HelpButton`); the bar is sticky and 68px, and P4 measures the board under it. */}
         </div>
       </div>
 
@@ -1286,6 +1286,9 @@ function TicketCard({
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [pending, startTransition] = useTransition();
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
@@ -1414,7 +1417,13 @@ function TicketCard({
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           aria-label={
-            al(lang, { kind: "bump", echo: "stack", id: id.main, items: ticket.lines.length }).aria
+            al(lang, {
+              kind: "bump",
+              echo: "stack",
+              shown: echoes,
+              id: id.main,
+              items: ticket.lines.length,
+            }).aria
           }
         >
           <Chrome lang={lang} k="kds.bump" echo="stack" />

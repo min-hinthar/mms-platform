@@ -5,6 +5,7 @@ import { OutageState } from "@mms/ui";
 import { bumpErrorCount, tryChunkReload } from "@/lib/error-recovery";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { useStaffLang } from "@/components/staff/StaffLangProvider";
 
 /**
@@ -30,6 +31,8 @@ import { useStaffLang } from "@/components/staff/StaffLangProvider";
  * signin-5 — it wears the BAR, the shell's way: a takeover replaces the page it caught, bar and
  * all, and this is exactly the screen where a person who cannot read English needs the switch most
  * — so the switch is where it always is, in the tail, under the same static mark the shell uses.
+ * P2e — the pill rides the bar's TRAILING slot: this is one of the four front doors that still
+ * carries it (no in-service bar does).
  * The bar is plain JSX (no data need), so nothing here depends on the thing that failed. The bar's
  * h1 is the page's; the card's heading is an h2 and still takes focus on mount.
  *
@@ -57,7 +60,12 @@ export default function StaffError({
 
   return (
     <main className="staff-main">
-      <StaffBar lang={lang} title="out.err.title" leading={{ kind: "here", icon: "alert" }} />
+      <StaffBar
+        lang={lang}
+        title="out.err.title"
+        leading={{ kind: "here", icon: "alert" }}
+        trailing={<StaffLangSwitch />}
+      />
       <div className="staff-col entry-col">
         <OutageState
           focusOnMount

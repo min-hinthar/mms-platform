@@ -78,8 +78,10 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  *            tablet opens on her board with nothing to tap. Never on an in-app tap, so a tablet can
  *            always reach the doors (`isColdStart` reads the referer).
  *
- * The staff bar (P7·1b) is the header in every branch — the switch and Lock ride in it, Sign out
- * lives on the profile page — and `check-staff-lang.mjs` rule 4 reaches the switch through the bar.
+ * The staff bar (P7·1b) is the header in every branch — Help and Lock ride in it, Sign out lives on
+ * the profile page. P2e — the language is not a bar control any more: the counter reaches it through
+ * its Help sheet's Language row (`check-staff-lang.mjs` rule 4 reaches the rows through
+ * `HelpButton`), and the doors through the bilingual Language tile last in More.
  * The two live boards keep their own subscriptions and 5s backstops for this slice (two pollers on
  * one screen is measured, not assumed, before a unified poll is built — `docs/A4_PLAN.md`).
  */

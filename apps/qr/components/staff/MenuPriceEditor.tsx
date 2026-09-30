@@ -15,7 +15,7 @@ import { setItemSoldOut } from "@/lib/menu-availability";
 import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
 import { browseRows } from "@/lib/menu-browse";
 import { soldOutSinceParts } from "@/lib/sold-out-since";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
 import { al, sx } from "@/lib/staff-labels";
 import { localizeCount } from "@/lib/i18n/fill";
@@ -118,6 +118,9 @@ export function MenuPriceEditor({
 }) {
   // P2 — the device language, from app/staff/layout.tsx (one cookie read, one provider).
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [soldOutOnly, setSoldOutOnly] = useState(false);
@@ -509,12 +512,14 @@ export function MenuPriceEditor({
                         ? al(lang, {
                             kind: "verb",
                             echo: "inline",
+                            shown: echoes,
                             verb: "browse.price.verb.putBack",
                             subject: i.nameEn,
                           }).aria
                         : al(lang, {
                             kind: "verb",
                             echo: "inline",
+                            shown: echoes,
                             verb: "browse.price.verb.eightySix",
                             subject: i.nameEn,
                           }).aria
@@ -542,6 +547,7 @@ export function MenuPriceEditor({
                         al(lang, {
                           kind: "verb",
                           echo: "inline",
+                          shown: echoes,
                           verb: "browse.price.verb.edit",
                           subject: i.nameEn,
                         }).aria
@@ -560,6 +566,7 @@ export function MenuPriceEditor({
                     al(lang, {
                       kind: "verb",
                       echo: "stack",
+                      shown: echoes,
                       verb: "browse.price.verb.confirm",
                       subject: current.nameEn,
                     }).aria

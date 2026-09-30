@@ -26,8 +26,8 @@ import { Badge } from "@mms/ui";
  * bury the one ask that needs someone. The word ("Refunded") carries the difference from "Seated".
  *
  * `echo={false}` — a chip is a 44px object and two scripts cannot legibly stack inside one. The
- * English is not lost: the card's accessible name contains this same state, and the console's
- * language control is one tap away.
+ * English is not lost: the card's accessible name contains this same state, and the counter's Help
+ * sheet has the Language row (P2e), two taps away.
  */
 export const CHIP_TONE: Record<FloorTone, { fg: string; bg: string }> = {
   rest: { fg: "var(--t2)", bg: "var(--cd)" },

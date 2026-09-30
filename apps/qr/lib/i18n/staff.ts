@@ -37,7 +37,11 @@ export const STAFF = {
   // The autonyms မြန်မာ / English are component constants, NOT keys: a native-check pass must never
   // be able to "correct" one into the other language, which is the single edit that would make the
   // control unusable for the person who cannot read the other label.
-  "shell.lang.group": { en: "Console language", my: "စက်၏ ဘာသာစကား" },
+  // P2e — the EN now says what the MY always said ("the device's language"): the setting belongs to
+  // the device, not the person. The MY is unchanged, so no K15 row. `shell.lang.failed` renders in
+  // BOTH tongues whatever the device (`keepEcho`), and so do `shell.lang.row`/`.scope` (the
+  // Phase 2e · lang block at the end of this object).
+  "shell.lang.group": { en: "This device’s language", my: "စက်၏ ဘာသာစကား" },
   "shell.lang.failed": { en: "Couldn’t save that — tap again.", my: "မသိမ်းနိုင်ပါ — ထပ်နှိပ်ပါ။" },
   // P7 — the way back to the DOORS from any staff screen: the staff bar's leading circle (1b), its
   // sr-only name; and the doors' own title. A 44px control: no echo.
@@ -2065,9 +2069,11 @@ export const STAFF = {
     en: "Kept in English on purpose — don’t translate",
     my: "အင်္ဂလိပ်လို တမင် ထားတာ — မဘာသာပြန်ပါနဲ့",
   },
+  // P2e — reworded: the autonyms are on the two-button pill AND the three language rows now, so
+  // "the two language buttons" stopped being the whole of it. Claude-authored draft pending K15.
   "pilot.gloss.autonyms": {
-    en: "The two language buttons are not on this sheet, and must not be. Each one names its own language, so correcting either into the other leaves whoever cannot read that language with no way back.",
-    my: "ဘာသာစကား ခလုတ်နှစ်ခုကို ဒီစာရွက်မှာ မထည့်ထားပါ၊ မထည့်သင့်ပါ။ တစ်ခုစီက သူ့ဘာသာစကားကို သူ့ဘာသာနဲ့ ခေါ်တာဖြစ်လို့ တစ်ခုကို တစ်ခုအဖြစ် ပြင်လိုက်ရင် အဲဒီဘာသာစကား မဖတ်တတ်သူ ပြန်ပြောင်းလို့ မရတော့ပါ။",
+    en: "The language names on the language control are not on this sheet, and must not be. Each one names its own language, so correcting one into the other leaves whoever cannot read that language with no way back.",
+    my: "ဘာသာစကား ခလုတ်ပေါ်က ဘာသာစကား အမည်တွေကို ဒီစာရွက်မှာ မထည့်ထားပါ၊ မထည့်သင့်ပါ။ တစ်ခုစီက သူ့ဘာသာစကားကို သူ့ဘာသာနဲ့ ခေါ်တာဖြစ်လို့ တစ်ခုကို တစ်ခုအဖြစ် ပြင်လိုက်ရင် အဲဒီဘာသာစကား မဖတ်တတ်သူ ပြန်ပြောင်းလို့ မရတော့ပါ။",
   },
   "pilot.gloss.count": {
     en: "{n} to check · {total} in all",
@@ -3304,6 +3310,52 @@ export const STAFF = {
   // The pane's head once a read has settled with no name to give (a link to a session that no
   // longer exists, a first read that failed): neutral — never the loading skeleton. (K15 draft.)
   "floor.pane.head.unnamed": { en: "Table", my: "စားပွဲ" },
+  // ── Phase 2e · lang ──
+  // The language as a three-way device setting (owner decision 2, 2026-09-24): the Help sheet's
+  // Language row, the doors' More tile, the Profile's language card. Every MY value below is a
+  // Claude-authored draft pending Min's native check (K15); a wrong word in none of them stops
+  // service (none gates food or money), so none carries the first-band marker. `.row` and `.scope` render in BOTH tongues on every device
+  // (`keepEcho`) — the way back must be readable by whoever the current mode is wrong for; the
+  // three mode lines and the note follow the device.
+  // grounded: ဘာသာစကား is the word inside shell.lang.group (စက်၏ ဘာသာစကား).
+  "shell.lang.row": { en: "Language", my: "ဘာသာစကား" },
+  // Says "device" deliberately — staff think in devices (the real boundary, the browser's cookie
+  // jar, is recorded in lib/staff-lang.ts and DESIGN-LANGUAGE §17).
+  "shell.lang.scope": {
+    en: "Only this device changes — every tablet and phone keeps its own.",
+    my: "ဒီစက်ပဲ ပြောင်းပါမယ် — တက်ဘလက်နဲ့ ဖုန်း တစ်ခုစီက ကိုယ့်ဟာကိုယ် ထားပါတယ်။",
+  },
+  // The band that keeps its English on a Burmese-only device is STAFF_K15_HIGH, whose definition is
+  // "the strings a wrong word takes SERVICE down over" — the logins, the lock-outs, the outage and
+  // connection lines, the report's outcome, the late and held tickets and the money words, not only
+  // food and money. The language surfaces keep English too (keepEcho), and the note below says what
+  // never changes — so this line says where English STAYS and never claims "only" there. K15 draft,
+  // reworded in review; grounded: စာလုံးမှားရင် အလုပ် ရပ်သွား is the band's own phrase
+  // (pilot.gloss.band.high.why, "A wrong word here stops service").
+  "shell.lang.mode.myOnly": {
+    en: "Burmese only — English stays where a wrong word would stop service",
+    my: "မြန်မာလို သီးသန့် — စာလုံးမှားရင် အလုပ် ရပ်သွားနိုင်တဲ့ နေရာတွေမှာ အင်္ဂလိပ် ကျန်ပါမယ်",
+  },
+  // "on", not "under": an inline echo sits BESIDE its word.
+  "shell.lang.mode.both": {
+    en: "Burmese, with English on the important words",
+    my: "မြန်မာ — အရေးကြီးတဲ့ စာလုံးတွေမှာ အင်္ဂလိပ် ပါ",
+  },
+  "shell.lang.mode.en": { en: "English only", my: "အင်္ဂလိပ်လို သီးသန့်" },
+  // What the setting does NOT change, said plainly — and ONLY what is true in all three modes (review,
+  // P1). The first draft said "Dish names and kitchen tickets never change": false, since the order
+  // pad, the mod sheet and the KDS's own messages name a dish in the device's tongue. What never
+  // changes is the dish text ON the kitchen ticket (TicketText — pinned beside the render in
+  // KdsBoard.test). The second sentence is the P2m/K25 remainder, worded so it is true on an English
+  // device too ("still has English words" implied the rest was not English). K15 draft; grounded:
+  // မီးဖိုချောင် အော်ဒါစာရွက် is the kitchen ticket in table.detail.handoff.callout and
+  // pilot.gloss.scope; ဟင်းနာမည် and စခရင် တချို့ are this note's own first draft; မြန်မာလို is
+  // shell.lang.mode.myOnly's; အပြည့် is floor.settled.status.paid's ("in full"); မရသေးပါ ("not yet")
+  // is the outage lines'.
+  "shell.lang.note": {
+    en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",
+    my: "မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်က ဟင်းနာမည်တွေကတော့ မပြောင်းပါ။ စခရင် တချို့မှာ မြန်မာလို အပြည့် မရသေးပါ။",
+  },
   // ── Phase 2d · Codex round 1 · pane ──
   // A card tap, ✕, Escape or Back while the reader is taking a card on the table shown: the pane
   // stays (its poll keeps the payment's hold and records a counter order's #CODE), and says why in
@@ -3401,6 +3453,10 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
  * satisfy it) for every entry carrying a trailing `K15-HIGH` marker and asserts the two sets are
  * EQUAL — both directions. A key marked in a comment but missing here is a string Mom is never asked
  * about; a key listed here with no marker is a claim about severity with nothing behind it.
+ *
+ * P2e — `<Chrome>` also KEEPS this band's English echo on a Burmese-only device (the shared kitchen
+ * tablet's cross-check), so adding a marker now also keeps an English line on screen. A severity
+ * edit is a display edit too; make it knowing that.
  */
 export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.unsentUnreadable",

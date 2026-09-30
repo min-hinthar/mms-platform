@@ -7275,14 +7275,139 @@ a .chrome-en {
   letter-spacing: normal;
 }
 /* Pressed: the ONE lit cap, declared once beside `.kds-chip[aria-pressed="true"]` — see there. */
-/* Never `:disabled` — see StaffLangSwitch's docblock: a disabled button drops focus. */
-.staff-lang-btn[aria-disabled="true"] {
-  cursor: default;
+/* ── Phase 2e · lang ── In flight: the GROUP is busy and the pending cap wears a STRIPE — never
+   `:disabled`, never `aria-disabled` (StaffLangSwitch's docblock: a disabled button drops focus, and
+   the control never refuses a tap — the latest pick wins). Review (A2): the first cut DIMMED the cap
+   (`opacity: 0.7`, the busy door's dim), label and all — light 2.84:1 on a control that is still
+   live. Busy is not disabled (the primitive Button's rule: the busy control keeps its full ink), so
+   the label keeps its ink and the cue is painted UNDER it: fine diagonal bands of the page ink over
+   the fill, which move the fill AWAY from the cap's on-accent ink in both themes (darker under
+   light's cream label, lighter under Night's dark one) — so the stripe can only RAISE the label's
+   contrast. composite-contrast.test.ts (packages/ui) computes both from this rule. Static — no
+   motion, so this joins no reduced-motion list. */
+.staff-lang[aria-busy="true"] {
+  cursor: progress;
 }
-.staff-lang-err {
-  margin-left: 8px;
+.staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 var(--s1),
+    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)
+  );
+}
+/* The pill's `overflow: hidden` clips the global +2px ring (xcut-2), so the ring is drawn INSIDE
+   each segment, pill-shaped and concentric with the track. */
+.staff-lang-btn:focus-visible {
+  outline-offset: -3px;
+  border-radius: var(--r-full);
+}
+/* Review (A1) — drawn inside, the ring on the PRESSED segment sits on the lit cap's fill, and the
+   global ring IS that fill (--ac): 1:1, an invisible focus on the segment focus lands on after every
+   tap (and the first Tab stop in the default Both). Over the fill the ring takes the cap's own
+   on-accent ink, as the label does; the unpressed segments keep the global ring on the track. Both
+   are ≥3:1 in both themes (composite-contrast.test.ts). */
+.staff-lang-btn[aria-pressed="true"]:focus-visible {
+  outline-color: var(--oa);
+}
+
+/* ── Phase 2e · lang ── the three language ROWS (the Help sheet's Language view, the Profile's card):
+   Burmese only · Both · English. A row is the autonym sample over the mode's plain description, a
+   tick at the end on the pressed row so the state is never colour alone. The pressed row joins the
+   ONE lit cap (the shared list beside `.kds-chip[aria-pressed="true"]`) and declares no fill of its
+   own; its description takes the cap's ink (`--t2` on `--ac` fails AA). The press is the kit's
+   `.staff-press` (RM-escorted there); the cap, the in-flight stripe and the tick change instantly. */
+.staff-lang-rows {
+  display: grid;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+}
+.staff-lang-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--s3);
+  row-gap: var(--s1);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.staff-lang-sample {
+  grid-column: 1;
+  min-width: 0;
+}
+.staff-lang-auto {
+  display: block;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+.staff-lang-auto[lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  letter-spacing: normal;
+  line-height: var(--lh-my);
+}
+.staff-lang-auto-en {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.staff-lang-desc {
+  grid-column: 1;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--t2);
+}
+.staff-lang-desc > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-body);
+}
+.staff-lang-desc > .chrome-pair > .chrome-en {
+  font-size: var(--fs-xs);
+}
+.staff-lang-tick {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  visibility: hidden;
+}
+.staff-lang-row[aria-pressed="true"] .staff-lang-tick {
+  visibility: visible;
+}
+.staff-lang-row[aria-pressed="true"] .staff-lang-desc {
+  color: inherit;
+}
+.staff-lang-rows[aria-busy="true"] {
+  cursor: progress;
+}
+/* In flight: the pill's stripe, never a dim (review, A2 — see `.staff-lang[aria-busy]` above). */
+.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 var(--s1),
+    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)
+  );
+}
+/* The failure line — both tongues, the warn ink for its English half too. */
+.staff-lang-msg {
+  margin: var(--s2) 0 0;
   font-size: var(--fs-sm);
   color: var(--warn);
+}
+.staff-lang-msg .chrome-en {
+  color: inherit;
+}
+.staff-lang-note {
+  margin: var(--s3) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.staff-lang-card {
+  margin-top: var(--s4);
 }
 
 /* The `--kfs-*` tier, declared for the board's root AND the Help sheet's pictures (help-1): the sheet
@@ -7402,6 +7527,7 @@ a .chrome-en {
 .kds-chip[aria-pressed="true"],
 .staff-seg > .kds-chip[aria-pressed="true"],
 .staff-lang-btn[aria-pressed="true"],
+.staff-lang-row[aria-pressed="true"],
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
@@ -10353,6 +10479,11 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-sm);
   color: var(--warn);
 }
+/* Phase 2e · lang — a refusal line's English echo takes the line's warn ink, not `.chrome-en`'s
+   muted `--t2` (the language failure line is both tongues on every device). */
+.staff-bar-msg .chrome-en {
+  color: inherit;
+}
 /* R1 (responsive pass, 2026-09-07) — a server's PHONE. The bar was one flex row at every width; at
    390px the tail (Help · language · Lock = 161px) could not shrink, the title was squeezed to a
    letter-per-line column ("မီးဖိုချောင်" wrapped one glyph at a time) and the tail overhung the
@@ -11179,7 +11310,8 @@ html[data-fx="lite"] .mms-scrim {
 .help-sheet .mms-sheet-body,
 .help-menu,
 .help-how,
-.help-size {
+.help-size,
+.help-lang {
   padding-bottom: var(--s4);
 }
 .help-sub {
@@ -11574,7 +11706,8 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: var(--fw-medium);
   color: var(--t2);
 }
-.help-size-back {
+.help-size-back,
+.help-lang-back {
   width: 100%;
   justify-content: center;
 }

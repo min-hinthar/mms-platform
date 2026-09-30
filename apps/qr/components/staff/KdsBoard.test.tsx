@@ -150,7 +150,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replac
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { KdsBoard } = await import("./KdsBoard");
 const { tf, localizeCount } = await import("@/lib/i18n/fill");
-const { ts } = await import("@/lib/i18n/staff");
+const { ts, STAFF } = await import("@/lib/i18n/staff");
+const { padDishName } = await import("@/lib/order-pad");
 const { sx } = await import("@/lib/staff-labels");
 
 afterEach(() => {
@@ -992,6 +993,8 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     ".orb-table-up",
     // ── Phase 2d · split ── the selected floor card's NAME (a pick from a live list, not "you are here").
     '.floor-card[aria-current="true"] .floor-card-label',
+    // ── Phase 2e · lang ── the pressed language ROW (Help sheet · Profile) wears the same cap.
+    '.staff-lang-row[aria-pressed="true"]',
   ];
   // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
   // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
@@ -1014,7 +1017,7 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
       expect(f, `${PRESSED[i]} declares its fill exactly once`).toHaveLength(1);
     const bodies = new Set(fills.map((f) => f[0]![2]!.trim()));
     // MUTATION: give the switch back its own `background: var(--ac)` block — two blocks, red.
-    expect(bodies.size, "all seven pressed selectors resolve to one declaration").toBe(1);
+    expect(bodies.size, "every pressed selector resolves to one declaration").toBe(1);
     expect([...bodies][0]).toMatch(/background:\s*var\(--ac\)/);
     expect([...bodies][0]).toMatch(/--glow-gold/);
   });
@@ -1430,5 +1433,67 @@ describe("Phase 2b (commit 2) — the glanceability pass: quiet singles, a start
     const chips = container.querySelectorAll(".kds-qty");
     expect(chips[0]!.getAttribute("data-many")).toBeNull();
     expect(chips[1]!.getAttribute("data-many")).toBe("true");
+  });
+});
+
+/**
+ * Phase 2e review (P1) — the Language note's claim, pinned beside the render that makes it TRUE.
+ *
+ * `shell.lang.note` sits under the three language rows (the Profile card, the Help sheet's Language
+ * view) and says what the setting does NOT change. Its first draft read "Dish names and kitchen
+ * tickets never change with this", which was false: the order pad's tiles lead with the device's
+ * tongue (`padDishName`), and so do the mod sheet's title and options, the KDS refusal lines
+ * (`dishVisible`) and the line editor. What IS mode-free is the dish text ON the kitchen ticket —
+ * `TicketLineText`, the catalog Burmese over the English snapshot whatever the device — so that is
+ * all the note may claim. The claim is pinned verbatim here: edit the note and this suite makes you
+ * re-prove it; make the ticket follow the mode and the render below goes red.
+ */
+describe("the Language note's claim — dish names on kitchen tickets never change with the mode", () => {
+  const CLAIM = "Dish names on kitchen tickets never change with this.";
+  const MOHINGA_MY = "မုန့်ဟင်းခါး"; // DB rows (supabase/seed.sql), never authored Burmese
+  const MILD_MY = "အစပ်လျှော့";
+
+  it("the note makes exactly this claim — nothing wider", () => {
+    expect(STAFF["shell.lang.note"].en.startsWith(`${CLAIM} `)).toBe(true);
+  });
+
+  it("…because a wider one is false: the order pad's dish name DOES follow the mode", () => {
+    // A REASON guard: the day the pad stops following the mode, this fails and someone re-reads the
+    // note instead of inheriting a scope whose reason has expired.
+    expect(padDishName("en", "Mohinga", MOHINGA_MY).lead).toEqual({ text: "Mohinga", lang: "en" });
+    expect(padDishName("my", "Mohinga", MOHINGA_MY).lead).toEqual({ text: MOHINGA_MY, lang: "my" });
+  });
+
+  it("a ticket's dish name, its English and its options render IDENTICALLY under English, Both and Burmese only", () => {
+    const q = queue();
+    q.tickets[0]!.lines[0] = {
+      ...q.tickets[0]!.lines[0]!,
+      nameMy: MOHINGA_MY,
+      modifiers: ["Mild"],
+      modifiersMy: [MILD_MY],
+    };
+    const dishText = (lang: "en" | "my", echoes: boolean) => {
+      const { container } = render(
+        <StaffLangProvider lang={lang} echoes={echoes}>
+          <KdsBoard initial={q} />
+        </StaffLangProvider>,
+      );
+      const main = container.querySelector(".kds-line-main")!;
+      const shot = [...main.querySelectorAll(".kds-line-name, .kds-line-en, .kds-line-mods")].map(
+        (el) => el.outerHTML,
+      );
+      cleanup();
+      return shot;
+    };
+    const english = dishText("en", true);
+    // Not identical-because-empty: both tongues are there on the ENGLISH device too.
+    expect(english).toEqual([
+      `<p class="kds-line-name" lang="my">${MOHINGA_MY}</p>`,
+      `<p class="kds-line-en">Mohinga</p>`,
+      `<p class="kds-line-mods" lang="my">${MILD_MY}</p>`,
+      `<p class="kds-line-mods">Mild</p>`,
+    ]);
+    expect(dishText("my", true)).toEqual(english); // Both
+    expect(dishText("my", false)).toEqual(english); // Burmese only
   });
 });
