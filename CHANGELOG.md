@@ -141,6 +141,35 @@ to prod** (below). DESIGN-LANGUAGE §17 carries the Phase 2f block.
   at this head is not recorded here. Nothing is browser- or device-measured — the preview gate is
   **P2fy**.
 
+**Codex round 1 on #308 (2026-09-30).** One P1 and three P2s, each verified against source, each
+fixed red-first on its own worktree branch and merged (`2cf75e7` · `a573864` · `a360caa`):
+
+- **An unsaved kitchen note on a counter order was fired past (P1) — `0db1f09`.**
+  `mms_fire_counter_cart` fires a counter order's to-go drafts, but `getTableDetail` tagged
+  `sendable` only for dine-in drafts, so the Send's drain-before-fire hold ignored a note still being
+  typed on a counter line. One derivation now, `sendFiresLine(route, line)` in
+  `lib/staff-send-view.ts` — the RPC `sendRoute` picks plus that RPC's own line predicate — read by
+  `floor.ts`'s `sendable`. Five `p2f-cx1-hold/*` mutants; `floor/line-sendable-tags-a-togo-draft`
+  re-anchored.
+- **The takeaway lane's two reads raced, and the unpaid cap counted cards it would not draw (two
+  P2s) — `a3c997d`.** `getExpoQueue` ran the unpaid-counter read and the paid read concurrently, so
+  a bag settled between their snapshots showed twice or not at all; the unpaid read now completes
+  before the paid read is issued, and results are deduped by cart id with paid winning.
+  `readUnpaidCounterCarts` capped on sent STATE alone, so comped, grocery and in-grace lines ate the
+  40-row page; it now applies the whole SENT predicate (not comped, not grocery, `fire_at` null or
+  `<=` the DB clock) BEFORE the limit. Seven `p2f-cx1-lane/*` mutants. Residual filed as **M246**
+  (`togo_status` is stamped in the settle's `after()` drain, so a just-settled bag can miss one
+  poll).
+- **A fired line with no `fire_at` showed on the KDS and could never be bumped (P2) — `5d47c36`.**
+  Migration `20261001000000` §6 restates `mms_line_transition` and `mms_bump_ticket` (otherwise
+  byte-identical to `w3_kitchen`): draft→fired stamps `fire_at = now()`, and both guards read
+  `fire_at is null or fire_at <= now()`. SQL P2F.23–25; the mode-authority battery **97 → 104**
+  mutants; two no-show mutants re-anchored. Still **not applied to prod** — the one-file apply at the
+  final reviewed head carries this section with it.
+
+**Gate at this head (measured):** 1585 `verify:slice` mutants (1573 + 12) across 197 target modules
+(unchanged) · 104 mode-authority mutants · 4866 qr + 287 ui tests · `check:docs` clean.
+
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
