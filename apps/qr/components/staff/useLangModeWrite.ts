@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { setStaffLang } from "@/lib/staff-lang-actions";
+import { setStaffLang, type SetStaffLangResult } from "@/lib/staff-lang-actions";
 import { langChainOutcome, nextLangWrite, type StaffLangMode } from "@/lib/staff-lang";
 import { raceTimeout } from "@/lib/staff-outage";
 import { haptic } from "@/lib/haptics";
@@ -20,6 +20,13 @@ export type LangTap = "same-confirmed" | "same-pending" | "wrote";
 
 export type LangSettled = { wrote: boolean; alert: boolean; confirmed: StaffLangMode };
 
+/**
+ * The newest language write this TAB has issued, across every host — module scope, because the
+ * Profile's card and the Help sheet are separate hook instances feeding ONE router queue, which
+ * sends them in order (see `useLangModeWrite`). A write that is not the newest never reconciles.
+ */
+let lastWrite = 0;
+
 export type LangModeWrite = {
   /** The mode the cap shows: the latest pick while a write is out, else the provider's. */
   shown: StaffLangMode;
@@ -27,8 +34,10 @@ export type LangModeWrite = {
   busy: boolean;
   /** The last chain ended short of the person's wish — the host renders the failure line. */
   alert: boolean;
-  /** Take a pick. A function is resolved against the CONFIRMED mode at tap time (the pill's rule). */
-  choose: (next: StaffLangMode | ((confirmed: StaffLangMode) => StaffLangMode)) => LangTap;
+  /** Take a pick. A function is resolved against the chain's BASE — the mode confirmed when the
+   *  chain began (between chains, the confirmed mode now): the pill's rule, which a confirmed value
+   *  moving mid-chain must not bend. */
+  choose: (next: StaffLangMode | ((base: StaffLangMode) => StaffLangMode)) => LangTap;
   clearAlert: () => void;
 };
 
@@ -56,9 +65,28 @@ export type LangModeWrite = {
  * confirmed is not an irreversible write, and a hung write must never trap the kitchen behind a
  * modal for fifteen seconds. The host owns the hook, so closing the sheet never cancels the write.
  *
- * STATED LIMIT (timeout honesty): `raceTimeout` cannot cancel a Server Action, so a write that
- * lands after 15 s changes the cookie while the line said "Couldn't save that" — the next
- * navigation shows the mode the person picked, which is the direction they asked for.
+ * A WRITE THE TIMEOUT GAVE UP ON CAN STILL LAND (review C1), and the chain answers it when it does.
+ * Measured in the installed Next (16.2.9), not inferred:
+ *   · a Server Action cannot be cancelled, and Next sends them ONE AT A TIME, in order — every call
+ *     goes through the router's single action queue (`next/dist/client/app-call-server.js` →
+ *     `dispatchAction` in `next/dist/client/components/app-router-instance.js`, which appends any
+ *     non-navigation action behind the pending one and starts it only when that one settles);
+ *   · a cookie write marks the action's path revalidated (`MutableRequestCookiesAdapter` in
+ *     `next/dist/server/web/spec-extension/adapters/request-cookies.js`), so the action's OWN response
+ *     carries the page re-rendered with the new cookie, and the client commits it on arrival
+ *     (`next/dist/client/components/router-reducer/reducers/server-action-reducer.js`) — whether or
+ *     not anyone still awaits it. A late English write turns the console English the moment it lands.
+ * So the abandoned call is KEPT, and when it settles (`settleLate`): a newer write (from any host on
+ * this tab — `lastWrite` is module scope) lands after it and decides; a refusal changed nothing;
+ * otherwise the server now holds what it carried — if that is the person's latest pick the failure
+ * line is no longer true and goes, and if they have moved on since, the chain writes their pick
+ * again. The last pick is what the cookie ends on, or the line says it is not.
+ *
+ * STATED LIMITS. A NAVIGATION discards the pending action and lets the queue run on while its fetch
+ * is still out, so a write issued after one can land BEFORE it — that reorder is not reconciled. And
+ * a fetch that never settles holds EVERY later Server Action on the tab behind it (a Next property,
+ * not this hook's) until a navigation discards it: "tap again" is queued, not refused, and goes out
+ * the moment the hung one settles.
  */
 export function useLangModeWrite({
   onSettled,
@@ -67,8 +95,13 @@ export function useLangModeWrite({
   const mode = useStaffLangMode();
   // Tap-time state lives in REFS: the latch, the latest pick, and what the server is KNOWN to hold.
   const inFlight = useRef(false);
+  // The person's latest pick — KEPT after the chain ends: a write the timeout abandoned is judged
+  // against it when it lands.
   const intent = useRef<StaffLangMode | null>(null);
   const confirmed = useRef(mode);
+  // The mode confirmed when the chain began: a function pick (the pill) resolves against it, so a
+  // write landing mid-chain cannot turn a repeated tap into a different mode (review C2).
+  const base = useRef(mode);
   // The provider's latest word, whatever is in flight (read when a chain ends having written nothing).
   const provider = useRef(mode);
   const [pick, setPick] = useState<StaffLangMode | null>(null);
@@ -96,21 +129,31 @@ export function useLangModeWrite({
     if (!inFlight.current) confirmed.current = mode;
   }, [mode]);
 
-  async function drain() {
+  // `learned`: the chain starts from a mode a late write just LANDED (`settleLate`) — known, so
+  // never overwritten by the provider's word, which has not caught up with it yet.
+  async function drain(learned = false) {
     inFlight.current = true;
     setBusy(true);
     let wrote = false;
     let failed = false;
     let target: StaffLangMode | null;
     while ((target = nextLangWrite(intent.current, confirmed.current)) !== null) {
-      let res: Awaited<ReturnType<typeof setStaffLang>>;
+      const id = ++lastWrite;
+      const call = setStaffLang({ mode: target });
+      let res: SetStaffLangResult;
       try {
-        res = await raceTimeout(setStaffLang({ mode: target }));
+        res = await raceTimeout(call);
       } catch (e) {
         // A rejection (offline, a retired action id) or the 15 s hang: nothing was confirmed. Said
         // by the host's failure line — never thrown, which would take the whole board down.
         console.error("[lang] setStaffLang rejected or hung", e);
         failed = true;
+        // The hang is still out and can land (see the docblock): answered when it settles. A real
+        // rejection settles the same way, into the no-op.
+        call.then(
+          (late) => settleLate(late, id),
+          () => {},
+        );
         break;
       }
       if (!res.ok) {
@@ -122,28 +165,52 @@ export function useLangModeWrite({
     }
     // A chain that wrote nothing learned nothing new: what the server holds is the provider's latest
     // word, including a change that landed mid-chain (another tab) and was held off above.
-    if (!wrote) confirmed.current = provider.current;
+    if (!wrote && !learned) confirmed.current = provider.current;
     const out = langChainOutcome({
       wanted: intent.current ?? confirmed.current,
       confirmed: confirmed.current,
       wrote,
       failed,
     });
-    intent.current = null;
     inFlight.current = false;
     setBusy(false);
     setPick(out.cap);
     setAlert(out.alert);
-    // The cookie is httpOnly: the new mode arrives only by re-rendering on the server.
+    // The cookie is httpOnly: the new mode arrives only by re-rendering on the server. On Next 16.2.9
+    // the action's own response already carries that render (see the docblock), so this refresh is
+    // a second one — kept as the chain's single, testable "the page re-reads now" signal.
     if (out.refresh) router.refresh();
     onSettled?.({ wrote, alert: out.alert, confirmed: confirmed.current });
   }
 
-  function choose(next: StaffLangMode | ((confirmed: StaffLangMode) => StaffLangMode)): LangTap {
-    const target = typeof next === "function" ? next(confirmed.current) : next;
+  /**
+   * A write the timeout abandoned has settled. It decides only if it is still the NEWEST write on
+   * this tab (Next sends a later one after it) and it landed; then the server holds what it carried.
+   */
+  function settleLate(late: SetStaffLangResult, id: number) {
+    if (!late.ok || id !== lastWrite) return;
+    confirmed.current = late.mode;
+    if (late.mode !== intent.current) {
+      // It landed a mode the person has since left: their latest pick goes out again, the cap on it.
+      setPick(intent.current);
+      void drain(true);
+      return;
+    }
+    // It carried the latest pick after all: "Couldn't save that" is no longer true.
+    setAlert(false);
+    setPick(late.mode);
+    router.refresh();
+    onSettled?.({ wrote: true, alert: false, confirmed: late.mode });
+  }
+
+  function choose(next: StaffLangMode | ((base: StaffLangMode) => StaffLangMode)): LangTap {
+    const target =
+      typeof next === "function" ? next(inFlight.current ? base.current : confirmed.current) : next;
     if (inFlight.current && target === intent.current) return "same-pending";
     if (!inFlight.current && target === confirmed.current) {
-      // The person has accepted the mode the server holds: an earlier failure line is answered.
+      // The person has accepted the mode the server holds: an earlier failure line is answered, and
+      // this is now the pick a late landing is judged against.
+      intent.current = target;
       setAlert(false);
       return "same-confirmed";
     }
@@ -151,7 +218,10 @@ export function useLangModeWrite({
     setAlert(false);
     intent.current = target;
     setPick(target);
-    if (!inFlight.current) void drain();
+    if (!inFlight.current) {
+      base.current = confirmed.current;
+      void drain();
+    }
     return "wrote";
   }
 

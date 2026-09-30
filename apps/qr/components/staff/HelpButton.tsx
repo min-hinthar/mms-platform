@@ -92,8 +92,9 @@ function safe(read: () => string | undefined): string | undefined {
 }
 
 /**
- * P7·3 — the Help door: the ONE gold circle in the staff bar (its `help` slot, before the language
- * switch) on the kitchen board, the counter and the takeaway board, and the sheet behind it.
+ * P7·3 — the Help door: the ONE gold circle in the staff bar (its `help` slot, after the page's own
+ * utilities and before Lock) on the kitchen board, the counter and the takeaway board, and the sheet
+ * behind it.
  *
  * ONE sheet, four views, so the person is never two dialogs deep: `menu` is the rows (the Settings
  * idiom, like More); `how` is the four cards, one at a time with a Next that becomes "Got it" —
@@ -127,11 +128,17 @@ function safe(read: () => string | undefined): string | undefined {
  * modal for 15 s — ✕, Escape, the scrim and the drag all stay live. A tap on the confirmed mode
  * closes the sheet (like the size rows); a tap on another stays open until the provider's mode
  * EQUALS the one written — the board behind is already in the new tongue as the sheet slides away
- * (a render-time close, never a setState in an effect; only while the person is still looking at
- * the rows). A failure with the sheet open is a `role="alert"` in the view; one that lands after
- * the person closed the sheet is the bar tail's `.staff-bar-msg` line beside this circle (the Lock
- * refusal's line) — only one of the two ever renders, and the next open clears it. A failure that
- * lands while the person is on How, Text size or Report is kept through the close and said there.
+ * (a render-time close, never a setState in an effect). ONLY on the rows: leaving them (Back, then
+ * How, Text size or Something's wrong) drops the wait for good, so the board catching up never
+ * closes the sheet under a card or a report being sent (review C3). A failure with the sheet open
+ * is a line in the view; one that lands after the person closed the sheet is the bar tail's
+ * `.staff-bar-msg` line beside this circle (the Lock refusal's line) — only one of the two ever
+ * renders, and the next open clears it. A failure that lands while the person is on How, Text size
+ * or Report is kept through the close and said there. ONE FAILURE, ONE ANNOUNCEMENT (review A4):
+ * the first line drawn for it is the `role="alert"`; once the view that drew it is left, every later
+ * line for the same failure (the menu ↔ Language flip, the bar tail after a close) is shown as plain
+ * text — never a second assertive alert on top of the focus a view change moves. A new failure
+ * (the next write clears the last) is news again.
  */
 export function HelpButton(props: HelpProps) {
   const { lang, screen, size, sheetClassName } = props;
@@ -174,10 +181,24 @@ export function HelpButton(props: HelpProps) {
       if (s.wrote && !s.alert && onRows.current) setAwaiting(s.confirmed);
     },
   });
-  if (awaiting !== null && mode === awaiting) {
+  // Review C3 — the close is the ROWS' alone. Off them the wait is over (a report can only be in
+  // flight on the Report view, which locks until it settles, so this also never closes under a send).
+  if (awaiting !== null && view !== "lang") setAwaiting(null);
+  else if (awaiting !== null && mode === awaiting) {
     setAwaiting(null);
     setOpen(false);
   }
+  // Review A4 — ONE failure, ONE announcement. The view that first drew the failure line said it
+  // (its `role="alert"`); once that view is left, every later line for the SAME failure is plain.
+  // The store-previous-state pattern, at render: a view change is the moment the line was left.
+  const [langSaid, setLangSaid] = useState(false);
+  const [drawnView, setDrawnView] = useState(view);
+  if (drawnView !== view) {
+    setDrawnView(view);
+    if (langWrite.alert && (drawnView === "menu" || drawnView === "lang")) setLangSaid(true);
+  }
+  if (!langWrite.alert && langSaid) setLangSaid(false);
+  const langAlert = langSaid ? undefined : "alert";
   // Every tap that WRITES outdates the wait for the last write: a refresh from that earlier write,
   // landing while the new one is out, must never close the sheet on a mode the person moved past.
   const langRows: LangModeWrite = {
@@ -371,7 +392,7 @@ export function HelpButton(props: HelpProps) {
           this one only while the sheet is closed, the sheet's only while it is open — its content
           stays mounted through the exit slide (M76), so those are `open &&`. */}
       {!open && langWrite.alert && (
-        <span role="alert" className="staff-bar-msg">
+        <span role={langAlert} className="staff-bar-msg">
           <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
         </span>
       )}
@@ -500,7 +521,7 @@ export function HelpButton(props: HelpProps) {
             {/* P2e — a language write that failed after the person stepped Back from the rows:
                 said here, under the row that leads back to them. */}
             {open && langWrite.alert && (
-              <p role="alert" className="staff-lang-msg">
+              <p role={langAlert} className="staff-lang-msg">
                 <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
               </p>
             )}
@@ -609,7 +630,7 @@ export function HelpButton(props: HelpProps) {
                 is gone with the menu). */}
             <StaffLangRows write={langRows} focusOnMount onSameConfirmed={() => show(false)} />
             {open && langWrite.alert && (
-              <p role="alert" className="staff-lang-msg">
+              <p role={langAlert} className="staff-lang-msg">
                 <Chrome lang="my" k="shell.lang.failed" echo="inline" keepEcho />
               </p>
             )}

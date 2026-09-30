@@ -191,6 +191,44 @@ describe("StaffLangSwitch — the pill", () => {
     expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "my-only" }]]);
   });
 
+  // Review C2 — the pill resolves its script against a base that cannot move mid-chain. After the
+  // English write lands (confirmed = en) with Burmese only still to go, a THIRD tap on မြန်မာ used to
+  // resolve against English → Both, and the device ended on Both after the person had tapped
+  // Burmese twice.
+  it("a repeated မြန်မာ during ONE chain never changes the pick — Burmese-only stays Burmese-only", async () => {
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p).mockReturnValueOnce(w2.p);
+    mount("my-only");
+    fireEvent.click(en());
+    fireEvent.click(my()); // the correction
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "my-only" }]]);
+    fireEvent.click(my()); // again, while Burmese-only is out
+    expect(haptic).toHaveBeenCalledTimes(2); // same-pending: no buzz for a tap that changes nothing
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "my-only" }]]);
+    expect(pressed(my())).toBe("true");
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("the base is the mode confirmed when THIS chain began — never an older one", async () => {
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    const { rerender } = mount("my-only");
+    rerender(
+      <Host mode="en">
+        <StaffLangSwitch />
+      </Host>,
+    ); // another tab set this device to English
+    fireEvent.click(my()); // from English: the default, Both
+    fireEvent.click(en());
+    fireEvent.click(my()); // still from English → Both, not the Burmese-only it once was
+    await act(async () => w1.release({ ok: true, mode: "both" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "both" }]]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("a refusal reverts the cap to CONFIRMED, never refreshes, and says so beneath", async () => {
     setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
     mount("both");
