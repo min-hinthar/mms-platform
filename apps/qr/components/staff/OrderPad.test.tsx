@@ -1706,7 +1706,6 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
       ...over,
     });
   const primary = () => document.querySelector<HTMLElement>(".pad-dock-primary")!;
-  const secondary = () => document.querySelector<HTMLElement>(".pad-dock-settle");
   const filled = () => document.querySelectorAll(".pad-dock .ui-btn-primary");
   const serve = (d: TableDetail) => getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
 
