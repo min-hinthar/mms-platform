@@ -359,7 +359,9 @@ begin
   insert into public.mms_approvals (kind, status, cart_id, session_id, line_id, line_name, qty,
                                     amount_cents, reason_code, cooked, initiator_staff_id)
     values ('void', 'pending', c, s, fp, 'Mohinga', 1, 600, 'mistake', false, srv);
-  v := public.mms_counter_no_show(c, srv, array[fp, sv], mgr);
+  -- The expected set in SORTED order, so this case stays order-agnostic: only P2F.20 (a reordered
+  -- and a repeated id) may decide whether the comparison is a set or a list.
+  v := public.mms_counter_no_show(c, srv, (select array_agg(x order by x) from unnest(array[fp, sv]) x), mgr);
   assert v = 'ok', format('P2F.16 · the manager-approved no-show lands (%s)', v);
   select count(*) into n from public.mms_approvals
     where cart_id = c and status = 'approved' and reason_code = 'no_show' and gate_reason = 'cooked'
