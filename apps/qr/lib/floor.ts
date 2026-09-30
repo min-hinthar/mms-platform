@@ -14,7 +14,7 @@ import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
-import { staffSendCounts } from "./staff-send-view";
+import { sendFiresLine, sendRoute, staffSendCounts } from "./staff-send-view";
 // ── Phase 2f · P2v ──
 import {
   counterArmOf,
@@ -636,6 +636,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   let lastLineAt: string | null = null;
   // Phase 2a · send — zero until an open cart's rows say otherwise (a settled record sends nothing).
   let send = staffSendCounts(session.mode, []);
+  // Which RPC this session's Send goes through — the SAME answer `staffFireCart` acts on.
+  const route = sendRoute(
+    { mode: session.mode, qrCode: session.qr_code },
+    surfaceOpen("payAtPickup"),
+  );
   if (cart) {
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
@@ -701,8 +706,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
       soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
       state: (i.state ?? "draft") as TableLineView["state"],
-      // Phase 2a · send — `mms_fire_cart`'s own predicate, per line: the Send fires exactly these.
-      sendable: session.mode === "dinein" && i.state === "draft" && i.fulfillment === "dinein",
+      // Phase 2a · send — the fire RPC's own predicate, per line: the Send fires exactly these
+      // (Phase 2f · Codex r1: a counter order's to-go drafts too, while pay at pickup is on).
+      sendable: sendFiresLine(route, i),
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
       notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)

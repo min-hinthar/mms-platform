@@ -316,8 +316,8 @@ export function StaffLineEditor({
         </span>{" "}
         {dish}
         {/* Phase 2a · send — the WORD marks what the kitchen has not got, never colour alone. Only a
-            line the Send fires wears it: a to-go draft cooks at pay, so "not sent" there is no call
-            to action. */}
+            line the Send fires wears it (`sendFiresLine` — a counter order's to-go drafts too): a
+            table's to-go draft cooks at pay, so "not sent" there is no call to action. */}
         {line.sendable && (
           <span style={notSentTag}>
             {" · "}

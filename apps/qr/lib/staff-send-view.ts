@@ -286,6 +286,21 @@ export function sendRoute(s: { mode: string; qrCode: string }, payAtPickup: bool
   return { rpc: "counter" };
 }
 
+/**
+ * Phase 2f · Codex r1 (P1) — whether the Send fires THIS line: the RPC `sendRoute` picks, and that
+ * RPC's own line predicate — `mms_fire_cart` a dine-in DRAFT, `mms_fire_counter_cart` a to-go DRAFT.
+ * ONE derivation for `TableLineView.sendable`, so every line the Send can fire joins the
+ * drain-before-fire hold (`sendHoldFrom`) on both surfaces that fire it (the table page and the
+ * order pad) and wears "Not sent". A dine-in table's to-go draft is still not fired (it cooks at pay).
+ */
+export function sendFiresLine(
+  route: SendRoute,
+  line: { state: string | null; fulfillment: string | null },
+): boolean {
+  if (!("rpc" in route) || line.state !== "draft") return false;
+  return line.fulfillment === (route.rpc === "counter" ? "togo" : "dinein");
+}
+
 /** The undo's route: the session decides, never the switch — a send inside its grace can always
  *  come back, even if the switch was parked in between. */
 export function undoRoute(s: { mode: string; qrCode: string }): SendRoute {

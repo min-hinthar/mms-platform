@@ -7100,11 +7100,11 @@ const MUTANTS = [
   },
   {
     id: "floor/line-sendable-tags-a-togo-draft",
-    file: "apps/qr/lib/floor.ts",
+    file: "apps/qr/lib/staff-send-view.ts",
     suite: "lib/floor-send.test.ts",
-    why: "Phase 2a — 'Not sent' marks only what the Send fires. A to-go draft cooks at pay, so tagging it tells staff to send a dish the Send will not fire",
-    find: '      sendable: session.mode === "dinein" && i.state === "draft" && i.fulfillment === "dinein",\n',
-    replace: '      sendable: session.mode === "dinein" && i.state === "draft",\n',
+    why: "Phase 2a — 'Not sent' marks only what the Send fires. A to-go draft cooks at pay, so tagging it tells staff to send a dish the Send will not fire (the per-line rule is `sendFiresLine` since Phase 2f · Codex r1)",
+    find: '  return line.fulfillment === (route.rpc === "counter" ? "togo" : "dinein");\n',
+    replace: "  return true;\n",
   },
   {
     id: "floor/settled-record-offers-a-send",
@@ -13117,6 +13117,47 @@ const MUTANTS = [
     why: "M1 — a saturated unpaid read with nothing drawable must never read as 'No bags waiting'",
     find: "  const empty = count === 0 && !unpaidTruncated;",
     replace: "  const empty = count === 0;",
+  },
+  // ── Phase 2f · Codex r1 (P1) — every line the Send can fire joins the drain-before-fire hold ──
+  {
+    id: "p2f-cx1-hold/floor/counter-lines-untagged",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-send.test.ts",
+    why: "Codex r1 P1 — a counter order's to-go drafts ARE what its Send fires; untagged they sit outside `sendHoldFrom`, so a Send over an unsaved allergy note fires the dish and the draft-guarded note save is lost",
+    find: "      sendable: sendFiresLine(route, i),\n",
+    replace: '      sendable: sendFiresLine({ rpc: "dinein" }, i),\n',
+  },
+  {
+    id: "p2f-cx1-hold/floor/tag-ignores-the-switch",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-send.test.ts",
+    why: "Codex r1 P1 — with pay at pickup parked a counter order has no Send (it cooks at pay), so tagging its drafts 'Not sent' calls for a send nothing can make",
+    find: '    { mode: session.mode, qrCode: session.qr_code },\n    surfaceOpen("payAtPickup"),\n',
+    replace: "    { mode: session.mode, qrCode: session.qr_code },\n    true,\n",
+  },
+  {
+    id: "p2f-cx1-hold/staff-send-view/counter-fires-dinein-lines",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "Codex r1 P1 — `mms_fire_counter_cart` fires to-go drafts; read as the table's predicate, the counter's real lines leave the hold and a phantom dine-in line joins it",
+    find: '  return line.fulfillment === (route.rpc === "counter" ? "togo" : "dinein");\n',
+    replace: '  return line.fulfillment === "dinein";\n',
+  },
+  {
+    id: "p2f-cx1-hold/staff-send-view/fired-line-fires-again",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "Codex r1 P1 — only a DRAFT is fired; a fired line tagged sendable reads 'Not sent' over food the kitchen already has",
+    find: '  if (!("rpc" in route) || line.state !== "draft") return false;\n',
+    replace: '  if (!("rpc" in route)) return false;\n',
+  },
+  {
+    id: "p2f-cx1-hold/staff-send-view/refused-route-fires",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "Codex r1 P1 — a refused route (pay-first, or the switch parked) fires nothing, so nothing on it is 'Not sent' or holds a Send that does not exist",
+    find: '  if (!("rpc" in route) || line.state !== "draft") return false;\n',
+    replace: '  if (line.state !== "draft") return false;\n',
   },
 ];
 
