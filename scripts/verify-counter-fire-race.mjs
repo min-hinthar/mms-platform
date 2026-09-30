@@ -38,7 +38,7 @@
  *       the kitchen is now making.
  *   (c) sweep-first — A opens its transaction while the session is still live (its `now()` is
  *       pinned before expiry), the session expires, S sweeps it closed inside an open transaction;
- *       A's fire must BLOCK on S. Once S commits, A must answer `0|false-open` (nothing fired,
+ *       A's fire must BLOCK on S. Once S commits, A must answer `0|true` (nothing fired,
  *       closed) and the line must still be a draft on a closed session. Without the fire's session
  *       lock A's UPDATE reads the still-active session through its own snapshot and fires food onto
  *       the session S is closing.
