@@ -3359,7 +3359,8 @@ export const STAFF = {
   // ── Phase 2d · Codex round 1 · pane ──
   // A card tap, ✕, Escape or Back while the reader is taking a card on the table shown: the pane
   // stays (its poll keeps the payment's hold and records a counter order's #CODE), and says why in
-  // its one region. K15 draft. Words: ကတ်နဲ့ ငွေရှင်းတာ (settle.reader.startFailed's), အရင်
+  // its one region. Codex round 2 — a START (Walk-up, Phone order, a free table) tapped then is
+  // refused with the same words: the words are already right, so no second key. K15 draft. Words: ကတ်နဲ့ ငွေရှင်းတာ (settle.reader.startFailed's), အရင်
   // "first" (shell.lock.err.noPin's), ပြီးအောင် "until done".
   "floor.pane.payingHeld": {
     en: "Finish the card payment first.",

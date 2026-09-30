@@ -8,9 +8,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
 merged onto Phase 2d's #306 head `f00024d` as `b852b27` — the `verify:slice` set a union (1271 +
-49 + 49 = 1369). #306's Codex round-1 head `ed47ef6` then merged in: its OPEN-ITEMS
-P2em–P2ep and LEARNINGS #175–#176 landed first, so Phase 2e's rows are P2eq–P2ey and its LEARNINGS
-#177–#184. Owner decision 2 (2026-09-24): Burmese only · Both · English, per device. Phase 2a's
+49 + 49 = 1369). #306's Codex round-1 head `ed47ef6` then merged in, and after the blind review
+round its round-2 head `6bb8bee` (a union again: 1429 + 17 = 1446): #306's OPEN-ITEMS P2em–P2es
+and LEARNINGS #175–#177 landed first, so Phase 2e's rows are P2et–P2fh (the build's P2et–P2fb, the
+review round's P2fc–P2fh) and its LEARNINGS #178–#194 (the build's #178–#185, the review round's
+#186–#194). Owner decision 2 (2026-09-24): Burmese only · Both · English, per device. Phase 2a's
 language hardening was NOT on disk at the base (`grep -rn "nextLangWrite\|langChainOutcome"` found
 nothing, and `StaffLangSwitch.tsx` was still the pre-2a `useTransition` switch), so it is built here
 as the generic chain the three-way spec lifts it into (`useLangModeWrite`), not as a separate 2a
@@ -125,8 +127,8 @@ block) and §6. No SQL.
   never mention language — interrupting a shift while saying nothing about the move; the way back is
   two taps (Help → Language) and the front doors keep the pill; revisit only if staff report hunting
   for it. **Burmese only keeps the K15-HIGH English**, as built.
-- **OPEN-ITEMS.** Closed **P2x**. New **P2eq–P2ey**: P2eq and P2er are the two owner decisions above,
-  recorded decided; P2ey is the preview gate (no browser here); P2et (med) the two other
+- **OPEN-ITEMS.** Closed **P2x**. New **P2et–P2fb**: P2et and P2eu are the two owner decisions above,
+  recorded decided; P2fb is the preview gate (no browser here); P2ew (med) the two other
   `startTransition(async …)` awaits with no try/catch that this phase's red-first confirmed can
   replace a whole board with the error screen (the Help report send, the approval form). K15 and K37
   grow; P2d (`<html lang>`) and P2m/K25 (English still under a Burmese console) stay open — the
@@ -134,7 +136,7 @@ block) and §6. No SQL.
 - **Gate at this head (measured):** 1369 `verify:slice` mutants across 184 target modules (146 lib ·
   3 API routes · 34 components · 1 `packages/db`) · 4512 qr + 278 ui tests · `check:docs` clean. The
   full 1369-mutant `verify:slice` run with the gate at the merged head is not recorded here. Nothing
-  is device-measured — the preview gate is P2ey.
+  is device-measured — the preview gate is P2fb.
 
 **Blind review round (2026-09-30) — reviewed head `b852b27`; three lenses (concurrency · product
 truth · accessibility), all three REJECT.** Every finding was verified against source and fixed in
@@ -189,14 +191,14 @@ region case now reads the bilingual announcement, where C1's and A3's fixes met)
   2.5.3 guard never ran with echoes off. Fix: `echoDrawn(key, shown)` in `lib/staff-labels.ts` is
   the ONE echo decision for `<Chrome>` and the names; `al()`'s echoed arms require `shown`; the
   2.5.3 cases run under both device states.
-- **Filed, not fixed:** **P2ez** (med — Next's ONE router queue: a Server Action that never settles
-  holds every later one on the tab; audit the staff client timeouts) · **P2fa** (the chain's
-  `router.refresh()` is a second render on 16.2.9) · **P2fb** (a navigation mid-hang can reorder two
-  language writes) · **P2fc** (`shown` is typed at each echoed call site, not traced) · **P2fd**
-  (4c cannot see one host mounted twice) · **P2fe** (rule 6 cannot settle a computed `keepEcho`
-  key). Closed **P2es** (A5). **P2ev** narrowed to the navigation case. The a11y lens's AT-only
+- **Filed, not fixed:** **P2fc** (med — Next's ONE router queue: a Server Action that never settles
+  holds every later one on the tab; audit the staff client timeouts) · **P2fd** (the chain's
+  `router.refresh()` is a second render on 16.2.9) · **P2fe** (a navigation mid-hang can reorder two
+  language writes) · **P2ff** (`shown` is typed at each echoed call site, not traced) · **P2fg**
+  (4c cannot see one host mounted twice) · **P2fh** (rule 6 cannot settle a computed `keepEcho`
+  key). Closed **P2ev** (A5). **P2ey** narrowed to the navigation case. The a11y lens's AT-only
   notes (the rows' name `lang`, Back's focus landing, `aria-busy` masking the `aria-pressed` flip)
-  and the new visual cues joined the preview gate, **P2ey**.
+  and the new visual cues joined the preview gate, **P2fb**.
 - **Mutants and the mutate set.** **27 new `p2e-rev/` mutants** — measured,
   `grep -cE '^\s+id: "p2e-rev/' scripts/verify-slice.mjs` → 27: 15 in the chain, 7 in the surface,
   5 in the guards, each area's `--no-gate --only=p2e-rev/` run catching all of its own. Five files
@@ -209,15 +211,15 @@ region case now reads the bilingual announcement, where C1's and A3's fixes met)
   `p2e-lang/k15-high-echo-dropped` (now in `lib/staff-labels.ts`) in the guards.
 - **Words.** No new staff key; `shell.lang.note` re-worded (EN + MY, on K15); `STAFF_K15_HIGH`
   unchanged.
-- **LEARNINGS #185–#193** — the round's nine lessons (a timeout is not a cancellation; a relative
+- **LEARNINGS #186–#194** — the round's nine lessons (a timeout is not a cancellation; a relative
   pick needs a fixed base; one failure, one announcement; a wait needs its WHERE; pin a ring by its
   colour; pin a "never" beside its subject; a new parse path must be watched failing; a name's
-  derivation takes the render's inputs; #177 again, twice). #180 now records the router queue.
+  derivation takes the render's inputs; #178 again, twice). #181 now records the router queue.
 - **Gate at this head (measured, after the #306 Codex round-1 merge):** 1429 `verify:slice` mutants
   across 190 target modules (147 lib · 3 API routes · 38 components · 1 stylesheet · 1
   `packages/db`) · 4595 qr + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean (1429
   anchors, 190 files). The full `verify:slice` run with the gate at this head is not recorded here.
-  Nothing is browser- or device-measured — the preview gate is P2ey.
+  Nothing is browser- or device-measured — the preview gate is P2fb.
 
 ### Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database (2026-09-29)
 
@@ -476,6 +478,30 @@ counter screen's per-zone regions).
   - _Filed, not fixed:_ **P2em–P2ep** — leaving the phone's table page mid-collect; a reader start
     that lands after the pane moved; food bumped during a kitchen-unknown gap; one poll's double
     count when a table pays between the floor's two reads.
+
+- **Codex round 2 on #306 (2026-09-30) — three findings (2 P1 · 1 P2), all real, all fixed red-first
+  with mutants.**
+  - _P1 — closing the pane threw away a lost payment._ A payment refused or unanswered on a table the
+    pane had left was cleared by ✕, Escape or Back on another table; it now stays on the floor until
+    that table is opened again or a newer loss outranks it (a dish that never saved stays too, never
+    over a payment's).
+  - _P1 — a start mid-collect took the counter screen from under the reader._ Walk-up, Phone order
+    and a free table are refused at the tap while the pane's reader collects (`paneStartHeld`) — no
+    order is made, nothing navigates, the pane says "Finish the card payment first." — and a start
+    already out when the collection began stands down as it lands.
+  - _P2 — the floor could count a room that never existed._ Past 900 open-cart lines the pages were
+    keyed on the random line id, so a line added mid-read could be skipped while a later one was
+    counted; they now seek on `(created_at, id)` under the poll's own database clock. No migration.
+  - _Mutants:_ 17 new `p2d-cx2/*` (pane 12 · lines 5), all caught. Re-anchored with meaning kept:
+    `p2d-rev/floor-open-lines-no-keyset` · `p2d-rev/floor-open-lines-unordered`;
+    `p2d-cx1/refused-open-session-routes-away` is now killed by a direct case (`openSession`
+    mid-collect answers handled). 1370 mutants across 180 files (the set unchanged); 4409 qr + 278
+    ui tests (measured).
+  - _Words:_ none new — a refused start reuses `floor.pane.payingHeld`.
+  - _Filed, not fixed:_ **M238** — the line read in ONE statement (a prod migration; the RPC is
+    drafted in the row) · **P2eq–P2es** — the pane holds one lost outcome; start controls do not look
+    held mid-collect; a start that stands down mid-collect is silent. P2em narrowed (the counter's
+    Start is held now).
 
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 

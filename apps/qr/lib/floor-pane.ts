@@ -173,6 +173,18 @@ export function paneSelectionHeld(p: {
 }
 
 /**
+ * Codex round 2 (#306) — a START (Walk-up, Phone order, a free table) is held by the same live
+ * collection. A start moves no selection, but its landing does leave the pane: a new order's add
+ * screen (a converged table's page, at phone width) replaces the whole counter screen, and the
+ * collect panel unmounts with it exactly as a switch would unmount it. So the mint refuses the tap
+ * before the server is asked, and a start already out when the collection began stands down as it
+ * lands. Only the table SHOWN can be collecting: a stale report about another table holds nothing.
+ */
+export function paneStartHeld(p: { paying: string | null; shown: string | null }): boolean {
+  return p.paying !== null && p.paying === p.shown;
+}
+
+/**
  * Where focus goes after the pane closes. A CLEARED table's card is still in the DOM until the
  * floor's next poll, so focus goes to the floor heading, never onto a card about to vanish. A close
  * by a control lands on the table's card (else the heading). A close by history (Back) moves focus

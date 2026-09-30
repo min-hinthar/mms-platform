@@ -79,9 +79,10 @@ const SETTLED_ORDER_CAP = 20;
  *  one table used to take the strip, every card and every table start down. The two reads now
  *  answer a full page differently, by what they carry:
  *    · the OPEN carts' lines carry the MONEY on the cards (the item count, the "so far" total, the
- *      seated/ordering word), so they are read WHOLE — keyset pages of this size on `id` (a row
- *      added or removed between pages moves only itself), up to `FLOOR_OPEN_LINE_PAGES`; past that
- *      ceiling a card's money would be a partial sum, and that alone is still an outage;
+ *      seated/ordering word), so they are read WHOLE — keyset pages of this size on
+ *      `(created_at, id)` under the poll's own database clock (`readOpenLines`, Phase 2d · Codex
+ *      round 2 · lines), up to `FLOOR_OPEN_LINE_PAGES`; past that ceiling a card's money would be a
+ *      partial sum, and that alone is still an outage;
  *    · the PAID carts' lines feed only the kitchen row, so a full page makes the kitchen picture
  *      honestly UNKNOWN for the poll (`kitchenUnknown`: no kitchen row on any card, one note in the
  *      board's region) while the room — cards, strip, starts — keeps working. */
@@ -260,13 +261,40 @@ export async function getFloorView(): Promise<FloorPoll> {
     FloorLineRow,
     "id" | "cart_id" | "qty" | "state" | "fulfillment" | "fire_at" | "bumped_at" | "by_seat"
   >;
-  // Phase 2d · review — the open carts' lines, read WHOLE (above): keyset pages on `id`, each
-  // page after the last id seen, until a page comes back short; past the ceiling, `saturated`.
+  // Phase 2d · review — the open carts' lines, read WHOLE (above), in pages until one comes back
+  // short; past the ceiling, `saturated`.
+  //
+  // ⚠️ Phase 2d · Codex round 2 · lines — WHICH ROOM THE PAGES DESCRIBE. Every page is its own
+  // request, so its own snapshot. The seek used to be `id`, a RANDOM uuid: a line added between two
+  // pages landed below the cursor or above it by chance, so one mid-read line was skipped while
+  // another, added after it, was counted — and the short page after them still called the read
+  // complete, publishing an item count, a "so far" total and a kitchen row for a room that never
+  // existed. Now:
+  //   · the seek is `(created_at, id)` — `created_at` is `not null default now()`, set at insert and
+  //     written by nothing after it (a merge moves a line with `update … set cart_id`, so it keeps
+  //     its place), and `id` breaks the ties one transaction's lines share. The cursor is the row's
+  //     OWN string: through `Date` it would lose the column's microseconds and name another instant;
+  //   · every page is bounded by `linesAsOf`, the database clock this poll already read (`mms_now`,
+  //     the instant it reports as `serverNow`), taken before page one. A line whose transaction
+  //     began after it is in NO page — the next poll's — so a line added mid-read is never skipped
+  //     while a later one is counted.
+  // What that guarantees: every line committed before `linesAsOf` and still on one of this poll's
+  // open carts is counted exactly once (its place in the order cannot move), and none begun after
+  // it is. What it does NOT: one snapshot. A line whose transaction was already open at
+  // `linesAsOf` and commits after the page past its place has been read is missed by this poll
+  // (`now()` is the transaction's START, so it sorts behind the cursor) — the cart RPCs are single
+  // statements, so that is a write in flight across the read; and a write to a line already read
+  // (a qty change, a merge folding one line into another) reaches the next poll. Only a read in ONE
+  // statement closes both: a `SECURITY DEFINER` function, i.e. a prod migration (filed; the same
+  // shape as M222's ledger read). With the clock unreadable there is no bound — never the APP
+  // clock, whose skew would hide the newest lines on every poll — and the seek alone still keeps a
+  // mid-read line from landing behind a cursor unless its transaction spans a page boundary.
+  const linesAsOf = typeof nowRes.data === "string" ? nowRes.data : null;
   const readOpenLines = async (): Promise<
     { data: FloorLineRow[]; error: null; saturated: boolean } | { data: null; error: unknown }
   > => {
     const all: FloorLineRow[] = [];
-    let after: string | null = null;
+    let after: { createdAt: string; id: string } | null = null;
     for (let page = 0; page < FLOOR_OPEN_LINE_PAGES; page++) {
       let q = db
         .from("qr_cart_items")
@@ -274,14 +302,23 @@ export async function getFloorView(): Promise<FloorPoll> {
           "id,cart_id,qty,unit_price_cents,created_at,state,comped,fulfillment,fire_at,bumped_at,by_seat",
         )
         .in("cart_id", cartIds);
-      if (after !== null) q = q.gt("id", after);
-      const { data, error } = await q.order("id").limit(FLOOR_LINE_CAP);
+      if (linesAsOf !== null) q = q.lte("created_at", linesAsOf);
+      // Top-level filters AND together, so this NARROWS the page (`refund-ledger.ts`'s seek).
+      if (after !== null)
+        q = q.or(
+          `created_at.gt."${after.createdAt}",and(created_at.eq."${after.createdAt}",id.gt."${after.id}")`,
+        );
+      const { data, error } = await q
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .limit(FLOOR_LINE_CAP);
       if (error) return { data: null, error };
       const got = data ?? [];
       all.push(...got);
       if (queueEmptiness(got.length, FLOOR_LINE_CAP) !== "cannot-say")
         return { data: all, error: null, saturated: false };
-      after = got[got.length - 1]!.id;
+      const last = got[got.length - 1]!;
+      after = { createdAt: last.created_at, id: last.id };
     }
     return { data: all, error: null, saturated: true };
   };
