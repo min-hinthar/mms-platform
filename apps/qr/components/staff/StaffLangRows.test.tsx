@@ -356,13 +356,18 @@ describe("StaffLangSection — the Profile's language card", () => {
 
   // The failure line's `keepEcho` only CHANGES anything on a Burmese-only device (English and Both
   // draw the echo anyway), so each failure case runs there too — review found the line's English
-  // could be dropped with every suite green.
-  it.each(["both", "my-only"] as const)(
-    "under %s, inside the view's ONE region: a failure is spoken there, the visible line is aria-hidden and both tongues, no second region",
+  // could be dropped with every suite green. English joins for the ANNOUNCEMENT (Phase 2e review,
+  // A3): the region rendered the key in the device's own tongue, so an English device said the
+  // failure in English alone and a Burmese one in Burmese alone — while the line it stands in for
+  // is both.
+  it.each(["en", "both", "my-only"] as const)(
+    "under %s, inside the view's ONE region: a failure is spoken there in BOTH tongues, the visible line is aria-hidden and both tongues, no second region",
     async (mode) => {
       setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
       const { container } = render(<Profile mode={mode} />);
-      fireEvent.click(row("English"));
+      // A row that is not the confirmed one (a tap on the confirmed row writes nothing).
+      const other = mode === "en" ? "မြန်မာ English" : "English";
+      fireEvent.click(row(other));
       await waitFor(() => expect(container.querySelector(".staff-lang-msg")).not.toBeNull());
       const line = container.querySelector(".staff-lang-msg")!;
       expect(line.getAttribute("aria-hidden")).toBe("true");
@@ -371,14 +376,19 @@ describe("StaffLangSection — the Profile's language card", () => {
       // The line itself: both tongues whatever the device — the English half EXACTLY.
       expect(line.querySelector('[lang="my"]')?.textContent).toBe(STAFF["shell.lang.failed"].my);
       expect(line.querySelector(".chrome-en")?.textContent).toBe(STAFF["shell.lang.failed"].en);
+      // The ANNOUNCEMENT: the same two tongues, Burmese first and marked, whatever the device — the
+      // person the write failed for may be exactly the one who cannot read the device's mode.
       const region = container.querySelector('[role="status"]')!;
-      expect(region.textContent).toBe(STAFF["shell.lang.failed"].my);
+      expect(region.querySelector('[lang="my"]')?.textContent).toBe(STAFF["shell.lang.failed"].my);
+      expect(region.textContent).toBe(
+        `${STAFF["shell.lang.failed"].my} · ${STAFF["shell.lang.failed"].en}`,
+      );
       // The next tap answers it — the region clears with the line.
       setStaffLang.mockImplementation(async (v: { mode: StaffLangMode }) => ({
         ok: true,
         mode: v.mode,
       }));
-      fireEvent.click(row("English"));
+      fireEvent.click(row(other));
       expect(region.textContent).toBe("");
       await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
       expect(container.querySelector(".staff-lang-msg")).toBeNull();
@@ -442,6 +452,25 @@ describe("the rows' CSS matches the DOM they render", () => {
     await screen.findByRole("alert");
     if (r.container.querySelector(sel)) hits.push("failed");
     expect(hits, `${sel} matched no rendered state`).not.toEqual([]);
+  });
+
+  // Phase 2e review (A2) — the pending row was dimmed (`opacity: 0.7`), label and all: light theme
+  // below 3:1 on a row that is still live (busy is not disabled). The label keeps its full ink and
+  // the cue is a stripe over the fill; no rule keyed on the busy group may fade or filter a row. The
+  // stripe's contrast is composite-contrast.test.ts's (packages/ui), bound to the same rules.
+  it("in flight the pressed row keeps its label's ink — a stripe over the fill, never a dim", () => {
+    const busy = rules.filter((r) =>
+      r.sels.some((sel) => sel.startsWith('.staff-lang-rows[aria-busy="true"]')),
+    );
+    expect(busy.length).toBeGreaterThan(0);
+    for (const r of busy) expect(r.body).not.toMatch(/(?:^|;)\s*(?:opacity|filter)\s*:/);
+    const stripe = busy.filter(
+      (r) =>
+        r.sels.includes(
+          '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"]',
+        ) && /(?:^|;)\s*background-image\s*:/.test(r.body),
+    );
+    expect(stripe).toHaveLength(1);
   });
 
   it("the pressed row's description takes the cap's ink; no pressed-row fill outside the shared cap", () => {

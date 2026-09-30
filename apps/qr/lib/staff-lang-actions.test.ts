@@ -20,8 +20,8 @@ const { staffLangCookieOptions } = await import("./staff-lang");
  *   NO `staffGate`. The action is ungated on purpose: gating it would kill the control on
  *   `/staff/login` (nobody signed in yet), `/staff/lock`, the outage shell and the error screen
  *   (auth unreachable by definition) — and, since P2e, the Help sheet and the Profile under an auth
- *   outage. The `unavailable` case
- *   below is the one that goes red the moment somebody "hardens" this.
+ *   outage. The "SETS THE COOKIE WITH NO STAFF SESSION" case below is the one that goes red the
+ *   moment somebody "hardens" this (the `staffGate` import lands unmocked).
  */
 beforeEach(() => {
   set.mockReset();

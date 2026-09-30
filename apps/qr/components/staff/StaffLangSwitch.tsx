@@ -206,14 +206,17 @@ export function StaffLangRows({
  * place a person comes to when the current mode is the wrong one. The failure speaks through the
  * view's ONE polite region (`announce`) and shows its line `aria-hidden` beneath the rows (the
  * menu-2 idiom); mounted with no provider (a suite, a future single-card screen) the line is the
- * `role="alert"` itself. The next write clears the region.
+ * `role="alert"` itself. The next write clears the region. What the region SAYS is both tongues too
+ * (`{ k, both: true }`, `StaffMsg`): it stands in for a line that is `aria-hidden`, so a region
+ * rendering the key in the device's own tongue said the failure in one language while the line
+ * showed two (review, A3).
  */
 export function StaffLangSection({ focusOnMount = false }: { focusOnMount?: boolean }) {
   const lang = useStaffLang();
   const announce = useViewStatus();
   const write = useLangModeWrite({
     onSettled: (s) => {
-      if (s.alert) announce?.({ k: "shell.lang.failed" });
+      if (s.alert) announce?.({ k: "shell.lang.failed", both: true });
     },
   });
   const rows: LangModeWrite = {

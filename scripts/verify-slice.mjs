@@ -11438,6 +11438,68 @@ const MUTANTS = [
     find: '    const lineShown = open && (view === "menu" || view === "lang");',
     replace: "    const lineShown = true;",
   },
+  // ── Phase 2e · review fixes · surface ──
+  {
+    id: "p2e-rev/profile-failure-announced-in-one-tongue",
+    file: "apps/qr/components/staff/StaffLangSwitch.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A3) — the Profile's region stands in for an aria-hidden line that shows BOTH tongues; announcing the key in the device's tongue says the failure in one language, possibly the one the person cannot read",
+    find: '      if (s.alert) announce?.({ k: "shell.lang.failed", both: true });',
+    replace: '      if (s.alert) announce?.({ k: "shell.lang.failed" });',
+  },
+  {
+    id: "p2e-rev/msg-both-follows-the-device",
+    file: "apps/qr/components/staff/StaffMsg.tsx",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A3) — the region's `both` shape renders the key in both tongues, Burmese marked then English; following the device undoes the bilingual announcement at the one renderer every region shares",
+    find: '  if ("both" in msg)\n    return (\n      <>\n        <Chrome lang="my" k={msg.k} />\n        {" · "}\n        <Chrome lang="en" k={msg.k} />\n      </>\n    );\n',
+    replace: '  if ("both" in msg) return <Chrome lang={lang} k={msg.k} />;\n',
+  },
+  {
+    id: "p2e-rev/note-claims-every-dish-name",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2e review (P1) — the Language note may claim only what never changes with the mode: dish names on KITCHEN TICKETS. \"Dish names and kitchen tickets\" is false — the order pad, the mod sheet and the KDS's own messages name a dish in the device's tongue",
+    find: '    en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",',
+    replace:
+      '    en: "Dish names and kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",',
+  },
+  {
+    id: "p2e-rev/ticket-dish-follows-the-device",
+    file: "apps/qr/components/staff/KdsBoard.tsx",
+    suite: "components/staff/KdsBoard.test.tsx",
+    why: "P2e review (P1) — the note promises the kitchen ticket's dish text never changes with the mode (Burmese over English, every device); a ticket that drops the Burmese on an English device makes the note false with the rest of the board green",
+    find: "            <TicketLineText line={line} />\n",
+    replace:
+      '            <TicketLineText line={lang === "my" ? line : { ...line, nameMy: null }} />\n',
+  },
+  {
+    id: "p2e-rev/pill-pressed-ring-is-the-fill",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review (A1) — the pill's ring is drawn INSIDE the segment, so on the pressed segment it sits on the lit cap's --ac fill; ringing it in --ac is a 1:1, invisible focus on the segment focus lands on after every tap",
+    find: '.staff-lang-btn[aria-pressed="true"]:focus-visible {\n  outline-color: var(--oa);\n}\n',
+    replace:
+      '.staff-lang-btn[aria-pressed="true"]:focus-visible {\n  outline-color: var(--ac);\n}\n',
+  },
+  {
+    id: "p2e-rev/pill-busy-dims-the-label",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangSwitch.test.tsx",
+    why: "P2e review (A2) — busy is not disabled: the pending segment is still live, so its label keeps full ink (the dim measured 2.84:1 in light) and the cue is a stripe under it",
+    find: '.staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {\n  background-image: repeating-linear-gradient(\n    135deg,\n    transparent 0 var(--s1),\n    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)\n  );\n}\n',
+    replace:
+      '.staff-lang[aria-busy="true"] > .staff-lang-btn[aria-pressed="true"] {\n  opacity: 0.7;\n}\n',
+  },
+  {
+    id: "p2e-rev/rows-busy-dims-the-label",
+    file: "apps/qr/app/globals.css",
+    suite: "components/staff/StaffLangRows.test.tsx",
+    why: "P2e review (A2) — the pending ROW is still live too: its autonym and description keep full ink, and the cue is the pill's stripe, never a dim",
+    find: '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  background-image: repeating-linear-gradient(\n    135deg,\n    transparent 0 var(--s1),\n    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)\n  );\n}\n',
+    replace:
+      '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  opacity: 0.7;\n}\n',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

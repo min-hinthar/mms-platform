@@ -3342,12 +3342,19 @@ export const STAFF = {
     my: "မြန်မာ — အရေးကြီးတဲ့ စာလုံးတွေမှာ အင်္ဂလိပ် ပါ",
   },
   "shell.lang.mode.en": { en: "English only", my: "အင်္ဂလိပ်လို သီးသန့်" },
-  // What the setting does NOT change, said plainly (P2m/K25 English still under a Burmese console;
-  // TicketText is identical in every mode). grounded: အော်ဒါ is the KDS's own word for a ticket
-  // (kds.a11y.tickets).
+  // What the setting does NOT change, said plainly — and ONLY what is true in all three modes (review,
+  // P1). The first draft said "Dish names and kitchen tickets never change": false, since the order
+  // pad, the mod sheet and the KDS's own messages name a dish in the device's tongue. What never
+  // changes is the dish text ON the kitchen ticket (TicketText — pinned beside the render in
+  // KdsBoard.test). The second sentence is the P2m/K25 remainder, worded so it is true on an English
+  // device too ("still has English words" implied the rest was not English). K15 draft; grounded:
+  // မီးဖိုချောင် အော်ဒါစာရွက် is the kitchen ticket in table.detail.handoff.callout and
+  // pilot.gloss.scope; ဟင်းနာမည် and စခရင် တချို့ are this note's own first draft; မြန်မာလို is
+  // shell.lang.mode.myOnly's; အပြည့် is floor.settled.status.paid's ("in full"); မရသေးပါ ("not yet")
+  // is the outage lines'.
   "shell.lang.note": {
-    en: "Dish names and kitchen tickets never change with this. A few screens still have English words.",
-    my: "ဟင်းနာမည်နဲ့ မီးဖိုချောင် အော်ဒါတွေကတော့ မပြောင်းပါ။ စခရင် တချို့မှာ အင်္ဂလိပ်စာလုံး ကျန်နေသေးပါတယ်။",
+    en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",
+    my: "မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်က ဟင်းနာမည်တွေကတော့ မပြောင်းပါ။ စခရင် တချို့မှာ မြန်မာလို အပြည့် မရသေးပါ။",
   },
 } as const satisfies Record<string, Entry>;
 
