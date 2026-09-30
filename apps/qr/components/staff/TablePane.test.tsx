@@ -114,6 +114,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,
     tab: "none",
@@ -652,10 +653,12 @@ describe("TablePane — the paid card follows its table", () => {
 
   // ── Phase 2d · Codex round 1 · pane ──
   const round1 = { ...H, orderId: "o-00c1c1c1", isCounter: false, cartId: "c-1" };
-  const settledA = () =>
+  // The table's LATEST paid order rides the detail (`paidOrderId`); round one's by default.
+  const settledA = (paidOrderId: string = round1.orderId) =>
     detail(A, 4, {
       cartId: null,
       settled: true,
+      paidOrderId,
       lines: [line("l-4", "Mohinga", false)],
       send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
     });
@@ -709,7 +712,7 @@ describe("TablePane — the paid card follows its table", () => {
     await tick(0);
     expect(document.getElementById("handoff-title")).toBeNull();
     // Round two settles with no tender entered: no card of its own, and no live cart any more.
-    answers[A] = ok(settledA());
+    answers[A] = ok(settledA("o-00c2c2c2"));
     await tick(5000);
     // MUTATION: never drop a superseded card (only hide it while c-2 is open) — the restored
     // round-one card reads as current again and shows last round's total and change; red.
@@ -720,6 +723,26 @@ describe("TablePane — the paid card follows its table", () => {
     await tap(card(A));
     await tick(0);
     expect(document.getElementById("handoff-title")).toBeNull();
+  });
+  it("round two opens AND pays while the pane shows another table: round one's card never comes back (Codex #306, the residual)", async () => {
+    stashHandoff(A, round1); // round one (cart c-1, order o-00c1c1c1) paid with a tender
+    answers[A] = ok(settledA());
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("handoff-title")).not.toBeNull();
+    await tap(card(B));
+    await tick(0);
+    // While the pane is on B, round two opens and settles with no tender: this detail never sees
+    // c-2 — only a NEWER paid order when it comes back.
+    answers[A] = ok(settledA("o-00c2c2c2"));
+    await tap(card(A));
+    await tick(0);
+    // MUTANT p2d-cx1/handoff-settled-ignores-the-order — a settled table reads every card as
+    // current: round one's total and change shown as round two's; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
   });
 });
 

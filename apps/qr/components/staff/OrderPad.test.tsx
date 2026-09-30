@@ -136,6 +136,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     refund: null,
     settledOrderCount: 0,
     settledOrderCountCapped: false,
+    paidOrderId: null,
     promoCode: null,
     settlePromoCents: null,
     tab: "none",

@@ -399,16 +399,20 @@ describe("paneSelectionHeld — a live reader collection holds the pane on its t
 });
 
 describe("handoffSuperseded — a paid card the next round replaced dies for good (Codex #306)", () => {
-  const table = { isCounter: false, cartId: "c1" };
+  const table = { isCounter: false, cartId: "c1", orderId: "o1" };
   // MUTANT p2d-cx1/superseded-never — never superseded: round one's change comes back after round two.
   it("a table's card, once a DIFFERENT live cart is seen", () => {
-    expect(handoffSuperseded(table, "c2")).toBe(true);
-    expect(handoffSuperseded({ isCounter: false, cartId: null }, "c2")).toBe(true);
+    expect(handoffSuperseded(table, "c2", null)).toBe(true);
+    expect(handoffSuperseded({ ...table, cartId: null }, "c2", null)).toBe(true);
   });
-  it("never over its own cart, over no live cart, or for a counter order", () => {
-    expect(handoffSuperseded(table, "c1")).toBe(false);
-    expect(handoffSuperseded(table, null)).toBe(false);
-    expect(handoffSuperseded({ isCounter: true, cartId: "c1" }, "c2")).toBe(false);
+  it("a table's card, once a NEWER paid order is seen with no cart open (a round paid unseen)", () => {
+    expect(handoffSuperseded(table, null, "o2")).toBe(true);
+  });
+  it("never over its own cart, over its own paid order, or for a counter order", () => {
+    expect(handoffSuperseded(table, "c1", null)).toBe(false);
+    expect(handoffSuperseded(table, null, "o1")).toBe(false);
+    expect(handoffSuperseded(table, null, null)).toBe(false);
+    expect(handoffSuperseded({ ...table, isCounter: true }, "c2", "o2")).toBe(false);
   });
 });
 

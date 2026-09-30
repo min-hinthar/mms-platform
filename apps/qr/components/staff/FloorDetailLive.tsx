@@ -233,8 +233,9 @@ export function FloorDetailLive({
   // tender, the live cart is null again and a hidden card read as current — last round's total and
   // change shown as this round's. Render-time (the guarded set-during-render `seenDetail` uses), so
   // the dead card is never committed; its stash goes in the effect below.
-  if (handoff && handoffSuperseded(handoff, detail.cartId)) setHandoffState(null);
-  if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId))
+  if (handoff && handoffSuperseded(handoff, detail.cartId, detail.paidOrderId))
+    setHandoffState(null);
+  if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId, detail.paidOrderId))
     setRestoredHandoff(null);
   const shownHandoff = handoff ?? restoredHandoff;
   // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
@@ -277,8 +278,9 @@ export function FloorDetailLive({
   // (its own cart, or no live cart) is left alone.
   useEffect(() => {
     const stashed = readHandoffStash(sessionId);
-    if (stashed && handoffSuperseded(stashed, detail.cartId)) dropHandoffStash(sessionId);
-  }, [sessionId, detail.cartId]);
+    if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))
+      dropHandoffStash(sessionId);
+  }, [sessionId, detail.cartId, detail.paidOrderId]);
   // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
   // panel shows it, and carries no region of its own). A STATE mirrored from the live panel, not a
   // one-shot note: no other setter clears it, and it goes when the panel goes.
@@ -1440,7 +1442,7 @@ export function FloorDetailLive({
         {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
             named by its facts; never a status region. A table's card leaves once the next round's
             cart opens (`handoffStillCurrent`). */}
-        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId) && (
+        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId, detail.paidOrderId) && (
           <HandoffCard
             ref={handoffRef}
             lang={lang}

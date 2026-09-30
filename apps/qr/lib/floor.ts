@@ -812,6 +812,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
      *
      *  M212 — clamped to the cap, and paired with the flag below rather than reported as exact. */
     settledOrderCount: Math.min(settledOrders.length, SETTLED_ORDER_CAP),
+    paidOrderId: paid?.id ?? null,
     /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
      *  surface must say "20+" instead of stating a number it cannot know. */
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,

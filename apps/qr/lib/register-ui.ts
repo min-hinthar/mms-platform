@@ -20,15 +20,24 @@ export function settlePrimary(tab: SettleTab): "secureTab" | "cash" {
 /**
  * Whether the paid card still describes the table in front of the cashier. A counter card always
  * does (a counter session is one order; its detail closes behind it). A table card does while the
- * table reads settled (no open cart) or still reads the cart that paid — and stops the moment a
- * DIFFERENT cart opens on the session (K33: a table that settles twice). Otherwise the last round's
- * change would sit under the next round's settle section.
+ * table still reads the cart that paid, or reads settled with the card's OWN order as its latest
+ * paid one — and stops the moment a DIFFERENT cart opens on the session (K33: a table that settles
+ * twice). Otherwise the last round's change would sit under the next round's settle section.
+ *
+ * Phase 2d · Codex round 1 — "settled" alone is not enough. A round that opens AND pays while this
+ * screen looks elsewhere (the pane on another table, a guest paying on their phone) is never seen as
+ * a live cart — only as a NEWER paid order — so with no cart open the card is current only while
+ * `paidOrderId` (the table's latest paid order) is its own. An unknown latest (null) keeps it: the
+ * card was just set from a settle this screen watched land.
  */
 export function handoffStillCurrent(
-  h: { isCounter: boolean; cartId: string | null },
+  h: { isCounter: boolean; cartId: string | null; orderId: string },
   liveCartId: string | null,
+  paidOrderId: string | null,
 ): boolean {
-  return h.isCounter || liveCartId == null || liveCartId === h.cartId;
+  if (h.isCounter) return true;
+  if (liveCartId != null) return liveCartId === h.cartId;
+  return paidOrderId == null || paidOrderId === h.orderId;
 }
 
 /**

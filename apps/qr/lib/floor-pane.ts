@@ -265,14 +265,16 @@ export function handoffStashKey(sessionId: string): string {
  * the next round settles with no tender (no card of its own) the live cart is null again and the old
  * card would read as current: last round's change due, shown as this one's. So a superseded card is
  * DROPPED, from state and from the stash, and never comes back. The exact complement of
- * `handoffStillCurrent` (name it once): a null live cart supersedes nothing, and a counter order's
- * card (its session closes behind its settle) is never superseded.
+ * `handoffStillCurrent` (name it once): a counter order's card (its session closes behind its
+ * settle) is never superseded, and with no cart open only a NEWER paid order supersedes a table's
+ * card — a round that opened and paid while this screen looked elsewhere.
  */
 export function handoffSuperseded(
-  h: Pick<Handoff, "isCounter" | "cartId">,
+  h: Pick<Handoff, "isCounter" | "cartId" | "orderId">,
   liveCartId: string | null,
+  paidOrderId: string | null,
 ): boolean {
-  return !handoffStillCurrent(h, liveCartId);
+  return !handoffStillCurrent(h, liveCartId, paidOrderId);
 }
 
 const cents = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;

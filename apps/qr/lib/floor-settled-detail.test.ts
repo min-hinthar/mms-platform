@@ -485,6 +485,9 @@ describe("K33 — the settled record names the round it is showing", () => {
     // The LATEST, not the first: 5330 and 1100 are separable, so a read sorted ascending fails here
     // rather than passing on a tie. That assertion was VACUOUS until the fake applied `.order()`.
     expect(r.detail.paidTotalCents).toBe(5330);
+    // MUTANT p2d-cx1/detail-drops-paid-order-id — Codex #306 round 1: the paid card compares the
+    // table's LATEST paid order with its own, so the id must be the same row the total came from.
+    expect(r.detail.paidOrderId).toBe("o-1");
   });
 
   it("counts ONE round for the ordinary table, so the note stays off", async () => {

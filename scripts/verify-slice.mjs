@@ -11160,7 +11160,7 @@ const MUTANTS = [
     file: "apps/qr/lib/floor-pane.ts",
     suite: "lib/floor-pane.test.ts",
     why: "Phase 2d \u00b7 Codex round 1 \u00b7 pane \u2014 a table's paid card is dead once a different live cart is seen; never superseded, last round's change comes back when the next round settles with no tender",
-    find: "  return !handoffStillCurrent(h, liveCartId);\n",
+    find: "  return !handoffStillCurrent(h, liveCartId, paidOrderId);\n",
     replace: "  return false;\n",
   },
   {
@@ -11264,7 +11264,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2d \u00b7 Codex round 1 \u00b7 pane \u2014 a card the next round superseded is dropped from state; only hidden, it reads as current again once that round settles with no tender",
-    find: "  if (handoff && handoffSuperseded(handoff, detail.cartId)) setHandoffState(null);\n",
+    find: "  if (handoff && handoffSuperseded(handoff, detail.cartId, detail.paidOrderId))\n    setHandoffState(null);\n",
     replace: "",
   },
   {
@@ -11272,7 +11272,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/TablePane.test.tsx",
     why: "Phase 2d \u00b7 Codex round 1 \u00b7 pane \u2014 a RESTORED card the next round superseded is dropped from state too; only hidden, it comes back when that round settles with no tender",
-    find: "  if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId))\n    setRestoredHandoff(null);\n",
+    find: "  if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId, detail.paidOrderId))\n    setRestoredHandoff(null);\n",
     replace: "",
   },
   {
@@ -11280,8 +11280,34 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/TablePane.test.tsx",
     why: "Phase 2d \u00b7 Codex round 1 \u00b7 pane \u2014 a superseded card leaves the stash too; kept there, the pane restores last round's change on the next visit",
-    find: "    if (stashed && handoffSuperseded(stashed, detail.cartId)) dropHandoffStash(sessionId);\n",
+    find: "    if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))\n      dropHandoffStash(sessionId);\n",
     replace: "",
+  },
+  // ── Phase 2d · Codex round 1 · the residual (integration) ──
+  {
+    id: "p2d-cx1/handoff-settled-ignores-the-order",
+    file: "apps/qr/lib/register-ui.ts",
+    suite: "lib/register-ui.test.ts",
+    why: "Codex #306 round 1, the residual — a round that opens AND pays while the screen looks elsewhere is never a live cart, only a NEWER paid order; a settled table that reads every card as current shows last round's total and change as this one's",
+    find: "  return paidOrderId == null || paidOrderId === h.orderId;\n",
+    replace: "  return true;\n",
+  },
+  {
+    id: "p2d-cx1/detail-drops-paid-order-id",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "Codex #306 round 1, the residual — the detail's `paidOrderId` is the latest paid row, the one the total came from; without it the paid card can never tell a round it did not see",
+    find: "    paidOrderId: paid?.id ?? null,\n",
+    replace: "    paidOrderId: null,\n",
+  },
+  {
+    id: "p2d-cx1/pane-stash-ignores-the-order",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Codex #306 round 1, the residual — the pane's stash is dropped when a NEWER paid order is seen; judged on the cart alone, a round paid while the pane looked elsewhere brings round one's card back on the next visit",
+    find: "    if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))\n      dropHandoffStash(sessionId);\n",
+    replace:
+      "    if (stashed && handoffSuperseded(stashed, detail.cartId, null)) dropHandoffStash(sessionId);\n",
   },
 ];
 

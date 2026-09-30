@@ -231,6 +231,11 @@ export type TableDetail = {
    *  and `paidTotalCents` describe the LATEST one, matching the floor board's own reduction, so a
    *  count above 1 means the record on screen is one round of several and must say so. */
   settledOrderCount: number;
+  /** Phase 2d · Codex round 1 — the id of the table's LATEST paid (or refunded) order, the same row
+   *  `paidTotalCents` describes; null when none. The paid card compares it with its own `orderId`
+   *  (`handoffStillCurrent`): a round that opened and paid while the screen looked elsewhere is seen
+   *  only here, as a newer order, never as a live cart. */
+  paidOrderId: string | null;
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
