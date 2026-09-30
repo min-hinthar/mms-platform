@@ -515,6 +515,17 @@ export function OrderPad({
   // (Declared before the Send: a counter order's Send needs a name — decision 7c.)
   const [name, setName] = useState(initialName ?? "");
   const [savedName, setSavedName] = useState((initialName ?? "").trim());
+  // Codex round 3 (P2) — the server's name, reconciled when it CHANGES (another device set or
+  // cleared it): `savedName` always follows it, and the field follows too while it is PRISTINE — a
+  // name being typed is never clobbered. Keyed on the change, not the value, so a read already on the
+  // wire before this pad's own save lands cannot revert the name the save just set.
+  const serverName = (detail.customerName ?? "").trim();
+  const [seenServerName, setSeenServerName] = useState(serverName);
+  if (serverName !== seenServerName) {
+    setSeenServerName(serverName);
+    setSavedName(serverName);
+    if (name.trim() === savedName) setName(serverName);
+  }
   const hasName = savedName !== "" || name.trim() !== "";
   const nameInputRef = useRef<HTMLInputElement>(null);
   // Codex round 1 (P2) — the LATEST name, for Take payment's decision after its drain: the field

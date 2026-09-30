@@ -1862,6 +1862,69 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     expect(document.activeElement).toBe(screen.getByLabelText(STAFF["browse.name.label"].en));
   });
 
+  it("the SERVER finds no name (cleared on another tablet): the name field takes the finger", async () => {
+    const d = counter();
+    serve(d); // this pad's reads still show the name — the fire's own statement is what finds none
+    fire.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-cx3-name/pad-server-noName-no-focus): the verdict never reaches the field — red.
+    expect(document.activeElement).toBe(screen.getByLabelText(STAFF["browse.name.label"].en));
+    expect(region().textContent).toBe(STAFF["table.send.err.noName"].en);
+  });
+
+  it("a live read with the name CLEARED elsewhere empties a pristine field; the Send blocks", async () => {
+    const d = counter();
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    expect(field.value).toBe("Aye");
+    serve(counter({ customerName: null }));
+    await flush(5000);
+    // MUTATION (p2f-cx3-name/server-name-not-reconciled): the field keeps "Aye", the Send fires — red.
+    expect(field.value).toBe("");
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a live read with the name cleared never clobbers a name being TYPED", async () => {
+    const d = counter();
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Aye Aye" } });
+    serve(counter({ customerName: null }));
+    await flush(5000);
+    // MUTATION (p2f-cx3-name/reconcile-clobbers-dirty): the typing is thrown away — red.
+    expect(field.value).toBe("Aye Aye");
+    expect(sendBtn().getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("a stale read that still shows NO name after this pad saved one does not revert it", async () => {
+    const d = counter({ customerName: null });
+    serve(d); // the next read is stale: it began before the save landed
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Aye" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
+    await flush(5000);
+    // MUTATION (p2f-cx3-name/reconcile-by-value): reconciling on the VALUE reverts to "" — red.
+    expect(field.value).toBe("Aye");
+    expect(sendBtn().getAttribute("aria-disabled")).not.toBe("true");
+  });
+
   it("?name=1 lands on the name field ONCE and drops the param", async () => {
     const d = counter({ customerName: null });
     serve(d);

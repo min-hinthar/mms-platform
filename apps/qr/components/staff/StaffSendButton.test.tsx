@@ -552,6 +552,28 @@ describe("Phase 2f · pay at pickup — a counter order's Send", () => {
     expect(document.getElementById("send-name-link")).toBeNull();
   });
 
+  it("the SERVER's no-name verdict (cleared elsewhere) tells the host like the view's block", async () => {
+    // The view still reads named (this device's last read); the fire's own statement finds no name.
+    const blockedTaps: string[] = [];
+    fire.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    render(<Host view={COUNTER} seq={0} onBlocked={(b) => blockedTaps.push(b)} />);
+    await flush();
+    fireEvent.click(control());
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-cx3-name/server-noName-not-blocked): the host is never told — red.
+    expect(blockedTaps).toEqual(["noName"]);
+    // The words stay the verdict's, in the one region: nothing went to the kitchen.
+    expect(notices.at(-1)).toEqual({ tone: "warn", msg: { k: "table.send.err.noName" } });
+    // Any OTHER refusal does not move the finger to the name.
+    fire.mockResolvedValueOnce({ ok: false, reason: "nothing" });
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(2);
+    expect(blockedTaps).toEqual(["noName"]);
+  });
+
   it("sent unpaid: a status row (receipt glyph hidden), no Send, no live region", async () => {
     render(<Host view={{ kind: "counterSent" }} seq={0} />);
     await flush();
