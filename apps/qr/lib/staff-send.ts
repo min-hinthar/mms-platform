@@ -152,16 +152,16 @@ async function firedUnits(cartId: string, batch: string, firedRows: number): Pro
 
 /**
  * Did an empty counter fire meet a cart that is no longer OPEN (settled or cleared since the page read
- * it)? The fire's own `open` — the cart row as its lock saw it — answers when the RPC reports it
- * (resolves at integration with the db half of the Phase 2f review fix); otherwise a read-back of the
+ * it)? The fire's own `closed` — the cart and session rows as its locks saw them (not open, not
+ * active, or expired) — answers; a missing row (no answer at all) falls back to a read-back of the
  * cart's status. An unreadable read-back answers false: the fire's own verdict (`noName` / `nothing`,
  * both true — nothing went to the kitchen) stands, and `closed` is never said on no evidence.
  */
 async function counterCartClosed(
   cartId: string,
-  row: { open?: boolean } | undefined,
+  row: { closed?: boolean } | undefined,
 ): Promise<boolean> {
-  if (typeof row?.open === "boolean") return !row.open;
+  if (typeof row?.closed === "boolean") return row.closed;
   const { data, error } = await serviceClient()
     .from("qr_carts")
     .select("status")
@@ -212,7 +212,7 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
   const firedRows = row?.fired ?? 0;
   const counterRow =
     table.route.rpc === "counter"
-      ? (res.data?.[0] as { named?: boolean; open?: boolean } | undefined)
+      ? (res.data?.[0] as { named?: boolean; closed?: boolean } | undefined)
       : undefined;
   // Phase 2f review — a Send that raced a settle or a clear fired nothing because the ORDER is gone,
   // whatever its name: `closed`, never "Add a name" over an order that no longer exists.

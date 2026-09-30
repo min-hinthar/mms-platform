@@ -12994,8 +12994,8 @@ const MUTANTS = [
     id: "p2f-rev-lib/staff-send/lock-signal-ignored",
     file: "apps/qr/lib/staff-send.ts",
     suite: "lib/staff-send.test.ts",
-    why: "Phase 2f review — the fire's own `open` is the cart as its LOCK saw it; a later read-back can disagree, and the lock's answer is the one the write obeyed",
-    find: '  if (typeof row?.open === "boolean") return !row.open;\n',
+    why: "Phase 2f review — the fire's own `closed` is the cart and session as its LOCKS saw them; a later read-back can disagree, and the lock's answer is the one the write obeyed",
+    find: '  if (typeof row?.closed === "boolean") return row.closed;\n',
     replace: "",
   },
   {

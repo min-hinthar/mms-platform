@@ -38,7 +38,7 @@ const h = vi.hoisted(() => ({
     batch: string;
     fire_deadline: string;
     named?: boolean;
-    open?: boolean;
+    closed?: boolean;
   }[],
   /** Phase 2f review — the cart's status as a read-back of `qr_carts` answers it (null = error). */
   cartStatus: "open" as string | null,
@@ -423,10 +423,10 @@ describe("staffFireCart / staffUndoFire — the counter's pay-at-pickup Send", (
     // Resolves at integration: `mms_fire_counter_cart` reports whether the cart was open under its
     // lock (the db half of the review fix). The read-back is the fallback when it does not.
     counter();
-    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, open: false }];
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, closed: true }];
     h.cartStatus = "open"; // a read-back would say open — the lock's answer wins
     expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
-    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, open: true }];
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, closed: false }];
     h.cartStatus = "paid";
     expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
   });
