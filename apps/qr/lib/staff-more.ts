@@ -90,3 +90,20 @@ export const APPROVALS_ZONE = "/staff?floor=1#appr-h";
 export function approvalsHref(view: "doors" | "floor"): string {
   return view === "floor" ? "#appr-h" : APPROVALS_ZONE;
 }
+
+// ── Phase 2f · P2v ──
+/**
+ * The takeaway lane — a zone of the counter's one screen (`ExpoBoard`'s `<h2 id="expo-h">`), not a
+ * door of its own (`/staff/expo` is a redirect to `/staff?floor=1`). The HandoffCard's "Takeaway
+ * bags" link after a pay-at-pickup settle lands there.
+ */
+export const LANE_ZONE = "/staff?floor=1#expo-h";
+
+/**
+ * Where the lane link goes: on the counter screen's split pane the lane is already on the page, so a
+ * bare fragment scrolls to it without leaving; anywhere else the full zone URL. Render it as a NATIVE
+ * `<a>` — never `next/link`, whose client navigation does not re-scroll a same-page hash (A4·3).
+ */
+export function laneHref(inPane: boolean): string {
+  return inPane ? "#expo-h" : LANE_ZONE;
+}

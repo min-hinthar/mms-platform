@@ -1,5 +1,4 @@
-import type { FloorTable } from "./floor-types";
-import type { RegisterQueueRow } from "./register-queue";
+import type { CounterFloorRow, FloorTable } from "./floor-types";
 import { FLOOR_TONES, floorTone, type FloorTone } from "./floor-tone";
 import { floorStatusKey } from "./staff-labels";
 import type { StaffKey } from "./i18n/staff";
@@ -16,11 +15,11 @@ import type { StaffKey } from "./i18n/staff";
  */
 export type FloorRow =
   | { kind: "table"; table: FloorTable }
-  | { kind: "counter"; order: RegisterQueueRow };
+  | { kind: "counter"; order: CounterFloorRow };
 
 export function mergeFloorRows(
   tables: readonly FloorTable[],
-  counter: readonly RegisterQueueRow[],
+  counter: readonly CounterFloorRow[],
 ): FloorRow[] {
   // Partition on the floor's STATUS, never the stamp (Codex round 1 on A4·2): `counterRequestedAt`
   // outlives the ask — a table that asked, then started a fresh card or split payment, keeps the

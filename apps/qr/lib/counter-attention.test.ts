@@ -19,7 +19,7 @@ import type { FloorTable } from "./floor-types";
  */
 
 type Table = Pick<FloorTable, "sessionId" | "status" | "counterRequestedAt">;
-type Ticket = Pick<ExpoTicket, "orderId" | "status" | "arrivedAt" | "kitchen" | "lines">;
+type Ticket = Pick<ExpoTicket, "orderId" | "cartId" | "status" | "arrivedAt" | "kitchen" | "lines">;
 
 const ASK_AT = "2026-09-29T18:00:00.000Z";
 const LATER_ASK = "2026-09-29T18:20:00.000Z";
@@ -43,6 +43,7 @@ const grocery = [{ fulfillment: "grocery" as const }, { fulfillment: "grocery" a
 const mixed = [{ fulfillment: "grocery" as const }, { fulfillment: "togo" as const }];
 const bag = (orderId: string, over: Partial<Ticket> = {}): Ticket => ({
   orderId,
+  cartId: null,
   status: "preparing",
   arrivedAt: null,
   kitchen: "cooking",
@@ -260,5 +261,30 @@ describe("mayRing — two boards on one tick are one ring per kind", () => {
     // MUTATION (counter-attention/the-exemption-is-symmetric): any change of kind rings — a guest's
     // bell followed half a second later by a bag's is two bells for one glance.
     expect(mayRing({ ring: "guest", at: T }, "food", T + 500)).toBe(false);
+  });
+});
+
+// ── Phase 2f · P2v ──
+describe("laneFacts — an unpaid bag and the paid bag that replaces it are ONE bell", () => {
+  const CART = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  it("an unpaid bag the kitchen finished is food, keyed by its CART", () => {
+    const f = laneFacts([], [{ cartId: CART, kitchen: "done" }]);
+    expect([...f.food]).toEqual([`food:${CART}`]);
+    expect(laneFacts([], [{ cartId: CART, kitchen: "cooking" }]).food.size).toBe(0);
+  });
+
+  it("done unpaid, then paid on the next poll: it rings ONCE", () => {
+    // pay-at-pickup-rings-twice
+    const rings = polls(
+      laneFacts([], [{ cartId: CART, kitchen: "cooking" }]),
+      laneFacts([], [{ cartId: CART, kitchen: "done" }]),
+      laneFacts([bag(O1, { cartId: CART, kitchen: "done" })], []),
+    );
+    expect(rings).toEqual(["food", null]);
+  });
+
+  it("a paid bag with no cart still keys by its order", () => {
+    expect([...laneFacts([bag(O1, { kitchen: "done" })]).food]).toEqual([`food:${O1}`]);
   });
 });

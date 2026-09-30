@@ -1,5 +1,5 @@
 import { isScanGoBasket } from "./expo-rules";
-import type { ExpoTicket } from "./expo-types";
+import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
 import type { FloorTable } from "./floor-types";
 
 /**
@@ -69,7 +69,11 @@ export function floorFacts(
  *           over — a second bell for the same person is noise.
  */
 export function laneFacts(
-  tickets: readonly Pick<ExpoTicket, "orderId" | "status" | "arrivedAt" | "kitchen" | "lines">[],
+  tickets: readonly Pick<
+    ExpoTicket,
+    "orderId" | "cartId" | "status" | "arrivedAt" | "kitchen" | "lines"
+  >[],
+  unpaid: readonly Pick<ExpoUnpaidBag, "cartId" | "kitchen">[] = [],
 ): CounterFacts {
   const guest = new Set<string>();
   const food = new Set<string>();
@@ -78,8 +82,11 @@ export function laneFacts(
     if (t.arrivedAt !== null) guest.add(`here:${t.orderId}`);
     if (basket && t.status === "preparing") guest.add(`verify:${t.orderId}`);
     if (!basket && t.status === "preparing" && t.kitchen === "done" && t.arrivedAt === null)
-      food.add(`food:${t.orderId}`);
+      food.add(`food:${t.cartId ?? t.orderId}`);
   }
+  // Phase 2f · P2v — an unpaid counter bag the kitchen finished is food too, keyed by its CART, the
+  // key its paid bag takes above: payment turns the one into the other, and one bag rings once.
+  for (const b of unpaid) if (b.kitchen === "done") food.add(`food:${b.cartId}`);
   return { guest, food };
 }
 
@@ -111,7 +118,9 @@ export function counterRing(seen: ReadonlySet<string> | null, next: CounterFacts
 /**
  * The subject of a fact key — the session of an ask, the order of a lane fact — so a board can put
  * the one-shot ring on the card the news is about. Keys are `kind:subject[:stamp]`; a uuid carries
- * no colon, an ISO stamp does, so the subject is the SECOND segment.
+ * no colon, an ISO stamp does, so the subject is the SECOND segment. Phase 2f: a `food:` key's
+ * subject is the bag's CART id when it has one (`t.cartId ?? t.orderId`; an unpaid bag's `cartId`),
+ * so a board matches its cards by that, not by the order id.
  */
 export function factSubject(key: string): string {
   return key.split(":")[1] ?? "";

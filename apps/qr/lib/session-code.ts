@@ -34,3 +34,18 @@ export const RESERVED_SESSION_PREFIXES = ["reg-", "kiosk-"] as const;
 export function isReservedSessionCode(code: string): boolean {
   return RESERVED_SESSION_PREFIXES.some((p) => code.startsWith(p));
 }
+
+/**
+ * Phase 2f · P2v (D10) — may `/api/session` sweep an EXPIRED-but-active squatter off this code before
+ * minting? Only a provided STICKER code on a create-capable request that found no active session. A
+ * reserved (`reg-` / `kiosk-`) code is never swept: the create is refused for it anyway, and a forged
+ * `?t=reg-…` after a counter order's 12h expiry would otherwise close a sent-unpaid counter session —
+ * the strand the sweeper's own exemption exists to prevent.
+ */
+export function sweepsExpiredSquatter(i: {
+  found: boolean;
+  code: string | null | undefined;
+  joinOnly: boolean;
+}): boolean {
+  return !i.found && !!i.code && !i.joinOnly && !isReservedSessionCode(i.code);
+}

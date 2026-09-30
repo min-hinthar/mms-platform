@@ -21,6 +21,13 @@ vi.mock("./line-names", () => ({
   loadLineNames: () => Promise.resolve({ nameMyByRef: new Map(), optionNameMy: new Map() }),
 }));
 
+// Phase 2f — the lane's unpaid read, answered per case.
+const uq = vi.hoisted(() => ({ value: { ok: true, carts: [], truncated: false } as unknown }));
+vi.mock("./register-queue", async (orig) => ({
+  ...(await orig<typeof import("./register-queue")>()),
+  readUnpaidCounterCarts: () => Promise.resolve(uq.value),
+}));
+
 const NOW = "2026-09-13T18:00:00.000Z";
 const CART_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CART_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -109,6 +116,7 @@ const order = (id: string, cartId: string | null, createdAt: string): Row => ({
 
 beforeEach(() => {
   recs = [];
+  uq.value = { ok: true, carts: [], truncated: false };
   cartLinesFail = false;
   cartLinesCount = null;
   // B is due EARLIER than A; only the kitchen state can put A first.
@@ -180,5 +188,112 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
     const res = await getExpoQueue();
     if (!res.ok) throw new Error("expected ok");
     expect(res.queue.tickets.map((t) => t.kitchen)).toEqual(["unknown", "unknown"]);
+  });
+});
+
+// ── Phase 2f · P2v — the lane's unpaid bags ──────────────────────────────────────────────────────
+describe("getExpoQueue — an open counter order with food in the kitchen is an UNPAID bag", () => {
+  const item = (over: Row) => ({
+    id: "i",
+    name: "Mohinga",
+    qty: 1,
+    modifiers: [],
+    modifier_option_ids: null,
+    fulfillment: "togo",
+    notes: null,
+    menu_item_id: "dish-1",
+    state: "draft",
+    fire_at: null,
+    bumped_at: null,
+    comped: false,
+    ...over,
+  });
+  const unpaidCart = (items: Row[]) => ({
+    id: "cart-u",
+    session_id: "sess-u",
+    customer_name: "Aye",
+    items,
+  });
+
+  it("one served + one draft: a bag of the SENT line, one more not sent, kitchen done", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        unpaidCart([
+          item({ id: "s", state: "served", fire_at: "2026-09-13T17:50:00.000Z" }),
+          item({ id: "d", qty: 1 }),
+        ]),
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid).toEqual([
+      {
+        cartId: "cart-u",
+        sessionId: "sess-u",
+        customerName: "Aye",
+        lines: [
+          {
+            id: "s",
+            name: "Mohinga",
+            nameMy: null,
+            qty: 1,
+            modifiers: [],
+            modifiersMy: [],
+            fulfillment: "togo",
+            notes: null,
+          },
+        ],
+        moreUnits: 1,
+        kitchen: "done",
+        sentAt: "2026-09-13T17:50:00.000Z",
+      },
+    ]);
+  });
+
+  it("a cart whose send is still inside its grace is not a bag yet", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [unpaidCart([item({ state: "fired", fire_at: "2026-09-13T18:00:05.000Z" })])],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid).toEqual([]);
+  });
+
+  it("with no paid bags at all, the unpaid bags still reach the lane", async () => {
+    orderRows = [];
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [unpaidCart([item({ state: "fired", fire_at: "2026-09-13T17:59:00.000Z" })])],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.tickets).toEqual([]);
+    expect(res.queue.unpaid.map((b) => b.cartId)).toEqual(["cart-u"]);
+  });
+
+  it("an unreadable unpaid read is an OUTAGE of the lane, never an empty one", async () => {
+    // unpaid-read-failure-renders-an-empty-lane
+    uq.value = { ok: false };
+    expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
+  });
+
+  it("a saturated unpaid read is an OUTAGE too — the newest bag would be the one hidden", async () => {
+    // unpaid-read-saturation-ignored
+    uq.value = { ok: true, carts: [], truncated: true };
+    expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
+  });
+
+  it("every paid ticket carries its cart id (the bell keys a bag by its cart)", async () => {
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(Object.fromEntries(res.queue.tickets.map((t) => [t.orderId, t.cartId]))).toEqual({
+      [ORDER_A]: CART_A,
+      [ORDER_B]: CART_B,
+    });
   });
 });

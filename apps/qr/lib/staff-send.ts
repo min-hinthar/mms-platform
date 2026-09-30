@@ -9,7 +9,15 @@ import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { maybeRenewSession } from "./authz";
 import { getPostHogClient } from "./posthog-server";
-import type { StaffFireResult, StaffSendReason, StaffUndoResult } from "./staff-send-view";
+import { surfaceOpen } from "./surfaces";
+import {
+  sendRoute,
+  undoRoute,
+  type SendRoute,
+  type StaffFireResult,
+  type StaffSendReason,
+  type StaffUndoResult,
+} from "./staff-send-view";
 
 /**
  * Phase 2a · send — the staff console's "Send to kitchen" and its take-back (P2k).
@@ -31,6 +39,14 @@ import type { StaffFireResult, StaffSendReason, StaffUndoResult } from "./staff-
  *
  * A fire that races a settle freeze is benign: the lines are charged either way, and
  * `mms_fire_pending_food` is idempotent on fired lines. No amount is read or written here.
+ *
+ * Phase 2f · P2v — a COUNTER order (`reg-`, `isCounterOrder`) may cook before it is paid, on this
+ * explicit staff Send (owner decisions 1 + 7). It goes through its OWN staff-only RPCs
+ * (`mms_fire_counter_cart` / `mms_undo_counter_fire`, service_role only, the counter predicate and a
+ * non-blank name IN the fire's statement — 20261001000000_p2f_counter_cook_before_paid.sql), never a
+ * widened `mms_fire_cart`, which is also the DINER's send. `sendRoute` / `undoRoute` pick the RPC from
+ * the session; `SURFACES.payAtPickup` parks new counter sends only. Every other non-table order
+ * (a kiosk order, a diner's own pickup, scan-and-go) is still pay-first and refused as `counter`.
  */
 
 type GateRefusal = { ok: false; reason: Extract<StaffSendReason, "signin" | "outage"> };
@@ -52,19 +68,24 @@ type TableRefusal = {
   reason: Extract<StaffSendReason, "outage" | "closed" | "counter" | "paying">;
 };
 
-/** The shared prefix: the session's open cart, dine-in, and no money moving on it. */
-async function sendableTable(sessionId: string) {
+/** The shared prefix: the session's open cart, a ROUTE for its RPC, and no money moving on it. */
+async function sendableTable(
+  sessionId: string,
+  pick: (s: { mode: string; qrCode: string }) => SendRoute,
+) {
   const { session, cart, unavailable } = await openCartFor(sessionId);
   // W10b — an unread table is not a closed one; name the outage.
   if (unavailable) return { ok: false, reason: "outage" } satisfies TableRefusal;
   if (!session || !cart) return { ok: false, reason: "closed" } satisfies TableRefusal;
-  // A counter (pickup / scan-and-go) order cooks when it is PAID — the fire RPC is dine-in only, so
-  // without this the answer would be "nothing to send" over a cart full of unsent food.
-  if (session.mode !== "dinein") return { ok: false, reason: "counter" } satisfies TableRefusal;
+  // A pay-first order (a kiosk order, a diner's pickup, scan-and-go — or a counter order while
+  // `payAtPickup` is parked) cooks when it is PAID: without this the answer would be "nothing to
+  // send" over a cart full of unsent food.
+  const route = pick({ mode: session.mode, qrCode: session.qr_code });
+  if ("refuse" in route) return { ok: false, reason: "counter" } satisfies TableRefusal;
   // Parity with the diner's sendToKitchen (locked / settling): never move lines under a payment.
   if (await paymentInFlightReason(cart))
     return { ok: false, reason: "paying" } satisfies TableRefusal;
-  return { ok: true as const, session, cart };
+  return { ok: true as const, session, cart, route };
 }
 
 /**
@@ -142,20 +163,34 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
   if (!parsed.success) return { ok: false, reason: "invalid" };
   const { sessionId } = parsed.data;
 
-  const table = await sendableTable(sessionId);
+  const table = await sendableTable(sessionId, (s) => sendRoute(s, surfaceOpen("payAtPickup")));
   if (!table.ok) return table;
 
-  const { data: rows, error } = await serviceClient().rpc("mms_fire_cart", {
-    p_cart_id: table.cart.id,
-  });
-  if (error) {
-    console.error("[staff-send] mms_fire_cart failed", { sessionId, message: error.message });
+  // Two explicit calls (not a computed name) so each keeps its generated row type.
+  const db = serviceClient();
+  const res =
+    table.route.rpc === "counter"
+      ? await db.rpc("mms_fire_counter_cart", { p_cart_id: table.cart.id })
+      : await db.rpc("mms_fire_cart", { p_cart_id: table.cart.id });
+  if (res.error) {
+    console.error("[staff-send] fire failed", {
+      sessionId,
+      route: table.route.rpc,
+      message: res.error.message,
+    });
     return { ok: false, reason: "failed" };
   }
-  // mms_fire_cart returns (fired, batch, fire_deadline) — the batch and deadline it stamped, read
-  // from the write itself (a read-back could be won by a concurrent make-it-now).
-  const row = rows?.[0];
+  // Both return (fired, batch, fire_deadline) — the batch and deadline they stamped, read from the
+  // write itself (a read-back could be won by a concurrent make-it-now). The counter fire adds
+  // `named`: INFORMATIONAL (the name guard is the UPDATE's own conjunct), read only to name WHY it
+  // moved nothing.
+  const row = res.data?.[0];
   const firedRows = row?.fired ?? 0;
+  const named =
+    table.route.rpc === "counter"
+      ? (res.data?.[0] as { named?: boolean } | undefined)?.named
+      : undefined;
+  if (!firedRows && named === false) return { ok: false, reason: "noName" };
   // Nothing still draft and dine-in: a colleague (or the host's phone) sent it first, or only to-go
   // lines remain. The refreshed slot then says which.
   if (!firedRows) return { ok: false, reason: "nothing" };
@@ -163,7 +198,12 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
   const fired = batch ? await firedUnits(table.cart.id, batch, firedRows) : firedRows;
 
   await afterCommit(sessionId, table.cart.id, table.session.expires_at, "staffFireCart");
-  capture(gate.caller, "staff_fire_cart", { sessionId, lines: firedRows, units: fired });
+  capture(gate.caller, "staff_fire_cart", {
+    sessionId,
+    lines: firedRows,
+    units: fired,
+    route: table.route.rpc,
+  });
   return {
     ok: true,
     fired,
@@ -213,15 +253,24 @@ export async function staffUndoFire(raw: unknown): Promise<StaffUndoResult> {
   if (!parsed.success) return { ok: false, reason: "invalid" };
   const { sessionId, batch } = parsed.data;
 
-  const table = await sendableTable(sessionId);
+  // The session decides the undo's RPC, never the switch: a send inside its grace always comes back.
+  const table = await sendableTable(sessionId, undoRoute);
   if (!table.ok) return table;
 
-  const { data: unfired, error } = await serviceClient().rpc("mms_undo_fire", {
-    p_cart_id: table.cart.id,
-    p_batch: batch,
-  });
+  const db = serviceClient();
+  const { data: unfired, error } =
+    table.route.rpc === "counter"
+      ? await db.rpc("mms_undo_counter_fire", { p_cart_id: table.cart.id, p_batch: batch })
+      : await db.rpc("mms_undo_fire", {
+          p_cart_id: table.cart.id,
+          p_batch: batch,
+        });
   if (error) {
-    console.error("[staff-send] mms_undo_fire failed", { sessionId, message: error.message });
+    console.error("[staff-send] undo failed", {
+      sessionId,
+      route: table.route.rpc,
+      message: error.message,
+    });
     return { ok: false, reason: "failed" };
   }
   if (!unfired) return { ok: false, reason: await undoMissReason(table.cart.id, batch) };

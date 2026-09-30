@@ -1,3 +1,5 @@
+import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
+
 /**
  * A4·2 · K30 (B) — the takeaway lane's two PURE rules, in `lib/` where a value can falsify them.
  *
@@ -149,4 +151,37 @@ export function toastPick(
  */
 export function isScanGoBasket(lines: readonly { fulfillment: string }[]): boolean {
   return lines.every((l) => l.fulfillment === "grocery");
+}
+
+// ── Phase 2f · P2v — the lane's one order, paid and unpaid ──
+/** One card on the lane: a paid bag (`qr_orders`) or an unpaid counter bag (an open cart whose food
+ *  the kitchen has). */
+export type LaneRow = { kind: "paid"; t: ExpoTicket } | { kind: "unpaid"; b: ExpoUnpaidBag };
+
+/** An unpaid bag's place in the ONE comparator: it has no guest stamp and no slot (a counter order
+ *  is at the counter by definition), its kitchen state, and it is due from when it was SENT. */
+function laneKey(r: LaneRow): ExpoOrderKey {
+  if (r.kind === "paid") return r.t;
+  return {
+    orderId: r.b.cartId,
+    arrivedAt: null,
+    pickupSlot: null,
+    createdAt: r.b.sentAt,
+    kitchen: r.b.kitchen,
+  };
+}
+const byLane = (a: LaneRow, b: LaneRow) => compareExpoTickets(laneKey(a), laneKey(b));
+
+/**
+ * The lane's rows: paid and unpaid bags interleaved by `compareExpoTickets` — a waiting guest, then
+ * a finished bag, then the due time — so a cooked unpaid bag is never sunk beneath bags still
+ * cooking (it can be handed over the moment it is paid).
+ */
+export function laneRows(
+  tickets: readonly ExpoTicket[],
+  unpaid: readonly ExpoUnpaidBag[],
+): LaneRow[] {
+  const paid: LaneRow[] = tickets.map((t) => ({ kind: "paid", t }));
+  const bags: LaneRow[] = unpaid.map((b) => ({ kind: "unpaid", b }));
+  return [...paid, ...bags].sort(byLane);
 }

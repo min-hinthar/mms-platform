@@ -2,13 +2,15 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { voidLineInput } from "@mms/db/schemas";
+import { counterNoShowInput, voidLineInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
 import { touchCart } from "./order-lines";
 import { getPostHogClient } from "./posthog-server";
+import { openCartFor } from "./staff-open-cart";
+import { isCounterOrder, noShowOutcome } from "./counter-order";
 
 /**
  * Loss-gated voids/comps (S2.3) — the ORDER-MODEL "server-initiated + manager step-up, gated by loss".
@@ -180,4 +182,111 @@ export async function voidLine(raw: unknown): Promise<VoidLineResult> {
     });
   }
   return { ok: true, action };
+}
+
+// ── Phase 2f · P2v — a counter order's no-show (owner decision 7b) ──────────────────────────────
+
+/** Every answer the no-show can give — CODES; the sheet maps each one to words (never a sentence). */
+export type RecordCounterNoShowResult =
+  | { ok: true }
+  | { ok: false; reason: "needs_pin" }
+  | { ok: false; reason: "pin_wrong"; attemptsRemaining: number }
+  | { ok: false; reason: "pin_locked"; lockedUntil: string }
+  | {
+      ok: false;
+      reason:
+        | "pin_no_pin"
+        | "bad_approver"
+        | "step_up_rate_limited"
+        | "not_open"
+        | "not_counter"
+        | "in_flight"
+        | "nothing_sent"
+        | "outage"
+        | "error";
+    };
+
+/**
+ * "They didn't come — void the order": a COUNTER order whose food went to the kitchen before it was
+ * paid, and whose guest never collected it. `mms_counter_no_show` writes off ONLY the SENT food (past
+ * its grace, not grocery, not comped) through the loss gate `mms_void_line` applies to one line — a
+ * manager when anything sent was started or served, or its value is over the loss ceiling — records
+ * one approved `no_show` row per sent line, returns in-grace lines to draft, cancels the cart and
+ * closes the session. It never charges and never refunds; drafts and grocery are dropped with no row.
+ *
+ * Two-pass like `voidLine`: the first tap is SOLO; `needs_pin` asks for a manager + PIN, verified here
+ * (lockout-counted, after the step-up's own refusals) BEFORE the RPC, which re-checks the approver's
+ * role and self-approval in SQL. The client never asserts a line, an amount or whether a manager is
+ * needed. Server Actions are public POSTs: gated on the staff session first, written through the
+ * service-role RPC only.
+ */
+export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNoShowResult> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "error" };
+  const initiator = auth.caller;
+  const parsed = counterNoShowInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, reason: "error" };
+  const { sessionId, approverStaffId, pin } = parsed.data;
+
+  const found = await openCartFor(sessionId);
+  if (found.unavailable) return { ok: false, reason: "outage" };
+  if (!found.session || !found.cart) return { ok: false, reason: "not_open" };
+  if (!isCounterOrder({ mode: found.session.mode, qrCode: found.session.qr_code }))
+    return { ok: false, reason: "not_counter" };
+  // The SQL refuses a fresh freeze too; this answers the honest reason before a PIN is spent.
+  if (await paymentInFlightReason(found.cart)) return { ok: false, reason: "in_flight" };
+
+  let verifiedApprover: string | undefined;
+  if (approverStaffId && pin) {
+    const allowed = await approverStepUpAllowed(approverStaffId, initiator.staffId);
+    if (allowed !== "ok") return { ok: false, reason: allowed };
+    const check = await verifyStaffPin(approverStaffId, pin);
+    if (check.status === "wrong")
+      return { ok: false, reason: "pin_wrong", attemptsRemaining: check.attemptsRemaining };
+    if (check.status === "locked")
+      return { ok: false, reason: "pin_locked", lockedUntil: check.lockedUntil };
+    if (check.status === "no_pin") return { ok: false, reason: "pin_no_pin" };
+    if (check.status !== "ok") return { ok: false, reason: "error" };
+    verifiedApprover = approverStaffId;
+  }
+
+  const { data: status, error } = await serviceClient().rpc("mms_counter_no_show", {
+    p_cart_id: found.cart.id,
+    p_initiator: initiator.staffId,
+    p_approver: verifiedApprover,
+  });
+  if (error) {
+    console.error("[voids] mms_counter_no_show failed", { sessionId, message: error.message });
+    return { ok: false, reason: "error" };
+  }
+  const reason = noShowOutcome(status);
+  if (reason !== "ok") return { ok: false, reason };
+
+  await touchCart(found.cart.id, "recordCounterNoShow");
+  revalidatePath("/staff");
+  revalidatePath(`/staff/table/${sessionId}`);
+  revalidatePath("/staff/kitchen");
+
+  if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+    after(async () => {
+      try {
+        const ph = getPostHogClient();
+        // Non-PII: the role and whether a manager approved. The durable record is mms_approvals.
+        ph.capture({
+          distinctId: `staff:${initiator.staffId}`,
+          event: "counter_no_show",
+          properties: {
+            role: initiator.role,
+            sessionId,
+            manager_approved: verifiedApprover !== undefined,
+          },
+        });
+        await ph.flush();
+      } catch {
+        /* analytics best-effort — never fail an audited write-off on a capture error */
+      }
+    });
+  }
+  return { ok: true };
 }

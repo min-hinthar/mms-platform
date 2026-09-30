@@ -15,6 +15,16 @@ import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
 import { staffSendCounts } from "./staff-send-view";
+// ── Phase 2f · P2v ──
+import {
+  counterArmOf,
+  counterClearRefusal,
+  counterSent,
+  counterSentLine,
+  isCounterOrder,
+  mergeCounterRefusal,
+} from "./counter-order";
+import { surfaceOpen } from "./surfaces";
 // ── Phase 2d · floor ──
 import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
@@ -25,6 +35,7 @@ import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import type {
   ClearTableResult,
+  CounterFloorRow,
   FloorPoll,
   FloorStatus,
   FloorTable,
@@ -176,6 +187,26 @@ export async function getFloorView(): Promise<FloorPoll> {
       message: nowRes.error.message,
     });
   const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
+  // Phase 2f · P2v — a register row whose food reached the kitchen (past its grace, on the DB clock)
+  // is flagged Unpaid, and carries the SAME kitchen row the tables fold (mode pickup: a walk-up's
+  // drafts are pay-first, never "owed" — so its "not sent" is 0). A kiosk row never cooks unpaid.
+  const counterNowMs = Number.isFinite(Date.parse(serverNow))
+    ? Date.parse(serverNow)
+    : Date.parse(nowIso);
+  const counterRows: CounterFloorRow[] = counter.rows.map((r) => {
+    const ls = counter.lines.get(r.sessionId) ?? [];
+    return {
+      ...r,
+      unpaidSent: r.source === "register" && counterSent(ls, counterNowMs),
+      kitchen:
+        r.source === "register"
+          ? foldFloorKitchen(
+              ls.map((l) => ({ ...l, onOpenCart: true })),
+              { mode: "pickup", hostPresent: false, nowMs: counterNowMs },
+            )
+          : null,
+    };
+  });
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
@@ -187,7 +218,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       ok: true,
       snapshot: {
         tables: [],
-        counter: counter.rows,
+        counter: counterRows,
         counterTruncated: counter.truncated,
         serverNow,
         registry,
@@ -490,7 +521,7 @@ export async function getFloorView(): Promise<FloorPoll> {
     ok: true,
     snapshot: {
       tables,
-      counter: counter.rows,
+      counter: counterRows,
       counterTruncated: counter.truncated,
       serverNow,
       registry,
@@ -530,12 +561,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   if (session.status === "closed")
     return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
 
-  const [membersRes, cartRes, paidRes, tabConfigRes] = await Promise.all([
+  // Phase 2f · P2v — THE counter-order predicate, once; its "sent" is measured on the DB clock.
+  const counterOrder = isCounterOrder({ mode: session.mode, qrCode: session.qr_code });
+  const [membersRes, cartRes, paidRes, tabConfigRes, clockRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
       .select(
-        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",
+        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code,customer_name,counter_arm",
       )
       .eq("session_id", sessionId)
       .eq("status", "open")
@@ -562,6 +595,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       .from("mms_tab_config")
       .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
       .maybeSingle(),
+    counterOrder ? db.rpc("mms_now") : Promise.resolve({ data: null, error: null }),
   ]);
   // Party/cart/paid feed the order view — an error misstates the table (an empty party, a "settled"
   // read over an open cart), so it's an outage. Tab config alone falls back (advisory, safe default).
@@ -573,6 +607,19 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   const settledOrders = paidRes.data ?? [];
   const paid = settledOrders[0] ?? null;
   const tabConfig = tabConfigRes.data;
+  // Phase 2f — the DB clock on a counter order. ADVISORY: it only decides what the page SAYS (the
+  // Unpaid flag, the no-show's count); every write re-decides in SQL on its own `now()`. An
+  // unreadable clock is logged and falls back to the process clock rather than failing the page.
+  let dbNowMs = Date.now();
+  if (counterOrder) {
+    const parsed = typeof clockRes.data === "string" ? Date.parse(clockRes.data) : Number.NaN;
+    if (clockRes.error || !Number.isFinite(parsed))
+      console.error("[floor] getTableDetail mms_now failed — Unpaid is timed on the app clock", {
+        message: clockRes.error?.message,
+      });
+    else dbNowMs = parsed;
+  }
+  let sentLineIds: string[] = [];
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -591,7 +638,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select(
-        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids",
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids,fire_at",
       )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
@@ -683,8 +730,26 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
         fulfillment: i.fulfillment,
         qty: i.qty,
         by_seat: i.by_seat,
+        fire_at: i.fire_at,
+        comped: i.comped ?? false,
       })),
+      dbNowMs,
     );
+    // Phase 2f — exactly the set `mms_counter_no_show` writes off (the no-show sheet's count).
+    if (counterOrder)
+      sentLineIds = (items ?? [])
+        .filter((i) =>
+          counterSentLine(
+            {
+              state: i.state ?? "draft",
+              fulfillment: i.fulfillment,
+              fire_at: i.fire_at,
+              comped: i.comped ?? false,
+            },
+            dbNowMs,
+          ),
+        )
+        .map((i) => i.id);
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
     const chargeable = lines.filter((l) => l.state !== "voided" && !l.comped);
@@ -816,6 +881,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       nudgeSecure = "age";
   }
 
+  // Phase 2f — ONE binding for "this counter order has food in the kitchen, unpaid".
+  const unpaidSent = counterOrder && cart != null && send.counterSentPastGrace;
   const detail: TableDetail = {
     sessionId: session.id,
     // K33 — read the settled order's lines, so the surface says "Ordered" and never offers an editor.
@@ -873,7 +940,15 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // Phase 2a · send — create-intent's binding for "someone at the table can send".
     hostPresent: session.host_seat != null,
     send,
-    serverNow: nowIso,
+    serverNow: counterOrder ? new Date(dbNowMs).toISOString() : nowIso,
+    // ── Phase 2f · P2v ──
+    counterOrder,
+    counterArm: counterOrder && cart ? counterArmOf(cart.counter_arm) : null,
+    customerName: cart?.customer_name ?? null,
+    unpaidSent,
+    sentLineIds,
+    payAtPickup: surfaceOpen("payAtPickup"),
+    mergeable: cart != null && !(counterOrder && unpaidSent),
   };
   return { kind: "detail", detail };
 }
@@ -899,7 +974,7 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode")
+    .select("id,status,mode,qr_code")
     .eq("id", sessionId)
     .maybeSingle();
   // W10b — an unread session is not "no such table" (a phantom-table verdict mid-outage); and an
@@ -928,6 +1003,32 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   // fall through to the clear. (Its sentence stays the split one: the read could not rule it out.)
   if (inFlight)
     return { ok: false, error: "This table has a split payment in progress — settle it first." };
+
+  // Phase 2f · P2v — a counter order whose food reached the kitchen is NOT cleared: a cancel would
+  // write off cooked food with no audit row. "They didn't come" (the loss-gated no-show,
+  // `recordCounterNoShow`) is that order's exit. Fails CLOSED on an unreadable check (it guards a
+  // write-off path). "Sent" is measured on the DB clock. Residual, stated: a line crossing its grace
+  // between this read and the cancel below lands on a cancelled cart the KDS never reads
+  // (milliseconds wide). A table's fired lines still clear, as before.
+  if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code }) && cart) {
+    const [counterLines, clock] = await Promise.all([
+      db.from("qr_cart_items").select("state,fire_at,fulfillment,comped").eq("cart_id", cart.id),
+      db.rpc("mms_now"),
+    ]);
+    if (counterLines.error || clock.error) return { ok: false, error: STAFF_WRITE_OUTAGE };
+    const refusal = counterClearRefusal({
+      counterOrder: true,
+      lines: counterLines.data ?? [],
+      nowMs: Date.parse(clock.data as string),
+    });
+    if (refusal === "sent")
+      return {
+        ok: false,
+        error:
+          "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
+        code: "sent",
+      };
+  }
 
   // Cancel the open cart FIRST, then close the session: each is a status flip the diner-side guards
   // already honor (a cancelled cart + a closed session both fail is_member / the mutation guards), so a
@@ -1125,6 +1226,36 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
   if (!tgt.cart) return { ok: false, error: "The table you picked has no open order." };
   if (src.session.mode !== tgt.session.mode)
     return { ok: false, error: "Only tables of the same kind can be merged." };
+
+  // Phase 2f · P2v — never INTO a counter order, and never a counter order whose food reached the
+  // kitchen (its Unpaid flag would silently become another order's bill). A counter order that sent
+  // nothing merges as before. TS-only (the SQL half is filed beside M109); the source's "sent" is
+  // measured on the DB clock, and an unreadable check refuses.
+  const srcCounter = isCounterOrder({ mode: src.session.mode, qrCode: src.session.qr_code });
+  const tgtCounter = isCounterOrder({ mode: tgt.session.mode, qrCode: tgt.session.qr_code });
+  if (srcCounter || tgtCounter) {
+    const [srcLines, clock] = await Promise.all([
+      db
+        .from("qr_cart_items")
+        .select("state,fire_at,fulfillment,comped")
+        .eq("cart_id", src.cart.id),
+      db.rpc("mms_now"),
+    ]);
+    if (srcLines.error || clock.error) return { ok: false, error: STAFF_WRITE_OUTAGE };
+    const mergeRefusal = mergeCounterRefusal({
+      src: { counterOrder: srcCounter, lines: srcLines.data ?? [] },
+      tgt: { counterOrder: tgtCounter },
+      nowMs: Date.parse(clock.data as string),
+    });
+    if (mergeRefusal)
+      return {
+        ok: false,
+        error:
+          mergeRefusal === "target"
+            ? "You can’t merge into a counter order."
+            : "A counter order that’s in the kitchen can’t be merged.",
+      };
+  }
 
   // A promo code lives on the CART (qr_carts.promo_code), and the discount/tax are re-derived per cart at
   // settle (lib/totals.ts → mms_promo_discount). Merging moves the lines but can't carry a promo cleanly

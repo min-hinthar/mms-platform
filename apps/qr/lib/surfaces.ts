@@ -41,11 +41,21 @@
  * `settle_at`, so a stale-ours row the counter takes between the two statements captures every
  * share under a foreign fresh freeze — the re-claim must be atomic and the capture must refuse
  * any other owner.
+ *
+ * Phase 2f · P2v — `payAtPickup` is the fourth door, and it is OPEN (owner decisions 1 + 7): staff
+ * may Send a counter (`reg-`) order to the kitchen before it is paid. DRAWN in `getTableDetail`
+ * (`detail.payAtPickup` — the table page and the order pad offer the counter Send only while it is
+ * true); ANSWERED in `sendRoute` (lib/staff-send-view.ts), which `staffFireCart` calls with this
+ * constant, so a parked door refuses the server action too. Parking it stops NEW counter sends and
+ * nothing else: food already in the kitchen keeps its Unpaid flag on the ticket, the lane and the
+ * floor, the undo of a send in its grace still answers, and a no-show still writes it off — those
+ * read the DATA, never this switch.
  */
 export const SURFACES = {
   selfServeSplit: false,
   cardOnFileTabs: false,
   kiosk: false,
+  payAtPickup: true,
 } as const;
 
 export type Surface = keyof typeof SURFACES;

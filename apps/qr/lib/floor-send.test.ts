@@ -202,6 +202,8 @@ describe("getTableDetail — the Send's one count", () => {
       togoDraft: 1,
       inKitchen: true,
       foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
     });
     // The column the count rests on is actually READ.
     expect(lastItemsSelect.split(",")).toContain("fulfillment");

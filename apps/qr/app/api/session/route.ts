@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
-import { generateJoinCode, isReservedSessionCode } from "@/lib/session-code";
+import { generateJoinCode, isReservedSessionCode, sweepsExpiredSquatter } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
 import { isTransportFailure } from "@/lib/authz";
@@ -166,7 +166,9 @@ export async function POST(req: NextRequest) {
   // Trust note: only an ALREADY-expired session is swept (its legit diners are already locked out by
   // the expiry check), and whoever re-mints becomes host — the same "first scanner provisions" model
   // the sticker flow already trusts, not a new takeover vector against a live table.
-  if (!sess && resolvedQr && !joinOnly) {
+  // Phase 2f (D10) — never on a reserved code: a forged `?t=reg-…` must not close a counter order.
+  // (`resolvedQr &&` only narrows the type for the update below — the predicate already requires it.)
+  if (resolvedQr && sweepsExpiredSquatter({ found: sess !== null, code: resolvedQr, joinOnly })) {
     await db
       .from("table_sessions")
       .update({ status: "closed" })
