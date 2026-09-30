@@ -14293,3 +14293,16 @@ a.aisle-tile {
 .staff-split-pane.staff-split-pane-idle {
   border-inline-start: 0;
 }
+
+/* ── Phase 2f · pay at pickup ── */
+/* The counter Send's "Add a name →" link inside its no-name hint: a real 44px target (QA §A), ink not
+   a new colour, underlined so it reads as the way forward rather than more hint text. */
+.staff-send-name-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--tx);
+  font-weight: var(--fw-semibold);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}

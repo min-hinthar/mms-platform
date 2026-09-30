@@ -35,6 +35,7 @@ export function StaffSendButton({
   hold,
   hostName,
   bare = false,
+  nameHref,
 }: {
   lang: StaffLang;
   ctl: SendState;
@@ -48,6 +49,10 @@ export function StaffSendButton({
    *  is still in flight the order pad's Send reads "Send to kitchen" with no count. The table page
    *  never passes it. */
   bare?: boolean;
+  /** ── Phase 2f · pay at pickup ── where a counter order's name is added (the table page: the order
+   *  pad's name field). Set, the no-name hint ends with an "Add a name →" link (`#send-name-link`,
+   *  which the host focuses on a blocked tap); unset (the pad), the pad focuses its own field. */
+  nameHref?: string;
 }) {
   const ids = useId();
   const { display, phase } = ctl;
@@ -63,6 +68,7 @@ export function StaffSendButton({
           <Icon
             name={v.kind === "allSent" ? "check" : v.kind === "togoAtPay" ? "bag" : "receipt"}
             size={18}
+            aria-hidden
           />
           <span>
             {v.kind === "allSent" ? (
@@ -75,7 +81,9 @@ export function StaffSendButton({
                 echo="stack"
               />
             ) : (
-              <Chrome lang={lang} k="table.send.counterAtPay" echo="stack" />
+              // Phase 2f — a counter order's food went to the kitchen UNPAID: the money is still to
+              // take at pickup (the view only says this past the grace — the kitchen really has it).
+              <Chrome lang={lang} k="table.send.counterSent" echo="stack" />
             )}
           </span>
         </div>
@@ -88,7 +96,9 @@ export function StaffSendButton({
   const view = display.kind === "send" ? display.view : null;
   // Hints describe the send; they vanish AT THE TAP (the thumb is on the control), never above it.
   const live = phase === "idle" && view !== null;
-  const blocked = live && view.blocked === "paying";
+  // Phase 2f — ANY view block (a payment in flight, a counter order with no name) is aria-disabled:
+  // the tap reaches the hook, which refuses it and tells the host (`onBlocked`).
+  const blocked = live && view.blocked !== null;
   const held = live && !blocked && hold !== null;
   const noteId = `${ids}-note`;
   const reasonId = `${ids}-why`;
@@ -96,7 +106,17 @@ export function StaffSendButton({
   // order pad also says when a refused Send is tapped; the table page renders exactly what it did.
   const refusal = live ? sendRefusalMsg(view, hold) : null;
   const reason = refusal ? (
-    <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
+    <>
+      <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
+      {view?.blocked === "noName" && nameHref && (
+        <>
+          {" "}
+          <a id="send-name-link" className="staff-send-name-link" href={nameHref}>
+            <Chrome lang={lang} k="table.send.addName" echo="stack" />
+          </a>
+        </>
+      )}
+    </>
   ) : null;
   const note =
     live && view.note === "host" ? (
@@ -114,6 +134,10 @@ export function StaffSendButton({
       />
     ) : live && view.note === "counterAsk" ? (
       <Chrome lang={lang} k="table.send.counterAskNote" vars={{ n: view.units }} echo="stack" />
+    ) : live && view.note === "payAtPickup" ? (
+      <Chrome lang={lang} k="table.send.payAtPickupNote" echo="stack" />
+    ) : live && view.note === "unpaidMore" ? (
+      <Chrome lang={lang} k="table.send.unpaidMoreNote" echo="stack" />
     ) : null;
   const describedBy = [reason ? reasonId : null, note ? noteId : null].filter(Boolean).join(" ");
 
@@ -154,6 +178,15 @@ export function StaffSendButton({
           </span>
         ) : view && bare ? (
           <Chrome lang={lang} k="table.send.cta.bare" echo="stack" />
+        ) : view?.counter ? (
+          // Phase 2f — a counter order's Send says what it does to the money: it cooks NOW and is
+          // paid at pickup (never the plain "Send to kitchen", which reads as the table's send).
+          <Chrome
+            lang={lang}
+            k={plural(view.units, "table.send.cta.counter.one", "table.send.cta.counter.many")}
+            vars={{ n: view.units }}
+            echo="stack"
+          />
         ) : view ? (
           <Chrome
             lang={lang}
