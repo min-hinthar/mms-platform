@@ -33,7 +33,7 @@
  * aborts the walk — so every visitor here is written `(c) => { visit(c); }`.
  */
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
@@ -1182,8 +1182,12 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 //        allowed; the control's own module is never counted as a host.
 //   4d — a staff page that reaches NO control has, in every live `<StaffBar>` its default export
 //        reaches, a wordless way UP: `leading` absent (the Screens circle), `{ kind: "screens" }` or
-//        `{ kind: "back", … }` in EVERY conditional arm. A computed or "here" leading — or no bar at
-//        all — is red.
+//        `{ kind: "back", … }` in EVERY conditional arm — and each one LANDS (P2e review): the
+//        Screens circle's target and every Back pill's `href` (and split-width `paneHref`) are
+//        evaluated to the staff page they open, which must reach a control by 4c's walk or lead up
+//        the same way to one that does, hop by hop, with no circle. A computed or "here" leading, a
+//        href the parse cannot settle, one that opens no staff page, a redirect-only page or a dead
+//        end — or no bar at all — is red.
 //   4e — each of the three exports is MOUNTED only by its own hosts (the pill by the four front
 //        doors, the rows by HelpButton, the card by the sign-in page), by import identity and from
 //        the host's rendering export. Added after review: 4a–4d let a page with no Help door put
@@ -1200,7 +1204,8 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 // liveness against a PARKED DEAD COPY, not a reachability proof), so a page whose only mount sits
 // behind a runtime-false condition passes here; the doors view of `/staff`, which has no Help door,
 // is one such runtime branch — its way back is the More tile, pinned by `StaffDoors.test` and
-// `staff-more.test`. 4d proves a wordless way UP exists, not where it lands.
+// `staff-more.test`. 4d proves every way up LANDS on a page 4c counts as reaching a control (or on
+// one that leads up to such a page) — so it inherits exactly that limit, and no more.
 /**
  * A4·2 — a page that only REDIRECTS has no reader. `/staff/register` and `/staff/expo` stay as
  * routes so a tablet's bookmark lands on the counter's one screen instead of a 404, and their
@@ -1619,16 +1624,22 @@ const isBar = (imp) => imp.module === BAR_MODULE && imp.name === "StaffBar";
  * `"back"`, or a conditional whose EVERY arm is one. Refused, each named: a spread on the bar (it
  * may carry `leading`), a spread inside the object (it may carry `kind`), an identifier or call (a
  * computed value this parse cannot settle), and `"here"` (a static mark that leads nowhere).
+ *
+ * Returns `{ why }` for a refused shape, or `{ ups }` — one entry per arm, each the way up it takes:
+ * `{ screens: true }` for the circle, or `{ href, paneHref }` (the object's own EXPRESSIONS) for a
+ * Back pill, so `wayUpVerdict` can ask where each one LANDS.
  */
 function leadingVerdict(el, sf) {
   const opening = ts.isJsxElement(el) ? el.openingElement : el;
   const props = opening.attributes.properties;
   if (props.some((a) => ts.isJsxSpreadAttribute(a)))
-    return "a spread on the bar may carry `leading`";
+    return { why: "a spread on the bar may carry `leading`" };
   const attr = props.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "leading");
-  if (!attr) return null;
+  if (!attr) return { ups: [{ screens: true }] };
   const init = attr.initializer;
-  if (!init || !ts.isJsxExpression(init) || !init.expression) return "`leading` has no expression";
+  if (!init || !ts.isJsxExpression(init) || !init.expression)
+    return { why: "`leading` has no expression" };
+  const ups = [];
   const arm = (e) => {
     while (ts.isParenthesizedExpression(e)) e = e.expression;
     if (ts.isConditionalExpression(e)) return arm(e.whenTrue) ?? arm(e.whenFalse);
@@ -1636,14 +1647,343 @@ function leadingVerdict(el, sf) {
       return `a computed \`leading\` (${e.getText(sf).slice(0, 40)}) — this parse cannot settle it`;
     if (e.properties.some((p) => ts.isSpreadAssignment(p)))
       return "a spread inside `leading` may carry `kind`";
-    const kind = e.properties.find(
-      (p) => ts.isPropertyAssignment(p) && p.name.getText(sf).replace(/["']/g, "") === "kind",
-    );
-    if (!kind || !ts.isStringLiteral(kind.initializer)) return "`leading` without a literal `kind`";
+    const prop = (name) =>
+      e.properties.find(
+        (p) =>
+          (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+          p.name.getText(sf).replace(/["']/g, "") === name,
+      );
+    const kind = prop("kind");
+    if (!kind || !ts.isPropertyAssignment(kind) || !ts.isStringLiteral(kind.initializer))
+      return "`leading` without a literal `kind`";
     const k = kind.initializer.text;
-    return k === "screens" || k === "back" ? null : `a \`${k}\` leading leads nowhere`;
+    if (k === "screens") {
+      ups.push({ screens: true });
+      return null;
+    }
+    if (k !== "back") return `a \`${k}\` leading leads nowhere`;
+    const valueOf = (p) =>
+      p ? (ts.isShorthandPropertyAssignment(p) ? p.name : p.initializer) : null;
+    const href = valueOf(prop("href"));
+    if (!href) return "a Back pill with no `href`";
+    ups.push({ href, paneHref: valueOf(prop("paneHref")) });
+    return null;
   };
-  return arm(init.expression);
+  const why = arm(init.expression);
+  return why ? { why } : { ups };
+}
+
+// ── 4d's resolution — where a way up LANDS ─────────────────────────────────────────────────────
+// ⚠️ ADDED AFTER REVIEW, AND THE FIRST CUT IS WHY. 4d accepted ANY `{ kind: "back", … }` whatever
+// its `href`, while `app/staff/layout.tsx` told the reader 4d proved "a wordless way up to [a page]
+// that does" reach a control. A Back pill pointing at `/staff/nowhere` passed (put on disk and
+// watched green). So each way up is now RESOLVED to the page it lands on, and that page must reach a
+// control itself, or lead up the same way to one that does — every arm, every hop, no cycle.
+//
+// The href is EVALUATED, never matched: a string literal; a template whose runtime substitutions
+// become a whole DYNAMIC segment (`/staff/table/${id}` → `table/[id]`); a `const` or an imported
+// `const` object's property (`STAFF_DOOR_TARGET.counter`); a conditional (both arms); and a call to
+// a function — local or imported — whose body is ONE `return` (`paneUrl(id)`), its parameters
+// runtime values. Anything else is a computed href this parse cannot settle, and is refused. The
+// path is what precedes the first `?` or `#`; it maps onto `app/**/page.tsx` the way the router
+// does (a literal segment, or a `[param]` directory; static beats dynamic; route groups are
+// invisible), and it must land on a staff page. The Screens circle's own target is read out of
+// `StaffBar` (the `href` on its `leading.kind === "screens"` link), never restated here.
+//
+// ⚠️ STATED LIMITS: a page "reaches a control" by 4c's module walk — a presence check, not a
+// runtime proof — so the `/staff` doors view, whose control is the More tile rather than Help, is
+// held by `StaffDoors.test` / `staff-more.test`, as before. A runtime value spliced INSIDE a segment
+// (`/staff/t-${n}`) or a catch-all route is refused rather than matched. A redirect-only page is not
+// followed: a way up must point at where the redirect lands.
+const DYN = "\u0000";
+const MAX_VARIANTS = 16;
+
+/** How a name is bound where `id` is read: innermost scope first, as the runtime resolves it. */
+function bindingOf(id) {
+  const name = id.text;
+  for (let n = id.parent; n; n = n.parent) {
+    if (ts.isFunctionLike(n) && n.parameters?.some((p) => bindsName(p.name, name)))
+      return { kind: "runtime" };
+    const stmts = n.statements;
+    if (!stmts) continue;
+    for (const st of stmts) {
+      if (ts.isFunctionDeclaration(st) && st.name?.text === name) return { kind: "fn", node: st };
+      if (ts.isVariableStatement(st))
+        for (const d of st.declarationList.declarations) {
+          if (!bindsName(d.name, name)) continue;
+          if (ts.isIdentifier(d.name) && d.initializer)
+            return { kind: "init", node: d.initializer };
+          return { kind: "runtime" }; // destructured, or declared without a value
+        }
+      if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+        const bindings = st.importClause?.namedBindings;
+        if (bindings && ts.isNamedImports(bindings))
+          for (const el of bindings.elements)
+            if (el.name.text === name) {
+              const module = resolveSpecifier(st.moduleSpecifier.text, n.fileName ?? "");
+              return module
+                ? { kind: "import", module, name: (el.propertyName ?? el.name).text }
+                : null;
+            }
+      }
+    }
+  }
+  return null;
+}
+
+/** The top-level declaration a module EXPORTS under `name`: a `const` initializer or a function. */
+function exportedDeclaration(module, name) {
+  let sf;
+  try {
+    sf = parse(module);
+  } catch {
+    return null;
+  }
+  for (const st of sf.statements) {
+    const exported = (ts.getModifiers(st) ?? []).some(
+      (m) => m.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!exported) continue;
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return { kind: "fn", node: st };
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
+          return { kind: "init", node: d.initializer };
+  }
+  return null;
+}
+
+/** Follow a binding to what it denotes: an expression to evaluate, a function, or a runtime value. */
+function denote(id) {
+  let b = bindingOf(id);
+  for (let hop = 0; b && b.kind === "import" && hop < 8; hop++)
+    b = exportedDeclaration(b.module, b.name);
+  return b && b.kind !== "import" ? b : null;
+}
+
+const unwrap = (e) => {
+  while (
+    ts.isParenthesizedExpression(e) ||
+    ts.isAsExpression(e) ||
+    ts.isSatisfiesExpression(e) ||
+    ts.isNonNullExpression(e) ||
+    ts.isTypeAssertionExpression(e)
+  )
+    e = e.expression;
+  return e;
+};
+
+/** The object literal an expression denotes (`STAFF_DOOR_TARGET`), or null. */
+function objectOf(e, depth = 0) {
+  e = unwrap(e);
+  if (depth > 8) return null;
+  if (ts.isObjectLiteralExpression(e)) return e;
+  if (!ts.isIdentifier(e)) return null;
+  const b = denote(e);
+  return b?.kind === "init" ? objectOf(b.node, depth + 1) : null;
+}
+
+/** The function body a callee denotes, when it is ONE returned expression — or null. */
+function returnedExpression(callee) {
+  if (!ts.isIdentifier(callee)) return null;
+  const b = denote(callee);
+  const fn = b?.kind === "fn" ? b.node : b?.kind === "init" ? unwrap(b.node) : null;
+  if (
+    !fn ||
+    !(ts.isFunctionDeclaration(fn) || ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+  )
+    return null;
+  if (fn.body && !ts.isBlock(fn.body)) return fn.body;
+  const stmts = fn.body?.statements ?? [];
+  return stmts.length === 1 && ts.isReturnStatement(stmts[0]) && stmts[0].expression
+    ? stmts[0].expression
+    : null;
+}
+
+/**
+ * Every string `e` can evaluate to, each runtime value spelled `DYN` — or null when the parse
+ * cannot settle it. A substitution inside a template that cannot be settled IS a runtime value;
+ * the same expression standing alone is refused (it could be any path at all).
+ */
+function stringsOf(e, depth = 0) {
+  e = unwrap(e);
+  if (depth > 12) return null;
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return [e.text];
+  if (ts.isTemplateExpression(e)) {
+    let acc = [e.head.text];
+    for (const span of e.templateSpans) {
+      const inner = stringsOf(span.expression, depth + 1) ?? [DYN];
+      acc = acc.flatMap((a) => inner.map((i) => a + i + span.literal.text));
+      if (acc.length > MAX_VARIANTS) return null;
+    }
+    return acc;
+  }
+  if (ts.isConditionalExpression(e)) {
+    const a = stringsOf(e.whenTrue, depth + 1);
+    const b = stringsOf(e.whenFalse, depth + 1);
+    return a && b ? [...new Set([...a, ...b])] : null;
+  }
+  if (ts.isIdentifier(e)) {
+    const b = denote(e);
+    if (b?.kind === "runtime") return [DYN];
+    return b?.kind === "init" ? stringsOf(b.node, depth + 1) : null;
+  }
+  if (ts.isPropertyAccessExpression(e)) {
+    const obj = objectOf(e.expression);
+    if (!obj) return null;
+    const p = obj.properties.find(
+      (x) => ts.isPropertyAssignment(x) && x.name.getText().replace(/["']/g, "") === e.name.text,
+    );
+    return p ? stringsOf(p.initializer, depth + 1) : null;
+  }
+  if (ts.isCallExpression(e)) {
+    const body = returnedExpression(e.expression);
+    return body ? stringsOf(body, depth + 1) : null;
+  }
+  return null;
+}
+
+/** `app/staff/table/[id]/page.tsx` → `["staff", "table", "[id]"]`, route groups dropped. */
+const routeOf = (page) =>
+  relative(APP, dirname(page))
+    .split(sep)
+    .filter((s) => s && !/^\(.*\)$/.test(s));
+const isDynamicSegment = (s) => /^\[[^.[\]]+\]$/.test(s);
+
+/**
+ * The page a resolved href lands on, among `pages` — or `{ why }`. The router's precedence: a
+ * static segment beats a dynamic one at the first place two candidates differ.
+ */
+function pageForHref(href, pages) {
+  const cut = href.search(/[?#]/);
+  const path = cut === -1 ? href : href.slice(0, cut);
+  const show = href.replaceAll(DYN, "${…}");
+  if (!path.startsWith("/")) return { why: `\`${show}\` is not a path the parse can settle` };
+  const segs = path.split("/").filter(Boolean);
+  if (segs.some((s) => s.includes(DYN) && s !== DYN))
+    return { why: `\`${show}\` splices a runtime value INSIDE a path segment` };
+  const fits = pages
+    .map((p) => ({ p, route: routeOf(p) }))
+    .filter(
+      ({ route }) =>
+        route.length === segs.length &&
+        route.every((r, i) => r === segs[i] || (isDynamicSegment(r) && segs[i] !== "")),
+    );
+  if (fits.length === 0) return { why: `\`${show}\` lands on no staff page` };
+  const rank = ({ route }) => route.map((r) => (isDynamicSegment(r) ? "0" : "1")).join("");
+  fits.sort((a, b) => (rank(a) < rank(b) ? 1 : rank(a) > rank(b) ? -1 : 0));
+  return { page: fits[0].p };
+}
+
+/** Where the Screens circle leads, read out of `StaffBar` — never restated. */
+function screensHref() {
+  let sf;
+  try {
+    sf = parse(BAR_MODULE);
+  } catch {
+    return null;
+  }
+  let found = null;
+  function visit(n) {
+    if (
+      !found &&
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      n.left.getText(sf).replace(/\s+/g, " ") === 'leading.kind === "screens"'
+    ) {
+      const find = (m) => {
+        if (
+          !found &&
+          ts.isJsxAttribute(m) &&
+          m.name.getText(sf) === "href" &&
+          m.initializer &&
+          ts.isStringLiteral(m.initializer)
+        )
+          found = m.initializer.text;
+        ts.forEachChild(m, (c) => {
+          find(c);
+        });
+      };
+      find(n.right);
+    }
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return found;
+}
+const SCREENS_HREF = screensHref();
+if (SCREENS_HREF === null)
+  failures.push(
+    'rule 4d: cannot find where the Screens circle leads — `StaffBar`\'s `leading.kind === "screens"` link lost its literal `href`, so no default way up can be resolved.',
+  );
+
+/**
+ * 4d's verdict for a page: null when it reaches a control (4c's walk) or EVERY way up on EVERY
+ * live bar lands on a page whose verdict is null — or the reason, naming the hop that fails.
+ * `hosts(page)` is the control test (injectable for the self-tests); `pages` the candidates.
+ */
+function wayUpVerdict(page, { hosts, pages, redirects, memo = new Map(), stack = [] }) {
+  if (memo.has(page)) return memo.get(page);
+  const rel = (f) => relative(ROOT, f);
+  if (stack.includes(page))
+    return `goes round in a circle (${[...stack, page].map(rel).join(" → ")}) without reaching a control`;
+  let verdict = null;
+  if (redirects.includes(page))
+    verdict = "is a redirect-only page — point the way up at where the redirect lands";
+  else if (!hosts(page)) {
+    const bars = exportWalk(page, "default", isBar);
+    if (bars.length === 0) verdict = "renders no live <StaffBar>, so nothing on it leads up";
+    for (const b of bars) {
+      if (verdict) break;
+      const at = b.node
+        ? `${rel(b.file)}:${b.sf.getLineAndCharacterOfPosition(b.node.getStart(b.sf)).line + 1}`
+        : rel(b.file);
+      if (!b.node) {
+        verdict = `has a bar at ${at} that is a re-export this parse cannot read`;
+        break;
+      }
+      const shape = leadingVerdict(b.node, b.sf);
+      if (shape.why) {
+        verdict = `has a bar at ${at} with no wordless way up — ${shape.why}`;
+        break;
+      }
+      for (const up of shape.ups) {
+        const exprs = up.screens ? [null] : [up.href, up.paneHref].filter(Boolean);
+        for (const e of exprs) {
+          const hrefs = e ? stringsOf(e) : SCREENS_HREF === null ? null : [SCREENS_HREF];
+          const text = e ? e.getText(b.sf).replace(/\s+/g, " ").slice(0, 60) : "the Screens circle";
+          if (!hrefs) {
+            verdict = `has a bar at ${at} leading up through \`${text}\`, a computed href this parse cannot settle`;
+            break;
+          }
+          for (const h of hrefs) {
+            const target = pageForHref(h, pages);
+            const next = target.why
+              ? target.why
+              : wayUpVerdict(target.page, {
+                  hosts,
+                  pages,
+                  redirects,
+                  memo,
+                  stack: [...stack, page],
+                });
+            if (next) {
+              verdict = target.why
+                ? `has a bar at ${at} leading up through \`${text}\`, which ${next.replace(/^`[^`]*` /, "")}`
+                : `has a bar at ${at} leading up (\`${text}\`) to ${rel(target.page)}, which ${next}`;
+              break;
+            }
+          }
+          if (verdict) break;
+        }
+        if (verdict) break;
+      }
+    }
+  }
+  memo.set(page, verdict);
+  return verdict;
 }
 
 // 4a — the bar mounts no control.
@@ -1814,7 +2154,14 @@ let hostMounts = 0;
   }
 }
 
-// 4c — at most one hosting module per page; 4d — a page with none has a wordless way up.
+// 4c — at most one hosting module per page; 4d — a page with none has a wordless way up that
+// LANDS, hop by hop, on a page that reaches a control.
+const WAY_UP = {
+  hosts: (page) => switchMounts(page).length > 0,
+  pages: allStaffPages,
+  redirects: redirectPages,
+  memo: new Map(),
+};
 let hostedPages = 0;
 let upPages = 0;
 for (const file of staffPages) {
@@ -1828,25 +2175,12 @@ for (const file of staffPages) {
     continue;
   }
   if (mounts.length > 1) continue;
-  const bars = exportWalk(file, "default", isBar);
-  if (bars.length === 0) {
+  const why = wayUpVerdict(file, WAY_UP);
+  if (why)
     failures.push(
-      `rule 4d: ${relative(ROOT, file)} reaches no language control AND renders no live <StaffBar>, so nothing on it leads anywhere a person could change the language.`,
+      `rule 4d: ${relative(ROOT, file)} reaches no language control, and ${why}. Lead with the Screens circle, or a Back pill whose href lands on a page that reaches a control.`,
     );
-    continue;
-  }
-  const bad = bars
-    .map((b) =>
-      b.node ? { b, why: leadingVerdict(b.node, b.sf) } : { b, why: "a re-exported bar" },
-    )
-    .filter((x) => x.why !== null);
-  for (const { b, why } of bad) {
-    const line = b.node ? b.sf.getLineAndCharacterOfPosition(b.node.getStart(b.sf)).line + 1 : 0;
-    failures.push(
-      `rule 4d: ${relative(ROOT, file)} reaches no language control, and its bar at ${relative(ROOT, b.file)}:${line} has no wordless way up — ${why}. Lead with the Screens circle or a Back pill.`,
-    );
-  }
-  if (bad.length === 0) upPages++;
+  else upPages++;
 }
 
 // ── Rule 3b — the ratchet only turns one way ─────────────────────────────────────────────────────
@@ -2523,7 +2857,7 @@ for (const c of SELF_TEST_CASES) {
       });
     };
     find(sf);
-    return leadingVerdict(el, sf);
+    return leadingVerdict(el, sf).why ?? null;
   };
   for (const [jsx, what] of [
     ['<StaffBar lang={lang} leading={{ kind: "here" }} />', "a here leading"],
@@ -2534,6 +2868,10 @@ for (const c of SELF_TEST_CASES) {
     ],
     ["<StaffBar {...p} lang={lang} />", "a spread on the bar"],
     ['<StaffBar lang={lang} leading={{ ...l, kind: "back" }} />', "a spread inside leading"],
+    [
+      '<StaffBar lang={lang} leading={{ kind: "back", k: "floor.back" }} />',
+      "a Back pill with no href",
+    ],
   ])
     if (verdictOf(jsx) === null) failures.push(`SELF-TEST: rule 4d accepts ${what}.`);
   for (const jsx of [
@@ -2541,7 +2879,114 @@ for (const c of SELF_TEST_CASES) {
     '<StaffBar lang={lang} leading={{ kind: "screens" }} />',
     '<StaffBar lang={lang} leading={on ? { kind: "back", href: "/a", k: "floor.back" } : { kind: "back", href: "/b", k: "floor.back" }} />',
   ])
-    if (verdictOf(jsx) !== null) failures.push(`SELF-TEST: rule 4d refuses \`${jsx}\`.`);
+    if (verdictOf(jsx) !== null) failures.push(`SELF-TEST: rule 4d refuses the shape \`${jsx}\`.`);
+
+  // WHERE IT LANDS (P2e review). In-memory pages under `app/staff/__selftest__/`, swapped in through
+  // PARSE_OVERRIDES so the whole resolution runs — the export-rooted bar walk, the href evaluation
+  // (real imports of `STAFF_DOOR_TARGET` and `paneUrl` included) and the page mapping. `host` and
+  // the real `/staff` count as reaching a control; everything else must lead up to one.
+  const ST = (p) => join(APP, `staff/__selftest__/${p}/page.tsx`);
+  const HOST = ST("host");
+  const DEAD = ST("dead");
+  const REDIR = ST("redir");
+  const A = ST("a");
+  const B = ST("b");
+  const T = ST("t/[id]");
+  const STAFF_HOME = join(APP, "staff/page.tsx");
+  const BAR = 'import { StaffBar } from "@/components/staff/StaffBar";\n';
+  const page = (leading, imports = "") =>
+    `${BAR}${imports}export default function P({ id, n }) {\n  return <StaffBar lang="en" title="floor.tips.title"${leading ? ` leading={${leading}}` : ""} />;\n}\n`;
+  const back = (href, more = "") => `{ kind: "back", href: ${href}, k: "floor.back"${more} }`;
+  const DOOR = 'import { STAFF_DOOR_TARGET } from "@/lib/staff-door";\n';
+  const PANE = 'import { paneUrl } from "@/lib/floor-pane";\n';
+  const probe4d = (files) => {
+    for (const [f, src] of files) PARSE_OVERRIDES.set(f, src);
+    try {
+      return wayUpVerdict(A, {
+        hosts: (p) => p === HOST || p === STAFF_HOME,
+        pages: [...new Set([...files.map(([f]) => f), HOST, REDIR, STAFF_HOME])],
+        redirects: [REDIR],
+        memo: new Map(),
+      });
+    } finally {
+      for (const [f] of files) PARSE_OVERRIDES.delete(f);
+    }
+  };
+  const fires = [
+    ["a Back pill to a path with no page", [[A, page(back('"/staff/__selftest__/nowhere"'))]]],
+    [
+      "a Back pill to a dead end",
+      [
+        [A, page(back('"/staff/__selftest__/dead"'))],
+        [DEAD, page('{ kind: "here" }')],
+      ],
+    ],
+    ["a Back pill off the staff console", [[A, page(back('"/board"'))]]],
+    ["a computed href", [[A, page(back("window.location.pathname"))]]],
+    [
+      "two pages that only lead to each other",
+      [
+        [A, page(back('"/staff/__selftest__/b"'))],
+        [B, page(back('"/staff/__selftest__/a"'))],
+      ],
+    ],
+    ["a Back pill to a redirect-only page", [[A, page(back('"/staff/__selftest__/redir"'))]]],
+    [
+      "a Back pill whose split-width paneHref dead-ends",
+      [
+        [A, page(back('"/staff/__selftest__/host"', ', paneHref: "/staff/__selftest__/dead"'))],
+        [DEAD, page('{ kind: "here" }')],
+      ],
+    ],
+    ["a runtime value inside a path segment", [[A, page(back("`/staff/__selftest__/t-${n}`"))]]],
+    [
+      "a dead end two hops up, through a dynamic segment",
+      [
+        [A, page(back("`/staff/__selftest__/t/${id}`"))],
+        [T, page(back('"/staff/__selftest__/dead"'))],
+        [DEAD, page('{ kind: "here" }')],
+      ],
+    ],
+    [
+      "a host's path hidden in the query string",
+      [[A, page(back('"/staff/__selftest__/nowhere?next=/staff/__selftest__/host"'))]],
+    ],
+    [
+      "one arm of a conditional href dead-ending",
+      [
+        [A, page(back('n ? "/staff/__selftest__/host" : "/staff/__selftest__/dead"'))],
+        [DEAD, page('{ kind: "here" }')],
+      ],
+    ],
+  ];
+  for (const [what, files] of fires)
+    if (probe4d(files) === null) failures.push(`SELF-TEST: rule 4d accepts ${what}.`);
+  const misses = [
+    [
+      "a Back pill to a page that reaches a control",
+      [[A, page(back('"/staff/__selftest__/host"'))]],
+    ],
+    [
+      "a Back pill up a dynamic segment to a page that leads up in turn",
+      [
+        [A, page(back("`/staff/__selftest__/t/${id}`"))],
+        [T, page(back('"/staff/__selftest__/host"'))],
+      ],
+    ],
+    [
+      "an imported door target (`STAFF_DOOR_TARGET.counter`)",
+      [[A, page(back("STAFF_DOOR_TARGET.counter"), DOOR)]],
+    ],
+    [
+      "a split-width paneHref through an imported one-return function (`paneUrl`)",
+      [[A, page(back("STAFF_DOOR_TARGET.counter", ", paneHref: paneUrl(id)"), `${DOOR}${PANE}`)]],
+    ],
+    ["the default Screens circle", [[A, page(null)]]],
+  ];
+  for (const [what, files] of misses) {
+    const why = probe4d(files);
+    if (why !== null) failures.push(`SELF-TEST: rule 4d refuses ${what} (${why}).`);
+  }
 }
 
 // Rule 4's evidence test is a boolean rather than a finding list, so it gets its own pair — and the
