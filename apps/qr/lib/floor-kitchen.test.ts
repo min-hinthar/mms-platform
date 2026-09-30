@@ -125,6 +125,62 @@ describe("foldFloorKitchen — what the floor may say about the kitchen", () => 
   });
 });
 
+describe("foldFloorKitchen — a COUNTER order's card (Phase 2f review PT1 · M2)", () => {
+  const counter = (rows: FloorKitchenRow[]) =>
+    foldFloorKitchen(rows, { mode: "pickup", hostPresent: false, nowMs: NOW });
+
+  it("drafts left on an order whose food reached the kitchen are 'not sent' — never 'Kitchen done'", () => {
+    // p2f-rev-lib/floor-kitchen/counter-drafts-unsaid — every sent dish is served and two more wait
+    // as drafts: the card said "Unpaid · Kitchen done" over an order still owing a Send.
+    const k = counter([
+      row({
+        state: "served",
+        fulfillment: "togo",
+        fire_at: at(-20 * MIN),
+        bumped_at: at(-15 * MIN),
+      }),
+      row({ state: "draft", fulfillment: "togo", fire_at: null, qty: 2 }),
+    ]);
+    expect(k?.notSent).toBe(2);
+    expect(kitchenSegments(k)).toEqual([{ k: "floor.kitchen.notSent", n: 2 }]);
+  });
+
+  it("a counter order with drafts only (a walk-up paying first) says nothing — its drafts are not owed", () => {
+    expect(
+      counter([row({ state: "draft", fulfillment: "togo", fire_at: null, qty: 2 })]),
+    ).toBeNull();
+    // a send still inside its grace has not reached the kitchen either — nothing is owed yet
+    expect(
+      counter([
+        row({ state: "fired", fulfillment: "togo", fire_at: at(4_000) }),
+        row({ state: "draft", fulfillment: "togo", fire_at: null }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("the grace and 'sent' are measured on the DB clock the context carries, not the process clock", () => {
+    // p2f-rev-lib/floor-kitchen/send-counts-on-the-app-clock — the DB clock (NOW) sits behind the
+    // process clock here, so a send a minute AHEAD of it is still in its grace on the DB clock and
+    // already "sent" on the process clock: only the context's clock keeps its drafts unowed.
+    expect(Date.now()).toBeGreaterThan(NOW + 10 * MIN);
+    const k = foldFloorKitchen(
+      [
+        row({ state: "fired", fulfillment: "togo", fire_at: at(MIN) }),
+        row({ state: "draft", fulfillment: "togo", fire_at: null }),
+      ],
+      { mode: "pickup", hostPresent: false, nowMs: NOW },
+    );
+    expect(k).toBeNull();
+  });
+
+  it("a cooking line with NO fire_at was fired at or before now — it is in the kitchen (M2)", () => {
+    // p2f-rev-lib/floor-kitchen/null-fire-at-skipped
+    const k = counter([row({ state: "fired", fulfillment: "togo", fire_at: null })]);
+    expect(k?.inKitchen).toBe(1);
+    expect(k?.oldestFireAt).toBe(at(0));
+  });
+});
+
 describe("kitchenSegments — the row's words, in visible order", () => {
   it("names every non-zero count in order: not sent · in kitchen · ready", () => {
     expect(

@@ -85,10 +85,28 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
+// Cross-area decision (Phase 2f review): `counterNoShowInput` gains `expectedLineIds` — the SENT
+// line ids the sheet showed the approver (uuid[], max 200). The schema is the db area's; until it
+// lands this suite states it (resolves at integration — drop this mock once the real one carries it).
+vi.mock("@mms/db/schemas", async (orig) => {
+  const real = await orig<typeof import("@mms/db/schemas")>();
+  const uuid = real.counterNoShowInput.shape.sessionId;
+  return {
+    ...real,
+    counterNoShowInput: real.counterNoShowInput.extend({
+      expectedLineIds: uuid.array().max(200),
+    }),
+  };
+});
+
 const { recordCounterNoShow } = await import("./voids");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const MANAGER = "22222222-2222-4222-8222-222222222222";
+const LINE_A = "33333333-3333-4333-8333-333333333333";
+const LINE_B = "44444444-4444-4444-8444-444444444444";
+/** What the sheet showed: the order's sent lines. */
+const SAW = [LINE_A, LINE_B];
 
 beforeEach(() => {
   h.auth = { kind: "staff", caller: { uid: "u-1", staffId: "st-1", role: "server" } };
@@ -117,12 +135,12 @@ beforeEach(() => {
 describe("recordCounterNoShow — refusals, in the action's order", () => {
   it("an unreachable gate is an outage; no staff session is an error — no read, no RPC", async () => {
     h.auth = { kind: "unavailable" };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "outage",
     });
     h.auth = { kind: "anon" };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "error",
     });
@@ -130,20 +148,30 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
   });
 
   it("a malformed input is an error", async () => {
-    expect(await recordCounterNoShow({ sessionId: "nope" })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: "nope", expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "error",
     });
   });
 
+  it("no record of what the approver saw is an error — no read, no RPC (the cross-area decision)", async () => {
+    // A write-off approved against NOTHING shown is the hole the review found: the approver's PIN
+    // must be tied to the food it is writing off.
+    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "error",
+    });
+    expect(h.calls).toEqual([]);
+  });
+
   it("an unread order is an outage; a closed one (or no open cart) is not_open", async () => {
     h.open = { session: null, cart: null, unavailable: true };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "outage",
     });
     h.open = { session: null, cart: null, unavailable: false };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "not_open",
     });
@@ -153,12 +181,12 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
   it("a table (or a kiosk order) is not_counter — before any payment check or RPC", async () => {
     // no-show-counter-check-dropped
     h.open.session = { ...h.open.session!, mode: "dinein", qr_code: "t-7" };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "not_counter",
     });
     h.open.session = { ...h.open.session!, mode: "pickup", qr_code: "kiosk-ab12" };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "not_counter",
     });
@@ -168,7 +196,7 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
   it("a payment in flight is in_flight — no RPC", async () => {
     // no-show-in-flight-ignored
     h.paying = "mid_payment";
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "in_flight",
     });
@@ -179,18 +207,33 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
     // no-show-step-up-skipped
     h.stepUp = "bad_approver";
     expect(
-      await recordCounterNoShow({ sessionId: SESSION, approverStaffId: MANAGER, pin: "1234" }),
+      await recordCounterNoShow({
+        sessionId: SESSION,
+        expectedLineIds: SAW,
+        approverStaffId: MANAGER,
+        pin: "1234",
+      }),
     ).toEqual({ ok: false, reason: "bad_approver" });
     h.stepUp = "step_up_rate_limited";
     expect(
-      await recordCounterNoShow({ sessionId: SESSION, approverStaffId: MANAGER, pin: "1234" }),
+      await recordCounterNoShow({
+        sessionId: SESSION,
+        expectedLineIds: SAW,
+        approverStaffId: MANAGER,
+        pin: "1234",
+      }),
     ).toEqual({ ok: false, reason: "step_up_rate_limited" });
     expect(h.calls).not.toContain("pin");
     expect(h.calls).not.toContain("mms_counter_no_show");
   });
 
   it("a wrong, locked or missing PIN answers its own reason and never reaches the RPC", async () => {
-    const args = { sessionId: SESSION, approverStaffId: MANAGER, pin: "1234" };
+    const args = {
+      sessionId: SESSION,
+      expectedLineIds: SAW,
+      approverStaffId: MANAGER,
+      pin: "1234",
+    };
     h.pin = { status: "wrong", attemptsRemaining: 2 };
     expect(await recordCounterNoShow(args)).toEqual({
       ok: false,
@@ -213,23 +256,41 @@ describe("recordCounterNoShow — refusals, in the action's order", () => {
 
 describe("recordCounterNoShow — the RPC", () => {
   it("solo: the RPC gets this cart, the initiator and NO approver", async () => {
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
+      ok: true,
+    });
     expect(h.rpcArgs).toEqual({
       p_cart_id: "cart-1",
       p_initiator: "st-1",
       p_approver: undefined,
+      p_expected_line_ids: SAW,
     });
+  });
+
+  it("the RPC gets EXACTLY the sent lines the sheet showed — the SQL refuses any other set", async () => {
+    // p2f-rev-lib/voids/no-show-expected-lines-dropped
+    await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: [LINE_B] });
+    expect(h.rpcArgs?.p_expected_line_ids).toEqual([LINE_B]);
   });
 
   it("a verified approver is forwarded — and the PIN is verified BEFORE the RPC", async () => {
     // no-show-approver-not-forwarded
-    await recordCounterNoShow({ sessionId: SESSION, approverStaffId: MANAGER, pin: "1234" });
+    await recordCounterNoShow({
+      sessionId: SESSION,
+      expectedLineIds: SAW,
+      approverStaffId: MANAGER,
+      pin: "1234",
+    });
     expect(h.rpcArgs?.p_approver).toBe(MANAGER);
     expect(h.calls).toEqual(["payGuard", "stepUp", "pin", "mms_counter_no_show"]);
   });
 
   it("an approver without a PIN is never forwarded (it would be an unverified claim)", async () => {
-    await recordCounterNoShow({ sessionId: SESSION, approverStaffId: MANAGER });
+    await recordCounterNoShow({
+      sessionId: SESSION,
+      expectedLineIds: SAW,
+      approverStaffId: MANAGER,
+    });
     expect(h.rpcArgs?.p_approver).toBeUndefined();
     expect(h.calls).not.toContain("pin");
   });
@@ -243,16 +304,21 @@ describe("recordCounterNoShow — the RPC", () => {
     ["not_counter", "not_counter"],
     ["in_flight", "in_flight"],
     ["nothing_sent", "nothing_sent"],
+    // the order's sent food moved since the approver looked — nothing written
+    ["changed", "changed"],
     ["surprise", "error"],
   ])("RPC %s → %s, and nothing is touched", async (status, reason) => {
     h.rpc = { data: status, error: null };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({ ok: false, reason });
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
+      ok: false,
+      reason,
+    });
     expect(h.touched).toEqual([]);
   });
 
   it("an RPC error is an error, never ok", async () => {
     h.rpc = { data: null, error: { message: "boom" } };
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
       ok: false,
       reason: "error",
     });
@@ -260,7 +326,9 @@ describe("recordCounterNoShow — the RPC", () => {
   });
 
   it("ok: the cart is touched and the table, floor and kitchen pages refreshed", async () => {
-    expect(await recordCounterNoShow({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(await recordCounterNoShow({ sessionId: SESSION, expectedLineIds: SAW })).toEqual({
+      ok: true,
+    });
     expect(h.touched).toEqual(["cart-1"]);
     expect(h.revalidated).toEqual(
       expect.arrayContaining(["/staff", `/staff/table/${SESSION}`, "/staff/kitchen"]),

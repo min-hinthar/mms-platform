@@ -101,8 +101,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("readRegisterQueue — the open counter orders, oldest first", () => {
-  it("reads OPEN carts on ACTIVE pickup sessions carrying a counter code, oldest first, capped", async () => {
+describe("readRegisterQueue — the open counter orders, shown oldest first", () => {
+  it("reads OPEN carts on ACTIVE pickup sessions carrying a counter code, newest first under the cap", async () => {
     const res = await readRegisterQueue(fakeDb());
     expect(res.ok).toBe(true);
     expect(rec?.table).toBe("qr_carts");
@@ -114,9 +114,22 @@ describe("readRegisterQueue — the open counter orders, oldest first", () => {
     expect(rec?.ors).toEqual([
       [`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" }],
     ]);
-    expect(rec?.order).toEqual(["created_at", { ascending: true }]);
+    // p2f-rev-lib/register-queue/stale-orders-take-the-cap — NEWEST first under the cap (review
+    // M1): a sent-unpaid counter order is exempt from the sweep, so uncollected ones accrue, and an
+    // oldest-first cap let them push the order just started off the counter.
+    expect(rec?.order).toEqual(["created_at", { ascending: false }]);
     expect(rec?.limit).toBe(REGISTER_QUEUE_CAP);
     expect(rec?.cols).toContain("table_sessions!inner(");
+  });
+  it("the page read newest-first is SHOWN oldest-first — the counter's order never flipped", async () => {
+    // p2f-rev-lib/register-queue/queue-shown-newest-first
+    rows = [
+      cart({ id: "c-new", session_id: "s-new", created_at: "2026-09-13T18:30:00Z" }),
+      cart({ id: "c-old", session_id: "s-old", created_at: "2026-09-13T18:00:00Z" }),
+    ];
+    const res = await readRegisterQueue(fakeDb());
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.rows.map((r) => r.sessionId)).toEqual(["s-old", "s-new"]);
   });
   it("counts and totals the LIVE lines only — voided and comped lines are off the card", async () => {
     const res = await readRegisterQueue(fakeDb());
@@ -227,7 +240,7 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
     ...over,
   });
 
-  it("reads OPEN carts on ACTIVE reg- pickup sessions that hold a SENT line, oldest first, capped", async () => {
+  it("reads OPEN carts on ACTIVE reg- pickup sessions that hold a SENT line, newest first, capped", async () => {
     rows = [unpaid()];
     const res = await readUnpaidCounterCarts(fakeDb());
     expect(res).toEqual({ ok: true, carts: [unpaid()], truncated: false });
@@ -240,7 +253,9 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
     // unsent-carts-consume-the-cap: the inner-joined sent lines are filtered to the SENT states
     expect(rec?.ins).toEqual([["sent.state", ["fired", "in_progress", "served"]]]);
     expect(rec?.cols).toContain("sent:qr_cart_items!inner(id)");
-    expect(rec?.order).toEqual(["created_at", { ascending: true }]);
+    // p2f-rev-lib/register-queue/stale-unpaid-take-the-cap — the NEWEST bags under the cap (the lane
+    // sorts its own rows); a saturated read then hides the stalest, and says so (review M1).
+    expect(rec?.order).toEqual(["created_at", { ascending: false }]);
     expect(rec?.limit).toBe(REGISTER_QUEUE_CAP);
   });
 

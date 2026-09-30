@@ -18,8 +18,10 @@ export const REG_PREFIX = "reg-";
 
 /**
  * A teahouse has a handful of open counter orders; bound the read regardless. A FULL page is
- * reported (`truncated`) rather than passed off as the whole queue — the oldest-first order means a
- * saturated read hides exactly the newest order, the one just started.
+ * reported (`truncated`) rather than passed off as the whole queue. The page is read NEWEST first
+ * (Phase 2f review M1): a sent-unpaid counter order is exempt from the expiry sweep, so uncollected
+ * ones accrue, and an oldest-first cap let them push the order just started off the counter. A
+ * saturated read now hides the STALEST orders — and says so.
  */
 export const REGISTER_QUEUE_CAP = 40;
 
@@ -59,7 +61,8 @@ export type RegisterQueue =
 
 /**
  * The open counter orders: `reg-` (staff-minted) and `kiosk-` (self-minted) PICKUP sessions with an
- * open cart, oldest first. OPEN CARTS first (the W6a review's confirmed HIGH): a limit applied to
+ * open cart, SHOWN oldest first (read newest first under the cap — see `REGISTER_QUEUE_CAP`). OPEN
+ * CARTS first (the W6a review's confirmed HIGH): a limit applied to
  * ACTIVE SESSIONS is consumed by settled-but-not-yet-expired ones, hiding genuinely open orders in
  * a rush. The inner join scopes to counter sessions; no `expires_at` filter — an open cart IS the
  * liveness signal (the 11am-phone-order-for-4pm case must stay visible its whole day).
@@ -76,11 +79,13 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
     // Counter-style orders: staff-minted (`reg-`, W6a) and kiosk-minted (`kiosk-`, W6b) both pay
     // at this counter — one queue.
     .or(`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" })
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(REGISTER_QUEUE_CAP);
   if (cartErr) return { ok: false, reason: "outage" };
 
-  const rows: RegisterQueueRow[] = (carts ?? []).map((cart) => {
+  // Read newest first (the cap keeps the live orders); shown oldest first, as the counter always was.
+  const oldestFirst = [...(carts ?? [])].reverse();
+  const rows: RegisterQueueRow[] = oldestFirst.map((cart) => {
     const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
     return {
       sessionId: cart.session_id,
@@ -95,7 +100,7 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
     };
   });
   const lines = new Map<string, CounterQueueLine[]>(
-    (carts ?? []).map((cart) => [
+    oldestFirst.map((cart) => [
       cart.session_id,
       (cart.qr_cart_items ?? []).map((l) => ({
         id: l.id,
@@ -112,7 +117,7 @@ export async function readRegisterQueue(db: Db): Promise<RegisterQueue> {
   const truncated = queueEmptiness(rows.length, REGISTER_QUEUE_CAP) === "cannot-say";
   if (truncated)
     console.warn(
-      "[register-queue] counter queue read saturated — the newest orders are not shown",
+      "[register-queue] counter queue read saturated — the oldest orders are not shown",
       {
         cap: REGISTER_QUEUE_CAP,
       },
@@ -149,8 +154,10 @@ export type UnpaidCartRow = {
  * the lane's unpaid bags. The `reg-` predicate lives HERE (the one module that names `REG_PREFIX`),
  * never the kiosk's: a kiosk order is pay-first. `sent:qr_cart_items!inner(id)` filtered to the sent
  * states makes the cap count CANDIDATE bags only (a cart of drafts never consumes a slot); `items`
- * is the unfiltered embed the bag is built from. A full page is `truncated` — the caller treats it
- * as an outage of the lane rather than hiding the newest bag. Plain query; no amount is read.
+ * is the unfiltered embed the bag is built from. Read NEWEST first under the cap (review M1: the
+ * sweep exempts these, so stale ones accrue); a full page is `truncated` — the lane keeps its paid
+ * bags and says its unpaid list is partial, and what it drops is the stalest bag, never the newest.
+ * Plain query; no amount is read.
  */
 export async function readUnpaidCounterCarts(
   db: Db,
@@ -165,7 +172,7 @@ export async function readUnpaidCounterCarts(
     .like("table_sessions.qr_code", `${REG_PREFIX}%`)
     .eq("status", "open")
     .in("sent.state", ["fired", "in_progress", "served"])
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(REGISTER_QUEUE_CAP);
   if (error) {
     console.error("[register-queue] unpaid counter read failed", { message: error.message });

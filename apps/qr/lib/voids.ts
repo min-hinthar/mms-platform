@@ -202,6 +202,7 @@ export type RecordCounterNoShowResult =
         | "not_counter"
         | "in_flight"
         | "nothing_sent"
+        | "changed"
         | "outage"
         | "error";
     };
@@ -227,7 +228,14 @@ export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNo
   const initiator = auth.caller;
   const parsed = counterNoShowInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
-  const { sessionId, approverStaffId, pin } = parsed.data;
+  // The cross-area decision (Phase 2f review): the SENT line ids the sheet showed the approver ride
+  // the write, and `mms_counter_no_show` refuses with `changed` (writing nothing) when the sent set it
+  // derives under the cart lock is any other — so a PIN approves exactly the food it was shown.
+  // `expectedLineIds` is the db area's REQUIRED schema field (uuid[], max 200 — a missing one fails
+  // the parse above); the widened type is a no-op once it lands (resolves at integration).
+  const { sessionId, approverStaffId, pin, expectedLineIds } = parsed.data as typeof parsed.data & {
+    expectedLineIds: string[];
+  };
 
   const found = await openCartFor(sessionId);
   if (found.unavailable) return { ok: false, reason: "outage" };
@@ -251,11 +259,13 @@ export async function recordCounterNoShow(raw: unknown): Promise<RecordCounterNo
     verifiedApprover = approverStaffId;
   }
 
-  const { data: status, error } = await serviceClient().rpc("mms_counter_no_show", {
+  const noShowArgs = {
     p_cart_id: found.cart.id,
     p_initiator: initiator.staffId,
     p_approver: verifiedApprover,
-  });
+    p_expected_line_ids: expectedLineIds,
+  };
+  const { data: status, error } = await serviceClient().rpc("mms_counter_no_show", noShowArgs);
   if (error) {
     console.error("[voids] mms_counter_no_show failed", { sessionId, message: error.message });
     return { ok: false, reason: "error" };

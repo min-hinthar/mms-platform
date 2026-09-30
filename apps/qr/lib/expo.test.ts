@@ -247,9 +247,36 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
         ],
         moreUnits: 1,
         kitchen: "done",
+        doneAt: null,
         sentAt: "2026-09-13T17:50:00.000Z",
       },
     ]);
+  });
+
+  it("a finished unpaid bag carries its finish — the latest bump (the bell's key, review PT3)", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        unpaidCart([
+          item({
+            id: "a",
+            state: "served",
+            fire_at: "2026-09-13T17:40:00.000Z",
+            bumped_at: "2026-09-13T17:52:00.000Z",
+          }),
+          item({
+            id: "b",
+            state: "served",
+            fire_at: "2026-09-13T17:41:00.000Z",
+            bumped_at: "2026-09-13T17:55:00.000Z",
+          }),
+        ]),
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid[0]?.doneAt).toBe("2026-09-13T17:55:00.000Z");
   });
 
   it("a cart whose send is still inside its grace is not a bag yet", async () => {
@@ -282,10 +309,40 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
     expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
   });
 
-  it("a saturated unpaid read is an OUTAGE too — the newest bag would be the one hidden", async () => {
-    // unpaid-read-saturation-ignored
-    uq.value = { ok: true, carts: [], truncated: true };
-    expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
+  it("a saturated unpaid read degrades ONLY the unpaid section — the paid bags keep rendering (review M1)", async () => {
+    // p2f-rev-lib/expo/unpaid-saturation-blanks-the-lane — stale unpaid carts are exempt from the
+    // sweep, so 40 of them used to turn the WHOLE lane into an outage: paid bags vanished from the
+    // counter over orders nobody collected.
+    uq.value = {
+      ok: true,
+      truncated: true,
+      carts: [unpaidCart([item({ state: "fired", fire_at: "2026-09-13T17:59:00.000Z" })])],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected the paid lane to keep rendering");
+    expect(res.queue.tickets.map((t) => t.orderId).sort()).toEqual([ORDER_A, ORDER_B].sort());
+    expect(res.queue.unpaid.map((b) => b.cartId)).toEqual(["cart-u"]);
+    // unpaid-read-saturation-ignored — and the lane is TOLD the unpaid list is not the whole list
+    expect(res.queue.unpaidTruncated).toBe(true);
+  });
+
+  it("an unsaturated unpaid read says the unpaid list is whole", async () => {
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaidTruncated).toBe(false);
+  });
+
+  it("a paid bag the kitchen finished carries its finish off the cart lines; a cooking one none", async () => {
+    // p2f-rev-lib/expo/paid-bag-done-unstamped — the paid counter bag must carry the SAME stamp
+    // its unpaid bag did, or payment re-rings the bell (or a later finish never does).
+    cartLineRows = [
+      { cart_id: CART_A, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:45:00Z" },
+      { cart_id: CART_B, state: "fired", fulfillment: "togo", bumped_at: null },
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const byId = Object.fromEntries(res.queue.tickets.map((t) => [t.orderId, t.doneAt]));
+    expect(byId).toEqual({ [ORDER_A]: "2026-09-13T17:45:00Z", [ORDER_B]: null });
   });
 
   it("every paid ticket carries its cart id (the bell keys a bag by its cart)", async () => {

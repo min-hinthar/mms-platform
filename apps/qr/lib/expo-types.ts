@@ -53,6 +53,10 @@ export type ExpoTicket = {
    *  cart (`lib/expo-rules.ts`) — ADVISORY. `done` badges the card and lifts it above bags still
    *  cooking; `unknown` (the lines could not be read) draws nothing and moves nothing. */
   kitchen: KitchenState;
+  /** Phase 2f review PT3 — when the kitchen FINISHED the bag (`kitchenDoneAt` over the cart's
+   *  lines, the latest bump), read only while `kitchen === "done"`; null/absent otherwise. A counter
+   *  order's finished food rings the bell once per finish, keyed by it (`laneFacts`). */
+  doneAt?: string | null;
   /** Pickup orders carry a slot — the expo shows it as the honest ready-by time (no fabricated countdown). */
   pickupSlot: string | null;
   /** J5: the diner's "I'm here" stamp (null until they announce) — the board flags a waiting diner. */
@@ -74,15 +78,21 @@ export type ExpoUnpaidBag = {
   moreUnits: number;
   /** `kitchenStateOf` over the sent lines — "done" when every sent line is served. */
   kitchen: KitchenState;
+  /** Phase 2f review PT3 — when the kitchen finished it (the latest bump), null while it is not done.
+   *  The bell's key for this bag's food, and the SAME stamp its paid bag carries. */
+  doneAt?: string | null;
   /** The earliest sent line's fire_at — the bag's age on the lane (`expoAge`'s `createdAt`). */
   sentAt: string;
 };
 
 export type ExpoQueue = {
   tickets: ExpoTicket[];
-  /** Phase 2f — the unpaid counter bags ([] when none). An unreadable or saturated unpaid read makes
-   *  the whole poll an `outage`, never an empty list. */
+  /** Phase 2f — the unpaid counter bags ([] when none). An unreadable unpaid read makes the whole
+   *  poll an `outage`, never an empty list. */
   unpaid: ExpoUnpaidBag[];
+  /** Phase 2f review M1 — the unpaid read hit its cap: `unpaid` holds the NEWEST bags and there are
+   *  more (older) ones than shown. The paid bags are unaffected. Absent reads as false. */
+  unpaidTruncated?: boolean;
   /** Server clock at snapshot (ISO) — the client seeds relative-time ticks from this (clock-skew safe). */
   serverNow: string;
 };

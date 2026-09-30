@@ -8,7 +8,12 @@ import { getStaffAuth, STAFF_SIGNIN_REQUIRED, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket, ExpoUnpaidBag } from "./expo-types";
-import { compareExpoTickets, kitchenStateOf, type KitchenLineRow } from "./expo-rules";
+import {
+  compareExpoTickets,
+  kitchenDoneAt,
+  kitchenStateOf,
+  type KitchenLineRow,
+} from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { readUnpaidCounterCarts } from "./register-queue";
@@ -49,8 +54,9 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  *
  * Phase 2f · P2v — beside the paid bags, the OPEN counter (`reg-`) orders whose food the kitchen has
  * (`readUnpaidCounterCarts`, shaped by `unpaidBag`): "Unpaid — collect at pickup", whose one action is
- * Take payment. That read is NOT advisory — an unreadable or saturated one is an outage of the lane,
- * because an empty unpaid list over cooked food is the lie the W10b posture refuses.
+ * Take payment. That read is NOT advisory — an unreadable one is an outage of the lane, because an
+ * empty unpaid list over cooked food is the lie the W10b posture refuses. A SATURATED one keeps the
+ * paid bags and the newest unpaid ones, and says so (`unpaidTruncated`, review M1).
  */
 export async function getExpoQueue(): Promise<ExpoPoll> {
   const auth = await getStaffAuth();
@@ -101,12 +107,16 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   }
   const unpaidRead = await unpaidPromise;
   if (!unpaidRead.ok) return { ok: false, reason: "outage" };
-  if (unpaidRead.truncated) {
-    console.error("[expo] unpaid counter read saturated — refusing to render a partial counter", {
+  // Phase 2f review M1 — a SATURATED unpaid read degrades the unpaid section only. A sent-unpaid
+  // counter order is exempt from the sweep, so uncollected ones accrue; turning the whole lane into
+  // an outage at the cap hid every PAID bag over orders nobody came for. The read keeps the NEWEST
+  // carts (`readUnpaidCounterCarts`), and `unpaidTruncated` tells the lane its unpaid list is not the
+  // whole list — never passed off as complete.
+  const unpaidTruncated = unpaidRead.truncated;
+  if (unpaidTruncated)
+    console.error("[expo] unpaid counter read saturated — the oldest unpaid bags are not shown", {
       rows: unpaidRead.carts.length,
     });
-    return { ok: false, reason: "outage" };
-  }
   const nowMs = Date.parse(nowIso);
   const bags = unpaidRead.carts.flatMap((c) => {
     const b = unpaidBag({
@@ -164,7 +174,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   };
   const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
   if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], unpaid, serverNow: nowIso } };
+    return { ok: true, queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso } };
 
   const linesByOrder = new Map<string, ExpoLine[]>();
   for (const it of items ?? []) {
@@ -202,14 +212,19 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   } = cartIds.length
     ? await db
         .from("qr_cart_items")
-        .select("cart_id,state,fulfillment", { count: "exact" })
+        .select("cart_id,state,fulfillment,bumped_at", { count: "exact" })
         .in("cart_id", cartIds)
     : {
-        data: [] as { cart_id: string; state: string; fulfillment: string }[],
+        data: [] as {
+          cart_id: string;
+          state: string;
+          fulfillment: string;
+          bumped_at: string | null;
+        }[],
         error: null,
         count: 0,
       };
-  const linesByCart = new Map<string, KitchenLineRow[]>();
+  const linesByCart = new Map<string, (KitchenLineRow & { bumped_at: string | null })[]>();
   // A response SHORT of its own count is PostgREST's max-rows cap, and it is silent (Codex round 1
   // on A4·2): a cart whose cooking row fell past the cap would read `done` off its surviving served
   // rows and be lifted as finished. `count: "exact"` rides the same statement; a count above the
@@ -241,6 +256,8 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     const lines = linesByOrder.get(o.id);
     if (!lines || lines.length === 0) continue; // no takeaway line snapshot — not a bag (defensive)
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
+    const cartLinesOf = o.cart_id ? linesByCart.get(o.cart_id) : undefined;
+    const kitchen = kitchenStateOf(cartLinesOf);
     tickets.push({
       orderId: o.id,
       cartId: o.cart_id ?? null,
@@ -253,7 +270,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       customerPhone: (o.cart_id ? phoneByCart.get(o.cart_id) : null) ?? null,
       shortCode: o.id.slice(-6).toUpperCase(),
       status: o.togo_status === "ready" ? "ready" : "preparing",
-      kitchen: kitchenStateOf(o.cart_id ? linesByCart.get(o.cart_id) : undefined),
+      kitchen,
+      // Phase 2f review PT3 — the finish, off the SAME cart lines an unpaid bag reads its own from.
+      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf) : null,
       pickupSlot: o.pickup_slot ?? null,
       arrivedAt: o.arrived_at ?? null,
       lines,
@@ -265,7 +284,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // finished, then the effective due time (the pickup slot when one exists, else payment time), then
   // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
   tickets.sort(compareExpoTickets);
-  return { ok: true, queue: { tickets, unpaid, serverNow: nowIso } };
+  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso } };
 }
 
 export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };
