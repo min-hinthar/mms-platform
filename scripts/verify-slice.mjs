@@ -12214,7 +12214,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/KdsBoard.tsx",
     suite: "components/staff/KdsBoard.test.tsx",
     why: "Phase 2f — the ticket's list-item NAME carries the visible Unpaid words (WCAG 2.5.3); dropped, a screen reader hears a paid ticket",
-    find: '${ticket.unpaid ? `, ${chromeVisible(lang, "settle.unpaid", "stack", echoes)}` : ""}',
+    find: '${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}',
     replace: "",
   },
   {

@@ -49,6 +49,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PANE_QUERY, opensInPane, paneUrl } from "@/lib/floor-pane";
 import { useZoneFocus } from "./ZoneFocus";
+import type { StaffLang } from "@/lib/staff-lang";
 import { ExpoLineMy, TicketNote } from "./TicketText";
 import { MsgText } from "./StaffMsg";
 import { StaggerList } from "./StaggerList";
@@ -1174,12 +1175,7 @@ function UnpaidBagCard({
   const age = expoAge({ arrivedAt: null, pickupSlot: null, createdAt: bag.sentAt }, nowMs);
   // The card's NAME carries the visible Unpaid words exactly as the badge draws them (no echo in a
   // badge — the device's `shown` decides nothing there, but the name follows the same call).
-  const cardName = `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${chromeVisible(
-    lang,
-    "settle.unpaid",
-    false,
-    echoes,
-  )}`;
+  const cardName = `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}`;
   const href = `/staff/table/${bag.sessionId}?settle=1`;
   return (
     <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
@@ -1264,6 +1260,12 @@ function UnpaidBagCard({
       </Link>
     </article>
   );
+}
+
+/** Phase 2f — the unpaid badge's words exactly as it draws them (a badge: no echo), for the card's
+ *  name. */
+function unpaidBadgeWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "settle.unpaid", false, shown);
 }
 
 function ExpoLineRow({ line }: { line: ExpoLine }) {

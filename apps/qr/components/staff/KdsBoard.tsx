@@ -138,6 +138,12 @@ function ticketId(
   return { main, node: main, sub: t.customerName ? code : null };
 }
 
+/** Phase 2f — the Unpaid line's words exactly as it draws them (`echo="stack"`, the device's `shown`),
+ *  for the ticket's name (WCAG 2.5.3 — the name contains the visible label). */
+function unpaidWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "settle.unpaid", "stack", shown);
+}
+
 /** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
 function fmtSlot(iso: string): string {
   return staffClock(iso);
@@ -1343,7 +1349,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}${ticket.unpaid ? `, ${chromeVisible(lang, "settle.unpaid", "stack", echoes)}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
