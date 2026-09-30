@@ -70,7 +70,8 @@ to prod** (below). DESIGN-LANGUAGE §17 carries the Phase 2f block.
   now). TS twin: `counterSentLine` in the new `lib/counter-order.ts` (with `isCounterOrder`,
   `kdsLineGate`, `counterClearRefusal`, `mergeCounterRefusal`, `counterSettleVariant`, `unpaidBag`,
   `noShowOutcome`). It drives the table page's flag, the KDS flag, the floor card, the lane bag, the
-  no-show count and Clear's refusal.
+  no-show count and Clear's refusal. _(Codex round 2 replaced `counterClearRefusal` — a TS pre-read —
+  with the locked SQL decision `mms_clear_counter_cart` and deleted it; see below.)_
 - **The server.** `staffFireCart` / `staffUndoFire` route a counter order through the new RPCs
   (`sendRoute` / `undoRoute`; `SURFACES.payAtPickup` parks NEW sends and never hides sent food);
   `recordCounterNoShow` (`lib/voids.ts`); `getTableDetail` reads the arm, the name, the sent line ids
@@ -169,6 +170,46 @@ fixed red-first on its own worktree branch and merged (`2cf75e7` · `a573864` ·
 
 **Gate at this head (measured):** 1585 `verify:slice` mutants (1573 + 12) across 197 target modules
 (unchanged) · 104 mode-authority mutants · 4866 qr + 287 ui tests · `check:docs` clean.
+
+**Codex round 2 on #308 (2026-09-30).** Three findings, each verified against source, each fixed
+red-first on its own worktree branch and merged (`f9f31ef` · `177aa09` · `7d4b54c`):
+
+- **Clear's counter SENT check and its cancel were two writes (P2) — `95a1aaf`.** `clearTable` read
+  the lines and `mms_now`, then cancelled in a separate statement, so a Send committing — or a line
+  crossing its grace — between the two cancelled a cart holding due kitchen food: the KDS drops the
+  ticket and the no-show, its only audited exit, becomes unreachable. New
+  **`public.mms_clear_counter_cart(p_cart_id uuid) returns text`** (migration `20261001000000` §7,
+  `service_role` only) locks the cart row `FOR UPDATE`, then its lines `FOR UPDATE` (the kitchen's
+  writers lock only the line), evaluates `mms_counter_no_show`'s SENT predicate on one transaction
+  clock and returns `sent` · `ok` · `not_open` · `not_counter` · `not_found`, every refusal before
+  any write. `clearTable` routes a counter cart through it and fails CLOSED on an error or an
+  unknown verdict (`not_open` proceeds to close the session, as before); tables keep the plain
+  guarded cancel. `counterClearRefusal` is deleted (no caller). SQL P2F.26a–l + P2F.27 (privileges);
+  the mode-authority battery **104 → 113** mutants over 12 functions, the same 12 documented
+  survivors; `verify-counter-fire-race.mjs` gains orders (e) kitchen-fire-before-clear and (f)
+  settle-before-clear — **6 orders, 8 lock mutants**. Six `p2f-cx2-clear/*` mutants. **M245
+  closed** — the stated residual ("a line crossing its grace between this read and the cancel") no
+  longer exists. Still **not applied to prod**: the one-file apply at the final reviewed head
+  carries §7, and its verification set is now eight functions (HANDOFF).
+- **The no-show sentence missed what it drops (P2) — `2d1ec7a`.** The sheet re-derived its dropped
+  set on the client and left out a comped in-grace dish and grocery lines, which `mms_counter_no_show`
+  does remove. `counterNoShowDropped` (`lib/counter-order.ts` — a draft, or a fired line with
+  `fire_at` after now; comped and grocery included) is read by `getTableDetail`, which emits
+  `droppedLineIds` beside `sentLineIds` on the DB clock; `CounterNoShowButton` sums that set. Eleven
+  `p2f-cx2-dropped/*` mutants (three replace retired `p2f-rev-ui/no-show/*`).
+- **A failed manager-roster read said nobody was on shift (P2) — `cc8240d`.** New
+  `useApproverRoster(load)` in `components/staff/ManagerPinStepUp.tsx`, and `ManagerPinFields`
+  gains `rosterFailed` / `retrying` / `onRetry`: "Couldn’t load managers", a 44px **Try again**, and
+  the step stays blocked. Applied to `CounterNoShowButton` AND `LossActionSheet` (the same one-line
+  bug). Two new keys, `pin.manager.unavailable` and `pin.manager.loadFailed` (Burmese drafts;
+  `loadFailed` is K15-HIGH — `STAFF_K15_HIGH` **131 → 132**, measured). `ManagerPinStepUp.tsx` joins
+  the mutate set (components 42 → 43, **197 → 198** target modules); seven `p2f-cx2-roster/*`
+  mutants.
+
+**Gate at this head (measured):** 1604 `verify:slice` mutants (1585 + 24 new − 5 retired) across 198
+target modules (150 lib · 3 API routes · 43 components · 1 stylesheet · 1 `packages/db`) · 113
+mode-authority mutants · 26 SQL test files · 4881 qr + 287 ui tests · `check:docs` clean. The full
+`verify:slice` run with the gate at this head is not recorded here.
 
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 

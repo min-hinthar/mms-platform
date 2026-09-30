@@ -1514,8 +1514,8 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   comped (a comp is already an audited loss). Every staff read and the no-show refine it with "PAST
   the grace" — a line inside its 10 s undo never reached the KDS — and a NULL `fire_at` counts as
   fired at or before now. `counterSentLine` is the TS twin; the table page's flag, the KDS flag, the
-  floor card, the lane bag, the no-show's count and Clear's refusal all read it, on the DATABASE
-  clock where it gates a write-off. The sweeper exempts ANY sent line, in-grace included, so every
+  floor card, the lane bag and the no-show's count read it, on the DATABASE clock where it gates a
+  write-off; Clear's refusal is the SQL predicate itself, decided under the locks (below). The sweeper exempts ANY sent line, in-grace included, so every
   exempt session keeps an exit (a settle, or a no-show that is never `nothing_sent` once the grace
   has run). Never write a second test for "sent" at a call site, and never `label.startsWith("reg-")`.
 - **"Unpaid — collect at pickup" (`settle.unpaid`) shows exactly while an OPEN counter cart holds
@@ -1544,7 +1544,11 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   **Remove**, never "void". It carries the sent line ids the sheet SHOWED (`expectedLineIds`) and
   refuses `changed` — writing nothing — when the set it derives under its locks differs, so an
   approval never lands on a write-off other than the one approved. It refuses while a payment is in
-  flight. The sheet counts what it drops the way the SQL does (drafts and uncomped in-grace sends).
+  flight. The sheet names what it drops from the SERVER's set, never a client re-derivation
+  (`counterNoShowDropped` → `droppedLineIds`, on the DB clock: every draft and every in-grace send,
+  comped and grocery included — exactly what the SQL removes; Codex r2 on #308). A manager roster
+  that fails to load is an OUTAGE, never an empty shift: "Couldn’t load managers", a 44px **Try
+  again**, and the step stays blocked (`useApproverRoster`, shared with the loss sheet).
 - **The lane never blanks over the unpaid read.** Unpaid bags are drawn beside the paid ones, with
   ONE action, **Take payment** (the table page's payment). An unreadable unpaid read is an outage,
   said; a SATURATED one keeps every paid bag and says "more unpaid than shown" — in the count line
@@ -1566,7 +1570,10 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   `padCounterDock` (the pad).
 - **Merge and Clear.** Nothing merges INTO a counter order; a counter order with food sent does not
   merge out; one that sent nothing merges as before (TS-only — M241). Clear keeps clearing a
-  drafts-only counter order.
+  drafts-only counter order. Its SENT check and its cancel are ONE locked decision
+  (`mms_clear_counter_cart`: the cart row, then its lines, `FOR UPDATE`; one transaction clock), and
+  an error or an unknown verdict refuses — a Send or a grace crossing mid-clear can no longer cancel
+  due kitchen food (Codex r2 on #308).
 - **The paid card.** After a pickup whose food went in first, the HandoffCard adds one line — "Their
   food went to the kitchen before they paid — hand it over from Takeaway bags." — and never claims
   the bag is ready (no auto-advance at settlement, owner decision 7d).
