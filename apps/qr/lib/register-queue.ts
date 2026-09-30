@@ -152,8 +152,10 @@ export type UnpaidCartRow = {
 /**
  * The OPEN `reg-` counter orders that hold a line the kitchen has (fired / in progress / served) —
  * the lane's unpaid bags. The `reg-` predicate lives HERE (the one module that names `REG_PREFIX`),
- * never the kiosk's: a kiosk order is pay-first. `sent:qr_cart_items!inner(id)` filtered to the sent
- * states makes the cap count CANDIDATE bags only (a cart of drafts never consumes a slot); `items`
+ * never the kiosk's: a kiosk order is pay-first. `sent:qr_cart_items!inner(id)` filtered to the FULL
+ * `counterSentLine` definition (sent state · not comped · not grocery · past its grace, at `nowIso`,
+ * the DB clock) makes the cap count CANDIDATE bags only — every row the page holds yields a bag, so
+ * a cart of drafts, comps or grocery never consumes a slot; `items`
  * is the unfiltered embed the bag is built from. Read NEWEST first under the cap (review M1: the
  * sweep exempts these, so stale ones accrue); a full page is `truncated` — the lane keeps its paid
  * bags and says its unpaid list is partial, and what it drops is the stalest bag, never the newest.
@@ -161,7 +163,16 @@ export type UnpaidCartRow = {
  */
 export async function readUnpaidCounterCarts(
   db: Db,
+  nowIso: string,
 ): Promise<{ ok: true; carts: UnpaidCartRow[]; truncated: boolean } | { ok: false }> {
+  // Codex round 1 on #308 (P2) — the capped candidate filter is `counterSentLine` WHOLE, not its
+  // state clause alone. A cart holding only comped, grocery or in-grace lines passes a state-only
+  // join, consumes a slot, and yields no bag (`unpaidBag` drops it) — forty of them pushed a genuine
+  // older bag past the cap. The grace bound is `lt` one millisecond past the DB clock, which is
+  // exactly `Date.parse(fire_at) <= nowMs` (`lineFireMs` reads the column to the millisecond); a
+  // null `fire_at` is fired-at-or-before-now (review M2), so it is a candidate.
+  const nowMs = Date.parse(nowIso);
+  const graceBound = new Date((Number.isFinite(nowMs) ? nowMs : Date.now()) + 1).toISOString();
   const { data, error } = await db
     .from("qr_carts")
     .select(
@@ -171,6 +182,9 @@ export async function readUnpaidCounterCarts(
     .eq("table_sessions.status", "active")
     .like("table_sessions.qr_code", `${REG_PREFIX}%`)
     .eq("status", "open")
+    .eq("sent.comped", false)
+    .neq("sent.fulfillment", "grocery")
+    .or(`fire_at.is.null,fire_at.lt.${graceBound}`, { referencedTable: "sent" })
     .in("sent.state", ["fired", "in_progress", "served"])
     .order("created_at", { ascending: false })
     .limit(REGISTER_QUEUE_CAP);

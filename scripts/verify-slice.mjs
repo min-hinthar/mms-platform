@@ -13159,6 +13159,63 @@ const MUTANTS = [
     find: '  if (!("rpc" in route) || line.state !== "draft") return false;\n',
     replace: '  if (line.state !== "draft") return false;\n',
   },
+  {
+    id: "p2f-cx1-lane/lane-reads-concurrent",
+    file: "apps/qr/lib/expo.ts",
+    suite: "lib/expo.test.ts",
+    why: "Codex r1 on #308 — issued together, the paid snapshot can precede the unpaid one, and a bag settled between them is in NEITHER list; the unpaid read must answer before the paid read is issued",
+    find: '  const unpaidRead = await readUnpaidCounterCarts(db, nowIso);\n  if (!unpaidRead.ok) return { ok: false, reason: "outage" };\n  const { data: orders, error: ordersError } = await paidRead();\n',
+    replace:
+      '  const [unpaidRead, { data: orders, error: ordersError }] = await Promise.all([\n    readUnpaidCounterCarts(db, nowIso),\n    paidRead(),\n  ]);\n  if (!unpaidRead.ok) return { ok: false, reason: "outage" };\n',
+  },
+  {
+    id: "p2f-cx1-lane/lane-settled-bag-twice",
+    file: "apps/qr/lib/expo.ts",
+    suite: "lib/expo.test.ts",
+    why: "Codex r1 on #308 — a cart the paid read holds settled between the reads; drawn from the unpaid read too, the same bag reads unpaid AND paid",
+    find: "    if (paidCarts.has(c.id)) return [];\n",
+    replace: "",
+  },
+  {
+    id: "p2f-cx1-lane/unpaid-cap-comped",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r1 on #308 — a comped-only cart yields no bag; unfiltered before the cap it consumes a slot and pushes a genuine older bag off the page",
+    find: '    .eq("sent.comped", false)\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx1-lane/unpaid-cap-grocery",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r1 on #308 — a grocery-only cart never cooks and yields no bag; unfiltered before the cap it consumes a slot",
+    find: '    .neq("sent.fulfillment", "grocery")\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx1-lane/unpaid-cap-in-grace",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r1 on #308 — a send still inside its grace yields no bag; unfiltered before the cap it consumes a slot",
+    find: '    .or(`fire_at.is.null,fire_at.lt.${graceBound}`, { referencedTable: "sent" })\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx1-lane/unpaid-cap-null-fire-at-dropped",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r1 on #308 — a line with no fire_at was fired at or before now (review M2); dropped from the candidate filter, a genuine bag never reaches the lane",
+    find: "    .or(`fire_at.is.null,fire_at.lt.${graceBound}`",
+    replace: "    .or(`fire_at.lt.${graceBound}`",
+  },
+  {
+    id: "p2f-cx1-lane/unpaid-cap-grace-edge",
+    file: "apps/qr/lib/register-queue.ts",
+    suite: "lib/register-queue.test.ts",
+    why: "Codex r1 on #308 — `counterSentLine` admits fire_at == now; the candidate bound must be one millisecond past the DB clock, or a line sent at exactly now is dropped",
+    find: "(Number.isFinite(nowMs) ? nowMs : Date.now()) + 1)",
+    replace: "Number.isFinite(nowMs) ? nowMs : Date.now())",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
