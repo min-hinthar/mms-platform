@@ -1,3 +1,4 @@
+"use client";
 import Link from "next/link";
 import { Badge, Card } from "@mms/ui";
 import type { RegisterQueueRow } from "@/lib/register-queue";
@@ -6,6 +7,7 @@ import { al, chromeVisible } from "@/lib/staff-labels";
 import { plural } from "@/lib/i18n/fill";
 import { Chrome } from "./Chrome";
 import { RelativeTime } from "./RelativeTime";
+import { useEchoesShown } from "./StaffLangProvider";
 import { tableCardStyle } from "./TableCard";
 
 /** Preformatted money — the repo's counter idiom. Latin in both tongues: it rides the `{m}` slot,
@@ -21,14 +23,24 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * from `ts()`/`tf()`, the name under `my` said only the Burmese halves of two echoed Chromes. The
  * echo passed here must match the `echo` prop on the matching `<Chrome>` below; the channel chip
  * deliberately has none — two scripts cannot legibly stack in a chip.
+ *
+ * ⚠️ AND `shown` MUST BE THE DEVICE'S (P2e review, A5). On a Burmese-only device the two echoed
+ * `<Chrome>`s below drop their English; derived with the echo always on, this name spliced
+ * "Walk-up" and "2 items · …" between Burmese runs the card no longer showed, so the card's text
+ * was in its name only piecewise — never the one contiguous run WCAG 2.5.3 asks for.
+ * `CounterOrderCard.test.tsx` reads the rendered card in all three modes.
  */
-function subjectOf(lang: StaffLang, r: RegisterQueueRow): string {
-  const name = r.customerName ?? chromeVisible(lang, "reg.row.walkup", "inline");
-  const chip = chromeVisible(lang, r.source === "kiosk" ? "reg.row.kiosk" : "floor.counter.chip");
-  const meta = chromeVisible(lang, plural(r.itemCount, "reg.row.one", "reg.row.many"), "inline", {
-    n: r.itemCount,
-    m: fmt(r.subtotalCents),
-  });
+function subjectOf(lang: StaffLang, shown: boolean, r: RegisterQueueRow): string {
+  const name = r.customerName ?? chromeVisible(lang, "reg.row.walkup", "inline", shown);
+  const chipKey = r.source === "kiosk" ? "reg.row.kiosk" : "floor.counter.chip";
+  const chip = chromeVisible(lang, chipKey, false, shown);
+  const meta = chromeVisible(
+    lang,
+    plural(r.itemCount, "reg.row.one", "reg.row.many"),
+    "inline",
+    shown,
+    { n: r.itemCount, m: fmt(r.subtotalCents) },
+  );
   return `${name} · ${chip}, ${meta}`;
 }
 
@@ -48,12 +60,14 @@ export function CounterOrderCard({
   serverNow: string;
   lang: StaffLang;
 }) {
+  // The device's echo state — the value every `<Chrome>` on this card reads (P2e review, A5).
+  const shown = useEchoesShown();
   // `kind: "subject"` — the verb LEADS the announcement ("Resume, Aye · Counter, 2 items · …") and
   // the card's own text is what the name must contain.
   const { aria } = al(lang, {
     kind: "subject",
     verb: "reg.verb.resume",
-    subject: subjectOf(lang, order),
+    subject: subjectOf(lang, shown, order),
   });
   return (
     <Card

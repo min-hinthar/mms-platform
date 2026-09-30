@@ -3905,7 +3905,9 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",
     why: "P2 — the `verb` arm's whole contract is that the control's VISIBLE word and the word its name leads with are ONE dictionary lookup. Return the subject as the visible label instead and every call site still compiles, the containment loop still passes (the name contains the subject), and WCAG 2.5.3 breaks at every one of them: the button reads the Burmese verb and announces a person's name",
-    find: '    case "verb": {\n      const visible = chromeVisible(lang, control.verb, control.echo);',
+    // P2e review (A5) — re-anchored: the arm now passes the device's `shown` too; the mutant keeps
+    // its meaning — the visible label is the subject, not the verb key.
+    find: '    case "verb": {\n      const visible = chromeVisible(lang, control.verb, control.echo ?? false, !!control.shown);',
     replace: '    case "verb": {\n      const visible = control.subject;',
   },
   {
@@ -11195,16 +11197,20 @@ const MUTANTS = [
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
     why: "P2e — keepEcho is the language surfaces' way through Burmese only; ignoring it leaves the way back unreadable to the person the mode is wrong for",
-    find: "  const echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k);",
-    replace: "  const echoes = useEchoesShown() || STAFF_K15_HIGH.has(k);",
+    // P2e review (A5) — re-anchored: the band check moved into `echoDrawn` (lib/staff-labels.ts),
+    // which Chrome and chromeVisible() share; the mutant still drops keepEcho from Chrome's decision.
+    find: "  const echoes = echoDrawn(k, useEchoesShown() || keepEcho);",
+    replace: "  const echoes = echoDrawn(k, useEchoesShown());",
   },
   {
     id: "p2e-lang/k15-high-echo-dropped",
-    file: "apps/qr/components/staff/Chrome.tsx",
+    file: "apps/qr/lib/staff-labels.ts",
     suite: "components/staff/Chrome.test.tsx",
     why: "P2e — the K15-HIGH band (the strings a wrong word would stop service over) keeps its English on a Burmese-only device: the shared kitchen tablet's cross-check (Dad's line) under Mark sold out, Done and the money words",
-    find: "  const echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k);",
-    replace: "  const echoes = useEchoesShown() || keepEcho;",
+    // P2e review (A5) — re-anchored into `echoDrawn`, the ONE echo decision Chrome now reads (and
+    // chromeVisible() with it); the mutant still drops the band from what Chrome draws.
+    find: "  return shown || STAFF_K15_HIGH.has(key);",
+    replace: "  return shown;",
   },
   {
     id: "p2e-lang/pending-tap-rewrites",
@@ -11621,6 +11627,49 @@ const MUTANTS = [
     find: '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  background-image: repeating-linear-gradient(\n    135deg,\n    transparent 0 var(--s1),\n    color-mix(in oklab, var(--tx) 20%, transparent) var(--s1) var(--s2)\n  );\n}\n',
     replace:
       '.staff-lang-rows[aria-busy="true"] > .staff-lang-row[aria-pressed="true"] {\n  opacity: 0.7;\n}\n',
+  },
+  // ── Phase 2e · review fixes · guards ──
+  {
+    id: "p2e-rev/name-ignores-the-device",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e review (A5) — the derivation every accessible name composes through must drop the English echo exactly where <Chrome> does; ignore the device and a Burmese-only name holds an English word the screen stopped showing, splitting the visible label into pieces (WCAG 2.5.3 contiguity)",
+    find: "  if (echo === false || !echoDrawn(key, shown)) return my;",
+    replace: "  if (echo === false) return my;",
+  },
+  {
+    id: "p2e-rev/verb-name-ignores-the-device",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2e review (A5) — al()'s verb arm must hand the call site's `shown` through; hard-wire it and every Approve / Deny / Mark refunded name on a Burmese-only device announces the English its button no longer prints",
+    find: "      const visible = chromeVisible(lang, control.verb, control.echo ?? false, !!control.shown);",
+    replace:
+      "      const visible = chromeVisible(lang, control.verb, control.echo ?? false, true);",
+  },
+  {
+    id: "p2e-rev/counter-card-name-ignores-the-device",
+    file: "apps/qr/components/staff/CounterOrderCard.tsx",
+    suite: "components/staff/CounterOrderCard.test.tsx",
+    why: 'P2e review (A5) — the counter card\'s composite name read with echoes always on spliced "Walk-up" and "2 items · …" between Burmese runs a Burmese-only card no longer shows; the card\'s text must be ONE contiguous run of its name in every mode',
+    find: "  const shown = useEchoesShown();",
+    replace: "  const shown = true;",
+  },
+  {
+    id: "p2e-rev/counter-card-meta-ignores-the-device",
+    file: "apps/qr/components/staff/CounterOrderCard.tsx",
+    suite: "components/staff/CounterOrderCard.test.tsx",
+    why: 'P2e review (A5) — every echoed piece of the composite name follows the device, not only the first: the line meta hard-wired to echoes-on leaves "2 items · $12.00 + tax" in a Burmese-only name after the Burmese meta the card shows',
+    find: '    "inline",\n    shown,\n    { n: r.itemCount, m: fmt(r.subtotalCents) },',
+    replace: '    "inline",\n    true,\n    { n: r.itemCount, m: fmt(r.subtotalCents) },',
+  },
+  {
+    id: "p2e-rev/refund-mark-name-ignores-the-device",
+    file: "apps/qr/components/staff/RefundsNeededStrip.tsx",
+    suite: "components/staff/RefundsNeededStrip.test.tsx",
+    why: "P2e review (A5) — Mark refunded's name composes its echoed label with the device's state; hard-wired, a Burmese-only strip announces \"Mark refunded\" beside a button that prints only the Burmese",
+    find: '                      shown: echoes,\n                      verb: "table.appr.verb.markRefunded",',
+    replace:
+      '                      shown: true,\n                      verb: "table.appr.verb.markRefunded",',
   },
 ];
 

@@ -7,7 +7,7 @@ import type { StaffRow } from "@/lib/staff";
 // service-role client into this client bundle (it reaches authz → staff-lock → @mms/db/server).
 import { canActOn, ROLE_ORDER, type StaffRole } from "@/lib/staff-roles";
 import { RoleBadge } from "./RoleBadge";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useViewStatus } from "./ViewStatus";
@@ -75,6 +75,9 @@ export function TeamManager({
   const grantable = ROLE_ORDER.filter((r) => canActOn(callerRole, r));
   const router = useRouter();
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<StaffRole>("server");
@@ -394,12 +397,14 @@ export function TeamManager({
                             ? al(lang, {
                                 kind: "verb",
                                 echo: "inline",
+                                shown: echoes,
                                 verb: "floor.verb.deactivate",
                                 subject: row.displayName,
                               }).aria
                             : al(lang, {
                                 kind: "verb",
                                 echo: "inline",
+                                shown: echoes,
                                 verb: "floor.verb.reactivate",
                                 subject: row.displayName,
                               }).aria
