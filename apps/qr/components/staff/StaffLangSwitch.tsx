@@ -54,9 +54,11 @@ export const STAFF_LANG_MODE_KEY = {
 /**
  * P2e — the front doors' pill: [ မြန်မာ | English ], 44px, the device's SCRIPT pressed.
  *
- * It writes a MODE (`modeForScript`, resolved against the CONFIRMED mode at tap time): tapping the
- * script the device already reads keeps its mode — a Burmese-only device stays Burmese-only, and a
- * mis-tapped "English" corrected while its write is out goes back to Burmese-only, not to Both.
+ * It writes a MODE (`modeForScript`, resolved against the chain's BASE — the mode confirmed when the
+ * chain began, or now between chains): tapping the script the device already reads keeps its mode —
+ * a Burmese-only device stays Burmese-only, and a mis-tapped "English" corrected while its write is
+ * out goes back to Burmese-only, not to Both, however many times မြန်မာ is tapped while the chain
+ * runs (review C2: resolved against a confirmed value that moved mid-chain, a third tap wrote Both).
  * From a confirmed English device, မြန်မာ restores the default, Both; the Profile and the Help sheet
  * restore Burmese-only in one tap.
  *
@@ -69,7 +71,7 @@ export function StaffLangSwitch() {
   const write = useLangModeWrite();
   const groupId = useId();
   const pressed = scriptOf(write.shown);
-  const tap = (script: StaffLang) => write.choose((confirmed) => modeForScript(script, confirmed));
+  const tap = (script: StaffLang) => write.choose((base) => modeForScript(script, base));
   return (
     <>
       <div
@@ -206,7 +208,8 @@ export function StaffLangRows({
  * place a person comes to when the current mode is the wrong one. The failure speaks through the
  * view's ONE polite region (`announce`) and shows its line `aria-hidden` beneath the rows (the
  * menu-2 idiom); mounted with no provider (a suite, a future single-card screen) the line is the
- * `role="alert"` itself. The next write clears the region.
+ * `role="alert"` itself. The next write clears the region, and so does a write abandoned at 15 s
+ * that LANDS the pick later (review C1) — a reader must not find a failure the device has outlived.
  */
 export function StaffLangSection({ focusOnMount = false }: { focusOnMount?: boolean }) {
   const lang = useStaffLang();
@@ -214,6 +217,7 @@ export function StaffLangSection({ focusOnMount = false }: { focusOnMount?: bool
   const write = useLangModeWrite({
     onSettled: (s) => {
       if (s.alert) announce?.({ k: "shell.lang.failed" });
+      else if (s.wrote) announce?.(null);
     },
   });
   const rows: LangModeWrite = {

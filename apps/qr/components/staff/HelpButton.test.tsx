@@ -717,6 +717,64 @@ describe("P2e — the Help sheet's Language row", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  // Review C3 — the provider-driven close belongs to the Language rows ALONE. It used to fire from
+  // any view once a write had landed, so Back → How, or Back → Something's wrong → Send, was closed
+  // under the person the moment the board caught up (a report's outcome then lost to the next
+  // open's reset). Leaving the rows ends the wait for good.
+  const landEnglishToBurmese = async () => {
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+  };
+  const boardCatchesUp = async (rerender: (ui: ReactElement) => void) => {
+    rerender(
+      <Host mode="my-only">
+        <Tail mode="my-only" />
+      </Host>,
+    );
+    await act(async () => {});
+  };
+
+  it("review C3 — landed, then Back → How: the board catching up never closes the sheet under How", async () => {
+    seen("counter");
+    const { rerender } = mountLang("en");
+    await landEnglishToBurmese();
+    fireEvent.click(screen.getByRole("button", { name: /How this screen works/ }));
+    await waitFor(() => expect(document.querySelector(".help-how")).not.toBeNull());
+    await boardCatchesUp(rerender);
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    expect(document.querySelector(".help-how")).not.toBeNull();
+  });
+
+  it("review C3 — landed, then Back → Something's wrong → Send: never closed mid-report, and the outcome is seen", async () => {
+    seen("counter");
+    const sent = held<{ ok: true; id: string; shortId: string }>();
+    submitStaffReport.mockReturnValue(sent.p);
+    const { rerender } = mountLang("en");
+    await landEnglishToBurmese();
+    fireEvent.click(screen.getByRole("button", { name: /Something/ }));
+    const field = await screen.findByRole("textbox", { name: /What happened/ });
+    fireEvent.change(field, { target: { value: "T4 stuck" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(submitStaffReport).toHaveBeenCalledTimes(1));
+    await boardCatchesUp(rerender); // the send is still in flight
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    await act(async () => sent.release({ ok: true, id: "x", shortId: "9F1C2A3B" }));
+    expect(document.querySelector(".help-report-sent")).not.toBeNull();
+  });
+
+  it("review C3 — landed, left the rows, came back: the old wait is gone, so the sheet stays", async () => {
+    seen("counter");
+    const { rerender } = mountLang("en");
+    await landEnglishToBurmese();
+    fireEvent.click(screen.getByRole("button", { name: /Language/ }));
+    await screen.findByRole("group", { name: "This device’s language" });
+    await boardCatchesUp(rerender);
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+  });
+
   it.each(MODES)(
     "under %s: a second tap on the PENDING row keeps the sheet open, and the later failure is said in it — both tongues",
     async (mode) => {
@@ -780,9 +838,15 @@ describe("P2e — the Help sheet's Language row", () => {
       expect(menuLine.closest(".help-menu")).not.toBeNull();
       expectBoth(menuLine, "shell.lang.failed");
       fireEvent.click(screen.getByRole("button", { name: new RegExp(STAFF["shell.lang.row"].my) }));
-      // …and still said in the view.
-      const viewLine = await within(dialog()).findByRole("alert");
-      expect(viewLine.closest(".help-lang")).not.toBeNull();
+      // …and still SHOWN in the view — but announced once only (review A4): the menu's alert said
+      // it, so the view's line is plain text, never a second alert over the focus the view moves.
+      const viewLine = await waitFor(() => {
+        const l = dialog().querySelector(".help-lang .staff-lang-msg");
+        expect(l).not.toBeNull();
+        return l!;
+      });
+      expect(viewLine.hasAttribute("role")).toBe(false);
+      expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0);
       expectBoth(viewLine, "shell.lang.failed");
       expect(setStaffLang).toHaveBeenCalledTimes(1);
     },
@@ -884,11 +948,65 @@ describe("P2e — one language failure line, never a lost one", () => {
     await within(dialog()).findByRole("alert");
     expect(alerts()).toHaveLength(1);
     expect(alerts()[0]!.closest(".help-lang")).not.toBeNull();
-    // …and on the menu view too.
+    // …and on the menu view too — ONE visible line, and no second announcement (review A4).
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByRole("list", { name: "Help topics" });
-    expect(alerts()).toHaveLength(1);
+    const lines = [...document.querySelectorAll(".staff-lang-msg, .staff-bar-msg")];
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.closest(".help-menu")).not.toBeNull();
+    expect(alerts()).toHaveLength(0);
+  });
+
+  it("review A4 — ONE failure, ONE announcement: every later line for it is shown as plain text", async () => {
+    seen("counter");
+    const w = held<{ ok: false; error: string }>();
+    setStaffLang.mockReturnValue(w.p);
+    const { container } = mount();
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    await act(async () => w.release({ ok: false, error: "nope" }));
+    expect(alerts()).toHaveLength(1); // said once, where it landed — the menu
     expect(alerts()[0]!.closest(".help-menu")).not.toBeNull();
+    const plainLines = () =>
+      [...document.querySelectorAll(".staff-lang-msg, .staff-bar-msg")].filter(
+        (l) => !l.hasAttribute("role"),
+      );
+    fireEvent.click(screen.getByRole("button", { name: /Language/ }));
+    await screen.findByRole("group", { name: "This device’s language" });
+    expect(alerts()).toHaveLength(0);
+    expect(plainLines()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(alerts()).toHaveLength(0);
+    expect(plainLines()).toHaveLength(1);
+    // How has no line; a close from there keeps the failure — the bar tail SHOWS it, unannounced.
+    fireEvent.click(screen.getByRole("button", { name: /How this screen works/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const tail = container.querySelector(".staff-bar-tail .staff-bar-msg");
+    expect(tail).not.toBeNull();
+    expect(tail!.hasAttribute("role")).toBe(false);
+    expect(alerts()).toHaveLength(0);
+  });
+
+  it("review A4 — a NEW failure is news again: the next write's failure is an alert", async () => {
+    seen("counter");
+    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+    mount();
+    await openLang();
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ English" }));
+    await within(dialog()).findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    fireEvent.click(screen.getByRole("button", { name: /Language/ }));
+    await screen.findByRole("group", { name: "This device’s language" });
+    expect(alerts()).toHaveLength(0); // the same failure, already said
+    fireEvent.click(screen.getByRole("button", { name: "မြန်မာ" })); // a new write…
+    await waitFor(() => expect(setStaffLang).toHaveBeenCalledTimes(2));
+    const again = await within(dialog()).findByRole("alert"); // …and its failure is said
+    expect(again.closest(".help-lang")).not.toBeNull();
   });
 
   it.each([

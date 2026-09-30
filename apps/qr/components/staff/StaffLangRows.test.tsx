@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
 
@@ -309,6 +309,7 @@ describe("StaffLangRows — the write", () => {
 
   // What can fail here is the effect's DEPS: without `[focusOnMount]` every render re-focuses the
   // pressed row, and this rerender pulls focus off the row the person moved to.
+  // (See also "review C1" below: the write the 15 s timeout abandons.)
   it("focusOnMount lands on the PRESSED row, not the first — and a rerender does not re-focus", () => {
     const { rerender } = mount("en", true);
     expect(document.activeElement).toBe(row("English"));
@@ -319,6 +320,187 @@ describe("StaffLangRows — the write", () => {
       </Host>,
     );
     expect(document.activeElement).toBe(row("မြန်မာ"));
+  });
+});
+
+/**
+ * P2e review C1 — the write the 15 s timeout gives up on is NOT cancelled: a Server Action cannot
+ * be, and its own response re-renders the page with the cookie it set (Next 16.2.9's
+ * server-action-reducer, measured — see useLangModeWrite's docblock). Every earlier 15 s case used a
+ * promise that never settles, so the landing itself was never exercised. These let it LAND after
+ * `advanceTimersByTimeAsync(15_000)` and pin the invariant: the last mode the person picked is what
+ * the cookie ends on, or a failure line that is true says it is not.
+ */
+describe("StaffLangRows — review C1: a write abandoned at 15 s that LANDS later", () => {
+  const spy = () => vi.spyOn(console, "error").mockImplementation(() => {});
+  const giveUp = () =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+
+  it("it carried the person's pick: the failure line it outdated goes, and the cap and page follow", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    mount("both");
+    fireEvent.click(row("English"));
+    await giveUp();
+    expect(screen.getByRole("alert")).toBeTruthy(); // true at 15 s: nothing confirmed
+    expect(pressedName()).toEqual(["both"]);
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(screen.queryByRole("alert")).toBeNull(); // the cookie IS English now — no stale line
+    expect(pressedName()).toEqual(["en"]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(settled.mock.calls.at(-1)).toEqual([{ wrote: true, alert: false, confirmed: "en" }]);
+    expect(setStaffLang).toHaveBeenCalledTimes(1);
+    e.mockRestore();
+  });
+
+  it("the auditor's case: English, corrected to Both, English hangs past 15 s then lands — Both is written again", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    mount("both");
+    fireEvent.click(row("English"));
+    fireEvent.click(row("မြန်မာ English")); // the correction, while English is out
+    await giveUp();
+    // Nothing to say yet: the device IS on Both, the person's pick.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }]]);
+    // English lands (its own response turns the console English) — the chain answers it.
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "both" }]]);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(pressedName()).toEqual(["both"]);
+    e.mockRestore();
+  });
+
+  it("after the line, a tap on the mode the device holds IS the latest pick: the late English is corrected", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    mount("both");
+    fireEvent.click(row("English"));
+    await giveUp();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    fireEvent.click(row("မြန်မာ English")); // "fine, keep Both" — no write, the line answered
+    expect(sameConfirmed).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "both" }]]);
+    e.mockRestore();
+  });
+
+  it("the correction is on the cap while it is out — even as the late write's own re-render lands", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p).mockReturnValueOnce(w2.p);
+    const { rerender } = mount("both");
+    fireEvent.click(row("English"));
+    fireEvent.click(row("မြန်မာ English"));
+    await giveUp();
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    // English's response re-rendered the page in English while Both goes out again.
+    rerender(
+      <Host mode="en">
+        <Harness />
+      </Host>,
+    );
+    expect(pressedName()).toEqual(["both"]);
+    await act(async () => w2.release({ ok: true, mode: "both" }));
+    expect(pressedName()).toEqual(["both"]);
+    e.mockRestore();
+  });
+
+  it("the correction refused: the device sits on the mode they left, and the line says so", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang
+      .mockReturnValueOnce(w1.p)
+      .mockResolvedValueOnce({ ok: false, error: "nope" } as never);
+    mount("both");
+    fireEvent.click(row("English"));
+    fireEvent.click(row("မြန်မာ English"));
+    await giveUp();
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(setStaffLang).toHaveBeenCalledTimes(2);
+    // The provider here has not caught up (still Both) — the chain must judge against the English
+    // it KNOWS landed, not the provider's stale word.
+    expect(screen.getByRole("alert")).toBeTruthy();
+    e.mockRestore();
+  });
+
+  it("a late landing that is no longer the NEWEST write decides nothing — the newer one lands after it", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p).mockReturnValueOnce(w2.p);
+    mount("both");
+    fireEvent.click(row("English"));
+    await giveUp();
+    fireEvent.click(row("မြန်မာ")); // a new chain: Next sends it only after English settles
+    expect(setStaffLang).toHaveBeenCalledTimes(2);
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(setStaffLang).toHaveBeenCalledTimes(2); // no third write chasing a stale landing
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "my-only" }]]);
+    expect(pressedName()).toEqual(["my-only"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    e.mockRestore();
+  });
+
+  it("…and across HOSTS: a card's abandoned write never overrides the pick another control wrote since", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    const w2 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p).mockReturnValueOnce(w2.p);
+    render(
+      <Host mode="both">
+        <div data-testid="a">
+          <Harness />
+        </div>
+        <div data-testid="b">
+          <Harness />
+        </div>
+      </Host>,
+    );
+    const a = within(screen.getByTestId("a"));
+    const b = within(screen.getByTestId("b"));
+    fireEvent.click(a.getByRole("button", { name: "English" }));
+    fireEvent.click(a.getByRole("button", { name: "မြန်မာ English" }));
+    await giveUp();
+    fireEvent.click(b.getByRole("button", { name: "မြန်မာ" }));
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    // Host A's latest pick was Both, but Burmese only went out after it: A writes nothing.
+    expect(setStaffLang.mock.calls).toEqual([[{ mode: "en" }], [{ mode: "my-only" }]]);
+    await act(async () => w2.release({ ok: true, mode: "my-only" }));
+    expect(setStaffLang).toHaveBeenCalledTimes(2);
+    e.mockRestore();
+  });
+
+  it("a late REFUSAL changed nothing: no write, no refresh, no line", async () => {
+    vi.useFakeTimers();
+    const e = spy();
+    const w1 = held<{ ok: false; error: string }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    mount("both");
+    fireEvent.click(row("English"));
+    fireEvent.click(row("မြန်မာ English"));
+    await giveUp();
+    await act(async () => w1.release({ ok: false, error: "nope" }));
+    expect(setStaffLang).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    e.mockRestore();
   });
 });
 
@@ -384,6 +566,24 @@ describe("StaffLangSection — the Profile's language card", () => {
       expect(container.querySelector(".staff-lang-msg")).toBeNull();
     },
   );
+
+  it("review C1 — a write abandoned at 15 s that then LANDS the pick clears the view's region too", async () => {
+    vi.useFakeTimers();
+    const e = vi.spyOn(console, "error").mockImplementation(() => {});
+    const w1 = held<{ ok: true; mode: StaffLangMode }>();
+    setStaffLang.mockReturnValueOnce(w1.p);
+    const { container } = render(<Profile mode="both" />);
+    fireEvent.click(row("English"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    const region = container.querySelector('[role="status"]')!;
+    expect(region.textContent).toBe(STAFF["shell.lang.failed"].my);
+    await act(async () => w1.release({ ok: true, mode: "en" }));
+    expect(container.querySelector(".staff-lang-msg")).toBeNull();
+    expect(region.textContent).toBe(""); // no stale "Couldn't save that" left for a reader to find
+    e.mockRestore();
+  });
 
   it.each(["en", "my-only"] as const)(
     "under %s with NO view provider the line is the role=alert itself, both tongues",
