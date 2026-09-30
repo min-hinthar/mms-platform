@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   counterArmOf,
-  counterClearRefusal,
   counterSent,
   counterSentLine,
   counterSettleVariant,
@@ -212,19 +211,7 @@ describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
   });
 });
 
-describe("counterClearRefusal / mergeCounterRefusal", () => {
-  it("Clear refuses a counter order with SENT food only", () => {
-    expect(counterClearRefusal({ counterOrder: true, lines: [line()], nowMs: NOW })).toBe("sent");
-    expect(
-      counterClearRefusal({ counterOrder: true, lines: [line({ fire_at: ago(-5) })], nowMs: NOW }),
-    ).toBeNull();
-    expect(
-      counterClearRefusal({ counterOrder: true, lines: [line({ state: "draft" })], nowMs: NOW }),
-    ).toBeNull();
-    // clear-refused-on-tables: a table with fired lines still clears (Clear's precedent)
-    expect(counterClearRefusal({ counterOrder: false, lines: [line()], nowMs: NOW })).toBeNull();
-  });
-
+describe("mergeCounterRefusal", () => {
   it("Merge refuses any counter TARGET first, and a counter source with sent food", () => {
     const sent = { counterOrder: true, lines: [line()] };
     const drafts = { counterOrder: true, lines: [line({ state: "draft" })] };

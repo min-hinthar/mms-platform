@@ -1917,6 +1917,7 @@ export type Database = {
         Returns: number
       }
       mms_clear_cart_name: { Args: { p_session_id: string }; Returns: string }
+      mms_clear_counter_cart: { Args: { p_cart_id: string }; Returns: string }
       mms_clear_pickup_slot: {
         Args: { p_cart_id: string }
         Returns: {

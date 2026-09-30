@@ -22,11 +22,11 @@
  * interleaves. `verify-mode-authority.mjs` lists the deletions as documented SURVIVORS for exactly
  * that reason; this is the second session that kills them.
  *
- * WHAT THIS PROVES, and no more: the four orderings below, on one cart. The no-show, the undo and a
+ * WHAT THIS PROVES, and no more: the six orderings below, on one cart. The no-show, the undo and a
  * settle claim take the same cart-row lock, but no scenario here interleaves them — those orderings
  * are argued from construction and pinned single-session (P2F.15e, P2F.18), not proven here.
  *
- * ── The four orders ──────────────────────────────────────────────────────────────────────────────
+ * ── The orders ──────────────────────────────────────────────────────────────────────────────
  *
  *   (a) clear-first — B clears the name inside an open transaction ('ok'); A's fire must BLOCK on B
  *       (read from `pg_blocking_pids`, never a sleep). Once B commits, A must answer `0|false` (nothing
@@ -47,6 +47,16 @@
  *       second sweep must leave it active too (the committed SENT line exempts it). Without the
  *       fire's session lock, or with the sweeper deciding in the same statement that locks, S reads
  *       A's uncommitted lines as drafts and closes a session the kitchen is now cooking for.
+ *
+ *   Codex r2 on #308 moved the table Clear's counter half into `mms_clear_counter_cart` (the SENT
+ *   check and the cancel, one call, the cart row then the lines locked FOR UPDATE). Two more orders:
+ *   (e) kitchen-fire-before-clear — A runs the kitchen's draft→fired edge (`mms_line_transition`,
+ *       which stamps fire_at = now(): due at once, and locks only the LINE) inside an open
+ *       transaction; B's clear must BLOCK on A and, once A commits, answer 'sent' with the cart still
+ *       open. Without the lines' lock B reads the draft, cancels, and due food vanishes from the KDS.
+ *   (f) settle-before-clear — A takes the cart row and flips it to paid (a settle's claim) inside an
+ *       open transaction; B's clear must BLOCK and, once A commits, answer 'not_open'. Without the
+ *       cart lock B decides from a snapshot older than the settle and reports a cancel it never made.
  *
  * The sweeper closes EVERY expired active session in the database it runs against — what its cron
  * does anyway; on a throwaway cluster there are only these fixtures.
@@ -349,6 +359,9 @@ function fixture(id, ttl = "12 hours") {
   return {
     session,
     cart,
+    line,
+    // The cart's status — what a Clear decided.
+    cartStatus: () => q(`select status from public.qr_carts where id = '${cart}';`),
     // What the counter and the kitchen see: the name on the order · the line's state.
     state: () =>
       q(`select coalesce(c.customer_name, '<none>') || '|' || i.state
@@ -387,6 +400,8 @@ const sweep = `select public.mms_sweep_expired_sessions() >= 0;`;
 const nowBeforeExpiry = (f) =>
   `select now() < expires_at from public.table_sessions where id = '${f.session}';`;
 const clearName = (f) => `select public.mms_clear_cart_name('${f.session}'::uuid);`;
+/** The table Clear's counter half (Codex r2 on #308): the SENT check and the cancel in one call. */
+const clearCounter = (f) => `select public.mms_clear_counter_cart('${f.cart}'::uuid);`;
 
 /** Each scenario returns [label, got, want] triples; any mismatch reddens it. */
 const SCENARIOS = {
@@ -495,9 +510,58 @@ const SCENARIOS = {
       await s.close();
     }
   },
+  async e() {
+    const f = fixture("e");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // The kitchen's own draft→fired edge stamps fire_at = now(): DUE the moment it commits, and it
+      // locks only the LINE — the cart-row lock alone cannot order a Clear against it.
+      await a.run("begin;");
+      const fired = await a.run(`select public.mms_line_transition('${f.line}'::uuid, 'fired');`);
+      b.fire(clearCounter(f));
+      const how = await blockedOrDone(b, a);
+      // A Clear that did NOT wait read A's uncommitted line as a draft — the real race — so A
+      // commits only after it. A Clear that waited cannot finish until A commits.
+      if (how === "blocked") await a.run("commit;");
+      const cleared = await b.collect();
+      if (how === "done") await a.run("commit;");
+      return [
+        ["A fired the line (due at once)", fired, "1"],
+        ["B's clear waited for the fire", how, "blocked"],
+        ["B refused: the food is in the kitchen", cleared, "sent"],
+        ["the cart stayed open under the kitchen's food", f.cartStatus(), "open"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
+  async f() {
+    const f = fixture("f");
+    const a = await new Session("a").open();
+    const b = await new Session("b").open();
+    try {
+      // A settle's claim: the cart row taken and flipped to paid, not yet committed.
+      await a.run("begin;");
+      await a.run(`update public.qr_carts set status = 'paid' where id = '${f.cart}';`);
+      b.fire(clearCounter(f));
+      const how = await blockedOrDone(b, a);
+      await a.run("commit;");
+      const cleared = await b.collect();
+      return [
+        ["B's clear waited for the settle", how, "blocked"],
+        ["B read the cart as settled — no cancel claimed", cleared, "not_open"],
+        ["the settled cart is untouched", f.cartStatus(), "paid"],
+      ];
+    } finally {
+      await a.close();
+      await b.close();
+    }
+  },
 };
 
-/** Run both scenarios; returns the ids that went red (printing when `loud`). */
+/** Run every scenario; returns the ids that went red (printing when `loud`). */
 async function battery(loud) {
   const red_ = [];
   red_.why = [];
@@ -507,9 +571,14 @@ async function battery(loud) {
     if (bad.length) red_.push(id);
     for (const [label, got] of bad) red_.why.push(`${id}: ${label} ✗ (${got})`);
     if (loud) {
-      const name = { a: "clear-first", b: "fire-first", c: "sweep-first", d: "fire-before-sweep" }[
-        id
-      ];
+      const name = {
+        a: "clear-first",
+        b: "fire-first",
+        c: "sweep-first",
+        d: "fire-before-sweep",
+        e: "kitchen-fire-before-clear",
+        f: "settle-before-clear",
+      }[id];
       console.log(`  ${bad.length ? red("✗") : green("✓")} ${name} (${id})`);
       for (const [label, got, want] of bad) {
         console.log(`      ${label}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
@@ -534,6 +603,7 @@ const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
 /** Every function this migration defines — the restore re-applies them all, so all are compared. */
 const FNS = [
   "mms_clear_cart_name",
+  "mms_clear_counter_cart",
   "mms_counter_no_show",
   "mms_fire_counter_cart",
   "mms_sweep_expired_sessions",
@@ -619,6 +689,26 @@ const MUTANTS = [
     expect: ["d"],
     why: "the sweep closes a session it never locked, from a snapshot older than the Send it waited for",
   },
+  {
+    id: "p2f/clear-counter-lines-lock-dropped",
+    fn: "mms_clear_counter_cart",
+    find: "  perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;\n  if exists (",
+    replace: "  if exists (",
+    // (e): the kitchen's fire locks only the line, so without this the Clear reads it as a draft,
+    // cancels, and the ticket A just made due vanishes from the KDS — the finding, via a line writer.
+    expect: ["e"],
+    why: "a kitchen fire committing mid-clear lands due food on a cancelled cart (Codex r2 on #308)",
+  },
+  {
+    id: "p2f/clear-counter-cart-lock-dropped",
+    fn: "mms_clear_counter_cart",
+    find: "    where c.id = p_cart_id\n    for update of c;\n  if v_sess is null",
+    replace: "    where c.id = p_cart_id;\n  if v_sess is null",
+    // (f): the Clear reads the cart open from a snapshot older than the settle it then waits on, and
+    // answers 'ok' — a cancel it never made (its UPDATE re-checks `status = 'open'` and hits nothing).
+    expect: ["f"],
+    why: "the clear decides from a snapshot older than a settle's claim and reports a cancel nobody made",
+  },
 ];
 
 function restoreMigration() {
@@ -647,7 +737,7 @@ async function runMutants() {
       `${TAG} REFUSED — the UNMUTATED functions are already red on (${base.join(", ")})`,
     );
   }
-  console.log(`  ${green("baseline")} ${dim("all four orders green on the real functions")}`);
+  console.log(`  ${green("baseline")} ${dim("all six orders green on the real functions")}`);
 
   let bad = 0;
   for (const m of MUTANTS) {
@@ -751,7 +841,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep\n`,
+        `\n✓ verify:counter-race — clear-first · fire-first · sweep-first · fire-before-sweep · kitchen-fire-before-clear · settle-before-clear\n`,
       ),
     );
   }

@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  *  - `getTableDetail` carries the counter order's facts (counter / arm / name / unpaid / the sent
  *    line ids / mergeable / the switch), with "sent" measured on the DATABASE clock;
- *  - `clearTable` refuses a counter order whose food reached the kitchen (fail CLOSED on an
- *    unreadable check — it guards a write-off path) and writes nothing when it refuses;
+ *  - `clearTable` routes a counter order's cancel through `mms_clear_counter_cart` (the SENT check
+ *    and the cancel are one locked SQL decision — Codex r2 on #308), maps its verdicts (sent →
+ *    refusal, ok / not_open → proceed, an error or any other verdict → outage, fail CLOSED) and writes
+ *    nothing when it refuses; a table keeps the plain status-guarded cancel;
  *  - `mergeTables` refuses any counter TARGET and a counter source with sent food, before the RPC;
  *  - `getFloorView` flags a register row's unpaid food and folds its kitchen row.
  *
@@ -79,6 +81,13 @@ let itemsError: { message: string } | null = null;
 let nowError: { message: string } | null = null;
 let updates: { table: string; patch: Row }[] = [];
 let rpcCalls: string[] = [];
+let rpcArgs: Record<string, unknown>[] = [];
+// `mms_clear_counter_cart`'s verdict for the counter cart; any other cart id answers what the SQL
+// would for a cart it does not treat as a counter order (so a table routed there cannot clear).
+let clearVerdict: { data: string | null; error: { message: string } | null } = {
+  data: "ok",
+  error: null,
+};
 
 function pick(row: Row, cols: string): Row {
   const out: Row = {};
@@ -154,8 +163,13 @@ function tableApi(name: string) {
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (name: string) => tableApi(name),
-    rpc: (fn: string) => {
+    rpc: (fn: string, args?: Record<string, unknown>) => {
       rpcCalls.push(fn);
+      if (args) rpcArgs.push(args);
+      if (fn === "mms_clear_counter_cart")
+        return Promise.resolve(
+          args?.p_cart_id === "cart-reg" ? clearVerdict : { data: "not_counter", error: null },
+        );
       if (fn === "mms_now")
         return Promise.resolve(
           nowError ? { data: null, error: nowError } : { data: DB_NOW, error: null },
@@ -232,6 +246,8 @@ beforeEach(() => {
   nowError = null;
   updates = [];
   rpcCalls = [];
+  rpcArgs = [];
+  clearVerdict = { data: "ok", error: null };
   rq.value = null;
 });
 
@@ -295,31 +311,52 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
   });
 });
 
-describe("clearTable — a counter order with food in the kitchen is not cleared", () => {
-  it("refuses with code `sent` and writes NOTHING", async () => {
+describe("clearTable — a counter order's cancel is ONE locked SQL decision", () => {
+  it("'sent' refuses with code `sent` and writes NOTHING", async () => {
+    clearVerdict = { data: "sent", error: null };
     const r = await clearTable({ sessionId: REG });
     // counter-clear-writes-off-food
     expect(r).toMatchObject({ ok: false, code: "sent" });
     expect(updates).toEqual([]);
   });
 
-  it("a send still inside its grace clears (it never reached the kitchen)", async () => {
-    items["cart-reg"] = [line({ id: "g", state: "fired", fire_at: dbAgo(-5) })];
+  it("'ok' cancelled THIS cart in SQL; the session closes, and no second cancel is written", async () => {
     expect(await clearTable({ sessionId: REG })).toEqual({ ok: true });
+    // p2f-cx2-clear/counter-through-plain-cancel · p2f-cx2-clear/wrong-cart-id
+    expect(rpcCalls).toContain("mms_clear_counter_cart");
+    expect(rpcArgs).toContainEqual({ p_cart_id: "cart-reg" });
+    expect(updates.map((u) => u.table)).toEqual(["table_sessions"]);
+  });
+
+  it("'not_open' — the cart left open since the read — proceeds, as a no-row cancel always has", async () => {
+    // p2f-cx2-clear/not-open-refused
+    clearVerdict = { data: "not_open", error: null };
+    expect(await clearTable({ sessionId: REG })).toEqual({ ok: true });
+    expect(updates.map((u) => u.table)).toEqual(["table_sessions"]);
+  });
+
+  it("a table with fired lines still clears through the plain cancel (Clear's precedent)", async () => {
+    // p2f-cx2-clear/table-through-the-counter-rpc
+    expect(await clearTable({ sessionId: TABLE })).toEqual({ ok: true });
+    expect(rpcCalls).not.toContain("mms_clear_counter_cart");
     expect(updates.map((u) => u.table)).toEqual(["qr_carts", "table_sessions"]);
   });
 
-  it("a table with fired lines still clears (Clear's own precedent)", async () => {
-    expect(await clearTable({ sessionId: TABLE })).toEqual({ ok: true });
+  it("an RPC error refuses as an outage and writes nothing (fail closed)", async () => {
+    // p2f-cx2-clear/rpc-error-proceeds
+    // `data` carries a would-be 'ok' on purpose: with null data the unknown-verdict branch refuses
+    // anyway, and this case could not tell whether the error itself is ever read as a verdict.
+    clearVerdict = { data: "ok", error: { message: "boom" } };
+    expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
+    expect(updates).toEqual([]);
   });
 
-  it("an unreadable check refuses as an outage and writes nothing (fail closed)", async () => {
-    // counter-clear-unreadable-proceeds
-    nowError = { message: "boom" };
-    expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
-    nowError = null;
-    itemsError = { message: "boom" };
-    expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
+  it("any other verdict refuses as an outage and writes nothing (fail closed)", async () => {
+    // p2f-cx2-clear/unexpected-verdict-proceeds
+    for (const v of ["not_counter", "not_found", null]) {
+      clearVerdict = { data: v, error: null };
+      expect(await clearTable({ sessionId: REG })).toEqual({ ok: false, error: "outage" });
+    }
     expect(updates).toEqual([]);
   });
 });

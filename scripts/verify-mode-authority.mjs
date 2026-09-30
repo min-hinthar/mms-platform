@@ -50,7 +50,9 @@
  * harness yet and are filed in OPEN-ITEMS. The Phase 2f blind review (C1) adds FOUR more: the fire's
  * session-row lock and the sweeper's lock-then-decide, SKIP LOCKED and held-rows-only confinement —
  * all KILLED by `verify-counter-fire-race.mjs --mutants` (sweep-first · fire-before-sweep). Twelve
- * survivors in all.
+ * survivors in all. Codex r2 on #308 adds `mms_clear_counter_cart` (Clear's SENT check and cancel in
+ * one call) with NINE killed mutants and NO new survivor: its two locks are left out of this battery
+ * and killed by `verify-counter-fire-race.mjs --mutants` (orders e and f) instead.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -1342,6 +1344,101 @@ const MUTANTS = [
     find: "        fire_at    = case when p_to = 'fired' then now() else ci.fire_at end,",
     replace: "        fire_at    = now(),",
   },
+  // ── Codex r2 on #308 — `mms_clear_counter_cart`: Clear's SENT check and its cancel, one decision.
+  // Its two locks (the cart row, then the lines) are NOT here: single-session they are unobservable,
+  // and this battery takes no new survivor — both are KILLED by scripts/verify-counter-fire-race.mjs
+  // --mutants (orders e and f).
+  {
+    id: "p2f/clear-counter-sent-check-dropped",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26a ·",
+    why: "THE FINDING: Clear cancels a counter order whose food the kitchen has — the KDS drops the ticket and the no-show, its only audited exit, becomes unreachable",
+    find: "          and (ci.fire_at is null or ci.fire_at <= now())) then\n    return 'sent';\n",
+    replace:
+      "          and (ci.fire_at is null or ci.fire_at <= now())) and false then\n    return 'sent';\n",
+  },
+  {
+    id: "p2f/clear-counter-comped-blocks",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26f ·",
+    why: "over-block: a comped line is already an audited loss — counting it as sent strands an order no no-show can take (the no-show skips comped lines too)",
+    find: "          and not ci.comped\n          and (ci.fire_at is null",
+    replace: "          and (ci.fire_at is null",
+  },
+  {
+    id: "p2f/clear-counter-grace-counts-as-sent",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26d ·",
+    why: "over-block: an in-grace line never reached the KDS and is the sender's to undo — refusing it strands an order whose no-show answers nothing_sent",
+    find: "          and not ci.comped\n          and (ci.fire_at is null or ci.fire_at <= now())) then",
+    replace: "          and not ci.comped) then",
+  },
+  {
+    id: "p2f/clear-counter-null-fire-at-not-sent",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26c ·",
+    why: "a fired line with no fire_at is on the KDS (P2F.22) — reading it as unsent cancels food the kitchen shows",
+    find: "          and (ci.fire_at is null or ci.fire_at <= now())) then",
+    replace: "          and ci.fire_at <= now()) then",
+  },
+  {
+    id: "p2f/clear-counter-grocery-blocks",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26g ·",
+    why: "over-block: grocery is never kitchen food — refusing on it strands an order the no-show cannot take",
+    find: "          and ci.fulfillment <> 'grocery'\n          and not ci.comped\n          and (ci.fire_at is null",
+    replace: "          and not ci.comped\n          and (ci.fire_at is null",
+  },
+  {
+    id: "p2f/clear-counter-counter-check-dropped",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26h ·",
+    why: "the refusal is a COUNTER rule — a table with fired food still clears (Clear's precedent); without the check this staff-only cancel answers for any cart",
+    find: "  if v_sess_mode <> 'pickup' or v_qr not like 'reg-%' then return 'not_counter'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/clear-counter-mode-term-dropped",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26l ·",
+    why: "the mode half of the counter predicate: a reg- code on a scan-and-go session is not a counter order",
+    find: "  if v_sess_mode <> 'pickup' or v_qr not like 'reg-%' then",
+    replace: "  if v_qr not like 'reg-%' then",
+  },
+  {
+    id: "p2f/clear-counter-open-check-dropped",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26j ·",
+    why: "a cart that is no longer open was not cancelled here — answering ok claims a cancel nobody recorded",
+    find: "  if v_cart_status <> 'open' then return 'not_open'; end if;\n",
+    replace: "",
+  },
+  {
+    id: "p2f/clear-counter-cancel-dropped",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.26d ·",
+    why: "'ok' must mean cancelled: the caller closes the session next, and an open cart under a closed session is an order nobody can reach",
+    find: "  update public.qr_carts c set status = 'cancelled' where c.id = p_cart_id and c.status = 'open';\n",
+    replace: "",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -1393,6 +1490,7 @@ const TARGETS = [
   "mms_clear_cart_name",
   "mms_counter_no_show",
   "mms_sweep_expired_sessions",
+  "mms_clear_counter_cart",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.
