@@ -1,4 +1,4 @@
-import { STAFF, ts, type StaffKey } from "./i18n/staff";
+import { STAFF, STAFF_K15_HIGH, ts, type StaffKey } from "./i18n/staff";
 import { fill, localizeCount, plural, tf, type SlotsOf } from "./i18n/fill";
 import type { FloorStatus } from "./floor-types";
 import type { StaffLang } from "./staff-lang";
@@ -61,22 +61,36 @@ export function dishVisible(lang: StaffLang, name: string, nameMy: string | null
  * drift; `al()` composes every `visible` through it. Pass the SAME `echo` the call site renders —
  * `check-staff-lang.mjs` rule 3c is what checks you did.
  *
- * P2e — STATED SCOPE UNDER BURMESE ONLY. A Burmese-only device drops `<Chrome>`'s English echo
- * (except on the K15-HIGH band and `keepEcho` sites), but names are NOT threaded through the mode:
- * they keep the echo. WCAG 2.5.3 containment still holds PER KEY, because
- * `chromeVisible("my", k, echo)` contains `chromeVisible("my", k, false)` — what the screen shows
- * is a prefix of what the name says. A COMPOSITE name built from several pieces
- * (`CounterOrderCard`'s `subjectOf`, `RefundsNeededStrip`) interleaves an English echo between
- * Burmese pieces, so there the visible text is contained piecewise, not as one contiguous run.
- * Deliberate (no assistive-tech users on these tablets) and filed low in OPEN-ITEMS, rather than
- * claimed.
+ * P2e review (A5) — AND THE SAME DEVICE. A Burmese-only device drops `<Chrome>`'s English echo
+ * (except on the K15-HIGH band and `keepEcho` sites), and the first cut of P2e left names OUT of
+ * the mode: they kept the echo, on the argument that containment still held per key. It did — but
+ * a COMPOSITE name (`CounterOrderCard`'s `subjectOf`) then spliced "Walk-up" and "2 items · …"
+ * between Burmese runs the card no longer showed, so the visible text was in the name only
+ * piecewise, never as the one contiguous run a speech-input user reads off the screen (WCAG 2.5.3);
+ * and a single label (`RefundsNeededStrip`'s Mark refunded) announced an English word its button
+ * had stopped printing. So `shown` is REQUIRED: the device's echo state, read at the call site from
+ * `useEchoesShown()` — the value `<Chrome>` itself reads — and `echoDrawn` below is the ONE
+ * decision both halves apply to it. `Chrome.test.tsx` renders under a provider carrying the same
+ * `shown` in both states, so the pin above now holds per device, not only per echo.
  */
 export type ChromeEcho = "stack" | "inline" | false;
+
+/**
+ * Whether `<Chrome>` draws `key`'s English echo — its whole decision, named ONCE and read by both
+ * `<Chrome>` and `chromeVisible()`. `shown` is the device (`useEchoesShown()`), which `<Chrome>`
+ * ORs with `keepEcho` before calling this; the K15-HIGH band keeps its English whatever the device
+ * says (the shared kitchen tablet's cross-check — `Chrome.tsx` rule 4).
+ */
+export function echoDrawn(key: StaffKey, shown: boolean): boolean {
+  return shown || STAFF_K15_HIGH.has(key);
+}
 
 export function chromeVisible<K extends StaffKey>(
   lang: StaffLang,
   key: K,
-  echo: ChromeEcho = false,
+  echo: ChromeEcho,
+  /** The device's echo state — `useEchoesShown()` at the call site (true at a `keepEcho` site). */
+  shown: boolean,
   // Slotted keys go through `fill` exactly as Chrome does — the MY half in the device's numerals,
   // the English echo always in Latin — so a count reads `ပစ္စည်း ၂ ခု · 2 items`, matching the render.
   ...[vars]: SlotsOf<K> extends never
@@ -86,10 +100,18 @@ export function chromeVisible<K extends StaffKey>(
   const en = vars ? fill(STAFF[key].en, vars, "en") : STAFF[key].en;
   if (lang === "en") return en; // Chrome returns a bare English text node — no element, no echo.
   const my = vars ? fill(STAFF[key].my, vars, "my") : STAFF[key].my;
-  if (echo === false) return my;
+  // A Burmese-only device renders the pair with ONE child (no middot, no echo) — the same string.
+  if (echo === false || !echoDrawn(key, shown)) return my;
   // `stack` renders the pair as two blocks (whitespace between them); `inline` joins with a middot.
   return echo === "inline" ? `${my} · ${en}` : `${my} ${en}`;
 }
+
+/**
+ * P2e review (A5) — a control that renders its label WITH an echo must say which device it renders
+ * on: `shown` is required alongside `echo`, so a call site cannot compose a name for one mode while
+ * `<Chrome>` renders another. Without an echo the device changes nothing, and `shown` may be left out.
+ */
+type Echoed = { echo?: false; shown?: boolean } | { echo: "stack" | "inline"; shown: boolean };
 
 export type StaffControl =
   /** A ticket line. Visible: the dish name (Burmese-first). Tapping advances its state. */
@@ -109,9 +131,9 @@ export type StaffControl =
       soldOut: boolean;
     }
   /** The full-width bump. Visible: BUMP / ပြီးပြီ. */
-  | { kind: "bump"; id: string; items: number; echo?: ChromeEcho }
+  | ({ kind: "bump"; id: string; items: number } & Echoed)
   /** 86 the dish. Visible: 86 this dish / ဒီဟင်း ဖြုတ်. */
-  | { kind: "eighty6"; name: string; nameMy: string | null; echo?: ChromeEcho }
+  | ({ kind: "eighty6"; name: string; nameMy: string | null } & Echoed)
   /**
    * Recall a bumped ticket from the footer rail. Visible: the ticket's CODE — the chip shows
    * `⟲ #A12`, not the verb — so the pair is inverted relative to `undo`: the code is what must be
@@ -120,7 +142,7 @@ export type StaffControl =
    */
   | { kind: "recall"; label: string }
   /** The undo that follows a bump. Visible: the verb — the button's whole content IS the label. */
-  | { kind: "undo"; label: string; echo?: ChromeEcho }
+  | ({ kind: "undo"; label: string } & Echoed)
   /**
    * A table on the floor. The whole CARD is the link, so its visible content is a paragraph, not a
    * label — but one line of it identifies the table ("Table 7"), and that is what the name must
@@ -145,7 +167,7 @@ export type StaffControl =
    * `subject` is rendered VERBATIM — it is a dish name, a person's name, a table token — so it is
    * never a dictionary lookup and never a count.
    */
-  | { kind: "verb"; verb: VerbKey; subject: string; echo?: ChromeEcho }
+  | ({ kind: "verb"; verb: VerbKey; subject: string } & Echoed)
   /**
    * THE INVERSION of `verb`, and `recall` above is this shape hard-coded for one control: the
    * visible label is the SUBJECT — a queue row of guest name and line meta, a chip showing a ticket
@@ -163,8 +185,9 @@ export type StaffControl =
    * (a) `al()` interpolating the subject into the name by construction, and (b) the author passing a
    * subject the row actually shows. (b) is an obligation, not a check — and it was BREACHED: the
    * register row built its subject from un-echoed lookups while rendering two echoed `<Chrome>`s, so
-   * the name omitted both English halves. `rowSubject` composes through `chromeVisible` now. If you
-   * add a second `subject` call site, that is the trap.
+   * the name omitted both English halves. `CounterOrderCard`'s `subjectOf` composes through
+   * `chromeVisible` now — with the device's `shown`, since P2e review (A5). If you add a second
+   * `subject` call site, that is the trap.
    */
   | { kind: "subject"; verb: VerbKey; subject: string }
   /**
@@ -235,12 +258,12 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       return { ...name, aria: `${name.aria} — ${ts(lang, "kds.86.done")}` };
     }
     case "bump": {
-      const visible = chromeVisible(lang, "kds.bump", control.echo);
+      const visible = chromeVisible(lang, "kds.bump", control.echo ?? false, !!control.shown);
       const what = tf(lang, "kds.bump.what", { x: control.id, n: control.items });
       return { visible, aria: `${visible} — ${what}` };
     }
     case "eighty6": {
-      const visible = chromeVisible(lang, "kds.86", control.echo);
+      const visible = chromeVisible(lang, "kds.86", control.echo ?? false, !!control.shown);
       const dish = dishVisible(lang, control.name, control.nameMy);
       return { visible, aria: `${visible} — ${dish}` };
     }
@@ -248,11 +271,11 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       return { visible: control.label, aria: `${ts(lang, "kds.recall")} — ${control.label}` };
     }
     case "undo": {
-      const visible = chromeVisible(lang, "kds.undo", control.echo);
+      const visible = chromeVisible(lang, "kds.undo", control.echo ?? false, !!control.shown);
       return { visible, aria: `${visible} — ${control.label}` };
     }
     case "verb": {
-      const visible = chromeVisible(lang, control.verb, control.echo);
+      const visible = chromeVisible(lang, control.verb, control.echo ?? false, !!control.shown);
       return { visible, aria: `${visible} — ${control.subject}` };
     }
     case "subject": {

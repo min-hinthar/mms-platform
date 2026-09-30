@@ -23,7 +23,7 @@ import { RefundsNeededStrip } from "./RefundsNeededStrip";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { useZoneFocus } from "./ZoneFocus";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
@@ -344,6 +344,9 @@ function RequestCard({
   onResolved: () => void | Promise<void>;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
   // manager-4 — the Approve/Deny row UNMOUNTS when a decision opens (the form takes its place), so
   // the tap used to leave focus on <body> and the PIN step opened unannounced. The form takes focus
@@ -505,6 +508,7 @@ function RequestCard({
               al(lang, {
                 kind: "verb",
                 echo: "stack",
+                shown: echoes,
                 verb: "table.appr.verb.approve",
                 subject: request.lineName,
               }).aria
@@ -522,6 +526,7 @@ function RequestCard({
               al(lang, {
                 kind: "verb",
                 echo: "stack",
+                shown: echoes,
                 verb: "table.appr.verb.deny",
                 subject: request.lineName,
               }).aria

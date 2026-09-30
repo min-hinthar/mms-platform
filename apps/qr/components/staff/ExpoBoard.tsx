@@ -58,7 +58,7 @@ import {
 } from "@mms/ui";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { ts } from "@/lib/i18n/staff";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
 import { useCounterAttention } from "./CounterBell";
@@ -846,6 +846,9 @@ function ExpoCard({
   pulse?: number;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [pending, startTransition] = useTransition();
   const age = expoAge(ticket, nowMs);
   // The stage this card is AT, named once: it decides the next status, the button's word, the
@@ -1035,7 +1038,7 @@ function ExpoCard({
           it: that each announced key is RENDERED in this element, on the same ternary branch, with
           the SAME echo. It does not read what `<Chrome>` emits. The reason the echo is part of that
           check is that an echo puts TWO strings on screen under `my`, so `al()` must compose its
-          visible label through `chromeVisible(lang, key, echo)` — pass different echoes at the two
+          visible label through `chromeVisible(lang, key, echo, shown)` — pass different echoes at the two
           ends and the name silently drops half the visible label (WCAG 2.5.3). The rendered text is
           pinned against that derivation in `Chrome.test.tsx`, which is the only place it can be. */}
       {picked ? (
@@ -1072,12 +1075,14 @@ function ExpoCard({
                 ? al(lang, {
                     kind: "verb",
                     echo: "stack",
+                    shown: echoes,
                     verb: "expo.verb.verified",
                     subject: verifyWho,
                   }).aria
                 : al(lang, {
                     kind: "verb",
                     echo: "stack",
+                    shown: echoes,
                     verb: "expo.verb.handedOver",
                     subject: verifyWho,
                   }).aria
@@ -1085,12 +1090,14 @@ function ExpoCard({
                 ? al(lang, {
                     kind: "verb",
                     echo: "stack",
+                    shown: echoes,
                     verb: "expo.verb.bagged",
                     subject: callOutAria,
                   }).aria
                 : al(lang, {
                     kind: "verb",
                     echo: "stack",
+                    shown: echoes,
                     verb: "expo.verb.pickedUp",
                     subject: callOutAria,
                   }).aria

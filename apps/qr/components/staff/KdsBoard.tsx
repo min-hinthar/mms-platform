@@ -43,7 +43,7 @@ import type {
 } from "@/lib/kitchen-types";
 import Link from "next/link";
 import { EmptyState, Icon, removeHeld, useSheetSubject } from "@mms/ui";
-import { useStaffLang } from "./StaffLangProvider";
+import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
 import { KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
@@ -1286,6 +1286,9 @@ function TicketCard({
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
+  // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
+  // composes an echoed label takes it too, so the name follows the mode the label renders in.
+  const echoes = useEchoesShown();
   const [pending, startTransition] = useTransition();
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
@@ -1414,7 +1417,13 @@ function TicketCard({
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           aria-label={
-            al(lang, { kind: "bump", echo: "stack", id: id.main, items: ticket.lines.length }).aria
+            al(lang, {
+              kind: "bump",
+              echo: "stack",
+              shown: echoes,
+              id: id.main,
+              items: ticket.lines.length,
+            }).aria
           }
         >
           <Chrome lang={lang} k="kds.bump" echo="stack" />

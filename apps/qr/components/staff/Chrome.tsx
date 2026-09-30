@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, type ReactNode } from "react";
-import { STAFF, STAFF_K15_HIGH, type StaffKey } from "@/lib/i18n/staff";
+import { STAFF, type StaffKey } from "@/lib/i18n/staff";
 import { fill } from "@/lib/i18n/fill";
 import {
   STAFF_WRITE_OUTAGE,
@@ -9,6 +9,7 @@ import {
   AUTHORITY_UNCONFIRMED_MY,
 } from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
+import { echoDrawn } from "@/lib/staff-labels";
 import { useEchoesShown } from "./StaffLangProvider";
 
 /**
@@ -105,7 +106,9 @@ export function Chrome({
    */
   keepEcho?: boolean;
 }) {
-  const echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k);
+  // The ONE echo decision (`echoDrawn`), which `chromeVisible()` applies to the same device state —
+  // so an accessible name follows the mode exactly as this renders it (P2e review, A5).
+  const echoes = echoDrawn(k, useEchoesShown() || keepEcho);
   const en = vars ? fill(STAFF[k].en, vars, "en") : STAFF[k].en;
   if (lang === "en") return <>{en}</>;
 
