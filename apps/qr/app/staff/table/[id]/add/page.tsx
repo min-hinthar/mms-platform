@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { publicClient, serviceClient } from "@mms/db/server";
+import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { OrderPad, type PadCatalog } from "@/components/staff/OrderPad";
@@ -25,9 +25,18 @@ export const dynamic = "force-dynamic";
  * to the table or the counter, and the counter's Help sheet has the Language row
  * (`check-staff-lang` rule 4d holds every leading arm to that wordless way up).
  */
-export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
+export default async function StaffAddItems({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams?: Promise<{ name?: string | string[] }>;
+}) {
   const caller = await requireStaffPage();
   const { id } = await params;
+  // Phase 2f — `?name=1`: the table page's "Add a name →" (a counter Send refused for no name) lands
+  // on the name field; the pad focuses it once and drops the param.
+  const focusName = (await searchParams)?.name === "1";
   // W10b: an unknowable gate/read keeps the URL and renders the outage shell — never a redirect
   // that pretends a verdict (the old `!detail → /staff` bounce fired on outage too).
   if (!caller) return <StaffOutageShell what="what.table" />;
@@ -43,13 +52,10 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
   // W6a: a counter order is a register-minted (`reg-`) session — table-less by design. It captures
-  // the customer name (the expo call-out).
-  const counterOrder = detail.label.startsWith("reg-");
-  const svc = serviceClient();
-  // Advisory: an unread name leaves the field empty (the order still works; the name is optional).
-  const { data: cartRow } = counterOrder
-    ? await svc.from("qr_carts").select("customer_name").eq("id", detail.cartId).maybeSingle()
-    : { data: null };
+  // the customer name (the expo call-out). Phase 2f: both are the detail's own fields now — THE
+  // counter predicate (`isCounterOrder`, decided server-side) and the open cart's name, read in the
+  // same batch as everything else on the page (the second read that used to fetch it is gone).
+  const counterOrder = detail.counterOrder;
 
   const db = publicClient();
   const { data, error } = await db
@@ -88,8 +94,9 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
         initialDetail={detail}
         catalog={catalog}
         counterOrder={counterOrder}
-        initialName={cartRow?.customer_name ?? null}
+        initialName={detail.customerName}
         hasPin={hasPin}
+        focusName={focusName}
       />
     </main>
   );
