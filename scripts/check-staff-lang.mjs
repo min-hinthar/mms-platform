@@ -1179,7 +1179,10 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 //   4c — every staff page reaches the control's exports through AT MOST ONE hosting module (two are
 //        two writes racing for one cookie and two groups with one name). `/staff/login` reaches two
 //        exports — the pill in the form, the card when signed in — through ONE module, which is
-//        allowed; the control's own module is never counted as a host.
+//        allowed ONLY because the two sit in different returns of one component (P2e review: inside
+//        a host, every pair of live control mounts must be provably exclusive — two returns of one
+//        function, two arms of one conditional, then/else of one if); the control's own module is
+//        never counted as a host.
 //   4d — a staff page that reaches NO control has, in every live `<StaffBar>` its default export
 //        reaches, a wordless way UP: `leading` absent (the Screens circle), `{ kind: "screens" }` or
 //        `{ kind: "back", … }` in EVERY conditional arm — and each one LANDS (P2e review): the
@@ -2154,6 +2157,100 @@ let hostMounts = 0;
   }
 }
 
+/**
+ * 4c, inside ONE hosting module (P2e review). 4c counted MODULES, so a host that renders two control
+ * exports in one tree — `/staff/login` imports the pill (the sign-in form) and the card (the
+ * signed-in Profile) from the same module, and a single return holding both was green (put on disk
+ * and watched pass) — shipped two write chains racing for one cookie. So every pair of LIVE control
+ * mounts in one module must be provably on EXCLUSIVE branches: the two arms of one conditional
+ * expression, the then/else of one `if`, or two different `return`s of the same function (a
+ * component returns once per render). Anything else — siblings, two `&&` guards, two functions of
+ * the module — is refused rather than argued, because the parse cannot tell two runtime conditions
+ * apart. Identity is the IMPORT (`{ StaffLangSection as Card }` is the card), never the tag's text.
+ * STATED LIMIT: one host component MOUNTED TWICE by its parents is two chains this per-module check
+ * cannot see; no host is mounted twice today, and 4e confines where each is mounted at all.
+ */
+function coRenderedControls(file, srcOverride) {
+  let sf;
+  try {
+    sf = parse(file, srcOverride);
+  } catch {
+    return [];
+  }
+  const controls = new Map(); // local name → export
+  for (const st of sf.statements)
+    if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
+      const bindings = st.importClause?.namedBindings;
+      if (resolveSpecifier(st.moduleSpecifier.text, file) !== SWITCH_MODULE) continue;
+      if (bindings && ts.isNamedImports(bindings))
+        for (const el of bindings.elements) {
+          const exported = (el.propertyName ?? el.name).text;
+          if (SWITCH_EXPORTS.has(exported)) controls.set(el.name.text, exported);
+        }
+    }
+  const mounts = [];
+  function visit(node) {
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      ts.isIdentifier(node.tagName) &&
+      controls.has(node.tagName.text) &&
+      !inDeadBranch(node)
+    )
+      mounts.push(node);
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  const out = [];
+  for (let i = 0; i < mounts.length; i++)
+    for (let j = i + 1; j < mounts.length; j++)
+      if (!exclusiveBranches(mounts[i], mounts[j])) {
+        const at = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+        out.push(
+          `${relative(ROOT, file)}:${at(mounts[i])} and :${at(mounts[j])} — two language controls (<${mounts[i].tagName.text}>, <${mounts[j].tagName.text}>) this parse cannot prove never render together. Two controls in one render are two writes racing for one cookie; keep them in separate returns of one component, or the two arms of one conditional`,
+        );
+      }
+  return out;
+}
+
+/** Are `a` and `b` on branches of which at most one renders? Only the three provable shapes. */
+function exclusiveBranches(a, b) {
+  const ancestors = new Set();
+  for (let n = a; n; n = n.parent) ancestors.add(n);
+  let common = b;
+  while (common && !ancestors.has(common)) common = common.parent;
+  if (!common) return false;
+  const childOn = (x) => {
+    for (let prev = x, n = x.parent; n; prev = n, n = n.parent) if (n === common) return prev;
+    return null;
+  };
+  const ca = childOn(a);
+  const cb = childOn(b);
+  const pair = (p, q) => (ca === p && cb === q) || (ca === q && cb === p);
+  if (ts.isConditionalExpression(common) && pair(common.whenTrue, common.whenFalse)) return true;
+  if (
+    ts.isIfStatement(common) &&
+    common.elseStatement &&
+    pair(common.thenStatement, common.elseStatement)
+  )
+    return true;
+  const returnOf = (x) => {
+    for (let n = x.parent; n; n = n.parent) {
+      if (ts.isReturnStatement(n)) return n;
+      if (ts.isFunctionLike(n)) return null;
+    }
+    return null;
+  };
+  const fnOf = (x) => {
+    for (let n = x.parent; n; n = n.parent) if (ts.isFunctionLike(n)) return n;
+    return null;
+  };
+  const ra = returnOf(a);
+  const rb = returnOf(b);
+  return !!ra && !!rb && ra !== rb && fnOf(ra) === fnOf(rb);
+}
+
 // 4c — at most one hosting module per page; 4d — a page with none has a wordless way up that
 // LANDS, hop by hop, on a page that reaches a control.
 const WAY_UP = {
@@ -2164,12 +2261,18 @@ const WAY_UP = {
 };
 let hostedPages = 0;
 let upPages = 0;
+const hostModulesJudged = new Set();
 for (const file of staffPages) {
   const mounts = switchMounts(file);
   if (mounts.length > 1)
     failures.push(
       `rule 4c: ${relative(ROOT, file)} reaches the language control through ${mounts.length} modules (${mounts.map((m) => relative(QR, m)).join(", ")}). Two controls on one page are two writes racing for one cookie, and two groups with one name.`,
     );
+  for (const m of mounts) {
+    if (hostModulesJudged.has(m)) continue;
+    hostModulesJudged.add(m);
+    for (const f of coRenderedControls(m)) failures.push(`rule 4c: ${f}.`);
+  }
   if (mounts.length === 1) {
     hostedPages++;
     continue;
@@ -2987,6 +3090,62 @@ for (const c of SELF_TEST_CASES) {
     const why = probe4d(files);
     if (why !== null) failures.push(`SELF-TEST: rule 4d refuses ${what} (${why}).`);
   }
+}
+
+// ── rule 4c — two controls in ONE hosting module ──────────────────────────────────────────────
+{
+  const F = join(APP, "staff/__selftest__/page.tsx");
+  const IMP =
+    'import { StaffLangSection, StaffLangSwitch } from "@/components/staff/StaffLangSwitch";\n';
+  const ALIAS =
+    'import { StaffLangSection as Card, StaffLangSwitch } from "@/components/staff/StaffLangSwitch";\n';
+  for (const [src, what] of [
+    [
+      `${IMP}export default function P() {\n  return <main><StaffLangSwitch /><StaffLangSection /></main>;\n}\n`,
+      "both in one return (the login probe)",
+    ],
+    [
+      `${ALIAS}export default function P() {\n  return <main><StaffLangSwitch /><Card /></main>;\n}\n`,
+      "the card under an alias",
+    ],
+    [
+      `${IMP}export default function P({ a, b }) {\n  return <main>{a && <StaffLangSwitch />}{b && <StaffLangSection />}</main>;\n}\n`,
+      "two && guards the parse cannot tell apart",
+    ],
+    [
+      `${IMP}function Form() {\n  return <StaffLangSwitch />;\n}\nexport default function P({ on }) {\n  if (on) return <Form />;\n  return <StaffLangSection />;\n}\n`,
+      "two functions of the module",
+    ],
+    [
+      `${IMP}export default function P({ on }) {\n  return <main>{on ? <StaffLangSwitch /> : null}<StaffLangSection /></main>;\n}\n`,
+      "one inside a conditional arm, the other its sibling",
+    ],
+  ])
+    if (coRenderedControls(F, src).length === 0)
+      failures.push(`SELF-TEST: rule 4c accepts ${what}.`);
+  for (const [src, what] of [
+    [
+      `${IMP}export default function P({ on }) {\n  if (on) {\n    return <main><StaffLangSwitch /></main>;\n  }\n  return <main><StaffLangSection /></main>;\n}\n`,
+      "an early return and the final return (the login page's shape)",
+    ],
+    [
+      `${IMP}export default function P({ on }) {\n  return <main>{on ? <StaffLangSwitch /> : <StaffLangSection />}</main>;\n}\n`,
+      "the two arms of one conditional",
+    ],
+    [
+      `${IMP}export default function P({ on }) {\n  let el;\n  if (on) el = <StaffLangSwitch />;\n  else el = <StaffLangSection />;\n  return <main>{el}</main>;\n}\n`,
+      "then and else of one if",
+    ],
+    [
+      `${IMP}export default function P() {\n  return <main><StaffLangSwitch />{false && <StaffLangSection />}</main>;\n}\n`,
+      "a literal-dead second copy",
+    ],
+  ]) {
+    const found = coRenderedControls(F, src);
+    if (found.length !== 0) failures.push(`SELF-TEST: rule 4c refuses ${what} (${found[0]}).`);
+  }
+  const login = coRenderedControls(join(APP, "staff/login/page.tsx"));
+  if (login.length !== 0) failures.push(`SELF-TEST: rule 4c refuses the sign-in page as it ships.`);
 }
 
 // Rule 4's evidence test is a boolean rather than a finding list, so it gets its own pair — and the
