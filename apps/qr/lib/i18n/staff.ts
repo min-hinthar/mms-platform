@@ -2385,6 +2385,16 @@ export const STAFF = {
     en: "A manager has to approve this — none are signed in right now.",
     my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — အခု ဘယ်မန်နေဂျာမှ အကောင့် မဝင်ထားပါ။",
   },
+  // Codex round 2 on #308 — the roster READ failed (an outage), which is not the same as nobody on
+  // shift: the old sheets fell back to an empty list and said `pin.manager.none`, so a write-off that
+  // needed a manager was blocked with one standing there. The option says the list is unreadable; the
+  // note says so plainly and points at the Try again beside it (`out.shell.retry`). Claude-authored
+  // drafts pending K15.
+  "pin.manager.unavailable": { en: "Couldn’t load managers", my: "မန်နေဂျာ စာရင်း မဖွင့်နိုင်ပါ" },
+  "pin.manager.loadFailed": {
+    en: "Couldn’t load the list of managers — that doesn’t mean none are here. Try again.",
+    my: "မန်နေဂျာ စာရင်းကို မဖွင့်နိုင်ပါ — မန်နေဂျာ မရှိလို့ မဟုတ်ပါ။ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an outage must never read as "no manager on shift"
   "pin.badApprover.self": {
     en: "Pick a manager other than yourself to approve.",
     my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
@@ -3636,6 +3646,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "out.tail.paper",
   "out.write.failed",
   "pin.lockedFor",
+  "pin.manager.loadFailed",
   "pin.outage",
   "promo.err.locked",
   "promo.worth",

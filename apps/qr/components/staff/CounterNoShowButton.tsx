@@ -1,15 +1,7 @@
 "use client";
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  useTransition,
-  type CSSProperties,
-  type FormEvent,
-} from "react";
+import { useId, useRef, useState, useTransition, type CSSProperties, type FormEvent } from "react";
 import { Button, Sheet } from "@mms/ui";
-import { listApprovers, recordCounterNoShow, type Approver } from "@/lib/voids";
+import { listApprovers, recordCounterNoShow } from "@/lib/voids";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
 import { dropHandoffStash } from "@/lib/floor-pane";
 import type { TableLineView } from "@/lib/floor-types";
@@ -18,7 +10,14 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
-import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
+import {
+  ManagerPinFields,
+  PIN_NO_PIN_COPY,
+  ROSTER_FAILED_COPY,
+  pinFailureCopy,
+  useApproverRoster,
+  useLockout,
+} from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useTableNav } from "./TableNav";
@@ -167,7 +166,9 @@ function NoShowSheet({
 }) {
   const nav = useTableNav();
   const bodyId = useId();
-  const [approvers, setApprovers] = useState<Approver[] | null>(null);
+  // The roster, with a failed read kept an OUTAGE (Codex round 2 on #308): never `[]`, which the
+  // picker reads as "no managers on shift" and which blocked a manager-gated write-off outright.
+  const roster = useApproverRoster(listApprovers);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
@@ -178,16 +179,6 @@ function NoShowSheet({
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
-
-  useEffect(() => {
-    let live = true;
-    listApprovers()
-      .then((a) => live && setApprovers(a))
-      .catch(() => live && setApprovers([])); // deliberate: an unreadable roster reads as none on shift
-    return () => {
-      live = false;
-    };
-  }, []);
 
   // The SENT lines and the DROPPED ones — both the server's sets, never re-derived here.
   const sent = new Set(sentLineIds);
@@ -233,6 +224,14 @@ function NoShowSheet({
       if (res.reason === "needs_pin") setStepUp(true);
       setMsg(noShowRefusalMsg(res, setLockLeft));
     });
+  }
+
+  // Try again on the roster: a second failure is said in the sheet's ONE region; a recovery clears
+  // that sentence (and only that one — a pending "a manager needs to approve" stays).
+  async function retryRoster(): Promise<boolean> {
+    const ok = await roster.retry();
+    setMsg((m) => (ok ? (m === ROSTER_FAILED_COPY ? null : m) : ROSTER_FAILED_COPY));
+    return ok;
   }
 
   const shown = lockCopy ?? msg;
@@ -288,12 +287,15 @@ function NoShowSheet({
             </legend>
             <ManagerPinFields
               idPrefix="noshow"
-              approvers={approvers}
+              approvers={roster.approvers}
               approverStaffId={approverStaffId}
               onApproverChange={setApproverStaffId}
               pin={pin}
               onPinChange={setPin}
               locked={locked}
+              rosterFailed={roster.failed}
+              retrying={roster.retrying}
+              onRetry={retryRoster}
             />
           </fieldset>
         )}

@@ -15,8 +15,9 @@ import { tf } from "@/lib/i18n/fill";
 const voidLine = vi.fn(
   (): Promise<VoidLineResult> => Promise.resolve({ ok: true, action: "void" }),
 );
+const approvers = vi.fn((): Promise<unknown[]> => Promise.resolve([]));
 vi.mock("@/lib/voids", () => ({
-  listApprovers: () => Promise.resolve([]),
+  listApprovers: () => approvers(),
   voidLine: (...a: unknown[]) => voidLine(...(a as [])),
 }));
 vi.mock("@/lib/approvals", () => ({
@@ -147,5 +148,41 @@ describe("LossActionSheet — the sheet in the console's tongue", () => {
     await act(async () => {
       release!({ ok: true, action: "void" });
     });
+  });
+});
+
+describe("LossActionSheet — a roster that could not be read (Codex round 2 on #308)", () => {
+  // A cooked line gates the step-up up-front, so the manager fields render on mount.
+  const cooked = { ...line, state: "served" } as unknown as TableLineView;
+  function mountCooked() {
+    return render(
+      <StaffLangProvider lang="en">
+        <LossActionSheet
+          open
+          onOpenChange={() => {}}
+          sessionId="s1"
+          line={cooked}
+          onDone={() => {}}
+        />
+      </StaffLangProvider>,
+    );
+  }
+
+  it("says the list couldn't be loaded, not that nobody is on shift — and Try again recovers", async () => {
+    approvers.mockRejectedValueOnce(new Error("503"));
+    mountCooked();
+    await act(async () => {});
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain(STAFF["pin.manager.loadFailed"].en);
+    expect(dialog.textContent).not.toContain(STAFF["pin.manager.noneNote"].en);
+    approvers.mockResolvedValueOnce([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["out.shell.retry"].en }));
+    });
+    expect(approvers).toHaveBeenCalledTimes(2);
+    const select = dialog.querySelector("select")!;
+    expect(select.disabled).toBe(false);
+    expect(document.activeElement).toBe(select);
+    expect(dialog.textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
   });
 });

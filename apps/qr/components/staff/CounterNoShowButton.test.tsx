@@ -17,9 +17,10 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
  */
 // `| NoShowRefusal` — the `changed` refusal the lib union gains (resolves at integration; a no-op then).
 const record = vi.fn<(raw: unknown) => Promise<RecordCounterNoShowResult | NoShowRefusal>>();
+const ROSTER = [{ staffId: "m1", displayName: "Daw Mya", role: "manager" as const }];
+const approvers = vi.fn<() => Promise<typeof ROSTER>>();
 vi.mock("@/lib/voids", () => ({
-  listApprovers: () =>
-    Promise.resolve([{ staffId: "m1", displayName: "Daw Mya", role: "manager" }]),
+  listApprovers: () => approvers(),
   recordCounterNoShow: (raw: unknown) => record(raw),
 }));
 const replace = vi.fn();
@@ -100,6 +101,7 @@ const submit = () =>
 // Braces: a beforeEach that RETURNS a function registers it as a teardown (the mock would be called).
 beforeEach(() => {
   record.mockResolvedValue({ ok: true });
+  approvers.mockResolvedValue(ROSTER);
 });
 afterEach(() => {
   cleanup();
@@ -313,5 +315,86 @@ describe("CounterNoShowButton — every refusal speaks, in the ONE region", () =
       expect(region().textContent).toBe(STAFF[k].en);
       cleanup();
     }
+  });
+});
+
+describe("CounterNoShowButton — a roster that could not be read (Codex round 2 on #308)", () => {
+  // The manager step-up after a `needs_pin`, with the roster read REJECTED on mount.
+  async function stepUpWithFailedRoster() {
+    approvers.mockRejectedValueOnce(new Error("503"));
+    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    mount();
+    open();
+    await act(async () => {});
+    await submit();
+  }
+  const select = () => dialog().querySelector("select")!;
+  const retryBtn = () =>
+    [...dialog().querySelectorAll("button")].find(
+      (b) => b.textContent === STAFF["out.shell.retry"].en,
+    );
+
+  it("says the list couldn't be loaded — never that no manager is on shift", async () => {
+    await stepUpWithFailedRoster();
+    const text = dialog().textContent!;
+    expect(text).toContain(STAFF["pin.manager.loadFailed"].en);
+    expect(select().options[0]!.textContent).toBe(STAFF["pin.manager.unavailable"].en);
+    expect(text).not.toContain(STAFF["pin.manager.noneNote"].en);
+    expect(text).not.toContain(STAFF["pin.manager.none"].en);
+    // The manager step stays blocked while there is no list: nothing to pick, the confirm refuses.
+    expect(select().disabled).toBe(true);
+    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
+    // Still ONE region; the static note is not a second live region.
+    expect(dialog().querySelectorAll('[role="status"],[role="alert"],[aria-live]')).toHaveLength(1);
+    expect(retryBtn()).toBeDefined();
+  });
+
+  it("Try again re-reads the roster and recovers: picker enabled, focused, note gone", async () => {
+    await stepUpWithFailedRoster();
+    expect(approvers).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(retryBtn()!);
+    });
+    expect(approvers).toHaveBeenCalledTimes(2);
+    expect(select().disabled).toBe(false);
+    expect([...select().options].map((o) => o.textContent)).toEqual([
+      STAFF["pin.manager.pick"].en,
+      "Daw Mya",
+    ]);
+    expect(dialog().textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
+    expect(retryBtn()).toBeUndefined();
+    expect(document.activeElement).toBe(select());
+    // The pending "a manager needs to approve" sentence is untouched by the recovery.
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+  });
+
+  it("a second failure is said in the ONE region, and the Try again stays", async () => {
+    await stepUpWithFailedRoster();
+    approvers.mockRejectedValueOnce(new Error("503"));
+    await act(async () => {
+      fireEvent.click(retryBtn()!);
+    });
+    expect(approvers).toHaveBeenCalledTimes(2);
+    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
+    expect(select().disabled).toBe(true);
+    expect(retryBtn()).toBeDefined();
+    // …and a later recovery clears exactly that sentence.
+    await act(async () => {
+      fireEvent.click(retryBtn()!);
+    });
+    expect(region().textContent).toBe("");
+    expect(select().disabled).toBe(false);
+  });
+
+  it("a genuinely EMPTY roster still says nobody is on shift (the outage copy is not a blanket)", async () => {
+    approvers.mockResolvedValueOnce([]);
+    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    mount();
+    open();
+    await act(async () => {});
+    await submit();
+    expect(dialog().textContent).toContain(STAFF["pin.manager.noneNote"].en);
+    expect(dialog().textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
+    expect(retryBtn()).toBeUndefined();
   });
 });
