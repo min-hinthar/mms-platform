@@ -73,62 +73,6 @@ vi.mock("@/lib/staff-send", () => ({
   staffUndoFire: vi.fn(),
 }));
 
-// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands (plan §9 "How C tests before B exists"). Three
-// PURE rules of B's are layered over the real modules with the PLANNED semantics (plan §5.1/§5.2/
-// §8 B2, copied, not re-derived): `staffSendView`'s counter branch + `sendRefusalMsg`'s noName arm,
-// `counterSettleVariant`, `laneHref`. A mocked pure rule hides a wiring bug once the real one exists,
-// so the integrator deletes these three blocks and the suite must stay green on B's real code.
-vi.mock("@/lib/staff-send-view", async (orig) => {
-  const real = await orig<typeof import("@/lib/staff-send-view")>();
-  type In = Parameters<typeof real.staffSendView>[0] & {
-    counterArm: "walkup" | "phone" | null;
-    hasName: boolean;
-    payAtPickup: boolean;
-    counts: { counterDraft?: number; counterSentPastGrace?: boolean };
-  };
-  return {
-    ...real,
-    staffSendView: (i: In) => {
-      if (!i.cartOpen || i.mode === "dinein") return real.staffSendView(i);
-      if (!i.counterOrder) return { kind: "none" };
-      const k = i.counts;
-      if ((k.counterDraft ?? 0) > 0 && i.payAtPickup) {
-        const hold = i.paymentInFlight ? "paying" : !i.hasName ? "noName" : null;
-        return {
-          kind: "send",
-          units: k.counterDraft,
-          counter: true,
-          emphasis: k.counterSentPastGrace || i.counterArm === "phone" ? "primary" : "secondary",
-          note: k.counterSentPastGrace ? "unpaidMore" : "payAtPickup",
-          blocked: hold,
-          staffAdded: k.counterDraft,
-          dinerUnits: 0,
-        };
-      }
-      return k.counterSentPastGrace ? { kind: "counterSent" } : { kind: "none" };
-    },
-    sendRefusalMsg: (
-      view: Parameters<typeof real.sendRefusalMsg>[0],
-      hold: Parameters<typeof real.sendRefusalMsg>[1],
-    ) =>
-      view.kind === "send" && (view.blocked as string) === "noName"
-        ? { k: "table.send.hold.noName" }
-        : real.sendRefusalMsg(view, hold),
-  };
-});
-vi.mock("@/lib/counter-order", () => ({
-  counterSettleVariant: (
-    v: { kind: string; counter?: boolean; emphasis?: string },
-    phase: string,
-  ): "primary" | "secondary" =>
-    phase !== "idle" || (v.kind === "send" && v.counter && v.emphasis === "primary")
-      ? "secondary"
-      : "primary",
-}));
-vi.mock("@/lib/staff-more", async (orig) => ({
-  ...(await orig<typeof import("@/lib/staff-more")>()),
-  laneHref: (inPane: boolean) => (inPane ? "#expo-h" : "/staff?floor=1#expo-h"),
-}));
 const recordCounterNoShow = vi.fn();
 vi.mock("@/lib/voids", () => ({
   listApprovers: () => Promise.resolve([]),
@@ -194,7 +138,15 @@ const DETAIL: TableDetail = {
   paymentHolder: null,
   hostPresent: true,
   // Both drafts were staff-added (no seat), so the Send is primary even at a hosted table.
-  send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+  send: {
+    sendable: 2,
+    staffAdded: 2,
+    togoDraft: 0,
+    inKitchen: false,
+    foodDraft: true,
+    counterDraft: 0,
+    counterSentPastGrace: false,
+  },
   serverNow: NOW,
   // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
   counterOrder: false,
@@ -376,7 +328,15 @@ const SETTLEABLE: TableDetail = {
   settleTotalCents: 4210,
   settleTipBaseCents: 4000,
   lines: DETAIL.lines.map((l) => ({ ...l, state: "fired", sendable: false })),
-  send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+  send: {
+    sendable: 0,
+    staffAdded: 0,
+    togoDraft: 0,
+    inKitchen: true,
+    foodDraft: false,
+    counterDraft: 0,
+    counterSentPastGrace: false,
+  },
 };
 const mountWith = (
   initial: TableDetail,
@@ -1215,7 +1175,15 @@ describe("FloorDetailLive — the reader's money status is never masked by a sta
       ...SETTLEABLE,
       lines: [{ ...line("l1", "Mohinga"), fulfillment: "togo" }],
       itemCount: 1,
-      send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 1,
+        inKitchen: false,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     };
     answer = () => Promise.resolve({ kind: "detail", detail: { ...TOGO } });
     staffSetQty.mockResolvedValue({ ok: false, error: "That line just changed." });
@@ -1317,7 +1285,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
       foodDraft: true,
       counterDraft: 2,
       counterSentPastGrace: false,
-    } as TableDetail["send"],
+    },
   };
   // One dish reached the kitchen unpaid (past its grace); one more to send.
   const UNPAID_MORE: TableDetail = {
@@ -1331,7 +1299,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
       inKitchen: true,
       counterDraft: 1,
       counterSentPastGrace: true,
-    } as TableDetail["send"],
+    },
   };
   // Everything went to the kitchen unpaid.
   const ALL_SENT: TableDetail = {
@@ -1342,7 +1310,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
       ...UNPAID_MORE.send,
       foodDraft: false,
       counterDraft: 0,
-    } as TableDetail["send"],
+    },
   };
   const sendSlot = () => document.querySelector(".staff-send")!;
   const cash = () => settleButtons()[0]!;

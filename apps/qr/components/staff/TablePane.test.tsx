@@ -126,7 +126,15 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     paymentInFlight: false,
     paymentHolder: null,
     hostPresent: true,
-    send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 1,
+      staffAdded: 1,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
     serverNow: NOW,
     // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
     counterOrder: false,
@@ -630,7 +638,15 @@ describe("TablePane — the paid card follows its table", () => {
       settleTotalCents: 4210,
       settleTipBaseCents: 4000,
       lines: [line("l-4", "Mohinga", false)],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
     answers[A] = ok(counterA);
     let land!: (v: unknown) => void;
@@ -669,7 +685,15 @@ describe("TablePane — the paid card follows its table", () => {
       settled: true,
       paidOrderId,
       lines: [line("l-4", "Mohinga", false)],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
 
   it("a table's card still current comes back with its table, across a switch", async () => {
@@ -803,7 +827,15 @@ describe("TablePane — a settle outcome on a table the pane left", () => {
       settleTotalCents: 4210,
       settleTipBaseCents: 4000,
       lines: [line(`l-${n}`, "Mohinga", false)],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
       ...over,
     });
   const table4 = () => tf("en", "floor.table", { id: "4" });
@@ -1518,7 +1550,15 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
       settleTotalCents: 4210,
       settleTipBaseCents: 4000,
       lines: [line(`l-${n}`, "Mohinga", false)],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
       ...over,
     });
   const heldLine = () => ts("en", "floor.pane.payingHeld");
@@ -1795,7 +1835,15 @@ describe("TablePane — a lost outcome outlives a close of another table (Codex 
       settleTotalCents: 4210,
       settleTipBaseCents: 4000,
       lines: [line(`l-${n}`, "Mohinga", false)],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
   const table4 = () => tf("en", "floor.table", { id: "4" });
   const lostLine = () => pane().querySelector<HTMLElement>(".staff-pane-lost");
@@ -1974,7 +2022,15 @@ describe("TablePane — openSession mid-collect answers HANDLED (Codex #306 roun
         settleTotalCents: 4210,
         settleTipBaseCents: 4000,
         lines: [line("l-4", "Mohinga", false)],
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     );
     settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });

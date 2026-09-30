@@ -48,97 +48,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh, replace }),
   usePathname: () => "/staff/table/S/add",
 }));
-// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands (plan §9 "How C tests before B exists"). B's PURE
-// rules are layered over the real modules with the PLANNED semantics (plan §5.2 / §8 B2 / §8 B11,
-// copied, not re-derived): `staffSendView`'s counter branch, `sendRefusalMsg`'s noName arm,
-// `padSendView`'s bare counter view, `padCounterDock` (verbatim), `padSettle`'s `variantOverride`.
-// The integrator deletes both blocks; this suite must stay green on B's real code.
-vi.mock("@/lib/staff-send-view", async (orig) => {
-  const real = await orig<typeof import("@/lib/staff-send-view")>();
-  type In = Parameters<typeof real.staffSendView>[0] & {
-    counterArm: "walkup" | "phone" | null;
-    hasName: boolean;
-    payAtPickup: boolean;
-    counts: { counterDraft?: number; counterSentPastGrace?: boolean };
-  };
-  return {
-    ...real,
-    staffSendView: (i: In) => {
-      if (!i.cartOpen || i.mode === "dinein") return real.staffSendView(i);
-      if (!i.counterOrder) return { kind: "none" };
-      const k = i.counts;
-      if ((k.counterDraft ?? 0) > 0 && i.payAtPickup) {
-        const hold = i.paymentInFlight ? "paying" : !i.hasName ? "noName" : null;
-        return {
-          kind: "send",
-          units: k.counterDraft,
-          counter: true,
-          emphasis: k.counterSentPastGrace || i.counterArm === "phone" ? "primary" : "secondary",
-          note: k.counterSentPastGrace ? "unpaidMore" : "payAtPickup",
-          blocked: hold,
-          staffAdded: k.counterDraft,
-          dinerUnits: 0,
-        };
-      }
-      return k.counterSentPastGrace ? { kind: "counterSent" } : { kind: "none" };
-    },
-    sendRefusalMsg: (
-      view: Parameters<typeof real.sendRefusalMsg>[0],
-      hold: Parameters<typeof real.sendRefusalMsg>[1],
-    ) =>
-      view.kind === "send" && (view.blocked as string) === "noName"
-        ? { k: "table.send.hold.noName" }
-        : real.sendRefusalMsg(view, hold),
-  };
-});
-vi.mock("@/lib/order-pad", async (orig) => {
-  const real = await orig<typeof import("@/lib/order-pad")>();
-  type View = { kind: string; counter?: boolean; emphasis?: string };
-  return {
-    ...real,
-    padSendView: (
-      view: Parameters<typeof real.padSendView>[0],
-      i: Parameters<typeof real.padSendView>[1] & {
-        counter?: { arm: "walkup" | "phone" | null; hasName: boolean };
-      },
-    ) => {
-      const r = real.padSendView(view, i);
-      if (!i.counter || !r.bare || view.kind === "send") return r;
-      return {
-        bare: r.bare,
-        view: {
-          kind: "send",
-          units: 0,
-          emphasis: i.counter.arm === "phone" ? "primary" : "secondary",
-          note: "payAtPickup",
-          blocked: i.paying ? "paying" : !i.counter.hasName ? "noName" : null,
-          staffAdded: 0,
-          dinerUnits: 0,
-          counter: true,
-        },
-      };
-    },
-    padCounterDock: (view: View, phase: string, heldSlot: "primary" | "secondary" | null) => {
-      if (phase !== "idle")
-        return (heldSlot ?? "primary") === "primary"
-          ? { primary: "send", secondary: "settle", settleVariant: "secondary" }
-          : { primary: "settle", secondary: "send", settleVariant: "secondary" };
-      if (view.kind === "send" && view.counter)
-        return view.emphasis === "primary"
-          ? { primary: "send", secondary: "settle", settleVariant: "secondary" }
-          : { primary: "settle", secondary: "send", settleVariant: "primary" };
-      if (view.kind === "counterSent")
-        return { primary: "done", secondary: "settle", settleVariant: "secondary" };
-      return { primary: "settle", secondary: null, settleVariant: "primary" };
-    },
-    padSettle: (
-      i: Parameters<typeof real.padSettle>[0] & { variantOverride?: "primary" | "secondary" },
-    ) => {
-      const r = real.padSettle(i);
-      return { ...r, variant: i.variantOverride ?? r.variant };
-    },
-  };
-});
 // The REAL StaffBar (P13 — the one-region test counts every region the page mounts, the bar's
 // included); only its two server actions are stubbed.
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
@@ -243,7 +152,15 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     paymentInFlight: false,
     paymentHolder: null,
     hostPresent: false,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: false },
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: false,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
     serverNow: new Date(T).toISOString(),
     // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
     counterOrder: false,
@@ -263,7 +180,15 @@ const ONE = () =>
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 1,
+      staffAdded: 1,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
   });
 
 /**
@@ -278,7 +203,15 @@ const payable = () => {
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 1,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
   });
   getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
   return d;
@@ -290,11 +223,22 @@ const counterPayable = () => {
   const d = detail({
     label: "reg-ab12",
     mode: "pickup",
+    counterOrder: true,
     lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+    // Phase 2f — the counts B derives for a counter order: its to-go draft is `counterDraft` (the
+    // pay-at-pickup Send's), never `togoDraft` (a dine-in table's cook-at-payment count).
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 1,
+      counterSentPastGrace: false,
+    },
   });
   getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
   return d;
@@ -683,7 +627,7 @@ describe("a counter order — Take payment, and (Phase 2f) a Send that is paid a
           foodDraft: true,
           counterDraft: 1,
           counterSentPastGrace: false,
-        } as TableDetail["send"],
+        },
       }),
       { counter: true, name: "Aye" },
     );
@@ -760,7 +704,15 @@ describe("a removal on the ticket — a ghost while it goes, back in place if re
       itemCount: 2,
       runningSubtotalCents: 2900,
       settleTotalCents: 3162,
-      send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+      send: {
+        sendable: 2,
+        staffAdded: 2,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: true,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
   const row = (id: string) => document.querySelector<HTMLElement>(`[data-line-id="${id}"]`);
 
@@ -843,11 +795,20 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
         label: "reg-ab12",
         tableNumber: null,
         mode: "pickup",
+        counterOrder: true,
         lines: [line({ id: "l1", sendable: false })],
         itemCount: 1,
         runningSubtotalCents: 1450,
         settleTotalCents: 1581,
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: true },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: false,
+          foodDraft: true,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
       { counter: true },
     );
@@ -906,7 +867,15 @@ describe("a refused tap says why — the phone bar has no room for the hint (§1
         itemCount: 1,
         runningSubtotalCents: 1450,
         paymentInFlight: true,
-        send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+        send: {
+          sendable: 1,
+          staffAdded: 1,
+          togoDraft: 0,
+          inKitchen: false,
+          foodDraft: true,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     );
     expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
@@ -1101,7 +1070,15 @@ describe("a removal whose answer is lost — said as unknown, never stranded", (
       itemCount: 2,
       runningSubtotalCents: 2900,
       settleTotalCents: 3162,
-      send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+      send: {
+        sendable: 2,
+        staffAdded: 2,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: true,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
 
   it("a removal that throws says it could not be confirmed — in the dictionary, by dish", async () => {
@@ -1702,7 +1679,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
         foodDraft: true,
         counterDraft: 1,
         counterSentPastGrace: false,
-      } as TableDetail["send"],
+      },
       ...over,
     });
   const primary = () => document.querySelector<HTMLElement>(".pad-dock-primary")!;
@@ -1749,7 +1726,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     await flush();
     const before = sendBtn();
     // The detail after the fire: nothing left to send, nothing past its grace yet.
-    serve(counter({ send: { ...d.send, counterDraft: 0 } as TableDetail["send"] }));
+    serve(counter({ send: { ...d.send, counterDraft: 0 } }));
     await act(async () => {
       fireEvent.click(before);
     });
@@ -1775,7 +1752,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
         foodDraft: false,
         counterDraft: 0,
         counterSentPastGrace: true,
-      } as TableDetail["send"],
+      },
     });
     serve(d);
     mount(d, { counter: true, name: "Aye" });

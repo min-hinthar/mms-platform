@@ -106,7 +106,15 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     paymentInFlight: false,
     paymentHolder: null,
     hostPresent: false,
-    send: { sendable: 3, staffAdded: 3, togoDraft: 0, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 3,
+      staffAdded: 3,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
     serverNow: new Date(T).toISOString(),
     // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
     counterOrder: false,
@@ -163,7 +171,15 @@ describe("the ONE region — writeError > degraded > send warn > send ok", () =>
       kind: "detail",
       detail: detail({
         lines: [draft("a")].map((l) => ({ ...l, state: "fired" as const, sendable: false })),
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     });
     mount(detail());
@@ -229,7 +245,15 @@ describe("a send line clears when the fact it speaks to is superseded", () => {
       kind: "detail",
       detail: detail({
         lines: [{ ...draft("a"), qty: 2, state: "fired", sendable: false }],
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     });
     await flush(5000);
@@ -251,7 +275,15 @@ describe("a send line clears when the fact it speaks to is superseded", () => {
       kind: "detail",
       detail: detail({
         lines: [{ ...draft("a"), qty: 2, state: "fired", sendable: false }],
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     });
     mount(detail());
@@ -275,7 +307,15 @@ describe("?send=1 — the add page's bridge lands on what it promised", () => {
   it("with nothing left to send (a colleague sent it), focuses the status row instead", async () => {
     const sent = detail({
       lines: [{ ...draft("a"), state: "fired", sendable: false }],
-      send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
     getTableDetail.mockResolvedValue({ kind: "detail", detail: sent });
     mount(sent, true);

@@ -27,21 +27,6 @@ vi.mock("@/lib/staff-send", () => ({
 }));
 const haptic = vi.fn();
 vi.mock("@/lib/haptics", () => ({ haptic: (m: string) => haptic(m) }));
-// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands. Plan §5.2: B's `sendRefusalMsg` gains the noName arm
-// (`blocked === "noName"` → `table.send.hold.noName`, after the unchanged paying line). Until then the
-// PLANNED arm is layered over the real module so the table page's no-name hint can be tested; a mocked
-// pure rule would hide a wiring bug once the real one exists, so the integrator deletes this block.
-vi.mock("@/lib/staff-send-view", async (orig) => {
-  const real = await orig<typeof import("@/lib/staff-send-view")>();
-  return {
-    ...real,
-    sendRefusalMsg: (view: StaffSendView, h: StaffSendHold) =>
-      view.kind === "send" && view.blocked === "noName"
-        ? { k: "table.send.hold.noName" }
-        : real.sendRefusalMsg(view, h),
-  };
-});
-
 const { useStaffSend, undoStashKey } = await import("./useStaffSend");
 const { StaffSendButton } = await import("./StaffSendButton");
 
@@ -49,7 +34,8 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 const T = Date.parse("2026-09-24T18:00:00.000Z");
 const iso = (ms: number) => new Date(ms).toISOString();
 
-const SEND: StaffSendView = {
+type SendKind = Extract<StaffSendView, { kind: "send" }>;
+const SEND: SendKind = {
   kind: "send",
   units: 3,
   emphasis: "primary",
@@ -57,10 +43,11 @@ const SEND: StaffSendView = {
   blocked: null,
   staffAdded: 3,
   dinerUnits: 0,
+  counter: false,
 };
 const ALL_SENT: StaffSendView = { kind: "allSent" };
 // Phase 2f — a counter order's pay-at-pickup Send (plan §5.2): a walk-up, named, nothing sent yet.
-const COUNTER: StaffSendView = {
+const COUNTER: SendKind = {
   kind: "send",
   units: 3,
   emphasis: "secondary",

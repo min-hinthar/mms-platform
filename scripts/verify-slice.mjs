@@ -12661,7 +12661,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CounterNoShowButton.tsx",
     suite: "components/staff/CounterNoShowButton.test.tsx",
     why: "Phase 2f — a written-off order is cancelled and its session closed; the sheet must leave for the floor, not strand the cashier on a defunct detail",
-    find: '      nav.toFloor("cleared");\n',
+    find: '        nav.toFloor("cleared");\n',
     replace: "",
   },
   {

@@ -63,6 +63,7 @@ const queue = (firedAt = NOW): KitchenQueue => ({
       shortCode: null,
       pickupSlot: null,
       held: false,
+      unpaid: false,
       firedAt,
       lines: [
         {
@@ -1500,7 +1501,7 @@ describe("the Language note's claim — dish names on kitchen tickets never chan
 
 describe("Phase 2f — a counter order sent before it was paid", () => {
   // Plan §5.4: `KitchenTicket.unpaid` (Area B) — an open counter order's ticket past its grace.
-  const counterTicket = (over: Record<string, unknown>) => {
+  const counterTicket = (over: Partial<KitchenQueue["tickets"][number]>) => {
     const base = queue().tickets[0]!;
     return {
       ...base,
@@ -1513,7 +1514,7 @@ describe("Phase 2f — a counter order sent before it was paid", () => {
       shortCode: null,
       unpaid: true,
       ...over,
-    } as unknown as KitchenQueue["tickets"][number];
+    } satisfies KitchenQueue["tickets"][number];
   };
   const withTicket = (t: KitchenQueue["tickets"][number]) => ({ ...queue(), tickets: [t] });
   const card = () => document.querySelector<HTMLElement>(".kds-ticket")!;

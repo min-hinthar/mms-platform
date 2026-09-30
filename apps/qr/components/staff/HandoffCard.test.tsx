@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import type { Handoff } from "@/lib/register-ui";
@@ -10,13 +10,6 @@ import type { Handoff } from "@/lib/register-ui";
  * NAMED REGION that is focused, never a `role="status"`: the name carries the facts (Paid · Change ·
  * #CODE), so focus speaks them once.
  */
-// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands: `laneHref` (plan §5.4) is B's export in
-// staff-more.ts; the PLANNED rule is layered over the real module until then.
-vi.mock("@/lib/staff-more", async (orig) => ({
-  ...(await orig<typeof import("@/lib/staff-more")>()),
-  laneHref: (inPane: boolean) => (inPane ? "#expo-h" : "/staff?floor=1#expo-h"),
-}));
-
 const { HandoffCard } = await import("./HandoffCard");
 const { StaffLangProvider } = await import("./StaffLangProvider");
 

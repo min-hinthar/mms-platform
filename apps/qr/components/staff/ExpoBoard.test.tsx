@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExpoPoll, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import type { ExpoPoll, ExpoQueue, ExpoTicket, ExpoUnpaidBag } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
 
 /**
@@ -27,6 +27,7 @@ const haptic = vi.fn();
 
 const ticket = (over: Partial<ExpoTicket> = {}): ExpoTicket => ({
   orderId: "order-1",
+  cartId: null,
   label: "T7",
   mode: "dinein",
   customerName: null,
@@ -52,7 +53,11 @@ const ticket = (over: Partial<ExpoTicket> = {}): ExpoTicket => ({
   createdAt: iso(-3),
   ...over,
 });
-const queue = (tickets: ExpoTicket[] = [ticket()]): ExpoQueue => ({ tickets, serverNow: NOW });
+const queue = (tickets: ExpoTicket[] = [ticket()]): ExpoQueue => ({
+  tickets,
+  unpaid: [],
+  serverNow: NOW,
+});
 let currentQueue = queue();
 
 const getExpoQueue = vi.fn(
@@ -72,34 +77,6 @@ vi.mock("./LiveConnection", () => ({
 // Phase 2f — the unpaid bag's Take payment pushes the pane at split width (read at click time).
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
-// ⚠️ P2F-INTEGRATION — REMOVE when Area B lands: `laneRows` (plan §5.4, expo-rules.ts) with the
-// PLANNED semantics, layered over the real module — every row keyed like a paid ticket (an unpaid
-// bag: its cart, no arrival, no slot, the kitchen's time as its age) and ordered by
-// `compareExpoTickets`. The integrator deletes this block; the suite must pass on B's real rule.
-vi.mock("@/lib/expo-rules", async (orig) => {
-  const real = await orig<typeof import("@/lib/expo-rules")>();
-  type Bag = { cartId: string; sentAt: string; kitchen: ExpoTicket["kitchen"] };
-  return {
-    ...real,
-    laneRows: (tickets: ExpoTicket[], unpaid: Bag[]) =>
-      [
-        ...tickets.map((t) => ({ row: { kind: "paid" as const, t }, key: t })),
-        ...unpaid.map((b) => ({
-          row: { kind: "unpaid" as const, b },
-          key: {
-            orderId: b.cartId,
-            arrivedAt: null,
-            pickupSlot: null,
-            createdAt: b.sentAt,
-            kitchen: b.kitchen,
-          },
-        })),
-      ]
-        .sort((x, y) => real.compareExpoTickets(x.key, y.key))
-        .map((x) => x.row),
-  };
-});
-
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ExpoBoard } = await import("./ExpoBoard");
 const { tf } = await import("@/lib/i18n/fill");
@@ -806,30 +783,29 @@ describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
 });
 
 describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)", () => {
-  const bag = (over: Record<string, unknown> = {}) =>
-    ({
-      cartId: "cart-reg",
-      sessionId: "sess-reg",
-      customerName: "Aye",
-      lines: [
-        {
-          id: "u-1",
-          name: "Tea Leaf Salad",
-          nameMy: null,
-          qty: 1,
-          modifiers: [],
-          modifiersMy: [],
-          fulfillment: "togo",
-          notes: null,
-        },
-      ],
-      moreUnits: 1,
-      kitchen: "done",
-      sentAt: iso(-4),
-      ...over,
-    }) as unknown as NonNullable<ExpoQueue["unpaid"]>[number];
+  const bag = (over: Partial<ExpoUnpaidBag> = {}): ExpoUnpaidBag => ({
+    cartId: "cart-reg",
+    sessionId: "sess-reg",
+    customerName: "Aye",
+    lines: [
+      {
+        id: "u-1",
+        name: "Tea Leaf Salad",
+        nameMy: null,
+        qty: 1,
+        modifiers: [],
+        modifiersMy: [],
+        fulfillment: "togo",
+        notes: null,
+      },
+    ],
+    moreUnits: 1,
+    kitchen: "done",
+    sentAt: iso(-4),
+    ...over,
+  });
   const withBag = (b = bag(), tickets: ExpoTicket[] = []) =>
-    ({ tickets, unpaid: [b], serverNow: NOW }) as ExpoQueue;
+    ({ tickets, unpaid: [b], serverNow: NOW }) satisfies ExpoQueue;
   const unpaidCard = (root: HTMLElement) =>
     root.querySelector<HTMLElement>("article[data-unpaid]")!;
 

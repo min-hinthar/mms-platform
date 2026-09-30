@@ -1,5 +1,13 @@
 "use client";
-import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { Button, Sheet } from "@mms/ui";
 import { listApprovers, recordCounterNoShow, type Approver } from "@/lib/voids";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
@@ -126,7 +134,9 @@ function NoShowSheet({
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // M82 — the Sheet's `busy` is a transition's `pending`, never a hand-rolled boolean: all four
+  // exits are blocked while it is true, and a `useTransition` flag settles on every path.
+  const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
@@ -154,37 +164,37 @@ function NoShowSheet({
   const pinOk = pin.length >= 4 && pin.length <= 8;
   const canSubmit = !locked && (!stepUp || (approverStaffId !== "" && pinOk));
 
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
     if (inFlight.current) return;
     if (!canSubmit) return; // §17 — the confirm says so with aria-disabled; the refusal is here
     inFlight.current = true;
-    setBusy(true);
     setMsg(null);
     haptic("commit");
-    let res: RecordCounterNoShowResult;
-    try {
-      res = await recordCounterNoShow({
-        sessionId,
-        ...(stepUp ? { approverStaffId, pin } : {}),
-      });
-    } catch {
-      // A rejected transport (offline, a version skew) must read as an outage, never crash the page.
-      res = { ok: false, reason: "outage" };
-    } finally {
-      inFlight.current = false;
-      setBusy(false);
-    }
-    if (res.ok) {
-      // The order is cancelled and its session closed: leave the defunct detail (ClearTableButton's
-      // exit — the page replaces to the counter, the pane closes). No paid card follows it.
-      dropHandoffStash(sessionId);
-      nav.toFloor("cleared");
-      return;
-    }
-    setPin("");
-    if (res.reason === "needs_pin") setStepUp(true);
-    setMsg(noShowRefusalMsg(res, setLockLeft));
+    startTransition(async () => {
+      let res: RecordCounterNoShowResult;
+      try {
+        res = await recordCounterNoShow({
+          sessionId,
+          ...(stepUp ? { approverStaffId, pin } : {}),
+        });
+      } catch {
+        // A rejected transport (offline, a version skew) must read as an outage, never crash the page.
+        res = { ok: false, reason: "outage" };
+      } finally {
+        inFlight.current = false;
+      }
+      if (res.ok) {
+        // The order is cancelled and its session closed: leave the defunct detail (ClearTableButton's
+        // exit — the page replaces to the counter, the pane closes). No paid card follows it.
+        dropHandoffStash(sessionId);
+        nav.toFloor("cleared");
+        return;
+      }
+      setPin("");
+      if (res.reason === "needs_pin") setStepUp(true);
+      setMsg(noShowRefusalMsg(res, setLockLeft));
+    });
   }
 
   const shown = lockCopy ?? msg;
@@ -192,7 +202,7 @@ function NoShowSheet({
     <Sheet
       open
       onOpenChange={onOpenChange}
-      busy={busy}
+      busy={pending}
       closeLabel={sheetCloseLabel(lang)}
       title={
         name ? (
@@ -255,7 +265,7 @@ function NoShowSheet({
             variant="danger"
             size="xl"
             block
-            busy={busy}
+            busy={pending}
             {...(!canSubmit ? { "aria-disabled": true } : {})}
           >
             {stepUp ? (
