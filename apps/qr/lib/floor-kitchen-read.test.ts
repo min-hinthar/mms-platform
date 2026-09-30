@@ -322,6 +322,27 @@ describe("getFloorView — the kitchen row reads the table's paid carts too", ()
     expect([...(t.kitchen?.upKeys ?? [])].sort()).toEqual([`l-open@${ago(1)}`, `l-paid@${ago(2)}`]);
   });
 
+  it("a cart that pays BETWEEN the two reads is folded once — the open read owns it this poll", async () => {
+    // Phase 2d · Codex #306 round 3 — the cart and order reads are separate requests, so a settle
+    // committing between them returns the cart as OPEN and its order as PAID. Read by both line
+    // reads, its kitchen lines folded twice (and a room under the cap could read "saturated").
+    // MUTANT p2d-cx3/paid-read-rereads-an-open-cart — the paid read keeps the open id → 2.
+    rows.qr_orders = [
+      ...(rows.qr_orders ?? []),
+      {
+        session_id: S7,
+        cart_id: OPEN,
+        total_cents: 1000,
+        created_at: ago(1),
+        status: "paid",
+        refunded_cents: 0,
+      },
+    ];
+    rows.qr_cart_items = [line({ id: "l-once", state: "in_progress", fire_at: ago(3) })];
+    const { t } = await table7();
+    expect(t.kitchen?.inKitchen).toBe(1);
+  });
+
   it("the paid round never reaches the open cart's 'so far' figures", async () => {
     const { t } = await table7();
     expect(t.itemCount).toBe(2);

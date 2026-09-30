@@ -12088,6 +12088,15 @@ const MUTANTS = [
     find: "      after = { createdAt: last.created_at, id: last.id };\n",
     replace: "      after = { createdAt: new Date(last.created_at).toISOString(), id: last.id };\n",
   },
+  // ── Phase 2d · Codex round 3 · floor ──
+  {
+    id: "p2d-cx3/paid-read-rereads-an-open-cart",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-kitchen-read.test.ts",
+    why: "Codex #306 round 3 — a settle committing between the cart and order reads returns a cart as open AND paid; the paid read must leave it to the open one, or its kitchen lines fold twice (doubled in-kitchen / ready, and a room under the cap reading saturated)",
+    find: "    if (o.cart_id && o.session_id && !openCartIds.has(o.cart_id))\n",
+    replace: "    if (o.cart_id && o.session_id)\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
