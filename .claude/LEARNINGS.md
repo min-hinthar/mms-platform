@@ -2969,3 +2969,18 @@ came back (1 → 0 → 1). Give each event its identity — here `<line id>@<bum
 same branch that adds to the count, so it keeps the window's rule — ring on a key not yet heard, and
 KEEP what was heard (a re-bump is a new key, so a kept key never hides real news). Red-first means
 the netting case: a fixture whose count visibly rises passes on the old code and reproduces nothing.
+
+## #177
+
+**Hold the invariant, not the exit the report named — and let only an ANSWER clear a notice.** Codex
+#306 round 1 found that switching tables unmounted a live card collection, so the fix held every
+change of SELECTION. Round 2 found a start (Walk-up, Phone order, a free tile) that moves no
+selection yet lands on a route push that replaces the counter screen — the same reader panel,
+unmounted by an exit the hold never named. The invariant was "the panel stays mounted while it
+collects"; the hold was written against the one path in the finding. Before writing a hold,
+enumerate every way the protected thing can END (select, close, Back/Forward, a route push, the
+page's own exits — P2em is the rest) and guard or file each. Round 2's other P1 is the mirror image:
+`close()` cleared a lost payment outcome about a table the person had already left — an event that
+answers nothing about it — so the notice's lifetime was bound to UI tidy-up instead of to its own
+resolution. A money notice ends when something ANSWERS it (going back to its table; a newer loss
+that outranks it), never as a side effect of an unrelated gesture.

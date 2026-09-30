@@ -262,6 +262,30 @@ counter screen's per-zone regions).
     that lands after the pane moved; food bumped during a kitchen-unknown gap; one poll's double
     count when a table pays between the floor's two reads.
 
+- **Codex round 2 on #306 (2026-09-30) — three findings (2 P1 · 1 P2), all real, all fixed red-first
+  with mutants.**
+  - _P1 — closing the pane threw away a lost payment._ A payment refused or unanswered on a table the
+    pane had left was cleared by ✕, Escape or Back on another table; it now stays on the floor until
+    that table is opened again or a newer loss outranks it (a dish that never saved stays too, never
+    over a payment's).
+  - _P1 — a start mid-collect took the counter screen from under the reader._ Walk-up, Phone order
+    and a free table are refused at the tap while the pane's reader collects (`paneStartHeld`) — no
+    order is made, nothing navigates, the pane says "Finish the card payment first." — and a start
+    already out when the collection began stands down as it lands.
+  - _P2 — the floor could count a room that never existed._ Past 900 open-cart lines the pages were
+    keyed on the random line id, so a line added mid-read could be skipped while a later one was
+    counted; they now seek on `(created_at, id)` under the poll's own database clock. No migration.
+  - _Mutants:_ 17 new `p2d-cx2/*` (pane 12 · lines 5), all caught. Re-anchored with meaning kept:
+    `p2d-rev/floor-open-lines-no-keyset` · `p2d-rev/floor-open-lines-unordered`;
+    `p2d-cx1/refused-open-session-routes-away` is now killed by a direct case (`openSession`
+    mid-collect answers handled). 1370 mutants across 180 files (the set unchanged); 4409 qr + 278
+    ui tests (measured).
+  - _Words:_ none new — a refused start reuses `floor.pane.payingHeld`.
+  - _Filed, not fixed:_ **M238** — the line read in ONE statement (a prod migration; the RPC is
+    drafted in the row) · **P2eq–P2es** — the pane holds one lost outcome; start controls do not look
+    held mid-collect; a start that stands down mid-collect is silent. P2em narrowed (the counter's
+    Start is held now).
+
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
 Built as three worktree branches: `p2c/pad` and `p2c/register` in parallel off `1768979`, merged here

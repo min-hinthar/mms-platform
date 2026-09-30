@@ -1293,7 +1293,12 @@ _The tablet split — K24's counter/table half._
   "View Table 7" (`Button`) and said through the view's one region; with no table open it sets
   `data-pane="lost"`, which below 64em shows just that line above the floor (the floor keeps its
   place). It is never filtered by the selection: only an unmounted detail reports it, so even the
-  same table shown again never issued that write.
+  same table shown again never issued that write. **A lost outcome outlives every pane move that
+  does not answer it** (Codex round 2 on #306): a payment refused or unanswered on a table the person
+  left may have to be collected again, and a dish that never saved may still be on the bill, so ✕,
+  Escape or Back on another table leaves the line standing (`close` never clears it). Only going back
+  to ITS table clears it (its View, its card or its tile — `select`), or a newer loss that outranks
+  it (`nextLost`: a dish's never replaces a payment's; one slot, so a second payment's does — P2eq).
 - **A live card payment holds the pane** (Codex round 1 on #306). While the reader is taking a card
   on the table shown — or the charge went through and the order is being recorded — every change of
   table is REFUSED (`paneSelectionHeld`, checked first in `CounterSplit`'s one `select` and one
@@ -1306,8 +1311,17 @@ _The tablet split — K24's counter/table half._
   ("Finish the card payment first." — `floor.pane.payingHeld`). It never strands: the hold ends
   with the collection (declined, cancelled or recorded; Cancel is on the panel, and a recording past
   20 s offers "Back to payment"), the line goes with it, a re-tap of the table shown is not a change,
-  and a table CLEARED (a server fact — the server refuses a Clear mid-payment) is never held. Not
-  held yet: a reader START in flight (P2en) and the phone's table page (P2em).
+  and a table CLEARED (a server fact — the server refuses a Clear mid-payment) is never held. **A
+  start is held too** (Codex round 2 on #306): a start moves no selection, but its landing leaves the
+  pane all the same — a new order's add screen replaces the counter screen, and the reader panel
+  with it. So while the table shown is collecting (`paneStartHeld` — a stale report about another
+  table holds nothing), Walk-up, Phone order and a free tile are refused at the tap, before the
+  lock, the haptic or the server (`CounterMint`'s `run` asks `startHeld()`): no order is made,
+  nothing navigates, and the same line is said in the same region. A start already out when the
+  collection began stands down as it lands, silent and re-armed like a move (P2es); a converged
+  table at split width still goes to the pane first and meets its refusal. Opening the Phone form is
+  a pick, not a start, and is never held. Not held yet: a reader START in flight (P2en) and the
+  phone's table page (P2em).
 - **A read belongs to a PICK, not an id** (`gen`): a table picked again (A → ✕ → A, A → B → A)
   starts in loading and reads afresh; a re-tap of the table shown keeps its live detail. The first
   read runs once per pick — never per render (`selectedNow` is one stable callback): a re-run would
