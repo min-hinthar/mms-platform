@@ -144,8 +144,7 @@ export function StaffTicket({
           <Chrome lang={lang} k="pad.ticket.title" />
         </h2>
         {/* Phase 2f — food on this counter order reached the kitchen before it was paid. A badge is
-            a 44px object: no echo inside it; the phrase is K15-HIGH, so it keeps its English on a
-            Burmese-only device by `echoDrawn`. */}
+            a 44px object: no echo inside it (the table page's rule). */}
         {detail.unpaidSent && (
           <Badge tone="warn" bordered>
             <Icon name="receipt" size={14} aria-hidden />

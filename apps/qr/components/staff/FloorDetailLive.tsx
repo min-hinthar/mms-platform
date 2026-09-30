@@ -763,8 +763,8 @@ export function FloorDetailLive({
               )}
               <FloorStatusChip status={detail.status} refund={detail.refund} lang={lang} />
               {detail.unpaidSent && (
-                // A badge is a 44px object: no echo inside it (the unregistered badge's rule); the
-                // phrase is K15-HIGH, so a Burmese-only device keeps its English by `echoDrawn`.
+                // A badge is a 44px object: no echo inside it (the unregistered badge's rule). The
+                // echoed K15-HIGH form of the phrase is the KDS's line, not a chip's.
                 <Badge tone="warn" bordered>
                   <Icon name="receipt" size={14} aria-hidden />
                   <Chrome lang={lang} k="settle.unpaid" />
