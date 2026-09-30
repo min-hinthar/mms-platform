@@ -19,6 +19,7 @@ import { sendFiresLine, sendRoute, staffSendCounts } from "./staff-send-view";
 import {
   counterArmOf,
   counterSent,
+  counterKitchenLine,
   counterNoShowDropped,
   counterSentLine,
   isCounterOrder,
@@ -625,6 +626,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   }
   let sentLineIds: string[] = [];
   let droppedLineIds: string[] = [];
+  let compedKitchenLineIds: string[] = [];
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -761,6 +763,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       }));
       sentLineIds = rows.filter((r) => counterSentLine(r.line, dbNowMs)).map((r) => r.id);
       droppedLineIds = rows.filter((r) => counterNoShowDropped(r.line, dbNowMs)).map((r) => r.id);
+      // …and the third set a no-show touches, on the same rows and clock: a comped dish the kitchen
+      // already has. Neither written off (the comp is already an audited loss) nor dropped — but the
+      // cancelled cart takes it off the kitchen screen, so the sheet must say so (Phase 2f review).
+      compedKitchenLineIds = rows
+        .filter((r) => counterKitchenLine(r.line, dbNowMs) && r.line.comped)
+        .map((r) => r.id);
     }
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
@@ -960,6 +968,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     unpaidSent,
     sentLineIds,
     droppedLineIds,
+    compedKitchenLineIds,
     payAtPickup: surfaceOpen("payAtPickup"),
     mergeable: cart != null && !(counterOrder && unpaidSent),
   };

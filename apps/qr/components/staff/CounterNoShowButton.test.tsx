@@ -33,7 +33,8 @@ vi.mock("@/lib/floor-pane", async (orig) => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
-const { CounterNoShowButton, noShowDroppedUnits } = await import("./CounterNoShowButton");
+const { CounterNoShowButton, noShowDroppedUnits, noShowSetsMoved, sameIdSet } =
+  await import("./CounterNoShowButton");
 
 const line = (over: Partial<TableLineView>): TableLineView =>
   ({
@@ -73,6 +74,9 @@ const LINES: TableLineView[] = [
 ];
 const SENT = ["s1", "s2"];
 const DROPPED = ["g1", "c2", "d1", "gr"];
+// The comp the kitchen already has (`counterKitchenLine && comped` on the DB clock): neither the loss
+// nor dropped, but off the kitchen screen with the cancelled order.
+const COMPED = ["c1"];
 
 function mount(lang: "en" | "my" = "en", name: string | null = "Aye") {
   return render(
@@ -83,6 +87,7 @@ function mount(lang: "en" | "my" = "en", name: string | null = "Aye") {
         lines={LINES}
         sentLineIds={SENT}
         droppedLineIds={DROPPED}
+        compedKitchenLineIds={COMPED}
         lang={lang}
       />
     </StaffLangProvider>,
@@ -129,6 +134,11 @@ describe("CounterNoShowButton — what it claims", () => {
     expect(dialog().textContent).toContain(
       STAFF["table.noshow.body.drafts.many"].en.replace("{n}", "14"),
     );
+    // …but it is said: the kitchen screen loses it too (Phase 2f review) — its own clause, no amount.
+    const comped = dialog().querySelector("[data-noshow-comped]");
+    // MUTATION (p2f-sr-sheet/comped/clause-unsaid): no clause — red.
+    expect(comped?.textContent).toBe(STAFF["table.noshow.body.comped.one"].en.replace("{n}", "1"));
+    expect(comped?.textContent).not.toMatch(/\$/);
   });
 
   it("the dropped count is the SERVER's dropped set — no client filter re-decides it", () => {
@@ -154,6 +164,7 @@ describe("CounterNoShowButton — what it claims", () => {
           lines={LINES}
           sentLineIds={SENT}
           droppedLineIds={[]}
+          compedKitchenLineIds={[]}
           lang="en"
         />
       </StaffLangProvider>,
@@ -161,6 +172,8 @@ describe("CounterNoShowButton — what it claims", () => {
     open();
     await act(async () => {});
     expect(dialog().textContent).not.toContain("more not sent");
+    // …and no comped kitchen line → no kitchen-screen clause (never "0 no-charge items").
+    expect(dialog().querySelector("[data-noshow-comped]")).toBeNull();
   });
 
   it("titles the order by its name, or anonymously", async () => {
@@ -378,11 +391,13 @@ describe("CounterNoShowButton — a roster that could not be read (Codex round 2
     expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
     expect(select().disabled).toBe(true);
     expect(retryBtn()).toBeDefined();
-    // …and a later recovery clears exactly that sentence.
+    // …and a later recovery clears exactly that sentence — and, with the step-up still pending,
+    // puts "a manager needs to approve" back (Phase 2f review: never a blank region under the fields).
     await act(async () => {
       fireEvent.click(retryBtn()!);
     });
-    expect(region().textContent).toBe("");
+    // MUTATION (p2f-sr-sheet/roster/recovery-drops-needs-manager): the region reads "" — red.
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
     expect(select().disabled).toBe(false);
   });
 
@@ -396,5 +411,138 @@ describe("CounterNoShowButton — a roster that could not be read (Codex round 2
     expect(dialog().textContent).toContain(STAFF["pin.manager.noneNote"].en);
     expect(dialog().textContent).not.toContain(STAFF["pin.manager.loadFailed"].en);
     expect(retryBtn()).toBeUndefined();
+  });
+});
+
+describe("CounterNoShowButton — what the manager READ is what is submitted (Phase 2f review, PT-3)", () => {
+  function props(over: { sent?: string[]; dropped?: string[]; comped?: string[] } = {}) {
+    return (
+      <StaffLangProvider lang="en">
+        <CounterNoShowButton
+          sessionId="s-1"
+          customerName="Aye"
+          lines={LINES}
+          sentLineIds={over.sent ?? SENT}
+          droppedLineIds={over.dropped ?? DROPPED}
+          compedKitchenLineIds={over.comped ?? COMPED}
+          lang="en"
+        />
+      </StaffLangProvider>
+    );
+  }
+  const items = () => [...dialog().querySelectorAll("ul li")].map((li) => li.textContent);
+  const rearmBtn = () =>
+    [...dialog().querySelectorAll("button")].find(
+      (b) => b.textContent === STAFF["table.noshow.rearm"].en,
+    );
+
+  it("a poll that moves the sent set under the open sheet: the list holds, the write refuses, the region says so", async () => {
+    const view = render(props());
+    open();
+    await act(async () => {});
+    expect(rearmBtn()).toBeUndefined();
+    // The table page's poll lands: s2 was removed on another device — the sent set is now [s1].
+    view.rerender(props({ sent: ["s1"] }));
+    // What the sheet SHOWS is still the snapshot the manager read…
+    expect(items()).toEqual(["2× Mohinga", "1× Tea leaf salad"]);
+    // …the one region says the order changed, and the confirm refuses.
+    // MUTATION (p2f-sr-sheet/snapshot/moved-unsaid): the region stays empty — red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
+    expect(dialog().querySelectorAll('[role="status"],[role="alert"],[aria-live]')).toHaveLength(1);
+    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
+    await submit();
+    // MUTATION (p2f-sr-sheet/snapshot/moved-submits): the old or new set goes out unseen — red.
+    expect(record).not.toHaveBeenCalled();
+    expect(rearmBtn()).toBeDefined();
+  });
+
+  it("the explicit re-arm adopts the new order: new list, region cleared, focus on the count, the NEW ids ride", async () => {
+    const view = render(props());
+    open();
+    await act(async () => {});
+    view.rerender(props({ sent: ["s1"] }));
+    await act(async () => {
+      fireEvent.click(rearmBtn()!);
+    });
+    expect(items()).toEqual(["2× Mohinga"]);
+    expect(dialog().textContent).toContain(STAFF["table.noshow.body.many"].en.replace("{n}", "2"));
+    expect(region().textContent).toBe("");
+    expect(rearmBtn()).toBeUndefined();
+    // Focus lands on the new count (the re-arm button that held it is gone).
+    expect(document.activeElement?.id).toBe(
+      dialog().querySelector("ul")!.getAttribute("aria-labelledby"),
+    );
+    await submit();
+    expect(record).toHaveBeenCalledWith({ sessionId: "s-1", expectedLineIds: ["s1"] });
+  });
+
+  it("the write carries the SNAPSHOT's ids, not the live props, until a re-arm", async () => {
+    // A live set with the same members in another order is not a move: the write goes, as the
+    // snapshot said it.
+    const view = render(props());
+    open();
+    await act(async () => {});
+    view.rerender(props({ sent: ["s2", "s1"], dropped: [...DROPPED].reverse() }));
+    expect(region().textContent).toBe("");
+    await submit();
+    // MUTATION (p2f-rev-ui/no-show/expected-lines-unsent · p2f-sr-sheet/snapshot/submits-live-props):
+    // red on a missing key, or on the live order.
+    expect(record).toHaveBeenCalledWith({ sessionId: "s-1", expectedLineIds: SENT });
+  });
+
+  it("a moved dropped or comped set also stops the write — each changes a sentence on screen", async () => {
+    for (const over of [{ dropped: ["g1"] }, { comped: [] as string[] }]) {
+      const view = render(props());
+      open();
+      await act(async () => {});
+      view.rerender(props(over));
+      expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
+      await submit();
+      expect(record).not.toHaveBeenCalled();
+      cleanup();
+    }
+  });
+
+  it("the needs_pin step-up keeps the snapshot: the approval rides the ids the manager read", async () => {
+    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    const view = render(props());
+    open();
+    await act(async () => {});
+    await submit();
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+    // The set moves while the manager is typing their PIN.
+    view.rerender(props({ sent: ["s1"] }));
+    fireEvent.change(dialog().querySelector("select")!, { target: { value: "m1" } });
+    fireEvent.change(dialog().querySelector('input[type="password"]')!, {
+      target: { value: "1234" },
+    });
+    expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
+    await submit();
+    expect(record).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(rearmBtn()!);
+    });
+    // The pending step-up's sentence comes back with the re-arm; the approval now covers [s1].
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+    await submit();
+    expect(record).toHaveBeenLastCalledWith({
+      sessionId: "s-1",
+      expectedLineIds: ["s1"],
+      approverStaffId: "m1",
+      pin: "1234",
+    });
+  });
+
+  it("sameIdSet / noShowSetsMoved — order-free set equality over all three sets", () => {
+    expect(sameIdSet(["a", "b"], ["b", "a"])).toBe(true);
+    expect(sameIdSet(["a", "b"], ["a"])).toBe(false);
+    expect(sameIdSet(["a"], ["a", "b"])).toBe(false);
+    expect(sameIdSet(["a", "b"], ["a", "c"])).toBe(false);
+    expect(sameIdSet([], [])).toBe(true);
+    const base = { sent: ["s"], dropped: ["d"], comped: ["c"] };
+    expect(noShowSetsMoved(base, { sent: ["s"], dropped: ["d"], comped: ["c"] })).toBe(false);
+    expect(noShowSetsMoved(base, { ...base, sent: [] })).toBe(true);
+    expect(noShowSetsMoved(base, { ...base, dropped: [] })).toBe(true);
+    expect(noShowSetsMoved(base, { ...base, comped: [] })).toBe(true);
   });
 });

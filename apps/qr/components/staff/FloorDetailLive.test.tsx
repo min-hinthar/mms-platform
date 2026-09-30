@@ -155,6 +155,7 @@ const DETAIL: TableDetail = {
   unpaidSent: false,
   sentLineIds: [],
   droppedLineIds: [],
+  compedKitchenLineIds: [],
   payAtPickup: true,
   mergeable: true,
 };
@@ -1309,6 +1310,7 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad", "in_progress")],
     sentLineIds: ["l1", "l2"],
     droppedLineIds: [],
+    compedKitchenLineIds: [],
     send: {
       ...UNPAID_MORE.send,
       foodDraft: false,
@@ -1436,6 +1438,81 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     });
     expect(staffFireCart).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(link);
+  });
+
+  it("a SERVER no-name verdict: focus reaches “Add a name →” once the refreshed view draws it (PT-6)", async () => {
+    // The view still reads a name (it was cleared on another device after this read), so the Send is
+    // live and the link is not drawn; the server refuses the fire, and the refresh shows no name.
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    mountWith(WALKUP);
+    expect(document.getElementById("send-name-link")).toBeNull();
+    const send = sendSlot().querySelector("button")!;
+    await act(async () => {
+      fireEvent.click(send);
+    });
+    await tick(0);
+    expect(staffFireCart).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-sr-sheet/name-focus/owed-focus-dropped): focus stays on the Send / <body> — red.
+    expect(document.activeElement?.id).toBe("send-name-link");
+  });
+
+  it("a read already on the wire at the no-name verdict does not settle it; the read after it does", async () => {
+    // A poll starts BEFORE the tap and hangs; it answers (name still present — it predates the
+    // clear) after the verdict. Only the Send's refresh, which starts after, may pay the focus.
+    let answerStale: (r: TableDetailResult) => void = () => {};
+    answer = () => new Promise<TableDetailResult>((r) => (answerStale = r));
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    mountWith(WALKUP);
+    await tick(5000); // the poll is on the wire
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await act(async () => {
+      answerStale({ kind: "detail", detail: WALKUP });
+    });
+    await tick(0);
+    // MUTATION (p2f-sr-sheet/name-focus/stale-read-pays): the stale read drops the debt — red.
+    expect(document.activeElement?.id).toBe("send-name-link");
+  });
+
+  it("a server no-name whose refresh shows the name BACK owes nothing: a later no-name read never steals focus", async () => {
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    // The refresh after the verdict still reads the name (it came back): nothing to focus.
+    answer = () => Promise.resolve({ kind: "detail", detail: WALKUP });
+    mountWith(WALKUP);
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await tick(0);
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    other.focus();
+    // Much later a poll shows the name gone: the link draws, but no debt is left to move focus.
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    await tick(5000);
+    expect(document.getElementById("send-name-link")).not.toBeNull();
+    // MUTATION (p2f-sr-sheet/name-focus/debt-never-dropped): the stale debt steals focus — red.
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+
+  it("No-show's kitchen-screen clause reads the server's compedKitchenLineIds, threaded through", async () => {
+    mountWith({
+      ...UNPAID_MORE,
+      lines: [...UNPAID_MORE.lines, { ...togo("c1", "Tea", "fired"), qty: 2, comped: true }],
+      compedKitchenLineIds: ["c1"],
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "table.noshow.btn") }));
+    });
+    await tick(0);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    // MUTATION (p2f-sr-sheet/comped/floor-detail-drops-the-set): no clause — red.
+    expect(dialog.textContent).toContain(
+      ts("en", "table.noshow.body.comped.many").replace("{n}", "2"),
+    );
   });
 
   it("a cash settle of an order sent unpaid carries that to the paid card (hand it over from the lane)", async () => {

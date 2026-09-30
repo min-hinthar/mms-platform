@@ -3473,6 +3473,24 @@ export const STAFF = {
     en: "{n} more not sent — they’re dropped, not counted as a loss.",
     my: "နောက်ထပ် {n} ခု မပို့ရသေး — အရှုံးထဲ မထည့်ဘဲ ဖယ်ပါမယ်။",
   },
+  // Phase 2f review — a comped dish the kitchen already has: not the loss, not dropped, but the
+  // cancelled order takes it off the kitchen screen. EN singular/plural pair — ONE Burmese value (see
+  // STAFF_PLURAL_PAIRS). K15 draft; grounded: အခမဲ့ (table.line.comped), မီးဖိုချောင် စခရင်
+  // (floor.door.kitchen.sub).
+  "table.noshow.body.comped.one": {
+    en: "{n} no-charge item also comes off the kitchen screen.",
+    my: "အခမဲ့ {n} ခုလည်း မီးဖိုချောင် စခရင်ပေါ်က ဖယ်ပါမယ်။",
+  }, // K15-HIGH — food the kitchen is holding leaves its screen
+  "table.noshow.body.comped.many": {
+    en: "{n} no-charge items also come off the kitchen screen.",
+    my: "အခမဲ့ {n} ခုလည်း မီးဖိုချောင် စခရင်ပေါ်က ဖယ်ပါမယ်။",
+  }, // K15-HIGH — food the kitchen is holding leaves its screen
+  // Phase 2f review — the order moved under the open sheet: this tap adopts it as it is now (the
+  // write stays refused until it is tapped). K15 draft; grounded: အော်ဒါ (table.noshow.title).
+  "table.noshow.rearm": {
+    en: "Show the order as it is now",
+    my: "အော်ဒါကို အခု အတိုင်း ပြပါ",
+  }, // K15-HIGH — re-arms a write-off of sent food
   "table.noshow.confirm": { en: "Remove order", my: "အော်ဒါ ဖျက်" }, // K15-HIGH — the tap that writes off sent food
   "table.noshow.err.inFlight": {
     en: "A payment is under way on this order — let it finish first.",
@@ -3552,6 +3570,7 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["expo.unpaid.more.one", "expo.unpaid.more.many"],
   ["table.noshow.body.one", "table.noshow.body.many"],
   ["table.noshow.body.drafts.one", "table.noshow.body.drafts.many"],
+  ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
   // ── Phase 2f review ──
   ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
 ];
@@ -3754,6 +3773,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.counterSent.partial.many",
   "expo.count.unpaidMore",
   "table.noshow.err.changed",
+  "table.noshow.body.comped.one",
+  "table.noshow.body.comped.many",
+  "table.noshow.rearm",
 ]);
 
 /**

@@ -146,6 +146,24 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
 export const ROSTER_FAILED_COPY: StaffMsg = { k: "pin.manager.loadFailed" };
 
 /**
+ * The sheet's ONE region after a roster Try again — shared by both sheets that use the hook. A retry
+ * that fails again says so (`ROSTER_FAILED_COPY`), replacing whatever was there. A recovery clears
+ * exactly that sentence — and when the manager step-up is still PENDING (the server said `needs_pin`),
+ * the region goes back to "a manager needs to approve", not to silence: the failure had displaced
+ * that sentence, and the step-up it describes never went away (Phase 2f review — a blank region left
+ * the manager fields standing with nothing saying why). Any other sentence is left alone.
+ */
+export function rosterRetryMsg(
+  m: StaffMsg | null,
+  ok: boolean,
+  stepUpPending: boolean,
+): StaffMsg | null {
+  if (!ok) return ROSTER_FAILED_COPY;
+  if (m !== ROSTER_FAILED_COPY) return m;
+  return stepUpPending ? { k: "pin.needsManager" } : null;
+}
+
+/**
  * The manager <select> + PIN <input>. `approvers === null` reads as "Loading…"; an empty roster shows the
  * honest dead-end note (a manager has to approve and none are on shift). A roster that could not be READ
  * (`rosterFailed`) says exactly that — never "none on shift" — with a Try again that calls `onRetry`

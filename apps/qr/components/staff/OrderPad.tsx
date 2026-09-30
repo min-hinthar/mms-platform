@@ -38,8 +38,10 @@ import {
   unsavedNoteFrom,
   // ── Phase 2c · review fixes · pad2 ──
   padDishHold,
+  padNameReconcile,
   padNameSave,
   padViewStatus,
+  type PadNameSync,
   type PadCatalogItem,
   type PadLineWrites,
   type PadReasonCtx,
@@ -198,6 +200,9 @@ export function OrderPad({
   // The ticket's own writes (a qty change, a note, a removal) follow the landed ghost's rule: once
   // one answers, the amounts wait for a read that STARTED after it (`unreadAfterCommit`).
   const [lineUnreadSeq, setLineUnreadSeq] = useState<number | null>(null);
+  // The START sequence of the read the rendered detail came from (committed with it, one batch) —
+  // the counter name's reconcile tells a read that began after its own save from one that did not.
+  const [commitSeq, setCommitSeq] = useState(0);
   const markLineUnread = useCallback(() => {
     setLineUnreadSeq(readsRef.current);
     refreshRef.current();
@@ -207,6 +212,7 @@ export function OrderPad({
     (readStartSeq: number) => {
       commitAdds(readStartSeq);
       setLineUnreadSeq((s) => unreadAfterCommit(s, readStartSeq));
+      setCommitSeq(readStartSeq);
     },
     [commitAdds],
   );
@@ -517,12 +523,15 @@ export function OrderPad({
   const [savedName, setSavedName] = useState((initialName ?? "").trim());
   // Codex round 3 (P2) — the server's name, reconciled when it CHANGES (another device set or
   // cleared it): `savedName` always follows it, and the field follows too while it is PRISTINE — a
-  // name being typed is never clobbered. Keyed on the change, not the value, so a read already on the
-  // wire before this pad's own save lands cannot revert the name the save just set.
+  // name being typed is never clobbered. Keyed on the change, not the value — and after this pad's
+  // own save, on the first read that STARTED after it (Phase 2f review, PT-7): a read already on the
+  // wire before the save cannot revert it, and the read after it is the truth even when it carries
+  // the old name back (another device wrote it). `padNameReconcile` holds the rule.
   const serverName = (detail.customerName ?? "").trim();
-  const [seenServerName, setSeenServerName] = useState(serverName);
-  if (serverName !== seenServerName) {
-    setSeenServerName(serverName);
+  const [nameSync, setNameSync] = useState<PadNameSync>({ seen: serverName, checkAfter: null });
+  const nameNext = padNameReconcile({ server: serverName, sync: nameSync, commitSeq });
+  if (nameNext !== null) {
+    setNameSync(nameNext);
     setSavedName(serverName);
     if (name.trim() === savedName) setName(serverName);
   }
@@ -700,6 +709,9 @@ export function OrderPad({
         return false;
       }
       setSavedName(value);
+      // PT-7 — the first read that STARTS after this answer settles the name (`padNameReconcile`).
+      const savedAfter = readsRef.current;
+      setNameSync((s) => ({ ...s, checkAfter: savedAfter }));
       notify(
         value
           ? padSlotNotice("news", "browse.name.set", { x: value })
@@ -712,7 +724,7 @@ export function OrderPad({
     } finally {
       setSavingName(false);
     }
-  }, [sessionId, notify, say, setName]);
+  }, [sessionId, notify, say, setName, setNameSync]);
   useEffect(() => {
     saveNameRef.current = saveName;
   }, [saveName]);

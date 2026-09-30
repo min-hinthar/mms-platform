@@ -123,6 +123,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     unpaidSent: false,
     sentLineIds: [],
     droppedLineIds: [],
+    compedKitchenLineIds: [],
     payAtPickup: true,
     mergeable: true,
     ...over,

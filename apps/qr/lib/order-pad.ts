@@ -500,3 +500,33 @@ export function padNameSave(value: string, saved: string): PadNameSave {
   if (v !== saved) return "save";
   return v === "" ? "empty" : "saved";
 }
+
+/**
+ * Phase 2f review (PT-7) — how the pad follows the server's counter-order name. `seen` is the server
+ * name the pad last adopted; `checkAfter` is set by this pad's own successful save: the read START
+ * sequence (`readsRef`) at the moment the save answered.
+ *
+ * Without a pending save the rule is Codex r3's: reconcile on a CHANGE of the server's name, never on
+ * its value. With one pending, a read that STARTED at or before the save answered says nothing about
+ * the name (it may predate the write — adopting it would revert the name just saved), and the FIRST
+ * read that started after it is authoritative: its value becomes `seen` whatever it is — including
+ * the very value `seen` already held, which the change-keyed rule alone could never see (another
+ * device writing the OLD name back after this save left the pad showing its own name forever).
+ *
+ * Returns the next state, or null for "nothing to do". The caller adopts `server` into its saved name
+ * (and a PRISTINE field) whenever this returns non-null — a no-op when they already agree.
+ */
+export type PadNameSync = { seen: string; checkAfter: number | null };
+
+export function padNameReconcile(i: {
+  server: string;
+  sync: PadNameSync;
+  /** The START sequence of the read the rendered detail came from. */
+  commitSeq: number;
+}): PadNameSync | null {
+  if (i.sync.checkAfter !== null) {
+    if (i.commitSeq <= i.sync.checkAfter) return null;
+    return { seen: i.server, checkAfter: null };
+  }
+  return i.server !== i.sync.seen ? { seen: i.server, checkAfter: null } : null;
+}

@@ -19,6 +19,7 @@ import {
   padTileBlock,
   // ── Phase 2c · review fixes · pad2 ──
   padDishHold,
+  padNameReconcile,
   padNameSave,
   padViewStatus,
   ticketGroups,
@@ -807,5 +808,31 @@ describe("padSendView — the bare Send on a counter order", () => {
     expect(
       padSendView({ kind: "none" }, { sendable: true, paying: false, pending: FLY }).view,
     ).toMatchObject({ counter: false });
+  });
+});
+
+describe("padNameReconcile — the counter name follows the server (Codex r3 · Phase 2f review PT-7)", () => {
+  const idle = { seen: "Aye", checkAfter: null };
+  it("no save pending: reconcile on a CHANGE of the server name, never on its value", () => {
+    expect(padNameReconcile({ server: "Aye", sync: idle, commitSeq: 9 })).toBeNull();
+    expect(padNameReconcile({ server: "", sync: idle, commitSeq: 9 })).toEqual({
+      seen: "",
+      checkAfter: null,
+    });
+  });
+  it("a save pending: a read that started at or before it says nothing; the first after it is the truth", () => {
+    const pending = { seen: "Aye", checkAfter: 4 };
+    // started before the save answered, or the one in flight as it answered — ignored, even changed
+    expect(padNameReconcile({ server: "", sync: pending, commitSeq: 3 })).toBeNull();
+    expect(padNameReconcile({ server: "", sync: pending, commitSeq: 4 })).toBeNull();
+    // the first read that started after it — adopted even when it is the OLD seen value
+    expect(padNameReconcile({ server: "Aye", sync: pending, commitSeq: 5 })).toEqual({
+      seen: "Aye",
+      checkAfter: null,
+    });
+    expect(padNameReconcile({ server: "Bo", sync: pending, commitSeq: 5 })).toEqual({
+      seen: "Bo",
+      checkAfter: null,
+    });
   });
 });

@@ -623,9 +623,26 @@ export function FloorDetailLive({
     setSendHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
   const getHold = useCallback(() => sendHoldFrom([...lineEdits.current.values()]), []);
+  // Phase 2f review (PT-6) — a no-name refusal takes the finger to "Add a name →". The link renders
+  // only once the VIEW knows the name is missing, so a SERVER verdict (the name cleared on another
+  // device after this view read it) finds no link yet: the attempt is owed to the first read that
+  // STARTS after the verdict (the Send's refresh), which focuses the link if that read drew it — or
+  // drops the debt if it did not (the name came back), so a much later no-name never steals focus.
+  const nameFocusAfter = useRef<number | null>(null);
   const onSendBlocked = useCallback((b: "paying" | "noName") => {
-    if (b === "noName") document.getElementById("send-name-link")?.focus();
+    if (b !== "noName") return;
+    const link = document.getElementById("send-name-link");
+    if (link) {
+      link.focus();
+      nameFocusAfter.current = null;
+    } else nameFocusAfter.current = reads.current;
   }, []);
+  useEffect(() => {
+    const after = nameFocusAfter.current;
+    if (after === null || readTicket <= after) return;
+    nameFocusAfter.current = null;
+    document.getElementById("send-name-link")?.focus();
+  }, [readTicket]);
   const send = useStaffSend({
     sessionId,
     view: sendView,
@@ -1562,6 +1579,7 @@ export function FloorDetailLive({
               lines={detail.lines}
               sentLineIds={detail.sentLineIds}
               droppedLineIds={detail.droppedLineIds}
+              compedKitchenLineIds={detail.compedKitchenLineIds}
               lang={lang}
             />
           ) : (

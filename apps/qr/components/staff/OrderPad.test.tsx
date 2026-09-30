@@ -169,6 +169,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     unpaidSent: false,
     sentLineIds: [],
     droppedLineIds: [],
+    compedKitchenLineIds: [],
     payAtPickup: true,
     mergeable: true,
     ...over,
@@ -1745,6 +1746,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
       unpaidSent: true,
       sentLineIds: ["l1"],
       droppedLineIds: [],
+      compedKitchenLineIds: [],
       lines: [line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" })],
       send: {
         sendable: 0,
@@ -1781,6 +1783,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
       unpaidSent: true,
       sentLineIds: ["l1"],
       droppedLineIds: [],
+      compedKitchenLineIds: [],
       lines: [
         line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" }),
         line({ id: "l2", sendable: false, fulfillment: "togo", state: "draft", qty: 2 }),
@@ -1907,22 +1910,78 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
   });
 
   it("a stale read that still shows NO name after this pad saved one does not revert it", async () => {
+    // Phase 2f review (PT-7) — the stale read is made GENUINELY stale: it STARTS before the save and
+    // answers after it. (This test once let a read that began AFTER the save play the stale one;
+    // under PT-7 that read is authoritative, and a server with no name after the save means no name.)
     const d = counter({ customerName: null });
-    serve(d); // the next read is stale: it began before the save landed
+    serve(d);
     setName.mockResolvedValueOnce({ ok: true });
     mount(d, { counter: true });
     await flush();
     const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    const stale = deferred<TableDetailResult>();
+    getTableDetail.mockReturnValueOnce(stale.promise);
+    await flush(5000); // the poll is on the wire, before the save
     fireEvent.change(field, { target: { value: "Aye" } });
     await act(async () => {
       fireEvent.submit(field.closest("form")!);
     });
     await flush();
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
-    await flush(5000);
-    // MUTATION (p2f-cx3-name/reconcile-by-value): reconciling on the VALUE reverts to "" — red.
+    await act(async () => {
+      stale.resolve({ kind: "detail", detail: d });
+    });
+    await flush();
+    // MUTATION (p2f-cx3-name/reconcile-by-value · p2f-sr-sheet/pad-name/pre-save-read-boundary): the
+    // pre-save read reverts the name to "" — red.
     expect(field.value).toBe("Aye");
     expect(sendBtn().getAttribute("aria-disabled")).not.toBe("true");
+    // The first read that starts AFTER the save is the truth — the server holds the name.
+    serve(counter({ customerName: "Aye" }));
+    await flush(5000);
+    expect(field.value).toBe("Aye");
+  });
+
+  it("after a save, the first read that STARTS after it is the truth — even the OLD name back (PT-7)", async () => {
+    const d = counter(); // the server holds "Aye", and the pad has seen it
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Bo" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Bo" });
+    expect(field.value).toBe("Bo");
+    // Another device wrote "Aye" back after this save: the post-save read carries exactly the value
+    // the pad had last seen — invisible to a change-keyed reconcile.
+    await flush(5000);
+    // MUTATION (p2f-sr-sheet/pad-name/save-never-arms · p2f-sr-sheet/pad-name/post-save-read-ignored):
+    // the pad keeps showing "Bo" while every other surface says "Aye" — red.
+    expect(field.value).toBe("Aye");
+    expect(screen.getByRole("button", { name: STAFF["browse.name.saved"].en })).toBeTruthy();
+  });
+
+  it("the post-save read never clobbers a name being TYPED — only the saved name follows it (PT-7)", async () => {
+    const d = counter();
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Bo" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    fireEvent.change(field, { target: { value: "Bobo" } }); // typing again, not yet saved
+    await flush(5000);
+    expect(field.value).toBe("Bobo");
+    // The saved name followed the server ("Aye"), so the typed "Bobo" is still offered as a Save.
+    expect(screen.getByRole("button", { name: STAFF["browse.name.save"].en })).toBeTruthy();
   });
 
   it("?name=1 lands on the name field ONCE and drops the param", async () => {
