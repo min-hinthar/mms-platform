@@ -143,9 +143,11 @@ export type TableLineView = {
   /** Kitchen-life state (S2.1) — drives the staff line controls: a 'draft' line edits via the stepper; a
    *  fired/cooking/served line is post-fire (the void/comp loss path, S2.3); 'voided' is terminal. */
   state: LineState;
-  /** Phase 2a · send — this line is what the table page's Send fires: a dine-in session's DRAFT
-   *  whose fulfillment is dine-in (`mms_fire_cart`'s own predicate). The editor tags it "Not sent";
-   *  a to-go draft (cooks at pay) and every settled record line are false. */
+  /** Phase 2a · send — this line is what the Send fires (`sendFiresLine`): a dine-in session's DRAFT
+   *  whose fulfillment is dine-in (`mms_fire_cart`), or — Phase 2f · Codex r1, while pay at pickup
+   *  is on — a counter order's to-go DRAFT (`mms_fire_counter_cart`). The editor tags it "Not sent"
+   *  and an unsaved note on it holds the Send (`sendHoldFrom`); a table's to-go draft (cooks at pay)
+   *  and every settled record line are false. */
   sendable: boolean;
   /** Comped (S2.3) — given away free; the kitchen still makes it, the charge excludes it. */
   comped: boolean;

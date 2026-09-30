@@ -17,6 +17,7 @@ import {
   sendNoteAfterCommit,
   sendViewFact,
   sendRoute,
+  sendFiresLine,
   undoRoute,
   type SendRow,
   type StaffSendCounts,
@@ -573,6 +574,35 @@ describe("sendRoute / undoRoute — which RPC answers, decided by the session", 
     expect(undoRoute(T)).toEqual({ rpc: "dinein" });
     expect(undoRoute(REG)).toEqual({ rpc: "counter" });
     for (const s of [KIOSK, DINER, SCAN]) expect(undoRoute(s)).toEqual({ refuse: "counter" });
+  });
+});
+
+// Phase 2f · Codex r1 (P1) — `TableLineView.sendable`, the tag the drain-before-fire hold reads:
+// exactly the lines the chosen RPC fires, so an unsaved note on any of them holds the Send.
+describe("sendFiresLine — the lines the Send fires, per route", () => {
+  const draft = (fulfillment: string) => ({ state: "draft", fulfillment });
+  const FULFILLMENTS = ["dinein", "togo", "grocery"];
+
+  it("a table's Send fires its dine-in drafts only — a to-go draft still cooks at pay", () => {
+    const by = FULFILLMENTS.map((f) => sendFiresLine({ rpc: "dinein" }, draft(f)));
+    expect(by).toEqual([true, false, false]);
+  });
+
+  it("a counter Send fires its to-go drafts only (mms_fire_counter_cart's predicate)", () => {
+    const by = FULFILLMENTS.map((f) => sendFiresLine({ rpc: "counter" }, draft(f)));
+    expect(by).toEqual([false, true, false]);
+  });
+
+  it("a fired, cooking, served or voided line is never fired again, on either route", () => {
+    for (const rpc of ["dinein", "counter"] as const)
+      for (const state of ["fired", "in_progress", "served", "voided", null])
+        for (const f of FULFILLMENTS)
+          expect(sendFiresLine({ rpc }, { state, fulfillment: f })).toBe(false);
+  });
+
+  it("a refused route (pay-first, or the switch parked) fires nothing", () => {
+    for (const f of FULFILLMENTS)
+      expect(sendFiresLine({ refuse: "counter" }, draft(f))).toBe(false);
   });
 });
 
