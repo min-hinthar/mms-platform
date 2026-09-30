@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateJoinCode, isReservedSessionCode, sweepsExpiredSquatter } from "./session-code";
+import {
+  generateJoinCode,
+  isReservedSessionCode,
+  reservedCodeRefusal,
+  sweepsExpiredSquatter,
+} from "./session-code";
 
 describe("isReservedSessionCode — the /api/session mint refusal (W6b)", () => {
   it("marks both reserved prefixes", () => {
@@ -40,5 +45,34 @@ describe("sweepsExpiredSquatter — /api/session never closes a reserved code", 
     expect(sweepsExpiredSquatter({ found: false, code: "ABCD1234", joinOnly: true })).toBe(false);
     expect(sweepsExpiredSquatter({ found: true, code: "ABCD1234", joinOnly: false })).toBe(false);
     expect(sweepsExpiredSquatter({ found: false, code: null, joinOnly: false })).toBe(false);
+  });
+});
+
+// ── Phase 2f · P2v (Codex r3 on #308) ──
+describe("reservedCodeRefusal — /api/session never attaches a diner to a counter order", () => {
+  it("refuses a JOIN to an active reg- counter order", () => {
+    // p2f-cx3-join/join-to-active-counter-order
+    expect(reservedCodeRefusal({ found: true, code: "reg-ABCD1234" })).toBe("join");
+  });
+
+  it("still refuses CREATING any reserved code", () => {
+    // p2f-cx3-join/create-refusal-dropped
+    expect(reservedCodeRefusal({ found: false, code: "reg-ABCD1234" })).toBe("create");
+    expect(reservedCodeRefusal({ found: false, code: "kiosk-ABCD1234" })).toBe("create");
+  });
+
+  it("still lets a device join an active kiosk- session (pay-first — never fired unpaid)", () => {
+    // p2f-cx3-join/kiosk-join-refused
+    expect(reservedCodeRefusal({ found: true, code: "kiosk-ABCD1234" })).toBeNull();
+  });
+
+  it("leaves ordinary sticker / invite / solo codes alone, found or not", () => {
+    // p2f-cx3-join/ordinary-join-refused
+    for (const code of ["ABCD1234", "pickup-3f2a", "scango-3f2a", "REG-ABCD1234"]) {
+      expect(reservedCodeRefusal({ found: true, code })).toBeNull();
+      expect(reservedCodeRefusal({ found: false, code })).toBeNull();
+    }
+    expect(reservedCodeRefusal({ found: false, code: undefined })).toBeNull();
+    expect(reservedCodeRefusal({ found: false, code: null })).toBeNull();
   });
 });
