@@ -314,6 +314,10 @@ export function useStaffSend({
           }
         } else {
           setPhase("idle");
+          // Phase 2f (Codex round 3) — the SERVER's no-name verdict (the name was cleared on another
+          // device after this view last read it) takes the finger to the name field exactly as the
+          // view's own block does. The words are the verdict's (`fireNotice`), in the one region.
+          if (res.reason === "noName") onBlocked?.("noName");
         }
         onNotice(fireNotice(res));
       } catch (e) {

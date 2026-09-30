@@ -13373,6 +13373,46 @@ const MUTANTS = [
     find: "(Number.isFinite(nowMs) ? nowMs : Date.now()) + 1)",
     replace: "Number.isFinite(nowMs) ? nowMs : Date.now())",
   },
+  {
+    id: "p2f-cx3-name/server-noName-not-blocked",
+    file: "apps/qr/components/staff/useStaffSend.ts",
+    suite: "components/staff/StaffSendButton.test.tsx",
+    why: "Codex r3 on #308 — the SERVER's noName verdict (the name cleared on another device) must tell the host like the view's own block; dropped, the finger never reaches the name field",
+    find: '          if (res.reason === "noName") onBlocked?.("noName");\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx3-name/pad-server-noName-no-focus",
+    file: "apps/qr/components/staff/useStaffSend.ts",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Codex r3 on #308 — on the pad, a server noName must land focus on the counter order's name field (the pad's onBlocked), not leave it on a Send that keeps failing",
+    find: '          if (res.reason === "noName") onBlocked?.("noName");\n',
+    replace: "",
+  },
+  {
+    id: "p2f-cx3-name/server-name-not-reconciled",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Codex r3 on #308 — a name cleared on another tablet must reach a pristine field and savedName; kept, the pad reads named and every Send hits the RPC and fails",
+    find: "    setSavedName(serverName);\n    if (name.trim() === savedName) setName(serverName);\n",
+    replace: "",
+  },
+  {
+    id: "p2f-cx3-name/reconcile-clobbers-dirty",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Codex r3 on #308 — the server's name reconciles only a PRISTINE field; a name being typed is never thrown away",
+    find: "    if (name.trim() === savedName) setName(serverName);",
+    replace: "    setName(serverName);",
+  },
+  {
+    id: "p2f-cx3-name/reconcile-by-value",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Codex r3 on #308 — reconcile on the server name's CHANGE, not its value: a read already on the wire before this pad's own save would otherwise revert the name just saved",
+    find: "  if (serverName !== seenServerName) {",
+    replace: "  if (serverName !== seenServerName || serverName !== savedName) {",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
