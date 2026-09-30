@@ -180,16 +180,18 @@ export async function POST(req: NextRequest) {
   // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
   // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
   // (without this, any visitor could mint fake counter-queue entries). Phase 2f (Codex r3 on #308):
-  // nor JOIN an active `reg-` counter order — a member could add a to-go draft after staff reviewed
-  // the order, and the counter Send fires every draft to the kitchen unpaid. `kiosk-` joins stay
-  // allowed. Decided BEFORE the expiry slide, the host claim and the membership insert below, so a
-  // refused join touches nothing. One predicate: `reservedCodeRefusal` (lib/session-code.ts).
+  // nor JOIN an active reserved session — a member of a `reg-` counter order could add a to-go draft
+  // after staff reviewed it (the counter Send fires every draft unpaid), a member of a `kiosk-`
+  // dine-in could add drafts its host fires unpaid, and no real client joins either. Decided BEFORE
+  // the expiry slide, the host claim and the membership insert below, so a refused join touches
+  // nothing. One predicate: `reservedCodeRefusal` (lib/session-code.ts). The copy names neither
+  // kind: it must be true for a counter order AND a kiosk order.
   const reserved = reservedCodeRefusal({ found: sess !== null, code: resolvedQr });
   if (reserved === "create")
     return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
   if (reserved === "join")
     return NextResponse.json(
-      { error: "That’s a counter order — staff add to it at the register." },
+      { error: "That order can’t be joined from a phone — please ask staff." },
       { status: 403 },
     );
 

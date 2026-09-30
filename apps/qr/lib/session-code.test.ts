@@ -49,7 +49,7 @@ describe("sweepsExpiredSquatter — /api/session never closes a reserved code", 
 });
 
 // ── Phase 2f · P2v (Codex r3 on #308) ──
-describe("reservedCodeRefusal — /api/session never attaches a diner to a counter order", () => {
+describe("reservedCodeRefusal — /api/session never attaches a diner to a server-issued code", () => {
   it("refuses a JOIN to an active reg- counter order", () => {
     // p2f-cx3-join/join-to-active-counter-order
     expect(reservedCodeRefusal({ found: true, code: "reg-ABCD1234" })).toBe("join");
@@ -61,9 +61,10 @@ describe("reservedCodeRefusal — /api/session never attaches a diner to a count
     expect(reservedCodeRefusal({ found: false, code: "kiosk-ABCD1234" })).toBe("create");
   });
 
-  it("still lets a device join an active kiosk- session (pay-first — never fired unpaid)", () => {
-    // p2f-cx3-join/kiosk-join-refused
-    expect(reservedCodeRefusal({ found: true, code: "kiosk-ABCD1234" })).toBeNull();
+  it("refuses a JOIN to an active kiosk- session too — fail closed on every reserved prefix", () => {
+    // p2f-cx3-join/kiosk-join-refused — a kiosk DINE-IN cart fires through `mms_fire_cart` before
+    // payment, and the kiosk device inserts its own membership, so no real client joins one here.
+    expect(reservedCodeRefusal({ found: true, code: "kiosk-ABCD1234" })).toBe("join");
   });
 
   it("leaves ordinary sticker / invite / solo codes alone, found or not", () => {

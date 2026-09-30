@@ -115,10 +115,13 @@ beforeEach(() => {
     },
     error: null,
   };
-  sessionRow = { data: { status: "active", expires_at: future(), mode: "dinein" }, error: null };
+  sessionRow = {
+    data: { status: "active", expires_at: future(), mode: "dinein", qr_code: "ABCD2345" },
+    error: null,
+  };
   // Same shape, different mode: a read filtered on the wrong id lands here and reports "pickup".
   otherSessionRow = {
-    data: { status: "active", expires_at: future(), mode: "pickup" },
+    data: { status: "active", expires_at: future(), mode: "pickup", qr_code: "pickup-3f2a" },
     error: null,
   };
   memberRow = { data: { seat_id: UID, role: "guest" }, error: null };
@@ -260,5 +263,56 @@ describe("assertCartMember — the freeze state it reports", () => {
     const a = await assertCartMember(CART);
     expect(a.settling).toBe(false);
     expect(a.settleBy).toBeNull();
+  });
+});
+
+// ── Phase 2f · P2v (self-review SEC-1) — defence in depth behind /api/session's join refusal ──
+describe("assertCartMember — a staff-minted counter order has no diner", () => {
+  it("refuses a MEMBER of an active reg- session, whatever its mode", async () => {
+    // p2f-sr-authz/reg-member-allowed · p2f-sr-authz/qr-code-not-selected — a membership that
+    // already existed (or was made by the pre-fix route) must not reach a cart the counter Send
+    // fires unpaid. The member row IS present here: only the session's code refuses.
+    sessionRow.data!.qr_code = "reg-ABCD1234";
+    for (const mode of ["pickup", "dinein", "scango"]) {
+      sessionRow.data!.mode = mode;
+      await expect(assertCartMember(CART)).rejects.toMatchObject({
+        code: "not_member",
+        status: 403,
+      });
+      await expect(assertCartMember(CART)).rejects.toBeInstanceOf(AuthzError);
+    }
+  });
+
+  it("reads the code of THIS CART's session — another session's reg- code refuses nothing here", async () => {
+    otherSessionRow.data!.qr_code = "reg-ABCD1234";
+    expect((await assertCartMember(CART)).sessionId).toBe(SESSION);
+    cartRow.data!.session_id = OTHER_SESSION;
+    await expect(assertCartMember(CART)).rejects.toMatchObject({ code: "not_member" });
+  });
+
+  it("a dine-in member is unaffected", async () => {
+    // p2f-sr-authz/every-session-refused
+    sessionRow.data!.mode = "dinein";
+    sessionRow.data!.qr_code = "ABCD2345";
+    const a = await assertCartMember(CART);
+    expect(a).toMatchObject({ uid: UID, sessionId: SESSION, mode: "dinein" });
+  });
+
+  it("a kiosk- member is still allowed — the kiosk device IS its member and drives its cart here", async () => {
+    // p2f-sr-authz/kiosk-member-refused — `lib/kiosk.ts` inserts the device's own membership and
+    // the whole diner cart machinery (addItem, getCartView, create-intent) authorizes through this.
+    for (const mode of ["pickup", "dinein"]) {
+      sessionRow.data!.mode = mode;
+      sessionRow.data!.qr_code = "kiosk-ABCD1234";
+      expect((await assertCartMember(CART)).mode).toBe(mode);
+    }
+  });
+
+  it("an unreadable session is still 503 — the refusal adds no verdict to a failed read", async () => {
+    sessionRow = { data: null, error: { message: "connection terminated" } };
+    await expect(assertCartMember(CART)).rejects.toMatchObject({
+      code: "unavailable",
+      status: 503,
+    });
   });
 });
