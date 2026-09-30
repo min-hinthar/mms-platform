@@ -285,6 +285,21 @@ jobs:
       - name: Line-guard race mutants (can the row lock fail?)
         timeout-minutes: 5
         run: node scripts/verify-line-guard-race.mjs --mutants
+      # Phase 2f · P2v — the counter fire (`mms_fire_counter_cart`) and the name clear
+      # (`mms_clear_cart_name`) decide under ONE lock, the qr_carts row FOR UPDATE, so a name can
+      # never be stripped off food that is cooking and an unnamed bag can never cook. Only two
+      # sessions can interleave them: clear-first (the fire waits, then fires nothing) and fire-first
+      # (the clear waits, then answers keep_name). Commits `reg-P2FR-` fixtures, so the script
+      # refuses anything that is not the local stack. ~1s measured locally.
+      - name: Counter-fire race harness (two concurrent sessions)
+        timeout-minutes: 3
+        run: node scripts/verify-counter-fire-race.mjs
+      # Can it fail? Each function's cart lock deleted — the fire's reddens both orders, the clear's
+      # reddens fire-first — md5-checked apply, byte-identical restore. These are the two lock
+      # mutants verify-mode-authority.mjs lists as documented survivors. ~3s measured locally.
+      - name: Counter-fire race mutants (can the cart lock fail?)
+        timeout-minutes: 5
+        run: node scripts/verify-counter-fire-race.mjs --mutants
       - name: Stop stack
         if: always()
         run: supabase stop || true

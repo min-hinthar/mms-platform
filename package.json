@@ -23,6 +23,8 @@
     "verify:mode-authority": "node scripts/verify-mode-authority.mjs",
     "verify:line-race": "node scripts/verify-line-guard-race.mjs",
     "verify:line-race:mutants": "node scripts/verify-line-guard-race.mjs --mutants",
+    "verify:counter-race": "node scripts/verify-counter-fire-race.mjs",
+    "verify:counter-race:mutants": "node scripts/verify-counter-fire-race.mjs --mutants",
     "review:bundle": "node scripts/review-bundle.mjs",
     "check:migration-versions": "node scripts/check-migration-versions.mjs",
     "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",
