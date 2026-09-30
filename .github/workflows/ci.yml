@@ -255,13 +255,14 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 127 mutations (measured below; was "20" while the file held 27) across fourteen LIVE functions
+      # 130 mutations (measured below; was "20" while the file held 27) across sixteen LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, — Phase 2f · P2v — mms_fire_counter_cart,
       # mms_undo_counter_fire, mms_clear_cart_name, mms_counter_no_show,
       # mms_sweep_expired_sessions and mms_clear_counter_cart, and — Codex r3 on #308 —
-      # mms_void_line and mms_request_approval) plus one of mms_init_togo_status — the only way to falsify the
+      # mms_void_line and mms_request_approval, and — the Phase 2f self-review — mms_line_transition
+      # and mms_bump_ticket) plus one of mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
       # and the NAMED case (not just some case) to be the one that goes red. Twelve mutants are
       # documented SURVIVORS and are asserted as such rather than left as untested comments.
@@ -271,6 +272,7 @@ jobs:
       # Keep this count in step — measured with:
       #   grep -c 'id: "' scripts/verify-mode-authority.mjs
       # ~211s measured locally at 127 mutants (each replays the chain) — the timeout has headroom for CI.
+      # (130 since the Phase 2f self-review; re-measure the time when it next moves materially.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 8
         run: node scripts/verify-mode-authority.mjs
@@ -295,20 +297,24 @@ jobs:
       # Only two sessions can interleave them: clear-first · fire-first · sweep-first ·
       # fire-before-sweep · kitchen-fire-before-clear · settle-before-clear, and — Codex r3 on #308 —
       # send-before-merge · kitchen-fire-before-merge (the merge's counter refusal, decided under its
-      # locks) · no-show-before-void · no-show-before-request (the cart locked before the line).
+      # locks) · no-show-before-void · no-show-before-request (the cart locked before the line), and —
+      # the Phase 2f self-review — clear-before-resolve · resolve-mid-clear (the Clear locks and
+      # supersedes the cart's pending requests) · kitchen-start-before-no-show (the no-show's lines lock).
       # Commits `reg-P2FR-` / `P2FRT-` fixtures (and runs the sweeper, which closes every expired
       # session in the DB), so the script refuses anything that is not the local stack.
-      # ~21s measured locally (the sweep scenarios wait out a 2s expiry, send-before-merge a 10s grace).
+      # ~23s measured locally (the sweep scenarios wait out a 2s expiry, send-before-merge a 10s grace).
       - name: Counter-fire race harness (two concurrent sessions)
         timeout-minutes: 3
         run: node scripts/verify-counter-fire-race.mjs
-      # Can it fail? Eleven lock mutants — the fire's cart lock (clear-first + fire-first), the clear's
+      # Can it fail? Fourteen mutants — the fire's cart lock (clear-first + fire-first), the clear's
       # (fire-first), the fire's session lock (sweep-first + fire-before-sweep), the sweeper's
       # lock-then-decide, SKIP LOCKED and held-rows-only confinement (fire-before-sweep), the counter
       # Clear's lines and cart locks (e, f), and — Codex r3 on #308 — the merge's lines lock (g2) and
-      # the void's and the request's cart locks (h, h2) — md5-checked apply, byte-identical restore.
-      # The first six are verify-mode-authority.mjs's lock survivors; the other five it leaves out.
-      # ~230s measured locally (each battery re-runs the 10s grace wait).
+      # the void's and the request's cart locks (h, h2), and — the Phase 2f self-review — the Clear's
+      # supersede (i) and approvals lock (i2) and the no-show's lines lock (j) — md5-checked apply,
+      # byte-identical restore. The first six are verify-mode-authority.mjs's lock survivors; the
+      # other eight it leaves out.
+      # ~318s measured locally at fourteen mutants (each battery re-runs the 10s grace wait).
       - name: Counter-fire race mutants (can the locks fail?)
         timeout-minutes: 9
         run: node scripts/verify-counter-fire-race.mjs --mutants

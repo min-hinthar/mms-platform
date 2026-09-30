@@ -60,6 +60,12 @@
  * the two writers' cart locks are killed by `verify-counter-fire-race.mjs --mutants` (orders g2, h and
  * h2) instead. The merge's APPROVALS lock has no mutant anywhere yet (nothing races a resolve against
  * a merge) — filed under OPEN-ITEMS P2fi, not claimed here.
+ * The Phase 2f self-review adds, with NO new survivor: the counter Clear's supersede of pending
+ * requests (P2F.31a, and P2F.31b — a 'sent' refusal must not supersede), the merge's in-grace revert to
+ * draft (P2F.28e), and the sweeper's exemption now counting a COMPED kitchen line (P2F.19f — the
+ * mutant re-adds `not ci.comped`). The Clear's approvals LOCK and the no-show's LINES lock are killed
+ * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead. `mms_line_transition` and
+ * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -1224,14 +1230,14 @@ const MUTANTS = [
     replace: "             where c.session_id = s.id\n",
   },
   {
-    id: "p2f/sweeper-comped-exempts",
+    id: "p2f/sweeper-comped-swept",
     fn: "mms_sweep_expired_sessions",
     src: "p2f",
     suite: "p2f",
     expect: "P2F.19f ·",
-    why: "one definition of SENT: a comped-only order is nothing the no-show can write off (nothing_sent), so exempting it leaves an order no door can close",
-    find: "               and ci.fulfillment <> 'grocery'\n               and not ci.comped));",
-    replace: "               and ci.fulfillment <> 'grocery'));",
+    why: "the exemption is the KITCHEN set (`counterKitchenLine`, comps included): with `not ci.comped` back, a counter order whose only kitchen food is comped is swept — the session closes over an OPEN cart, the KDS and the lane lose it, and the Clear that is its exit can no longer reach it",
+    find: "               and ci.fulfillment <> 'grocery'));",
+    replace: "               and ci.fulfillment <> 'grocery'\n               and not ci.comped));",
   },
   {
     id: "p2f/sweeper-grocery-exempts",
@@ -1239,9 +1245,9 @@ const MUTANTS = [
     src: "p2f",
     suite: "p2f",
     expect: "P2F.19g ·",
-    why: "one definition of SENT: a grocery line marked fired is shelf stock, not kitchen food — exempting it keeps an order alive that the no-show refuses",
-    find: "               and ci.fulfillment <> 'grocery'\n               and not ci.comped));",
-    replace: "               and not ci.comped));",
+    why: "one definition of the kitchen set: a grocery line marked fired is shelf stock, not kitchen food — exempting it keeps an order alive that the no-show refuses",
+    find: "               and ci.state in ('fired', 'in_progress', 'served')\n               and ci.fulfillment <> 'grocery'));",
+    replace: "               and ci.state in ('fired', 'in_progress', 'served')));",
   },
   {
     id: "p2f/counter-fire-session-lock-dropped",
@@ -1594,6 +1600,38 @@ const MUTANTS = [
     find: "      where ci.id = p_line and ci.cart_id = v_req_cart\n",
     replace: "      where ci.id = p_line and ci.cart_id = v_session\n",
   },
+  // ── Phase 2f self-review — the Clear supersedes pending requests; the merge reverts in-grace lines ──
+  {
+    id: "p2f/clear-counter-pending-left-open",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.31a ·",
+    why: "a pending S2.4 request on a cleared (cancelled) counter order sits in a manager's queue forever — and a resolve racing the Clear approved a void on the cancelled cart",
+    find: "  update public.mms_approvals a set status = 'superseded', resolved_at = now()\n    where a.cart_id = p_cart_id and a.status = 'pending';\n",
+    replace: "",
+  },
+  {
+    id: "p2f/clear-counter-refusal-supersedes",
+    fn: "mms_clear_counter_cart",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.31b ·",
+    why: "over-reach: a 'sent' refusal must write nothing — superseding before the SENT check empties a manager's queue for a Clear that never happened",
+    find: "  perform 1 from public.mms_approvals where cart_id = p_cart_id and status = 'pending' order by id for update;\n",
+    replace:
+      "  update public.mms_approvals set status = 'superseded', resolved_at = now() where cart_id = p_cart_id and status = 'pending';\n",
+  },
+  {
+    id: "p2f/merge-counter-grace-revert-dropped",
+    fn: "mms_merge_table_orders",
+    src: "p2f",
+    suite: "p2f",
+    expect: "P2F.28e ·",
+    why: "an in-grace counter line arrives on a pay-first target still 'fired' with the counter's deadline and batch — it skips the target's pay-then-fire schedule and goes live on the counter's clock",
+    find: "    update public.qr_cart_items set state = 'draft', fire_at = null, fire_batch = null\n      where cart_id = p_source_cart and state = 'fired' and fire_at > now();\n",
+    replace: "",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -1648,6 +1686,8 @@ const TARGETS = [
   "mms_clear_counter_cart",
   "mms_void_line",
   "mms_request_approval",
+  "mms_line_transition",
+  "mms_bump_ticket",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

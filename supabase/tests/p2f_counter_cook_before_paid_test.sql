@@ -72,17 +72,22 @@ begin
 end $$;
 
 -- ══ P2F.1 · privileges: service_role only, on all four + the sweeper still ════════════════════
+-- The loop COUNTS what it checked: a missing, renamed or overloaded function must fail, not skip.
 do $$
-declare r record;
+declare r record; seen integer := 0;
+        want text[] := array['mms_fire_counter_cart','mms_undo_counter_fire',
+                             'mms_clear_cart_name','mms_counter_no_show','mms_sweep_expired_sessions'];
 begin
   for r in select p.oid, p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-            where n.nspname = 'public' and p.proname in ('mms_fire_counter_cart','mms_undo_counter_fire',
-                  'mms_clear_cart_name','mms_counter_no_show','mms_sweep_expired_sessions') loop
+            where n.nspname = 'public' and p.proname = any(want) loop
+    seen := seen + 1;
     assert not has_function_privilege('anon', r.oid, 'execute')
        and not has_function_privilege('authenticated', r.oid, 'execute')
        and has_function_privilege('service_role', r.oid, 'execute'),
       format('P2F.1 · %s must be service_role-only', r.proname);
   end loop;
+  assert seen = cardinality(want),
+    format('P2F.1 · checked %s functions, want exactly %s (one per name)', seen, cardinality(want));
 end $$;
 
 -- ══ P2F.2 · a legit fire: named reg- cart, togo drafts fire under one batch; grocery and a
@@ -461,14 +466,16 @@ begin
   perform public.mms_sweep_expired_sessions();
   select status into st from public.table_sessions where id = s;
   assert st = 'closed', format('P2F.19e · a paid counter order is swept — only an OPEN cart is exempt (%s)', st);
-  -- f · only a COMPED fired line: nothing the no-show could write off — swept.
+  -- f · only a COMPED fired line: still on the KDS and in the bag (`counterKitchenLine`) — NOT swept
+  --     (swept, its cart would stay open under a closed session, reachable by nothing).
   c := pg_temp.p2f_counter('reg-P2F19FCP', 'Aye');
   perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute', true);
   select session_id into s from public.qr_carts where id = c;
   update public.table_sessions set expires_at = now() - interval '1 minute' where id = s;
   perform public.mms_sweep_expired_sessions();
   select status into st from public.table_sessions where id = s;
-  assert st = 'closed', format('P2F.19f · a comped-only counter order is swept (%s)', st);
+  assert st = 'active', format('P2F.19f · a comped-only counter order is kitchen food — not swept (%s)', st);
+  -- (its exit — the Clear ignoring a comped sent line — is P2F.26f's, pinned there)
   -- g · only a GROCERY line marked fired: shelf stock, not kitchen food — swept.
   c := pg_temp.p2f_counter('reg-P2F19GGR', 'Aye');
   perform pg_temp.p2f_line(c, 500, 1, 'grocery', 'fired', now() - interval '1 minute');
@@ -758,15 +765,23 @@ begin
 end $$;
 
 do $$
-declare s uuid; t uuid; v integer; st text; tn integer;
+declare s uuid; t uuid; l uuid; v integer; st text; tn integer; moved boolean; lst text; cleared boolean;
 begin
-  -- an in-grace fired line only: it never reached the KDS — merges
+  -- an in-grace fired line only: it never reached the KDS — merges, and arrives as a DRAFT with no
+  -- deadline or batch (a pay-first target fires drafts on payment; a still-'fired' line would go live
+  -- on the counter's clock instead)
   s := pg_temp.p2f_counter('reg-P2F28GRC', 'Aye');
   t := pg_temp.p2f_counter('P2F28-PK5', 'Bo');
-  perform pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() + interval '5 seconds');
+  l := pg_temp.p2f_line(s, 500, 1, 'togo', 'fired', now() + interval '5 seconds');
+  update public.qr_cart_items set fire_batch = gen_random_uuid() where id = l;
   v := public.mms_merge_table_orders(s, t);
   select status into st from public.qr_carts where id = s;
   assert v = 1 and st = 'cancelled', format('P2F.28e · an in-grace line merges (%s, %s)', v, st);
+  select cart_id = t, state, fire_at is null and fire_batch is null into moved, lst, cleared
+    from public.qr_cart_items where id = l;
+  assert moved and lst = 'draft' and cleared,
+    format('P2F.28e · the in-grace line lands on the target as a draft, deadline and batch cleared (on target %s, %s, cleared %s)',
+           moved, lst, cleared);
   -- drafts only
   s := pg_temp.p2f_counter('reg-P2F28DRF', 'Aye');
   t := pg_temp.p2f_counter('P2F28-PK6', 'Bo');
@@ -847,21 +862,58 @@ begin
     format('P2F.29e · an approval request on the cancelled cart is not_open, no row (%s, %s)', v, n);
 end $$;
 
--- ══ P2F.30 · the three restated functions keep their privileges: service_role only ════════════
+-- ══ P2F.30 · the five restated functions keep their privileges (service_role only) and their
+--    SECURITY mode: the merge and the ticket bump are DEFINER, the rest INVOKER. The loop COUNTS what
+--    it checked, so a missing, renamed or overloaded function fails instead of being skipped ═══════
 do $$
-declare r record;
+declare r record; seen integer := 0;
+        want text[] := array['mms_merge_table_orders','mms_void_line','mms_request_approval',
+                             'mms_line_transition','mms_bump_ticket'];
 begin
   for r in select p.oid, p.proname, p.prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-            where n.nspname = 'public'
-              and p.proname in ('mms_merge_table_orders','mms_void_line','mms_request_approval') loop
+            where n.nspname = 'public' and p.proname = any(want) loop
+    seen := seen + 1;
     assert not has_function_privilege('anon', r.oid, 'execute')
        and not has_function_privilege('authenticated', r.oid, 'execute')
        and not has_function_privilege('public', r.oid, 'execute')
        and has_function_privilege('service_role', r.oid, 'execute'),
       format('P2F.30 · %s must be service_role-only', r.proname);
-    assert r.prosecdef = (r.proname = 'mms_merge_table_orders'),
+    assert r.prosecdef = (r.proname in ('mms_merge_table_orders', 'mms_bump_ticket')),
       format('P2F.30 · %s keeps its SECURITY mode (definer=%s)', r.proname, r.prosecdef);
   end loop;
+  assert seen = cardinality(want),
+    format('P2F.30 · checked %s functions, want exactly %s (one per name)', seen, cardinality(want));
+end $$;
+
+-- ══ P2F.31 · a counter Clear SUPERSEDES the cart's pending S2.4 requests (Phase 2f self-review): a
+--    request on a cancelled cart can never resolve honestly — left pending it sits in a manager's
+--    queue forever, and a resolve racing the Clear approved a void on the cancelled cart. A 'sent'
+--    refusal writes nothing, the request included. The race itself is verify-counter-fire-race.mjs
+--    (i, i2) ════════════════════════════════════════════════════════════════════════════════════════
+do $$
+declare c uuid; big uuid; v text; aps text; st text;
+begin
+  -- a drafts-only counter order with a pending request: the Clear lands and supersedes it
+  c := pg_temp.p2f_counter('reg-P2F31OK', 'Aye');
+  big := pg_temp.p2f_line(c, 2500, 1, 'togo', 'draft');
+  v := public.mms_request_approval(big, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  assert v = 'ok', format('P2F.31 · fixture: the request lands pending (%s)', v);
+  v := public.mms_clear_counter_cart(c);
+  select status into aps from public.mms_approvals where line_id = big;
+  select status into st from public.qr_carts where id = c;
+  assert v = 'ok' and st = 'cancelled' and aps = 'superseded',
+    format('P2F.31a · a Clear supersedes the pending request (%s, cart %s, request %s)', v, st, aps);
+  -- sent food past its grace: the Clear refuses, and the request stays pending
+  c := pg_temp.p2f_counter('reg-P2F31SNT', 'Aye');
+  perform pg_temp.p2f_line(c, 500, 1, 'togo', 'fired', now() - interval '1 minute');
+  big := pg_temp.p2f_line(c, 2500, 1, 'togo', 'draft');
+  v := public.mms_request_approval(big, 'void', 'wrong_item', '00000000-0000-0000-0000-0000002f0b00');
+  assert v = 'ok', format('P2F.31 · fixture: the request lands pending (%s)', v);
+  v := public.mms_clear_counter_cart(c);
+  select status into aps from public.mms_approvals where line_id = big;
+  select status into st from public.qr_carts where id = c;
+  assert v = 'sent' and st = 'open' and aps = 'pending',
+    format('P2F.31b · a ''sent'' refusal writes nothing — the request stays pending (%s, cart %s, request %s)', v, st, aps);
 end $$;
 
 rollback;

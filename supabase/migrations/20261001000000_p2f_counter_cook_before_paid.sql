@@ -6,15 +6,19 @@
 -- through the existing loss gate (7b), a name is required to send and locked once food is in (7c).
 --
 -- ## Why a NEW staff-only fire, not a widening of `mms_fire_cart`
--- `mms_fire_cart` is also the DINER's send (`sendToKitchen` in lib/cart.ts), and a diner may JOIN a
--- `reg-` session by its code (/api/session refuses only to CREATE a reserved code). Widening it would
--- hand an unpaid fire to a phone. The functions below are revoked from public/anon/authenticated
--- and granted to service_role only; their callers are staff Server Actions behind the staff gate.
+-- `mms_fire_cart` is also the DINER's send (`sendToKitchen` in lib/cart.ts). /api/session refuses a
+-- diner both CREATING a reserved code and JOINING an active `reg-` session (`reservedCodeRefusal`,
+-- lib/session-code.ts — the join refusal since Codex r3 on #308), so no diner JWT should ever name a
+-- counter cart; widening `mms_fire_cart` would still hand an unpaid fire to whichever diner path is
+-- the next to reach one. So the rule stays out of the diner's send entirely, and — defence in depth
+-- — the functions below are revoked from public/anon/authenticated and granted to service_role
+-- only; their callers are staff Server Actions behind the staff gate.
 --
 -- ## The `reg-` authority chain
 -- A `reg-` code is minted only by `openRegisterOrder` (service role, staff-gated); no insert policy
--- exists on `table_sessions`; /api/session refuses to create a reserved code. Every function below
--- re-states the counter predicate IN its statement: `s.mode = 'pickup' and s.qr_code like 'reg-%'`
+-- exists on `table_sessions`; /api/session refuses to create a reserved code, or to join a `reg-`
+-- one. Every function below re-states the counter predicate IN its statement:
+-- `s.mode = 'pickup' and s.qr_code like 'reg-%'`
 -- — the SQL twin of `isCounterOrder` (lib/counter-order.ts). A future writer minting `reg-` codes
 -- anywhere else inherits fire-before-pay; this header and DESIGN-LANGUAGE §17 say so.
 --
@@ -36,9 +40,15 @@
 -- against the sweeper. The fire/undo/no-show/settle orderings on one cart rest on the same cart-row
 -- lock by construction and are pinned single-session only (P2F.15e, P2F.18); the no-show's
 -- approvals-before-lines order and the undo's cart lock are documented survivors in
--- scripts/verify-mode-authority.mjs with no two-session harness (filed). `clearTable`'s counter
--- refusal decides under the cart lock AND the lines' locks (§7, `mms_clear_counter_cart`); its two
--- orderings — against a kitchen fire and against a settle — are the harness's (e) and (f).
+-- scripts/verify-mode-authority.mjs with no two-session harness (filed). The no-show's LINES lock is
+-- what orders it after a kitchen Start (`mms_line_transition` locks only the line) — the harness's (j).
+-- `clearTable`'s counter refusal decides under the cart lock, the cart's pending approvals' locks AND
+-- the lines' locks (§7, `mms_clear_counter_cart`); its orderings — against a kitchen fire, a settle,
+-- and an approval being resolved (both ways) — are the harness's (e), (f), (i) and (i2).
+-- Every statement that locks ALL of a cart's lines at once (the no-show, the Clear, the merge's
+-- source) locks them `order by id`, and so does `mms_bump_ticket` (§6) before it serves several lines
+-- of one ticket — the kitchen's bump holds no cart lock, so without one row order on both sides a
+-- bump and a no-show/Clear/merge on the same cart could each hold a line the other wants (40P01).
 --
 -- ## No freeze guard on the counter fire and undo — deliberately
 -- Neither refuses a live pay lock or settle freeze. Moving a line between draft and fired changes no
@@ -53,14 +63,17 @@
 -- line with a NULL fire_at is SENT (`mms_line_transition`'s draft→fired edge stamped no deadline
 -- until §6 below, so such rows exist; the KDS shows it, so it counts as fired at or before now, and
 -- §6 makes the kitchen's Start/Ready/bump treat it the same way). The sweeper exempts a session
--- holding ANY SENT line (in-grace included — it will reach the KDS within seconds). The no-show writes
--- off SENT lines PAST their grace (`fire_at is null or fire_at <= now()`); an in-grace line is still
--- the sender's to undo, and the no-show returns it to draft. So every exempt session has an exit: a
--- settle, or a no-show that is never 'nothing_sent' once the grace has run.
+-- holding ANY KITCHEN line — SENT without the comped filter (`counterKitchenLine` in
+-- lib/counter-order.ts: a comped dish is still on the KDS and in the bag), in-grace included (it
+-- will reach the KDS within seconds). The no-show writes off SENT lines PAST their grace
+-- (`fire_at is null or fire_at <= now()`); an in-grace line is still the sender's to undo, and the
+-- no-show returns it to draft. So every exempt session has an exit: a settle, a no-show that is
+-- never 'nothing_sent' once the grace has run, or a Clear (a comped-only order — the Clear, like the
+-- no-show, does not count a comp as sent).
 
 -- ## M171
--- The sweeper restatement exempts a SENT, UNPAID counter order only; the dine-in half of M171 (a
--- 4h-expired dine-in session orphaning fired food) is unchanged and still open.
+-- The sweeper restatement exempts an UNPAID counter order with kitchen food only; the dine-in half
+-- of M171 (a 4h-expired dine-in session orphaning fired food) is unchanged and still open.
 --
 -- ## Applying to prod (the QR history is divergent — CLAUDE.md, M125)
 -- Apply THIS ONE FILE with the Supabase MCP `apply_migration`, at the final Codex-reviewed head,
@@ -250,7 +263,9 @@ begin
   perform 1 from public.mms_approvals
     where cart_id = p_cart_id and status = 'pending'
     for update;
-  perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;
+  -- The LINES, in id order (the header's lock order): what orders this after a kitchen Start, which
+  -- locks only the line — without it a line started mid-decision is written off as uncooked.
+  perform 1 from public.qr_cart_items where cart_id = p_cart_id order by id for update;
   select array_agg(ci.id order by ci.id) into v_sent
     from public.qr_cart_items ci
     where ci.cart_id = p_cart_id
@@ -298,12 +313,14 @@ end $$;
 revoke all on function public.mms_counter_no_show(uuid, uuid, uuid[], uuid) from public, anon, authenticated;
 grant execute on function public.mms_counter_no_show(uuid, uuid, uuid[], uuid) to service_role;
 
--- ── 5. the sweeper: a sent, unpaid counter order is never swept ─────────────────────────────────
--- Restated from 20260621000000_abuse_limits.sql. A `reg-` session whose OPEN cart holds a SENT line
--- (the header's definition, in-grace included) stays active past its expiry — otherwise the KDS
--- drops a ticket mid-cook, the floor and the lane lose it, and Settle, No-show and Clear all become
--- unreachable over an open cart with food on it (the M171 shape). Such an order stays flagged on the
--- floor and the lane until it is paid or written off.
+-- ── 5. the sweeper: an unpaid counter order with kitchen food is never swept ────────────────────
+-- Restated from 20260621000000_abuse_limits.sql. A `reg-` session whose OPEN cart holds a KITCHEN line
+-- (the header's definition: SENT with comps INCLUDED, in-grace included) stays active past its expiry
+-- — otherwise the KDS drops a ticket mid-cook, the floor and the lane lose it, and Settle, No-show and
+-- Clear all become unreachable over an open cart with food on it (the M171 shape). A comped dish is
+-- kitchen food too (`counterKitchenLine`): an order whose only kitchen food is comped would otherwise
+-- be swept with its cart left open — off the KDS and the lane, unreachable by the Clear that is its
+-- exit. Such an order stays on the floor and the lane until it is paid, written off, or cleared.
 --
 -- TWO statements, on purpose (Phase 2f blind review, C1): the candidates are LOCKED first, and the
 -- exemption is decided by a SECOND statement — a fresh READ COMMITTED snapshot taken while holding
@@ -333,8 +350,7 @@ begin
               join public.qr_cart_items ci on ci.cart_id = c.id
              where c.session_id = s.id and c.status = 'open'
                and ci.state in ('fired', 'in_progress', 'served')
-               and ci.fulfillment <> 'grocery'
-               and not ci.comped));
+               and ci.fulfillment <> 'grocery'));
   get diagnostics v_closed = row_count;
   delete from public.rate_events     where created_at  < now() - interval '1 day';
   delete from public.promo_attempts  where attempted_at < now() - interval '1 day';
@@ -358,7 +374,11 @@ grant execute on function public.mms_sweep_expired_sessions() to service_role;
 --      row made before this migration is movable too. A HELD or in-grace line always carries a future
 --      fire_at, so neither guard admits anything the board had not already shown as live.
 -- Restated from 20260716000000_w3_kitchen.sql §4 and §7 (the latest definitions); every other
--- clause is byte-identical. The draft→fired edge's missing MODE guard is M240 and is NOT changed here.
+-- clause is byte-identical, except that `mms_bump_ticket` now LOCKS its lines `order by id` before
+-- its update (the header's lock order: the bump holds no cart lock, and the no-show, the counter
+-- Clear and the merge lock a whole cart's lines in id order — one row order on both sides, so a bump
+-- and any of them on one cart cannot deadlock). The draft→fired edge's missing MODE guard is M240
+-- and is NOT changed here.
 create or replace function public.mms_line_transition(p_line uuid, p_to text) returns integer
   language plpgsql set search_path = '' as $$
 declare n integer;
@@ -394,6 +414,7 @@ create or replace function public.mms_bump_ticket(p_cart uuid, p_lines uuid[]) r
   language plpgsql security definer set search_path = '' as $$
 declare n integer;
 begin
+  perform 1 from public.qr_cart_items where id = any(p_lines) and cart_id = p_cart order by id for update;
   update public.qr_cart_items ci
     set state = 'served',
         started_at = coalesce(ci.started_at, now()),
@@ -416,7 +437,8 @@ grant execute on function public.mms_bump_ticket(uuid, uuid[]) to service_role;
 -- write, so a Send committing, or a line crossing its grace, between the two cancelled a cart holding
 -- due kitchen food — the KDS drops the ticket and the no-show (its only audited exit) is unreachable.
 -- Here the refusal and the cancel are one transaction under the locks: the cart row FOR UPDATE first
--- (the fire's, the undo's and the no-show's lock order), then the cart's lines FOR UPDATE — the
+-- (the fire's, the undo's and the no-show's lock order), then the cart's PENDING approvals, then the
+-- cart's lines FOR UPDATE (in id order — the header's) — the
 -- kitchen's own writers (`mms_line_transition`, `mms_bump_ticket`) lock only the line, so without
 -- this a draft→fired edge committing mid-decision would still slip past the cart lock. `now()` is
 -- fixed for the transaction, so no line crosses its grace between the check and the cancel.
@@ -425,6 +447,15 @@ grant execute on function public.mms_bump_ticket(uuid, uuid[]) to service_role;
 -- Returns 'ok' (cancelled) | 'sent' | 'not_found' | 'not_counter' | 'not_open'; every refusal returns
 -- before any write. A payment in flight is NOT re-checked here: the caller refuses it first
 -- (`paymentInFlightReason`, which also reads the split shares), exactly as for a table's clear.
+--
+-- Pending S2.4 requests (Phase 2f self-review): a cancelled cart's request can never resolve
+-- honestly, so an 'ok' supersedes them — the no-show's and the merge's word — in the same write.
+-- They are LOCKED before the lines, the no-show's cart → approvals → lines order: `mms_resolve_approval`
+-- takes its approval row and then the line, reading the cart's status from its statement snapshot,
+-- so a resolve that waited on this Clear's line lock would resume reading the cart 'open' and approve
+-- a void on the cancelled cart. Holding the approval first makes it wait HERE instead, and re-read
+-- its row as 'superseded' ('already_resolved'); and taking the approvals before the lines is what
+-- keeps that pair deadlock-free (resolve: approval → line). The harness's (i) and (i2).
 create or replace function public.mms_clear_counter_cart(p_cart_id uuid)
   returns text
   language plpgsql set search_path = '' as $$
@@ -441,7 +472,8 @@ begin
   if v_sess is null then return 'not_found'; end if;
   if v_sess_mode <> 'pickup' or v_qr not like 'reg-%' then return 'not_counter'; end if;
   if v_cart_status <> 'open' then return 'not_open'; end if;
-  perform 1 from public.qr_cart_items where cart_id = p_cart_id for update;
+  perform 1 from public.mms_approvals where cart_id = p_cart_id and status = 'pending' order by id for update;
+  perform 1 from public.qr_cart_items where cart_id = p_cart_id order by id for update;
   if exists (
        select 1 from public.qr_cart_items ci
         where ci.cart_id = p_cart_id
@@ -451,6 +483,8 @@ begin
           and (ci.fire_at is null or ci.fire_at <= now())) then
     return 'sent';
   end if;
+  update public.mms_approvals a set status = 'superseded', resolved_at = now()
+    where a.cart_id = p_cart_id and a.status = 'pending';
   update public.qr_carts c set status = 'cancelled' where c.id = p_cart_id and c.status = 'open';
   return 'ok';
 end $$;
@@ -556,7 +590,7 @@ begin
     -- it, and without this a fire committing mid-decision would still re-parent due food. (One line
     -- each on purpose: verify-merge-race.mjs anchors a mutant on the fold's lone `for update;` line.)
     perform 1 from public.mms_approvals where cart_id = p_source_cart and status = 'pending' for update;
-    perform 1 from public.qr_cart_items where cart_id = p_source_cart for update;
+    perform 1 from public.qr_cart_items where cart_id = p_source_cart order by id for update;
     -- SENT = `mms_counter_no_show`'s exact predicate: past its grace. An in-grace line never reached
     -- the KDS and is still the sender's to undo; drafts, grocery and comped lines merge as before.
     if exists (
@@ -568,6 +602,13 @@ begin
             and (src_ci.fire_at is null or src_ci.fire_at <= now())) then
       return -1;
     end if;
+    -- An IN-GRACE fired line passes the refusal (it never reached the KDS) — but it must not arrive on
+    -- the target still 'fired' with the counter's deadline and batch: a pay-first target fires only
+    -- DRAFTS once paid (`mms_fire_pending_food`), so it would skip that schedule and go live on the
+    -- counter's clock — early on a slotted ticket. Back to draft, exactly as the no-show does (the
+    -- undo's own edge); the lines are already locked above.
+    update public.qr_cart_items set state = 'draft', fire_at = null, fire_batch = null
+      where cart_id = p_source_cart and state = 'fired' and fire_at > now();
   end if;
 
   select session_id into v_src_session from public.qr_carts where id = p_source_cart;
@@ -730,12 +771,13 @@ grant execute on function public.mms_merge_table_orders(uuid, uuid) to service_r
 -- RPCs' shape (20260929000000: the parent cart FOR SHARE, then the line).
 --
 -- Lock order — cart → line — is the global one: the no-show (cart → approvals → lines), a counter
--- Clear (cart → lines), the merge (carts → approvals → lines) and the counter fire (cart → session
+-- Clear (cart → approvals → lines), the merge (carts → approvals → lines) and the counter fire (cart → session
 -- → lines) all take the cart before any line. `mms_resolve_approval` (approvals → line) is deliberately NOT restated to
 -- take the cart: between its approvals row and the line it would take the cart, the reverse of the
--- no-show's cart → approvals, which is a deadlock cycle. It does not need it — the no-show and the
--- merge both lock and supersede the pending approvals before touching a line, so a resolve that waited
--- re-reads its row as 'superseded' and answers 'already_resolved'.
+-- no-show's cart → approvals, which is a deadlock cycle. It does not need it — the no-show, the counter
+-- Clear (§7) and the merge all lock the pending approvals before touching a line and supersede them
+-- when they write, so a resolve that waited re-reads its row as 'superseded' and answers
+-- 'already_resolved'.
 --
 -- The line read is bound to the locked cart (`ci.cart_id = v_*_cart`): a merge moves lines under its
 -- own cart lock, so a line re-parented while this waited is followed to its new cart, bounded at three.
