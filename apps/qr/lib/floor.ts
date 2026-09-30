@@ -20,6 +20,7 @@ import {
   counterArmOf,
   counterClearRefusal,
   counterSent,
+  counterNoShowDropped,
   counterSentLine,
   isCounterOrder,
   mergeCounterRefusal,
@@ -622,6 +623,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     else dbNowMs = parsed;
   }
   let sentLineIds: string[] = [];
+  let droppedLineIds: string[] = [];
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -743,21 +745,22 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       })),
       dbNowMs,
     );
-    // Phase 2f — exactly the set `mms_counter_no_show` writes off (the no-show sheet's count).
-    if (counterOrder)
-      sentLineIds = (items ?? [])
-        .filter((i) =>
-          counterSentLine(
-            {
-              state: i.state ?? "draft",
-              fulfillment: i.fulfillment,
-              fire_at: i.fire_at,
-              comped: i.comped ?? false,
-            },
-            dbNowMs,
-          ),
-        )
-        .map((i) => i.id);
+    // Phase 2f — exactly the set `mms_counter_no_show` writes off (the no-show sheet's count), and
+    // beside it, on the SAME rows and the SAME DB clock, the set it drops (Codex r2 on #308: a comped
+    // in-grace dish is dropped too — named once here, never re-derived by the sheet).
+    if (counterOrder) {
+      const rows = (items ?? []).map((i) => ({
+        id: i.id,
+        line: {
+          state: i.state ?? "draft",
+          fulfillment: i.fulfillment,
+          fire_at: i.fire_at,
+          comped: i.comped ?? false,
+        },
+      }));
+      sentLineIds = rows.filter((r) => counterSentLine(r.line, dbNowMs)).map((r) => r.id);
+      droppedLineIds = rows.filter((r) => counterNoShowDropped(r.line, dbNowMs)).map((r) => r.id);
+    }
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
     const chargeable = lines.filter((l) => l.state !== "voided" && !l.comped);
@@ -955,6 +958,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     customerName: cart?.customer_name ?? null,
     unpaidSent,
     sentLineIds,
+    droppedLineIds,
     payAtPickup: surfaceOpen("payAtPickup"),
     mergeable: cart != null && !(counterOrder && unpaidSent),
   };

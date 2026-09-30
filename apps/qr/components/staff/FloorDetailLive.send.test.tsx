@@ -122,6 +122,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     customerName: null,
     unpaidSent: false,
     sentLineIds: [],
+    droppedLineIds: [],
     payAtPickup: true,
     mergeable: true,
     ...over,

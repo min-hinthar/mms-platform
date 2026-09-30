@@ -56,17 +56,22 @@ const line = (over: Partial<TableLineView>): TableLineView =>
     ...over,
   }) as TableLineView;
 
-// Two SENT lines (3 units), one in-grace fired line the server did not count, one comped line, two
-// unsent to-go drafts (2 units) and a grocery draft — only the first set is the write-off.
+// Two SENT lines (3 units), one in-grace fired line the server did not count, a comped line the
+// kitchen already had (past grace), a comped dish still in the Send's grace, two unsent to-go drafts
+// (2 units) and a grocery draft — only the first set is the write-off. The two id sets are the
+// SERVER's (`getTableDetail`, `counterSentLine` / `counterNoShowDropped` on the DB clock): the
+// `fire_at` a TableLineView does not carry is why the sheet can never tell the two comps apart itself.
 const LINES: TableLineView[] = [
   line({ id: "s1", name: "Mohinga", qty: 2, state: "served" }),
   line({ id: "s2", name: "Tea leaf salad", qty: 1, state: "fired" }),
-  line({ id: "g1", name: "Samosa", qty: 4, state: "fired" }), // in grace: not in sentLineIds
-  line({ id: "c1", name: "Tea", qty: 1, state: "fired", comped: true }),
+  line({ id: "g1", name: "Samosa", qty: 4, state: "fired" }), // in grace: dropped, not sent
+  line({ id: "c1", name: "Tea", qty: 1, state: "fired", comped: true }), // past grace: neither
+  line({ id: "c2", name: "Shan noodles", qty: 3, state: "fired", comped: true }), // in grace: dropped
   line({ id: "d1", name: "Noodles", qty: 2, state: "draft" }),
   line({ id: "gr", name: "Rice bag", qty: 5, state: "draft", fulfillment: "grocery" }),
 ];
 const SENT = ["s1", "s2"];
+const DROPPED = ["g1", "c2", "d1", "gr"];
 
 function mount(lang: "en" | "my" = "en", name: string | null = "Aye") {
   return render(
@@ -76,6 +81,7 @@ function mount(lang: "en" | "my" = "en", name: string | null = "Aye") {
         customerName={name}
         lines={LINES}
         sentLineIds={SENT}
+        droppedLineIds={DROPPED}
         lang={lang}
       />
     </StaffLangProvider>,
@@ -114,29 +120,45 @@ describe("CounterNoShowButton — what it claims", () => {
       "2× Mohinga",
       "1× Tea leaf salad",
     ]);
-    // What the server DROPS is said separately, not counted as a loss: the unsent to-go draft (2)
-    // AND the in-grace fired line (4) — `mms_counter_no_show` reverts an in-grace line to draft and
-    // leaves it on the cancelled cart. Grocery never counts; a comped line past its grace was sent.
+    // What the server DROPS is said separately, not counted as a loss — the units of ITS dropped
+    // set: the in-grace fired line (4), the comped dish still in the Send's grace (3 — Codex r2 on
+    // #308: `mms_counter_no_show` reverts it with no comped filter), the to-go draft (2) and the
+    // grocery draft (5), all gone with the cancelled cart. The comp the kitchen had (c1) is neither.
     expect(dialog().textContent).toContain(
-      STAFF["table.noshow.body.drafts.many"].en.replace("{n}", "6"),
+      STAFF["table.noshow.body.drafts.many"].en.replace("{n}", "14"),
     );
   });
 
-  it("the dropped count is every line the server drops — and nothing the kitchen kept", () => {
+  it("the dropped count is the SERVER's dropped set — no client filter re-decides it", () => {
     const L = (id: string, state: string, qty: number, over: Partial<TableLineView> = {}) =>
       line({ id, state: state as TableLineView["state"], qty, ...over });
-    // An in-grace fired line (not in the sent set) is dropped like a draft.
-    expect(noShowDroppedUnits([L("a", "fired", 3)], [])).toBe(3);
-    expect(noShowDroppedUnits([L("a", "draft", 2)], [])).toBe(2);
-    // A sent line is the LOSS, never also "dropped".
-    expect(noShowDroppedUnits([L("a", "fired", 3), L("b", "draft", 1)], ["a"])).toBe(1);
-    // Grocery never counts; a comped fired line outside the sent set is past its grace (kept).
-    expect(noShowDroppedUnits([L("g", "draft", 5, { fulfillment: "grocery" })], [])).toBe(0);
-    expect(noShowDroppedUnits([L("c", "fired", 1, { comped: true })], [])).toBe(0);
-    // Cooking / served / voided lines outside the sent set are not reverted by the RPC.
-    expect(
-      noShowDroppedUnits([L("p", "in_progress", 1), L("s", "served", 1), L("v", "voided", 1)], []),
-    ).toBe(0);
+    // A comped fired line the server dropped counts — the sheet has no fire_at to second-guess it.
+    expect(noShowDroppedUnits([L("c", "fired", 3, { comped: true })], ["c"])).toBe(3);
+    // A grocery draft the server dropped counts.
+    expect(noShowDroppedUnits([L("g", "draft", 5, { fulfillment: "grocery" })], ["g"])).toBe(5);
+    // A line outside the set never counts, whatever its state (a sent line is the LOSS).
+    expect(noShowDroppedUnits([L("a", "fired", 3), L("b", "draft", 1)], ["b"])).toBe(1);
+    expect(noShowDroppedUnits([L("d", "draft", 2)], [])).toBe(0);
+    // An id the lines do not carry adds nothing; units are qty, not rows.
+    expect(noShowDroppedUnits([L("a", "draft", 2), L("b", "draft", 3)], ["a", "b", "zz"])).toBe(5);
+  });
+
+  it("no dropped units → no dropped sentence", async () => {
+    render(
+      <StaffLangProvider lang="en">
+        <CounterNoShowButton
+          sessionId="s-1"
+          customerName="Aye"
+          lines={LINES}
+          sentLineIds={SENT}
+          droppedLineIds={[]}
+          lang="en"
+        />
+      </StaffLangProvider>,
+    );
+    open();
+    await act(async () => {});
+    expect(dialog().textContent).not.toContain("more not sent");
   });
 
   it("titles the order by its name, or anonymously", async () => {

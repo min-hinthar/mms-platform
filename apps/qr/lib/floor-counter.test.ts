@@ -250,6 +250,8 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
     // detail-unpaid-on-the-app-clock
     expect(d.unpaidSent).toBe(true);
     expect(d.sentLineIds).toEqual(["sent"]);
+    // the dropped set rides beside it, on the same rows and clock
+    expect(d.droppedLineIds).toEqual(["draft"]);
     // mergeable-with-sent-food
     expect(d.mergeable).toBe(false);
     expect(d.payAtPickup).toBe(true);
@@ -263,7 +265,26 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
     const d = await detail(REG);
     expect(d.unpaidSent).toBe(false);
     expect(d.sentLineIds).toEqual([]);
+    expect(d.droppedLineIds).toEqual(["g"]);
     expect(d.mergeable).toBe(true);
+  });
+
+  it("the DROPPED set is the SQL no-show's effect on the DB clock — a comped in-grace dish included (Codex r2 on #308)", async () => {
+    items["cart-reg"] = [
+      line({ id: "sent", state: "fired", fire_at: dbAgo(120) }),
+      // in grace by the DB clock (5s ahead of it): dropped, comped or not
+      line({ id: "comp-grace", state: "fired", comped: true, fire_at: dbAgo(-5) }),
+      // past grace BY THE DB CLOCK (the app clock runs an hour behind it here, so an app-clock read
+      // would call this in grace and drop it): the kitchen had it, the comp already audited it —
+      // neither sent nor dropped
+      line({ id: "comp-past", state: "fired", comped: true, fire_at: dbAgo(120) }),
+      line({ id: "draft", qty: 2 }),
+      line({ id: "bag", fulfillment: "grocery" }),
+      line({ id: "cook", state: "in_progress", fire_at: dbAgo(300) }),
+    ];
+    const d = await detail(REG);
+    expect(d.sentLineIds).toEqual(["sent", "cook"]);
+    expect(d.droppedLineIds).toEqual(["comp-grace", "draft", "bag"]);
   });
 
   it("a table with fired food is never unpaid, never a counter order, and merges", async () => {
@@ -272,6 +293,8 @@ describe("getTableDetail — a counter order's facts, on the DB clock", () => {
     expect(d.counterArm).toBeNull();
     expect(d.unpaidSent).toBe(false);
     expect(d.sentLineIds).toEqual([]);
+    // off a counter order there is no no-show, so nothing is "dropped" by one
+    expect(d.droppedLineIds).toEqual([]);
     expect(d.mergeable).toBe(true);
     // no DB clock read off a counter order
     expect(rpcCalls).not.toContain("mms_now");

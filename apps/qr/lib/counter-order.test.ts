@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   counterArmOf,
   counterClearRefusal,
+  counterNoShowDropped,
   counterSent,
   counterSentLine,
   counterSettleVariant,
@@ -99,6 +100,60 @@ describe("counterSentLine — the kitchen HAS it (the SQL no-show's sent set)", 
     expect(counterSent([line({ state: "draft" }), line()], NOW)).toBe(true);
     expect(counterSent([line({ state: "draft" }), line({ fire_at: ago(-5) })], NOW)).toBe(false);
     expect(counterSent([], NOW)).toBe(false);
+  });
+});
+
+describe("counterNoShowDropped — what the SQL no-show drops without writing off", () => {
+  it("a draft is dropped — comped, grocery or plain", () => {
+    expect(counterNoShowDropped(line({ state: "draft", fire_at: null }), NOW)).toBe(true);
+    expect(counterNoShowDropped(line({ state: "draft", comped: true }), NOW)).toBe(true);
+    // the cancelled cart takes a grocery draft exactly as it takes a dish
+    expect(counterNoShowDropped(line({ state: "draft", fulfillment: "grocery" }), NOW)).toBe(true);
+  });
+
+  it("a fired line still in its grace is dropped — COMPED TOO (Codex r2 on #308)", () => {
+    expect(counterNoShowDropped(line({ fire_at: ago(-5) }), NOW)).toBe(true);
+    // the SQL's revert (`state = 'fired' and fire_at > now()`) has no comped filter
+    const compedInGrace = line({ fire_at: ago(-5), comped: true });
+    expect(counterNoShowDropped(compedInGrace, NOW)).toBe(true);
+    expect(counterSentLine(compedInGrace, NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ fire_at: ago(-5), fulfillment: "grocery" }), NOW)).toBe(
+      true,
+    );
+  });
+
+  it("past its grace it is never dropped — sent (the loss), or a comp the kitchen had (neither)", () => {
+    // sent: the write-off, never also dropped
+    expect(counterNoShowDropped(line({ fire_at: ago(1) }), NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ fire_at: ago(0) }), NOW)).toBe(false); // fire_at <= now
+    // comped past grace: not sent and not dropped — the comp already audited it
+    const compedPast = line({ fire_at: ago(1), comped: true });
+    expect(counterNoShowDropped(compedPast, NOW)).toBe(false);
+    expect(counterSentLine(compedPast, NOW)).toBe(false);
+    // a fired line with NO stamp is past its grace (`lineFireMs`)
+    expect(counterNoShowDropped(line({ fire_at: null }), NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ fire_at: null, comped: true }), NOW)).toBe(false);
+  });
+
+  it("cooking, served and voided lines are not reverted — even with a future stamp", () => {
+    expect(counterNoShowDropped(line({ state: "in_progress", fire_at: ago(-5) }), NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ state: "served", fire_at: ago(-5) }), NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ state: "voided", fire_at: ago(-5) }), NOW)).toBe(false);
+  });
+
+  it("an unread stamp (undefined) or an unparseable one is never dropped", () => {
+    expect(counterNoShowDropped(line({ fire_at: undefined }), NOW)).toBe(false);
+    expect(counterNoShowDropped(line({ fire_at: "not a date" }), NOW)).toBe(false);
+  });
+
+  it("is disjoint from the sent set on every fixture shape", () => {
+    for (const state of ["draft", "fired", "in_progress", "served", "voided"])
+      for (const fire_at of [ago(-5), ago(0), ago(5), null])
+        for (const comped of [false, true])
+          for (const fulfillment of ["togo", "dinein", "grocery"]) {
+            const l = line({ state, fire_at, comped, fulfillment });
+            expect(counterNoShowDropped(l, NOW) && counterSentLine(l, NOW)).toBe(false);
+          }
   });
 });
 

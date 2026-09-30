@@ -316,6 +316,11 @@ export type TableDetail = {
   /** The open-cart lines `counterSentLine` holds true for (DB clock) — exactly the set a no-show
    *  writes off. Empty off a counter order. */
   sentLineIds: string[];
+  /** The open-cart lines `counterNoShowDropped` holds true for, on the SAME DB clock as `sentLineIds`
+   *  — what a no-show drops without writing off: every draft and every in-grace `fired` line, comped
+   *  or grocery included (the SQL reverts those and cancels the cart). Disjoint from `sentLineIds`.
+   *  Empty off a counter order. */
+  droppedLineIds: string[];
   /** `surfaceOpen("payAtPickup")` — the counter Send is DRAWN only while it is true. */
   payAtPickup: boolean;
   /** The merge tool may be offered: an open cart, and not a counter order with food in the kitchen
