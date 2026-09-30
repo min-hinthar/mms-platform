@@ -4,6 +4,121 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2e — the staff language, three ways, per device (2026-09-29)
+
+Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then
+merged onto Phase 2d's #306 head `f00024d` as `b852b27` — the `verify:slice` set a union (1271 +
+49 + 49 = 1369). Owner decision 2 (2026-09-24): Burmese only · Both · English, per device. Phase 2a's
+language hardening was NOT on disk at the base (`grep -rn "nextLangWrite\|langChainOutcome"` found
+nothing, and `StaffLangSwitch.tsx` was still the pre-2a `useTransition` switch), so it is built here
+as the generic chain the three-way spec lifts it into (`useLangModeWrite`), not as a separate 2a
+patch. One independent critic round; all nine findings verified against source and fixed, none
+rejected. 49 new mutants (34 in the build, 15 after review). DESIGN-LANGUAGE §17 (the Phase 2e
+block) and §6. No SQL.
+
+**What staff see first:**
+
+- **The language pill is gone from every in-service bar** — the kitchen, the counter and the doors,
+  the tips, menu, glossary and table screens, the order pad, and the signed-in sign-in screen. It
+  stays **exactly where it was** on the sign-in form, the lock screen, the outage screen and the
+  error screen.
+- **The kitchen and counter Help (the gold ?) has a new ဘာသာစကား / Language row**, before
+  "Something's wrong". It opens three choices: **မြန်မာ** (Burmese only), **မြန်မာ English** (Both —
+  what every device shows today) and **English**, each with a one-line description; the chosen one is
+  gold with a tick. Tapping another switches the whole screen; the sheet closes once the board has
+  changed. Tapping the current one just closes it.
+- **The doors' More list ends with a ဘာသာစကား / Language tile**; it opens the signed-in sign-in
+  screen with a new **language card** under the person's own card, the current choice focused. The
+  Help row, the More tile, the card's heading and every failure line are in both scripts on every
+  device — the way back is readable whichever mode is wrong for the reader.
+- **Burmese only is new:** buttons and titles lose their small English line, EXCEPT the words where a
+  wrong word would stop service (Mark sold out, Done, Cook now, Undo, the cash and payment words,
+  sign-in and lock-out messages, the outage and connection lines, late tickets), which keep their
+  English for whoever else reads the kitchen tablet; the language controls keep theirs too. Its row
+  says so: "Burmese only — English stays where a wrong word would stop service". The kitchen ticket
+  and dish names do not change at all.
+- **The Help sheet's Text size preview shows its dish the way the ticket does on every device** —
+  မုန့်ဟင်းခါး over "Mohinga" — where before it was English alone on an English tablet.
+- **Nothing changes for any device on deploy:** "Both" is exactly today's Burmese, and a rollback
+  can never turn a device English. There is no one-time notice about the move (owner decision,
+  below).
+- **A language change that fails** (offline, a stale tab after a deploy, a hung connection after
+  15 s) now says so in **both** Burmese and English beneath the controls and puts the choice back —
+  it can no longer replace the whole board with the error screen. A quick mis-tap corrected at once
+  is written in order and the screen redraws once. Only ONE failure line ever shows; one that lands
+  while the person is reading How / Text size / Report is said beside the ? circle once they close.
+- **The keyboard focus ring on the front doors' pill is now fully visible** (drawn inside the pill).
+
+**As built:**
+
+- **The modes (`lib/staff-lang.ts`).** The `mms_staff_lang` cookie holds a MODE
+  (`"my-only" | "both" | "en"`), parsed exactly (an absent or legacy `"my"` cookie is Both);
+  components still read a SCRIPT plus `echoes` (`scriptOf` · `echoesShown` · `modeOf` ·
+  `modeForScript`). The generic chain `nextLangWrite` / `langChainOutcome` has the 2a spec's bodies
+  byte for byte.
+- **The echo rule (`Chrome.tsx`):** `echoes = useEchoesShown() || keepEcho || STAFF_K15_HIGH.has(k)`
+  — Burmese only drops the echo, keeps the `.chrome-pair` wrapper with one child, and never drops the
+  K15-HIGH band. `keepEcho` marks the language surfaces.
+- **One write chain, host-owned (`components/staff/useLangModeWrite.ts`):** a tap-time ref guard,
+  serialized writes where the last pick wins with ONE refresh at the end, the cap reverted to the
+  confirmed mode on every failure, each write `raceTimeout(…, 15 000)` inside try/catch, and the
+  provider adopted only between chains (a refresh from an earlier write landing mid-chain moves
+  nothing). Never `disabled` or `aria-disabled`; the group says `aria-busy`.
+- **The controls.** `StaffLangSwitch.tsx` holds the front-door pill (writes a MODE resolved against
+  the confirmed mode), the three rows and the Profile card; `STAFF_LANG_MODE_KEY` (the three
+  descriptions) is exported there and read by the rows and the Help row's sub-line. `HelpButton.tsx`
+  gains the Language row and view (the host owns the write, so closing never cancels it; the sheet is
+  never `busy` for it); `lib/staff-more.ts` the last More tile (both views of More, the counter's
+  too) → `/staff/login?show=lang`; `StaffDoors.tsx` renders it; `StaffBar.tsx` mounts no control.
+- **2a's items built here:** the inset focus ring
+  (`.staff-lang-btn:focus-visible { outline-offset: -3px }`), the bilingual `.staff-bar-msg` alert
+  and its `.staff-bar-msg .chrome-en { color: inherit }` rule, `shell.lang.group`'s EN, and the
+  `staff-lang-actions.ts` docblock (the false "a mutant re-adds staffGate" claim replaced by the real
+  tripwire; `/board` removed from the control list).
+- **Guards.** `check-staff-lang` rule 4 becomes 4a–4e and rule 6 confines `keepEcho` (THIRTEEN
+  rules): 4e mounts each control export only from its own hosts, 6 requires a language KEY
+  (`shell.lang.*`, or StaffDoors' `t.k`). `app/staff/front-doors.test.tsx` renders `/staff/login`
+  and `/staff/lock` beside rule 4b's static proof.
+- **Critic round — nine findings, all verified on disk and fixed, none rejected.** A page with no
+  Help door could put the pill on its own bar and pass (rule 4e, 13 self-tests); deleting `keepEcho`
+  at six sites left every suite green (cases re-run under `en` and `my-only`, the English half
+  asserted exactly; 6 mutants); the Burmese-only row said "only … food or money" while the band is
+  wider (EN + MY reworded to the band's own phrase); a refresh from an earlier write closed the sheet
+  and moved the tick mid-write (four pieces, each with a red test and a mutant); a failure during the
+  exit slide drew two `role="alert"` lines (`open &&`; 3 mutants); a close wiped a failure the person
+  never saw (the bar tail says it now); a `keepEcho` on a non-language key passed rule 6 (it checks
+  the key); the Text size sample went through `<Chrome>` (now `TicketDishTitle`, byte-identical to
+  the ticket in all three modes); the dead `focused` ref deleted, and the five `globals.css`
+  placements recorded (DESIGN-LANGUAGE §17).
+- **Mutate set.** `lib/staff-more.ts` joins the lib bucket (145 → 146); `staff/useLangModeWrite.ts`
+  (a hook under components/), `staff/StaffLangSwitch.tsx`, `staff/HelpButton.tsx` and
+  `staff/StaffDoors.tsx` the components (30 → 34). 49 new `p2e-lang/` mutants — 34 in the build
+  (the mode parse, the chain, Chrome's echo rule and the controls) and 15 on the review fixes — all
+  KILLED by `--no-gate --only=p2e-lang` ("49 mutants caught, no orphans"). Re-anchored with meaning
+  kept: `p2e-lang/help-stale-failure` (the close's `if (next || lineShown) langWrite.clearAlert();`)
+  and `chrome/burmese-half-dropped` (it now spans the new middot line); `--only=chrome/` killed all 5
+  chrome mutants and `--only=staff-lang/` the 4 original staff-lang ones.
+- **Words (K15).** 6 new staff keys, each Burmese a Claude-authored draft — `shell.lang.row` ·
+  `shell.lang.scope` · `shell.lang.mode.myOnly` (re-worded after review) · `shell.lang.mode.both` ·
+  `shell.lang.mode.en` · `shell.lang.note`; `pilot.gloss.autonyms` re-drafted (EN and MY);
+  `shell.lang.group`'s English "Console language" → "This device’s language" (Burmese unchanged). None
+  is K15-HIGH (`STAFF_K15_HIGH` unchanged at 114). No key retired.
+- **Owner decisions (2026-09-30).** **No one-time relocation notice:** the default (Both) renders
+  exactly today's screen on every device, and a `HELP_SHEET_REVISION` bump would replay how-cards that
+  never mention language — interrupting a shift while saying nothing about the move; the way back is
+  two taps (Help → Language) and the front doors keep the pill; revisit only if staff report hunting
+  for it. **Burmese only keeps the K15-HIGH English**, as built.
+- **OPEN-ITEMS.** Closed **P2x**. New **P2em–P2eu**: P2em and P2en are the two owner decisions above,
+  recorded decided; P2eu is the preview gate (no browser here); P2ep (med) the two other
+  `startTransition(async …)` awaits with no try/catch that this phase's red-first confirmed can
+  replace a whole board with the error screen (the Help report send, the approval form). K15 and K37
+  grow; P2d (`<html lang>`) and P2m/K25 (English still under a Burmese console) stay open — the
+  rows' note says so in plain words. STAFF_POLISH_AUDIT's xcut-2: the language third is closed.
+- **Gate at this head (measured):** 1369 `verify:slice` mutants across 184 target modules (146 lib ·
+  3 API routes · 34 components · 1 `packages/db`) · 4512 qr + 278 ui tests · `check:docs` clean. The
+  full 1369-mutant `verify:slice` run with the gate at the merged head is not recorded here. Nothing
+  is device-measured — the preview gate is P2eu.
+
 ### Phase 2d — the floor strip and the Start zone, the counter bell, the tablet split, and the line guards in the database (2026-09-29)
 
 Built as three worktree branches: `p2d/floor` and `p2d/bell` in parallel off `2437a78`, merged here
