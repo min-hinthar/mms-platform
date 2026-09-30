@@ -153,9 +153,10 @@ export type UnpaidCartRow = {
  * The OPEN `reg-` counter orders that hold a line the kitchen has (fired / in progress / served) —
  * the lane's unpaid bags. The `reg-` predicate lives HERE (the one module that names `REG_PREFIX`),
  * never the kiosk's: a kiosk order is pay-first. `sent:qr_cart_items!inner(id)` filtered to the FULL
- * `counterSentLine` definition (sent state · not comped · not grocery · past its grace, at `nowIso`,
- * the DB clock) makes the cap count CANDIDATE bags only — every row the page holds yields a bag, so
- * a cart of drafts, comps or grocery never consumes a slot; `items`
+ * `counterKitchenLine` definition (sent state · not grocery · past its grace, at `nowIso`, the DB
+ * clock — comped or not, because `unpaidBag` bags a comp) makes the cap count CANDIDATE bags only —
+ * every row the page holds yields a bag, so a cart of drafts, grocery or in-grace sends never
+ * consumes a slot, and a comped-only bag still reaches the lane (Codex r3 on #308); `items`
  * is the unfiltered embed the bag is built from. Read NEWEST first under the cap (review M1: the
  * sweep exempts these, so stale ones accrue); a full page is `truncated` — the lane keeps its paid
  * bags and says its unpaid list is partial, and what it drops is the stalest bag, never the newest.
@@ -165,10 +166,12 @@ export async function readUnpaidCounterCarts(
   db: Db,
   nowIso: string,
 ): Promise<{ ok: true; carts: UnpaidCartRow[]; truncated: boolean } | { ok: false }> {
-  // Codex round 1 on #308 (P2) — the capped candidate filter is `counterSentLine` WHOLE, not its
-  // state clause alone. A cart holding only comped, grocery or in-grace lines passes a state-only
-  // join, consumes a slot, and yields no bag (`unpaidBag` drops it) — forty of them pushed a genuine
-  // older bag past the cap. The grace bound is `lt` one millisecond past the DB clock, which is
+  // Codex round 1 on #308 (P2) — the capped candidate filter is the bag's membership predicate WHOLE
+  // (`counterKitchenLine`), not its state clause alone. A cart holding only grocery or in-grace lines
+  // passes a state-only join, consumes a slot, and yields no bag (`unpaidBag` drops it) — forty of
+  // them pushed a genuine older bag past the cap. Codex round 3: NO comped filter — a comped dish is
+  // in the kitchen and in the bag, so a comped-only cart IS a bag; filtered here it never reached the
+  // lane while the KDS cooked it. The grace bound is `lt` one millisecond past the DB clock, which is
   // exactly `Date.parse(fire_at) <= nowMs` (`lineFireMs` reads the column to the millisecond); a
   // null `fire_at` is fired-at-or-before-now (review M2), so it is a candidate.
   const nowMs = Date.parse(nowIso);
@@ -182,7 +185,6 @@ export async function readUnpaidCounterCarts(
     .eq("table_sessions.status", "active")
     .like("table_sessions.qr_code", `${REG_PREFIX}%`)
     .eq("status", "open")
-    .eq("sent.comped", false)
     .neq("sent.fulfillment", "grocery")
     .or(`fire_at.is.null,fire_at.lt.${graceBound}`, { referencedTable: "sent" })
     .in("sent.state", ["fired", "in_progress", "served"])

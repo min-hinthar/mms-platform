@@ -290,6 +290,38 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
     expect(res.queue.unpaid[0]?.doneAt).toBe("2026-09-13T17:55:00.000Z");
   });
 
+  it("a comped dish still cooking keeps the bag cooking; a comped-only order is still a bag (Codex r3)", async () => {
+    // p2f-cx3-bag/bag-drops-comped — the lane bags what the kitchen HAS, comps included: the KDS
+    // cooks them, and the customer collects them.
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        unpaidCart([
+          item({ id: "s", state: "served", fire_at: "2026-09-13T17:50:00.000Z" }),
+          item({
+            id: "c",
+            state: "in_progress",
+            fire_at: "2026-09-13T17:55:00.000Z",
+            comped: true,
+          }),
+        ]),
+        {
+          ...unpaidCart([
+            item({ id: "k", state: "fired", fire_at: "2026-09-13T17:58:00.000Z", comped: true }),
+          ]),
+          id: "cart-comp",
+        },
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid.map((b) => [b.cartId, b.kitchen, b.lines.map((l) => l.id)])).toEqual([
+      ["cart-u", "cooking", ["s", "c"]],
+      ["cart-comp", "cooking", ["k"]],
+    ]);
+  });
+
   it("a cart whose send is still inside its grace is not a bag yet", async () => {
     uq.value = {
       ok: true,

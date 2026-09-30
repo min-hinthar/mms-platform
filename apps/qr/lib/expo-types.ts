@@ -72,11 +72,12 @@ export type ExpoUnpaidBag = {
   cartId: string;
   sessionId: string;
   customerName: string | null;
-  /** The SENT lines only (past their grace), Burmese-first names like every bag line. */
+  /** The lines IN THE KITCHEN only (`counterKitchenLine`: past their grace, comps included),
+   *  Burmese-first names like every bag line. */
   lines: ExpoLine[];
   /** Units still draft (not grocery) — on the order, not in the bag. */
   moreUnits: number;
-  /** `kitchenStateOf` over the sent lines — "done" when every sent line is served. */
+  /** `kitchenStateOf` over those lines — "done" when every one of them is served. */
   kitchen: KitchenState;
   /** Phase 2f review PT3 — when the kitchen finished it (the latest bump), null while it is not done.
    *  The bell's key for this bag's food, and the SAME stamp its paid bag carries. */

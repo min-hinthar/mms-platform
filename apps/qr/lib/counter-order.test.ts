@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   counterArmOf,
+  counterKitchenLine,
   counterNoShowDropped,
   counterSent,
   counterSentLine,
@@ -99,6 +100,45 @@ describe("counterSentLine — the kitchen HAS it (the SQL no-show's sent set)", 
     expect(counterSent([line({ state: "draft" }), line()], NOW)).toBe(true);
     expect(counterSent([line({ state: "draft" }), line({ fire_at: ago(-5) })], NOW)).toBe(false);
     expect(counterSent([], NOW)).toBe(false);
+  });
+});
+
+describe("counterKitchenLine — the kitchen HAS it, comped or not (the bag's membership)", () => {
+  it("a comped line past its grace is in the kitchen, though it is not SENT unpaid food", () => {
+    // p2f-cx3-bag/kitchen-line-drops-comped (Codex r3 on #308)
+    const comp = line({ comped: true });
+    expect(counterKitchenLine(comp, NOW)).toBe(true);
+    expect(counterSentLine(comp, NOW)).toBe(false);
+  });
+
+  it("is `counterSentLine` minus the comp clause — every other clause agrees", () => {
+    for (const state of ["draft", "fired", "in_progress", "served", "voided"])
+      for (const fulfillment of ["togo", "grocery", "dinein"])
+        for (const fire_at of [null, undefined, ago(30), ago(0), ago(-1)]) {
+          const l = line({ state, fulfillment, fire_at, comped: false });
+          expect(counterKitchenLine(l, NOW)).toBe(counterSentLine(l, NOW));
+          expect(counterKitchenLine({ ...l, comped: true }, NOW)).toBe(counterSentLine(l, NOW));
+        }
+  });
+
+  it("the KDS shows every open counter line it holds past the grace — comped too, the same set", () => {
+    // the bag and the board agree: for the lines the KDS reads (fired / in progress), shown ⇔ in
+    // the kitchen, comped or not
+    for (const state of ["fired", "in_progress"])
+      for (const comped of [false, true])
+        for (const fire_at of [null, ago(30), ago(-3)]) {
+          const l = line({ state, comped, fire_at });
+          const g = kdsLineGate({
+            mode: "pickup",
+            counterOrder: true,
+            sessionStatus: "active",
+            cartStatus: "open",
+            slotted: false,
+            line: l,
+            nowMs: NOW,
+          });
+          expect(g.show).toBe(counterKitchenLine(l, NOW));
+        }
   });
 });
 
@@ -366,6 +406,34 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
     expect(b?.doneAt).toBe(ago(20));
     const cooking = bag([line({ state: "served", bumped_at: ago(50) }), line({ state: "fired" })]);
     expect(cooking?.doneAt).toBeNull();
+  });
+
+  it("a comped dish still cooking keeps the bag COOKING — a served dish beside it is not 'done'", () => {
+    // p2f-cx3-bag/bag-drops-comped · kitchen-line-drops-comped (Codex r3 on #308) — built from the
+    // unpaid set, the comp fell out of the bag and the lane announced "Kitchen done" too early.
+    const served = line({ state: "served", fire_at: ago(120), bumped_at: ago(10) });
+    const compCooking = line({ state: "in_progress", fire_at: ago(60), comped: true });
+    const b = bag([served, compCooking]);
+    expect(b?.lines).toEqual([served, compCooking]);
+    expect(b?.kitchen).toBe("cooking");
+    expect(b?.doneAt).toBeNull();
+  });
+
+  it("a comped-only order the kitchen has IS a bag — the customer still collects it", () => {
+    // p2f-cx3-bag/bag-drops-comped — the comp is in the kitchen (the KDS shows it), so it is on the lane
+    const comp = line({ state: "fired", fire_at: ago(30), comped: true });
+    const b = bag([comp]);
+    expect(b?.lines).toEqual([comp]);
+    expect(b?.kitchen).toBe("cooking");
+    expect(b?.sentAt).toBe(ago(30));
+    // …and a comp inside its grace is no more in the kitchen than any other line
+    expect(bag([line({ comped: true, fire_at: ago(-4) })])).toBeNull();
+  });
+
+  it("the bag's kitchen state reads the lines IN THE KITCHEN, never the whole order", () => {
+    // p2f-cx3-bag/bag-kitchen-over-all-lines — a to-go line still in its grace is not cooking yet
+    const b = bag([line({ state: "served" }), line({ state: "fired", fire_at: ago(-4) })]);
+    expect(b?.kitchen).toBe("done");
   });
 
   it("null when nothing is sent — drafts only, or a send still in its grace", () => {

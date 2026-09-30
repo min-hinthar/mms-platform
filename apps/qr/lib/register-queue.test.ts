@@ -5,6 +5,7 @@ import {
   REG_PREFIX,
   REGISTER_QUEUE_CAP,
 } from "./register-queue";
+import { unpaidBag } from "./counter-order";
 
 /**
  * A4·2 — the counter queue read, asserted as a QUERY (every predicate recorded) and by value.
@@ -261,9 +262,10 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
     // unsent-carts-consume-the-cap: the inner-joined sent lines are filtered to the SENT states
     expect(rec?.ins).toEqual([["sent.state", ["fired", "in_progress", "served"]]]);
     expect(rec?.cols).toContain("sent:qr_cart_items!inner(id)");
-    // Codex r1 on #308 — and to the REST of `counterSentLine`, at the DB clock (the answering fake
-    // below proves each clause keeps its decoys off the page)
-    expect(rec?.eqs).toContainEqual(["sent.comped", false]);
+    // Codex r1 on #308 — and to the REST of `counterKitchenLine`, at the DB clock (the answering fake
+    // below proves each clause keeps its decoys off the page). Codex r3 — and NO comped filter: a
+    // comped dish is in the bag (p2f-cx3-bag/unpaid-cap-drops-comped).
+    expect(rec?.eqs.filter(([c]) => String(c).startsWith("sent."))).toEqual([]);
     expect(rec?.neqs).toEqual([["sent.fulfillment", "grocery"]]);
     expect(rec?.ors).toEqual([
       ["fire_at.is.null,fire_at.lt.2026-09-13T18:00:00.001Z", { referencedTable: "sent" }],
@@ -380,17 +382,17 @@ describe("readUnpaidCounterCarts — every capped candidate yields a bag (Codex 
     return { from: () => api } as unknown as Parameters<typeof readUnpaidCounterCarts>[0];
   }
 
-  // Forty NEWER carts that hold no SENT line by `counterSentLine` — ten each of comped-only,
-  // grocery-only, in-grace-only, and a mix of all three — ahead of one genuine older bag.
+  // Forty NEWER carts that hold no line IN THE KITCHEN by `counterKitchenLine` — grocery-only,
+  // in-grace-only, and a mix of both (a comped in-grace line rides the mix: a comp inside its grace
+  // is no more in the kitchen than any other) — ahead of one genuine older bag.
   const decoys = (): Cart[] =>
     Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) => {
-      const kind = i % 4;
+      const kind = i % 3;
       const at = `2026-09-13T17:${String(10 + i).padStart(2, "0")}:00.000Z`;
-      const comp = line({ id: `c${i}`, comped: true });
       const groc = line({ id: `g${i}`, fulfillment: "grocery" });
       const grace = line({ id: `w${i}`, fire_at: "2026-09-13T18:00:05.000Z" });
-      const lines =
-        kind === 0 ? [comp] : kind === 1 ? [groc] : kind === 2 ? [grace] : [comp, groc, grace];
+      const compGrace = line({ id: `c${i}`, comped: true, fire_at: "2026-09-13T18:00:05.000Z" });
+      const lines = kind === 0 ? [groc] : kind === 1 ? [grace] : [groc, grace, compGrace];
       return { id: `decoy-${i}`, created_at: at, lines };
     });
   const genuine: Cart = {
@@ -399,13 +401,63 @@ describe("readUnpaidCounterCarts — every capped candidate yields a bag (Codex 
     lines: [line({ id: "real", fire_at: null })],
   };
 
-  it("forty comped / grocery / in-grace carts never push a genuine older bag past the cap", async () => {
-    // p2f-cx1-lane/unpaid-cap-comped · -grocery · -in-grace — each clause of `counterSentLine`
-    // dropped from the candidate filter lets its decoys consume the page.
+  it("forty grocery / in-grace carts never push a genuine older bag past the cap", async () => {
+    // p2f-cx1-lane/unpaid-cap-grocery · -in-grace — each clause of `counterKitchenLine` dropped
+    // from the candidate filter lets its decoys consume the page.
     const res = await readUnpaidCounterCarts(answeringDb([...decoys(), genuine]), UNPAID_NOW);
     if (!res.ok) throw new Error("expected ok");
     expect(res.carts.map((c) => c.id)).toEqual(["genuine"]);
     expect(res.truncated).toBe(false);
+  });
+
+  it("a comped-only cart the kitchen has IS a candidate — the bag the customer still collects", async () => {
+    // p2f-cx3-bag/unpaid-cap-drops-comped (Codex r3 on #308) — filtered on `comped`, a comped-only
+    // bag never reaches the lane while the KDS cooks it.
+    const res = await readUnpaidCounterCarts(
+      answeringDb([
+        { id: "comped", created_at: "2026-09-13T17:05:00.000Z", lines: [line({ comped: true })] },
+        genuine,
+      ]),
+      UNPAID_NOW,
+    );
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.carts.map((c) => c.id)).toEqual(["comped", "genuine"]);
+  });
+
+  it("the page's candidates are EXACTLY the carts `unpaidBag` bags — no slot wasted, no bag dropped", async () => {
+    // Every combination of the four clauses, one cart each: the SQL filter and the bag's membership
+    // predicate are one definition, so the two sets must coincide.
+    const carts: Cart[] = [];
+    let n = 0;
+    for (const state of ["draft", "fired", "in_progress", "served", "voided"])
+      for (const fulfillment of ["togo", "grocery"])
+        for (const comped of [false, true])
+          for (const fire_at of [null, "2026-09-13T17:50:00.000Z", "2026-09-13T18:00:05.000Z"]) {
+            n += 1;
+            carts.push({
+              id: `k${n}`,
+              created_at: `2026-09-13T${String(10 + Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}:00.000Z`,
+              lines: [line({ id: `l${n}`, state, fulfillment, comped, fire_at })],
+            });
+          }
+    const res = await readUnpaidCounterCarts(answeringDb(carts), UNPAID_NOW);
+    if (!res.ok) throw new Error("expected ok");
+    const bagged = carts
+      .filter(
+        (c) =>
+          unpaidBag({
+            cartId: c.id,
+            sessionId: "s",
+            customerName: null,
+            lines: c.lines.map((l) => ({ ...l, qty: 1 })),
+            nowMs: Date.parse(UNPAID_NOW),
+          }) !== null,
+      )
+      .map((c) => c.id)
+      .sort();
+    expect(bagged.length).toBeGreaterThan(0);
+    expect(bagged.length).toBeLessThan(REGISTER_QUEUE_CAP);
+    expect(res.carts.map((c) => c.id).sort()).toEqual(bagged);
   });
 
   it("a line fired at exactly the DB clock, or with no stamp, is a candidate; one a millisecond later is not", async () => {
