@@ -509,3 +509,152 @@ describe("a reader collection holds the pane on its table", () => {
     expect(polite(pane())[0]!.textContent).toBe(ts("en", "floor.pane.payingHeld"));
   });
 });
+
+// ── Phase 2d · Codex round 2 · pane ── every START is held while the pane's reader collects. The
+// Start zone and the strip's free tiles stayed live beside the collect panel, and a start does not
+// move the pane's selection — so a NEW order's landing pushed its add screen, the route swap
+// unmounted the whole counter screen, and the panel's poll (the payment's hold, a counter order's
+// #CODE) died with it: round 1's orphaned card payment, through a door that was not a selection.
+describe("every start is held while the pane's reader collects (Codex #306 round 2)", () => {
+  type Landing = { ok: true; sessionId: string; created: boolean };
+  afterEach(() => {
+    vi.mocked(terminal.settleCard).mockReset();
+    vi.mocked(terminal.terminalStatus).mockReset();
+  });
+  const startZone = () => document.getElementById("start-h")!.parentElement!;
+  const walkup = () => startZone().querySelector<HTMLButtonElement>("button.ui-btn")!;
+  const phoneArm = () => within(startZone()).getByRole("button", { name: "Phone order" });
+  const freeTile = (n: number) =>
+    floorSection().querySelector<HTMLButtonElement>(`button[data-tile="${n}"]`)!;
+  const panel = () =>
+    within(pane()).queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
+  const heldLine = () => ts("en", "floor.pane.payingHeld");
+  const tap = async (el: HTMLElement) => {
+    await act(async () => {
+      fireEvent.click(el);
+    });
+    await tick(0);
+  };
+  function held() {
+    let resolve!: (v: Landing) => void;
+    const promise = new Promise<Landing>((r) => {
+      resolve = r;
+    });
+    openRegisterOrder.mockReturnValueOnce(promise);
+    return { promise, resolve };
+  }
+  const land = async (d: ReturnType<typeof held>, l: Landing) => {
+    await act(async () => {
+      d.resolve(l);
+      await d.promise;
+    });
+    await tick(0);
+  };
+  /** Table 4 open in the pane at split width, ready to take a card on the reader. */
+  async function table4Open() {
+    answers[A] = detailOk({ ...detail(A, 4), settleTotalCents: 1307, settleTipBaseCents: 1200 });
+    vi.mocked(terminal.settleCard).mockResolvedValueOnce({
+      ok: true,
+      paymentIntentId: "pi_4",
+      totalCents: 1307,
+    });
+    vi.mocked(terminal.terminalStatus).mockResolvedValue({ ok: true, state: "collecting" });
+    mountCounter(true);
+    await tick(0);
+    await tap(card(A));
+  }
+  async function readerStarts() {
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await tap(within(settleSection).getAllByRole("button").at(-1)!);
+    expect(panel()).not.toBeNull();
+  }
+  const declined = async () => {
+    vi.mocked(terminal.terminalStatus).mockResolvedValue({
+      ok: true,
+      state: "failed",
+      error: "The card was declined.",
+    });
+    await tick(2500);
+  };
+
+  it("Walk-up, Phone order and a free table are refused at the tap: no order started, nothing navigates, the pane says why once", async () => {
+    await table4Open();
+    await readerStarts();
+    await tap(walkup());
+    // MUTATION: the mint admits a start mid-collect — the server makes a walk-up order, and its
+    // add screen is pushed over the counter screen, the collect panel with it; red.
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(panel()).not.toBeNull();
+    // Said in the pane's ONE region (the detail's) — never the Start zone's or the floor's too.
+    expect(polite(pane())).toHaveLength(1);
+    expect(polite(pane())[0]!.textContent).toBe(heldLine());
+    expect(polite(startZone())[0]!.textContent).toBe("");
+    expect(polite(splitRoot())).toHaveLength(3);
+    // The strip's free table … (the floor's own region keeps saying what it said: its count)
+    const floorSaid = polite(floorSection())[0]!.textContent;
+    await tap(freeTile(1));
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    expect(polite(floorSection())[0]!.textContent).toBe(floorSaid);
+    // … and the Phone order's Start. Opening the arm is a pick, not a start: it still opens.
+    await tap(phoneArm());
+    const go = startZone().querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    await tap(go);
+    expect(openRegisterOrder).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(panel()).not.toBeNull();
+    // Nothing was taken: no start control is held, and none is busy.
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    expect(freeTile(1).getAttribute("aria-busy")).toBeNull();
+    expect(polite(pane())[0]!.textContent).toBe(heldLine());
+  });
+
+  // Over-blocking is as bad as under-blocking: the hold is the COLLECTION, never the pane.
+  it("a table open with no reader collecting never holds a start", async () => {
+    await table4Open();
+    const d = held();
+    await tap(walkup());
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    await land(d, { ok: true, sessionId: "s-new", created: true });
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+
+  it("the reader declines: the collection is over, and Walk-up starts again", async () => {
+    await table4Open();
+    await readerStarts();
+    await declined();
+    const d = held();
+    await tap(walkup());
+    // MUTATION: hold while the panel is merely mounted — a declined panel strands every start; red.
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    await land(d, { ok: true, sessionId: "s-new", created: true });
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+  });
+
+  it("a start already out when the reader begins never lands its add screen over the collecting pane — and the lock re-arms", async () => {
+    await table4Open();
+    const d = held();
+    await tap(walkup());
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    await readerStarts(); // the pane did not move: same table, same selection
+    await land(d, { ok: true, sessionId: "s-new", created: true });
+    // MUTATION: the landing checks only the selection — the add screen is pushed, the route swap
+    // unmounts the counter screen mid-collect; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(panel()).not.toBeNull();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a table start out when the reader begins, converging while the window narrows below 48em, never routes away either", async () => {
+    await table4Open();
+    const d = held();
+    await tap(freeTile(1));
+    await readerStarts();
+    split = false; // a rotation (an iPad mini's portrait is under 48em): the pane covers the column
+    await land(d, { ok: true, sessionId: B, created: false });
+    // MUTATION: stand down only for a NEW order — a converged table at phone width is no pane pick
+    // (`openSession` answers false there) and its page is pushed over the collecting pane; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(panel()).not.toBeNull();
+  });
+});

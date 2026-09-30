@@ -11309,6 +11309,106 @@ const MUTANTS = [
     replace:
       "    if (stashed && handoffSuperseded(stashed, detail.cartId, null)) dropHandoffStash(sessionId);\n",
   },
+  // ── Phase 2d · Codex round 2 · pane ──
+  {
+    id: "p2d-cx2/close-clears-the-lost-outcome",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a close answers nothing about a lost outcome on another table; cleared by \u2715, Escape or Back, a card payment whose answer never came loses the only warning against collecting it again",
+    find: "      dropHandoffStash(cur.id);\n",
+    replace: "      setLostWrite(null);\n      dropHandoffStash(cur.id);\n",
+  },
+  {
+    id: "p2d-cx2/close-clears-a-dish-loss",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a dish change that never saved outlives a close too; dropped there while a payment's is kept, it is forgotten the moment an unrelated table closes",
+    find: "      dropHandoffStash(cur.id);\n",
+    replace:
+      '      setLostWrite((lw) => (lw?.kind === "write" ? null : lw));\n      dropHandoffStash(cur.id);\n',
+  },
+  {
+    id: "p2d-cx2/start-held-never",
+    file: "apps/qr/lib/floor-pane.ts",
+    suite: "lib/floor-pane.test.ts",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a start is held while the table shown collects on the reader; answering false admits it, and its landing routes the counter screen away with the collect panel",
+    find: "  return p.paying !== null && p.paying === p.shown;\n",
+    replace: "  return false;\n",
+  },
+  {
+    id: "p2d-cx2/start-held-any-paying",
+    file: "apps/qr/lib/floor-pane.ts",
+    suite: "lib/floor-pane.test.ts",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 only the table SHOWN can be collecting; a stale report about another table would refuse every start with nothing collecting",
+    find: "p.paying !== null && p.paying === p.shown;",
+    replace: "p.paying !== null;",
+  },
+  {
+    id: "p2d-cx2/split-start-held-never",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 the split must answer the mint from its live collection; answering never-held, Walk-up mid-collect makes an order and pushes its add screen over the collect panel",
+    find: "    () => paneStartHeld({ paying: paying.current, shown: selRef.current?.id ?? null }),\n",
+    replace: "    () => false,\n",
+  },
+  {
+    id: "p2d-cx2/split-start-refusal-unsaid",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a start refused mid-collect is said in the pane's one region; unsaid, Walk-up simply does nothing",
+    find: "  const sayStartHeld = useCallback(() => setHeldSeq((n) => n + 1), []);\n",
+    replace: "  const sayStartHeld = useCallback(() => {}, []);\n",
+  },
+  {
+    id: "p2d-cx2/mint-admits-a-start-mid-collect",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 the mint is the ONE admission point; without the tap-time hold the server starts an order mid-collect and its landing takes the counter screen",
+    find: "      if (paneNow.current?.startHeld()) {\n        paneNow.current.sayStartHeld();\n        return;\n      }\n",
+    replace: "",
+  },
+  {
+    id: "p2d-cx2/mint-refuses-silently",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a refused start asks the pane to say why; silent, the tap does nothing and nothing explains it",
+    find: "        paneNow.current.sayStartHeld();\n",
+    replace: "",
+  },
+  {
+    id: "p2d-cx2/mint-refuses-after-taking-the-lock",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 the hold refuses BEFORE the lock is taken; taken first and never released, every start control on the screen stays held for good",
+    find: "      if (paneNow.current?.startHeld()) {\n        paneNow.current.sayStartHeld();\n        return;\n      }\n      inFlight.current = id;\n      setMinting(id);\n",
+    replace:
+      "      inFlight.current = id;\n      setMinting(id);\n      if (paneNow.current?.startHeld()) {\n        paneNow.current.sayStartHeld();\n        return;\n      }\n",
+  },
+  {
+    id: "p2d-cx2/landing-ignores-the-collection",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a start already out when the reader began must stand down as it lands; pushed, the add screen replaces the counter screen mid-collect",
+    find: "          if (paneNow.current?.startHeld()) {\n            landed = false; // re-armed: the pane's reader is collecting\n            return;\n          }\n",
+    replace: "",
+  },
+  {
+    id: "p2d-cx2/landing-stands-down-holding-the-lock",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterMint.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 a stand-down re-arms: no route swap is coming to release the lock, so kept, every start stays held for good",
+    find: "            landed = false; // re-armed: the pane's reader is collecting\n",
+    replace: "",
+  },
+  {
+    id: "p2d-cx2/landing-guard-new-orders-only",
+    file: "apps/qr/components/staff/CounterMint.tsx",
+    suite: "components/staff/CounterSplit.integration.test.tsx",
+    why: "Phase 2d \u00b7 Codex round 2 \u00b7 pane \u2014 every route stands down mid-collect, not only a new order's: a converged table below 48em is no pane pick (`openSession` answers false) and its page would take the collect panel",
+    find: "          if (paneNow.current?.startHeld()) {\n            landed = false; // re-armed",
+    replace:
+      "          if (r.created && paneNow.current?.startHeld()) {\n            landed = false; // re-armed",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

@@ -27,6 +27,7 @@ import {
   paneOwned,
   paneSelectionFromHash,
   paneSelectionHeld,
+  paneStartHeld,
   paneUrl,
   parseHandoffStash,
   readHandoffStash,
@@ -395,6 +396,22 @@ describe("paneSelectionHeld — a live reader collection holds the pane on its t
   // MUTANT p2d-cx1/held-over-a-clear — a CLEARED table (a server fact) is never held.
   it("a table cleared is never held", () => {
     expect(held({ to: null, cleared: true })).toBe(false);
+  });
+});
+
+describe("paneStartHeld — a live reader collection holds every START too (Codex #306 round 2)", () => {
+  // MUTANT p2d-cx2/start-held-never — a start is admitted mid-collect: its landing routes the counter
+  // screen away and the collect panel with it.
+  it("held while the table SHOWN is collecting", () => {
+    expect(paneStartHeld({ paying: A, shown: A })).toBe(true);
+  });
+  // MUTANT p2d-cx2/start-held-any-paying — the `paying === shown` clause dropped: a stale report
+  // about a table no longer shown would refuse every start with nothing collecting.
+  it("nothing collecting, another table's report, or nothing shown — never held", () => {
+    expect(paneStartHeld({ paying: null, shown: A })).toBe(false);
+    expect(paneStartHeld({ paying: null, shown: null })).toBe(false);
+    expect(paneStartHeld({ paying: B, shown: A })).toBe(false);
+    expect(paneStartHeld({ paying: A, shown: null })).toBe(false);
   });
 });
 
