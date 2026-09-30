@@ -11360,8 +11360,8 @@ const MUTANTS = [
     file: "apps/qr/lib/register.ts",
     suite: "lib/register.test.ts",
     why: "Phase 2f — the arm decides the Send's emphasis (owner decision 7a); unrecorded, every phone order reads as a walk-up and leads with a Take payment nobody can use",
-    find: "        counter_arm: kind,\n",
-    replace: "        counter_arm: null,\n",
+    find: "      counter_arm: kind,\n",
+    replace: "      counter_arm: null,\n",
   },
   {
     id: "p2f-lib/register/empty-name-bypasses-the-lock",

@@ -76,13 +76,11 @@ export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResul
     // which is the expo/KDS call-out for a no-table ticket. Phase 2f (owner decision 7a) — the ARM is
     // recorded once, here: a phone order leads with Send, a walk-up with Take payment
     // (`staffSendView`). `kind` is narrowed to walkup | phone by the table branch above.
-    const { error: cartErr } = await db
-      .from("qr_carts")
-      .insert({
-        session_id: sess.id,
-        customer_name: customerName?.trim() || null,
-        counter_arm: kind,
-      });
+    const { error: cartErr } = await db.from("qr_carts").insert({
+      session_id: sess.id,
+      customer_name: customerName?.trim() || null,
+      counter_arm: kind,
+    });
     if (cartErr) {
       // The session just minted with a unique code — a cart-insert failure here is transport, not a
       // race. Close the orphan session best-effort so it never squats on the floor cap, and refuse.
