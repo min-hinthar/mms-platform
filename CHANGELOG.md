@@ -4,6 +4,143 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2f — counter orders cook before they're paid (2026-09-30)
+
+Planned on main `6eccc93`, then built as a contract commit (A0 `7f71124` — the migration, the
+generated types, the no-show input) and three parallel worktree areas on top of it — `p2f/db`
+(`02f812d` · `56bd4b2` · `a724c41`), `p2f/lib` (`f612e50` · `d21df5e`) and `p2f/ui` (`c059528` …
+`c370e0f`) — merged `b6c0a81` · `609544a` · `70ad2df`, integrated in `d8a047d` (fixtures on the real
+lib types, every integration mock deleted, the no-show sheet's `busy` a transition). A blind review of
+`d8a047d` returned three REJECTs; the fixes landed on three more areas — `p2f-rev/db` (`549eab1` ·
+`6f3bdba`), `p2f-rev/lib` (`717eda8`), `p2f-rev/ui` (`a6064fe`) — merged `688c434` · `f774a2c` ·
+`8834177`, and `05c0ed3` bound the lib to the column the database actually returns (`closed`, where
+the lib half had guessed `open`). Owner decisions 1 (2026-09-24) and 7 (2026-09-30), all as
+recommended. Closes **P2v**. The FIRST migration of Phase 2 outside 2d's guards — **not yet applied
+to prod** (below). DESIGN-LANGUAGE §17 carries the Phase 2f block.
+
+**What staff see first:**
+
+- **A phone order can go to the kitchen before it is paid.** The table page and the order pad offer
+  **"Send now, pay at pickup · 3 items"** with one line under it: "They pay when they collect it.
+  Paying now? Use Take payment instead — it cooks as soon as it's paid." On a **phone** order the
+  Send is the one filled button; on a **walk-up** Take payment stays first and the Send sits beside
+  it. Once some food is in, a second Send ("send the rest to cook with it") leads again. The 10-second
+  Undo works exactly as it does at a table.
+- **A name is required to send, and it stays once food is in.** A nameless order says "Add a name
+  first — it's how the kitchen and the counter find this order." with an **Add a name →** link, and
+  the pad saves a typed name before it sends. Once food is in the kitchen, the name cannot be cleared
+  ("This order is cooking unpaid — keep a name on it so the counter can call it.").
+- **"Unpaid — collect at pickup" wherever the order shows** — the table page's header, the pad's
+  ticket, the counter's floor card, the kitchen ticket, and a new **unpaid bag** in Takeaway bags
+  whose one action is **Take payment** (it opens the table page's payment). The kitchen ticket shows
+  the guest's name, never the raw `reg-` code. When every dish is in: "Sent to the kitchen — unpaid.
+  Take payment when they collect it."; when some are not: "Part of this order is in the kitchen,
+  unpaid — 2 more items aren't sent and cook when they pay."
+- **"They didn't come — remove the order"** replaces Clear on a counter order with food in the
+  kitchen (Clear now refuses it and says to use this). The sheet lists what the kitchen was sent and
+  says "Removing records it as a no-show loss — nothing is charged and nothing is refunded", and what
+  is dropped unsent. A manager's PIN is asked when any sent dish was started or served, or the sent
+  value is over the loss limit. If the order moved while the sheet was open: "The order changed —
+  check it and try again."
+- **The counter bell rings for every finished batch**, not once per order; a counter card's ready
+  food reads **"ready to bag"**, never "ready to serve", and never "Kitchen done" while dishes are
+  still unsent; the paid card after a pickup says "Their food went to the kitchen before they paid —
+  hand it over from Takeaway bags."
+
+**As built:**
+
+- **The migration — `supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql`.**
+  `qr_carts.counter_arm` (`'walkup' | 'phone'`, nullable, CHECKed; written once at mint, NULL reads as
+  a walk-up) and five functions, every one `set search_path = ''`, revoked from public / anon /
+  authenticated and granted to `service_role` only: **`mms_fire_counter_cart`** (the staff-only unpaid
+  fire — open cart, active and UNEXPIRED session, `reg-` pickup, a non-blank name, draft to-go lines;
+  the cart row `FOR UPDATE` then the session row `FOR SHARE`; returns
+  `fired · batch · fire_deadline · named · closed`), **`mms_undo_counter_fire`**,
+  **`mms_clear_cart_name`** (`keep_name` once food is in, under the cart lock),
+  **`mms_counter_no_show(p_cart_id, p_initiator, p_expected_line_ids, p_approver)`** (the loss gate
+  over SENT food only; every refusal returns before any write) and a restated
+  **`mms_sweep_expired_sessions`** (a `reg-` session with SENT food on an open cart is never swept;
+  it locks its candidates `FOR NO KEY UPDATE SKIP LOCKED` and decides the exemption in a second
+  statement). `mms_fire_cart` — the diner's send too — is untouched. **NOT applied to prod:** it is
+  applied ONE FILE through the Supabase MCP `apply_migration` at the final Codex-reviewed head,
+  before merge, and verified per the HANDOFF list (signatures, grants, `md5(prosrc)` of the five
+  bodies against the committed file). The histories are still divergent (M125).
+- **One SENT definition.** Fired / in progress / served, not grocery, not comped; the no-show and
+  every staff read refine it with "past the grace" (a NULL `fire_at` counts as fired at or before
+  now). TS twin: `counterSentLine` in the new `lib/counter-order.ts` (with `isCounterOrder`,
+  `kdsLineGate`, `counterClearRefusal`, `mergeCounterRefusal`, `counterSettleVariant`, `unpaidBag`,
+  `noShowOutcome`). It drives the table page's flag, the KDS flag, the floor card, the lane bag, the
+  no-show count and Clear's refusal.
+- **The server.** `staffFireCart` / `staffUndoFire` route a counter order through the new RPCs
+  (`sendRoute` / `undoRoute`; `SURFACES.payAtPickup` parks NEW sends and never hides sent food);
+  `recordCounterNoShow` (`lib/voids.ts`); `getTableDetail` reads the arm, the name, the sent line ids
+  and `unpaidSent` on the DB clock; `getFloorView` returns `counter` rows with `unpaidSent` and a
+  kitchen row; `readUnpaidCounterCarts` + the lane's `unpaid` bags; Merge refuses a counter target
+  and a counter source with food sent; `/api/session` no longer sweeps an expired reserved code on a
+  `?t=` scan (`sweepsExpiredSquatter`).
+- **The UI.** `counterSettleVariant` / `padCounterDock` keep ONE filled button on the table page and
+  the pad in every state; the Send keeps its dock slot from tap to undo; `CounterNoShowButton`
+  (new); the Unpaid badge (warn) on the table page, the pad, the floor card and the lane, the KDS
+  line (neutral, echoed); `HandoffCard`'s `sentEarly` line.
+- **Proof.** `supabase/tests/p2f_counter_cook_before_paid_test.sql` — P2F.0–P2F.22 (41 labelled
+  cases), registered in `ci.yml`'s required list (26 SQL test files). The mode-authority battery
+  gains suite `p2f`: **40 → 97 mutants over eleven functions**, 12 documented survivors (8 of them
+  p2f's row locks — six killed by the new two-session harness, two filed: P2fi · P2fj). NEW
+  `scripts/verify-counter-fire-race.mjs` (`pnpm verify:counter-race`): four two-session orderings
+  (clear-first · fire-first · sweep-first · fire-before-sweep) and **6 lock mutants** under
+  `--mutants`, both wired into CI's supabase job after the line-guard race. All of it ran green on a
+  local PG16 replay of every migration; CI's supabase job (types-fresh, Docker) is the authoritative
+  run.
+- **Blind review (2026-09-30) — reviewed head `d8a047d`; three lenses (product truth · concurrency ·
+  money semantics), all three REJECT.** Every finding was verified against source before acting.
+  - _Fixed:_ **C1 (critical)** a Send overlapping the cron sweep could leave fired, unpaid food on a
+    CLOSED session — off the KDS, the lane, every settle and the no-show (the fire now locks the
+    session row and refuses an expired one; the sweeper locks, then decides; red on the old bodies in
+    both orders, then proven two-session, 4 lock mutants); the harness header claimed a total order it
+    did not prove (it now says what is proven and what is argued). **PT1 (critical)** a counter card
+    read "Kitchen done" over unsent drafts. **PT2** a paid counter order with a pickup slot a diner
+    set had vanished from the KDS (held again). **PT3** the food bell rang once per cart, so a second
+    batch never rang (keyed per finish, `food:<cart>:<doneAt>`). **PT4** the KDS called a comped
+    line Unpaid (one definition). **PT5** the no-show sheet undercounted what it drops (an in-grace
+    send). **M1** 40 stale unpaid bags blanked the WHOLE lane (saturation now degrades only the
+    unpaid list — "more unpaid than shown" — and the register queue reads newest first). **M2** a
+    fired line with no deadline was sent on the KDS but not to the no-show (one reading; the TS
+    half's premise was partly false — the KDS never read such a line — and was made consistent
+    anyway). **M3 · M4 · M5** untested guards (the loss ceiling, the pay lock, the sweeper's
+    open-cart term) — SQL cases + mutants. A Send that raced a settle said "Add a name" (now
+    `closed`, from the fire's own lock). The approval was not tied to what the approver saw (the
+    no-show carries `expectedLineIds` and refuses `changed`). "Sent to the kitchen" over unsent
+    drafts, and "ready to serve" on a bag.
+  - _Decided:_ no freeze guard on the counter fire / undo (moving a line draft ↔ fired changes no
+    amount); the migration header's claim corrected instead.
+  - _Rejected:_ split shares in the no-show SQL (a counter cart cannot carry `qr_cart_shares` —
+    `openSettlement` refuses a non-dine-in session); a whitespace rename bypassing the name lock
+    (the schema trims first — now pinned by a mutant).
+  - _Filed:_ **M239** (`mms_void_line` racing a no-show) · **M242** (refuse a pickup slot on a
+    `reg-` cart at the source) · **M243** (a diner joining a `reg-` code) · **P2fk** (a stale-unpaid
+    nudge) · **P2ft** (comps missing from an unpaid bag's list) · **M244** (a line bumped inside
+    its grace on a no-show).
+- **Mutants.** `verify:slice` **1447 → 1573** — 127 new (`p2f-lib/` 62 · `p2f-ui/` 22 ·
+  `p2f-rev-db/` 3 · `p2f-rev-lib/` 28 · `p2f-rev-ui/` 12), one deleted
+  (`staff-send-view/counter-at-pay-on-slotted-cart` — its rule is gone), two rewritten
+  (`staff-send/kiosk-fires-unpaid`, `staff-send-view/kiosk-offered-a-send`), and each area's
+  `--no-gate --only=` run caught all of its own. The mutate set **190 → 197**: `lib/counter-order.ts`,
+  `lib/kitchen.ts`, `lib/voids.ts` (lib 147 → 150) and `staff/StaffSendButton.tsx`,
+  `staff/HandoffCard.tsx`, `staff/ExpoBoard.tsx`, `staff/CounterNoShowButton.tsx` (components 38 →
+  42).
+- **Words (K15).** 36 new staff keys, one retired (`table.send.counterAtPay`), one reworded
+  (`table.send.err.counter`); every Burmese value a Claude-authored draft. 17 are K15-HIGH
+  (`STAFF_K15_HIGH` 115 → 131, measured from the set literal). "Remove", never "void" — the
+  plain-words guard.
+- **OPEN-ITEMS.** Closed **P2v**; **M171** amended (the counter arm is exempt, dine-in still open);
+  **M21** narrowed (its reach is closed by P2dd's `state = 'draft'`, but no test pins a VOIDED line).
+  New **P2fi–P2fy** and **M239–M245**. **LEARNINGS #195–#198.**
+- **Gate at this head (measured):** 1573 `verify:slice` mutants across 197 target modules (150 lib ·
+  3 API routes · 42 components · 1 stylesheet · 1 `packages/db`) · 97 mode-authority mutants · 26 SQL
+  test files · 4854 qr + 287 ui tests · `check:docs` clean. The full `verify:slice` run with the gate
+  at this head is not recorded here. Nothing is browser- or device-measured — the preview gate is
+  **P2fy**.
+
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then

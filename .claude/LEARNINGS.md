@@ -3136,3 +3136,53 @@ judged `keepEcho` only as a JSX attribute in `.tsx` files, so `createElement(Chr
 true })`, or the same call in a `.ts`, undid Burmese only with the guard green (both put on disk,
 Phase 2e review). A file-extension filter is part of the matcher: aim red-first at it too, and at
 every syntax that carries the same meaning.
+
+## #195
+
+**Two transactions that lock DIFFERENT rows do not serialize — and one `UPDATE … WHERE NOT EXISTS
+(…)` decides its `EXISTS` from the statement's snapshot, not the committed state.** Phase 2f's
+counter Send locked the CART; the cron sweeper updated the SESSION and read the cart's lines in the
+same statement. A Send committing between the sweep's read and its write left fired, unpaid food on
+a CLOSED session — off the KDS, the lane, every settle and the no-show (blind review C1, red on the
+old bodies in BOTH orders). READ COMMITTED re-checks a row only when the statement is about to UPDATE
+that very row; a row a concurrent writer merely share-locked, or rows in another table, are never
+re-read. Fix both halves: the writer takes the row the sweeper writes (`FOR SHARE` on the session),
+and the sweeper LOCKS its candidates first (`FOR NO KEY UPDATE SKIP LOCKED ORDER BY id`) and decides
+the exemption in a SECOND statement, a fresh snapshot taken while holding them. Then prove it with
+two real sessions in both orders (`scripts/verify-counter-fire-race.mjs`) — a single-session SQL
+test cannot see a lock at all, which is why the battery lists every lock deletion as a survivor.
+
+## #196
+
+**An `as` cast of an RPC row to a hand-written shape turns a cross-area interface into a guess that
+compiles.** The lib area, built in parallel with the db area, read the counter fire's row as
+`{ named?: boolean; open?: boolean }` and fell back to a read-back of the cart when `open` was
+absent; the db area shipped `closed boolean`. Every suite stayed green — they were written against
+the guess, and the fallback made the missing field look like an old database — while
+`database.types.ts` already said `closed`. The integration caught it by reading both halves
+(`05c0ed3`). When an optional field has a fallback, a NAME mismatch is indistinguishable from
+"not deployed yet": type the row from the generated `Database["public"]["Functions"][…]["Returns"]`,
+never a local literal, and put every cross-area column in the contract commit, not in a note that
+says "resolves at integration".
+
+## #197
+
+**A killed mutant proves the test pins the behaviour — not that the behaviour is right. Its `why`
+is a claim about the world, and it can be false.** `p2f-lib/kds-gate/paid-counter-held` said "a
+counter order has no pickup slot", so a paid `reg-` ticket with a future `fire_at` was HIDDEN (only
+a send's grace could put it there) — and the mutant was caught, so `verify:slice` was green. But
+`mms_set_pickup_slot` writes a slot on ANY open cart, and a diner who joins a `reg-` code can set
+one: the kitchen lost a scheduled paid order (blind review PT2). Before writing a premise into a
+rule or a mutant's `why`, grep every WRITER of the column it rests on (RPCs included), not just the
+flow you are building; a premise with a hole goes into OPEN-ITEMS as a source guard (M242), and the
+rule keeps the kitchen honest in the meantime.
+
+## #198
+
+**An approval-gated write must carry WHAT the approver was shown, and refuse when it moved.** The
+no-show's manager PIN approved "remove this order", while the function derived the sent set under
+its own locks later — so a line sent, bumped or comped between the sheet and the tap changed the
+write-off the approver signed for, and nothing noticed (Phase 2f review, the cross-area decision).
+Pass the shown set (`expectedLineIds`), compare it AS A SET under the lock (order and duplicates
+ignored, a NULL never matching), and refuse with a code that writes nothing (`changed`) — a
+compare-and-swap on the approval's subject, the same shape as the register's frozen quote (2c).

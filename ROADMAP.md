@@ -396,7 +396,14 @@ the plan state.
         in the kitchen and counter Help sheet, a last Language tile on the doors' More and a language
         card on the Profile, each in both scripts on every device; one hardened write chain behind
         them all (a rejected or hung write is a bilingual line, never the error screen). No SQL.
-  - [ ] **2f — counter orders cook before paid** ("Unpaid — collect at pickup"; needs a migration).
+  - [x] **2f — counter orders cook before paid** (2026-09-30, owner decisions 1 + 7 — P2v): staff may
+        Send a phone or walk-up (`reg-`) order to the kitchen before it is paid — Send leads on a phone
+        order, Take payment on a walk-up (`qr_carts.counter_arm`); a name is required to send and kept
+        once food is in; "Unpaid — collect at pickup" on the table page, the pad, the floor card, the
+        kitchen ticket and a new unpaid bag in Takeaway bags; "They didn't come" writes off only the
+        SENT food through the loss gate (never a charge or a refund); the sweeper never closes a sent
+        unpaid order. One migration (`20261001000000_p2f_counter_cook_before_paid.sql`) — applied to
+        prod one file at the final reviewed head, before merge.
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
