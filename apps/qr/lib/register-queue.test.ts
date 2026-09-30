@@ -125,7 +125,8 @@ describe("readRegisterQueue — the open counter orders, shown oldest first", ()
     // M1): a sent-unpaid counter order is exempt from the sweep, so uncollected ones accrue, and an
     // oldest-first cap let them push the order just started off the counter.
     expect(rec?.order).toEqual(["created_at", { ascending: false }]);
-    expect(rec?.limit).toBe(REGISTER_QUEUE_CAP);
+    // p2f-sr-lane/register-queue/queue-cap-plus-one — CAP + 1, so a whole page is never "truncated"
+    expect(rec?.limit).toBe(REGISTER_QUEUE_CAP + 1);
     expect(rec?.cols).toContain("table_sessions!inner(");
   });
   it("the page read newest-first is SHOWN oldest-first — the counter's order never flipped", async () => {
@@ -159,14 +160,39 @@ describe("readRegisterQueue — the open counter orders, shown oldest first", ()
     if (!res.ok) throw new Error("expected ok");
     expect(res.rows[0]?.source).toBe("kiosk");
   });
-  it("a full page is REPORTED as truncated, never passed off as the whole queue", async () => {
-    rows = Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) =>
-      cart({ id: `cart-${i}`, session_id: `sess-${i}` }),
+  // Newest first, as the query orders them: `sess-0` is the newest, the last index the oldest.
+  const page = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      cart({
+        id: `cart-${i}`,
+        session_id: `sess-${i}`,
+        created_at: new Date(Date.parse("2026-09-13T18:00:00Z") - i * 60_000).toISOString(),
+      }),
     );
+  it("exactly CAP orders is the WHOLE queue — shown in full and never called truncated", async () => {
+    // p2f-sr-lane/register-queue/queue-full-page-truncated — `>= CAP` said "the oldest are not
+    // listed" over a page that listed every order.
+    rows = page(REGISTER_QUEUE_CAP);
+    const res = await readRegisterQueue(fakeDb());
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.truncated).toBe(false);
+    expect(res.rows).toHaveLength(REGISTER_QUEUE_CAP);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+  it("CAP + 1 orders is REPORTED as truncated, and the one dropped is the OLDEST", async () => {
+    rows = page(REGISTER_QUEUE_CAP + 1);
     const res = await readRegisterQueue(fakeDb());
     if (!res.ok) throw new Error("expected ok");
     expect(res.truncated).toBe(true);
     expect(console.warn).toHaveBeenCalled();
+    // p2f-sr-lane/register-queue/queue-drops-newest — sliced AFTER the reverse, the newest goes.
+    expect(res.rows).toHaveLength(REGISTER_QUEUE_CAP);
+    const shown = res.rows.map((r) => r.sessionId);
+    expect(shown).not.toContain(`sess-${REGISTER_QUEUE_CAP}`);
+    expect(shown[0]).toBe(`sess-${REGISTER_QUEUE_CAP - 1}`);
+    expect(shown[shown.length - 1]).toBe("sess-0");
+    expect(res.lines.has(`sess-${REGISTER_QUEUE_CAP}`)).toBe(false);
+    expect(res.lines.size).toBe(REGISTER_QUEUE_CAP);
   });
   it("a failed read is an outage, never an empty queue", async () => {
     fail = true;
@@ -273,13 +299,27 @@ describe("readUnpaidCounterCarts — the lane's unpaid bags, candidates only", (
     // p2f-rev-lib/register-queue/stale-unpaid-take-the-cap — the NEWEST bags under the cap (the lane
     // sorts its own rows); a saturated read then hides the stalest, and says so (review M1).
     expect(rec?.order).toEqual(["created_at", { ascending: false }]);
-    expect(rec?.limit).toBe(REGISTER_QUEUE_CAP);
+    // p2f-sr-lane/register-queue/unpaid-cap-plus-one
+    expect(rec?.limit).toBe(REGISTER_QUEUE_CAP + 1);
   });
 
-  it("a full page is truncated; a failed read is not ok", async () => {
+  it("exactly CAP candidates is whole; CAP + 1 is truncated and drops the OLDEST; a failed read is not ok", async () => {
+    // p2f-sr-lane/register-queue/unpaid-full-page-truncated — `>= CAP` said "more unpaid than
+    // shown" over a page that showed every bag.
     rows = Array.from({ length: REGISTER_QUEUE_CAP }, (_, i) => unpaid({ id: `c${i}` }));
+    const whole = await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW);
+    if (!whole.ok) throw new Error("expected ok");
+    expect(whole.truncated).toBe(false);
+    expect(whole.carts).toHaveLength(REGISTER_QUEUE_CAP);
+    // Newest first, as the query orders them: the last row is the oldest candidate.
+    rows = Array.from({ length: REGISTER_QUEUE_CAP + 1 }, (_, i) => unpaid({ id: `c${i}` }));
     const res = await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW);
-    expect(res.ok && res.truncated).toBe(true);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.truncated).toBe(true);
+    // p2f-sr-lane/register-queue/unpaid-keeps-the-extra — the (CAP+1)th row is a probe, never a bag
+    expect(res.carts).toHaveLength(REGISTER_QUEUE_CAP);
+    expect(res.carts.map((c) => c.id)).not.toContain(`c${REGISTER_QUEUE_CAP}`);
+    expect(res.carts[0]?.id).toBe("c0");
     fail = true;
     expect(await readUnpaidCounterCarts(fakeDb(), UNPAID_NOW)).toEqual({ ok: false });
   });

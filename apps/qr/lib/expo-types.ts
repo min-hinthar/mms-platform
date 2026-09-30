@@ -77,7 +77,12 @@ export type ExpoUnpaidBag = {
   lines: ExpoLine[];
   /** Units still draft (not grocery) — on the order, not in the bag. */
   moreUnits: number;
-  /** `kitchenStateOf` over those lines — "done" when every one of them is served. */
+  /** Self-review PT-2 — taking payment would collect something (`counterOwes`). False when every
+   *  chargeable line was comped: the bag is still collected, but it is not Unpaid and there is no
+   *  payment to take. */
+  owes: boolean;
+  /** `kitchenStateOf` over those lines — "done" when every one of them is served — but never "done"
+   *  while `moreUnits > 0` (self-review PT-4, the floor card's rule): then "cooking". */
   kitchen: KitchenState;
   /** Phase 2f review PT3 — when the kitchen finished it (the latest bump), null while it is not done.
    *  The bell's key for this bag's food, and the SAME stamp its paid bag carries. */

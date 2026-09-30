@@ -381,8 +381,10 @@ export const STAFF = {
     en: "No tables or counter orders",
     my: "စားပွဲ ဒါမှမဟုတ် ကောင်တာ အော်ဒါ မရှိပါ",
   },
-  // A segment of the count line ("40 counter orders · the newest are not listed"): a FULL read.
-  "floor.counter.truncated": { en: "the newest are not listed", my: "အသစ်ဆုံးတွေ မပါပါ" },
+  // A segment of the count line ("40 counter orders · the oldest are not listed"): a TRUNCATED read
+  // (CAP + 1). The read keeps the NEWEST (Phase 2f review M1), so the OLDEST are the ones not shown.
+  // K15 draft; grounded: အဟောင်း is table.appr.empty.hint's "oldest" (အဟောင်းက အရင်ပြပါတယ်).
+  "floor.counter.truncated": { en: "the oldest are not listed", my: "အဟောင်းဆုံးတွေ မပါပါ" },
 
   // ── the floor: the per-table STATUS chip ──────────────────────────────────
   // ⚠️ THE VISIBLE CHIP AND THE ACCESSIBLE NAME READ THESE SAME KEYS (`FLOOR_STATUS_KEY` in
@@ -3443,6 +3445,15 @@ export const STAFF = {
   "expo.unpaid.more.one": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
   "expo.unpaid.more.many": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
   "expo.count.unpaid": { en: "{n} unpaid", my: "ငွေ မရှင်းရသေး {n} ခု" },
+  // Phase 2f self-review PT-2 — a counter bag whose every chargeable line was made free: it is still
+  // collected, but nothing is owed, so it is never "Unpaid" and offers no payment. Its badge and its
+  // card name. K15 drafts; grounded: ငွေ ရှင်း is settle.unpaid's ("pay"), ပါဆယ်ထုပ် is
+  // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
+  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid
+  "expo.a11y.cardNoCharge": {
+    en: "Bag for {x}",
+    my: "{x} အတွက် ပါဆယ်ထုပ်",
+  },
   // Phase 2f review — the unpaid read hit its cap: the lane shows some unpaid bags, not all (the
   // paid bags stay). K15 draft; grounded: expo.count.unpaid ငွေ မရှင်းရသေး.
   "expo.count.unpaidMore": {
@@ -3773,9 +3784,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.counterSent.partial.many",
   "expo.count.unpaidMore",
   "table.noshow.err.changed",
+  // ── Phase 2f self-review ──
   "table.noshow.body.comped.one",
   "table.noshow.body.comped.many",
   "table.noshow.rearm",
+  "expo.bag.noCharge",
 ]);
 
 /**

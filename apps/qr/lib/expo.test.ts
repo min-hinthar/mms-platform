@@ -226,7 +226,7 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
     items,
   });
 
-  it("one served + one draft: a bag of the SENT line, one more not sent, kitchen done", async () => {
+  it("one served + one draft: a bag of the SENT line, one more not sent, NOT done (self-review PT-4)", async () => {
     uq.value = {
       ok: true,
       truncated: false,
@@ -257,7 +257,8 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
           },
         ],
         moreUnits: 1,
-        kitchen: "done",
+        owes: true,
+        kitchen: "cooking",
         doneAt: null,
         sentAt: "2026-09-13T17:50:00.000Z",
       },

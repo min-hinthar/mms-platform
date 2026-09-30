@@ -208,6 +208,7 @@ describe("laneRows — paid and unpaid bags in the lane's ONE order", () => {
     customerName: "Aye",
     lines: [],
     moreUnits: 0,
+    owes: true,
     kitchen: "done",
     sentAt: "2026-09-13T18:00:00Z",
     ...over,

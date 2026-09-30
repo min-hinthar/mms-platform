@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   counterArmOf,
+  counterChargeableLine,
   counterKitchenLine,
   counterNoShowDropped,
+  counterOwes,
   counterSent,
   counterSentLine,
   counterSettleVariant,
@@ -407,10 +409,58 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
     expect(b).toMatchObject({ cartId: "c1", sessionId: "s1", customerName: "Aye" });
   });
 
-  it("'done' when every SENT line is served, even with a draft still on the order", () => {
-    const b = bag([line({ state: "served" }), line({ state: "draft", fire_at: null })]);
-    expect(b?.kitchen).toBe("done");
+  it("NEVER 'done' while a draft is unsent — the floor card's rule — so no finish stamp, no bell", () => {
+    // Self-review PT-4 (deliberately reversed: this case read "done" before) — the floor card never
+    // says "Kitchen done" beside "1 not sent"; the lane said it AND rang the food bell for a bag
+    // whose rest cooks only at payment.
+    // p2f-sr-lane/counter-order/bag-done-over-drafts
+    const b = bag([
+      line({ state: "served", bumped_at: ago(20) }),
+      line({ state: "draft", fire_at: null }),
+    ]);
+    expect(b?.kitchen).toBe("cooking");
+    expect(b?.doneAt).toBeNull();
     expect(b?.moreUnits).toBe(1);
+    // a GROCERY draft is not unsent food (bag-and-go), so it cannot hold the bag open
+    const g = bag([
+      line({ state: "served", bumped_at: ago(20) }),
+      line({ state: "draft", fulfillment: "grocery", fire_at: null }),
+    ]);
+    expect(g?.kitchen).toBe("done");
+    expect(g?.doneAt).toBe(ago(20));
+  });
+
+  it("the drafts sent and finished later: done, stamped by the LATER batch — one new ring", () => {
+    // The first batch's finish (ago 50) never rang (a draft was waiting); the batch that completes
+    // the order carries its own bump, so the bell keys a finish it has not heard.
+    const first = line({ state: "served", fire_at: ago(300), bumped_at: ago(50) });
+    const later = line({ state: "served", fire_at: ago(40), bumped_at: ago(5) });
+    const b = bag([first, later]);
+    expect(b?.kitchen).toBe("done");
+    expect(b?.doneAt).toBe(ago(5));
+    // …and while that later batch still cooks, the bag is cooking, unstamped
+    expect(bag([first, line({ state: "fired", fire_at: ago(40) })])?.doneAt).toBeNull();
+  });
+
+  it("owes money unless every chargeable line was made free — the settle section's own rule", () => {
+    // p2f-sr-lane/counter-order/comped-bag-owes — a comped-only bag read as owing showed "Unpaid"
+    // and a Take payment link to a page with no payment on it.
+    const comp = line({ state: "served", comped: true });
+    expect(bag([comp])?.owes).toBe(false);
+    // …a voided line beside the comp is not owed either
+    expect(bag([comp, line({ state: "voided" })])?.owes).toBe(false);
+    // mixed: a sent dish that is not free
+    expect(bag([comp, line({ state: "fired" })])?.owes).toBe(true);
+    // a comped bag with a non-free DRAFT still to pay for (it cooks at payment)
+    expect(bag([comp, line({ state: "draft", fire_at: null })])?.owes).toBe(true);
+    // a comped bag with a non-free line still in its grace — the settle section charges it
+    expect(bag([comp, line({ state: "fired", fire_at: ago(-4) })])?.owes).toBe(true);
+    // …and a grocery line: bag-and-go, but charged at settle all the same
+    expect(bag([comp, line({ state: "draft", fulfillment: "grocery", fire_at: null })])?.owes).toBe(
+      true,
+    );
+    // a comped DRAFT is free too — it does not make the bag owe
+    expect(bag([comp, line({ state: "draft", comped: true, fire_at: null })])?.owes).toBe(false);
   });
 
   it("a sent line with no fire_at dates the bag from now (fired at or before now)", () => {
@@ -464,6 +514,27 @@ describe("unpaidBag — the lane shows food the kitchen HAS", () => {
     expect(bag([line({ fire_at: ago(-4) })])).toBeNull();
     expect(bag([line({ state: "draft", fire_at: null })])).toBeNull();
     expect(bag([])).toBeNull();
+  });
+});
+
+describe("counterChargeableLine / counterOwes — what the settle section would charge", () => {
+  it("every non-voided, non-comped line, in any state", () => {
+    // p2f-sr-lane/counter-order/voided-is-chargeable · comped-is-chargeable
+    for (const state of ["draft", "fired", "in_progress", "served"])
+      expect(counterChargeableLine({ state, qty: 1 })).toBe(true);
+    expect(counterChargeableLine({ state: "voided", qty: 1 })).toBe(false);
+    expect(counterChargeableLine({ state: "served", comped: true, qty: 1 })).toBe(false);
+    expect(counterChargeableLine({ state: "served", qty: 0 })).toBe(false);
+  });
+  it("owes when ANY line is chargeable — not only when every one is", () => {
+    // p2f-sr-lane/counter-order/owes-every
+    expect(counterOwes([])).toBe(false);
+    expect(
+      counterOwes([
+        { state: "served", comped: true, qty: 1 },
+        { state: "fired", qty: 1 },
+      ]),
+    ).toBe(true);
   });
 });
 

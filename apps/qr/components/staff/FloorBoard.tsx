@@ -356,9 +356,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
                   vars={{ n: counterCount }}
                 />
               ) : null,
-              // A FULL counter read says so HERE, in the live region and above the cards — the
-              // oldest-first cap hides exactly the newest order, and a caveat beneath forty cards
-              // is one a screen-reader user never reaches.
+              // A TRUNCATED counter read says so HERE, in the live region and above the cards — the
+              // newest-first cap (Phase 2f review M1) hides the OLDEST orders, and a caveat beneath
+              // forty cards is one a screen-reader user never reaches.
               snap.counterTruncated ? (
                 <Chrome key="truncated" lang={lang} k="floor.counter.truncated" />
               ) : null,
