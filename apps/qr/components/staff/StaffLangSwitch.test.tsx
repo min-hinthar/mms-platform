@@ -27,8 +27,9 @@ const { STAFF } = await import("@/lib/i18n/staff");
  * after a tap, before its write and refresh land. The cases below pin exactly that — at the tap,
  * after an ok, after a refusal, a rejection and a 15 s hang, and after a correction mid-flight.
  *
- * The pill writes a MODE (`{ mode }`), resolved from the CONFIRMED mode at tap time: tapping the
- * script the device already reads keeps its mode (Burmese-only stays Burmese-only).
+ * The pill writes a MODE (`{ mode }`), resolved against the chain's BASE — the mode confirmed when
+ * the chain began, or now between chains (review C2): tapping the script the device already reads
+ * keeps its mode (Burmese-only stays Burmese-only, however often it is tapped mid-chain).
  *
  * (`@testing-library/jest-dom` and `user-event` are not dependencies here — assertions read
  * attributes directly and clicks go through `fireEvent`, matching `TicketText.test.tsx`.)
