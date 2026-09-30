@@ -40,11 +40,20 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > the router cache (P2eb), the split's widths and manual QA (P2ed · P2ee) and pane-write latency
 > (P2ec) — do not quote a pixel, a tap count or a latency to the owner before those run. **24 new
 > Burmese strings — 3 K15-HIGH (`floor.kitchen.notSent`, `floor.key.notSent`, `floor.pane.lostWrite`)
-> — await Min's native check** (listed on K15). **Next: 2e** — staff language: Burmese / Both /
+> — await Min's native check** (listed on K15, with the blind-review fixes' 6 and Codex round 1's 1 —
+> four more K15-HIGH, `STAFF_K15_HIGH` 111 → 115). **Next: 2e** — staff language: Burmese / Both /
 > English, per device, in Profile (P2x) · then **2f** counter cook-before-paid (P2v, a migration).
 >
-> **Gate today:** 1320 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
-> **30** components, 1 `packages/db`) · 39 mode-authority mutants · `check:docs` clean.
+> **Codex round 1 on #306 (2026-09-30):** four findings (2 P1 · 2 P2), all real, all fixed red-first
+> (CHANGELOG, DESIGN-LANGUAGE §17) — a live reader collection holds the pane; a paid card a newer
+> round superseded is dropped (and, the residual, compared with the table's latest paid order,
+> `TableDetail.paidOrderId`); a start in flight compares the pane's `selectionGen`, not just its id;
+> the floor's ready cue is keyed per bump, not per count. 33 new `p2d-cx1/*` mutants;
+> `lib/register-ui.ts` joined the mutate set. Filed **P2em–P2ep**; one new K15-HIGH
+> (`floor.pane.payingHeld`).
+>
+> **Gate today:** 1353 `verify:slice` mutants · 180 target modules (146 `apps/qr/lib`, 3 API routes,
+> **30** components, 1 `packages/db`) · 40 mode-authority mutants · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-25 · Phase 2c — the order pad, the register's cash moment and the settle gate — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -76,7 +85,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > P2ck changed; new **P2cv–P2db** (two med: an add racing the settle freeze — a migration — and a
 > hung `settleCash` trapping the cash sheet); 6 more Burmese keys (4 K15-HIGH) + one re-draft on K15.
 >
-> **Gate today:** 1320 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 1353 `verify:slice` mutants · 180 target modules (146 `apps/qr/lib`, 3 API routes,
 > **30** components, 1 `packages/db`) · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
@@ -310,7 +319,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 1320 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 1353 `verify:slice` mutants · 180 target modules (146 `apps/qr/lib`, 3 API routes,
 > **30** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -387,7 +396,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 1320 `verify:slice` mutants · 179 target modules (145 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 1353 `verify:slice` mutants · 180 target modules (146 `apps/qr/lib`, 3 API routes,
 > **30** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
@@ -1027,8 +1036,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **1320 `verify:slice` mutants** · **179 target modules** (145 under `apps/qr/lib`, 3 API routes,
-> 30 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (4351 + 278 today)** ·
+> **1353 `verify:slice` mutants** · **180 target modules** (146 under `apps/qr/lib`, 3 API routes,
+> 30 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (4390 + 278 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1497,7 +1506,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (1320 today)**, **1372 qr + 138 ui tests at the time (4351 + 278 today)**, 69 target modules at the time (145 under `apps/qr/lib` today, 179 in all), 97 local
+> **334 mutants at the time (1353 today)**, **1372 qr + 138 ui tests at the time (4390 + 278 today)**, 69 target modules at the time (146 under `apps/qr/lib` today, 180 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2389,7 +2398,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 1320 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 4351 qr tests + 278 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 1353 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 4390 qr tests + 278 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3111,7 +3120,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (1320 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (1353 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

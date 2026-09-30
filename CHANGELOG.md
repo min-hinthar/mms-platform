@@ -228,6 +228,40 @@ counter screen's per-zone regions).
     (the reader poll extends it), the grocery queue (it pre-checks the freeze), and consolidating the
     counter screen's per-zone regions (a redesign, not a defect).
 
+- **Codex round 1 on #306 (2026-09-30) — four findings (2 P1 · 2 P2), all real, all fixed red-first
+  with mutants.**
+  - _P1 — switching tables stopped a card payment on the reader._ A tap on another table, the strip,
+    ✕, Escape or Back unmounted the reader panel mid-collect, and its poll is what keeps the payment's
+    hold alive and records a counter order's #CODE. A live collection now HOLDS the pane
+    (`paneSelectionHeld`): the change is refused, a refused Back puts the table's entry back, and the
+    pane says "Finish the card payment first." The hold ends with the collection.
+  - _P1 — last round's change came back as this round's._ A paid card the next round replaced was
+    only hidden while that round's cart was open; paid with no tender, the old total and change read
+    as current again. A superseded card is now dropped from state and from the stash.
+  - _P2 — a start in flight landed over the pane after a move that came back._ The start compared
+    only the pane's table id at tap and at answer, so A → B → A or the floor → A → ✕ read as "never
+    moved". The pane now publishes a `selectionGen`, and the start stands down when it moved.
+  - _P2 — "Ready to serve" could miss a dish._ The cue compared each table's ready COUNT, so a dish
+    coming out as another left the five-minute window (or was recalled) netted to zero and never
+    rang. It is keyed to each bump now (`<line id>@<bumped_at>`): once per new bump, never on a
+    recall or an expiry, never twice for a dish that drops out of one poll. No migration.
+  - _The residual, fixed after:_ a round that opened AND paid while the pane showed another table
+    was never seen as a live cart, so round one's card came back on the next visit.
+    `TableDetail.paidOrderId` (the latest paid or refunded order, from `getTableDetail`'s existing
+    paid read) joins `handoffStillCurrent(h, liveCartId, paidOrderId)`: with no cart open, a table's
+    card is current only while that latest order is its own (an unknown latest keeps it).
+  - _Mutants:_ 33 new `p2d-cx1/*` (mint 3 · ready 7 · pane 20 · residual 3), all caught;
+    `lib/register-ui.ts` joins the mutate set (lib 145 → 146). Re-anchored with meaning kept:
+    `p2d-rev/floor-mint-lands-over-the-pane-pick` · `p2d-rev/floor-mint-reads-the-tapping-render`,
+    `p2d-floor/kitchen-ready-never-lapses` · `up-cues-on-a-decay` · `up-cues-on-first-sight` ·
+    `ready-rise-ignored`, `counter-split/a-tap-navigates-anyway`;
+    `p2d-rev/floor-unknown-kitchen-is-a-baseline` is now caught on an extended fixture. 1353 mutants
+    across 180 files; 4390 qr + 278 ui tests (measured).
+  - _Words (K15):_ one new key, K15-HIGH — `floor.pane.payingHeld` (`STAFF_K15_HIGH` 114 → 115).
+  - _Filed, not fixed:_ **P2em–P2ep** — leaving the phone's table page mid-collect; a reader start
+    that lands after the pane moved; food bumped during a kitchen-unknown gap; one poll's double
+    count when a table pays between the floor's two reads.
+
 ### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
 
 Built as three worktree branches: `p2c/pad` and `p2c/register` in parallel off `1768979`, merged here

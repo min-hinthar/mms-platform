@@ -1107,7 +1107,10 @@ _The floor — the counter's room map and its one-tap start._
   lock stayed held while the expo lane's or the approvals queue's action ran on the same page.
 - **A start that lands after the screen is gone never navigates** (a mounted ref, re-armed at
   setup): the router is global, and the push would yank the person off the table they opened from a
-  card. The start still landed; the next poll shows it.
+  card. The start still landed; the next poll shows it. Nor over a pane that MOVED since the tap
+  (Codex round 1 on #306): the pane publishes a `selectionGen` — new on every pick of another table
+  and every close, kept by a re-tap — compared beside the table id, so a move that comes back
+  (A → B → A, the floor → A → ✕) is still a move; the start stands down and the lock re-arms.
 - **The ONE tile starting says so:** full ink (`.floor-tile[aria-busy]` out-orders the held dim) and
   the kit's `.ui-btn-spinner` beside its KEPT verb — the primitive Button's busy shape, so the name
   still contains what the tile shows ("Starting…" does not fit a 60px tile).
@@ -1142,6 +1145,13 @@ _The floor — the counter's room map and its one-tap start._
   clock (skew-corrected once per `serverNow`); the board and the card re-render only on the poll.
 - **No loop on the counter.** The pill replays the kit's one-shot `.mms-pop` only when its level RISES
   between ticks; "ready to serve" rings the card's existing one-shot `.floor-card-pulse` once.
+- **"Ready to serve" is keyed to the EVENT, never the count** (Codex round 1 on #306). Each served
+  line inside the wall's window carries its bump's key (`<line id>@<bumped_at>`, `FloorKitchen.upKeys`
+  — pushed in the same branch that counts it, so the key keeps the window's own rule), and a card
+  rings once for a key its table has not heard: never on first sight, a recall or an expiry (a key
+  leaving is not news). What each table heard is KEPT while it stays on the floor (`heardUp`), so a
+  dish that drops out of one poll and comes back never rings twice. A count compared between polls
+  missed a dish that came out as another left the window or was recalled — the two netted to zero.
 - **One status word per state across tile, chip, key and name — and never a success word over
   returned money** (`floorStatusKey`: a refunded paid table reads Refunded / Partly refunded).
 - **One ink per tone across tile, edge, key and chip.** The chip's inline pair (`CHIP_TONE`) is
@@ -1272,13 +1282,32 @@ _The tablet split — K24's counter/table half._
   register's canonical shape, display-only, try/catch) inside the settle's own callback, so a settle
   that lands after a switch still leaves its #CODE; restored on reselect without stealing focus;
   removed on ✕, Escape, Back and Clear. Restored in the PANE only — the full page (a phone) keeps its
-  card in memory, as before.
+  card in memory, as before. **A card a newer round superseded is dropped, never merely hidden**
+  (Codex round 1 on #306) — from the screen and from the stash, on the page and in the pane
+  (`handoffSuperseded`): superseded by a different live cart, or, with no cart open, by a latest paid
+  order (`TableDetail.paidOrderId`) that is not its own — an unknown latest keeps it. A card only
+  hidden read as current again once the next round paid with no tender, showing last round's total
+  and change as this one's.
 - **A write lost behind a switch is said, with its way back.** A refusal that lands after the pane
   moved on or closed ("A change on Table 7 didn't save — view it to check.") is shown with a one-tap
   "View Table 7" (`Button`) and said through the view's one region; with no table open it sets
   `data-pane="lost"`, which below 64em shows just that line above the floor (the floor keeps its
   place). It is never filtered by the selection: only an unmounted detail reports it, so even the
   same table shown again never issued that write.
+- **A live card payment holds the pane** (Codex round 1 on #306). While the reader is taking a card
+  on the table shown — or the charge went through and the order is being recorded — every change of
+  table is REFUSED (`paneSelectionHeld`, checked first in `CounterSplit`'s one `select` and one
+  `close`): a card or strip tap, a lost write's View, a Start that converged on a seated table, ✕,
+  Escape, Back and Forward. The reader panel's poll is what keeps the payment's hold alive and
+  records a counter order's #CODE; unmounting it mid-collect stopped both. A refusal moves nothing:
+  the pane and focus stay, a refused tap buzzes no pick and records no opener, and a refused
+  Back/Forward puts the paying table's entry back, so the URL never disagrees with the pane. It is
+  SAID in the detail's ONE region, beside `writeError` at the top of its precedence and in `--warn`
+  ("Finish the card payment first." — `floor.pane.payingHeld`). It never strands: the hold ends
+  with the collection (declined, cancelled or recorded; Cancel is on the panel, and a recording past
+  20 s offers "Back to payment"), the line goes with it, a re-tap of the table shown is not a change,
+  and a table CLEARED (a server fact — the server refuses a Clear mid-payment) is never held. Not
+  held yet: a reader START in flight (P2en) and the phone's table page (P2em).
 - **A read belongs to a PICK, not an id** (`gen`): a table picked again (A → ✕ → A, A → B → A)
   starts in loading and reads afresh; a re-tap of the table shown keeps its live detail. The first
   read runs once per pick — never per render (`selectedNow` is one stable callback): a re-run would

@@ -2945,3 +2945,27 @@ order waited ~1.5 s and then saw the other; without it an add landed under a liv
 written into the test header, and the survivor asserted AS a survivor in `verify-mode-authority.mjs`
 with its reason — never left as a comment. Turning it into a killed mutant needs a two-session
 harness in CI (P2dk; `verify-merge-race.mjs` is the pattern).
+
+## #175
+
+**Compare a GENERATION, not the value: a move that comes back ends where it began.** A counter start
+in flight stood down only when the pane's selected table id at the answer differed from the id at
+the tap — so A → B → A, or the floor → A → ✕, read as "never moved", and the new order's screen
+landed over a pane the cashier had used twice (Codex #306 round 1). Equality on a value answers "is
+it the same now?", never "did anything happen in between?". Where the question is the second one,
+compare a counter that only moves forward: the pane now publishes `selectionGen` (new on every pick
+of another table and every close, kept by a re-tap) and the start compares it beside the id. Pin
+BOTH halves with separate fixtures — every A → B case is killed by the id alone, so only a move that
+comes back can catch a dropped generation check (`p2d-cx1/mint-compares-the-id-alone`).
+
+## #176
+
+**A cue keyed to an aggregate count misses the event that nets to zero — key it to the event's
+identity.** The floor's "Ready to serve" compared each table's ready count between polls; a dish
+coming out in the same poll that another left the five-minute window (a clock expiry — no row
+changes, so nothing notifies realtime) or was recalled left the count unchanged, and the card never
+rang (Codex #306 round 1). The same count also rang twice for a dish that dropped out of one poll and
+came back (1 → 0 → 1). Give each event its identity — here `<line id>@<bumped_at>`, pushed in the
+same branch that adds to the count, so it keeps the window's rule — ring on a key not yet heard, and
+KEEP what was heard (a re-bump is a new key, so a kept key never hides real news). Red-first means
+the netting case: a fixture whose count visibly rises passes on the old code and reproduces nothing.
