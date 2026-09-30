@@ -11699,8 +11699,25 @@ const unparseable = [];
  *
  * `typescript` is already a dependency and its parser reports syntactic diagnostics without a
  * program or a typecheck, so this costs milliseconds per mutant.
+ *
+ * Phase 2e review — a STYLESHEET joins the mutate set (`apps/qr/app/globals.css`: the rules the
+ * language control's suites pin — its pressed ring, its in-flight stripe). `typescript` cannot parse
+ * CSS, so without this branch every stylesheet mutant read UNPARSEABLE and could never be scored. The
+ * same hazard exists in CSS — an unclosed block swallows the rules after it, and a suite that reads
+ * the sheet then goes red for a reason unrelated to its rule — so a `.css` mutant must parse too:
+ * prettier (a root devDependency) carries PostCSS's parser, which throws a CssSyntaxError on an
+ * unclosed block or a stray brace. Seconds on the 13k-line sheet, and only for a `.css` target.
  */
-const parses = (rel, code) => {
+const parses = async (rel, code) => {
+  if (rel.endsWith(".css")) {
+    const { format } = await import("prettier");
+    try {
+      await format(code, { parser: "css" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   const kind = rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sf = ts.createSourceFile(rel, code, ts.ScriptTarget.Latest, true, kind);
   return sf.parseDiagnostics.length === 0;
@@ -11720,7 +11737,7 @@ try {
       continue;
     }
     const mutated = src.replace(m.find, m.replace);
-    if (!parses(m.file, mutated)) {
+    if (!(await parses(m.file, mutated))) {
       // Not a pass and not a failure of the CODE — a failure of the MUTATION. See `parses` above.
       unparseable.push(m);
       console.log(
