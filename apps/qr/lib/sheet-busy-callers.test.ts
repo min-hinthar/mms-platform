@@ -91,6 +91,9 @@ const UNGUARDED = [
   // in the bar, then /staff/menu) that resolves into the board: dismissing mid-write lands on the
   // busy ⋯ and the write finishes at board level (§16 — `busy` here is the documented anti-pattern).
   "staff/KdsLineMenu.tsx",
+  // Phase 2g · P2fz — the oldest-first counter list is a READ (pages of open orders, Show more, Try
+  // again). Its rows hand off to the pane or the order's page, where each write has its own sheet.
+  "staff/CounterOlderSheet.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {
