@@ -14938,7 +14938,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2g integration — a counter order the server shows as paid keeps the phone on its #CODE card; bounced to the counter, the paid order is listed nowhere",
-    find: "              else if (res.handoff) {\n",
+    find: '              else if (res.handoff || res.refund === "partial" || res.refund === "full") {\n',
     replace: "              else if (false) {\n",
   },
   {
@@ -15493,6 +15493,14 @@ const MUTANTS = [
     why: "Phase 2g review (PT-7) — the partly refunded sentence carries the order's #CODE; dropped, the page prints a bare {id}",
     find: "                vars={counterNoCard ? note.vars : undefined}\n",
     replace: "                vars={undefined}\n",
+  },
+  {
+    id: "p2g-fix/page-bounces-a-refunded-counter-order",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/FloorDetailLive.test.tsx",
+    why: "Phase 2g review residual — a refunded counter order keeps the phone on its page, where the refund is said; bounced, the counter no longer lists it and nobody is told",
+    find: 'res.handoff || res.refund === "partial" || res.refund === "full"',
+    replace: "res.handoff",
   },
 ];
 

@@ -446,11 +446,13 @@ export function FloorDetailLive({
               // table closed (and keeps its paid card) instead of navigating anywhere.
               // Phase 2g · P2em (D2) — with the verdict's server-built #CODE card (a counter order).
               if (onClosedRef.current) onClosedRef.current(sessionId, res);
-              else if (res.handoff) {
+              else if (res.handoff || res.refund === "partial" || res.refund === "full") {
                 // Phase 2g integration — a counter order the server can show as PAID (a colleague's
                 // settle, another tablet's reader): STAY and let this page render its closed branch,
                 // the order row's #CODE card, instead of bouncing to the counter, where a paid order
-                // is no longer listed and the code the guest is waiting on would be nowhere.
+                // is no longer listed and the code the guest is waiting on would be nowhere. A
+                // REFUNDED one stays too (review residual): its page says so in words — bounced, the
+                // phone would never be told the money went back.
                 // Phase 2g · review (A11Y-4) — the refresh swaps this whole detail for that card,
                 // so focus inside it would fall to <body> unsaid: leave the card a one-shot note to
                 // take focus on mount (`ClosedHandoffCard`). Only when focus WAS in here — an idle

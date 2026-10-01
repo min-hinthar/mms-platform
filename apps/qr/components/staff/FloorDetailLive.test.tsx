@@ -359,12 +359,42 @@ describe("FloorDetailLive — a closed table", () => {
     expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
   });
 
-  it("a closed counter order with NO card (refunded, unreadable) still returns to the counter", async () => {
+  it("a closed counter order with NO card it can read (unreadable) still returns to the counter", async () => {
     answer = () =>
-      Promise.resolve({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null });
+      Promise.resolve({
+        kind: "closed",
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff: null,
+        refund: null,
+        orderId: null,
+      });
     mount();
     await tick(5000);
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
+  it("a REFUNDED counter order keeps the page: it re-renders to the refunded sentence", async () => {
+    // p2g-fix/page-bounces-a-refunded-counter-order — bounced to the counter, the phone is never
+    // told the money went back (the order is no longer listed there); red.
+    for (const refund of ["partial", "full"] as const) {
+      replace.mockReset();
+      refresh.mockReset();
+      answer = () =>
+        Promise.resolve({
+          kind: "closed",
+          label: "reg-7f3a",
+          tableNumber: null,
+          handoff: null,
+          refund,
+          orderId: "o-00a1b2c3",
+        });
+      const { unmount } = mount();
+      await tick(5000);
+      expect(replace).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalled();
+      unmount();
+    }
   });
 
   it("a verdict that lands AFTER the page unmounted drives no navigation", async () => {
