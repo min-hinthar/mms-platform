@@ -177,6 +177,31 @@ export function isScanGoBasket(lines: readonly { fulfillment: string }[]): boole
   return lines.every((l) => l.fulfillment === "grocery");
 }
 
+// ── M250 — a comped dish rides its PAID bag ──
+/** The three columns `paidBagCompLine` reads off `qr_cart_items`. */
+export type BagCompRow = { state: string; comped: boolean; fulfillment: string };
+
+/**
+ * M250 — a comped cart line that belongs ON its order's PAID bag. A paid bag's lines are the
+ * fulfilment snapshot (`qr_order_items`), and every `mms_fulfill_*` writes that snapshot
+ * `where ci.state <> 'voided' and not ci.comped` — so a comped dish was never on a paid bag, while
+ * the kitchen cooked it and the guest was owed it. This is the snapshot's own filter with its comp
+ * clause INVERTED, over the bag's two fulfillments (the lane's `.in("fulfillment", …)`): comped, not
+ * voided, to-go or grocery — in ANY state, exactly as its paid siblings are (a held, in-grace or
+ * still-draft comp is on the order like any snapshot line; the clock decides nothing here).
+ *
+ * Disjoint from the snapshot by construction: `comped` only ever goes false → true, and only while
+ * the cart is open (`mms_void_line`, `mms_resolve_approval`). Never `counterKitchenLine && comped`
+ * (the M250 row's literal wording): that is the UNPAID bag's membership — food the kitchen HAS —
+ * and on a paid bag it would hide a slotted, in-grace or grocery comp the guest has paid beside.
+ * A comp line carries no amount; it is drawn "No charge" and reaches no total.
+ */
+export function paidBagCompLine(l: BagCompRow): boolean {
+  return (
+    l.comped && l.state !== "voided" && (l.fulfillment === "togo" || l.fulfillment === "grocery")
+  );
+}
+
 // ── Phase 2f · P2v — the lane's one order, paid and unpaid ──
 /** One card on the lane: a paid bag (`qr_orders`) or an unpaid counter bag (an open cart whose food
  *  the kitchen has). */

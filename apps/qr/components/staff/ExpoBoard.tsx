@@ -1066,7 +1066,7 @@ function ExpoCard({
           landing on. */}
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
         {ticket.lines.map((l) => (
-          <ExpoLineRow key={l.id} line={l} />
+          <ExpoLineRow key={l.id} line={l} noChargeTag />
         ))}
       </ul>
       {/* P2 — the four (grocery × stage) labels are spelled out as WHOLE al() calls with LITERAL
@@ -1234,8 +1234,10 @@ function UnpaidBagCard({
         )}
       </p>
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
+        {/* M250 — a comp line says "No charge" only beside lines that are charged: on a bag that
+            owes nothing the badge above already says it once for the whole bag. */}
         {bag.lines.map((l) => (
-          <ExpoLineRow key={l.id} line={l} />
+          <ExpoLineRow key={l.id} line={l} noChargeTag={owes} />
         ))}
       </ul>
       {bag.moreUnits > 0 && (
@@ -1315,7 +1317,12 @@ function noChargeBadgeWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "expo.bag.noCharge", false, shown);
 }
 
-function ExpoLineRow({ line }: { line: ExpoLine }) {
+/**
+ * One bag line. M250 — a COMPED line (`line.noCharge`) carries a "No charge" tag beside its
+ * destination, so the bagger packs it and the counter never asks for it. `noChargeTag` is the
+ * card's say: false on a bag that owes nothing, whose one bag-level badge already says it.
+ */
+function ExpoLineRow({ line, noChargeTag }: { line: ExpoLine; noChargeTag: boolean }) {
   const lang = useStaffLang();
   return (
     <li style={lineRow}>
@@ -1343,6 +1350,12 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
           />
         )}
       </span>
+      {/* A tag, so no echo (the chip rule); <Chrome> marks its own Burmese span. */}
+      {line.noCharge && noChargeTag && (
+        <span style={destTag}>
+          <Chrome lang={lang} k="expo.bag.noCharge" />
+        </span>
+      )}
       <span style={destTag} lang={lang}>
         {ts(lang, line.fulfillment === "grocery" ? "expo.dest.grocery" : "expo.dest.togo")}
       </span>

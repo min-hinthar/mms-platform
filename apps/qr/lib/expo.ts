@@ -12,6 +12,7 @@ import {
   compareExpoTickets,
   kitchenDoneAt,
   kitchenStateOf,
+  paidBagCompLine,
   type KitchenLineRow,
 } from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
@@ -42,6 +43,23 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  * board never showing the one that is.
  */
 
+/** M250 — one row of the comp read (`qr_cart_items`): a line ready for `toExpoLine`, plus the
+ *  three columns `paidBagCompLine` decides on and the cart it rides. */
+type CompRow = {
+  id: string;
+  cart_id: string;
+  name: string;
+  qty: number;
+  modifiers: unknown;
+  modifier_option_ids: unknown;
+  fulfillment: string;
+  notes: string | null;
+  menu_item_id: string;
+  state: string;
+  comped: boolean;
+  created_at: string;
+};
+
 /**
  * Live takeaway queue: paid orders whose togo_status is preparing/ready (picked_up drops off), with
  * their takeaway order-items and a per-order call-out identity. Three bounded reads assembled in TS.
@@ -57,6 +75,9 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  * Take payment. That read is NOT advisory — an unreadable one is an outage of the lane, because an
  * empty unpaid list over cooked food is the lie the W10b posture refuses. A SATURATED one keeps the
  * paid bags and the newest unpaid ones, and says so (`unpaidTruncated`, review M1).
+ *
+ * M250 — a paid bag is its snapshot PLUS its cart's comped takeaway lines (`paidBagCompLine`), each
+ * marked `noCharge`: the comp the kitchen cooks is handed over too, and it never reaches an amount.
  */
 export async function getExpoQueue(): Promise<ExpoPoll> {
   const auth = await getStaffAuth();
@@ -122,6 +143,11 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
+  // The paid bags' carts — the comp read (M250), the phone read and the kitchen-state read all key
+  // by them. W21: the pickup contact phone lives on the CART; the order row joins back via cart_id.
+  const cartIds = [
+    ...new Set((orders ?? []).map((o) => o.cart_id).filter((c): c is string => !!c)),
+  ];
   // Phase 2f review M1 — a SATURATED unpaid read degrades the unpaid section only. A sent-unpaid
   // counter order is exempt from the sweep, so uncollected ones accrue; turning the whole lane into
   // an outage at the cap hid every PAID bag over orders nobody came for. The read keeps the NEWEST
@@ -159,6 +185,46 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     : { data: [], error: null };
   if (itemsError) return { ok: false, reason: "outage" };
 
+  // M250 — a comped dish rides its PAID bag. The snapshot above never holds one (every
+  // `mms_fulfill_*` writes it `not ci.comped`), yet the kitchen cooks it and the guest is owed it —
+  // so a comp the unpaid bag showed vanished at settle, and a bagger handed the bag over without it.
+  // The cart keeps its lines past payment (no fulfil deletes them), so the paid bag reads its own
+  // cart's comped takeaway lines here and draws them "No charge". An OUTAGE read, like every read
+  // that decides what is IN a bag — never the advisory kitchen-state read below, whose failure must
+  // leave the bags standing: a bag silently missing its comp is the lie this read exists to end.
+  // The SQL filters only narrow the rows; `paidBagCompLine` decides. Before the name read, so the
+  // comps' Burmese names load in the one call.
+  const {
+    data: compRows,
+    error: compError,
+    count: compCount,
+  } = cartIds.length
+    ? await db
+        .from("qr_cart_items")
+        .select(
+          "id,cart_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id,state,comped,created_at",
+          { count: "exact" },
+        )
+        .in("cart_id", cartIds)
+        .eq("comped", true)
+        .neq("state", "voided")
+        .in("fulfillment", ["togo", "grocery"])
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+    : { data: [] as CompRow[], error: null, count: 0 };
+  if (compError) return { ok: false, reason: "outage" };
+  // Short of its own count is PostgREST's silent max-rows cap: a bag drawn without a comp that fell
+  // past it is the same lie as a failed read, so it takes the same posture.
+  const compTruncated = typeof compCount === "number" && compCount > (compRows?.length ?? 0);
+  if (compTruncated) {
+    console.error("[expo] comp read truncated — refusing to draw a bag without its comps", {
+      count: compCount,
+      rows: compRows?.length ?? 0,
+    });
+    return { ok: false, reason: "outage" };
+  }
+  const comps = (compRows ?? []).filter(paidBagCompLine);
+
   // P1 — the Burmese half of every bag line, from the LIVE catalog, through the ONE loader (F18,
   // A4·1): dishes by uuid, grocery by barcode, options by their stored ids — partitioned before the
   // IN-lists and ADVISORY by table, so a failed name read logs and that half renders English (what
@@ -166,7 +232,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // the counter over a label is the over-blocking direction.
   const { nameMyByRef, optionNameMy } = await loadLineNames(
     db,
-    [...(items ?? []), ...bags.flatMap((b) => b.lines)],
+    [...(items ?? []), ...comps, ...bags.flatMap((b) => b.lines)],
     { tag: "expo" },
   );
   const toExpoLine = (it: {
@@ -178,6 +244,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     fulfillment: string;
     notes: string | null;
     menu_item_id: string;
+    /** A cart line's own flag (the comp read, an unpaid bag's lines); absent on a snapshot line,
+     *  which is chargeable by construction. */
+    comped?: boolean;
   }): ExpoLine => {
     const modifiers = Array.isArray(it.modifiers) ? (it.modifiers as string[]) : [];
     return {
@@ -189,6 +258,8 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       modifiersMy: pairModifiersMy(it.modifier_option_ids, modifiers, optionNameMy),
       fulfillment: it.fulfillment === "grocery" ? "grocery" : "togo",
       notes: it.notes ?? null,
+      // M250 — absent unless comped: an absent field reads as chargeable.
+      ...(it.comped === true ? { noCharge: true as const } : {}),
     };
   };
   const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
@@ -202,6 +273,14 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     if (arr) arr.push(line);
     else linesByOrder.set(it.order_id, [line]);
   }
+  // M250 — each paid bag's comps, by its CART (the snapshot keys by order; a comp has no order row).
+  const compsByCart = new Map<string, ExpoLine[]>();
+  for (const c of comps) {
+    const line = toExpoLine(c);
+    const arr = compsByCart.get(c.cart_id);
+    if (arr) arr.push(line);
+    else compsByCart.set(c.cart_id, [line]);
+  }
 
   const sessionIds = [...new Set(orders.map((o) => o.session_id).filter((s): s is string => !!s))];
   const { data: sessions, error: sessionsError } = sessionIds.length
@@ -212,8 +291,8 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
 
   // W21 — the pickup contact phone lives on the CART (qr_carts.customer_phone, required at a
   // pickup checkout precisely so this counter can reach the diner); the order row joins back via
-  // cart_id. Staff-gated surface only — the phone never rides a diner-facing or public read.
-  const cartIds = [...new Set(orders.map((o) => o.cart_id).filter((c): c is string => !!c))];
+  // cart_id (`cartIds`, above). Staff-gated surface only — the phone never rides a diner-facing or
+  // public read.
   const { data: carts, error: cartsError } = cartIds.length
     ? await db.from("qr_carts").select("id,customer_phone").in("id", cartIds)
     : { data: [] as { id: string; customer_phone: string | null }[], error: null };
@@ -272,8 +351,13 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
 
   const tickets: ExpoTicket[] = [];
   for (const o of orders) {
-    const lines = linesByOrder.get(o.id);
-    if (!lines || lines.length === 0) continue; // no takeaway line snapshot — not a bag (defensive)
+    // The snapshot's lines, then (M250) the cart's comps, oldest first — disjoint by construction
+    // (a comp is never snapshotted). An order with no cart keeps its snapshot only.
+    const lines = [
+      ...(linesByOrder.get(o.id) ?? []),
+      ...((o.cart_id ? compsByCart.get(o.cart_id) : undefined) ?? []),
+    ];
+    if (lines.length === 0) continue; // no takeaway line at all — not a bag (defensive)
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
     const cartLinesOf = o.cart_id ? linesByCart.get(o.cart_id) : undefined;
     const kitchen = kitchenStateOf(cartLinesOf);

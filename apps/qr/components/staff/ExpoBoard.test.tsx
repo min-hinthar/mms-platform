@@ -978,3 +978,76 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
     window.history.replaceState(null, "", "/");
   });
 });
+
+// ── M250 — a comped line rides its bag, and says so on its own line ──────────────────────────────
+describe("M250 — a comped line says 'No charge' on its line; a free bag says it once", () => {
+  const NO_CHARGE = ts("en", "expo.bag.noCharge");
+  const occurrences = (text: string, word: string) => text.split(word).length - 1;
+  const mohinga = ticket().lines[0]!;
+  const shan = { ...mohinga, id: "l-comp", name: "Shan noodles", noCharge: true as const };
+  const lineItems = (card: HTMLElement) => [...card.querySelectorAll("li")];
+  const unpaidBag = (over: Partial<ExpoUnpaidBag> = {}): ExpoUnpaidBag => ({
+    cartId: "cart-reg",
+    sessionId: "sess-reg",
+    customerName: "Aye",
+    lines: [
+      { ...mohinga, id: "u-1" },
+      { ...shan, id: "u-comp" },
+    ],
+    moreUnits: 0,
+    owes: true,
+    kitchen: "cooking",
+    sentAt: iso(-4),
+    ...over,
+  });
+
+  it("on a paid bag only the comped line carries the tag — a line with no flag reads as charged", () => {
+    // no-charge-tag-never · no-charge-tag-every-line
+    const { container } = mount("en", queue([ticket({ lines: [mohinga, shan] })]));
+    const card = container.querySelector("article")!;
+    const [plain, comped] = lineItems(card);
+    expect(plain!.textContent).toContain("Mohinga");
+    expect(plain!.textContent).not.toContain(NO_CHARGE);
+    expect(comped!.textContent).toContain("Shan noodles");
+    expect(comped!.textContent).toContain(NO_CHARGE);
+    expect(occurrences(card.textContent ?? "", NO_CHARGE)).toBe(1);
+  });
+
+  it("a paid bag with no comp says 'No charge' nowhere", () => {
+    const { container } = mount("en", queue([ticket()]));
+    expect(container.textContent).not.toContain(NO_CHARGE);
+  });
+
+  it("an unpaid bag that still owes tags its comp line, beside the Unpaid flag", () => {
+    const { container } = mount("en", { tickets: [], unpaid: [unpaidBag()], serverNow: NOW });
+    const card = container.querySelector<HTMLElement>("article[data-unpaid]")!;
+    expect(card.textContent).toContain(ts("en", "settle.unpaid"));
+    const [plain, comped] = lineItems(card);
+    expect(plain!.textContent).not.toContain(NO_CHARGE);
+    expect(comped!.textContent).toContain(NO_CHARGE);
+    expect(occurrences(card.textContent ?? "", NO_CHARGE)).toBe(1);
+  });
+
+  it("an unpaid bag that owes NOTHING says 'No charge' exactly once — its badge, never per line", () => {
+    // free-bag-tags-twice
+    const { container } = mount("en", {
+      tickets: [],
+      unpaid: [unpaidBag({ owes: false, lines: [{ ...shan, id: "u-comp" }] })],
+      serverNow: NOW,
+    });
+    const card = container.querySelector<HTMLElement>("article[data-unpaid]")!;
+    expect(occurrences(card.textContent ?? "", NO_CHARGE)).toBe(1);
+    for (const li of lineItems(card)) expect(li.textContent).not.toContain(NO_CHARGE);
+  });
+
+  it("under my, the line tag is the dictionary's Burmese with no English echo (a tag never echoes)", () => {
+    const { container } = mount("my", queue([ticket({ lines: [mohinga, shan] })]));
+    const comped = lineItems(container.querySelector("article")!)[1]!;
+    expect(comped.textContent).toContain(ts("my", "expo.bag.noCharge"));
+    expect(comped.textContent).not.toContain(NO_CHARGE);
+    const my = [...comped.querySelectorAll('[lang="my"]')].find(
+      (el) => el.textContent === ts("my", "expo.bag.noCharge"),
+    );
+    expect(my).toBeTruthy();
+  });
+});

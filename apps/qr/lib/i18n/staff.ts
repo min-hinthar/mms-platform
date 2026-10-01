@@ -3449,7 +3449,9 @@ export const STAFF = {
   // collected, but nothing is owed, so it is never "Unpaid" and offers no payment. Its badge and its
   // card name. K15 drafts; grounded: ငွေ ရှင်း is settle.unpaid's ("pay"), ပါဆယ်ထုပ် is
   // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
-  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid
+  // M250 — the SAME words also tag one comped LINE on a bag (a paid bag, or an unpaid one that still
+  // owes), beside its destination tag; a bag that owes nothing keeps its one badge instead.
+  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid; on a line, a free dish is charged or left out of the bag
   "expo.a11y.cardNoCharge": {
     en: "Bag for {x}",
     my: "{x} အတွက် ပါဆယ်ထုပ်",

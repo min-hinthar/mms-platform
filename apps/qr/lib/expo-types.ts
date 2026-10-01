@@ -23,6 +23,10 @@ export type ExpoLine = {
   modifiersMy: (string | null)[];
   fulfillment: "togo" | "grocery";
   notes: string | null;
+  /** M250 — a COMPED line: made, bagged and handed over, never charged. Drawn "No charge" on its
+   *  line; it carries no amount and reaches no total. ABSENT on every chargeable line — an absent
+   *  field reads as chargeable, never the other way round. */
+  noCharge?: true;
 };
 
 /** One paid order's takeaway bag — an expo ticket. `status` is the order's togo_status (preparing → ready
@@ -61,6 +65,8 @@ export type ExpoTicket = {
   pickupSlot: string | null;
   /** J5: the diner's "I'm here" stamp (null until they announce) — the board flags a waiting diner. */
   arrivedAt: string | null;
+  /** The bag: the order's takeaway snapshot (`qr_order_items`), then — M250 — its cart's comped
+   *  takeaway lines (`paidBagCompLine`, each `noCharge`), oldest first. */
   lines: ExpoLine[];
   /** When the order was paid (ISO) — the board shows its age so a forgotten bag surfaces. */
   createdAt: string;
@@ -72,8 +78,8 @@ export type ExpoUnpaidBag = {
   cartId: string;
   sessionId: string;
   customerName: string | null;
-  /** The lines IN THE KITCHEN only (`counterKitchenLine`: past their grace, comps included),
-   *  Burmese-first names like every bag line. */
+  /** The lines IN THE KITCHEN only (`counterKitchenLine`: past their grace, comps included — each
+   *  comp `noCharge`), Burmese-first names like every bag line. */
   lines: ExpoLine[];
   /** Units still draft (not grocery) — on the order, not in the bag. */
   moreUnits: number;
