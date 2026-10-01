@@ -1538,8 +1538,10 @@ export function FloorDetailLive({
         <section style={{ marginTop: "var(--s5)" }}>
           {/* Phase 2g · P2fk — the order's food has waited in the kitchen past the horizon: the fact,
               stated ABOVE the choice it informs (No-show or Clear), never a verdict — taking payment
-              stays open if they do come. Static, not live: it is the order as it is. */}
-          {isCounter && detail.counterUncollected === true && (
+              stays open if they do come. Static, not live: it is the order as it is. Not while a
+              payment is moving on it — the guest may be standing at the counter paying right now
+              (Phase 2g review, PT-6). */}
+          {isCounter && detail.counterUncollected === true && !detail.paymentInFlight && (
             <p style={uncollectedNote} data-uncollected="">
               <Chrome
                 lang={lang}

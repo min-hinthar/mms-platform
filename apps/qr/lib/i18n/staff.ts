@@ -3553,22 +3553,22 @@ export const STAFF = {
   // "old" (floor.counter.truncated, table.appr.empty.hint's အဟောင်းက အရင်ပြပါတယ်).
   // EN singular/plural pair on the HOURS — ONE Burmese value (see STAFF_PLURAL_PAIRS).
   "floor.counter.uncollected.badge.one": {
-    en: "Waiting over {n} hour",
-    my: "{n} နာရီကျော် စောင့်နေပြီ",
+    en: "Not collected in over {n} hour",
+    my: "{n} နာရီကျော် လာမယူသေး",
   }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
   "floor.counter.uncollected.badge.many": {
-    en: "Waiting over {n} hours",
-    my: "{n} နာရီကျော် စောင့်နေပြီ",
+    en: "Not collected in over {n} hours",
+    my: "{n} နာရီကျော် လာမယူသေး",
   }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
-  // A segment of the floor's count line ("12 counter orders · 3 waiting over 4 hours"). The pair is
+  // A segment of the floor's count line ("12 counter orders · 3 not collected in over 4 hours"). The pair is
   // on the HOURS ({h}); {n} is how many orders.
   "floor.counter.uncollected.one": {
-    en: "{n} waiting over {h} hour",
-    my: "{n} ခု {h} နာရီကျော် စောင့်နေပြီ",
+    en: "{n} not collected in over {h} hour",
+    my: "{n} ခု {h} နာရီကျော် လာမယူသေး",
   },
   "floor.counter.uncollected.many": {
-    en: "{n} waiting over {h} hours",
-    my: "{n} ခု {h} နာရီကျော် စောင့်နေပြီ",
+    en: "{n} not collected in over {h} hours",
+    my: "{n} ခု {h} နာရီကျော် လာမယူသေး",
   },
   // The door under the floor's head row (shown when the counter list is cut short or an order waits
   // past the horizon), and the sheet it opens: every open counter order, oldest first.

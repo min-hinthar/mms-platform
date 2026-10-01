@@ -14955,6 +14955,32 @@ const MUTANTS = [
     find: "    const counterNoCard = res.handoff === null;\n",
     replace: "    const counterNoCard = false;\n",
   },
+  // ── Phase 2g · review fixes (p2g-fix/) — the integrator's share of the blind review's findings
+  // (PT-6, A11Y-8); the reader/chip and refund-veto fixes carry their own prefixes.
+  {
+    id: "p2g-fix/uncollected-note-while-paying",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/FloorDetailLive.test.tsx",
+    why: "Phase 2g review PT-6 — 'Nobody has collected this order' must not sit above They didn't come while the guest is at the counter paying",
+    find: "{isCounter && detail.counterUncollected === true && !detail.paymentInFlight && (",
+    replace: "{isCounter && detail.counterUncollected === true && (",
+  },
+  {
+    id: "p2g-fix/older-sheet/retry-drops-focus",
+    file: "apps/qr/components/staff/CounterOlderSheet.tsx",
+    suite: "components/staff/CounterOlderSheet.test.tsx",
+    why: "Phase 2g review A11Y-8 — a first-page Try again must stay (busy) while it asks again; removed, the button holding focus vanishes and focus falls to the sheet",
+    find: '{phase.kind === "failed" || (phase.kind === "loading" && phase.retry === true) ? (',
+    replace: '{phase.kind === "failed" ? (',
+  },
+  {
+    id: "p2g-fix/older-sheet/retry-lands-nowhere",
+    file: "apps/qr/components/staff/CounterOlderSheet.tsx",
+    suite: "components/staff/CounterOlderSheet.test.tsx",
+    why: "Phase 2g review A11Y-8 — when a retried page one answers, the retry button leaves; focus goes to the first row (or the status line), never dropped",
+    find: "        if (retried) focusAt.current = page.length > 0 ? 0 : FOCUS_STATUS;\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

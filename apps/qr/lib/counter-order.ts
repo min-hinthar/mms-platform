@@ -127,7 +127,7 @@ export function counterSent(lines: readonly CounterLine[], nowMs: number): boole
  * it; the write-off is the existing no-show, through the SQL loss gate.
  */
 export const COUNTER_UNCOLLECTED_MS = 4 * 60 * 60 * 1000;
-/** The same threshold in whole hours — the `{n}` the "Waiting over {n} hours" words carry. */
+/** The same threshold in whole hours — the `{n}` the "Not collected in over {n} hours" words carry. */
 export const COUNTER_UNCOLLECTED_HOURS = COUNTER_UNCOLLECTED_MS / 3_600_000;
 
 /**

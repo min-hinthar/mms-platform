@@ -863,7 +863,7 @@ describe("Phase 2g — the floor says what its counter list leaves out, and offe
     const none = mount(snap([], { counter: [crow("c2", false), crow("c3")] }));
     await tick(0);
     expect(none.region().textContent).not.toContain(segment(0));
-    expect(none.region().textContent).not.toMatch(/waiting over/);
+    expect(none.region().textContent).not.toMatch(/not collected in over/);
   });
 
   it("the door shows ONLY when the list is cut short or an order waits — and never inside the region", async () => {

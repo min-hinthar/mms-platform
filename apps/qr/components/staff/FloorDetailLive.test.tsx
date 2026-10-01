@@ -1631,6 +1631,12 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
     expect(note.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("not while a payment is moving on it — the guest may be at the counter paying right now", () => {
+    // p2g-fix/uncollected-note-while-paying (Phase 2g review, PT-6)
+    mountWith({ ...ALL_SENT, counterUncollected: true, paymentInFlight: true });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+  });
+
   it("absent or false — and never on a table — reads as not uncollected: no note", () => {
     mountWith(ALL_SENT);
     expect(document.querySelector("[data-uncollected]")).toBeNull();

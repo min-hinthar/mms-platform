@@ -19,6 +19,9 @@ import { Chrome } from "./Chrome";
 import { CounterOrderCard } from "./CounterOrderCard";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 
+/** `focusAt`'s sentinel for the status line (no row to focus — a retried page one came back empty). */
+const FOCUS_STATUS = -1;
+
 /** One sheet row: the order as the floor draws it, and the DB clock its page was judged on. */
 type Item = { order: CounterFloorRow; serverNow: string };
 
@@ -28,7 +31,9 @@ type Item = { order: CounterFloorRow; serverNow: string };
  * rows already shown stay put.
  */
 type Phase =
-  | { kind: "loading" }
+  // `retry` — page one asked again from a failure: its Try again stays in the slot (busy), so the
+  // button that holds focus is never removed under it (Phase 2g review, A11Y-8).
+  | { kind: "loading"; retry?: boolean }
   | { kind: "more" }
   | { kind: "ready" }
   | { kind: "failed"; after: CounterCursor | null };
@@ -81,6 +86,7 @@ export function CounterOlderSheet({
   // state; re-armed at setup, because StrictMode replays the effect as cleanup → setup.
   const alive = useRef(true);
   const listRef = useRef<HTMLUListElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
   // Index of the first row a "Show more" appended: focus moves there once it has rendered.
   const focusAt = useRef<number | null>(null);
 
@@ -88,7 +94,7 @@ export function CounterOlderSheet({
   // phase), so the mount effect below starts a read without a synchronous render of its own. The
   // ONE re-entry guard is here, on the ref: a second tap in the same frame reads the render from
   // before the first, so only the ref knows a page is already out.
-  const request = useCallback(async (after: CounterCursor | null) => {
+  const request = useCallback(async (after: CounterCursor | null, retried = false) => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
@@ -108,8 +114,12 @@ export function CounterOlderSheet({
         return;
       }
       const page = res.rows.map((order) => ({ order, serverNow: res.serverNow }));
-      if (after === null) setItems(page);
-      else
+      if (after === null) {
+        // A RETRIED page one: the Try again that held focus leaves with the failure — focus moves to
+        // the first row, or to the status line when there is none (never dropped to the sheet).
+        if (retried) focusAt.current = page.length > 0 ? 0 : FOCUS_STATUS;
+        setItems(page);
+      } else
         setItems((cur) => {
           // APPENDED, never replaced — and focus goes to the first new row once it is drawn.
           focusAt.current = page.length > 0 ? cur.length : null;
@@ -128,9 +138,9 @@ export function CounterOlderSheet({
 
   // A tap: the busy phase first (Show more reads busy at once), then the read (which refuses a
   // second one while a page is out).
-  const load = (after: CounterCursor | null) => {
-    setPhase(after === null ? { kind: "loading" } : { kind: "more" });
-    void request(after);
+  const load = (after: CounterCursor | null, retried = false) => {
+    setPhase(after === null ? { kind: "loading", retry: retried } : { kind: "more" });
+    void request(after, retried);
   };
 
   // Page one, once per mount (the parent remounts the sheet on every open; the initial phase is
@@ -150,7 +160,8 @@ export function CounterOlderSheet({
     const at = focusAt.current;
     if (at === null) return;
     focusAt.current = null;
-    listRef.current?.querySelectorAll<HTMLElement>(":scope > li > a")[at]?.focus();
+    if (at === FOCUS_STATUS) statusRef.current?.focus();
+    else listRef.current?.querySelectorAll<HTMLElement>(":scope > li > a")[at]?.focus();
   }, [items]);
 
   const openRow = (sessionId: string) => (e: MouseEvent<HTMLAnchorElement>) => {
@@ -218,11 +229,18 @@ export function CounterOlderSheet({
           ))}
         </ul>
         {/* The sheet's ONE region: what the list is doing, or that it is all there is. */}
-        <p role="status" style={region}>
+        <p role="status" style={region} ref={statusRef} tabIndex={-1}>
           {status}
         </p>
-        {phase.kind === "failed" ? (
-          <Button variant="secondary" block onClick={() => load(phase.after)}>
+        {phase.kind === "failed" || (phase.kind === "loading" && phase.retry === true) ? (
+          <Button
+            variant="secondary"
+            block
+            busy={phase.kind === "loading"}
+            onClick={() => {
+              if (phase.kind === "failed") load(phase.after, phase.after === null);
+            }}
+          >
             <Chrome lang={lang} k="floor.counter.older.retry" echo="stack" />
           </Button>
         ) : next !== null || phase.kind === "more" ? (

@@ -152,6 +152,38 @@ describe("CounterOlderSheet — every open counter order, oldest first", () => {
     expect(s.names()).toEqual(["/staff/table/a"]);
   });
 
+  it("a first-page retry never drops focus: Try again stays (busy), then focus goes to the first row", async () => {
+    // p2g-fix/older-sheet/retry-drops-focus · p2g-fix/older-sheet/retry-lands-nowhere (A11Y-8)
+    read.mockResolvedValueOnce({ ok: false, reason: "outage" });
+    const s = mount();
+    await tick();
+    const retry = s.button("floor.counter.older.retry")!;
+    retry.focus();
+    let answer!: (v: unknown) => void;
+    read.mockImplementationOnce(() => new Promise((r) => (answer = r)));
+    await act(async () => void fireEvent.click(retry));
+    // While page one is asked again the button stays — busy, still holding focus.
+    expect(retry.isConnected).toBe(true);
+    expect(retry.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    await act(async () => void answer(page(["a", "b"], false)));
+    await tick();
+    expect(document.activeElement?.getAttribute("href")).toBe("/staff/table/a");
+  });
+
+  it("a first-page retry that comes back empty puts focus on the status line, never the sheet", async () => {
+    read.mockResolvedValueOnce({ ok: false, reason: "outage" });
+    const s = mount();
+    await tick();
+    const retry = s.button("floor.counter.older.retry")!;
+    retry.focus();
+    read.mockResolvedValueOnce(page([], false));
+    await act(async () => void fireEvent.click(retry));
+    await tick();
+    expect(document.activeElement).toBe(s.status());
+    expect(s.status().textContent).toBe(ts("en", "floor.counter.older.none"));
+  });
+
   it("an unreadable LATER page keeps the rows shown and retries the SAME cursor", async () => {
     read.mockResolvedValueOnce(page(["a"], true));
     const s = mount();
