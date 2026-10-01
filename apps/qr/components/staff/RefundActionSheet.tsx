@@ -68,6 +68,11 @@ export function RefundActionSheet({
   const [busy, setBusy] = useState(false);
   // The tap-time guard: two taps in one frame both read the render before `busy` flipped.
   const inFlight = useRef(false);
+  // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
+  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
+  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
+  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  const ownLate = useRef(false);
   // A LATE refusal (9e) moves focus into the PIN field — only while THIS sheet is open: the id is
   // shared with any refund sheet opened since. Re-armed at setup (Strict Mode runs the cleanup
   // between two setups).
@@ -166,6 +171,10 @@ export function RefundActionSheet({
       setError({ k: "out.stalled" });
       return;
     }
+    if (ownLate.current) {
+      setError({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -186,7 +195,9 @@ export function RefundActionSheet({
         return;
       }
       setError({ k: "floor.refund.waiting" });
+      ownLate.current = true;
       void out.late.then((late) => {
+        ownLate.current = false;
         if (late.kind === "answer") land(late.value);
         else setError({ k: "floor.refund.err.unknown" });
       });

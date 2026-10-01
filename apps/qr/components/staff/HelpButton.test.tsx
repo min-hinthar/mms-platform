@@ -1175,6 +1175,48 @@ describe("HelpButton — a hung report never traps the sheet (Phase 2h · 9a · 
     expect(closeX().getAttribute("aria-disabled")).toBeNull();
   });
 
+  it("'check Your reports' after a THROWN send — on time or late — points at a list that is RE-READ, so a report that did land is there to see (critic F3)", async () => {
+    vi.useFakeTimers();
+    const ROW = {
+      id: "9f1c2a3b-4d5e-4f60-8a7b-0c1d2e3f4a5b",
+      shortId: "9F1C2A3B",
+      createdAt: "2026-09-07T05:30:00.000Z",
+      message: "T4 stuck",
+      status: "open",
+      issueUrl: null,
+    };
+    // The row was written before the response was lost: the list read AFTER the send has it.
+    listMyStaffReports.mockImplementation(() =>
+      later({ ok: true, rows: submitStaffReport.mock.calls.length > 0 ? [ROW] : [] }),
+    );
+    const mineList = () => screen.queryByRole("list", { name: STAFF["report.a11y.mine"].en });
+    submitStaffReport.mockRejectedValueOnce(new Error("fetch failed"));
+    await openReportFake();
+    expect(listMyStaffReports).toHaveBeenCalledTimes(1);
+    await tapSend();
+    await advance(0);
+    expect(status().textContent).toBe(STAFF["report.err.unknown"].en);
+    // MUTATION (p2h-sheets/help/threw-never-rereads): the sentence sends the person to a list read
+    // BEFORE the send — the report is not on it, they send again, and it is filed twice; red.
+    expect(listMyStaffReports).toHaveBeenCalledTimes(2);
+    expect(mineList()?.textContent).toContain("9F1C2A3B");
+    cleanup();
+    listMyStaffReports.mockClear();
+    const late = deferred<Sent>();
+    submitStaffReport.mockReturnValueOnce(late.promise);
+    await openReportFake();
+    await tapSend();
+    await advance(STAFF_HANG_MS);
+    const reads = listMyStaffReports.mock.calls.length;
+    await act(async () => {
+      late.reject(new Error("fetch failed"));
+    });
+    await advance(0);
+    expect(status().textContent).toBe(STAFF["report.err.unknown"].en);
+    // MUTATION (p2h-sheets/help/late-throw-never-rereads): the same, for the late throw; red.
+    expect(listMyStaffReports.mock.calls.length).toBe(reads + 1);
+  });
+
   it("a re-tap while the report is still out is REFUSED — no key, so a second send would file it twice", async () => {
     vi.useFakeTimers();
     submitStaffReport.mockReturnValueOnce(hang().promise);
@@ -1224,6 +1266,8 @@ describe("HelpButton — a hung report never traps the sheet (Phase 2h · 9a · 
       late.resolve({ ok: false, reason: "rate" });
     });
     expect(status().textContent).toBe(STAFF["report.err.rate"].en);
+    // MUTATION (p2h-sheets/help/late-keeps-the-send-refused): an answered report keeps Send refused
+    // for good; red (here, and the re-send below is never made).
     expect(sendBtn().getAttribute("aria-disabled")).toBeNull();
     expect(reloadBtn()).toBeNull();
     const late2 = deferred<Sent>();

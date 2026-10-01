@@ -261,6 +261,11 @@ function NoShowSheet({
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
+  // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
+  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
+  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
+  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  const ownLate = useRef(false);
   const bodyRef = useRef<HTMLParagraphElement>(null);
   // A LATE landing (9e) leaves the detail only while this sheet is still open: once the manager
   // closed it, the page's own read finds the closed order — the sheet never navigates under them.
@@ -336,6 +341,10 @@ function NoShowSheet({
       setMsg({ k: "out.stalled" });
       return;
     }
+    if (ownLate.current) {
+      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setMsg(null);
@@ -365,7 +374,9 @@ function NoShowSheet({
         return;
       }
       setMsg({ k: "table.noshow.waiting" });
+      ownLate.current = true;
       void out.late.then((late) => {
+        ownLate.current = false;
         if (late.kind === "answer") land(late.value);
         else setMsg({ k: "table.noshow.err.unknown" });
       });
@@ -384,8 +395,16 @@ function NoShowSheet({
     return ok;
   }
 
-  // The lockout countdown outranks everything; a moved order outranks a transient message.
-  const shown = lockCopy ?? (moved ? CHANGED_COPY : msg);
+  // The lockout countdown outranks everything; a moved order outranks a transient message — but
+  // not a write-off that may still land, nor a refused tap (critic F11): the move may BE that
+  // write-off landing, and "check it and try again" would invite a second one while the reload
+  // beside "no answer yet" is the way to see. The re-arm still renders on `moved`.
+  const unsettled =
+    typeof msg === "object" &&
+    msg !== null &&
+    "k" in msg &&
+    (RELOAD_SAYS.has(msg.k) || msg.k === "table.noshow.err.unknown");
+  const shown = lockCopy ?? (moved && !unsettled ? CHANGED_COPY : msg);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (

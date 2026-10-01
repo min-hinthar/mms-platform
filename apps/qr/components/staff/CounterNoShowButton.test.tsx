@@ -804,4 +804,77 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
     expect(reloadBtn()).not.toBeNull();
   });
+
+  it("a re-tap of THIS sheet's own waiting write-off is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    await submit();
+    // MUTATION (p2h-sheets/noshow/own-wait-forgotten): a second write-off queued behind the first; red.
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_open" });
+    });
+    record.mockReturnValueOnce(hang().promise);
+    await submit();
+    // MUTATION (p2h-sheets/noshow/own-wait-never-cleared): an answered write-off still refuses the retry; red.
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it("a write-off that may still land outranks 'the order changed': the waiting sentence and its reload stay when a poll moves the order (critic F11)", async () => {
+    vi.useFakeTimers();
+    const sheet = (sent: string[]) => (
+      <StaffLangProvider lang="en">
+        <CounterNoShowButton
+          sessionId="s-1"
+          customerName="Aye"
+          lines={LINES}
+          sentLineIds={sent}
+          droppedLineIds={DROPPED}
+          compedKitchenLineIds={COMPED}
+          lang="en"
+        />
+      </StaffLangProvider>
+    );
+    const first = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(first.promise);
+    const view = render(sheet(SENT));
+    open();
+    await act(async () => {});
+    await submit();
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    // The page's poll lands mid-wait and the sent set moved — maybe BECAUSE the write-off landed.
+    view.rerender(sheet(["s1"]));
+    // MUTATION (p2h-sheets/noshow/moved-hides-the-waiting): "the order changed — confirm again"
+    // replaces "no answer yet — don't do it again", and the reload goes with it; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    expect(reloadBtn()).not.toBeNull();
+    // The re-arm is still offered (it renders on `moved`, not on the region's sentence).
+    expect(
+      [...dialog().querySelectorAll("button")].some(
+        (b) => b.textContent === STAFF["table.noshow.rearm"].en,
+      ),
+    ).toBe(true);
+    // A THROWN write-off may have cancelled the order too: "couldn't confirm — check the order"
+    // outranks the move the same way.
+    cleanup();
+    await act(async () => {
+      first.resolve({ ok: false, reason: "not_open" }); // answered: the tablet is not stalled
+    });
+    record.mockRejectedValueOnce(new Error("fetch failed"));
+    const again = render(sheet(SENT));
+    open();
+    await act(async () => {});
+    await submit();
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
+    again.rerender(sheet(["s1"]));
+    // MUTATION (p2h-sheets/noshow/moved-hides-the-unknown): red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
+  });
 });

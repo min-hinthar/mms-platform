@@ -84,12 +84,12 @@ const CURRY = item({
   ],
 });
 
-function mount() {
+function mount(cartId = "c1") {
   const onAdded = vi.fn();
   render(
     <KioskMenu
       lang="en"
-      cartId="c1"
+      cartId={cartId}
       items={[MOHINGA, CURRY]}
       categories={["Noodles"]}
       count={0}
@@ -140,7 +140,8 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     expect(addBtn().getAttribute("aria-busy")).toBeNull();
     expect(closeX().getAttribute("aria-disabled")).toBeNull();
     // MUTATION (p2h-sheets/kiosk/waiting-said-as-something-wrong): "Something went wrong — please
-    // order at the counter" over an add that may still land; red.
+    // order at the counter" over an add that may still land; red. MUTATION
+    // (p2h-sheets/kiosk/say-ignores-the-sheet): said to the page region behind the scrim; red.
     expect(sheetLine().textContent).toBe(t("en", "addWaiting"));
   });
 
@@ -208,6 +209,7 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
       fireEvent.click(tile(/Mohinga/));
     });
     await advance(STAFF_HANG_MS);
+    // MUTATION (p2h-sheets/kiosk/say-ignores-the-page): with no sheet open, said nowhere; red.
     expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
     await act(async () => {
       lost.reject(new Error("fetch failed"));
@@ -251,5 +253,92 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     // MUTATION (p2h-sheets/kiosk/retap-adds-twice): two bowls when both land; red.
     expect(addItem).toHaveBeenCalledTimes(1);
     expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+  });
+
+  it("a tapped tile keeps FOCUS while its add is out — refused by aria-disabled and the handler, never a native `disabled` that drops focus to <body> (critic F7)", async () => {
+    vi.useFakeTimers();
+    addItem.mockReturnValueOnce(hang().promise);
+    mount();
+    const mohinga = tile(/Mohinga/);
+    mohinga.focus();
+    await act(async () => {
+      fireEvent.click(mohinga);
+    });
+    // MUTATION (p2h-sheets/kiosk/tiles-native-disabled): the focused tile goes native-disabled and
+    // focus falls to <body> for up to 15 s; red.
+    expect(mohinga.hasAttribute("disabled")).toBe(false);
+    expect(mohinga.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(mohinga);
+    // The refusal is the handler's: another dish tapped mid-add is not sent.
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    // MUTATION (p2h-sheets/kiosk/busy-tile-tap-runs): with the attribute only, the tap still opens
+    // the sheet; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(addItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sold-out tile is refused the same way — aria-disabled, no native `disabled`, no add", async () => {
+    vi.useFakeTimers();
+    render(
+      <KioskMenu
+        lang="en"
+        cartId="c-sold"
+        items={[item({ id: "s1", nameEn: "Shan noodles", soldOut: true })]}
+        categories={["Noodles"]}
+        count={0}
+        onAdded={() => {}}
+        onReview={() => {}}
+      />,
+    );
+    const sold = tile(/Shan noodles/);
+    expect(sold.hasAttribute("disabled")).toBe(false);
+    expect(sold.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(sold);
+    });
+    expect(addItem).not.toHaveBeenCalled();
+  });
+
+  it("a dish still WAITING stays refused after the menu remounts (Back from review) — per tab, like the stall ledger (critic F8)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<unknown>();
+    addItem.mockReturnValueOnce(late.promise);
+    mount("c-remount");
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    await advance(STAFF_HANG_MS);
+    expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+    // View order → Back: KioskOrderFlow unmounts the menu and mounts a fresh one.
+    cleanup();
+    const { onAdded } = mount("c-remount");
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    // MUTATION (p2h-sheets/kiosk/waiting-forgotten-on-remount): the fresh mount's empty set sends
+    // the re-add — two bowls when both land; red.
+    expect(addItem).toHaveBeenCalledTimes(1);
+    expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+    // Another cart (the next guest) is never refused by this one's wait.
+    cleanup();
+    addItem.mockResolvedValueOnce({});
+    mount("c-next-guest");
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    expect(addItem).toHaveBeenCalledTimes(2);
+    cleanup();
+    await act(async () => {
+      late.resolve({});
+    });
+    mount("c-remount");
+    addItem.mockResolvedValueOnce({});
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    expect(addItem).toHaveBeenCalledTimes(3);
+    void onAdded;
   });
 });

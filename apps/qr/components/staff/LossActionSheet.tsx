@@ -127,6 +127,11 @@ export function LossActionSheet({
   const [busy, setBusy] = useState(false);
   // The tap-time guard: two taps in one frame both read the render before `busy` flipped.
   const inFlight = useRef(false);
+  // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
+  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
+  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
+  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  const ownLate = useRef(false);
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
   const cooked = line.state === "in_progress" || line.state === "served";
@@ -268,6 +273,10 @@ export function LossActionSheet({
       setMsg({ k: "out.stalled" });
       return;
     }
+    if (ownLate.current) {
+      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setMsg(null);
@@ -286,6 +295,10 @@ export function LossActionSheet({
         handleResult(out.value);
         return;
       }
+      // Sent either way (critic F4): `voidLine` spends the manager's attempt BEFORE the RPC, so a PIN
+      // whose verdict was lost must not stay to be re-sent toward the floor-wide lockout — the
+      // refund and no-show sheets empty theirs on the same two arms.
+      setPin("");
       if (out.kind === "threw") {
         // ⚠️ A REJECTED action — offline, a version skew after a deploy, a response lost after the
         // RPC committed — may have landed: "couldn't confirm", never "wasn't saved" (9e). It used to
@@ -295,7 +308,9 @@ export function LossActionSheet({
       }
       // 9e — no answer yet: it may still be recorded; the late answer is applied when it arrives.
       setMsg({ k: "table.loss.msg.waiting" });
+      ownLate.current = true;
       void out.late.then((late) => {
+        ownLate.current = false;
         if (late.kind === "answer") handleResult(late.value);
         else setMsg({ k: "table.loss.msg.unknown" });
       });
@@ -317,6 +332,10 @@ export function LossActionSheet({
     // 9d — the request rides the same queue as the loss it asks for; refused while stalled too.
     if (stalledSince() !== null) {
       setMsg({ k: "out.stalled" });
+      return;
+    }
+    if (ownLate.current) {
+      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
       return;
     }
     inFlight.current = true;
@@ -342,7 +361,9 @@ export function LossActionSheet({
         return;
       }
       setMsg({ k: "table.loss.msg.requestWaiting" });
+      ownLate.current = true;
       void out.late.then((late) => {
+        ownLate.current = false;
         if (late.kind === "answer") handleRequest(late.value);
         else setMsg({ k: "table.loss.msg.requestUnknown" });
       });

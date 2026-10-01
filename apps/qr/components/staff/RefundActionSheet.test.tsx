@@ -335,4 +335,26 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
     expect(reloadBtn()).not.toBeNull();
   });
+
+  it("a re-tap of THIS sheet's own waiting refund is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<RefundResult>();
+    refundLine.mockReturnValueOnce(late.promise);
+    const { tap } = mountSpied();
+    await tap();
+    await advance(STAFF_HANG_MS);
+    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    await tap("5678");
+    // MUTATION (p2h-sheets/refund/own-wait-forgotten): a second refund queued behind the first —
+    // money out twice if the stale board's refusal does not catch it; red.
+    expect(refundLine).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "stripe_error" });
+    });
+    refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
+    await tap("5678");
+    // MUTATION (p2h-sheets/refund/own-wait-never-cleared): an answered refund still refuses the retry; red.
+    expect(refundLine).toHaveBeenCalledTimes(2);
+  });
 });

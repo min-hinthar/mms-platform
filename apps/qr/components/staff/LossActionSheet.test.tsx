@@ -424,6 +424,51 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
   });
 
+  it("a step-up void SENT with no answer, or thrown, keeps no PIN — voidLine spends the attempt before the RPC, so a re-send walks toward the lockout (critic F4)", async () => {
+    vi.useFakeTimers();
+    approvers.mockResolvedValue([{ staffId: "m1", name: "Aye" }]);
+    const pinField = () => document.getElementById("loss-pin") as HTMLInputElement;
+    async function tapComp() {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+      });
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
+        );
+      });
+      fireEvent.change(document.getElementById("loss-mgr") as HTMLSelectElement, {
+        target: { value: "m1" },
+      });
+      fireEvent.change(pinField(), { target: { value: "1234" } });
+      await act(async () => {
+        fireEvent.submit(submitBtn().closest("form")!);
+      });
+    }
+    const first = deferred<VoidLineResult>();
+    voidLine.mockReturnValueOnce(first.promise);
+    mountSpied();
+    await tapComp();
+    expect(voidLine).toHaveBeenCalledTimes(1);
+    expect(voidLine.mock.calls[0]).toEqual([expect.objectContaining({ pin: "1234" })]);
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    // MUTATION (p2h-sheets/loss/sent-keeps-the-pin): the masked digits stay, and the next tap
+    // re-sends a wrong PIN whose verdict was lost; red.
+    expect(pinField().value).toBe("");
+    cleanup();
+    await act(async () => {
+      first.resolve({ ok: false, reason: "not_found" }); // the raw answers: the tablet is not stalled
+    });
+    voidLine.mockRejectedValueOnce(new Error("fetch failed"));
+    mountSpied();
+    await tapComp();
+    expect(region().textContent).toBe(STAFF["table.loss.msg.unknown"].en);
+    expect(pinField().value).toBe("");
+    approvers.mockReset();
+    approvers.mockImplementation(() => Promise.resolve([]));
+  });
+
   it("the approval request: no answer at the bound says so with the reload; a late ok closes through the parent; a throw is 'couldn't confirm'", async () => {
     vi.useFakeTimers();
     approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
@@ -472,6 +517,109 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     await act(async () => {
       fireEvent.click(request());
     });
+    // MUTATION (p2h-sheets/loss/request-threw-said-as-outage): "wasn't saved" over a request that
+    // may have reached the queue; red.
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestUnknown"].en);
+  });
+
+  it("a re-tap of THIS sheet's own waiting void is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<VoidLineResult>();
+    voidLine.mockReturnValueOnce(late.promise);
+    mountSpied();
+    await tapVoid();
+    await advance(STAFF_HANG_MS);
+    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    await act(async () => {
+      fireEvent.submit(submitBtn().closest("form")!);
+    });
+    // MUTATION (p2h-sheets/loss/own-wait-forgotten): a second void queued behind the first; red.
+    expect(voidLine).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_found" });
+    });
+    voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
+    await act(async () => {
+      fireEvent.submit(submitBtn().closest("form")!);
+    });
+    // MUTATION (p2h-sheets/loss/own-wait-never-cleared): an answered void still refuses the retry; red.
+    expect(voidLine).toHaveBeenCalledTimes(2);
+  });
+
+  it("the approval request's own wait refuses a re-tap with the clock set back, too — and sends again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
+    const late = deferred<unknown>();
+    requestApproval.mockReturnValueOnce(late.promise);
+    mountSpied();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
+      );
+    });
+    const request = () =>
+      screen.getByRole("button", {
+        name: (n) =>
+          n.includes(STAFF["table.loss.requestApproval.comp"].en) ||
+          n.includes(STAFF["table.loss.sending"].en),
+      });
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
+    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    // MUTATION (p2h-sheets/loss/request-own-wait-forgotten): a second request queued behind the
+    // first; red.
+    expect(requestApproval).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_found" });
+    });
+    requestApproval.mockReturnValueOnce(hang<unknown>({ ok: false, reason: "not_found" }).promise);
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    // MUTATION (p2h-sheets/loss/request-own-wait-never-cleared): red.
+    expect(requestApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it("the approval request's LATE throw ends the wait unanswered: 'couldn't confirm' the request, never 'no answer yet' for good (critic F9)", async () => {
+    vi.useFakeTimers();
+    approvers.mockResolvedValueOnce([]); // nobody on shift: the request is the primary
+    const late = deferred<unknown>();
+    requestApproval.mockReturnValueOnce(late.promise);
+    mountSpied();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: new RegExp(STAFF["table.loss.requestApproval.comp"].en),
+        }),
+      );
+    });
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
+    await act(async () => {
+      late.reject(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-sheets/loss/request-late-throw-unsaid): "no answer yet" stands for good over a
+    // request that may have reached the queue; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.requestUnknown"].en);
+    expect(reloadBtn()).toBeNull();
   });
 });

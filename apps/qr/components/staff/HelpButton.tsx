@@ -390,6 +390,10 @@ export function HelpButton(props: HelpProps) {
         // The send may have reached the server (the response lost after the row): couldn't confirm
         // — check Your reports before sending again; sent twice, it arrives twice.
         setErr("report.err.unknown");
+        // The sentence points at "Your reports" — so RE-READ it (critic F3): the list on screen was
+        // read before this send, and a report that did land would be missing from it, inviting
+        // the second send the sentence warns against.
+        setMineGen((g) => g + 1);
         return;
       }
       setReportLate(true);
@@ -397,7 +401,10 @@ export function HelpButton(props: HelpProps) {
       void out.late.then((late) => {
         setReportLate(false);
         if (late.kind === "answer") landReport(late.value, sentText);
-        else setErr("report.err.unknown");
+        else {
+          setErr("report.err.unknown");
+          setMineGen((g) => g + 1); // the same pointer, the same re-read (critic F3)
+        }
       });
     } finally {
       reportFlight.current = false;

@@ -10,6 +10,16 @@ import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import type { KioskItem } from "./types";
 
 /**
+ * Dishes whose add went past the bound unanswered — `${cartId}:${itemId}` — a re-add would put a
+ * second one on when both land. MODULE state, per tab (critic F8), like the stall ledger and like
+ * Next's action queue it stands for: "View order" → Back remounts this screen, and a per-mount set
+ * forgot the waiting dish while its add was still out. Keyed by cart, so the next guest's order is
+ * never refused by this one's wait; each entry leaves when its add answers or throws. Written only
+ * from a tap's handler, so a server render never touches it.
+ */
+const waiting = new Set<string>();
+
+/**
  * The kiosk food browser (W6b): category chips + a 3-col big-touch grid over the same catalog the
  * diner menu reads. Adds ride the DINER `addItem` action (the kiosk uid is a member of its minted
  * session — server-authoritative pricing, cardinality enforced); required-choice items open the
@@ -53,8 +63,6 @@ export function KioskMenu({
   // add (the M82 guard parses for it). The ref is the tap-time guard (two taps in one frame).
   const [adding, setAdding] = useState(false);
   const addFlight = useRef(false);
-  // Dishes whose add went past the bound unanswered — a re-add would put a second one on.
-  const waitingIds = useRef(new Set<string>());
   // The dish whose sheet is showing NOW, for words that land late (a closure would read the tap's).
   const sheetNow = useRef<KioskItem | null>(null);
   useEffect(() => {
@@ -85,7 +93,8 @@ export function KioskMenu({
     choice: { modifierIds: string[]; qty: number; notes?: string },
   ) {
     if (addFlight.current) return;
-    if (waitingIds.current.has(item.id)) {
+    const waitKey = `${cartId}:${item.id}`;
+    if (waiting.has(waitKey)) {
       // Its last add is still out: a second tap would be a second plate when both land.
       say(item, t(lang, "addWaiting"));
       return;
@@ -108,10 +117,10 @@ export function KioskMenu({
         say(item, t(lang, "addUnknown"));
         return;
       }
-      waitingIds.current.add(item.id);
+      waiting.add(waitKey);
       say(item, t(lang, "addWaiting"));
       void out.late.then((late) => {
-        waitingIds.current.delete(item.id);
+        waiting.delete(waitKey);
         // ⚠️ A late ok MUST reach `onAdded`: `addWaiting` promises the number on “View order” goes
         // up when the add is in, and only the count can keep that promise.
         if (late.kind === "answer") landed(item, choice.qty);
@@ -156,14 +165,24 @@ export function KioskMenu({
       >
         {shown.map((i) => (
           <li key={i.id}>
+            {/* Critic F7 — refused by the ATTRIBUTE and the handler, never a native `disabled`: the
+                tile the guest just tapped goes busy while focused, and a disabled control drops
+                focus to <body> for as long as the add is out. The dim and the stilled press ride
+                inline because `.kiosk-door:disabled` no longer matches. */}
             <button
               type="button"
               className="kiosk-door"
-              style={{ width: "100%", opacity: i.soldOut ? 0.55 : 1 }}
-              disabled={i.soldOut || adding}
-              onClick={() =>
-                i.groups.length > 0 ? setSheetItem(i) : void add(i, { modifierIds: [], qty: 1 })
-              }
+              style={{
+                width: "100%",
+                opacity: i.soldOut ? 0.55 : adding ? 0.5 : 1,
+                ...(i.soldOut || adding ? { cursor: "default", transform: "none" } : {}),
+              }}
+              aria-disabled={i.soldOut || adding || undefined}
+              onClick={() => {
+                if (i.soldOut || adding) return;
+                if (i.groups.length > 0) setSheetItem(i);
+                else void add(i, { modifierIds: [], qty: 1 });
+              }}
             >
               {/* W16e review — the slot ALWAYS renders (the rule the diner rails follow): gating it
                   away made the 3 photo-less dishes short ragged cards beside full ones on the

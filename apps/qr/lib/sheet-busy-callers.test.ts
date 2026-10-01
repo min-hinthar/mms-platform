@@ -38,15 +38,23 @@ import ts from "typescript";
  *
  * So the shape is now, for every GUARDED sheet (StaffModSheet traced into its parents):
  *  1. the ONE live `<Sheet busy={x}>` binds an identifier `x`;
- *  2. `x` is the value of a `useState` in the component — never `useTransition`'s;
- *  3. its setter is only ever called with a literal `true` / `false`;
+ *  2. `x` is the value of a `useState` in the component — never `useTransition`'s (each hook
+ *     RESOLVED through the file's react imports: an alias or a namespace is read, not spelled);
+ *  3. its setter is only ever CALLED, with a literal `true` / `false` — never handed away by
+ *     reference (`onBusy={setBusy}`), where code this guard cannot read could set it;
  *  4. every `setX(true)` is a top-level statement of a function F that then runs a `try` whose
- *     `finally` calls `setX(false)` as a top-level statement, and whose `try` awaits a BOUNDED write
- *     in F itself — `await boundWrite(<the raw action call>)` (never `boundWrite(raceTimeout(…))`,
- *     which reads `threw` at the bound and drops the late answer), or the order pad's
- *     `await r.done` off `writes.attempt(…)` (`usePadWrites` bounds it at the tap's STAFF_HANG_MS);
+ *     `finally` calls `setX(false)` as a top-level statement, and:
+ *     - nothing between the raise and that `try` can hold the flag or skip the finally (an await,
+ *       a return, a throw — run by F itself), and nothing before the clear in the finally can;
+ *     - the `try` awaits a BOUNDED write in F itself — `await boundWrite(<the raw action call>)`
+ *       with ONE argument (the bound is the contract's STAFF_HANG_MS; never
+ *       `boundWrite(raceTimeout(…))`, which reads `threw` at the bound and drops the late answer),
+ *       or the order pad's `await r.done` off `writes.attempt(…)` (`usePadWrites` bounds it at the
+ *       tap's STAFF_HANG_MS) — and EVERY await the try or its catch runs in F is one of those
+ *       (`await out.late` after a bounded write would hold the flag until the raw answers);
  *  5. F is live: referenced in the component, and never from inside a transition starter (9b — the
- *     action is called OUTSIDE any async transition).
+ *     action is called OUTSIDE any async transition) — `startTransition` aliased, read off a
+ *     namespace, a `useTransition` second element, or a const copying any of them.
  *
  * ⚠️ PARSED, NEVER SCANNED (LEARNINGS #60). Comments are not AST nodes, and a `<Sheet>` (or a
  * bounded await, or a `setX(false)`) parked in a literal-dead shape — `{false && …}`, `{null && …}`,
@@ -198,32 +206,72 @@ function calleeName(c: ts.CallExpression): string | undefined {
   return undefined;
 }
 
-/** Names imported from a module specifier. */
-function importedFrom(sf: ts.SourceFile, spec: string): Set<string> {
-  const names = new Set<string>();
+/** A module's bindings in this file: each LOCAL name a named import binds, mapped to the export it
+ *  names (`import { a as b }` → b ↦ a — an alias is resolved, never trusted by spelling), plus the
+ *  namespace / default bindings (`import * as R`, `import R`) its exports can be read through. */
+type Imports = { named: Map<string, string>; namespaces: Set<string> };
+function importsFrom(sf: ts.SourceFile, spec: string): Imports {
+  const named = new Map<string, string>();
+  const namespaces = new Set<string>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
     if (st.moduleSpecifier.text !== spec) continue;
-    const b = st.importClause?.namedBindings;
-    if (b && ts.isNamedImports(b)) for (const e of b.elements) names.add(e.name.text);
+    const clause = st.importClause;
+    if (!clause) continue;
+    if (clause.name) namespaces.add(clause.name.text);
+    const b = clause.namedBindings;
+    if (b && ts.isNamespaceImport(b)) namespaces.add(b.name.text);
+    if (b && ts.isNamedImports(b))
+      for (const e of b.elements) named.set(e.name.text, (e.propertyName ?? e.name).text);
   }
-  return names;
+  return { named, namespaces };
 }
 
-/** Every name a transition starter goes by in this file: React's `startTransition`, and each
- *  `useTransition()` destructure's second element. */
-function transitionStarters(sf: ts.SourceFile): Set<string> {
+/** The export of `spec` that `e` names — `x` bound by an import (its alias resolved) or `NS.x` off a
+ *  namespace/default import — else undefined. */
+function exportNamed(e: ts.Expression, from: Imports): string | undefined {
+  if (ts.isIdentifier(e)) return from.named.get(e.text);
+  if (
+    ts.isPropertyAccessExpression(e) &&
+    ts.isIdentifier(e.expression) &&
+    from.namespaces.has(e.expression.text)
+  )
+    return e.name.text;
+  return undefined;
+}
+
+/** Is `c` a call of React's `hook` (bare, aliased, or through a namespace)? */
+const callsReact = (sf: ts.SourceFile, c: ts.Expression | undefined, hook: string) =>
+  !!c && ts.isCallExpression(c) && exportNamed(c.expression, importsFrom(sf, "react")) === hook;
+
+/**
+ * Every way this file can START a transition: React's `startTransition` (aliased or not), `NS.
+ * startTransition` off a namespace/default import, each `useTransition()` destructure's second
+ * element, and any const that copies one of those (`const go = startTransition`) — to a fixpoint.
+ */
+function transitionStarters(sf: ts.SourceFile): (c: ts.CallExpression) => boolean {
+  const react = importsFrom(sf, "react");
   const names = new Set<string>(
-    [...importedFrom(sf, "react")].filter((n) => n === "startTransition"),
+    [...react.named].filter(([, exp]) => exp === "startTransition").map(([local]) => local),
   );
+  const isStarter = (e: ts.Expression): boolean =>
+    (ts.isIdentifier(e) && names.has(e.text)) || exportNamed(e, react) === "startTransition";
   walk(sf, (n) => {
-    if (!ts.isVariableDeclaration(n) || !ts.isArrayBindingPattern(n.name) || !n.initializer) return;
-    if (!ts.isCallExpression(n.initializer) || calleeName(n.initializer) !== "useTransition")
-      return;
+    if (!ts.isVariableDeclaration(n) || !ts.isArrayBindingPattern(n.name)) return;
+    if (!callsReact(sf, n.initializer, "useTransition")) return;
     const el = n.name.elements[1];
     if (el && ts.isBindingElement(el) && ts.isIdentifier(el.name)) names.add(el.name.text);
   });
-  return names;
+  for (let grew = true; grew; ) {
+    grew = false;
+    walk(sf, (n) => {
+      if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || !n.initializer) return;
+      if (names.has(n.name.text) || !isStarter(n.initializer)) return;
+      names.add(n.name.text);
+      grew = true;
+    });
+  }
+  return (c) => isStarter(c.expression);
 }
 
 /** The function's NAME as its callers write it: a declaration's, or the const it is assigned to. */
@@ -265,7 +313,11 @@ function isBoundedAwait(
     ts.isIdentifier(e.expression) &&
     e.expression.text === "boundWrite"
   ) {
-    if (!importedFrom(sf, "@/lib/bounded-write").has("boundWrite")) return false;
+    // The contract's own export under its own name — `track as boundWrite` is not a bound.
+    if (exportNamed(e.expression, importsFrom(sf, "@/lib/bounded-write")) !== "boundWrite")
+      return false;
+    // ONE argument: the bound is the contract's STAFF_HANG_MS, never a caller's `Infinity` (F6).
+    if (e.arguments.length !== 1) return false;
     const raw = e.arguments[0];
     return !!raw && ts.isCallExpression(raw) && calleeName(raw) !== "raceTimeout";
   }
@@ -292,15 +344,37 @@ function isBoundedAwait(
             m.name.text === writes &&
             m.initializer &&
             ts.isCallExpression(m.initializer) &&
-            calleeName(m.initializer) === "usePadWrites"
+            exportNamed(m.initializer.expression, importsFrom(sf, "./usePadWrites")) ===
+              "usePadWrites"
           )
             viaChain = true;
         });
       }
     });
-    return viaChain && importedFrom(sf, "./usePadWrites").has("usePadWrites");
+    return viaChain;
   }
   return false;
+}
+
+/**
+ * What in `nodes` — run by `f` itself, not by a function nested in it — can hold or skip a clear:
+ * an await (including `for await`), a return or a throw. The first one found, as words, else
+ * undefined. (Any statement CAN throw; these are the ones that say so.)
+ */
+function holdsOrSkips(
+  nodes: readonly ts.Node[],
+  f: ts.FunctionLikeDeclaration,
+): string | undefined {
+  let found: string | undefined;
+  for (const node of nodes)
+    walk(node, (n) => {
+      if (found || enclosingFunction(n) !== f) return;
+      if (ts.isAwaitExpression(n) || (ts.isForOfStatement(n) && n.awaitModifier))
+        found = "an await";
+      else if (ts.isReturnStatement(n)) found = "a return";
+      else if (ts.isThrowStatement(n)) found = "a throw";
+    });
+  return found;
 }
 
 /**
@@ -313,11 +387,10 @@ function stateShapeProblems(
   x: string,
 ): string[] {
   const problems: string[] = [];
-  const fromTransition = arrayBindings(sf, x, 0).filter(
-    (d) =>
-      d.initializer &&
-      ts.isCallExpression(d.initializer) &&
-      calleeName(d.initializer) === "useTransition",
+  // Hooks are RESOLVED through the file's react imports — `useTransition as useState` is a
+  // transition, `React.useState` is state.
+  const fromTransition = arrayBindings(sf, x, 0).filter((d) =>
+    callsReact(sf, d.initializer, "useTransition"),
   );
   if (fromTransition.length > 0) problems.push(`\`${x}\` is a useTransition pending`);
   const decls = arrayBindings(component, x, 0);
@@ -326,11 +399,7 @@ function stateShapeProblems(
     return problems;
   }
   const decl = decls[0]!;
-  if (
-    !decl.initializer ||
-    !ts.isCallExpression(decl.initializer) ||
-    calleeName(decl.initializer) !== "useState"
-  ) {
+  if (!callsReact(sf, decl.initializer, "useState")) {
     problems.push(`\`${x}\` is not a useState value`);
     return problems;
   }
@@ -341,25 +410,36 @@ function stateShapeProblems(
   }
   const setter = setterEl.name.text;
 
-  // Step 3 — the setter is only ever called with a literal true/false.
+  // Step 3 — the setter is only ever CALLED, and only with a literal true/false. A reference that is
+  // not a call (`onBusy={setBusy}`, `[setBusy]`, `{ setBusy }`) hands it to code this guard cannot
+  // read, which could set it with anything, from anywhere (critic F6).
   const sets: { call: ts.CallExpression; value: boolean }[] = [];
+  let handedAway = false;
   walk(component, (n) => {
-    if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression) || n.expression.text !== setter)
+    if (!ts.isIdentifier(n) || n.text !== setter || n === setterEl.name) return;
+    const call = n.parent;
+    if (!ts.isCallExpression(call) || call.expression !== n) {
+      handedAway = true;
       return;
-    const arg = n.arguments[0];
+    }
+    const arg = call.arguments[0];
     const value =
-      n.arguments.length === 1 && arg?.kind === ts.SyntaxKind.TrueKeyword
+      call.arguments.length === 1 && arg?.kind === ts.SyntaxKind.TrueKeyword
         ? true
-        : n.arguments.length === 1 && arg?.kind === ts.SyntaxKind.FalseKeyword
+        : call.arguments.length === 1 && arg?.kind === ts.SyntaxKind.FalseKeyword
           ? false
           : undefined;
     if (value === undefined) problems.push(`\`${setter}(…)\` is called with a non-literal`);
-    else sets.push({ call: n, value });
+    else sets.push({ call, value });
   });
+  if (handedAway)
+    problems.push(
+      `\`${setter}\` is handed away by reference (only a literal call here can be checked)`,
+    );
   const raises = sets.filter((s) => s.value);
   if (raises.length === 0) problems.push(`\`${setter}(true)\` is never called`);
 
-  const starters = transitionStarters(sf);
+  const startsTransition = transitionStarters(sf);
   // Step 4 + 5 — every raise sits in a live, bounded, finally-cleared function.
   for (const { call } of raises) {
     const f = enclosingFunction(call);
@@ -374,28 +454,50 @@ function stateShapeProblems(
       problems.push(`${where}: not a top-level statement of its function`);
       continue;
     }
-    const cleared = stmts
-      .slice(at + 1)
-      .find(
-        (st): st is ts.TryStatement =>
-          ts.isTryStatement(st) &&
-          !!st.finallyBlock &&
-          st.finallyBlock.statements.some((s) => isSetterStatement(s, setter, false)),
-      );
-    if (!cleared) {
+    const tryAt = stmts.findIndex(
+      (st, i) =>
+        i > at &&
+        ts.isTryStatement(st) &&
+        !!st.finallyBlock &&
+        st.finallyBlock.statements.some((s) => isSetterStatement(s, setter, false)),
+    );
+    if (tryAt < 0) {
       problems.push(`${where}: no later try whose finally runs \`${setter}(false)\``);
       continue;
     }
+    const cleared = stmts[tryAt] as ts.TryStatement;
+    // F1 — nothing between the raise and the try may hold the flag (an await: the finally is not
+    // reached until it settles) or skip the finally altogether (a return, a throw: latched).
+    const between = holdsOrSkips(stmts.slice(at + 1, tryAt), f);
+    if (between)
+      problems.push(`${where}: ${between} sits between the raise and the try, outside its finally`);
+    // F1 — the clear runs FIRST in the finally, or after nothing that can hold or skip it.
+    const fin = cleared.finallyBlock!.statements;
+    const clearAt = fin.findIndex((s) => isSetterStatement(s, setter, false));
+    const beforeClear = holdsOrSkips(fin.slice(0, clearAt), f);
+    if (beforeClear)
+      problems.push(`${where}: ${beforeClear} in the finally before \`${setter}(false)\``);
+    // F1 — EVERY await the try (or its catch) runs in F is a bounded one: `await out.late` after
+    // a bounded write holds the flag until the raw answers — P2cz with the guard green.
     let bounded = false;
-    walk(cleared.tryBlock, (n) => {
-      if (
-        ts.isAwaitExpression(n) &&
-        enclosingFunction(n) === f &&
-        !isLiteralDead(n, f) &&
-        isBoundedAwait(n, f, component, sf)
-      )
-        bounded = true;
-    });
+    for (const part of [cleared.tryBlock, cleared.catchClause?.block]) {
+      if (!part) continue;
+      walk(part, (n) => {
+        if (enclosingFunction(n) !== f) return;
+        if (ts.isForOfStatement(n) && n.awaitModifier) {
+          problems.push(`${where}: the try awaits \`for await\` unbounded`);
+          return;
+        }
+        if (!ts.isAwaitExpression(n)) return;
+        if (!isBoundedAwait(n, f, component, sf)) {
+          problems.push(
+            `${where}: the try awaits \`${n.expression.getText(sf)}\` unbounded — the flag holds until it answers`,
+          );
+          return;
+        }
+        if (part === cleared.tryBlock && !isLiteralDead(n, f)) bounded = true;
+      });
+    }
     if (!bounded) problems.push(`${where}: the try awaits no bounded write in this function`);
     const name = functionName(f);
     if (!name) {
@@ -409,13 +511,9 @@ function stateShapeProblems(
       if (ts.isVariableDeclaration(n.parent) && n.parent.name === n) return;
       if (isLiteralDead(n, component)) return;
       for (let p = n.parent; p && p !== component; p = p.parent) {
-        if (
-          ts.isCallExpression(p) &&
-          ts.isIdentifier(p.expression) &&
-          starters.has(p.expression.text)
-        )
+        if (ts.isCallExpression(p) && startsTransition(p))
           problems.push(
-            `\`${name}\` is called from inside a transition (\`${p.expression.text}\`)`,
+            `\`${name}\` is called from inside a transition (\`${p.expression.getText(sf)}\`)`,
           );
       }
       liveRefs += 1;
@@ -720,5 +818,164 @@ describe("M82 — the matcher refuses every shape that does not ship the behavio
   it("refuses a raise outside the write function's top level (a busy that a branch can skip clearing)", () => {
     const src = swap("    setBusy(true);\n", "    if (busy === false) setBusy(true);\n");
     expect(busyBindingProblems("L.tsx", src).join("\n")).toMatch(/top-level/);
+  });
+});
+
+// ── critic F1 · F6 (Phase 2h S1 review) — a busy that LATCHES, or a bound hidden behind a name ──
+//    The first matcher checked only that a raise, a clearing finally and SOME bounded await
+//    existed. Each fixture below satisfied it while holding the flag past the bound — or forever.
+
+describe("M82 — the matcher refuses a flag that can latch, and a bound or a transition behind a name", () => {
+  it("refuses a LATE answer awaited inside the try — busy holds until the raw answers (E1, P2cz again)", () => {
+    const src = swap("      void out;\n", '      if (out.kind === "waiting") await out.late;\n');
+    expect(busyBindingProblems("E1.tsx", src).join("\n")).toMatch(/awaits `out\.late` unbounded/);
+  });
+
+  it("refuses an unbounded await BEFORE the bounded one in the try (E2)", () => {
+    const src = swap(
+      "      const out = await boundWrite(settle({ a: 1 }));\n",
+      "      await settle({ a: 0 });\n      const out = await boundWrite(settle({ a: 1 }));\n",
+    );
+    expect(busyBindingProblems("E2.tsx", src).join("\n")).toMatch(
+      /awaits `settle\(\{ a: 0 \}\)` unbounded/,
+    );
+  });
+
+  it("refuses an await between the raise and the try (E3)", () => {
+    const src = swap(
+      "    setBusy(true);\n    try {\n",
+      "    setBusy(true);\n    await settle({ a: 0 });\n    try {\n",
+    );
+    expect(busyBindingProblems("E3.tsx", src).join("\n")).toMatch(
+      /an await sits between the raise and the try/,
+    );
+  });
+
+  it("refuses a return or a throw between the raise and the try — the finally never runs (E4)", () => {
+    const ret = swap(
+      "    setBusy(true);\n    try {\n",
+      "    setBusy(true);\n    if (Date.now() % 2) return;\n    try {\n",
+    );
+    expect(busyBindingProblems("E4.tsx", ret).join("\n")).toMatch(
+      /a return sits between the raise and the try/,
+    );
+    const thr = swap(
+      "    setBusy(true);\n    try {\n",
+      '    setBusy(true);\n    if (Date.now() % 2) throw new Error("x");\n    try {\n',
+    );
+    expect(busyBindingProblems("E4b.tsx", thr).join("\n")).toMatch(
+      /a throw sits between the raise and the try/,
+    );
+  });
+
+  it("refuses a finally that can skip or hold its clear — a return or an await before it (E10)", () => {
+    const ret = swap(
+      "    } finally {\n      setBusy(false);\n",
+      "    } finally {\n      if (Date.now() % 2) return;\n      setBusy(false);\n",
+    );
+    expect(busyBindingProblems("E10.tsx", ret).join("\n")).toMatch(
+      /a return in the finally before `setBusy\(false\)`/,
+    );
+    const wait = swap(
+      "    } finally {\n      setBusy(false);\n",
+      "    } finally {\n      await settle({ a: 0 });\n      setBusy(false);\n",
+    );
+    expect(busyBindingProblems("E10b.tsx", wait).join("\n")).toMatch(
+      /an await in the finally before `setBusy\(false\)`/,
+    );
+  });
+
+  it("refuses an unbounded await in the CATCH, and a `for await` in the try", () => {
+    const caught = swap(
+      "      void out;\n    } finally {",
+      "      void out;\n    } catch {\n      await settle({ a: 0 });\n    } finally {",
+    );
+    expect(busyBindingProblems("E11.tsx", caught).join("\n")).toMatch(
+      /awaits `settle\(\{ a: 0 \}\)` unbounded/,
+    );
+    const loop = swap(
+      "      void out;\n",
+      "      for await (const x of [settle({ a: 0 })]) void x;\n",
+    );
+    expect(busyBindingProblems("E12.tsx", loop).join("\n")).toMatch(/awaits `for await` unbounded/);
+  });
+
+  it("refuses `boundWrite(raw, ms)` — the bound is the contract's STAFF_HANG_MS, never the caller's (E5)", () => {
+    const src = swap(
+      "await boundWrite(settle({ a: 1 }))",
+      "await boundWrite(settle({ a: 1 }), Infinity)",
+    );
+    expect(busyBindingProblems("E5.tsx", src).join("\n")).toMatch(/Infinity\)` unbounded/);
+  });
+
+  it("refuses a `boundWrite` that is another export renamed (`track as boundWrite`)", () => {
+    const src = swap(
+      `import { boundWrite } from "@/lib/bounded-write";`,
+      `import { track as boundWrite } from "@/lib/bounded-write";`,
+    );
+    expect(busyBindingProblems("E14.tsx", src).join("\n")).toMatch(/no bounded write/);
+  });
+
+  it("refuses a write started through `React.startTransition` — a namespace or a default import (E6)", () => {
+    for (const imp of [
+      `import * as React from "react";\nimport { useState } from "react";`,
+      `import React, { useState } from "react";`,
+    ]) {
+      const src = swap(`import { useState } from "react";`, imp).replace(
+        "onClick={submit}",
+        "onClick={() => React.startTransition(async () => { await submit(); })}",
+      );
+      expect(busyBindingProblems("E6.tsx", src).join("\n")).toMatch(
+        /called from inside a transition \(`React\.startTransition`\)/,
+      );
+    }
+  });
+
+  it("refuses a write started through an ALIASED starter — an import alias or a local const (E7)", () => {
+    const imported = swap(
+      `import { useState } from "react";`,
+      `import { startTransition as go, useState } from "react";`,
+    ).replace("onClick={submit}", "onClick={() => go(async () => { await submit(); })}");
+    expect(busyBindingProblems("E7.tsx", imported).join("\n")).toMatch(
+      /called from inside a transition \(`go`\)/,
+    );
+    const local = swap(
+      `import { useState } from "react";`,
+      `import { startTransition, useState } from "react";`,
+    )
+      .replace(
+        "  const [busy, setBusy] = useState(false);\n",
+        "  const [busy, setBusy] = useState(false);\n  const go = startTransition;\n",
+      )
+      .replace("onClick={submit}", "onClick={() => go(async () => { await submit(); })}");
+    expect(busyBindingProblems("E7b.tsx", local).join("\n")).toMatch(
+      /called from inside a transition \(`go`\)/,
+    );
+  });
+
+  it("refuses `useTransition` imported under useState's name", () => {
+    const src = swap(
+      `import { useState } from "react";`,
+      `import { useTransition as useState } from "react";`,
+    );
+    expect(busyBindingProblems("E13.tsx", src).join("\n")).toMatch(/useTransition pending/);
+  });
+
+  it("refuses the setter handed away by REFERENCE — a child could set it with anything (E8)", () => {
+    const src = swap(
+      "<button onClick={submit} />",
+      "<button onClick={submit} /><Child onBusy={setBusy} />",
+    );
+    expect(busyBindingProblems("E8.tsx", src).join("\n")).toMatch(
+      /`setBusy` is handed away by reference/,
+    );
+  });
+
+  it("still accepts React's hooks read through a namespace (the resolution is not a refusal by spelling)", () => {
+    const src = swap(
+      `import { useState } from "react";`,
+      `import * as React from "react";`,
+    ).replace("useState(false)", "React.useState(false)");
+    expect(busyBindingProblems("NS.tsx", src)).toEqual([]);
   });
 });
