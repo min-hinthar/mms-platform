@@ -189,3 +189,19 @@ export function owedSendUnits(table: FloorTable): number {
 export function stripNoticeStands(n: { k: StaffKey } | string, stripWaits: boolean): boolean {
   return stripWaits && typeof n !== "string" && n.k === "floor.mint.waiting";
 }
+
+/**
+ * Phase 2h · integration b (critic F1) — whether the freeze copy joins a strip notice in the floor's
+ * ONE region (a strip notice otherwise outranks it).
+ *
+ * A strip notice outranks the freeze — a refusal is a moment the person who tapped must hear. But a
+ * STANDING notice (the strip's own start still unanswered, `stripNoticeStands`) is not a moment: it
+ * can hold the region for minutes, and a hung start holds Next's one-at-a-time action queue, so the
+ * floor's reads queue behind it and the board DOES freeze. Outranked for good, the freeze copy —
+ * and its escalation, "take new orders on paper" — never reached the screen's one live region. So
+ * once the board is degraded, a standing notice shares the region with the freeze copy (the line
+ * first, then the freeze). A notice still inside its dwell keeps the region alone, as before.
+ */
+export function freezeJoinsStripNotice(stripStanding: boolean, degraded: boolean): boolean {
+  return stripStanding && degraded;
+}

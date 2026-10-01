@@ -6,7 +6,12 @@ import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
-import { floorRowKey, mergeFloorRows, stripNoticeStands } from "@/lib/floor-rows";
+import {
+  floorRowKey,
+  freezeJoinsStripNotice,
+  mergeFloorRows,
+  stripNoticeStands,
+} from "@/lib/floor-rows";
 import { Button, EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { CounterOrderCard } from "./CounterOrderCard";
@@ -82,6 +87,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // cue. Seeded from the initial snapshot: a table already showing food up when the screen loads
   // never rings. Phase 2d · Codex round 1 · ready — keys, never the count (`upRose`).
   const [stripNotice, setStripNotice] = useState<StaffMsg | null>(null);
+  // Phase 2h · integration b (critic F1) — the strip notice outlived its dwell (`stripNoticeStands`):
+  // it shares the region with the freeze copy from then on (`freezeJoinsStripNotice`).
+  const [stripStanding, setStripStanding] = useState(false);
   const [upNotice, setUpNotice] = useState<string[] | null>(null);
   const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,12 +110,16 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     if (stripTimer.current) clearTimeout(stripTimer.current);
     stripTimer.current = null;
     setStripNotice(n);
+    setStripStanding(false);
     if (n !== null)
       stripTimer.current = setTimeout(() => {
         stripTimer.current = null;
         // The waiting line of the strip's own start stands under its reload until that start's
         // late answer replaces it (a landing clears it; a refusal or a lost answer says itself).
-        if (stripNoticeStands(n, stripWaits.current)) return;
+        if (stripNoticeStands(n, stripWaits.current)) {
+          setStripStanding(true);
+          return;
+        }
         setStripNotice(null);
       }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
   }, []);
@@ -329,6 +341,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // `mergeFloorRows` states once (a table asking to pay, the counter orders, the rest of the room).
   const rows = mergeFloorRows(snap.tables, snap.counter);
   const count = rows.length;
+  const freezeJoins = freezeJoinsStripNotice(stripStanding, degraded !== null);
   const tableCount = snap.tables.length;
   const counterCount = snap.counter.length;
   // Phase 2d · floor — the ask a screen-reader user must hear when it appears.
@@ -383,7 +396,25 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           }}
         >
           {stripNotice ? (
-            <MsgText lang={lang} msg={stripNotice} />
+            <>
+              <MsgText lang={lang} msg={stripNotice} />
+              {freezeJoins && degraded && (
+                // Critic F1 — a STANDING strip line shares the region with the freeze (and its
+                // paper escalation) once the board is degraded; the flat string carries its own mark.
+                <>
+                  {" · "}
+                  <span lang={lang}>
+                    {frozenBoardCopy(
+                      lang,
+                      snap.serverNow,
+                      nowMs - degraded.since,
+                      "what.floor",
+                      degraded.cause,
+                    )}
+                  </span>
+                </>
+              )}
+            </>
           ) : degraded ? (
             // A4·2 — this is the counter screen's ONE state region: the lane beside it freezes on
             // the same outage and says so in plain text, never in a second live region (two

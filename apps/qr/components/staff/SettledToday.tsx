@@ -341,11 +341,13 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
           onDone={(refundedCents?: number) => {
             // Phase 2h · integration b — THIS sheet's subject, as the render that mounted it held it:
             // a LATE answer arrives through the tap-time closure, after the manager may have opened
-            // another line's sheet, and must close only its own (`refundSheetAfterAnswer`).
+            // another line's sheet, and must close only its own (`refundSheetAfterAnswer`) — unless
+            // it asks for a drawer hand-back, which no open sheet may hide (critic S1).
             const subject = refund.held!;
             const orderId = subject.order.id;
             const path = subject.order.refundPath;
-            setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id));
+            const handBack = refundedCents != null && path === "cash";
+            setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id, handBack));
             if (refundedCents == null) {
               // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the
               // previous confirmation standing would re-issue its imperative over an attempt that

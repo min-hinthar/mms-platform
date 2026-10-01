@@ -1021,6 +1021,9 @@ describe("Phase 2h · integration b — the strip's waiting line stands while IT
   const waiting = () => ts("en", "floor.mint.waiting");
 
   it("a TABLE start unanswered past the bound: its line outlives the dwell under the strip's reload, until the late answer replaces it", async () => {
+    // The floor's reads answer here (a live board): the standing line holds the region ALONE. The
+    // degraded board (critic F1) is the next case.
+    answer = ok(snap([]));
     const d = deferred<{ ok: false; error: string }>();
     openRegisterOrder.mockReturnValueOnce(d.promise);
     const { tile, region, section } = mount(snap([]));
@@ -1072,10 +1075,45 @@ describe("Phase 2h · integration b — the strip's waiting line stands while IT
     });
     expect(openRegisterOrder).toHaveBeenCalledTimes(1);
     expect(region().textContent).toBe(waiting());
-    // MUTATION (p2h-doors/strip-reload-for-walkup, re-anchored onto `tableWaits`): the board keeps
-    // "reload the page" standing for a start that is not the strip's — no reload beside it, and
-    // nothing of the strip's will ever replace it; red.
+    // MUTATION (p2h-int-b/floor-strip/walkup-wait-stands): the strip counts the Walk-up's wait as
+    // its own, and the board keeps "reload the page" standing for a start that is not the strip's —
+    // no reload of the strip's beside it, and nothing of the strip's will ever replace it; red.
+    // (p2h-doors/strip-reload-for-walkup — the strip's reload JSX alone — is TableStrip.test's.)
     await tick(ERR_DWELL_MS);
     expect(region().textContent).not.toBe(waiting());
+  });
+
+  it("critic F1 — a standing line on a FROZEN floor shares the region with the freeze copy, through its paper escalation", async () => {
+    // The floor's reads never answer (the default) — a hung start holds Next's action queue, so the
+    // board's polls queue behind it and the floor freezes while the start is still out.
+    const { STAFF_OUTAGE_ESCALATE_MS } = await import("@/lib/staff-outage");
+    const d = deferred<{ ok: false; error: string }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { tile, region } = mount(snap([]));
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    await tick(STAFF_HANG_MS);
+    // Inside its dwell the line holds the region alone.
+    expect(region().textContent).toBe(waiting());
+    await tick(ERR_DWELL_MS * 3);
+    // Past the dwell the line stands — and the freeze joins it. MUTATION
+    // (p2h-int-b/floor-strip/freeze-never-joins · never-marked-standing): only the waiting line is
+    // ever said while the start is out; the floor never says it is not updating; red.
+    expect(region().textContent).toContain(waiting());
+    expect(region().textContent).toContain(ts("en", "out.head.notUpdating"));
+    // The escalation reaches the one region too: "take new orders on paper".
+    await tick(STAFF_OUTAGE_ESCALATE_MS);
+    expect(region().textContent).toContain(waiting());
+    expect(region().textContent).toContain(ts("en", "out.tail.paper"));
+    // The late answer replaces the line, and a refusal is a moment again: it holds the region ALONE
+    // through its dwell. MUTATION (p2h-int-b/floor-strip/standing-never-reset): the old line's
+    // standing outlives it, and the freeze crowds the refusal the person who tapped must hear; red.
+    await act(async () => {
+      d.resolve({ ok: false, error: "That table isn’t registered." });
+      await d.promise;
+    });
+    await tick(0);
+    expect(region().textContent).toBe("That table isn’t registered.");
   });
 });

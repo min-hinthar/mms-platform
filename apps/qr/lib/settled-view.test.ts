@@ -129,11 +129,19 @@ describe("refundSheetAfterAnswer — Phase 2h · integration b: a refund's answe
   const sheet = (lineId: string) => ({ order: { id: "o1" }, line: { id: lineId } });
 
   it("closes the open sheet for the answered line; keeps another line's; nothing open stays nothing", () => {
-    expect(refundSheetAfterAnswer(sheet("l1"), "l1")).toBeNull();
+    expect(refundSheetAfterAnswer(sheet("l1"), "l1", false)).toBeNull();
     // MUTATION (p2h-int-b/settled/after-answer-closes-any): a LATE answer for line l1 shuts the
     // sheet the manager has since opened for l2, under their hands.
     const other = sheet("l2");
-    expect(refundSheetAfterAnswer(other, "l1")).toBe(other);
-    expect(refundSheetAfterAnswer(null, "l1")).toBeNull();
+    expect(refundSheetAfterAnswer(other, "l1", false)).toBe(other);
+    expect(refundSheetAfterAnswer(null, "l1", false)).toBeNull();
+  });
+
+  it("critic S1 — a drawer hand-back closes ANY open sheet: its instruction must never sit under one", () => {
+    // MUTATION (p2h-int-b/settled/hand-back-keeps-other-sheet): the hand-back is ignored, and the
+    // instruction to pay the guest lands aria-hidden behind l2's sheet; red.
+    expect(refundSheetAfterAnswer(sheet("l2"), "l1", true)).toBeNull();
+    expect(refundSheetAfterAnswer(sheet("l1"), "l1", true)).toBeNull();
+    expect(refundSheetAfterAnswer(null, "l1", true)).toBeNull();
   });
 });

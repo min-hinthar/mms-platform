@@ -469,6 +469,48 @@ describe("Phase 2h · integration b — a refund's LATE answer closes only its O
     }
   });
 
+  it("critic S1 — a CASH refund answered late under ANOTHER line's sheet closes it: the hand-back instruction takes focus, never hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+      const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+      });
+      refreshAnswer = snapshot([a, b]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a, b]));
+      for (const toggle of screen.getAllByRole("button", { expanded: false }))
+        fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+      await flush();
+      const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/hand-back-keeps-other-sheet · hand-back-never-computed): B's
+      // sheet stays open over the instruction — aria-hidden behind it, its focus taken back by the
+      // sheet's trap, and nothing re-tries when B closes; red.
+      expect(bSheet.getAttribute("data-state")).toBe("closed");
+      const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]')!;
+      expect(banner.textContent).toBe(
+        STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
+      );
+      expect(banner.closest('[aria-hidden="true"]')).toBeNull();
+      expect(document.activeElement).toBe(banner);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a refund answered late while its OWN sheet is still open closes that sheet, as an on-time one does", async () => {
     vi.useFakeTimers();
     try {

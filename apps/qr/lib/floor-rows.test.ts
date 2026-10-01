@@ -6,6 +6,7 @@ import {
   freeTapAllowed,
   mergeFloorRows,
   stripKey,
+  freezeJoinsStripNotice,
   stripNoticeStands,
   tableStrip,
 } from "./floor-rows";
@@ -264,5 +265,17 @@ describe("stripNoticeStands — Phase 2h · integration b: the waiting line outl
     // strip's start waits would outlive its dwell — a refusal is a moment, not a standing state.
     expect(stripNoticeStands({ k: "floor.mint.unknown" }, true)).toBe(false);
     expect(stripNoticeStands("That table isn’t registered.", true)).toBe(false);
+  });
+});
+
+describe("freezeJoinsStripNotice — Phase 2h · integration b (critic F1): a STANDING strip line shares the region with the freeze", () => {
+  it("joins only a standing line on a degraded board", () => {
+    expect(freezeJoinsStripNotice(true, true)).toBe(true);
+    // MUTATION (p2h-int-b/floor-strip/freeze-joins-any-notice): a refusal still inside its dwell
+    // loses the region to the freeze copy — a moment the person who tapped must hear.
+    expect(freezeJoinsStripNotice(false, true)).toBe(false);
+    // MUTATION (p2h-int-b/floor-strip/freeze-joins-a-live-board): a live board says "not updating".
+    expect(freezeJoinsStripNotice(true, false)).toBe(false);
+    expect(freezeJoinsStripNotice(false, false)).toBe(false);
   });
 });
