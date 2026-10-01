@@ -577,11 +577,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const markFocus = useCallback(() => {
     hadRealFocus.current = true;
   }, []);
-  useEffect(() => {
-    if (document.activeElement === document.body && hadRealFocus.current)
-      headingRef.current?.focus({ preventScroll: true });
-    hadRealFocus.current = document.activeElement !== document.body;
-  }, [snap]);
+  // (Its effect is declared AFTER the 86 landing's, below — see there.)
 
   // ── Derived board state ────────────────────────────────────────────────────────────────────────
   // Phase 2b — the tickets as the board KNOWS them: the snapshot with every confirmed sold-out
@@ -840,6 +836,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     if (ae === null || ae === document.body)
       document.getElementById(`kds-line-${id}`)?.focus({ preventScroll: true });
   }, [soldOverrides]);
+  // The focus catch-all (above) — declared AFTER the landing, ON PURPOSE (Phase 2h · integration b,
+  // K1): React runs a commit's effects in declaration order, and a landed 86 can commit together
+  // with a snapshot. Run first, the catch-all took the orphaned focus to the heading, and the landing
+  // then found focus "somewhere real" and left it there — never on the dish's line.
+  useEffect(() => {
+    if (document.activeElement === document.body && hadRealFocus.current)
+      headingRef.current?.focus({ preventScroll: true });
+    hadRealFocus.current = document.activeElement !== document.body;
+  }, [snap]);
 
   const openMenu = (line: KitchenLine) => {
     // A dish whose 86 is in flight refuses its ⋯ (aria-disabled says so); a sold-out or grocery line
@@ -1457,6 +1462,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               held.has(dishKey(menu.held.menuItemId)))
           }
           msg={menuMsg}
+          // Phase 2h · integration b (K2) — the board behind the sheet is aria-hidden: while the
+          // sheet's region says "reload the board to see", the sheet offers the Reload itself.
+          reload={saysWaiting(menuMsg)}
           on86={(l) => void eightySix(l)}
           onOpenChange={(o) => {
             if (!o) {

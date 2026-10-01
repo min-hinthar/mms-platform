@@ -408,3 +408,91 @@ describe("M76 — the refund sheet is HELD through its exit", () => {
     vi.restoreAllMocks();
   });
 });
+
+describe("Phase 2h · integration b — a refund's LATE answer closes only its OWN line's sheet", () => {
+  type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void };
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  it("a refund answered after the manager moved to ANOTHER line's sheet confirms its figure and leaves that sheet open", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+      const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+      });
+      refreshAnswer = snapshot([a, b]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a, b]));
+      for (const toggle of screen.getAllByRole("button", { expanded: false }))
+        fireEvent.click(toggle);
+      // Line A's refund is sent, and has no answer at the bound: the sheet frees and says so.
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      expect(screen.getByRole("dialog").textContent).toContain(
+        STAFF["floor.refund.waiting"].en.slice(0, 20),
+      );
+      // The manager puts A's sheet away and opens line B's.
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await flush();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+      await flush();
+      const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+      // A's refund lands late — through A's tap-time `onDone`.
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/late-done-closes-any-sheet · p2h-int-b/settled/after-answer-closes-any):
+      // A's late ok closes WHICHEVER sheet is open — B's, with the manager mid-way through it; red.
+      expect(screen.queryByRole("dialog")).toBe(bSheet);
+      expect(bSheet.getAttribute("data-state")).toBe("open");
+      // A's figure is still confirmed (the zone's banner, behind the open sheet).
+      const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]');
+      expect(banner?.textContent).toContain("$11.05");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a refund answered late while its OWN sheet is still open closes that sheet, as an on-time one does", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+      refreshAnswer = snapshot([a]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a]));
+      fireEvent.click(screen.getByRole("button", { expanded: false }));
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/after-answer-closes-nothing): a landed refund's own sheet
+      // stays up over a line the ledger already holds; red.
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -6,7 +6,7 @@ import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
-import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
+import { floorRowKey, mergeFloorRows, stripNoticeStands } from "@/lib/floor-rows";
 import { Button, EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { CounterOrderCard } from "./CounterOrderCard";
@@ -92,6 +92,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         : initial.tables.map((t) => [t.sessionId, heardUp(undefined, t.kitchen?.upKeys ?? [])]),
     ),
   );
+  // Phase 2h · integration b — the strip's OWN (table) start is still out past the bound, as the
+  // strip reports it. Read when a notice's dwell ends, never when it is said (`stripNoticeStands`).
+  const stripWaits = useRef(false);
+  const onStripWait = useCallback((waits: boolean) => {
+    stripWaits.current = waits;
+  }, []);
   const onStripNotice = useCallback((n: StaffMsg | null) => {
     if (stripTimer.current) clearTimeout(stripTimer.current);
     stripTimer.current = null;
@@ -99,6 +105,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     if (n !== null)
       stripTimer.current = setTimeout(() => {
         stripTimer.current = null;
+        // The waiting line of the strip's own start stands under its reload until that start's
+        // late answer replaces it (a landing clears it; a refusal or a lost answer says itself).
+        if (stripNoticeStands(n, stripWaits.current)) return;
         setStripNotice(null);
       }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
   }, []);
@@ -501,6 +510,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           tables={snap.tables}
           lang={lang}
           onNotice={onStripNotice}
+          onWait={onStripWait}
         />
       ) : (
         // Phase 2d · review (floor #3) — no registered table: the strip's place SAYS so, plainly

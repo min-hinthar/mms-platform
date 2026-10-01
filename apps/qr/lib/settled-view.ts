@@ -126,3 +126,20 @@ export function settledDate(iso: string, tz: string): string {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? f.format(new Date(ms)) : "";
 }
+
+/**
+ * Phase 2h · integration b — the refund sheet a refund's ANSWER closes: its OWN line's, never another.
+ *
+ * A refund with no answer at STAFF_HANG_MS frees its sheet (9a), and its LATE answer still reaches the
+ * board through that sheet's tap-time `onDone` (9e) — after the manager may have put it away and
+ * opened a refund for another line. Closing whatever sheet was open THEN shut a sheet the answer had
+ * nothing to do with, under the manager's hands. So the answer closes the open sheet only when it is
+ * for the same line (the order item the write refunded): that one is refunded now, and a sheet
+ * reopened for it would only be refused as "already refunded". Every other open sheet is kept.
+ */
+export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
+  open: T | null,
+  answeredLineId: string,
+): T | null {
+  return open !== null && open.line.id === answeredLineId ? null : open;
+}

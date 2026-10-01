@@ -171,3 +171,21 @@ export function stripKey(tiles: readonly StripTile[]): { entries: StripKeyEntry[
 export function owedSendUnits(table: FloorTable): number {
   return table.kitchen?.notSent ?? 0;
 }
+
+/**
+ * Phase 2h · integration b — whether a strip notice STANDS past the floor region's dwell.
+ *
+ * Every strip notice dwells (`ERR_DWELL_MS` — kitchen-10: it must outlive the poll that follows it)
+ * and then yields the region. Except the WAITING line while the start it is about is the strip's OWN
+ * (a table's): "no answer yet — the order may still start; don't start it again: reload the page" is
+ * true until that start's late answer replaces it (a landing clears it, a refusal or a lost answer
+ * says itself), and the strip's reload stands under it for exactly that long — dwelled away, the
+ * reload stood with no sentence. A strip tap refused while a WALK-UP waits says the same words but is
+ * only a refusal: that start's line and reload are the Start zone's, and nothing of the strip's would
+ * ever replace it, so it dwells as before. The caller decides when the dwell ENDS (reading
+ * `stripWaits` then), never when the line is said: a start's own line is said in the same tick that
+ * latches it, before the strip can have reported the wait.
+ */
+export function stripNoticeStands(n: { k: StaffKey } | string, stripWaits: boolean): boolean {
+  return stripWaits && typeof n !== "string" && n.k === "floor.mint.waiting";
+}

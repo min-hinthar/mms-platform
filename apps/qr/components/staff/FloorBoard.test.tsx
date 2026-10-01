@@ -68,6 +68,7 @@ const { ts } = await import("@/lib/i18n/staff");
 const { FLOOR_WAIT_TICK_MS } = await import("./FloorWait");
 const { UP_NOTICE_DWELL_MS } = await import("@/lib/floor-kitchen");
 const { ERR_DWELL_MS } = await import("@/lib/kds-errors");
+const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
 // ── Phase 2g ──
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 const { tf } = await import("@/lib/i18n/fill");
@@ -1013,5 +1014,68 @@ describe("Phase 2h (9f) — the floor's poll never stacks a read behind a hung o
     // Exactly one: nothing more until the poll's own next tick.
     await tick(1_000);
     expect(reads).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Phase 2h · integration b — the strip's waiting line stands while ITS start waits", () => {
+  const waiting = () => ts("en", "floor.mint.waiting");
+
+  it("a TABLE start unanswered past the bound: its line outlives the dwell under the strip's reload, until the late answer replaces it", async () => {
+    const d = deferred<{ ok: false; error: string }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { tile, region, section } = mount(snap([]));
+    const reload = () =>
+      [...section().querySelectorAll("button")].find((b) =>
+        b.textContent?.includes(ts("en", "out.reload")),
+      ) ?? null;
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    await tick(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting());
+    expect(reload()).not.toBeNull();
+    // Well past the region's dwell, the start is still out: its line stands with the reload it
+    // promises. MUTATION (p2h-int-b/floor-strip/waiting-dwells · wait-unreported · wait-never-heard):
+    // the dwell clears it, and the strip's reload stands under a region that no longer says why; red.
+    await tick(ERR_DWELL_MS * 3);
+    expect(region().textContent).toBe(waiting());
+    expect(reload()).not.toBeNull();
+    // A re-tap is refused at the tap (never sent) and re-says the same line — which stands too.
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    await tick(ERR_DWELL_MS + 1);
+    expect(region().textContent).toBe(waiting());
+    // The late answer replaces it — a refusal says itself, and dwells like any refusal.
+    await act(async () => {
+      d.resolve({ ok: false, error: "That table isn’t registered." });
+      await d.promise;
+    });
+    await tick(0);
+    expect(region().textContent).toBe("That table isn’t registered.");
+    expect(reload()).toBeNull();
+    await tick(ERR_DWELL_MS);
+    expect(region().textContent).not.toContain("registered");
+  });
+
+  it("a strip tap refused while a WALK-UP waits says the line and lets it go at the dwell: that start's line and reload are the Start zone's", async () => {
+    openRegisterOrder.mockImplementationOnce(() => hang());
+    const { tile, region, container } = mount(snap([]), true);
+    const walkup = container.querySelector<HTMLButtonElement>("button.ui-btn")!;
+    await act(async () => {
+      fireEvent.click(walkup);
+    });
+    await tick(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(tile(7));
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(waiting());
+    // MUTATION (p2h-doors/strip-reload-for-walkup, re-anchored onto `tableWaits`): the board keeps
+    // "reload the page" standing for a start that is not the strip's — no reload beside it, and
+    // nothing of the strip's will ever replace it; red.
+    await tick(ERR_DWELL_MS);
+    expect(region().textContent).not.toBe(waiting());
   });
 });

@@ -305,15 +305,6 @@ export const STAFF = {
     en: "Couldn’t bring back {x} — try again.",
     my: "{x} ကို ပြန်မယူနိုင်ပါ — ထပ်စမ်းပါ။",
   },
-  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} ကို မီနူးက မဖြုတ်နို…”.
-  "kds.err.86": {
-    en: "Couldn’t mark {x} sold out — try again.",
-    my: "{x} ကို ကုန်ပြီ လို့ မမှတ်နိုင်ပါ — ထပ်စမ်းပါ။",
-  },
-  "kds.err.86.undo": {
-    en: "Couldn’t put {x} back — use the Menu screen.",
-    my: "{x} ကို ပြန်မတင်နိုင်ပါ — မီနူး စခရင်မှာ လုပ်ပါ။",
-  },
   "kds.err.line": {
     en: "Couldn’t update {x} — try again.",
     my: "{x} ကို မပြင်နိုင်ပါ — ထပ်စမ်းပါ။",

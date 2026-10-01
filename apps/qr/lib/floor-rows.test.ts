@@ -6,6 +6,7 @@ import {
   freeTapAllowed,
   mergeFloorRows,
   stripKey,
+  stripNoticeStands,
   tableStrip,
 } from "./floor-rows";
 import type { CounterFloorRow, FloorTable } from "./floor-types";
@@ -249,5 +250,19 @@ describe("stripKey — the strip's KEY: every glyph on screen, decoded, and noth
     const kitchen = { notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 0, oldestFireAt: null };
     // MUTATION: never set `owed` → the red dot on the tile has no word anywhere on screen.
     expect(stripKey([on(6, "ordering", { kitchen })]).owed).toBe(true);
+  });
+});
+
+describe("stripNoticeStands — Phase 2h · integration b: the waiting line outlives the dwell only while the strip's OWN start waits", () => {
+  it("the waiting line stands while the strip's table start is out; nothing else does", () => {
+    expect(stripNoticeStands({ k: "floor.mint.waiting" }, true)).toBe(true);
+    // MUTATION (p2h-int-b/floor-strip/stands-for-any-wait): a strip tap refused while a WALK-UP
+    // waits keeps "reload the page" standing in the board's region, with no reload beside it and
+    // nothing of the strip's to ever replace it.
+    expect(stripNoticeStands({ k: "floor.mint.waiting" }, false)).toBe(false);
+    // MUTATION (p2h-int-b/floor-strip/stands-ignores-the-key): every strip notice said while the
+    // strip's start waits would outlive its dwell — a refusal is a moment, not a standing state.
+    expect(stripNoticeStands({ k: "floor.mint.unknown" }, true)).toBe(false);
+    expect(stripNoticeStands("That table isn’t registered.", true)).toBe(false);
   });
 });

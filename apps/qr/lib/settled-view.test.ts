@@ -16,6 +16,7 @@ import {
   TENDER_KEY,
   groupKey,
   receiptRowKey,
+  refundSheetAfterAnswer,
   settledChipKey,
   settledClock,
   settledDate,
@@ -121,5 +122,18 @@ describe("settled-view — the dictionary mirrors the receipt", () => {
     expect(settledDate("2026-09-13T05:41:00Z", "America/Los_Angeles")).toBe("Sep 12");
     expect(settledDate("2026-09-13T05:41:00Z", "Asia/Yangon")).toBe("Sep 13");
     expect(settledDate("not a date", "America/Los_Angeles")).toBe("");
+  });
+});
+
+describe("refundSheetAfterAnswer — Phase 2h · integration b: a refund's answer closes only its OWN line's sheet", () => {
+  const sheet = (lineId: string) => ({ order: { id: "o1" }, line: { id: lineId } });
+
+  it("closes the open sheet for the answered line; keeps another line's; nothing open stays nothing", () => {
+    expect(refundSheetAfterAnswer(sheet("l1"), "l1")).toBeNull();
+    // MUTATION (p2h-int-b/settled/after-answer-closes-any): a LATE answer for line l1 shuts the
+    // sheet the manager has since opened for l2, under their hands.
+    const other = sheet("l2");
+    expect(refundSheetAfterAnswer(other, "l1")).toBe(other);
+    expect(refundSheetAfterAnswer(null, "l1")).toBeNull();
   });
 });
