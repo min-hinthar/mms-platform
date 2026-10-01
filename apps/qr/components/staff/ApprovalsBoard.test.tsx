@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalsPoll, PendingApproval, RefundNeeded } from "@/lib/approvals";
 import type { Approver } from "@/lib/voids";
@@ -21,11 +21,16 @@ let pollAnswer: () => Promise<ApprovalsPoll> = () =>
 let rosterAnswer: () => Promise<Approver[]> = () => Promise.resolve([]);
 let refundsAnswer: () => Promise<RefundNeeded[]> = () => Promise.resolve([]);
 let resolveAnswer: () => Promise<void> = () => Promise.resolve();
+// Phase 2h — the decision's own action, each case's to hang, throw or answer.
+type ResolveResult = { ok: true } | { ok: false; reason: string };
+const resolveApproval = vi.fn(
+  (): Promise<ResolveResult> => Promise.resolve({ ok: false, reason: "error" }),
+);
 const resolved: string[] = [];
 vi.mock("@/lib/approvals", () => ({
   pollPendingApprovals: () => pollAnswer(),
   listRefundsNeeded: () => refundsAnswer(),
-  resolveApproval: () => Promise.resolve({ ok: false, reason: "error" }),
+  resolveApproval: (...a: unknown[]) => resolveApproval(...(a as [])),
   resolveRefundNeeded: (id: string) => {
     resolved.push(id);
     return resolveAnswer();
@@ -53,6 +58,8 @@ afterEach(() => {
   refundsAnswer = () => Promise.resolve([]);
   resolveAnswer = () => Promise.resolve();
   resolved.length = 0;
+  resolveApproval.mockReset();
+  resolveApproval.mockImplementation(() => Promise.resolve({ ok: false, reason: "error" }));
 });
 
 const refundNeeded = (id: string): RefundNeeded => ({
@@ -356,5 +363,142 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     window.location.hash = "#appr-h";
     await waitFor(() => expect(document.activeElement?.id).toBe("appr-h"));
     window.location.hash = "";
+  });
+});
+
+// ── Phase 2h — a hung tablet never traps the approvals zone (P2cz · P2fc) ─────────────────────────
+const { STAFF_HANG_MS, stalledSince } = await import("@/lib/bounded-write");
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((r, j) => {
+    resolve = r;
+    reject = j;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("Phase 2h (9f) — the zone's poll never stacks reads behind a hung one", () => {
+  it("a queue read hung for 60 s is ONE dispatch; the second miss arms the freeze; the answer kicks exactly one owed tick", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const hung = deferred<ApprovalsPoll>();
+    const polls = vi
+      .fn<() => Promise<ApprovalsPoll>>()
+      .mockReturnValueOnce(hung.promise)
+      .mockImplementation(() => Promise.resolve({ ok: true, rows: [pending("r1")] }));
+    pollAnswer = polls;
+    mount([pending("r1")], []);
+    await tick(5_000);
+    expect(polls).toHaveBeenCalledTimes(1);
+    const frozen = () => screen.queryByText(new RegExp(STAFF["out.head.notUpdating"].en));
+    await tick(14_998);
+    expect(frozen()).toBeNull();
+    // MUTATION (p2h-boards/approvals/refused-tick-never-a-miss): only the race's one miss counts; red.
+    await tick(5_001);
+    expect(frozen()).not.toBeNull();
+    // ONE tick's reads in the air the whole minute — never three more behind the hung one each tick.
+    // MUTATION (p2h-boards/approvals/poll-stacks · approvals/gate-watches-nothing); red.
+    await tick(38_000);
+    expect(polls).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-boards/approvals/owed-read-never-kicked): nothing reads until the next tick; red.
+    await act(async () => {
+      hung.resolve({ ok: true, rows: [pending("r1")] });
+    });
+    await tick(0);
+    expect(polls).toHaveBeenCalledTimes(2);
+    expect(frozen()).toBeNull();
+    await tick(1_000);
+    expect(polls).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+});
+
+describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and refused while the tablet is stuck", () => {
+  const approver: Approver = { staffId: "m1", displayName: "Daw Aye" } as Approver;
+  const region = () => document.getElementById("appr-msg-r1")!;
+  const reload = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+  /** Open Approve, pick the manager, type a PIN — the form ready to submit. */
+  async function ready() {
+    await act(async () => {
+      screen.getByRole("button", { name: /Approve/ }).click();
+    });
+    await act(async () => {
+      fireEvent.change(document.getElementById("appr-r1-mgr")!, { target: { value: "m1" } });
+      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
+    });
+    return screen.getByRole("button", { name: STAFF["table.appr.verb.confirmApprove"].en });
+  }
+
+  it("a decision with no answer frees its button AT the bound, says so with a Reload, and the late refusal is said", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {}); // the case is about the write
+    const write = deferred<ResolveResult>();
+    resolveApproval.mockImplementationOnce(() => write.promise);
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    const submit = () =>
+      document
+        .querySelector<HTMLButtonElement>("#appr-msg-r1")!
+        .closest("form")!
+        .querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit().getAttribute("aria-busy")).toBe("true");
+    await tick(STAFF_HANG_MS - 1);
+    expect(submit().getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-boards/approvals/resolve-transition — the old startTransition): pending holds
+    // until the action answers; red.
+    await tick(1);
+    expect(submit().getAttribute("aria-busy")).toBeNull();
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    // MUTATION (p2h-boards/approvals/waiting-offers-no-reload): no button beside the region; red.
+    expect(reload()).not.toBeNull();
+    expect(region().contains(reload())).toBe(false);
+    // The PIN is cleared — a second decision is what the sentence says not to make.
+    expect((document.getElementById("appr-r1-pin") as HTMLInputElement).value).toBe("");
+    // The LATE refusal is said (9e). MUTATION (p2h-boards/approvals/late-answer-dropped): the waiting
+    // line stands for good; red.
+    await act(async () => {
+      write.resolve({ ok: false, reason: "not_open" });
+    });
+    await tick(0);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.notOpen"].en);
+    expect(reload()).toBeNull();
+  });
+
+  it("a decision whose action THROWS says 'couldn't confirm' — it no longer reaches an error boundary", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {});
+    resolveApproval.mockImplementationOnce(() => Promise.reject(new Error("Failed to fetch")));
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    // MUTATION (p2h-boards/approvals/threw-uncaught): the rejection escapes the handler; red.
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(0);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.unknown"].en);
+    expect(screen.getByText(/Mohinga/)).toBeTruthy(); // the zone is still up
+  });
+
+  it("while an earlier action has gone unanswered past the bound, the decision is REFUSED at the tap — never sent", async () => {
+    vi.useFakeTimers();
+    // A poll read hung on this tab (the stall ledger is per tab — any action counts).
+    pollAnswer = () => new Promise(() => {});
+    mount([pending("r1")], [approver]);
+    await tick(5_000); // the poll goes out, and hangs
+    await tick(STAFF_HANG_MS);
+    expect(stalledSince()).not.toBeNull();
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    // MUTATION (p2h-boards/approvals/stalled-dispatches): the decision is sent into the stuck queue; red.
+    expect(resolveApproval).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(reload()).not.toBeNull();
   });
 });

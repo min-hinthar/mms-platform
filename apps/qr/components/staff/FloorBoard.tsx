@@ -2,6 +2,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getFloorView } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
@@ -105,12 +106,51 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // it rendered (the mount never rings), heard on every GOOD poll below (a frozen floor rings nothing).
   const hear = useCounterAttention(() => floorFacts(initial.tables));
 
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). Next runs Server Actions one at a time
+  // per tab, so a read that `raceTimeout` gave up on at 15 s is still IN the queue: a 5 s tick that
+  // started a "fresh" read after it only queued another abandoned call behind the hung one, every
+  // 5 s, each of which had to drain before the next write anyone tapped could even be sent. While
+  // the RAW read is unanswered no new read starts; the ticks it refused are owed ONE read, kicked
+  // just after it answers. The gate is made ONCE for the board's life (on first use, from a
+  // callback — never during render, never in an effect's setup, which Strict Mode and a new
+  // `refresh` re-run and which would forget the hung read), and never disposed from a cleanup
+  // (Strict Mode would latch that for good): the kick is guarded by `alive`, re-armed at setup.
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
+   *  (cause `unknown`: this end failing is not evidence the platform is down). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(Date.now());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+  }, []);
+
   const refresh = useCallback(async () => {
-    if (inFlight.current) return; // coalesce overlapping fetches
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time IS a
+      // miss: before, the race's give-up was the only miss a hang ever produced, and every tick after
+      // it re-armed a fresh read whose own give-up kept the count honest only by stacking calls.
+      if (asked.missed) miss();
+      return;
+    }
+    // A bare coalesce is safe here: the gate's owed kick is deferred past this read's `finally`, and
+    // nothing below is awaited after the read.
+    if (inFlight.current) return;
     inFlight.current = true;
     try {
-      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      const res = await raceTimeout(getFloorView());
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
+      // gate watches the RAW read (the race frees this caller at 15 s, never the queue).
+      const res = await raceTimeout(gate.watch(getFloorView()));
       if (!alive.current) return; // unmounted mid-fetch — don't setState / schedule timers
       if (!res.ok) {
         if (res.reason === "outage") {
@@ -201,17 +241,16 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     } catch (e) {
       // Don't blank the floor on a transient fetch error — keep the last good snapshot; the poll + the
       // realtime self-heal will recover. After 2 consecutive failures, say so (KDS/expo parity).
-      if (alive.current) {
-        // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-        fails.current += 1;
-        setNowMs(Date.now());
-        if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
-      }
+      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
+      if (alive.current) miss();
       console.error("[FloorBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, [hear]);
+  }, [hear, gateOf, miss]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // Slow escalation tick while frozen/stale — the ≥2min paper-flow flip needs a re-render even if
   // every poll keeps failing silently.

@@ -2033,3 +2033,37 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
     expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
   });
 });
+
+describe("Phase 2h (9f) — the table's poll never stacks a read behind a hung one", () => {
+  it("a read hung for 60 s is ONE dispatch; the second miss arms the freeze; the answer kicks exactly one owed read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let release!: (r: TableDetailResult) => void;
+    const hung = new Promise<TableDetailResult>((r) => (release = r));
+    getTableDetail.mockImplementationOnce(() => hung);
+    mount();
+    await tick(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    const notUpdating = ts("en", "out.head.notUpdating");
+    await tick(14_998);
+    expect(orderRegion().textContent).not.toContain(notUpdating);
+    // At the bound: the race's give-up and the tick refused past it are TWO misses — the freeze.
+    // MUTATION (p2h-boards/floor-detail/refused-tick-never-a-miss): only the race's miss counts; red.
+    await tick(5_001);
+    expect(orderRegion().textContent).toContain(notUpdating);
+    // MUTATION (p2h-boards/floor-detail/poll-stacks · floor-detail/gate-watches-nothing): a read
+    // per tick queued behind the hung one; red.
+    await tick(38_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-boards/floor-detail/owed-read-never-kicked): nothing reads until the next
+    // tick; red.
+    await act(async () => {
+      release({ kind: "detail", detail: DETAIL });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(orderRegion().textContent).not.toContain(notUpdating);
+    await tick(1_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+});

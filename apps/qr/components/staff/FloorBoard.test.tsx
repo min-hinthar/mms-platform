@@ -974,3 +974,44 @@ describe("Phase 2g — the floor says what its counter list leaves out, and offe
     expect(document.activeElement).not.toBe(door());
   });
 });
+
+describe("Phase 2h (9f) — the floor's poll never stacks a read behind a hung one", () => {
+  const notUpdating = () => ts("en", "out.head.notUpdating");
+
+  it("a read hung for 60 s is ONE dispatch; the second miss arms the freeze; the answer kicks exactly one owed read", async () => {
+    const hung = deferred<unknown>();
+    const reads = vi
+      .fn<() => Promise<unknown>>()
+      .mockReturnValueOnce(hung.promise)
+      .mockImplementation(() => Promise.resolve({ ok: true, snapshot: snap([table(7)]) }));
+    answer = reads;
+    const { region } = mount(snap([table(7)]));
+    await tick(POLL_MS);
+    expect(reads).toHaveBeenCalledTimes(1);
+    // Under the bound a skipped tick is a slow read on busy wifi — not a miss, nothing said.
+    await tick(14_998); // t = 19.998 s — the read has been out 14.998 s
+    expect(region().textContent).not.toContain(notUpdating());
+    // At the bound: the race's give-up and the tick it refused are TWO misses, and the floor says it
+    // is not updating. MUTATION (p2h-boards/floor-board/refused-tick-never-a-miss): only the race's
+    // one miss ever counts — the freeze never arms over a hung read; red.
+    await tick(POLL_MS + 1);
+    expect(region().textContent).toContain(notUpdating());
+    // The whole minute, ONE read was in the air. MUTATION (p2h-boards/floor-board/poll-stacks ·
+    // gate-watches-nothing): every tick past the race's give-up dispatches another call queued
+    // behind the hung one; red.
+    await tick(38_000); // t ≈ 63 s
+    expect(reads).toHaveBeenCalledTimes(1);
+    // The raw answers (its race long given up, so its stale snapshot is not applied): the ONE owed
+    // read is kicked at once — not left to the next tick — lands, and the freeze clears.
+    // MUTATION (p2h-boards/floor-board/owed-read-never-kicked): nothing reads until the next tick; red.
+    await act(async () => {
+      hung.resolve({ ok: true, snapshot: snap([table(7)]) });
+    });
+    await tick(0);
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(region().textContent).not.toContain(notUpdating());
+    // Exactly one: nothing more until the poll's own next tick.
+    await tick(1_000);
+    expect(reads).toHaveBeenCalledTimes(2);
+  });
+});

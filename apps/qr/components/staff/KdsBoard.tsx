@@ -1,16 +1,10 @@
 "use client";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { boundWrite } from "@/lib/bounded-write";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import {
@@ -59,6 +53,7 @@ import {
 import type { KitchenErrCode } from "@/lib/kitchen-types";
 import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
+import { ReloadButton } from "./ReloadOffer";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock } from "@/lib/staff-clock";
@@ -149,6 +144,55 @@ function fmtSlot(iso: string): string {
   return staffClock(iso);
 }
 
+// ── Phase 2h (9b · 9e) ── a kitchen write, bounded. ─────────────────────────────────────────────────
+// Next runs Server Actions one at a time per tab, and under `startTransition(async …)` a transition's
+// `pending` stays true until its action ANSWERS — while any one hangs, every other transition's
+// pending AND every router commit on the tab is held with it (LEARNINGS #149 · #200). So every write
+// on this board is called OUTSIDE a transition and awaited through `boundWrite`, and the control's
+// busy is a state cleared in `finally`: it frees at the bound. A write still out at the bound has
+// THREE honest outcomes, never two: it answered (the server's own words), it threw (the answer was
+// lost — it may have landed: "we couldn't confirm", never "couldn't"), or it is still out ("no answer
+// yet — it may still go through — reload the board to see"), and its LATE answer is applied when it
+// comes: a late ok lands, a late refusal is said. The KDS is never refused while stalled (9d): a
+// kitchen tap is not money, and a cook mid-rush must not be stopped by a stuck read elsewhere.
+
+/** The waiting line for a write about `x` (the ticket or the dish those arms already name). */
+const waitingMsg = (x: string): KdsMsg => ({ k: "kds.err.waiting", vars: { x } });
+/** The thrown (couldn't-confirm) line for a write about `x`. */
+const unknownMsg = (x: string): KdsMsg => ({ k: "kds.err.unknown", vars: { x } });
+/** The region is saying "reload the board to see" — its Reload button stands beside it. */
+const saysWaiting = (m: KdsMsg | null): boolean =>
+  m !== null && typeof m !== "string" && m.k === "kds.err.waiting";
+
+/** Where a board write's outcome is said: the board's one region (`err`), and the retire of a
+ *  waiting line that a late answer has made stale — ITS OWN, never a newer line. */
+type KdsSay = { err: (m: KdsMsg | null) => void; drop: (m: KdsMsg) => void };
+
+/**
+ * One bounded kitchen write. `land` applies an ANSWER — on time (awaited, so the control's busy covers
+ * the refetch it starts) or late (the late ok lands, a late refusal is said). Never rejects.
+ */
+async function kitchenWrite<T>(
+  raw: Promise<T>,
+  x: string,
+  say: KdsSay,
+  land: (value: T) => void | Promise<void>,
+): Promise<void> {
+  // ⚠️ The RAW action promise — never `boundWrite(raceTimeout(x))`, whose own timer reads a hang as
+  // a throw and drops the late answer (lib/bounded-write.ts).
+  const out = await boundWrite(raw);
+  if (out.kind === "answer") return land(out.value);
+  if (out.kind === "threw") return say.err(unknownMsg(x));
+  const waiting = waitingMsg(x);
+  say.err(waiting);
+  void out.late.then((late) => {
+    // `late` never rejects. The waiting line goes (if it still stands), and the answer is applied.
+    say.drop(waiting);
+    if (late.kind === "answer") void land(late.value);
+    else say.err(unknownMsg(x));
+  });
+}
+
 export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; hasPin?: boolean }) {
   // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
@@ -160,10 +204,20 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // kitchen-10 — when the banner went up, on the device clock; a good snapshot may clear it only
   // once it has had its dwell (`actionErrorStale`). The 5-second poll is not the reader's clock.
   const errSince = useRef<number | null>(null);
+  // Phase 2h — the line standing NOW, for a late answer to retire only its own waiting line.
+  const errRef = useRef<KdsMsg | null>(null);
   const showErr = useCallback((m: KdsMsg | null) => {
     errSince.current = m ? Date.now() : null;
+    errRef.current = m;
     setErr(m);
   }, []);
+  const dropErr = useCallback(
+    (m: KdsMsg) => {
+      if (errRef.current === m) showErr(null);
+    },
+    [showErr],
+  );
+  const say = useMemo<KdsSay>(() => ({ err: showErr, drop: dropErr }), [showErr, dropErr]);
   // A refused server action: the dictionary's sentence in the device language, or the exit to
   // /staff/login when the refusal is "go sign in" — a banner in the wrong language is not an answer.
   const onRefused = useCallback(
@@ -284,17 +338,53 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     };
   }, []);
 
+  // Stamp the degrade in the SAME clock space as `nowMs` (server-space, offset-corrected), so the
+  // escalation elapsed cancels any device-clock skew. The BOARD's clock, for its own stamps only —
+  // the poll gate and the stall ledger read this device's `Date.now()` (the contract critic, F2).
+  const stampNow = useCallback(() => Date.now() + (clockOffset.current ?? 0), []);
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). A read `raceTimeout` gave up on at 15 s
+  // is still IN Next's one-at-a-time queue: a tick that started a "fresh" read after it only queued
+  // another abandoned call behind the hung one, every 5 s — and the next bump had to wait behind all
+  // of them. While the RAW read is unanswered no new read starts; the ticks it refused are owed ONE
+  // read, kicked just after it answers. Made ONCE for the board's life, on first use from a callback
+  // (never during render, never in an effect's setup — a re-setup would forget the hung read), never
+  // disposed from a cleanup (Strict Mode would latch it): the kick is guarded by `alive`, re-armed.
+  const alive = useRef(true);
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the banner. */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
+  }, [stampNow]);
+
   const refresh = useCallback(async () => {
+    const gate = gateOf();
+    const asked = gate.ask(); // no clock — never `stampNow()` here (F2)
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time IS a
+      // miss, so the banner arms (and escalates) over a hung read instead of hiding it.
+      if (asked.missed) miss();
+      return;
+    }
+    // A bare coalesce is safe: the gate's owed kick is deferred past this read's `finally`, and
+    // nothing below is awaited after the read.
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
     const seq = ++fetchSeq.current; // Phase 2b — stamped at the START (see `fetchSeq`)
-    // Stamp the degrade in the SAME clock space as `nowMs` (server-space, offset-corrected), so the
-    // escalation elapsed cancels any device-clock skew.
-    const stampNow = () => Date.now() + (clockOffset.current ?? 0);
     try {
       // raceTimeout (W10b): a HUNG poll (socket that never settles) would hold inFlight forever and
       // stop all polling with the board still wearing its live face — turn it into the catch path.
-      const res = await raceTimeout(getKitchenQueue());
+      // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
+      const res = await raceTimeout(gate.watch(getKitchenQueue()));
       if (!res.ok) {
         // W10b (M32): "outage" means the platform is unreachable — NOT a verdict about the cookie.
         // The old redirect here destroyed the queue mid-service, exactly when the kitchen needed its
@@ -338,6 +428,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.
       if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
         errSince.current = null;
+        errRef.current = null;
         setErr(null);
       }
       fails.current = 0;
@@ -347,13 +438,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // After 2 consecutive failures, tell the line it's working a stale board (S2-audit S9).
       // Cause `unknown`: this end failed, which is NOT evidence the platform is down (it could be
       // this tablet's wifi) — the copy stays neutral. A later server-verdict outage upgrades it.
-      fails.current += 1;
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
+      miss();
       console.error("[KdsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [gateOf, miss, stampNow]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -363,8 +456,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   useFloorRealtime(true, onChange);
 
   useEffect(() => {
+    alive.current = true; // re-armed at setup (Strict Mode runs cleanup between two setups)
     const id = setInterval(refresh, 5000);
     return () => {
+      alive.current = false;
       clearInterval(id);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -580,35 +675,42 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     },
     [lang],
   );
-  const [undo86Pending, startUndo86] = useTransition();
-  const undoEightySix = (entry: Extract<UndoEntry, { kind: "eighty6" }>) => {
+  // Phase 2h (9b) — busy is STATE cleared in `finally` (it frees at the bound), never a transition's
+  // `pending`; the REF is the guard read at tap time (LEARNINGS #126), the state what renders.
+  const [undo86Busy, setUndo86Busy] = useState(false);
+  const undo86BusyRef = useRef(false);
+  const undoEightySix = async (entry: Extract<UndoEntry, { kind: "eighty6" }>) => {
     // Phase 2b — the pill mounts in the footprint of the ⋯ sheet's 86 button, so a stray second tap
     // of the 86 would land here and put the dish straight back on sale: held for SAME_GESTURE_MS
     // from the pill's mount, refused with no visual (§24).
     if (removeHeld(entry.shownAt, performance.now())) return;
-    if (undo86Pending) return; // §17 — the handler refuses re-entry; the button is never `disabled`
+    if (undo86BusyRef.current) return; // §17 — the handler refuses re-entry; never `disabled`
     haptic("commit"); // §3 — at the tap; the bar leaving (or the refusal) is the visible half
     showErr(null);
-    startUndo86(async () => {
-      try {
-        const res = await setItemSoldOut({
-          menuItemId: entry.menuItemId,
-          soldOut: false,
-          expectedSoldOut: true,
-        });
-        if (!res.ok) {
-          showErr(eightySixOutcome(res, entry.label));
-          return;
-        }
-        // The put-back is confirmed: the line wears its ⋯ again at once, before any poll.
-        setSoldOverrides((p) => recordSoldOut(p, entry.menuItemId, false, fetchSeq.current));
-        setUndo(null);
-        setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
-        void refresh();
-      } catch {
-        showErr({ k: "kds.err.86.undo", vars: { x: entry.label } });
-      }
-    });
+    undo86BusyRef.current = true;
+    setUndo86Busy(true);
+    try {
+      await kitchenWrite(
+        setItemSoldOut({ menuItemId: entry.menuItemId, soldOut: false, expectedSoldOut: true }),
+        entry.label,
+        say,
+        (res) => {
+          if (!res.ok) {
+            showErr(eightySixOutcome(res, entry.label));
+            return;
+          }
+          // The put-back is confirmed: the line wears its ⋯ again at once, before any poll.
+          setSoldOverrides((p) => recordSoldOut(p, entry.menuItemId, false, fetchSeq.current));
+          // Only THIS dish's bar: a late answer must never take down a newer bump's undo.
+          setUndo((u) => (u?.kind === "eighty6" && u.menuItemId === entry.menuItemId ? null : u));
+          setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
+          void refresh();
+        },
+      );
+    } finally {
+      undo86BusyRef.current = false;
+      setUndo86Busy(false);
+    }
   };
 
   // ── Phase 2b · kitchen — the ⋯ sheet and the 86 behind it ─────────────────────────────────────
@@ -702,16 +804,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       if (menuLineRef.current !== null) setMenuMsg(m);
       else showErr(m);
     };
-    try {
-      // W23a — takes the DISH off the menu; the ticket in front of the cook was already sold, so no
-      // line on ANY ticket is touched. `expectedSoldOut` is the LIVE line's flag as the board knows
-      // it (snapshot + confirmed override) — `canEightySix` above already refused a line that reads
-      // sold out, so this is `false` by construction, and the server re-checks it against the row.
-      const res = await setItemSoldOut({
-        menuItemId: id,
-        soldOut: true,
-        expectedSoldOut: line.soldOut,
-      });
+    // The answer, applied — on time, or LATE (Phase 2h · 9e: a late ok still lands, with the same
+    // routing the on-time one takes, read at the moment it lands).
+    const settle86 = (res: Awaited<ReturnType<typeof setItemSoldOut>>) => {
       if (res.ok) {
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
         // The newest SUCCESS owns the one Undo slot (a newer tap that failed does not count).
@@ -751,8 +846,33 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         // the refresh below shows the dish sold out and the sheet's body turns into the statement.
         refuse(eightySixOutcome(res, dish));
       }
-    } catch {
-      refuse({ k: "kds.err.86", vars: { x: dish } });
+    };
+    try {
+      // W23a — takes the DISH off the menu; the ticket in front of the cook was already sold, so no
+      // line on ANY ticket is touched. `expectedSoldOut` is the LIVE line's flag as the board knows
+      // it (snapshot + confirmed override) — `canEightySix` above already refused a line that reads
+      // sold out, so this is `false` by construction, and the server re-checks it against the row.
+      // Phase 2h — awaited bounded (the RAW promise): the sheet's busy frees at the bound.
+      const out = await boundWrite(
+        setItemSoldOut({ menuItemId: id, soldOut: true, expectedSoldOut: line.soldOut }),
+      );
+      if (out.kind === "answer") settle86(out.value);
+      else if (out.kind === "threw")
+        refuse(unknownMsg(dish)); // the answer was lost: it may have landed
+      else {
+        // No answer yet: said where the cook is looking (the open sheet), AND on the board's own
+        // region, which carries the Reload the sentence promises once the sheet is put away.
+        const waiting = waitingMsg(dish);
+        showErr(waiting);
+        if (menuLineRef.current !== null) setMenuMsg(waiting);
+        void out.late.then((late) => {
+          dropErr(waiting);
+          setMenuMsg((m) => (m === waiting ? null : m));
+          if (late.kind === "answer") settle86(late.value);
+          else refuse(unknownMsg(dish));
+          void refresh(); // only a fresh snapshot can say what is true now
+        });
+      }
     } finally {
       pending86Ref.current.delete(id);
       setPending86((p) => {
@@ -766,26 +886,37 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     }
   };
 
-  const [recallPending, startRecall] = useTransition();
-  const doRecall = (entry: RecallEntry) => {
-    if (recallPending) return; // §17 — refuse re-entry in the handler, never via `disabled`
+  // Phase 2h (9b) — state busy cleared in `finally`, the ref the tap-time guard (see the 86 undo).
+  const [recallBusy, setRecallBusy] = useState(false);
+  const recallBusyRef = useRef(false);
+  const doRecall = async (entry: RecallEntry) => {
+    if (recallBusyRef.current) return; // §17 — refuse re-entry in the handler, never via `disabled`
     showErr(null);
-    startRecall(async () => {
-      try {
-        const res = await recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds });
-        if (!res.ok) onRefused(res, "recall", entry.label);
-        else {
+    recallBusyRef.current = true;
+    setRecallBusy(true);
+    try {
+      await kitchenWrite(
+        recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds }),
+        entry.label,
+        say,
+        async (res) => {
+          if (!res.ok) {
+            onRefused(res, "recall", entry.label);
+            return;
+          }
           setNotice(tf(lang, "kds.live.restored", { x: entry.label }));
           // Filter by CART, not object identity — the undo toast holds a spread COPY of the rail's
           // entry, so an identity filter would leave a dead rail button behind (adversarial LOW-1).
           setRecall((prev) => prev.filter((r) => r.cartId !== entry.cartId));
-          if (undo && undo.kind === "bump" && undo.cartId === entry.cartId) setUndo(null);
+          // Read at the moment it lands (a late answer's closure is stale): only this ticket's undo.
+          setUndo((u) => (u?.kind === "bump" && u.cartId === entry.cartId ? null : u));
           await refresh();
-        }
-      } catch {
-        showErr({ k: "kds.err.recall", vars: { x: entry.label } });
-      }
-    });
+        },
+      );
+    } finally {
+      recallBusyRef.current = false;
+      setRecallBusy(false);
+    }
   };
 
   const count = live.length;
@@ -918,6 +1049,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             </span>
           )}
         </p>
+        {/* Phase 2h — "no answer yet … reload the board to see": the console is installed standalone
+            (no browser reload), so the button the sentence promises stands BESIDE the one region,
+            never inside it (a control in a live region; a second region). */}
+        {saysWaiting(err) && (
+          <div className="mms-rise">
+            <ReloadButton lang={lang} />
+          </div>
+        )}
 
         <div className="kds-controls">
           {/* The station filter and the text size moved into the bar (P7·1b); the all-day rail, the
@@ -1045,6 +1184,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 onOpenMenu={openMenu}
                 onError={showErr}
                 onRefused={onRefused}
+                say={say}
                 onRefresh={refresh}
               />
             ))}
@@ -1200,8 +1340,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                   key={`${r.cartId}-${r.expiresAt}`}
                   type="button"
                   className="kds-recall-btn"
-                  onClick={() => doRecall(r)}
-                  aria-disabled={recallPending || undefined}
+                  onClick={() => void doRecall(r)}
+                  aria-disabled={recallBusy || undefined}
                   aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
                   <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
@@ -1252,11 +1392,11 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           </span>
           <button
             type="button"
-            onClick={() => (undo.kind === "bump" ? doRecall(undo) : undoEightySix(undo))}
-            // §17: the attribute is a STATEMENT about the handler behind it — exactly the transition
-            // this entry's handler refuses on, never both (a rail recall in flight must not dim the
-            // 86's only undo while the tap still acts, or the reverse).
-            aria-disabled={(undo.kind === "bump" ? recallPending : undo86Pending) || undefined}
+            onClick={() => void (undo.kind === "bump" ? doRecall(undo) : undoEightySix(undo))}
+            // §17: the attribute is a STATEMENT about the handler behind it — exactly the write this
+            // entry's handler refuses on, never both (a rail recall in flight must not dim the 86's
+            // only undo while the tap still acts, or the reverse).
+            aria-disabled={(undo.kind === "bump" ? recallBusy : undo86Busy) || undefined}
             aria-label={al(lang, { kind: "undo", label: undo.label }).aria}
           >
             <Chrome lang={lang} k="kds.undo" />
@@ -1278,6 +1418,7 @@ function TicketCard({
   onOpenMenu,
   onError,
   onRefused,
+  say,
   onRefresh,
 }: {
   ticket: KitchenTicket;
@@ -1292,13 +1433,18 @@ function TicketCard({
   onOpenMenu: (line: KitchenLine) => void;
   onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
+  /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
+  say: KdsSay;
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
   // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
   // composes an echoed label takes it too, so the name follows the mode the label renders in.
   const echoes = useEchoesShown();
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9b) — busy is STATE cleared in `finally` (it frees at the bound), never a transition's
+  // `pending`; the ref is the tap-time guard (LEARNINGS #126). The name stays `pending` for the render.
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
   const level = ticket.held ? "ok" : kdsUrgency(ticket.channel, ageMs, thresholds);
@@ -1309,39 +1455,45 @@ function TicketCard({
         ? "kds-strip kds-strip-amber"
         : "kds-strip";
 
-  const bumpAll = () => {
-    if (pending) return; // §17 — refuse re-entry here; native `disabled` would drop focus mid-tap
+  const bumpAll = async () => {
+    if (pendingRef.current) return; // §17 — refuse re-entry here; native `disabled` drops focus
     haptic("commit"); // kitchen-9 — the biggest commit on the console buzzes like every door does
     onError(null);
-    startTransition(async () => {
-      try {
-        const lineIds = ticket.lines.map((l) => l.id);
-        const res = await bumpTicket({ cartId: ticket.cartId, lineIds });
-        if (!res.ok) onRefused(res, "bump", id.main);
+    pendingRef.current = true;
+    setPending(true);
+    try {
+      const lineIds = ticket.lines.map((l) => l.id);
+      const label = id.main; // the name the tap was made under — a late answer says the same one
+      await kitchenWrite(bumpTicket({ cartId: ticket.cartId, lineIds }), label, say, (res) => {
+        if (!res.ok) onRefused(res, "bump", label);
         else
           onBumped(
-            { cartId: ticket.cartId, label: id.main, lineIds, expiresAt: Date.now() + RECALL_MS },
-            id.main,
+            { cartId: ticket.cartId, label, lineIds, expiresAt: Date.now() + RECALL_MS },
+            label,
           );
-      } catch {
-        onError({ k: "kds.err.bump", vars: { x: id.main } });
-      }
-    });
+      });
+    } finally {
+      pendingRef.current = false;
+      setPending(false); // frees AT THE BOUND (9a's fact 3), whatever the action is doing
+    }
   };
 
-  const fireNow = () => {
-    if (pending) return; // §17
+  const fireNow = async () => {
+    if (pendingRef.current) return; // §17
     haptic("commit");
     onError(null);
-    startTransition(async () => {
-      try {
-        const res = await fireTicketNow({ cartId: ticket.cartId });
-        if (!res.ok) onRefused(res, "fire", id.main);
-        else await onRefresh();
-      } catch {
-        onError({ k: "kds.err.fire", vars: { x: id.main } });
-      }
-    });
+    pendingRef.current = true;
+    setPending(true);
+    try {
+      const label = id.main;
+      await kitchenWrite(fireTicketNow({ cartId: ticket.cartId }), label, say, async (res) => {
+        if (!res.ok) onRefused(res, "fire", label);
+        else await onRefresh(); // on time, busy covers the refetch — no stale-label flicker
+      });
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
   };
 
   return (
@@ -1409,6 +1561,7 @@ function TicketCard({
             onOpenMenu={onOpenMenu}
             onError={onError}
             onRefused={onRefused}
+            say={say}
             onRefresh={onRefresh}
           />
         ))}
@@ -1418,7 +1571,7 @@ function TicketCard({
         <button
           type="button"
           className="kds-bump kds-bump-fire staff-press"
-          onClick={fireNow}
+          onClick={() => void fireNow()}
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
         >
@@ -1431,7 +1584,7 @@ function TicketCard({
         <button
           type="button"
           className="kds-bump staff-press"
-          onClick={bumpAll}
+          onClick={() => void bumpAll()}
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           aria-label={
@@ -1461,6 +1614,7 @@ function KdsLineRow({
   onOpenMenu,
   onError,
   onRefused,
+  say,
   onRefresh,
 }: {
   line: KitchenLine;
@@ -1473,28 +1627,36 @@ function KdsLineRow({
   onOpenMenu: (line: KitchenLine) => void;
   onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
+  /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
+  say: KdsSay;
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9b) — state busy cleared in `finally`, the ref the tap-time guard (see TicketCard).
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const to = line.state === "fired" ? "in_progress" : "served";
 
-  const tap = () => {
-    if (pending || held) return; // §17 — refused in the handler; a held line has nothing to act on
+  const tap = async () => {
+    if (pendingRef.current || held) return; // §17 — refused in the handler; a held line has nothing to act on
     haptic("pick"); // kitchen-9 — the row wash is the visible half
     onError(null); // clear any prior board-level error as we retry
-    startTransition(async () => {
-      try {
-        const res = await bumpLine({ lineId: line.id, to });
-        if (!res.ok) onRefused(res, "line", dishVisible(lang, line.name, line.nameMy));
-        // AWAIT the refresh so `pending` covers the refetch — releasing on the write alone flickered
-        // the row back to its stale state for a beat before the new snapshot landed.
+    pendingRef.current = true;
+    setPending(true);
+    const dish = dishVisible(lang, line.name, line.nameMy);
+    try {
+      // S2-audit B3: a thrown action must not silently no-op the tap — it is said on the board region
+      // (Phase 2h: as "couldn't confirm", since a lost answer may have landed).
+      await kitchenWrite(bumpLine({ lineId: line.id, to }), dish, say, async (res) => {
+        if (!res.ok) onRefused(res, "line", dish);
+        // AWAIT the refresh so busy covers the refetch — releasing on the write alone flickered the
+        // row back to its stale state for a beat before the new snapshot landed.
         else await onRefresh();
-      } catch {
-        // S2-audit B3: a thrown action must not silently no-op the tap — surface it on the board region.
-        onError({ k: "kds.err.line", vars: { x: dishVisible(lang, line.name, line.nameMy) } });
-      }
-    });
+      });
+    } finally {
+      pendingRef.current = false;
+      setPending(false);
+    }
   };
 
   const noteId = line.notes ? `kds-note-${line.id}` : undefined;
@@ -1514,7 +1676,7 @@ function KdsLineRow({
           id={`kds-line-${line.id}`}
           type="button"
           className="kds-line"
-          onClick={tap}
+          onClick={() => void tap()}
           aria-disabled={pending || held || undefined}
           aria-busy={pending || undefined}
           // The held ticket's slot line says WHY a held line refuses ("fires at 5:48 PM"), and the

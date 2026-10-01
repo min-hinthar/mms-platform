@@ -315,7 +315,7 @@ describe("TablePane — a card tap at split width", () => {
 });
 
 describe("TablePane — a late read never lands under another table", () => {
-  it("A's read resolving after B was picked is dropped; B's detail lands", async () => {
+  it("A's read answering after B was picked is dropped; B's read starts only THEN (one read in the air), and lands", async () => {
     let resolveA!: (r: TableDetailResult) => void;
     let resolveB!: (r: TableDetailResult) => void;
     answers[A] = () => new Promise((r) => (resolveA = r));
@@ -324,18 +324,25 @@ describe("TablePane — a late read never lands under another table", () => {
     await tick(0);
     await tap(card(A));
     await tap(card(B));
-    // B answers first; A's read (asked first) answers LAST.
-    await act(async () => {
-      resolveB({ kind: "detail", detail: detail(B, 7, { lines: [line("l-7", "Tea")] }) });
-      await vi.advanceTimersByTimeAsync(0);
-    });
-    expect(document.getElementById("order-h")).not.toBeNull();
+    // Phase 2h (9f) — B's read is OWED to A's, never sent beside it: Next runs Server Actions one at
+    // a time, so B's would only queue behind A's — and the two answers could land in either order.
+    // MUTATION (table-pane/late-read-lands — the gate's hold and the landing guard, every protection
+    // of this rule at once): B is read at once, and A's late answer replaces B's detail; red.
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // A answers (after B was picked): dropped — never under B's heading.
     await act(async () => {
       resolveA({ kind: "detail", detail: detail(A, 4) });
       await vi.advanceTimersByTimeAsync(0);
     });
-    // MUTATION: accept every read — A's late answer replaces B's, and B's order drops back to the
-    // skeleton under its own heading; red.
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    expect(pane().textContent).not.toContain("Mohinga");
+    // …and only now does B's own read go out, once.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(getTableDetail).toHaveBeenLastCalledWith(B);
+    await act(async () => {
+      resolveB({ kind: "detail", detail: detail(B, 7, { lines: [line("l-7", "Tea")] }) });
+      await vi.advanceTimersByTimeAsync(0);
+    });
     expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
     expect(document.getElementById("order-h")).not.toBeNull();
     expect(pane().textContent).toContain("Tea");
@@ -1344,8 +1351,9 @@ describe("TablePane — a table picked again starts from a fresh read", () => {
     expect(pane().textContent).not.toContain("Mohinga");
     expect(getTableDetail).toHaveBeenCalledTimes(2);
   });
-  it("A → B (still loading) → A reads A again", async () => {
-    answers[B] = () => new Promise(() => {});
+  it("A → B (still loading) → A reads A again — once B's read has answered", async () => {
+    let resolveB!: (r: TableDetailResult) => void;
+    answers[B] = () => new Promise((r) => (resolveB = r));
     mount();
     await tick(0);
     await tap(card(A));
@@ -1354,6 +1362,15 @@ describe("TablePane — a table picked again starts from a fresh read", () => {
     answers[A] = ok(detail(A, 4, { lines: [line("l-4b", "Tea")] }));
     await tap(card(A));
     await tick(0);
+    // Phase 2h (9f) — B's read is still in the air: A's fresh read is owed to it (never sent beside
+    // it), and the pane never shows A's OLD detail meanwhile.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(pane().textContent).not.toContain("Mohinga");
+    await act(async () => {
+      resolveB({ kind: "detail", detail: detail(B, 7) });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(3);
     expect(pane().textContent).toContain("Tea");
     expect(pane().textContent).not.toContain("Mohinga");
   });
@@ -2470,5 +2487,73 @@ describe("TablePane — openSession can land on the payment section", () => {
     // MUTATION (p2g-cx1/shown-pane-heading-steals-settle): the opener still asks for the heading's
     // focus — the pane's parent effect runs after the detail's and takes it back; red.
     expect(document.activeElement).toBe(document.getElementById("settle-h"));
+  });
+});
+
+// ── Phase 2h — the pane's reads never stack behind a hung one (P2cz · P2fc) ───────────────────────
+describe("Phase 2h (9f) — every read the pane starts goes through ONE gate", () => {
+  it("a first read hung for 60 s is ONE dispatch: the quiet retry and Try again start nothing, and the answer kicks exactly one read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolveA!: (r: TableDetailResult) => void;
+    answers[A] = () => new Promise((r) => (resolveA = r));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // The race gives up at 15 s: the pane says it could not (by cause — never paper).
+    await tick(15_000);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    // A minute of quiet retries and a Try again: ONE read in the air the whole time. MUTATION
+    // (p2h-boards/pane/reads-stack): every retry sends another read queued behind the hung one; red.
+    await tick(20_000);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "out.shell.retry") }));
+    });
+    await tick(25_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // The refused retry is answered as a failure (still the failure title; the button not stuck
+    // busy). MUTATION (p2h-boards/pane/refused-retry-stays-busy): "Trying…" for as long as the hang; red.
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    expect(pane().textContent).not.toContain(ts("en", "out.shell.retrying"));
+    // The raw answers (its race long given up — not applied): ONE owed read of the table selected
+    // NOW is kicked, and lands. MUTATION (p2h-boards/pane/owed-read-never-kicked): the pane waits on
+    // the quiet retry instead; red.
+    answers[A] = ok(detail(A, 4, { lines: [line("l-4b", "Tea")] }));
+    await act(async () => {
+      resolveA({ kind: "detail", detail: detail(A, 4) });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(pane().textContent).toContain("Tea");
+    vi.restoreAllMocks();
+  });
+
+  it("a pick while ANOTHER table's read hangs: no second read, and past the bound the pane says it couldn't — never a skeleton for as long as the hang lasts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolveA!: (r: TableDetailResult) => void;
+    answers[A] = () => new Promise((r) => (resolveA = r));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(3_000);
+    await tap(card(B)); // A's read has been out 3 s — B's is owed, held under the bound
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.fail.title"));
+    // The re-ask runs on the quiet retry's cadence; once A's read is past the bound, B's pick is a
+    // failed read, said. MUTATION (p2h-boards/pane/held-ask-never-reasked): the skeleton stands
+    // until A answers, however long; red. MUTATION (p2h-boards/pane/refused-never-a-miss): the
+    // refusal past the bound is not a failure — the same; red.
+    await tick(15_000);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // A answers: B's ONE owed read runs and lands.
+    await act(async () => {
+      resolveA({ kind: "detail", detail: detail(A, 4) });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(getTableDetail).toHaveBeenLastCalledWith(B);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    vi.restoreAllMocks();
   });
 });

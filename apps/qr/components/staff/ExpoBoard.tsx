@@ -6,7 +6,6 @@ import {
   useId,
   useRef,
   useState,
-  useTransition,
   type CSSProperties,
   type MouseEvent,
 } from "react";
@@ -31,12 +30,14 @@ import {
   type Hold,
   type HoldSource,
 } from "@/lib/undo-hold";
-import { expoErrOutcome, expoFailedMsg, type ExpoMsg, type ExpoSubject } from "@/lib/expo-errors";
+import { expoErrOutcome, type ExpoMsg, type ExpoSubject } from "@/lib/expo-errors";
 import { actionErrorStale, ERR_DWELL_MS } from "@/lib/kds-errors";
 import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
 import { haptic } from "@/lib/haptics";
 import type { ExpoErrCode } from "@/lib/expo-types";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { boundWrite, track } from "@/lib/bounded-write";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { factSubject, laneFacts } from "@/lib/counter-attention";
 import { useWakeLock } from "@/lib/useWakeLock";
@@ -73,6 +74,34 @@ import { useCounterAttention } from "./CounterBell";
 import { useTablePane } from "./TablePaneContext";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { uncollectedBadgeWords } from "./CounterOrderCard";
+import { ReloadButton } from "./ReloadOffer";
+
+// ── Phase 2h (9b · 9e) ── the lane's writes, bounded. Next runs Server Actions one at a time per tab,
+// and a transition's `pending` holds until its action ANSWERS (and holds every other transition and
+// every router commit with it — LEARNINGS #149 · #200), so a bag's write is called OUTSIDE any
+// transition, awaited through `boundWrite`, its busy a state cleared in `finally`. A write still out at
+// the bound says so ("no answer yet — the bag may still be updated"), and its LATE answer is applied
+// when it comes. A thrown one says "we couldn't confirm" (`expoFailedMsg`'s "Couldn't update … — try
+// again" is the SERVER's own `failed` answer, never a lost one). The lane is never refused while
+// stalled (9d): a bag is not money.
+
+/** No answer yet, about this subject (`expoFailedMsg`'s two shapes: a table's `{id}`, else `{x}`). */
+function expoWaitingMsg(subject: ExpoSubject): ExpoMsg {
+  return subject.kind === "table"
+    ? { k: "expo.err.waitingTable", vars: { id: subject.id } }
+    : { k: "expo.err.waitingFor", vars: { x: subject.x } };
+}
+/** The answer was lost (it may have landed), about this subject. */
+function expoUnknownMsg(subject: ExpoSubject): ExpoMsg {
+  return subject.kind === "table"
+    ? { k: "expo.err.unknownTable", vars: { id: subject.id } }
+    : { k: "expo.err.unknownFor", vars: { x: subject.x } };
+}
+/** The region is saying "reload the screen to see" — its Reload stands beside it. */
+const saysWaiting = (m: ExpoMsg | null): boolean =>
+  m !== null &&
+  typeof m !== "string" &&
+  (m.k === "expo.err.waitingTable" || m.k === "expo.err.waitingFor");
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -109,10 +138,19 @@ export function ExpoBoard({
   const [notice, setNotice] = useState<ExpoMsg | null>(null); // one-shot (the picked-up window)
   // kitchen-10's dwell, on the lane too: a refusal outlives the poll that follows it.
   const errSince = useRef<number | null>(null);
+  // Phase 2h — the line standing NOW, for a late answer to retire only its OWN waiting line.
+  const errRef = useRef<ExpoMsg | null>(null);
   const showErr = useCallback((m: ExpoMsg | null) => {
     errSince.current = m ? Date.now() : null;
+    errRef.current = m;
     setErr(m);
   }, []);
+  const dropErr = useCallback(
+    (m: ExpoMsg) => {
+      if (errRef.current === m) showErr(null);
+    },
+    [showErr],
+  );
   const onRefused = useCallback(
     (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => {
       const out = expoErrOutcome(res, subject);
@@ -272,12 +310,47 @@ export function ExpoBoard({
 
   useWakeLock(); // O-F: the bagging tablet is always-on too
 
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). A read `raceTimeout` gave up on at 15 s
+  // is still IN Next's one-at-a-time queue; a tick that started another after it only queued an
+  // abandoned call behind the hung one, every 5 s. While the RAW read is unanswered no new read
+  // starts; the ticks it refused are owed ONE read, kicked just after it answers. Made ONCE for the
+  // lane's life, on first use from a callback (never during render, never in an effect's setup),
+  // never disposed from a cleanup (Strict Mode would latch it): the kick is guarded by `alive`.
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
+   *  (stamped on the lane's own server-space clock, for its escalation only). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(stampNow());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
+  }, [stampNow]);
+
   const refresh = useCallback(async () => {
+    const gate = gateOf();
+    const asked = gate.ask(); // no clock — never `stampNow()` here (the contract critic, F2)
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time IS a
+      // miss: the freeze arms (and escalates) over a hung read instead of hiding behind it.
+      if (asked.missed) miss();
+      return;
+    }
+    // A bare coalesce is safe: the owed kick is deferred past this read's `finally`. (The one await
+    // after the read — the leave-flush below — ends in a navigation, so a kick it drops is moot.)
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      const res = await raceTimeout(getExpoQueue());
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
+      // gate watches the RAW read — the race frees this caller at 15 s, never Next's queue.
+      const res = await raceTimeout(gate.watch(getExpoQueue()));
       if (!res.ok) {
         // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
         // counter to login mid-service.
@@ -290,10 +363,12 @@ export function ExpoBoard({
         // counter already handed over: send its write NOW, then go. A refused write (the cookie
         // really is gone) leaves the bag "ready", which is the honest state for a bag whose pick
         // was never recorded — the same outcome, minus the silence.
+        // Phase 2h — BOUNDED: a flush write that never answers must not hold the lane on a dead
+        // session for ever (the leave waits at most STAFF_HANG_MS), and each sits on the stall ledger.
         await Promise.allSettled(
           [...pickedRef.current]
             .filter(([id, p]) => !p.committing && !committingRef.current.has(id))
-            .map(([orderId]) => setTogoStatus({ orderId, to: "picked_up" })),
+            .map(([orderId]) => boundWrite(setTogoStatus({ orderId, to: "picked_up" }))),
         );
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
@@ -329,20 +404,22 @@ export function ExpoBoard({
         for (const id of [...set]) if (!live.has(id)) set.delete(id);
       if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
         errSince.current = null;
+        errRef.current = null;
         setErr(null);
       }
       fails.current = 0;
       setDegraded(null);
     } catch (e) {
       // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-      fails.current += 1;
-      setNowMs(stampNow());
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
+      miss();
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, [stampNow, hear, pulseCards]);
+  }, [stampNow, hear, pulseCards, gateOf, miss]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
   // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
@@ -367,20 +444,36 @@ export function ExpoBoard({
   // — dropping the entry first flipped the card back to a live "Picked up" for the write + poll
   // round trip on every single pick (blind pass, critical 2). A refusal or a throw drops the entry:
   // the bag is back, honestly, with the sentence beside it.
+  //
+  // Phase 2h (9e) — BOUNDED. A write with no answer at STAFF_HANG_MS keeps its entry `committing` (the
+  // bag may already be picked up on the server, so its Undo stays inert) and SAYS so, with the Reload
+  // the sentence promises; its LATE answer is applied exactly as an on-time one. A thrown write says
+  // "we couldn't confirm" — its answer was lost, so the pick may have landed — and gives the bag back
+  // to the counter, where the next good poll shows which is true.
   const commitPicked = useCallback(
     async (orderId: string, subject: ExpoSubject) => {
-      try {
-        const res = await setTogoStatus({ orderId, to: "picked_up" });
+      const land = async (res: Awaited<ReturnType<typeof setTogoStatus>>) => {
         if (!res.ok) {
           onRefused(res, subject);
           dropPicked(orderId);
         } else await refresh(); // the poll's prune removes the entry with the bag
-      } catch {
-        showErr(expoFailedMsg(subject));
+      };
+      const lost = () => {
+        showErr(expoUnknownMsg(subject));
         dropPicked(orderId);
-      }
+      };
+      const out = await boundWrite(setTogoStatus({ orderId, to: "picked_up" }));
+      if (out.kind === "answer") return land(out.value);
+      if (out.kind === "threw") return lost();
+      const waiting = expoWaitingMsg(subject);
+      showErr(waiting);
+      void out.late.then((late) => {
+        dropErr(waiting);
+        if (late.kind === "answer") void land(late.value);
+        else lost();
+      });
     },
-    [dropPicked, onRefused, refresh, showErr],
+    [dropPicked, onRefused, refresh, showErr, dropErr],
   );
   // The interval is re-armed when the map changes (a tap, an undo, a bag leaving) so the tick
   // always reads the live windows without a ref written during render.
@@ -443,11 +536,14 @@ export function ExpoBoard({
   // The lane leaving with windows open (a route change, a remount) sends their writes at once —
   // the counter saw "picked up" and handed the bag over; the undo affordance is what is gone, not
   // the pick. Fire-and-forget: a server action outlives the component that called it.
+  // Phase 2h (9d) — and each sits on the stall ledger until it answers: the ledger is per TAB, the
+  // next screen's money taps share Next's queue with it, and a hung flush must refuse them, not
+  // queue them behind itself.
   useEffect(
     () => () => {
       for (const [orderId, p] of pickedRef.current)
         if (!p.committing && !committingRef.current.has(orderId))
-          void setTogoStatus({ orderId, to: "picked_up" });
+          void track(setTogoStatus({ orderId, to: "picked_up" }));
     },
     [],
   );
@@ -526,6 +622,7 @@ export function ExpoBoard({
   useReportLive("bags", degraded ? "not_updating" : "live");
 
   useEffect(() => {
+    // `alive` is re-armed by the mount effect above (declared first, so it runs first at every setup).
     const id = setInterval(refresh, 5000);
     return () => {
       clearInterval(id);
@@ -765,6 +862,19 @@ export function ExpoBoard({
               ))
           )}
         </p>
+        {/* Phase 2h — the waiting line says "reload the screen to see", and the console installs
+            standalone (no browser reload): the button it promises stands BESIDE the region (never in
+            it), with what a reload costs on THIS lane — a pick still inside its undo window is only
+            in this tab, and a reload forgets it (the P2fc critic, adjustment 8). Plain text: the
+            region already spoke. */}
+        {saysWaiting(err) && (
+          <div className="staff-reload-offer mms-rise" style={reloadRow}>
+            <p className="expo-status">
+              <Chrome lang={lang} k="expo.reload.bags" />
+            </p>
+            <ReloadButton lang={lang} />
+          </div>
+        )}
       </div>
 
       {empty ? (
@@ -797,6 +907,7 @@ export function ExpoBoard({
                 committing={picked.get(r.t.orderId)?.committing ?? false}
                 onBumped={refresh}
                 onError={showErr}
+                onDropError={dropErr}
                 onRefused={onRefused}
                 onPicked={onPicked}
                 onUndoPicked={onUndoPicked}
@@ -860,6 +971,7 @@ function ExpoCard({
   committing,
   onBumped,
   onError,
+  onDropError,
   onRefused,
   onPicked,
   onUndoPicked,
@@ -875,6 +987,8 @@ function ExpoCard({
   committing: boolean;
   onBumped: () => void | Promise<void>;
   onError: (msg: ExpoMsg | null) => void;
+  /** Phase 2h — a late answer retires ITS OWN waiting line (never a newer one). */
+  onDropError: (msg: ExpoMsg) => void;
   onRefused: (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => void;
   /** `keyboard` — the tap came the keyboard way (`:focus-visible`): the pick opens a slot hold. */
   onPicked: (orderId: string, subject: ExpoSubject, keyboard: boolean) => void;
@@ -889,7 +1003,10 @@ function ExpoCard({
   // P2e review (A5) — the device's echo state, the value <Chrome> reads: every name below that
   // composes an echoed label takes it too, so the name follows the mode the label renders in.
   const echoes = useEchoesShown();
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9b) — busy is STATE cleared in `finally` (it frees at the bound), never a transition's
+  // `pending`; the ref is the tap-time guard (LEARNINGS #126). The name stays `pending` for the render.
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
   const age = expoAge(ticket, nowMs);
   // The stage this card is AT, named once: it decides the next status, the button's word, the
   // button's tint and the card's own name. Four separate `=== "preparing"` tests were four chances
@@ -942,8 +1059,8 @@ function ExpoCard({
       ? { kind: "table", id: ticket.tableNumber }
       : { kind: "bag", x: whoElse };
 
-  const bump = (e: MouseEvent<HTMLButtonElement>) => {
-    if (pending) return; // §17 — the handler refuses re-entry; the button is never natively disabled
+  const bump = async (e: MouseEvent<HTMLButtonElement>) => {
+    if (pendingRef.current) return; // §17 — the handler refuses re-entry; never natively disabled
     // counter-1 — the SECOND stage drops the bag off the tracker and the wall with no reverse edge:
     // it flips the card and waits on the lane's undo window instead of writing now.
     if (!firstStage) {
@@ -952,15 +1069,32 @@ function ExpoCard({
     }
     haptic("commit");
     onError(null);
-    startTransition(async () => {
-      try {
-        const res = await setTogoStatus({ orderId: ticket.orderId, to });
-        if (!res.ok) onRefused(res, subject);
-        else await onBumped(); // pending covers the refetch — no stale-label flicker
-      } catch {
-        onError(expoFailedMsg(subject));
+    pendingRef.current = true;
+    setPending(true);
+    const land = async (res: Awaited<ReturnType<typeof setTogoStatus>>) => {
+      if (!res.ok) onRefused(res, subject);
+      else await onBumped(); // on time, busy covers the refetch — no stale-label flicker
+    };
+    try {
+      // Phase 2h — the RAW action, bounded (never `boundWrite(raceTimeout(x))`).
+      const out = await boundWrite(setTogoStatus({ orderId: ticket.orderId, to }));
+      if (out.kind === "answer") await land(out.value);
+      // Thrown: the answer was lost, so the bag may have been updated — "we couldn't confirm".
+      else if (out.kind === "threw") onError(expoUnknownMsg(subject));
+      else {
+        const waiting = expoWaitingMsg(subject);
+        onError(waiting);
+        void out.late.then((late) => {
+          onDropError(waiting);
+          // A late ok lands (the lane re-reads); a late refusal is said.
+          if (late.kind === "answer") void land(late.value);
+          else onError(expoUnknownMsg(subject));
+        });
       }
-    });
+    } finally {
+      pendingRef.current = false;
+      setPending(false); // frees AT THE BOUND, whatever the action is doing
+    }
   };
 
   return (
@@ -1106,7 +1240,7 @@ function ExpoCard({
         <button
           type="button"
           data-expo-slot={ticket.orderId}
-          onClick={bump}
+          onClick={(e) => void bump(e)}
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           aria-label={
@@ -1402,6 +1536,8 @@ const headRow: CSSProperties = {
   // A4·2 — the lane's heading and its live region, on one baseline; the bar is the page's.
   flexWrap: "wrap",
 };
+// Phase 2h — the Reload offer under the head row takes the full row (the caveat wraps under it).
+const reloadRow: CSSProperties = { flexBasis: "100%" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,
