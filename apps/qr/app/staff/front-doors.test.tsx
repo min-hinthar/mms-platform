@@ -19,7 +19,9 @@ vi.mock("@/lib/staff-pin-actions", () => ({
   unlockConsole: vi.fn(),
   setPin: vi.fn(),
   removePin: vi.fn(),
-  releaseLockAfterSignOut: vi.fn(),
+  // Phase 2h (9g) — the sign-in form sends the lock release as it mounts: a Server Action answers
+  // a promise, so the stand-in does too.
+  releaseLockAfterSignOut: vi.fn(() => Promise.resolve({ released: false })),
 }));
 vi.mock("@/lib/staff-actions", () => ({
   provisionStaff: vi.fn(),

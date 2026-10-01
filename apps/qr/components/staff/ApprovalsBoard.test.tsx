@@ -194,8 +194,10 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     mount([], [], [refundNeeded("r-1")]);
     await markRefunded(/pi_r-1/);
     await waitFor(() => expect(resolved).toEqual(["r-1"]));
-    await screen.findByText(STAFF["table.appr.msg.failed"].en);
-    expect(screen.getByText(/pi_r-1/)).toBeTruthy(); // the row stays — nothing was recorded
+    // Phase 2h (9e) — a THROWN mark is a lost answer: "couldn't confirm it was marked done", never
+    // "nothing was recorded" (the update may have run before the response was lost).
+    await screen.findByText(STAFF["table.appr.refunds.markUnknown"].en);
+    expect(screen.getByText(/pi_r-1/)).toBeTruthy(); // the row stays until a read says otherwise
     expect(screen.getByRole("heading", { level: 2 })).toBeTruthy(); // the zone is still mounted
     vi.restoreAllMocks();
   });

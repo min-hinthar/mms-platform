@@ -1,12 +1,15 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { resolveRefundNeeded, type RefundNeeded } from "@/lib/approvals";
+import { boundWrite } from "@/lib/bounded-write";
 import type { StaffLang } from "@/lib/staff-lang";
 import { al, sx } from "@/lib/staff-labels";
 import { ts } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
 import { Chrome } from "./Chrome";
 import { useEchoesShown } from "./StaffLangProvider";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -26,6 +29,12 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * and a double-tap submitted twice — on the one surface where every other destructive control is
  * two-step or PIN-gated. Focus moves into the group when it opens and back to the trigger when it
  * closes; the commit is `aria-disabled` + `aria-busy` while in flight (§17), never native.
+ *
+ * Phase 2h (P2fc) — the mark is NOT a transition any more. Its lock was `useTransition`'s `pending`,
+ * which React entangles with every other async transition on the page and holds until the RAW action
+ * answers (LEARNINGS #149 · #158 · #200): one hung approvals write kept every row's buttons dimmed.
+ * The lock is a ref + state written here, the action is awaited with a bound (`boundWrite`), and a
+ * lost or late answer says so honestly — it may still be marked done — never "nothing was recorded".
  */
 export function RefundsNeededStrip({
   lang,
@@ -43,19 +52,23 @@ export function RefundsNeededStrip({
   /** The server confirmed the row resolved: drop it and re-poll. */
   onResolved?: (id: string) => void;
 }) {
-  // The row whose resolve the server refused — caught HERE (Codex round 4 on #283, P1): uncaught,
-  // the action's rejection reached the route's error boundary and replaced the whole counter
-  // screen with it. The row stays (nothing was recorded) and the line says try again; the region
-  // exists only after the person's own tap failed, so it never announces on load.
-  const [failedId, setFailedId] = useState<string | null>(null);
+  // The row whose mark got no answer — caught HERE (Codex round 4 on #283, P1): uncaught, the
+  // action's rejection reached the route's error boundary and replaced the whole counter screen with
+  // it. Phase 2h (9e) — `unknown`: the answer was lost, so the mark MAY have landed (a reload shows
+  // whether the row is still listed); `waiting`: still no answer at the bound. Never "nothing was
+  // recorded". The region exists only after the person's own tap, so it never announces on load.
+  const [note, setNote] = useState<{ id: string; kind: "waiting" | "unknown" } | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h — the strip's one lock (one mark at a time): a REF read at tap time (two taps in one
+  // frame both read the same render) and its state twin, cleared in a `finally` at the bound.
+  const inFlight = useRef(false);
   // P2e review (A5) — the device's echo state, the value <Chrome> reads: the Mark refunded name
   // composes its echoed label with it, so a Burmese-only device never announces the English word
   // its button stopped printing.
   const echoes = useEchoesShown();
-  // Which row is marking — `pending` is the strip's one flag (one mark at a time), this names it.
+  // Which row is marking — the strip's one flag (one mark at a time), and its name.
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const pending = markingId !== null;
   const sectionRef = useRef<HTMLElement>(null);
   // The group that is OPEN is derived from the live rows, never the raw id: the poll (or the other
   // tablet) can drop the row whose group is open, and a stale id would keep the next open from
@@ -84,34 +97,51 @@ export function RefundsNeededStrip({
   }, [confirming]);
 
   function openConfirm(id: string) {
-    if (pending) return;
-    setFailedId(null);
+    if (inFlight.current) return;
+    setNote(null);
     setConfirmingId(id);
   }
   function cancel() {
-    if (pending) return;
+    if (inFlight.current) return;
     setConfirmingId(null);
   }
-  function confirm(id: string) {
-    if (pending) return;
+  async function confirm(id: string) {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setMarkingId(id);
-    setFailedId(null);
-    startTransition(async () => {
-      try {
-        // The server action throws on an unreadable table — the row then stays, honestly.
-        await resolveRefundNeeded(id);
-        // Both land in one batch (React batches every update in a continuation): the row leaves
-        // with the group inside it, and the focus effect above lands on the strip or the heading.
+    setNote(null);
+    try {
+      // 9b — called OUTSIDE any transition, the RAW action awaited with a bound. It throws on an
+      // unreadable table; a throw is a LOST answer, not a refusal (the update may have run).
+      const out = await boundWrite(resolveRefundNeeded(id));
+      if (out.kind === "answer") {
+        // Both land in one batch: the row leaves with the group inside it, and the focus effect
+        // above lands on the strip or the heading.
         setConfirmingId(null);
         onResolved?.(id);
-      } catch (e) {
-        console.error("[RefundsNeededStrip] resolve failed — the row stays", e);
-        setFailedId(id);
-        setConfirmingId(null); // the effect returns focus to the trigger, beside the line
-      } finally {
-        setMarkingId(null);
+        return;
       }
-    });
+      setConfirmingId(null); // the effect returns focus to the trigger, beside the line
+      if (out.kind === "threw") {
+        console.error("[RefundsNeededStrip] mark unconfirmed — the row stays", out.error);
+        setNote({ id, kind: "unknown" });
+        return;
+      }
+      setNote({ id, kind: "waiting" });
+      // The late answer lands whenever it comes (9e): the strip lives as long as its board, so
+      // there is no "gone" to guard — its own state is a no-op once both are.
+      void out.late.then((late) => {
+        if (late.kind === "answer") {
+          // A LATE mark lands (9e): the row leaves, and its "no answer yet" line with it.
+          setNote((n) => (n?.id === id ? null : n));
+          onResolved?.(id);
+        } else setNote((n) => (n?.id === id ? { id, kind: "unknown" } : n));
+      });
+    } finally {
+      // Frees AT THE BOUND (fact 3): never held by the raw, never by another surface's transition.
+      inFlight.current = false;
+      setMarkingId(null);
+    }
   }
 
   if (refunds === null)
@@ -209,7 +239,7 @@ export function RefundsNeededStrip({
                     <button
                       type="button"
                       className="staff-btn"
-                      onClick={() => confirm(r.id)}
+                      onClick={() => void confirm(r.id)}
                       aria-disabled={pending || undefined}
                       aria-busy={marking || undefined}
                       style={resolveBtn}
@@ -249,10 +279,25 @@ export function RefundsNeededStrip({
                   <Chrome lang={lang} k="table.appr.verb.markRefunded" echo="stack" />
                 </button>
               )}
-              {failedId === r.id && (
+              {note?.id === r.id && (
                 <span role="status" style={failText}>
-                  <Chrome lang={lang} k="table.appr.msg.failed" echo="stack" />
+                  <Chrome
+                    lang={lang}
+                    k={
+                      note.kind === "waiting"
+                        ? "table.appr.refunds.markWaiting"
+                        : "table.appr.refunds.markUnknown"
+                    }
+                    echo="stack"
+                  />
                 </span>
+              )}
+              {/* Phase 2h — both lines say "reload", and the console is installed standalone (no
+                  browser reload): the one way out sits BESIDE the line, never inside its region. */}
+              {note?.id === r.id && (
+                <div style={{ marginTop: "var(--s2)" }}>
+                  <ReloadButton lang={lang} />
+                </div>
               )}
             </li>
           );

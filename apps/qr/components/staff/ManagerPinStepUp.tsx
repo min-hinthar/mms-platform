@@ -5,6 +5,7 @@ import type { Approver } from "@/lib/voids";
 import { plural, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
+import { raceTimeout } from "@/lib/staff-outage";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import type { StaffMsg } from "./StaffMsg";
@@ -95,6 +96,12 @@ export function pinFailureCopy(
  * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule). The
  * `alive` ref is the `live` guard: re-armed at every setup (a cleanup-only latch stays false after the
  * first Strict-Mode pass) and checked before any state lands on an unmounted sheet.
+ *
+ * Phase 2h (P2fc) — both reads are BOUNDED (`raceTimeout`, STAFF_HANG_MS): Next runs Server Actions
+ * one at a time per tab, so behind a stuck action the mount read sat on "Loading…" and a Try again
+ * on "Trying again…" forever, with nothing saying why. A read with no answer at the bound is a
+ * FAILURE like any other (`pin.manager.loadFailed`, whose Try again is the way forward) — never an
+ * empty roster, never a spinner that cannot end.
  */
 export function useApproverRoster(load: () => Promise<Approver[]>) {
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
@@ -106,7 +113,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
 
   useEffect(() => {
     alive.current = true;
-    load().then(
+    raceTimeout(load()).then(
       (a) => {
         if (alive.current) setApprovers(a);
       },
@@ -126,7 +133,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
     retryInFlight.current = true;
     setRetrying(true);
     try {
-      const a = await load();
+      const a = await raceTimeout(load());
       if (!alive.current) return false;
       setApprovers(a);
       setFailed(false);

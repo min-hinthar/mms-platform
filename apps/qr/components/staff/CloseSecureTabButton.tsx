@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { closeSecureTab } from "@/lib/staff-cart";
+import { boundWrite, stalledSince } from "@/lib/bounded-write";
 import { Button, Card, type ButtonVariant } from "@mms/ui";
 import { sx } from "@/lib/staff-labels";
 import { openQuote, quoteDrift, reconcileQuote, type SettleQuote } from "@/lib/register-math";
@@ -9,6 +10,8 @@ import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * The two error sources on this surface, kept APART (the TerminalSettle `SettleError` pattern).
@@ -31,7 +34,12 @@ type CloseError =
   // server's count. Shown here in the running bill's words, SAID by the page's one region.
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was charged; the same tap retries.
-  | { kind: "unreadable" };
+  | { kind: "unreadable" }
+  // Phase 2h (9d) — refused AT THE TAP while an earlier action is stuck: never sent, nothing charged.
+  | { kind: "stalled" }
+  // Phase 2h (9e) — still unanswered at the bound: the card on file may yet be charged. The late
+  // answer is APPLIED when it lands (a late charge re-reads the page; a late refusal is said).
+  | { kind: "waiting" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -92,6 +100,10 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
+  // Phase 2h (S2 critic D9) — a LATE charge went: the guard stays spent (the trigger held) until the
+  // settle section re-renders away, exactly as an on-time charge keeps "Charging…" — between the late
+  // answer and the page's re-read the ledger is clear, so nothing else would refuse a second close.
+  const [charged, setCharged] = useState(false);
   // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
   // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
   // its note says it now) or its own line retired. Hidden, it came back once the dishes were
@@ -130,40 +142,32 @@ export function CloseSecureTabButton({
     wasConfirming.current = confirming;
   }, [confirming]);
 
-  async function confirm() {
-    if (inFlight.current) return;
-    if (drift) {
-      // The total moved while the confirm was open: this tap ADOPTS the new figure in front of
-      // staff (the label re-reads it, the sentence naming both stays); nothing is charged.
-      setQuote({ cents: drift.to, basis: drift.to });
-      setError({ kind: "moved", from: drift.from, to: drift.to });
-      return;
-    }
-    inFlight.current = true;
-    setBusy(true);
-    setError(null);
-    // The figure the confirm is showing (COMPARE-ONLY on the server) and the prop the page read.
-    const quoted = shownTotal;
-    const basis = totalCents;
-    let res: Awaited<ReturnType<typeof closeSecureTab>>;
-    try {
-      res = await closeSecureTab({ sessionId, quotedCents: quoted });
-    } catch (e) {
-      // Phase 2a · register — a REJECTED action used to latch the confirm on "Charging…" with both
-      // buttons disabled until a reload. Clear busy, close the confirm (the effect above returns
-      // focus to the trigger) and say the one true thing: we don't know whether the card was charged.
-      console.error("[CloseSecureTabButton] close rejected — outcome unknown", e);
-      inFlight.current = false;
-      setBusy(false);
-      setConfirming(false);
-      setError({ kind: "local" });
-      onSettleOutcome?.("unknown");
-      return;
-    }
+  // Phase 2h — whether this control is still mounted when a LATE answer lands (9e: a late refusal is
+  // said only while its surface is here). Re-armed at setup: Strict Mode runs the cleanup once on
+  // mount, and a cleanup-only latch would read "gone" forever (the CLAUDE.md gotcha).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  /**
+   * The close's answer, whenever it lands — at once, or after the bound (`late`, 9e: never dropped).
+   * `quoted` / `basis` are the TAP's (the figure the confirm showed, the prop the page read). Returns
+   * whether the charge WENT: then the guard stays spent until the settle section re-renders away.
+   */
+  function land(
+    res: Awaited<ReturnType<typeof closeSecureTab>>,
+    quoted: number,
+    basis: number,
+    late: boolean,
+  ): boolean {
     if (!res.ok) {
       onSettleOutcome?.("refused"); // nothing was charged, whichever refusal it is
-      inFlight.current = false;
-      setBusy(false);
+      // A late refusal is said only while this control is here; the page says it where it cannot.
+      if (late && !alive.current) return false;
       setConfirming(false);
       if (res.code === "moved") {
         // Nothing was charged. Quote the server's figure (what it just derived — not optimistic),
@@ -172,11 +176,11 @@ export function CloseSecureTabButton({
         setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });
         setError({ kind: "moved", from: quoted, to: res.totalCents });
         onChanged?.();
-        return;
+        return false;
       }
       if (res.code === "inflight") {
         setError({ kind: "inflight", holder: res.holder });
-        return;
+        return false;
       }
       if (res.code === "unsent") {
         // Phase 2c · gate — nothing charged (the freeze released on the server). The page says it
@@ -187,21 +191,95 @@ export function CloseSecureTabButton({
           onBlockedTap(res.units);
         }
         onChanged?.();
-        return;
+        return false;
       }
       if (res.code === "unreadable") {
         // P2dc · P2el — nothing charged, the freeze released: the dictionary's words; retry = tap.
         setError({ kind: "unreadable" });
-        return;
+        return false;
       }
       setError({ kind: "server", text: res.error });
+      return false;
+    }
+    // A LATE charge (9e): "no answer yet" is no longer true — the page's re-read shows it closing.
+    if (late) setError(null);
+    // The off-session charge fulfills via the webhook; the page's detail re-reads (the freeze makes it
+    // read-only at once, and paid when the webhook lands).
+    onChanged?.();
+    return true;
+  }
+
+  async function confirm() {
+    if (inFlight.current) return;
+    if (drift) {
+      // The total moved while the confirm was open: this tap ADOPTS the new figure in front of
+      // staff (the label re-reads it, the sentence naming both stays); nothing is charged.
+      setQuote({ cents: drift.to, basis: drift.to });
+      setError({ kind: "moved", from: drift.from, to: drift.to });
       return;
     }
-    // The off-session charge fulfills via the webhook; the page's detail re-reads (the freeze makes it
-    // read-only at once, and paid when the webhook lands). The confirm stays "Charging…" until the
-    // settle section re-renders away — the guard stays spent, so a second charge cannot be asked.
-    onChanged?.();
+    // Phase 2h (9d) — an earlier action has been unanswered for the bound: refused AT THE TAP, never
+    // sent (queued behind the stuck one, the charge could land minutes from now, after the cashier
+    // took cash). The confirm closes (focus returns to the trigger, beside the alert that says it).
+    // Read now, never from render state.
+    if (stalledSince() !== null) {
+      setConfirming(false);
+      setError({ kind: "stalled" });
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    // The figure the confirm is showing (COMPARE-ONLY on the server) and the prop the page read.
+    const quoted = shownTotal;
+    const basis = totalCents;
+    // A charge that WENT keeps the guard spent: the confirm stays "Charging…" until the settle
+    // section re-renders away, so a second charge cannot be asked.
+    let spent = false;
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(closeSecureTab({ sessionId, quotedCents: quoted }));
+      if (out.kind === "answer") {
+        spent = land(out.value, quoted, basis, false);
+        return;
+      }
+      // No answer, or no answer yet: we don't know whether the card was charged. The page says it
+      // where this control cannot (it may unmount mid-settle).
+      onSettleOutcome?.("unknown");
+      // Close the confirm (the effect above returns focus to the trigger, beside the alert).
+      setConfirming(false);
+      if (out.kind === "threw") {
+        // Phase 2a · register — a REJECTED action used to latch the confirm on "Charging…" with both
+        // buttons disabled until a reload. Say the one true thing: we don't know whether it charged.
+        console.error("[CloseSecureTabButton] close rejected — outcome unknown", out.error);
+        setError({ kind: "local" });
+        return;
+      }
+      setError({ kind: "waiting" });
+      void out.late.then((late) => {
+        if (late.kind !== "answer") {
+          setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          return;
+        }
+        if (land(late.value, quoted, basis, true)) {
+          inFlight.current = true;
+          setCharged(true);
+        }
+      });
+    } finally {
+      // Frees AT THE BOUND (fact 3) — unless the charge went.
+      if (!spent) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
   }
+
+  // Phase 2h (S2 critic D4) — this close is still unanswered past the bound: the trigger is HELD
+  // (the line says "don't take cash or another card"), so a re-tap can never reach the stalled
+  // refusal and replace that warning with "this did nothing". The late answer frees it — or, a
+  // charge, keeps it spent (`charged`).
+  const held = error?.kind === "waiting" || charged;
 
   return (
     <div>
@@ -262,9 +340,14 @@ export function CloseSecureTabButton({
           block
           // Phase 2c · gate — the attribute (spread only when set) plus the handler's guard.
           {...(blocked ? { "aria-disabled": true } : {})}
-          aria-describedby={
-            blocked && blockedNoteId ? `${blockedNoteId} secure-close-hint` : "secure-close-hint"
-          }
+          disabled={held}
+          aria-describedby={[
+            blocked && blockedNoteId ? blockedNoteId : null,
+            error?.kind === "waiting" ? "secure-close-alert" : null,
+            "secure-close-hint",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onClick={() => {
             if (blocked) {
               // Opens no confirm: the page says why and takes staff to the lines.
@@ -297,7 +380,11 @@ export function CloseSecureTabButton({
         </p>
       )}
       {alertMsg && alertMsg.kind !== "unsent" && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+        <p
+          id="secure-close-alert"
+          role="alert"
+          style={{ ...hint, marginTop: 4, color: "var(--warn)" }}
+        >
           {alertMsg.kind === "server" ? (
             <OutageText lang={lang} error={alertMsg.text} />
           ) : alertMsg.kind === "unreadable" ? (
@@ -316,10 +403,21 @@ export function CloseSecureTabButton({
               vars={inFlightMsg(alertMsg.holder).vars}
               echo={false}
             />
+          ) : alertMsg.kind === "stalled" ? (
+            <Chrome lang={lang} k="out.stalled" echo={false} />
+          ) : alertMsg.kind === "waiting" ? (
+            <Chrome lang={lang} k="settle.card.waiting" echo={false} />
           ) : (
             <Chrome lang={lang} k="settle.card.unknown" echo={false} />
           )}
         </p>
+      )}
+      {/* Phase 2h — both lines say "reload the page", and the console is installed standalone (no
+          browser reload): the one way out sits BESIDE the alert that says it, never inside it. */}
+      {(alertMsg?.kind === "stalled" || alertMsg?.kind === "waiting") && (
+        <div style={reloadRow}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </div>
   );
@@ -338,3 +436,5 @@ const hint: CSSProperties = {
   color: "var(--t3)",
   minHeight: 16,
 };
+// Phase 2h — the reload offered beside the alert: spaced off the line above it, never stretched.
+const reloadRow: CSSProperties = { marginTop: "var(--s2)" };

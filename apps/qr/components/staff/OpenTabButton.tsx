@@ -1,7 +1,19 @@
 "use client";
-import { useState, type CSSProperties } from "react";
+import { useId, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { openTab } from "@/lib/tabs";
+import { boundWrite } from "@/lib/bounded-write";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
+import { ReloadButton } from "./ReloadOffer";
+
+/**
+ * What the opener says after a tap that did not open the bill, kept APART by who authored it (the
+ * TerminalSettle `SettleError` pattern): `server` is `openTab`'s own sentence (`<OutageText>`, which
+ * swaps the one write-outage twin); `waiting` / `unknown` are THIS file's (Phase 2h, 9e) — the answer
+ * is still out at the bound, or it was lost (the bill may have opened: "couldn't confirm").
+ */
+type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind: "unknown" };
 
 /**
  * Open a trust tab on a dine-in table (S3.1). Low-stakes, single-tap (no confirm step): it marks the
@@ -9,6 +21,14 @@ import { openTab } from "@/lib/tabs";
  * moves no money and unlocks nothing new, so the copy stays honest about what it does. The server
  * (openTab → mms_open_tab) re-derives authority + the dine-in/open guards; this is just the affordance.
  * On success the parent's realtime re-fetch picks up the new tab state; router.refresh nudges it now.
+ *
+ * Phase 2h — every word is the dictionary's now (`table.detail.openBill.*`, plain words: never "tab",
+ * never "settle", in the device's language), the action is awaited with a BOUND (`boundWrite`, called
+ * outside any transition), busy is state cleared in a `finally`, the control is `aria-disabled` (never
+ * native — a native disable drops focus to <body> under the tap), and a lost or slow answer is said
+ * as one; the late answer still lands (a late open re-reads the detail). An OPENED bill keeps
+ * "Opening…" until the re-read swaps this button away (S2 critic D8) — on time or late — so a second
+ * tap in that beat never asks for a second open.
  */
 export function OpenTabButton({
   cartId,
@@ -20,41 +40,107 @@ export function OpenTabButton({
    *  refresh stays only as the no-parent fallback. */
   onChanged?: () => void;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<OpenError | null>(null);
+  // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
+  // render), beside the `busy` the button says.
+  const inFlight = useRef(false);
+  const hintId = useId();
 
-  async function onOpen() {
-    setBusy(true);
-    setError(null);
-    const res = await openTab({ cartId });
+  /** The open's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
+  function land(res: Awaited<ReturnType<typeof openTab>>) {
     if (!res.ok) {
-      setBusy(false);
-      setError(res.error);
+      setError({ kind: "server", text: res.error });
       return;
     }
+    setError(null);
     if (onChanged) onChanged();
     else router.refresh();
+  }
+
+  async function onOpen() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    // The bill opened: stay busy until the re-read swaps this button away (D8).
+    let opened = false;
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(openTab({ cartId }));
+      if (out.kind === "answer") {
+        opened = out.value.ok;
+        land(out.value);
+        return;
+      }
+      if (out.kind === "threw") {
+        console.error("[OpenTabButton] open unconfirmed", out.error);
+        setError({ kind: "unknown" });
+        return;
+      }
+      setError({ kind: "waiting" });
+      // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
+      // the page's re-read is right whenever the bill did open.
+      void out.late.then((late) => {
+        if (late.kind !== "answer") {
+          setError({ kind: "unknown" });
+          return;
+        }
+        if (late.value.ok) {
+          // A LATE open holds exactly like an on-time one, until the re-read swaps it away.
+          inFlight.current = true;
+          setBusy(true);
+        }
+        land(late.value);
+      });
+    } finally {
+      // Frees AT THE BOUND (fact 3) — never latched on "Opening…" by the raw — unless it opened.
+      if (!opened) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
   }
 
   return (
     <div>
       <button
         type="button"
-        onClick={onOpen}
-        disabled={busy}
-        aria-describedby="open-tab-hint"
+        onClick={() => void onOpen()}
+        aria-disabled={busy || undefined}
+        aria-busy={busy || undefined}
+        aria-describedby={hintId}
         style={btn}
       >
-        {busy ? "Opening…" : "Open a tab"}
+        {/* A stated word while it opens, never a bare ellipsis: the content IS the name. */}
+        {busy ? (
+          <Chrome lang={lang} k="table.detail.openBill.opening" echo={false} />
+        ) : (
+          <Chrome lang={lang} k="table.detail.openBill.btn" echo="stack" />
+        )}
       </button>
-      <p id="open-tab-hint" style={hint}>
-        The table orders all night and settles once at close, with any tender.
+      <p id={hintId} style={hint}>
+        <Chrome lang={lang} k="table.detail.openBill.hint" echo="stack" />
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error}
+          {error.kind === "server" ? (
+            <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "waiting" ? (
+            <Chrome lang={lang} k="table.detail.openBill.waiting" echo={false} />
+          ) : (
+            <Chrome lang={lang} k="table.detail.openBill.unknown" echo={false} />
+          )}
         </p>
+      )}
+      {/* The waiting line says "reload the page", and the console is installed standalone (no
+          browser reload): the one way out sits BESIDE the alert, never inside it. */}
+      {error?.kind === "waiting" && (
+        <div style={{ marginTop: "var(--s2)" }}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </div>
   );

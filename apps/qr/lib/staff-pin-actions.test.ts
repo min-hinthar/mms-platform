@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const del = vi.fn();
 const set = vi.fn();
-const cookiesMock = vi.fn(async () => ({ delete: del, set, get: vi.fn() }));
+// Phase 2h (S2 critic D14) — whether the lock cookie is on the request (the release reads it first).
+const has = vi.fn((_name: string) => true);
+const cookiesMock = vi.fn(async () => ({ delete: del, set, get: vi.fn(), has }));
 vi.mock("next/headers", () => ({ cookies: () => cookiesMock() }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // `./staff-lock` opens with `import "server-only"`, which throws outside a server bundle; the action
@@ -32,6 +34,8 @@ const { lockConsole, releaseLockAfterSignOut } = await import("./staff-pin-actio
 beforeEach(() => {
   del.mockReset();
   set.mockReset();
+  has.mockReset();
+  has.mockImplementation(() => true);
   staffHasPin.mockReset();
   getStaffAuth.mockReset();
   cookiesMock.mockClear();
@@ -94,5 +98,17 @@ describe("releaseLockAfterSignOut", () => {
     getStaffAuth.mockResolvedValue({ kind: "unavailable" });
     await expect(releaseLockAfterSignOut()).resolves.toEqual({ released: false });
     expect(del).not.toHaveBeenCalled();
+  });
+  it("writes NOTHING when there is no lock to release — no cookie write, so Next re-renders nothing (S2 critic D14)", async () => {
+    // The sign-in form sends this on every mount; a cookie written by a Server Action re-renders
+    // the page it came from, a server round trip per anonymous visit.
+    getStaffAuth.mockResolvedValue({ kind: "anon" });
+    has.mockImplementation(() => false);
+    // MUTATION (p2h-doors/release-deletes-absent-cookie): the delete runs whatever the request
+    // carries; red.
+    await expect(releaseLockAfterSignOut()).resolves.toEqual({ released: false });
+    expect(has).toHaveBeenCalledWith("mms_staff_lock");
+    expect(del).not.toHaveBeenCalled();
+    expect(getStaffAuth).not.toHaveBeenCalled();
   });
 });

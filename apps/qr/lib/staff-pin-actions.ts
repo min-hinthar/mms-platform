@@ -120,11 +120,18 @@ export async function lockConsole(): Promise<LockResult> {
  * unknowable answer keeps it too — an outage must never read as "signed out". The lock guards a
  * session's data from the next pair of hands; with the session destroyed there is nothing left to
  * guard, which is why the release is safe and the loop was not.
+ *
+ * Phase 2h (S2 critic D14) — the sign-in form sends this on EVERY mount (`StaffLogin`), and a Server
+ * Action that writes a cookie makes Next re-render the page it was called from — one more server
+ * round trip on every anonymous visit for a lock that is almost never there. So nothing is written
+ * (and no session is read) unless the lock cookie is actually present.
  */
 export async function releaseLockAfterSignOut(): Promise<{ released: boolean }> {
+  const jar = await cookies();
+  if (!jar.has(LOCK_COOKIE)) return { released: false };
   const auth = await getStaffAuth();
   if (auth.kind !== "anon") return { released: false };
-  (await cookies()).delete({ name: LOCK_COOKIE, path: "/staff" });
+  jar.delete({ name: LOCK_COOKIE, path: "/staff" });
   return { released: true };
 }
 
