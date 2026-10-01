@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { applyPromoForTable, clearPromoForTable, type StaffPromoReason } from "@/lib/staff-promo";
+import { track } from "@/lib/bounded-write";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { buttonClass } from "@mms/ui";
@@ -146,10 +147,12 @@ export function StaffPromoControl({
       onError(null);
       setBusy(which);
       try {
+        // Phase 2h (9d) — on the stall ledger until it answers: a hung promo write holds the action
+        // queue, so the money taps behind it are refused at 15s instead of being queued behind it.
         const res =
           which === "apply"
-            ? await applyPromoForTable({ sessionId, code: code.trim() })
-            : await clearPromoForTable({ sessionId });
+            ? await track(applyPromoForTable({ sessionId, code: code.trim() }))
+            : await track(clearPromoForTable({ sessionId }));
         if (!res.ok) {
           fail(res.reason);
           return;

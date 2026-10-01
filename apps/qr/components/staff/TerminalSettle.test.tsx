@@ -201,6 +201,27 @@ describe("TerminalCollectPanel — a view over the provider: shown here, said by
     expect(api.record).toBeNull();
   });
 
+  it("a THROWN cancel says 'couldn't confirm' — in the panel and the region, one binding (Phase 2h · 9e)", async () => {
+    // MUTATION (p2h-core/panel-cancel-words-forked): the panel keeps its own copy of the cancel's
+    // words ("Couldn't cancel just now — try again") while the region says the honest one — two
+    // sentences about one tap, and the visible one invites a blind retry over a reader that may
+    // already be cancelled; red.
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    cancelTerminal.mockRejectedValueOnce(new Error("fetch failed"));
+    const { onStatus } = await panel();
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Cancel the reader/ }));
+    });
+    await flush();
+    expect(group()!.textContent).toContain(STAFF["settle.reader.cancelUnknown"].en);
+    expect(group()!.textContent).not.toContain(STAFF["settle.reader.cancelFailed"].en);
+    expect(lastStatus(onStatus)).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelUnknown" },
+    });
+  });
+
   it("charged but slow to record: the button HIDES the panel and says so — never 'Back to payment' (PT-10)", async () => {
     terminalStatus.mockResolvedValue({
       ok: true,

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Button, Sheet } from "@mms/ui";
 import { getOldestCounterOrders } from "@/lib/floor";
+import { track } from "@/lib/bounded-write";
 import type { CounterFloorRow } from "@/lib/floor-types";
 import type { CounterCursor } from "@/lib/register-queue";
 import type { KdsThresholds } from "@/lib/kitchen-types";
@@ -98,7 +99,8 @@ export function CounterOlderSheet({
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await getOldestCounterOrders({ after });
+      // Phase 2h (9d) — on the stall ledger until it answers (a hung read holds the action queue).
+      const res = await track(getOldestCounterOrders({ after }));
       if (!alive.current) return;
       if (!res.ok) {
         // The floor poll's verdicts, the floor's exits.

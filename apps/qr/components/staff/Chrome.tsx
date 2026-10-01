@@ -7,6 +7,10 @@ import {
   STAFF_WRITE_OUTAGE_MY,
   AUTHORITY_UNCONFIRMED,
   AUTHORITY_UNCONFIRMED_MY,
+  WRITE_UNCONFIRMED,
+  WRITE_UNCONFIRMED_MY,
+  WRITE_WAITING,
+  WRITE_WAITING_MY,
 } from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
 import { echoDrawn } from "@/lib/staff-labels";
@@ -147,6 +151,9 @@ const OUTAGE_TWINS: ReadonlyMap<string, string> = new Map([
   // because it means something different (nothing was attempted, and paper is not the fallback), so
   // it needs its own twin rather than sharing one that would be false in both tongues.
   [AUTHORITY_UNCONFIRMED, AUTHORITY_UNCONFIRMED_MY],
+  // Phase 2h (F6) — a line edit's two hang sentences (StaffLineEditor's plain-string `onError`).
+  [WRITE_WAITING, WRITE_WAITING_MY],
+  [WRITE_UNCONFIRMED, WRITE_UNCONFIRMED_MY],
 ]);
 
 export function OutageText({ lang, error }: { lang: StaffLang; error: string }) {

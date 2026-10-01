@@ -1,6 +1,7 @@
 import { STAFF, ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
+import { STAFF_HANG_MS, track } from "./bounded-write";
 
 /**
  * W10b — the staff outage vocabulary. Plain module (no "server-only"): the boards are clients, and
@@ -69,6 +70,20 @@ export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
 export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;
 /** The Burmese twin, picked at the render site by `<OutageText>`. */
 export const AUTHORITY_UNCONFIRMED_MY = STAFF["out.authority.unconfirmed"].my;
+
+/**
+ * Phase 2h (9e · the contract critic, F6) — a line edit (qty, note) whose answer has not come back
+ * (`WRITE_WAITING`), or whose action threw (`WRITE_UNCONFIRMED`). `StaffLineEditor`'s `onError` is a
+ * PLAIN-STRING channel read by four renderers it does not own (FloorDetailLive's write line, the
+ * pad's Toast via `padSentenceNotice`, StaffTicket's parents) — every one of them already renders a
+ * string through `<OutageText>` — so these two travel as their ENGLISH sentence and are given a twin
+ * there, exactly as `STAFF_WRITE_OUTAGE` is, instead of widening a channel four files deep. Each is
+ * its dictionary entry's `.en`/`.my` by construction, so the pair cannot drift apart.
+ */
+export const WRITE_WAITING = STAFF["out.write.waiting"].en;
+export const WRITE_WAITING_MY = STAFF["out.write.waiting"].my;
+export const WRITE_UNCONFIRMED = STAFF["out.write.unknown"].en;
+export const WRITE_UNCONFIRMED_MY = STAFF["out.write.unknown"].my;
 
 /**
  * The nouns a frozen board can be showing. Narrowed to the dictionary's `what.*` keys so a board
@@ -169,8 +184,21 @@ export function frozenBoardCopy(
  * WE are down. The raced promise is not cancellable (Server Actions take no signal); a late
  * settlement is simply discarded, which is why the caller must be idempotent — it is: the next
  * poll overwrites the snapshot wholesale.
+ *
+ * Phase 2h (decision 9c) — the bound is `STAFF_HANG_MS`, named ONCE in `lib/bounded-write.ts` (the
+ * pad's unconfirmed-add bound and the stall ledger read the same constant), and the raw promise is
+ * TRACKED in the stall ledger until it settles. The rejection at the bound frees this caller only:
+ * the raw read is still in Next's one-at-a-time queue, holding every later action behind it
+ * (LEARNINGS #157 · #200). Untracked, a read hung for minutes would leave `stalledSince` reading the
+ * tab as healthy, and the next money tap would be dispatched into the queue behind it (9d).
+ *
+ * ⚠️ It tracks WHATEVER it races — a Server Action, or (ReadyBoard's `/api/board`) a plain fetch,
+ * which is NOT in the action queue. Harmless today (`/board` is its own tab, with no money taps),
+ * but the filed 9h move of the staff polls onto GET route handlers must race those reads WITHOUT
+ * tracking them, or a hung fetch would refuse money taps over a queue it never held.
  */
-export function raceTimeout<T>(p: Promise<T>, ms = 15_000): Promise<T> {
+export function raceTimeout<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
+  track(p);
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("staff-poll-timeout")), ms);
     p.then(

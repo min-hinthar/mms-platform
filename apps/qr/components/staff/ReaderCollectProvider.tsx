@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
   READER_POLL_MS,
@@ -246,7 +247,9 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       }
       const ticket = { since: now, counted: 0, pi };
       flight.current = ticket;
-      terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi })
+      // Phase 2h (9d) — on the stall ledger until it answers: a hung status read holds the action
+      // queue like any action, so a money tap behind it is refused instead of queued.
+      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }))
         .catch(() => null)
         .then((res) => {
           if (flight.current === ticket) flight.current = null;

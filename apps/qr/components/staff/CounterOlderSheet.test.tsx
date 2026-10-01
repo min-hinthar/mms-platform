@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 import type { CounterFloorRow, OlderCounterPoll } from "@/lib/floor-types";
 
 /**
@@ -248,5 +249,19 @@ describe("CounterOlderSheet — every open counter order, oldest first", () => {
     vi.stubGlobal("matchMedia", (q: string) => ({ matches: true, media: q }));
     expect(click()).toBe(true); // prevented — the pane, not a navigation
     expect(onPaneOpen).toHaveBeenCalledWith("a");
+  });
+});
+
+describe("Phase 2h (9d) — the page read sits on the stall ledger until it answers", () => {
+  it("a hung page read makes the tab read stalled at 15s", async () => {
+    // MUTATION (p2h-core/track-older-read): the read is not tracked — hung, it holds the action
+    // queue while the ledger calls the tab healthy, and a money tap is queued behind it; red.
+    read.mockReturnValue(new Promise(() => {}));
+    const openedAt = Date.now();
+    mount();
+    await tick(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    await tick(1);
+    expect(stalledSince()).toBe(openedAt);
   });
 });

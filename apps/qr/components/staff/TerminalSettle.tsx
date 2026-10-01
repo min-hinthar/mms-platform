@@ -13,6 +13,7 @@ import { settleBlockedMsg } from "@/lib/staff-send-view";
 import {
   readerAlertKey,
   readerBusyKey,
+  readerCancelMsg,
   readerNameText,
   readerPanelAction,
   readerStartRefused,
@@ -403,14 +404,12 @@ export function TerminalCollectPanel({
         <MsgText lang={lang} msg={status.msg} />
         {/* Lifted out of the template literal it used to be spliced into: `<OutageText>` returns
             JSX and cannot live inside a string. */}
+        {/* Phase 2h — the cancel's words are `readerCancelMsg`'s, the SAME binding the region says
+            (`readerSpoken`): a server sentence through <OutageText>, every other outcome a key. */}
         {cancelError !== null && (
           <>
             {" "}
-            {cancelError.kind === "server" ? (
-              <OutageText lang={lang} error={cancelError.text} />
-            ) : (
-              <Chrome lang={lang} k="settle.reader.cancelFailed" echo={false} />
-            )}
+            <MsgText lang={lang} msg={readerCancelMsg(cancelError)} />
           </>
         )}
       </p>

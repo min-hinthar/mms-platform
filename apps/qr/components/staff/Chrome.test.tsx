@@ -10,6 +10,10 @@ import {
   STAFF_WRITE_OUTAGE_MY,
   AUTHORITY_UNCONFIRMED,
   AUTHORITY_UNCONFIRMED_MY,
+  WRITE_UNCONFIRMED,
+  WRITE_UNCONFIRMED_MY,
+  WRITE_WAITING,
+  WRITE_WAITING_MY,
 } from "@/lib/staff-outage";
 
 /**
@@ -165,6 +169,35 @@ describe("OutageText — the one server sentence with a Burmese twin", () => {
     expect(AUTHORITY_UNCONFIRMED_MY).not.toBe(STAFF_WRITE_OUTAGE_MY);
     // And the authority refusal must never tell a manager to fall back to paper.
     expect(AUTHORITY_UNCONFIRMED).not.toMatch(/paper/i);
+  });
+
+  it("translates a line edit's two hang sentences (Phase 2h · F6), each its dictionary pair", () => {
+    // StaffLineEditor's `onError` is a plain-string channel; every renderer of it goes through
+    // `<OutageText>`. Without a twin here, "No answer yet — that change may still be saved" and "We
+    // couldn't confirm that change" stay English on a Burmese console, and the only way to localize
+    // them would be to edit three other streams' files.
+    // MUTATION (p2h-core/twin-write-waiting): the waiting twin is gone; red.
+    // MUTATION (p2h-core/twin-write-unknown): the couldn't-confirm twin is gone; red.
+    for (const [en, my, key] of [
+      [WRITE_WAITING, WRITE_WAITING_MY, "out.write.waiting"],
+      [WRITE_UNCONFIRMED, WRITE_UNCONFIRMED_MY, "out.write.unknown"],
+    ] as const) {
+      cleanup();
+      expect(en).toBe(STAFF[key].en);
+      expect(my).toBe(STAFF[key].my);
+      const { container } = render(<OutageText lang="my" error={en} />);
+      const marked = container.querySelector('[lang="my"]')!;
+      expect(marked?.textContent).toBe(my);
+      expect(marked.className).toContain("chrome-my");
+      cleanup();
+      const english = render(<OutageText lang="en" error={en} />);
+      expect(english.container.querySelectorAll("*")).toHaveLength(0);
+      expect(english.container.textContent).toBe(en);
+    }
+    // Two different facts, two different sentences, in both tongues — and neither is the outage's.
+    expect(WRITE_WAITING).not.toBe(WRITE_UNCONFIRMED);
+    expect(WRITE_WAITING_MY).not.toBe(WRITE_UNCONFIRMED_MY);
+    expect([WRITE_WAITING, WRITE_UNCONFIRMED]).not.toContain(STAFF_WRITE_OUTAGE);
   });
 
   it("shows the authority refusal verbatim in English", () => {

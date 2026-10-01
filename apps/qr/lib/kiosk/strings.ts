@@ -135,6 +135,29 @@ const STRINGS = {
     en: "Just a moment — we couldn’t connect. Please tap again.",
     my: "ခဏလေးပါ — စနစ်နဲ့ ချိတ်ဆက်လို့ မရသေးပါ။ ထပ်နှိပ်ကြည့်ပါနော်။",
   },
+  /**
+   * Phase 2h (P2cz) — an add whose answer has not come back. The kiosk's add used to hold the
+   * options sheet until the action answered, and on a stuck connection that is never; the sheet now
+   * frees after 15s and says THIS — the add may still land, so "Something went wrong" (which sends
+   * the guest away) and a blind re-add (two of the dish) would both be wrong.
+   *
+   * ⚠️ NEVER "check View order" (the contract critic, F10). An add still in the queue is in no order
+   * the guest can open — the review reads the cart behind the same stuck queue — and "View order" is
+   * DISABLED while the count is 0, so on a first dish the instruction cannot even be followed. What the
+   * guest CAN see is the count on that button, which goes up when a late answer lands (9e applies it);
+   * if it never does, the counter can see the kiosk's cart. `addUnknown` (the add THREW: it may or may
+   * not have gone on) has no late answer coming, so it sends the guest to the counter before a re-add.
+   * K15 drafts; words: “အော်ဒါ ကြည့်မယ်” (`viewOrder`), ကောင်တာမှာ မေးကြည့်ပါနော် (`scanUnknown`),
+   * အရေအတွက် "the count" (the staff dictionary's browse.mod.qty).
+   */
+  addWaiting: {
+    en: "Still adding that — please don’t add it again. When it’s in, the number on “View order” goes up; if it doesn’t, ask at the counter.",
+    my: "အဲဒါကို ထည့်နေတုန်းပါ — ထပ်မထည့်ပါနဲ့နော်။ ထည့်ပြီးရင် “အော်ဒါ ကြည့်မယ်” က အရေအတွက် တက်လာပါမယ်၊ မတက်လာရင် ကောင်တာမှာ မေးကြည့်ပါနော်။",
+  },
+  addUnknown: {
+    en: "We couldn’t confirm that was added — please ask at the counter before you add it again.",
+    my: "ထည့်ပြီးပြီလား မသေချာပါ — ထပ်မထည့်ခင် ကောင်တာမှာ မေးကြည့်ပါနော်။",
+  },
 } as const;
 
 export type KioskStringKey = keyof typeof STRINGS;

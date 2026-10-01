@@ -352,8 +352,38 @@ export function readerPanelAction(
   return "back";
 }
 
-/** A cancel that did not happen: the server's sentence ("too late…"), or the transport's own key. */
-export type ReaderCancelError = { kind: "server"; text: string } | { kind: "local" };
+/**
+ * A cancel that did not (or may not have) happened — Phase 2h (9d · 9e) gave it every outcome a
+ * bounded money write has:
+ *  - `server`: the server answered with a refusal sentence ("too late…") — said verbatim;
+ *  - `local`: the cancel THREW. The response can be lost AFTER the server cancelled, so it is
+ *    "couldn't confirm", never "couldn't cancel — try again" (9e);
+ *  - `waiting`: no answer within STAFF_HANG_MS (`boundWrite`) — the reader may still be taking the
+ *    card; the late answer is applied when it lands (the poll keeps reporting the truth meanwhile);
+ *  - `stalled`: refused at the tap, never dispatched — an earlier action has held the queue past the
+ *    bound (`stalledSince() !== null`), so a cancel would only queue behind it (9d).
+ * The cancel WRITE lives in `ReaderCollectProvider.cancel`; every surface that says a cancel error
+ * (the collect panel's line, the page's region through `readerSpoken`) reads `readerCancelMsg`.
+ */
+export type ReaderCancelError =
+  | { kind: "server"; text: string }
+  | { kind: "local" }
+  | { kind: "waiting" }
+  | { kind: "stalled" };
+
+/** THE words for a cancel error — the panel's visible line and the page's region both read this. */
+export function readerCancelMsg(e: ReaderCancelError): { k: StaffKey } | string {
+  switch (e.kind) {
+    case "server":
+      return e.text;
+    case "local":
+      return { k: "settle.reader.cancelUnknown" };
+    case "waiting":
+      return { k: "settle.reader.cancelWaiting" };
+    case "stalled":
+      return { k: "out.stalled" };
+  }
+}
 
 /** What the page's region SPEAKS: a cancel refusal is the newer fact while it stands. */
 export function readerSpoken(
@@ -361,10 +391,7 @@ export function readerSpoken(
   cancelError: ReaderCancelError | null,
 ): ReaderStatus {
   if (cancelError === null) return status;
-  return {
-    tone: "warn",
-    msg: cancelError.kind === "server" ? cancelError.text : { k: "settle.reader.cancelFailed" },
-  };
+  return { tone: "warn", msg: readerCancelMsg(cancelError) };
 }
 
 /**

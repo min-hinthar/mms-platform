@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
+import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 import type { StaffLang } from "@/lib/staff-lang";
 import type {
   SendNotice,
@@ -645,3 +646,33 @@ function accessibleText(el: Element): string {
   walk(el);
   return out;
 }
+
+describe("Phase 2h (9d) — the Send and its Undo sit on the stall ledger until they answer", () => {
+  it("a hung Send makes the tab read stalled at 15s", async () => {
+    // MUTATION (p2h-core/track-send): the fire is not tracked — a hung Send holds the action queue
+    // while the ledger calls the tab healthy, and the next money tap is dispatched behind it; red.
+    fire.mockReturnValueOnce(new Promise(() => {}));
+    render(<Host view={SEND} seq={0} />);
+    await flush();
+    const tappedAt = Date.now();
+    fireEvent.click(control());
+    await flush(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    await flush(1);
+    expect(stalledSince()).toBe(tappedAt);
+  });
+
+  it("a hung Undo makes the tab read stalled at 15s", async () => {
+    // MUTATION (p2h-core/track-undo): the take-back is not tracked; red.
+    const r = await sendIntoUndo();
+    r.rerender(<Host view={ALL_SENT} seq={1} />);
+    undo.mockReturnValueOnce(new Promise(() => {}));
+    await flush(400);
+    const tappedAt = Date.now();
+    fireEvent.click(control());
+    await flush(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    await flush(1);
+    expect(stalledSince()).toBe(tappedAt);
+  });
+});

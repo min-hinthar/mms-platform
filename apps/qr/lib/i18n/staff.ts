@@ -3675,6 +3675,273 @@ export const STAFF = {
     en: "Nobody has collected this order in over {n} hours.",
     my: "ဒီအော်ဒါကို {n} နာရီကျော်ကြာအောင် ဘယ်သူမှ လာမယူသေးပါ။",
   }, // K15-HIGH — it sits above the write-off: misread, a bag a guest is coming for is removed
+  // ── Phase 2h ──
+  // A hung tablet never traps staff (P2cz · P2fc, decisions 9a–9h). Next runs Server Actions one at
+  // a time per tab, so one action left unanswered holds every later one; a write is now awaited
+  // with a bound (`lib/bounded-write.ts`, STAFF_HANG_MS = 15s) and has THREE outcomes, each with its
+  // own sentence: it answered (the existing refusal keys), it is still out ("waiting" — no answer
+  // yet, it may still be recorded, don't do it again, reload to see), or it threw ("unknown" — the
+  // answer was lost, so it may have landed: "we couldn't confirm", NEVER "wasn't saved"). A NEW money
+  // write tapped while any action has been out ≥ 15s is refused before it is sent (`out.stalled`,
+  // with `out.reload` — `<ReloadOffer>`): sent, it would only queue behind the stuck one.
+  //
+  // Every MY value below is a Claude-authored K15 draft pending Min's native check. Words, grounded:
+  // အဖြေ မရသေးပါ "no answer yet" (pad.err.add.checking), …ဖြစ်နိုင်ပါတယ် "it may…" (floor.mint.unknown),
+  // အတည်မပြုနိုင်ပါ "couldn't confirm" (out.authority.unconfirmed), ထပ်မ…ခင် … စစ်ပါ "check … before
+  // you … again" (floor.mint.unknown), စာမျက်နှာ "the page" (report.conn.page), ပြန်ဖွင့် "reload"
+  // (pad.reload), တက်ဘလက် "this tablet" (shell.lock), …မ…ပါနဲ့ "don't" (settle.card.unknown).
+  //
+  // The 9d refusal and the one way out of it (`ReloadOffer`). "Did nothing" is the honest claim:
+  // the tap was refused BEFORE dispatch, so unlike every `waiting` line nothing can land later.
+  "out.stalled": {
+    en: "This tablet is still waiting for an earlier answer, so this did nothing. Reload the page to carry on.",
+    my: "ဒီတက်ဘလက်က အရင်က အဖြေတစ်ခုကို စောင့်နေတုန်းမို့ ဒါက ဘာမှ မလုပ်ရသေးပါ။ ဆက်လုပ်ဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the cashier taps again and again, or takes the money another way while the stuck payment may still land
+  "out.reload": { en: "Reload the page", my: "စာမျက်နှာ ပြန်ဖွင့်" },
+  // The non-money writes (StaffLineEditor's qty and kitchen note, and any write without a sentence
+  // of its own). They replace that editor's two English literals ("Couldn’t update that — check the
+  // connection…" / "Couldn’t save that note — …"), which claimed a failure a lost answer cannot prove.
+  // Words: အဲဒီပြင်ဆင်မှု "that change", သိမ်း "saved" (out.write.failed); အော်ဒါကို အခု အတိုင်း "the
+  // order as it is now" (table.noshow.rearm).
+  // First band (critic F10): a line edit is a QUANTITY on a bill or a kitchen NOTE (an allergy rides
+  // there), and these are connection lines — the band `out.write.failed` already sits in.
+  "out.write.waiting": {
+    en: "No answer yet — that change may still be saved. Reload the page to see the order as it is.",
+    my: "အဖြေ မရသေးပါ — အဲဒီပြင်ဆင်မှု သိမ်းပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို အခု အတိုင်း ကြည့်ဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a quantity is changed twice on the bill, or an allergy note is typed again or lost
+  "out.write.unknown": {
+    en: "We couldn’t confirm that change — check the order before you try again.",
+    my: "အဲဒီပြင်ဆင်မှုကို အတည်မပြုနိုင်ပါ — ထပ်မစမ်းခင် အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a quantity is changed twice on the bill, or an allergy note is typed again or lost
+  // The cash sheet's waiting arm (its thrown arm keeps settle.cash.unknown, which is already true).
+  // Words: ဒီငွေရှင်းတာ မှတ် "this payment recorded" (settle.cash.unknown).
+  "settle.cash.waiting": {
+    en: "No answer yet — this payment may still be recorded. Don’t take it again: reload the page to see whether it went through.",
+    my: "အဖြေ မရသေးပါ — ဒီငွေရှင်းတာ မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မယူပါနဲ့ — ရှင်းပြီးပြီလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the guest pays twice
+  // Closing a running bill on the card on file — the waiting arm (thrown: settle.card.unknown, true).
+  // Words: သိမ်းထားတဲ့ ကတ်ကနေ ဖြတ် (settle.card.chargeQ), ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့
+  // (settle.card.unknown), စာရင်း ပိတ် "the bill closed" (settle.cash.closesTab).
+  "settle.card.waiting": {
+    en: "No answer yet — the card on file may still be charged. Don’t take cash or another card: reload the page to see whether the bill closed.",
+    my: "အဖြေ မရသေးပါ — သိမ်းထားတဲ့ ကတ်ကနေ ဖြတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ — စာရင်း ပိတ်ပြီလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the guest is charged twice
+  // The card reader's START (TerminalSettle → settleCard). Its thrown arm said settle.reader.startFailed
+  // ("Couldn’t start the card payment — try again, or take cash"), which is false when the answer was
+  // lost: the reader may be asking for the card right now. Words: ကတ်စက် (settle.reader.*), ကတ်နဲ့
+  // ငွေရှင်းတာ "the card payment" (settle.reader.startFailed).
+  "settle.reader.waiting": {
+    en: "No answer yet — the card reader may still start asking for the card. Don’t take cash or start it again: reload the page to see where it stands.",
+    my: "အဖြေ မရသေးပါ — ကတ်စက်က ကတ်ကို တောင်းဖို့ စနေတုန်း ဖြစ်နိုင်ပါတယ်။ ငွေသား မယူပါနဲ့၊ ထပ်လည်း မစပါနဲ့ — ဘယ်လိုဖြစ်နေလဲ သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the guest pays by card and in cash
+  "settle.reader.unknown": {
+    en: "We couldn’t confirm the card payment started — the reader may be asking for the card now. Check the reader before you take cash or try again.",
+    my: "ကတ်နဲ့ ငွေရှင်းတာ စပြီလား အတည်မပြုနိုင်ပါ — ကတ်စက်က အခု ကတ်ကို တောင်းနေတာ ဖြစ်နိုင်ပါတယ်။ ငွေသား မယူခင် ဒါမှမဟုတ် ထပ်မစမ်းခင် ကတ်စက်ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, cash is taken while the reader collects the card too
+  // The reader's CANCEL. Until the cancel is confirmed the reader may still take the card, so both
+  // arms say THAT — the fact a second tender would collide with. Its thrown arm said
+  // settle.reader.cancelFailed ("Couldn’t cancel just now — try again"). Words: ကတ်ကို ယူ "take the
+  // card" (settle.reader.busyElsewhere's ငွေယူ), ဖျက် "cancel" (settle.reader.cancelBtn).
+  "settle.reader.cancelWaiting": {
+    en: "No answer yet — the reader may still be taking the card. Check it before you take another payment: reload the page to see where it stands.",
+    my: "အဖြေ မရသေးပါ — ကတ်စက်က ကတ်ကို ယူနေတုန်း ဖြစ်နိုင်ပါတယ်။ နောက်ထပ် ငွေမယူခင် စစ်ပါ — ဘယ်လိုဖြစ်နေလဲ သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a second payment is taken while the reader still takes the card
+  "settle.reader.cancelUnknown": {
+    en: "We couldn’t confirm the reader was canceled — it may still take the card. Check it before you take another payment.",
+    my: "ကတ်စက်ကို ဖျက်ပြီလား အတည်မပြုနိုင်ပါ — ကတ်ကို ယူနေတုန်း ဖြစ်နိုင်ပါတယ်။ နောက်ထပ် ငွေမယူခင် စစ်ပါ။",
+  }, // K15-HIGH — misread, a second payment is taken while the reader still takes the card
+  // The refund sheet. Its thrown arm said floor.refund.err.failed ("Couldn’t refund that line — try
+  // again"): a lost answer may have refunded the card or recorded a cash refund. Under record-first
+  // (floor.refund.note.cash) a cash refund is handed back AFTER the record, so both arms stop the
+  // hand-back too. Words: ပြန်အမ်း (floor.refund.*), ဘာမှ ပြန်မအမ်းပါနဲ့ "don't hand anything back"
+  // (floor.refund.err.cashNotReady).
+  "floor.refund.waiting": {
+    en: "No answer yet — this refund may still go through. Don’t refund it again or hand anything back: reload the page to see whether it was recorded.",
+    my: "အဖြေ မရသေးပါ — ဒီပြန်အမ်းတာ ဖြစ်သွားပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မလုပ်ပါနဲ့၊ ဘာမှလည်း ပြန်မအမ်းပါနဲ့ — မှတ်ပြီးပြီလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the guest is refunded twice
+  "floor.refund.err.unknown": {
+    en: "We couldn’t confirm the refund — check the order before you refund again or hand anything back.",
+    my: "ပြန်အမ်းတာကို အတည်မပြုနိုင်ပါ — ထပ်မပြန်အမ်းခင်၊ ဘာမှ ပြန်မပေးခင် အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — misread, the guest is refunded twice
+  // The loss sheet (void / comp a fired line). Both arms said STAFF_WRITE_OUTAGE ("that change wasn’t
+  // saved"), false under a lost answer — and `voidLine` spends a manager's PIN try BEFORE its RPC, so
+  // a second attempt on a change that landed walks a manager toward a lockout. Words: ဖျက် / အခမဲ့ပေး
+  // (table.loss.confirm.*), ပစ္စည်း "item" (table.loss.*).
+  "table.loss.msg.waiting": {
+    en: "No answer yet — this change may still be recorded. Don’t do it again: reload the page to see whether it went through.",
+    my: "အဖြေ မရသေးပါ — ဒီပြင်ဆင်မှု မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မလုပ်ပါနဲ့ — ဖြစ်သွားပြီလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a dish is removed or given away twice, or a manager's PIN try is spent again
+  "table.loss.msg.unknown": {
+    en: "We couldn’t confirm that change — the item may already be removed or free. Check the order before you try again.",
+    my: "ဒီပြင်ဆင်မှုကို အတည်မပြုနိုင်ပါ — ပစ္စည်းကို ဖျက်ပြီး ဒါမှမဟုတ် အခမဲ့ပေးပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မစမ်းခင် အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a dish is removed or given away twice
+  // …and its no-manager path, the approval REQUEST. A request moves no money and the server refuses a
+  // second one for the same line (`already_pending` → table.loss.msg.alreadyPending), so the thrown
+  // arm can honestly say "try again". Words: တောင်းဆိုချက် (table.loss.msg.alreadyPending).
+  "table.loss.msg.requestWaiting": {
+    en: "No answer yet — the request may still reach a manager. Don’t send it again: reload the page to see.",
+    my: "အဖြေ မရသေးပါ — တောင်းဆိုချက် မန်နေဂျာဆီ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မပို့ပါနဲ့ — သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  "table.loss.msg.requestUnknown": {
+    en: "We couldn’t confirm the request was sent — try again; if it already reached a manager, you’ll be told.",
+    my: "တောင်းဆိုချက် ပို့ပြီလား အတည်မပြုနိုင်ပါ — ထပ်စမ်းပါ။ မန်နေဂျာဆီ ရောက်ပြီးသားဆိုရင် ပြောပြပါမယ်။",
+  },
+  // The no-show write-off. Its thrown arm read as an outage (STAFF_WRITE_OUTAGE). Words: အော်ဒါ ဖျက်
+  // (table.noshow.confirm), ပြန်စစ် (table.noshow.err.changed).
+  "table.noshow.waiting": {
+    en: "No answer yet — the order may still be removed. Don’t remove it again: reload the page to see whether it went through.",
+    my: "အဖြေ မရသေးပါ — အော်ဒါကို ဖျက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မဖျက်ပါနဲ့ — ဖြစ်သွားပြီလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, sent food is written off twice or a paying guest's order is removed
+  "table.noshow.err.unknown": {
+    en: "We couldn’t confirm the order was removed — check it before you try again.",
+    my: "အော်ဒါ ဖျက်ပြီလား အတည်မပြုနိုင်ပါ — ထပ်မစမ်းခင် ပြန်စစ်ပါ။",
+  }, // K15-HIGH — misread, sent food is written off twice
+  // The Help sheet's report. It has NO idempotency key (decision 9g; filed — it needs a column), so a
+  // second send of a report that landed IS a second report: both arms say so. Its rejection used to
+  // reach the error boundary. Words: အစီရင်ခံစာ, သင့် အစီရင်ခံစာများ "Your reports" (report.mine),
+  // နှစ်ခါ "twice" (floor.refund.reason.duplicate).
+  "report.err.waiting": {
+    en: "No answer yet — your report may still arrive. Sending it again may send it twice: reload the page, then check Your reports.",
+    my: "အဖြေ မရသေးပါ — သင့်အစီရင်ခံစာ ရောက်သွားနိုင်ပါသေးတယ်။ ထပ်ပို့ရင် နှစ်ခါ ရောက်နိုင်ပါတယ် — စာမျက်နှာ ပြန်ဖွင့်ပြီး သင့် အစီရင်ခံစာများ ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, on the screen that reports failures, a report is sent twice or not at all
+  "report.err.unknown": {
+    en: "We couldn’t confirm your report was sent — check Your reports before you send it again; sent twice, it arrives twice.",
+    my: "သင့်အစီရင်ခံစာ ပို့ပြီလား အတည်မပြုနိုင်ပါ — ထပ်မပို့ခင် သင့် အစီရင်ခံစာများ ကို စစ်ပါ။ နှစ်ခါပို့ရင် နှစ်ခါ ရောက်ပါမယ်။",
+  }, // K15-HIGH — misread, on the screen that reports failures, a report is sent twice or not at all
+  // Clearing a table on turnover. A late clear lands on whatever is open on the session when it is
+  // sent — possibly the NEXT party's order (filed: a server guard refusing fired lines). Words:
+  // စားပွဲ ရှင်း (settle.clear.btn), ခန်းမ "the floor" (what.floor).
+  "settle.clear.waiting": {
+    en: "No answer yet — the table may still be cleared. Don’t clear it again: reload the page to see.",
+    my: "အဖြေ မရသေးပါ — စားပွဲ ရှင်းပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မရှင်းပါနဲ့ — သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a second clear lands on the next party's order
+  "settle.clear.unknown": {
+    en: "We couldn’t confirm the table was cleared — check the floor before you clear it again.",
+    my: "စားပွဲ ရှင်းပြီလား အတည်မပြုနိုင်ပါ — ထပ်မရှင်းခင် ခန်းမကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a second clear lands on the next party's order
+  // Merging one table's order into another — the same late-landing hazard (a re-seated party's
+  // cart). Words: ပေါင်း (settle.merge.btn).
+  "settle.merge.waiting": {
+    en: "No answer yet — the tables may still be merged. Don’t merge again: reload the page to see.",
+    my: "အဖြေ မရသေးပါ — စားပွဲတွေ ပေါင်းပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မပေါင်းပါနဲ့ — သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, one table's food and bill land on another
+  "settle.merge.unknown": {
+    en: "We couldn’t confirm the tables were merged — check both tables before you try again.",
+    my: "စားပွဲတွေ ပေါင်းပြီလား အတည်မပြုနိုင်ပါ — ထပ်မစမ်းခင် စားပွဲ နှစ်ခုလုံးကို စစ်ပါ။",
+  }, // K15-HIGH — misread, one table's food and bill land on another
+  // OpenTabButton's three English literals ("Open a tab" / "Opening…" / "…settles once at close,
+  // with any tender"), now keys in plain words — never "tab", never "settle". Opening a running bill
+  // moves no money. Words: စာရင်းဖွင့် verbatim (floor.tab, and table.detail.a11y.openTab — the same
+  // control's accessible name, so the visible label stays inside it); the inflected forms keep
+  // floor.tabOpen's spacing (စာရင်း ဖွင့်ထား). The busy label names the bill: a bare ဖွင့်နေပါတယ်… is
+  // every "Loading…" on the console.
+  "table.detail.openBill.btn": { en: "Open a running bill", my: "စာရင်းဖွင့်" },
+  "table.detail.openBill.opening": { en: "Opening…", my: "စာရင်း ဖွင့်နေပါတယ်…" },
+  "table.detail.openBill.hint": {
+    en: "The table orders all night and pays once at the end, any way they like.",
+    my: "ဒီစားပွဲက တစ်ညလုံး မှာနိုင်ပြီး နောက်ဆုံးမှာ ကြိုက်တဲ့နည်းနဲ့ တစ်ခါတည်း ငွေရှင်းပါမယ်။",
+  },
+  "table.detail.openBill.waiting": {
+    en: "No answer yet — the running bill may still open. Reload the page to see.",
+    my: "အဖြေ မရသေးပါ — စာရင်း ဖွင့်ပြီးသား ဖြစ်နိုင်ပါတယ်။ သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  "table.detail.openBill.unknown": {
+    en: "We couldn’t confirm the running bill opened — check the table before you try again.",
+    my: "စာရင်း ဖွင့်ပြီလား အတည်မပြုနိုင်ပါ — ထပ်မစမ်းခင် စားပွဲကို စစ်ပါ။",
+  },
+  // The counter's Start (CounterMint) — its thrown arm keeps floor.mint.unknown; the waiting arm adds
+  // the reload (the floor's own read is queued behind the stuck start, so "check" alone cannot work).
+  "floor.mint.waiting": {
+    en: "No answer yet — the order may still start. Don’t start it again: reload the page to see whether it’s under Tables & counter orders.",
+    my: "အဖြေ မရသေးပါ — အော်ဒါ စပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မစပါနဲ့ — စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ မှာ ရှိမရှိ သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  // The refunds-needed strip's "Mark refunded". The refund itself happened in the processor; this
+  // only marks the row done, and marking twice is harmless (an idempotent update), so the thrown arm
+  // may say "mark it again". Its old line (table.appr.msg.failed) and code comments claimed nothing
+  // was recorded. Words: ပြီးပြီလို့ မှတ် (table.appr.verb.markRefunded.confirm).
+  "table.appr.refunds.markWaiting": {
+    en: "No answer yet — it may still be marked done. Reload the page to see whether it’s still listed.",
+    my: "အဖြေ မရသေးပါ — ပြီးပြီလို့ မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ စာရင်းထဲ ရှိနေသေးလား သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  "table.appr.refunds.markUnknown": {
+    en: "We couldn’t confirm it was marked done — if it’s still listed after a reload, mark it again.",
+    my: "ပြီးပြီလို့ မှတ်ပြီလား အတည်မပြုနိုင်ပါ — စာမျက်နှာ ပြန်ဖွင့်ပြီး စာရင်းထဲ ရှိနေသေးရင် ထပ်မှတ်ပါ။",
+  },
+  // The approvals queue's decision (resolveApproval). Its rejection used to reach the error boundary.
+  // An approval removes or gives away food. Words: ဆုံးဖြတ် (table.appr.msg.failed), တောင်းဆိုချက်
+  // စာရင်း "the requests list" (table.appr.title's တောင်းဆိုချက်များ).
+  "table.appr.msg.waiting": {
+    en: "No answer yet — your decision may still be recorded. Don’t decide again: reload the page to see.",
+    my: "အဖြေ မရသေးပါ — သင့်ဆုံးဖြတ်ချက် မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မဆုံးဖြတ်ပါနဲ့ — သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a dish is removed or given away on a second decision, or a PIN try is spent again
+  "table.appr.msg.unknown": {
+    en: "We couldn’t confirm your decision — check the requests list before you decide again.",
+    my: "သင့်ဆုံးဖြတ်ချက်ကို အတည်မပြုနိုင်ပါ — ထပ်မဆုံးဖြတ်ခင် တောင်းဆိုချက် စာရင်းကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a dish is removed or given away on a second decision
+  // The lock screen's unlock. A late unlock still spends one of the PIN's tries when it lands
+  // (staff-pin-actions), so a re-entry walks the tablet toward a lockout; and a lost answer may have
+  // UNLOCKED it, which a reload shows. Words: ပင်နံပါတ် (pin.label), ရိုက် "enter" (pin.needsManager).
+  "pin.unlock.waiting": {
+    en: "No answer yet — your PIN may still be checked. Don’t enter it again: reload the page to see.",
+    my: "အဖြေ မရသေးပါ — ပင်နံပါတ်ကို စစ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ထပ်မရိုက်ပါနဲ့ — သိဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, each retry spends a PIN try and walks the shared tablet toward a lockout
+  "pin.unlock.unknown": {
+    en: "We couldn’t confirm your PIN was checked — reload the page: if it opens, you’re in; if not, try again.",
+    my: "ပင်နံပါတ် စစ်ပြီလား အတည်မပြုနိုင်ပါ — စာမျက်နှာ ပြန်ဖွင့်ပါ။ ပွင့်သွားရင် ဝင်ပြီးပါပြီ၊ မပွင့်ရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — misread, a lost answer reads as a wrong PIN
+  // The bar's Lock circle, bounded. A lock is a cookie write: a late one still locks the tablet when
+  // it lands, and one that never lands leaves it OPEN — the fact that matters on a shared device.
+  // Words: လော့ခ်မချရသေး "not locked yet" (shell.lock.err.outage).
+  "shell.lock.waiting": {
+    en: "No answer yet — this tablet may not be locked. Reload the page before you leave it.",
+    my: "အဖြေ မရသေးပါ — ဒီတက်ဘလက်ကို လော့ခ်မချရသေးတာ ဖြစ်နိုင်ပါတယ်။ ထားမသွားခင် စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  // The Lock's THROWN arm (critic F10). shell.lock.err.outage is the action's own `outage` ANSWER — the
+  // sign-in service unreachable, nothing set — and is false here: a throw is a lost answer from THIS
+  // system, and the lock cookie rides the response headers, which can arrive before the body is cut.
+  // Words: shell.lock.waiting's; the couldn't-confirm pattern … ပြီလား အတည်မပြုနိုင်ပါ (settle.clear.unknown).
+  "shell.lock.unknown": {
+    en: "We couldn’t confirm this tablet locked — reload the page before you leave it.",
+    my: "ဒီတက်ဘလက်ကို လော့ခ်ချပြီလား အတည်မပြုနိုင်ပါ — ထားမသွားခင် စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  },
+  // The kitchen board's writes (all done, cook now, a line, bring back, sold out). Their thrown arms
+  // said "Couldn’t … — try again" (kds.err.*); a lost answer may have landed. {x} is the ticket or
+  // dish, as those keys'. The KDS is never refused while stalled (9d) — these are the write's OWN
+  // arms. Words: ဘုတ်ကို ပြန်ဖွင့်ပါ "reload the board" (kds.err.invalid).
+  "kds.err.waiting": {
+    en: "No answer yet for {x} — it may still go through. Don’t tap again: reload the board to see.",
+    my: "{x} အတွက် အဖြေ မရသေးပါ — ဖြစ်သွားပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ပါနဲ့ — သိဖို့ ဘုတ်ကို ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a dish is cooked or cleared twice
+  "kds.err.unknown": {
+    en: "We couldn’t confirm the change to {x} — check the board before you tap again.",
+    my: "{x} ပြင်တာကို အတည်မပြုနိုင်ပါ — ထပ်မနှိပ်ခင် ဘုတ်ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a dish is cooked or cleared twice
+  // The bagging lane's write (bagged & ready / verified). {id} is the tent-card number, {x} a name or
+  // code — the two shapes `expoFailedMsg` already picks between. Words: ထုပ် "bag" (expo.err.bagTable),
+  // စခရင်ကို ပြန်ဖွင့်ပါ "reload the screen" (expo.err.invalid).
+  "expo.err.waitingTable": {
+    en: "No answer yet for Table {id} — the bag may still be updated. Don’t tap again: reload the screen to see.",
+    my: "စားပွဲ {id} အတွက် အဖြေ မရသေးပါ — ထုပ်ကို ပြင်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ပါနဲ့ — သိဖို့ စခရင်ကို ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a bag a guest is waiting for leaves the lane
+  "expo.err.waitingFor": {
+    en: "No answer yet for {x} — it may still be updated. Don’t tap again: reload the screen to see.",
+    my: "{x} အတွက် အဖြေ မရသေးပါ — ပြင်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ပါနဲ့ — သိဖို့ စခရင်ကို ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, a bag a guest is waiting for leaves the lane
+  "expo.err.unknownTable": {
+    en: "We couldn’t confirm the bag for Table {id} — check the screen before you tap again.",
+    my: "စားပွဲ {id} အတွက် ထုပ်ကို အတည်မပြုနိုင်ပါ — ထပ်မနှိပ်ခင် စခရင်ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a bag a guest is waiting for leaves the lane
+  "expo.err.unknownFor": {
+    en: "We couldn’t confirm the change to {x} — check the screen before you tap again.",
+    my: "{x} ပြင်တာကို အတည်မပြုနိုင်ပါ — ထပ်မနှိပ်ခင် စခရင်ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, a bag a guest is waiting for leaves the lane
+  // A reload on the lane drops a "picked up" still inside its undo window: the write waits on the
+  // window and an unmount is not a reliable send on a document unload (the P2fc critic, adjustment
+  // 8). For the lane, if it offers Reload. Words: ယူသွားပြီ "picked up" (expo.verb.pickedUp).
+  "expo.reload.bags": {
+    en: "Reloading forgets a bag you marked picked up in the last few seconds — mark it again after.",
+    my: "စာမျက်နှာ ပြန်ဖွင့်ရင် ခုနကမှ ယူသွားပြီလို့ မှတ်ထားတဲ့ ထုပ်ကို မေ့သွားနိုင်ပါတယ် — ပြီးမှ ထပ်မှတ်ပါ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3944,6 +4211,38 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── Phase 2g · review (fix-code) ──
   "floor.pane.closed.refundedFull",
   "floor.pane.closed.refundedPart",
+  // ── Phase 2h ──
+  "out.stalled",
+  "out.write.waiting",
+  "out.write.unknown",
+  "settle.cash.waiting",
+  "settle.card.waiting",
+  "settle.reader.waiting",
+  "settle.reader.unknown",
+  "settle.reader.cancelWaiting",
+  "settle.reader.cancelUnknown",
+  "floor.refund.waiting",
+  "floor.refund.err.unknown",
+  "table.loss.msg.waiting",
+  "table.loss.msg.unknown",
+  "table.noshow.waiting",
+  "table.noshow.err.unknown",
+  "report.err.waiting",
+  "report.err.unknown",
+  "settle.clear.waiting",
+  "settle.clear.unknown",
+  "settle.merge.waiting",
+  "settle.merge.unknown",
+  "table.appr.msg.waiting",
+  "table.appr.msg.unknown",
+  "pin.unlock.waiting",
+  "pin.unlock.unknown",
+  "kds.err.waiting",
+  "kds.err.unknown",
+  "expo.err.waitingTable",
+  "expo.err.waitingFor",
+  "expo.err.unknownTable",
+  "expo.err.unknownFor",
 ]);
 
 /**

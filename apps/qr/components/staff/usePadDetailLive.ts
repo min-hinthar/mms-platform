@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import { useRouter } from "next/navigation";
 import { getTableDetail } from "@/lib/floor";
 import { nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import type { TableDetail } from "@/lib/floor-types";
@@ -54,14 +55,42 @@ export function usePadDetailLive({
   // Next runs Server Actions one at a time, so a read that timed out is still IN the queue (behind a
   // hung add, usually): starting another only stacks a second abandoned call behind the first, every
   // 5s. While the raw call is unanswered no new read starts; the asks it refused are owed ONE fresh
-  // read the moment it answers (`owed`, kicked through `kick` — the refresh itself, mirrored).
-  const rawPending = useRef(false);
-  const owed = useRef(false);
+  // read the moment it answers (kicked through `kick` — the refresh itself, mirrored).
+  // ── Phase 2h (9f) ── that pattern now lives in `lib/poll-gate.ts`, shared with every board. The
+  // gate is made ONCE for the hook's life (on first use, from a callback — never during render,
+  // never in an effect's setup): it holds the hung read's state, and an effect re-setup — Strict
+  // Mode's mount, or a new `refresh` — must not forget it and let one more read stack. So it is
+  // never disposed from a cleanup (Strict Mode would latch that for good); the kick is guarded by
+  // `alive`, re-armed at every setup, instead.
   const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  /** The gate, made on first use — from callbacks only, never during render. */
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+
+  /** One missed read — a failed or hung one. Two in a row arm the not-updating line (cause
+   *  `unknown`: this end failing is not evidence the platform is down). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(Date.now());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+  }, []);
 
   const refresh = useCallback(async () => {
-    if (rawPending.current) {
-      owed.current = true;
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time is a
+      // MISS. Before, the skip never counted: the race's give-up was the only miss a hang ever
+      // produced, so the line (two misses) never armed and the pad wore its live face over a frozen
+      // order for as long as the read hung.
+      if (asked.missed) miss();
       return;
     }
     if (inFlight.current) {
@@ -74,16 +103,7 @@ export function usePadDetailLive({
         rerun.current = false;
         const ticket = ++readsRef.current;
         try {
-          const raw = getTableDetail(sessionId);
-          rawPending.current = true;
-          const answered = () => {
-            rawPending.current = false;
-            if (owed.current && alive.current) {
-              owed.current = false;
-              kick.current();
-            }
-          };
-          raw.then(answered, answered);
+          const raw = gate.watch(getTableDetail(sessionId));
           const res = await raceTimeout(raw);
           if (!alive.current) return;
           if (res.kind === "detail") {
@@ -105,18 +125,21 @@ export function usePadDetailLive({
         } catch (e) {
           if (!alive.current) return;
           // This end failed — not evidence the platform is down (cause `unknown`, after two misses).
-          fails.current += 1;
-          setNowMs(Date.now());
-          if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+          miss();
           console.error("[usePadDetailLive] refresh failed", e);
         }
-      } while (rerun.current && alive.current && !rawPending.current);
-      // A rerun refused because the last read is still hung is owed to its answer, not dropped.
-      if (rerun.current && rawPending.current) owed.current = true;
+        // ⚠️ No `gate.pending()` conjunct here, and no "owe the rerun to the hung read" after the
+        // loop — both existed, and both were UNREACHABLE (the Phase 2h contract critic's F11 asked for
+        // their mutants; each survived the whole pad suite, measured): `rerun` is set only by a
+        // refresh that found the gate OPEN while this loop was in flight, i.e. in the instant between
+        // a raw's answer and this continuation, so at this condition the gate is open by
+        // construction. A refresh while the raw is still out never reaches `rerun` — `ask` owes it
+        // to the gate first.
+      } while (rerun.current && alive.current);
     } finally {
       inFlight.current = false;
     }
-  }, [sessionId, router, readsRef]);
+  }, [sessionId, router, readsRef, gateOf, miss]);
   useEffect(() => {
     kick.current = () => void refresh();
   }, [refresh]);

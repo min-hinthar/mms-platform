@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STAFF_OUTAGE_ESCALATE_MS,
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
   frozenBoardCopy,
   nextDegraded,
+  raceTimeout,
 } from "./staff-outage";
+import { STAFF_HANG_MS, outstanding, resetLedgerForTests, stalledSince } from "./bounded-write";
 
 /**
  * P2 · G13 — the outage voice. **This module had no suite at all before P2**, which is worth saying
@@ -115,5 +117,71 @@ describe("nextDegraded — unchanged by P2, pinned because nothing else pins it"
   it("returns the SAME object when the cause is unchanged, so a steady degrade does not re-render", () => {
     const d = nextDegraded(null, "outage", 1_000);
     expect(nextDegraded(d, "outage", 5_000)).toBe(d);
+  });
+});
+
+describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tracked", () => {
+  const T0 = Date.parse("2026-10-01T18:00:00.000Z");
+  beforeEach(() => {
+    vi.useFakeTimers({ now: T0 });
+    resetLedgerForTests();
+  });
+  afterEach(() => {
+    resetLedgerForTests();
+    vi.useRealTimers();
+  });
+
+  /** The race's outcome, read through a `.then` — `undefined` while it is still out. */
+  function outcome<T>(p: Promise<T>) {
+    let got: { ok: true; v: T } | { ok: false; e: unknown } | undefined;
+    p.then(
+      (v) => {
+        got = { ok: true, v };
+      },
+      (e: unknown) => {
+        got = { ok: false, e };
+      },
+    );
+    return () => got;
+  }
+
+  it("rejects `staff-poll-timeout` at EXACTLY STAFF_HANG_MS by default — not a millisecond before", async () => {
+    // MUTATION (p2h-core/race/bound-drifts): a default that is not THE constant — the pad's
+    // unconfirmed add, the stall ledger and the poll watchdog disagree about one hang; red.
+    const got = outcome(raceTimeout(new Promise<never>(() => {})));
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+    expect(got()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    const out = got();
+    expect(out?.ok).toBe(false);
+    expect((out as { e: Error }).e.message).toBe("staff-poll-timeout");
+  });
+
+  it("passes an answer and a rejection straight through", async () => {
+    const ok = outcome(raceTimeout(Promise.resolve(7)));
+    const err = new Error("fetch failed");
+    const bad = outcome(raceTimeout(Promise.reject(err)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ok()).toEqual({ ok: true, v: 7 });
+    expect(bad()).toEqual({ ok: false, e: err });
+  });
+
+  it("tracks the RAW promise — past its own rejection, until the raw answers", async () => {
+    // MUTATION (p2h-core/race/untracked): a raced read hung for minutes never reaches the ledger,
+    // so `stalledSince` calls the tab healthy and the next money tap queues behind it; red.
+    let answer!: (v: number) => void;
+    const raw = new Promise<number>((r) => {
+      answer = r;
+    });
+    const got = outcome(raceTimeout(raw));
+    expect(outstanding()).toBe(1);
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    // The race freed its CALLER; the raw read is still in Next's queue, and still on the ledger.
+    expect(got()?.ok).toBe(false);
+    expect(outstanding()).toBe(1);
+    expect(stalledSince()).toBe(T0);
+    answer(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outstanding()).toBe(0);
   });
 });

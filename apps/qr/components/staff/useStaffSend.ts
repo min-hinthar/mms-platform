@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { staffFireCart, staffUndoFire } from "@/lib/staff-send";
+import { track } from "@/lib/bounded-write";
 import {
   fireNotice,
   sendHoldMsg,
@@ -298,7 +299,8 @@ export function useStaffSend({
             return;
           }
         }
-        const res = await staffFireCart({ sessionId });
+        // Phase 2h (9d) — on the stall ledger until it answers (a hung Send holds the action queue).
+        const res = await track(staffFireCart({ sessionId }));
         if (res.ok) {
           const now = Date.now();
           const deadline = graceDeadlineMs(res, now);
@@ -342,7 +344,8 @@ export function useStaffSend({
     setPhase("undoing");
     void (async () => {
       try {
-        const res = await staffUndoFire({ sessionId, batch });
+        // Phase 2h (9d) — on the stall ledger until it answers, as the Send is.
+        const res = await track(staffUndoFire({ sessionId, batch }));
         if (res.ok) {
           closeWindow();
           setUndoSeq(latestSeq.current); // the RESPONSE-time commit (see `latestSeq`)

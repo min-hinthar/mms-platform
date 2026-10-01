@@ -3,6 +3,7 @@ import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
+import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 import {
   READER_COLLECT_KEY,
   READER_LANDED_KEY,
@@ -619,5 +620,23 @@ describe("the one refusal, read at tap time", () => {
     terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: "Declined." });
     await tick(2500);
     expect(api.startRefused("s-9")).toBe(false);
+  });
+});
+
+describe("Phase 2h (9d) — the status read sits on the stall ledger until it answers", () => {
+  it("a hung status read makes the tab read stalled at 15s — and one poll stays in the air", async () => {
+    // MUTATION (p2h-core/track-reader-status): the 2.5s status read is not tracked — hung, it holds
+    // the action queue while the ledger calls the tab healthy, and a cash or refund tap is
+    // dispatched behind it; red.
+    terminalStatus.mockReturnValue(new Promise(() => {}));
+    mount();
+    const startedAt = Date.now();
+    await act(async () => api.start(START));
+    await tick(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    await tick(1);
+    expect(stalledSince()).toBe(startedAt);
+    // Never a second read over the hung one (`flight`).
+    expect(terminalStatus).toHaveBeenCalledTimes(1);
   });
 });

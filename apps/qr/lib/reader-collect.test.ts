@@ -27,6 +27,7 @@ import {
   readerChip,
   readerChipAlert,
   readerChipDismissible,
+  readerCancelMsg,
   readerChipLinked,
   readerChipShownAt,
   readerChipStatus,
@@ -400,7 +401,35 @@ describe("readerStatus — THE binding the panel, the region and the chip read",
       tone: "warn",
       msg: "Too late.",
     });
-    expect(readerSpoken(st, { kind: "local" }).msg).toEqual({ k: "settle.reader.cancelFailed" });
+    expect(readerSpoken(st, { kind: "local" })).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelUnknown" },
+    });
+  });
+
+  it("every cancel outcome has its own honest words (Phase 2h · 9d · 9e)", () => {
+    // MUTATION (p2h-core/reader-cancel-threw-says-failed): a THROWN cancel says "couldn't cancel —
+    // try again" — but the response can be lost after the server cancelled, so the honest line is
+    // "couldn't confirm … check it before you take another payment"; red.
+    expect(readerCancelMsg({ kind: "local" })).toEqual({ k: "settle.reader.cancelUnknown" });
+    // MUTATION (p2h-core/reader-cancel-waiting-unsaid): a cancel still out at the bound says
+    // nothing distinct — the cashier takes another payment while the reader may still take the
+    // card; red.
+    expect(readerCancelMsg({ kind: "waiting" })).toEqual({ k: "settle.reader.cancelWaiting" });
+    // MUTATION (p2h-core/reader-cancel-stalled-unsaid): a cancel refused at the tap (never sent) is
+    // said as the stalled refusal — the one sentence with a Reload beside it; red.
+    expect(readerCancelMsg({ kind: "stalled" })).toEqual({ k: "out.stalled" });
+    expect(readerCancelMsg({ kind: "server", text: "Too late." })).toBe("Too late.");
+    // The region and the panel read ONE binding.
+    const st = readerStatus(P, false);
+    for (const e of [
+      { kind: "local" },
+      { kind: "waiting" },
+      { kind: "stalled" },
+      { kind: "server", text: "x" },
+    ] as const) {
+      expect(readerSpoken(st, e)).toEqual({ tone: "warn", msg: readerCancelMsg(e) });
+    }
   });
 });
 

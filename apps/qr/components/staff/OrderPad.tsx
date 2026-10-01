@@ -6,6 +6,7 @@ import { Button, Icon, Toast, categoryIconName, useSheetSubject } from "@mms/ui"
 import { tableDisplay, type TableDetail, type TableLineView } from "@/lib/floor-types";
 import { staffSetQty } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
+import { track } from "@/lib/bounded-write";
 import { counterAskLive } from "@/lib/counter-pay-state";
 import { raceTimeout } from "@/lib/staff-outage";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
@@ -696,7 +697,8 @@ export function OrderPad({
     const value = nameRef.current.trim();
     setSavingName(true);
     try {
-      const r = await setCartCustomerName({ sessionId, name: value });
+      // Phase 2h (9d) — on the stall ledger until it answers (a hung name write holds the queue).
+      const r = await track(setCartCustomerName({ sessionId, name: value }));
       if (!r.ok) {
         // Phase 2f — clearing the name of an order cooking unpaid is refused (the lock, decision
         // 7c): the pad's own sentence, and the field goes back to the name the server holds.
