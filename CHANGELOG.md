@@ -112,15 +112,24 @@ Closes **P2em · P2en · P2er · P2es · M250 · P2fz · P2fk**; files P2gb–P2
     2h's (P2cz), not the provider's guard. Downgraded and
     filed: M3 → M257, L1 = M251, A11Y-9 = P2gj, PT-4 = P2gr, PT-6's no-charge half = P2hd; the review's
     residuals P2gu–P2hd.
+- **Codex round 1 (`c7bffc1`, 1×P1 + 2×P2, all verified real), fixed in `9c1a561`:**
+  - _A given-up charge's warning survives a reload_ (P1): the stash was the tab's only durable copy
+    of "charged, nothing recorded — don't take payment again", and the bound deleted it. It now stays,
+    marked `unrecordedAt`, restores straight into the warning with no poll, is never retired by
+    idleness, and leaves only on Close (P2gv narrowed to what lies beyond that tab).
+  - _Take payment on the order already open in the pane lands on the payment_ (P2): the detail
+    reacts to a settle asked after it mounted, and the opener no longer re-focuses the heading over it.
+  - _No reader detail on the sign-in screen_ (P2): the chip shows nothing on `/staff/login`, the one
+    bar a signed-out person sees; the record is kept for the next signed-in page.
 - Measured for Phase 2h (`scratchpad` probe, Chromium + Next 16.2.9): a `useTransition` `pending`
   stays true past a `raceTimeout` while its Server Action hangs, and every later action waits behind
   it — the P2cz / P2fc rows carry the numbers.
 
-**Gate:** 1861 `verify:slice` mutants (+183: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
+**Gate:** 1869 `verify:slice` mutants (+191: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
 14 `p2g-m250/`, 64 `p2g-older/` + `p2g-uncollected/`, 7 `p2g-int/`, then the review's 36
-`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`) over 204 target modules (+5:
+`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`, and Codex round 1's 8 `p2g-cx1/`) over 204 target modules (+5:
 `lib/reader-collect.ts`, `ReaderCollectProvider.tsx`, `ReaderCollectChip.tsx`, `CounterOlderSheet.tsx`
-and the FIRST staff page, `app/staff/table/[id]/page.tsx`) · 5193 qr tests · K15: 22 new staff keys (7 from
+and the FIRST staff page, `app/staff/table/[id]/page.tsx`) · 5200 qr tests · K15: 22 new staff keys (7 from
 the review, which also re-worded 4 of the build's), 1 re-worded, 1 retired; `STAFF_K15_HIGH` 136 → 145
 (OPEN-ITEMS K15).
 

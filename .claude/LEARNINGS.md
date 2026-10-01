@@ -3228,7 +3228,10 @@ therefore refused the reader for the life of the tab, survived a reload, and cou
 at `SETTLE_TTL_MS` past the capture — the freeze that keeps cash refused), on a clock stored WITH
 the record so a reload resumes it instead of restarting it — and copy that says the bound was hit
 ("charged, nothing recorded — tell a manager"), never a silent stop. Ask of every "wait until X"
-state: what ends it if X never comes, and what does it refuse meanwhile?
+state: what ends it if X never comes, and what does it refuse meanwhile? And the line the bound
+produces must be at least as DURABLE as the state it replaced: the first cut dropped the stash at
+the bound, so a reload erased the one "don't take payment again" on the tab (Codex r1 on #309) —
+the warning now persists, marked, until a person closes it.
 
 ## #203
 
@@ -3239,3 +3242,12 @@ refund-gated card — so a refunded counter order still read Paid wherever this 
 server owns (refunded, partly refunded) vetoes the local copy (`handoffRefunded`), the stash is
 dropped, and the closed state says what happened. Unknown is not "none": a failed read never vetoes
 and never confirms.
+
+## #204
+
+**A mount-time seed cannot hear a prop that changes on a component its key keeps mounted.**
+`FloorDetailLive` read `focusSettle` into a ref at mount; the split pane keys it by session, so the
+lane's Take payment on the order ALREADY in the pane changed the prop and nothing moved — and the
+opener's own heading focus ran after it anyway, because a parent's effect runs after its child's
+(Codex r1 on #309). When a prop is a one-shot REQUEST, handle its false → true edge after mount too,
+and make sure no ancestor's effect in the same commit re-focuses over it.
