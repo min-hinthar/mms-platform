@@ -371,7 +371,7 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
 describe("a charge that never records is given up (C1 · P2gb)", () => {
   const charged = { ok: true, state: "succeeded", orderId: null, totalCents: 4210 } as const;
 
-  it("put away while recording, it comes BACK as unrecorded: the poll stops, the stash goes, the reader is free, Close clears it", async () => {
+  it("put away while recording, it comes BACK as unrecorded: the poll stops, the warning is KEPT, the reader is free, Close clears it", async () => {
     terminalStatus.mockResolvedValue(charged);
     mount();
     await act(async () => api.start(START));
@@ -386,13 +386,47 @@ describe("a charge that never records is given up (C1 · P2gb)", () => {
     expect(api.record?.hidden).toBe(false);
     expect(api.live).toBe(false);
     expect(api.startRefused("s-9")).toBe(false);
-    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
+    // Codex r1 on #309 — the stash is the warning's only durable copy on this tab: KEPT, marked.
+    // MUTATION (p2g-cx1/unrecorded-stash-dropped): dropped at the bound — a reload erases "don't take
+    // payment again" while the cart is still open; red.
+    expect(JSON.parse(sessionStorage.getItem(READER_COLLECT_KEY) ?? "null")).toMatchObject({
+      paymentIntentId: START.paymentIntentId,
+      hidden: false,
+      unrecordedAt: expect.any(Number),
+    });
     expect(api.status).toEqual({ tone: "warn", msg: { k: "settle.reader.status.unrecorded" } });
     const n = terminalStatus.mock.calls.length;
     await tick(10_000);
     expect(terminalStatus.mock.calls.length).toBe(n);
     await act(async () => api.dismiss());
     expect(api.record).toBeNull();
+    // Close is the ONE way out — and it takes the stash with it.
+    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
+  });
+
+  it("a reload after the bound brings the WARNING back — no poll, the reader free, and long past any idle expiry", async () => {
+    terminalStatus.mockResolvedValue(charged);
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await tick(READER_UNRECORDED_MS);
+    expect(api.poll.phase).toBe("unrecorded");
+    r.unmount();
+    // Hours later — far past the idle bound a LIVE collect would expire at.
+    await tick(READER_UNRECORDED_MS * 4);
+    const n = terminalStatus.mock.calls.length;
+    mount();
+    await tick(0);
+    // MUTATION (p2g-cx1/restore-unrecorded-polls): the restore resumes "recording" — the screen polls
+    // a charge it already gave up on and says it is still checking; red.
+    expect(api.poll.phase).toBe("unrecorded");
+    expect(api.record?.paymentIntentId).toBe(START.paymentIntentId);
+    expect(api.status).toEqual({ tone: "warn", msg: { k: "settle.reader.status.unrecorded" } });
+    expect(api.startRefused("s-9")).toBe(false);
+    await tick(10_000);
+    expect(terminalStatus.mock.calls.length).toBe(n);
+    await act(async () => api.dismiss());
+    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
   });
 
   it("a reload mid-recording resumes the SAME clock — never a fresh window, never 'On the reader' again", async () => {

@@ -28,6 +28,7 @@ import {
   readerChipAlert,
   readerChipDismissible,
   readerChipLinked,
+  readerChipShownAt,
   readerChipStatus,
   readerCollectExpired,
   readerLive,
@@ -66,6 +67,7 @@ const C: ReaderCollect = {
   liveAt: T0,
   hidden: false,
   recordingSince: null,
+  unrecordedAt: null,
 };
 
 /** A Storage stand-in: the real calls, a Map behind them. */
@@ -118,6 +120,16 @@ describe("parseReaderCollect — field by field, the stash's only door", () => {
     expect(parseReaderCollect(JSON.stringify(noClock))).toEqual(C);
   });
 
+  it("carries the GIVEN-UP mark across a reload — anything but a clock is a live collect (Codex r1 on #309)", () => {
+    // MUTATION (p2g-cx1/stash-drops-the-unrecorded-mark): the mark never read back — a reload turns
+    // the "don't take payment again" warning into a live collect that polls again; red.
+    const warned = { ...C, recordingSince: T0, unrecordedAt: T0 + SETTLE_TTL_MS };
+    expect(parseReaderCollect(JSON.stringify(warned))).toEqual(warned);
+    expect(parseReaderCollect(JSON.stringify({ ...C, unrecordedAt: "now" }))).toEqual(C);
+    const { unrecordedAt: _u, ...noMark } = C;
+    expect(parseReaderCollect(JSON.stringify(noMark))).toEqual(C);
+  });
+
   it("reads `sentEarly` / `hidden` as true only when they ARE true", () => {
     expect(parseReaderCollect(JSON.stringify({ ...C, sentEarly: "yes", hidden: 1 }))).toEqual({
       ...C,
@@ -132,6 +144,25 @@ describe("expiry — the freeze's own lifetime past the last LIVE answer", () =>
     expect(READER_COLLECT_MAX_IDLE_MS).toBe(SETTLE_TTL_MS);
     expect(readerCollectExpired(C, T0 + SETTLE_TTL_MS)).toBe(false);
     expect(readerCollectExpired(C, T0 + SETTLE_TTL_MS + 1)).toBe(true);
+  });
+
+  it("never retires a given-up charge — the warning leaves only when a person closes it (Codex r1)", () => {
+    const warned = { ...C, recordingSince: T0, unrecordedAt: T0 + SETTLE_TTL_MS };
+    // MUTATION (p2g-cx1/unrecorded-expires): the warning expires with the freeze it outlived — a tab
+    // reloaded later restores nothing, and the cart is open to a second charge; red.
+    expect(readerCollectExpired(warned, T0 + 100 * SETTLE_TTL_MS)).toBe(false);
+    // …and a live collect still expires exactly as before.
+    expect(readerCollectExpired(C, T0 + SETTLE_TTL_MS + 1)).toBe(true);
+  });
+
+  it("restores a given-up charge AS the warning: terminal, so no poll restarts behind it", () => {
+    const warned = { recordingSince: T0, unrecordedAt: T0 + SETTLE_TTL_MS };
+    expect(restoredReaderPoll(warned)).toEqual({
+      ...READER_POLL_START,
+      phase: "unrecorded",
+      recordingSince: T0,
+    });
+    expect(readerPolling(restoredReaderPoll(warned).phase)).toBe(false);
   });
 
   it("is measured from `liveAt`, not the start: a long collect that kept answering is restored", () => {
@@ -190,6 +221,7 @@ describe("the legacy per-table key — adopted once, never over a standing colle
         liveAt: T0,
         hidden: false,
         recordingSince: null,
+        unrecordedAt: null,
       },
     );
   });
@@ -294,7 +326,7 @@ describe("nextReaderPoll — the poll's reducer", () => {
 
   it("the bound runs from the FIRST capture, wherever that clock came from (a restored record's)", () => {
     const answer = { ok: true, state: "succeeded", orderId: null, totalCents: 4210 } as const;
-    const resumed = restoredReaderPoll({ recordingSince: T0 });
+    const resumed = restoredReaderPoll({ recordingSince: T0, unrecordedAt: null });
     // MUTATION (p2g-fix-reader/restore-forgets-the-capture): a restored record starts over at
     // "On the reader" with no clock — a reload buys another full window, and says the card is still
     // being taken after it was charged; red.
@@ -302,7 +334,9 @@ describe("nextReaderPoll — the poll's reducer", () => {
     expect(nextReaderPoll(resumed, answer, T0 + READER_UNRECORDED_MS).poll.phase).toBe(
       "unrecorded",
     );
-    expect(restoredReaderPoll({ recordingSince: null })).toBe(READER_POLL_START);
+    expect(restoredReaderPoll({ recordingSince: null, unrecordedAt: null })).toBe(
+      READER_POLL_START,
+    );
   });
 
   it("a poll silent for a span is a miss, one per span", () => {
@@ -596,6 +630,17 @@ describe("readerChip — never over its own table", () => {
     expect(readerChipLinked("/staff")).toBe(true);
     expect(readerChipLinked("/staff/kitchen")).toBe(true);
     expect(readerChipLinked(null)).toBe(true);
+  });
+
+  it("shows nowhere on the sign-in route — the one bar a signed-out person sees (Codex r1 on #309)", () => {
+    // MUTATION (p2g-cx1/chip-on-the-sign-in-screen): shown everywhere — a signed-out screen names a
+    // table, an amount or a pickup code, and can announce it; red.
+    expect(readerChipShownAt("/staff/login")).toBe(false);
+    expect(readerChipShownAt("/staff/login/anything")).toBe(false);
+    expect(readerChipShownAt("/staff/lock")).toBe(true);
+    expect(readerChipShownAt("/staff/loginx")).toBe(true);
+    expect(readerChipShownAt("/staff")).toBe(true);
+    expect(readerChipShownAt(null)).toBe(true);
   });
 
   it("every outcome is dismissible from the chip; a collect still polling is not", () => {

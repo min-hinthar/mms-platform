@@ -278,7 +278,11 @@ export function CounterSplit({
       if (!isSplit()) return false;
       // The `?settle=1` seed's in-place twin: kept for THIS selection, consumed once by the pane.
       if (opts?.settle) setSettleOnce(sessionId);
-      select(sessionId, hint, { write: true, focus: true });
+      // Codex r1 on #309 — the table already shown keeps its detail mounted, so the settle focus is
+      // the detail's own (a prop edge); a heading focus here would run in a PARENT effect, after it,
+      // and land the cashier on the heading instead of the payment.
+      const shownNow = selRef.current?.id === sessionId;
+      select(sessionId, hint, { write: true, focus: !(shownNow && opts?.settle) });
       return true;
     },
     [select],

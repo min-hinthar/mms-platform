@@ -56,6 +56,12 @@ export type ReaderCollect = ReaderStart & {
    *  carried in the RECORD so a reload resumes the bound below instead of restarting it — every
    *  restore would otherwise buy a charge that never records another full window. */
   recordingSince: number | null;
+  /** Device ms when the charge was GIVEN UP as unrecorded (C1's bound). A record carrying it is no
+   *  longer a collect but a WARNING — "charged, nothing recorded, don't take payment again" — and the
+   *  stash is its only copy on this tab: it restores straight into `unrecorded` (no poll), never
+   *  expires by idleness, and leaves only when a person closes it (Codex r1 on #309: dropping it at
+   *  the bound let a reload erase the one line standing between the cart and a second charge). */
+  unrecordedAt: number | null;
 };
 
 /** What a START hands the provider: the server's answer (the handle, the amount) and the tap's facts. */
@@ -90,7 +96,13 @@ export function legacyCollectKey(sessionId: string): string {
  */
 export const READER_COLLECT_MAX_IDLE_MS = SETTLE_TTL_MS;
 
-export function readerCollectExpired(c: Pick<ReaderCollect, "liveAt">, nowMs: number): boolean {
+export function readerCollectExpired(
+  c: Pick<ReaderCollect, "liveAt" | "unrecordedAt">,
+  nowMs: number,
+): boolean {
+  // A given-up charge is a warning a person must close — idleness never retires it (the freeze it
+  // outlived is exactly why it must stay: nothing else on this tab says "don't charge again").
+  if (c.unrecordedAt !== null) return false;
   return nowMs - c.liveAt > READER_COLLECT_MAX_IDLE_MS;
 }
 
@@ -140,6 +152,8 @@ export function parseReaderCollect(raw: string | null): ReaderCollect | null {
     hidden: o.hidden === true,
     // Anything but a clock is no clock: the bound restarts — later, never sooner.
     recordingSince: ms(o.recordingSince) ? o.recordingSince : null,
+    // Anything but a clock is a live collect: the restore polls, and the server's answer decides.
+    unrecordedAt: ms(o.unrecordedAt) ? o.unrecordedAt : null,
   };
 }
 
@@ -175,6 +189,7 @@ export function adoptLegacyCollect(
     liveAt: nowMs,
     hidden: false,
     recordingSince: null,
+    unrecordedAt: null,
   };
 }
 
@@ -280,7 +295,12 @@ export function silentMisses(sinceMs: number, nowMs: number): number {
 
 /** The poll a RESTORED record resumes from: a charge already seen captured resumes `recording` on its
  *  own clock (never "On the reader" again, and never a fresh unrecorded window). */
-export function restoredReaderPoll(c: Pick<ReaderCollect, "recordingSince">): ReaderPoll {
+export function restoredReaderPoll(
+  c: Pick<ReaderCollect, "recordingSince" | "unrecordedAt">,
+): ReaderPoll {
+  // A given-up charge restores as the warning it was — terminal, so no poll restarts behind it.
+  if (c.unrecordedAt !== null)
+    return { ...READER_POLL_START, phase: "unrecorded", recordingSince: c.recordingSince };
   if (c.recordingSince === null) return READER_POLL_START;
   return { ...READER_POLL_START, phase: "recording", recordingSince: c.recordingSince };
 }
@@ -565,6 +585,17 @@ export function readerChip(p: {
 export const STAFF_LOCK_PATH = "/staff/lock";
 export function readerChipLinked(pathname: string | null): boolean {
   return pathname !== STAFF_LOCK_PATH;
+}
+
+/** The sign-in screen is the one staff bar a signed-OUT person sees, and the provider (in the
+ *  `/staff` layout) outlives the sign-out navigation that lands there — so the chip there would show
+ *  a table, an amount or a pickup code, and could ANNOUNCE it, before anyone signs in (Codex r1 on
+ *  #309). It shows nothing on that route; the record is kept for the next signed-in page. The
+ *  route's signed-in state (the person's own card) loses the chip too — a page with no table on it,
+ *  and the next screen they open shows it. Unknown (null) shows: every other bar is signed in. */
+export const STAFF_LOGIN_PATH = "/staff/login";
+export function readerChipShownAt(pathname: string | null): boolean {
+  return pathname !== STAFF_LOGIN_PATH && !pathname?.startsWith(`${STAFF_LOGIN_PATH}/`);
 }
 
 /** The chip's ✕: every outcome is the cashier's to put away — a landing, a decline, a cancel, a charge

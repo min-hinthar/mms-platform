@@ -63,8 +63,8 @@ import {
  *     first, persisted beside the record (M1: one in-memory slot lost a #CODE to the next landing or
  *     to any hard navigation) — until it is dismissed or its table is shown;
  *   · the BOUND — a charge captured with no order for the freeze's lifetime is given up as
- *     `unrecorded` (C1): the poll stops, the stash goes, the reader is free, and the outcome is shown
- *     (never left put away) until Close;
+ *     `unrecorded` (C1): the poll stops, the reader is free, and the outcome is shown (never left put
+ *     away) until Close — kept in the stash, marked, so a reload restores the warning (Codex r1);
  *   · `shownHere` — which tables are on screen now, so the chip never repeats the panel beside it;
  *   · the ONE refusal left: a start on another table while a collect is live (one reader).
  *
@@ -198,16 +198,18 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         recordRef.current = next;
         writeReaderStash(next);
       } else if (!readerPolling(step.poll.phase)) {
-        // Declined, cancelled or given up as unrecorded: nothing left to re-attach to after a reload.
-        // The outcome stays on screen (panel or chip) until it is dismissed.
-        if (step.poll.phase === "unrecorded" && rec.hidden) {
-          // C1 — a charge put away while it recorded (D4) comes BACK when it is given up: "don't take
-          // payment again — tell a manager" is a line a person must see, never a silent stop.
-          const shown = { ...rec, hidden: false };
-          recordRef.current = shown;
-          setRecordState(shown);
-        }
-        dropReaderStash();
+        // Declined or cancelled: nothing left to re-attach to after a reload — the outcome stays on
+        // screen (panel or chip) until it is dismissed.
+        if (step.poll.phase === "unrecorded") {
+          // C1 — a charge given up as unrecorded is a WARNING a person must see and close: one put
+          // away while it recorded (D4) comes back, and it STAYS in the stash, marked, so a reload
+          // or a hard navigation restores the warning instead of erasing it (Codex r1 on #309: the
+          // stash was the only durable copy of "don't take payment again"). Close drops it.
+          const kept = { ...rec, hidden: false, unrecordedAt: nowMs };
+          recordRef.current = kept;
+          setRecordState(kept);
+          writeReaderStash(kept);
+        } else dropReaderStash();
       }
       commitPoll(step.poll);
     },
@@ -273,7 +275,14 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     (s: ReaderStart) => {
       const now = Date.now();
-      commitRecord({ ...s, startedAt: now, liveAt: now, hidden: false, recordingSince: null });
+      commitRecord({
+        ...s,
+        startedAt: now,
+        liveAt: now,
+        hidden: false,
+        recordingSince: null,
+        unrecordedAt: null,
+      });
       commitPoll(READER_POLL_START);
       setCancelError(null);
       // The settle section unmounts under the cashier as the freeze lands: its panel takes focus —

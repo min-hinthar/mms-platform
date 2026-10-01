@@ -12427,8 +12427,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CounterSplit.tsx",
     suite: "components/staff/TablePane.test.tsx",
     why: "Phase 2d \u00b7 Codex round 1 \u00b7 pane \u2014 a refused converged Start is still HANDLED by the pane; answering false sends the mint to the table page and takes the live reader panel with the counter screen",
-    find: "      select(sessionId, hint, { write: true, focus: true });\n      return true;",
-    replace: "      return select(sessionId, hint, { write: true, focus: true });",
+    find: "      select(sessionId, hint, { write: true, focus: !(shownNow && opts?.settle) });\n      return true;",
+    replace:
+      "      return select(sessionId, hint, { write: true, focus: !(shownNow && opts?.settle) });",
   },
   {
     id: "p2d-cx1/detail-keeps-dead-card",
@@ -15153,8 +15154,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
     suite: "components/staff/ReaderCollectProvider.test.tsx",
     why: "Phase 2g · fix-reader (C1) — a charge put away while it recorded comes back when given up; left hidden, neither the panel nor the chip ever says 'don't take payment again'",
-    find: '        if (step.poll.phase === "unrecorded" && rec.hidden) {\n',
-    replace: "        if (false as boolean) {\n",
+    find: "          const kept = { ...rec, hidden: false, unrecordedAt: nowMs };\n",
+    replace: "          const kept = { ...rec, unrecordedAt: nowMs };\n",
   },
   {
     id: "p2g-fix-reader/shown-table-keeps-its-landing",
@@ -15501,6 +15502,73 @@ const MUTANTS = [
     why: "Phase 2g review residual — a refunded counter order keeps the phone on its page, where the refund is said; bounced, the counter no longer lists it and nobody is told",
     find: 'res.handoff || res.refund === "partial" || res.refund === "full"',
     replace: "res.handoff",
+  },
+  // ── Phase 2g · Codex round 1 (p2g-cx1/) — a given-up charge's warning survives a reload; a settle
+  // asked of the table already in the pane lands on the payment; no reader detail on the sign-in
+  // screen. Each watched RED before it was recorded.
+  {
+    id: "p2g-cx1/unrecorded-stash-dropped",
+    file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
+    suite: "components/staff/ReaderCollectProvider.test.tsx",
+    why: "Codex r1 on #309 (P1) — the stash is the only durable copy of 'charged, nothing recorded — don't take payment again'; dropped at the bound, a reload erases the warning while the cart is still open",
+    find: "          writeReaderStash(kept);\n",
+    replace: "          dropReaderStash();\n",
+  },
+  {
+    id: "p2g-cx1/restore-unrecorded-polls",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r1 on #309 (P1) — a given-up charge restores as the warning, terminal; resumed as 'recording', the screen polls a charge it gave up on and says it is still checking",
+    find: '  if (c.unrecordedAt !== null)\n    return { ...READER_POLL_START, phase: "unrecorded", recordingSince: c.recordingSince };\n',
+    replace: "",
+  },
+  {
+    id: "p2g-cx1/stash-drops-the-unrecorded-mark",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r1 on #309 (P1) — the mark is read back; dropped, a reload turns the warning into a live collect that polls again",
+    find: "    unrecordedAt: ms(o.unrecordedAt) ? o.unrecordedAt : null,\n",
+    replace: "    unrecordedAt: null,\n",
+  },
+  {
+    id: "p2g-cx1/unrecorded-expires",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r1 on #309 (P1) — idleness never retires the warning; expired with the freeze it outlived, a later reload restores nothing and the cart is open to a second charge",
+    find: "  if (c.unrecordedAt !== null) return false;\n",
+    replace: "",
+  },
+  {
+    id: "p2g-cx1/shown-pane-ignores-settle",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Codex r1 on #309 (P2) — a settle asked of the table already in the pane is a prop EDGE on a mounted detail; read only by the mount seed, Take payment lands on the heading, not the payment",
+    find: "    if (!focusSettle || was) return;\n",
+    replace: "    return;\n",
+  },
+  {
+    id: "p2g-cx1/shown-pane-heading-steals-settle",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Codex r1 on #309 (P2) — the opener skips the heading focus when it re-asks the shown table for its payment; asked anyway, the pane's parent effect runs after the detail's and takes focus back",
+    find: "focus: !(shownNow && opts?.settle) });\n      return true;",
+    replace: "focus: true });\n      return true;",
+  },
+  {
+    id: "p2g-cx1/chip-on-the-sign-in-screen",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r1 on #309 (P2) — the sign-in route is the one bar a signed-out person sees; shown there, a table, an amount or a pickup code is on screen (and announced) before any sign-in",
+    find: "  return pathname !== STAFF_LOGIN_PATH && !pathname?.startsWith(`${STAFF_LOGIN_PATH}/`);\n",
+    replace: "  return true;\n",
+  },
+  {
+    id: "p2g-cx1/chip-ignores-the-sign-in-rule",
+    file: "apps/qr/components/staff/ReaderCollectChip.tsx",
+    suite: "components/staff/ReaderCollectChip.test.tsx",
+    why: "Codex r1 on #309 (P2) — the rule is only as good as its one call; the chip that never asks it shows the collect on the signed-out sign-in screen",
+    find: "  if (!readerChipShownAt(pathname)) return null;\n",
+    replace: "",
   },
 ];
 

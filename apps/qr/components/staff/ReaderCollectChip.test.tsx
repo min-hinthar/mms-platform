@@ -174,6 +174,27 @@ describe("ReaderCollectChip — in the bar, never over its own table", () => {
     expect(within(chip()!).queryByRole("link")).toBeNull();
     expect(chip()!.textContent).toContain(tf("en", "floor.table", { id: "7" }));
   });
+
+  it("nothing on the signed-out sign-in screen — no table, no amount, no alert; the record is kept (Codex r1 on #309)", async () => {
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "failed",
+      error: "The card was declined.",
+    });
+    pathname = "/staff/login";
+    const r = render(page());
+    await act(async () => api.start(TABLE7));
+    await tick(0);
+    expect(api.poll.phase).toBe("failed");
+    expect(chip()).toBeNull();
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(document.body.textContent).not.toContain(tf("en", "floor.table", { id: "7" }));
+    // The record is the next signed-in page's: the same provider, a staff page, the chip is back.
+    pathname = "/staff/kitchen";
+    r.rerender(page());
+    await tick(0);
+    expect(chip()).not.toBeNull();
+  });
 });
 
 describe("ReaderCollectChip — the outcomes", () => {

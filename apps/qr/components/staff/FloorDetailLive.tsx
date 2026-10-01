@@ -760,6 +760,17 @@ export function FloorDetailLive({
     // here would strip the counter's `?floor=1` and the table's hash).
     if (!inPane) router.replace(pathname, { scroll: false });
   }, [sendView.kind, send.controlRef, send.statusRef, router, pathname, inPane]);
+  // Codex r1 on #309 — a settle asked of the table ALREADY shown (the lane's Take payment on the
+  // order open in the pane): the detail is keyed by session, so it does not remount and the seed
+  // above never sees it. A false → true edge after mount lands on the same target (the opener skips
+  // the pane heading's focus for exactly this case, or that parent effect would steal it back).
+  const settleAsked = useRef(focusSettle);
+  useEffect(() => {
+    const was = settleAsked.current;
+    settleAsked.current = focusSettle;
+    if (!focusSettle || was) return;
+    (settleHeadingRef.current ?? orderHeadingRef.current)?.focus();
+  }, [focusSettle]);
 
   // Phase 2d · split — the pane's "Back to the counter": a plain primary click closes the pane.
   const closeToCounter = (e: React.MouseEvent) => {

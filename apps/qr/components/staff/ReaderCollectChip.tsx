@@ -8,6 +8,7 @@ import {
   readerChipAlert,
   readerChipDismissible,
   readerChipLinked,
+  readerChipShownAt,
   readerChipStatus,
   readerNameText,
   type ReaderChip,
@@ -62,7 +63,16 @@ export function ReaderCollectChip({ lang }: { lang: StaffLang }) {
       ? null
       : readerChip({ collect: reader.record, landed: reader.landed, shown: reader.shown });
   if (reader === null || chip === null) return null;
-  return <ChipBody lang={lang} reader={reader} chip={chip} />;
+  return <ChipOnRoute lang={lang} reader={reader} chip={chip} />;
+}
+
+/** Never on the signed-out sign-in screen — no table, amount or code before a sign-in (Codex r1 on
+ *  #309). Its own component so the route read stays unconditional (rules of hooks) and a bar mounted
+ *  with no collect reads no route at all. */
+function ChipOnRoute(p: { lang: StaffLang; reader: ReaderCollectApi; chip: ReaderChip }) {
+  const pathname = usePathname();
+  if (!readerChipShownAt(pathname)) return null;
+  return <ChipBody {...p} />;
 }
 
 /** True while `el` can be heard: not inside a subtree a modal hid from assistive tech. */

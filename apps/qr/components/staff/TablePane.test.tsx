@@ -2418,4 +2418,57 @@ describe("TablePane — openSession can land on the payment section", () => {
     expect(document.getElementById("settle-h")).not.toBeNull();
     expect(document.activeElement).not.toBe(document.getElementById("settle-h"));
   });
+
+  // Codex r1 on #309 — the table ALREADY in the pane: its detail stays mounted (keyed by session), so
+  // the mount-time seed never sees the settle, and a fresh heading focus (a parent effect, run after
+  // the detail's) would steal it back.
+  it("settle: true on the table ALREADY shown still lands on the payment section", async () => {
+    answers[A] = settleable();
+    function OpenTwice() {
+      const api = useTablePane()!;
+      return (
+        <>
+          <button type="button" onClick={() => api.openSession(A, { counter: true, display: "" })}>
+            open 4
+          </button>
+          <button
+            type="button"
+            onClick={() => api.openSession(A, { counter: true, display: "" }, { settle: true })}
+          >
+            pay 4
+          </button>
+        </>
+      );
+    }
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor cards={[]} />
+              <OpenTwice />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).not.toBe(document.getElementById("settle-h"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "pay 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    // MUTATION (p2g-cx1/shown-pane-ignores-settle): only the mount seed reads the prop — the detail
+    // never moves; red.
+    // MUTATION (p2g-cx1/shown-pane-heading-steals-settle): the opener still asks for the heading's
+    // focus — the pane's parent effect runs after the detail's and takes it back; red.
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
+  });
 });
