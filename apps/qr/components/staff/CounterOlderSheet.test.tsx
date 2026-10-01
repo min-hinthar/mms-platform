@@ -159,7 +159,7 @@ describe("CounterOlderSheet — every open counter order, oldest first", () => {
     await tick();
     const retry = s.button("floor.counter.older.retry")!;
     retry.focus();
-    let answer!: (v: unknown) => void;
+    let answer!: (v: OlderCounterPoll) => void;
     read.mockImplementationOnce(() => new Promise((r) => (answer = r)));
     await act(async () => void fireEvent.click(retry));
     // While page one is asked again the button stays — busy, still holding focus.
