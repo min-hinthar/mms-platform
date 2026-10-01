@@ -15614,6 +15614,15 @@ const MUTANTS = [
     replace:
       "  useLayoutEffect(() => {\n    if (!shownHere) return;\n    return shownHere(sessionId, { onLanded: (h) => landedRef.current?.(h) });\n  }, [sessionId, shownHere]);\n  useLayoutEffect(() => {\n    landedRef.current = onLanded;\n  }, [onLanded]);\n",
   },
+  // ── Phase 2g · Codex round 3 (p2g-cx3/) — a cancel refusal answers only the phase it was asked in.
+  {
+    id: "p2g-cx3/cancel-refusal-masks-the-outcome",
+    file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
+    suite: "components/staff/ReaderCollectProvider.test.tsx",
+    why: "Codex r3 on #309 — a 'too late to cancel' outliving its phase masks a later decline or 'don't take payment again' in the region, while the panel marks that alert said behind it",
+    find: "    if (next.phase !== pollRef.current.phase) setCancelError(null);\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

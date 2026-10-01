@@ -133,16 +133,19 @@ Closes **P2em · P2en · P2er · P2es · M250 · P2fz · P2fk**; files P2gb–P2
   - _A pane switch hands a landing to the right table_ (P2): `ReaderShown` refreshes its handler in a
     layout effect declared before its registration, so a reused instance switching A → B no longer
     files B's card under A. `ReaderCollectContext.tsx` joins the mutate set.
+- **Codex round 3 (`2c7fa4c`, 1×P2, real — fixed on sight):** a cancel refusal ("too late…")
+  answers only the phase it was asked in; a poll that learns a new outcome retires it, so it can no
+  longer mask a decline or "don't take payment again" (which the panel had marked said behind it).
 - Measured for Phase 2h (`scratchpad` probe, Chromium + Next 16.2.9): a `useTransition` `pending`
   stays true past a `raceTimeout` while its Server Action hangs, and every later action waits behind
   it — the P2cz / P2fc rows carry the numbers.
 
-**Gate:** 1874 `verify:slice` mutants (+196: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
+**Gate:** 1875 `verify:slice` mutants (+197: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
 14 `p2g-m250/`, 64 `p2g-older/` + `p2g-uncollected/`, 7 `p2g-int/`, then the review's 36
-`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`, Codex round 1's 8 `p2g-cx1/` and round 2's 5 `p2g-cx2/`) over 205 target modules (+6:
+`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`, Codex round 1's 8 `p2g-cx1/` and round 2's 5 `p2g-cx2/`, round 3's 1 `p2g-cx3/`) over 205 target modules (+6:
 `lib/reader-collect.ts`, `ReaderCollectProvider.tsx`, `ReaderCollectChip.tsx`, `CounterOlderSheet.tsx`
 the FIRST staff page, `app/staff/table/[id]/page.tsx`, and Codex round 2's `ReaderCollectContext.tsx`) ·
-5205 qr tests · K15: 23 new staff keys (7 from the review, 1 from Codex round 2; the review also
+5206 qr tests · K15: 23 new staff keys (7 from the review, 1 from Codex round 2; the review also
 re-worded 4 of the build's), 1 re-worded, 1 retired; `STAFF_K15_HIGH` 136 → 146
 (OPEN-ITEMS K15).
 

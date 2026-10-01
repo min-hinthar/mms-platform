@@ -549,6 +549,32 @@ describe("Back to payment (D4) and cancel", () => {
     expect(api.spoken).toEqual({ tone: "ok", msg: { k: "settle.reader.status.canceled" } });
     expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
   });
+  // Codex r3 on #309 — a cancel refusal answers the phase it was asked in. A poll that then learns a
+  // NEW outcome is the newer fact: the old "too late" must never mask a decline (or "don't take
+  // payment again"), which the panel would otherwise mark as said behind it.
+  it("a cancel refusal is retired the moment a poll learns a new outcome", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    cancelTerminal.mockResolvedValueOnce({ ok: false, error: "Too late to cancel." });
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await act(async () => api.cancel());
+    expect(api.spoken).toEqual({ tone: "warn", msg: "Too late to cancel." });
+    // The same phase answered again: the refusal still stands (it is still the newest fact).
+    await tick(2500);
+    expect(api.spoken).toEqual({ tone: "warn", msg: "Too late to cancel." });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "failed",
+      error: "The card was declined.",
+    });
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    // MUTATION (p2g-cx3/cancel-refusal-masks-the-outcome): the refusal outlives its phase — the
+    // region keeps "Too late to cancel." over the decline; red.
+    expect(api.cancelError).toBeNull();
+    expect(api.spoken).toEqual(api.status);
+  });
 });
 
 describe("the one refusal, read at tap time", () => {

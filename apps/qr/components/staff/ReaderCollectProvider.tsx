@@ -114,6 +114,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     else dropReaderStash();
   }, []);
   const commitPoll = useCallback((next: ReaderPoll) => {
+    // Codex r3 on #309 — a cancel refusal ("too late…") answers the phase it was asked in. Once a poll
+    // learns a NEW outcome (recorded, declined, given up) that outcome is the newer fact: a refusal
+    // left standing would mask it in the region, while the panel marks the alert said behind it.
+    if (next.phase !== pollRef.current.phase) setCancelError(null);
     pollRef.current = next;
     setPollState((prev) => (samePoll(prev, next) ? prev : next));
   }, []);
