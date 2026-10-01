@@ -2137,8 +2137,30 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     cartId: "c-4",
     sentEarly: false,
   };
-  const closedCounter = (handoff: typeof SERVER_CARD | null) => () =>
-    Promise.resolve({ kind: "closed" as const, label: "reg-7f3a", tableNumber: null, handoff });
+  // The verdict as `getTableDetail` builds it (`serverCounterOutcome`): with a card, the order is
+  // unrefunded ("none"); without one, the refund state is whatever the row said — or unknown.
+  const closedCounter =
+    (
+      handoff: typeof SERVER_CARD | null,
+      refund: "none" | "partial" | "full" | null = handoff ? "none" : null,
+      orderId: string | null = handoff || refund ? SERVER_CARD.orderId : null,
+    ) =>
+    () =>
+      Promise.resolve({
+        kind: "closed" as const,
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff,
+        refund,
+        orderId,
+      });
+  const openDeepLink = async () => {
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+  };
 
   it("a deep link with NO stash: the verdict's card shows, under the counter title, unfocused", async () => {
     answers[A] = closedCounter(SERVER_CARD);
@@ -2168,14 +2190,62 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     await tick(0);
     await tick(0);
     await tick(0);
-    // MUTANT p2g-code/pane-server-handoff-beats-stash — the server card outranks the cashier's: the
-    // change to hand back ($50.00 − $42.10) disappears; red.
+    // MUTANT p2g-code/pane-server-handoff-beats-stash — while the server says nothing came back
+    // (refund "none"), the server card outranks the cashier's: the change to hand back
+    // ($50.00 − $42.10) disappears; red.
     expect(
       within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
     ).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey(A))).not.toBeNull();
   });
 
-  it("no card in the verdict (a refunded order, an unreadable one): the notice alone", async () => {
+  // ── Phase 2g · review (M2 · PT-3 · PT-7) ── the server's refund verdict VETOES the tab's card.
+  it("the tab's stash over an order the verdict names PARTLY refunded: no Paid card, the refund said with its #CODE, the stash dropped", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(null, "partial");
+    await openDeepLink();
+    // MUTANT p2g-fix-code/veto-ignored-on-pane — "the tab's card wins" outranks the refund:
+    // "✓ Paid · Change $7.90 · #A1B2C3" stands over money that went back; red.
+    // MUTANT p2g-fix-code/pane-first-read-drops-refund — the pane reads the refund as unknown: the
+    // stash stands and the hedge is said; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(pane().textContent).toContain(
+      tf("en", "floor.pane.closed.refundedPart", { id: "#A1B2C3" }),
+    );
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+    // MUTANT p2g-fix-code/pane-stash-kept-after-refund — the vetoed card stays in storage, and the
+    // next visit's detail restores "Paid" over the refund; red.
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+
+  it("the tab's stash over an order the verdict names refunded IN FULL: the plain fact, the stash dropped", async () => {
+    stashHandoff(A, SERVER_CARD);
+    answers[A] = closedCounter(null, "full");
+    await openDeepLink();
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.refundedFull"));
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+
+  it("an UNREADABLE order (refund unknown) vetoes nothing: the tab's card stands; with no card, the hedge", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(null, null);
+    await openDeepLink();
+    expect(
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey(A))).not.toBeNull();
+    cleanup();
+    sessionStorage.clear();
+    answers[A] = closedCounter(null, null);
+    await openDeepLink();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.body"));
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.refundedFull"));
+  });
+
+  it("no card in the verdict and no refund the server could name (an unreadable order): the notice alone", async () => {
     answers[A] = closedCounter(null);
     window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
     mount({ cards: [] });
@@ -2184,7 +2254,8 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     await tick(0);
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
     expect(document.getElementById("handoff-title")).toBeNull();
-    // With no card the hedge is the honest line (paid-then-refunded, cleared, merged, idle).
+    // With no card and nothing named, the hedge is the honest line (a refund it CAN name is said —
+    // Phase 2g · review, below).
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.body"));
   });
 
@@ -2205,6 +2276,71 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     // either way the order closes with no #CODE beside the floor; red.
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
     expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+  });
+
+  it("an order that closes WHILE shown, refunded in part: the pane is handed the refund and says it", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = ok(
+      detail(A, 4, { label: "reg-7f3a", tableNumber: null, mode: "pickup", counterOrder: true }),
+    );
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    // The restored counter card HOLDS the closed bounce (the #CODE hand-over must not be yanked)…
+    expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+    answers[A] = closedCounter(null, "partial");
+    await tick(5000);
+    // …until a verdict names its order refunded: the card goes from screen and stash at once.
+    // MUTANT p2g-fix-code/closed-veto-ignored — the held card ignores the verdict: "Paid · Change
+    // $7.90" stands over the refund for as long as the pane stays open, the refund never said; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+    // No longer held, the next read hands the verdict to the pane, which says the refund.
+    await tick(5000);
+    await tick(0); // the closed state reads the stash first (a scheduled callback)
+    // MUTANT p2g-fix-code/pane-detail-close-drops-refund — the pane keeps the label and the card but
+    // not the refund: the hedge is said over an order the server named refunded; red.
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(pane().textContent).toContain(
+      tf("en", "floor.pane.closed.refundedPart", { id: "#A1B2C3" }),
+    );
+  });
+
+  it("the pane's live detail drops its RESTORED card once a read names that order refunded", async () => {
+    const settledCounter = (refund: TableDetail["refund"]) =>
+      detail(A, 4, {
+        label: "reg-7f3a",
+        tableNumber: null,
+        mode: "pickup",
+        counterOrder: true,
+        cartId: null,
+        settled: true,
+        status: "paid",
+        paidTotalCents: 4210,
+        paidOrderId: SERVER_CARD.orderId,
+        refund,
+        settledOrderCount: 1,
+        lines: [line("l-4", "Mohinga", false)],
+      });
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = ok(settledCounter({ state: "none", refundedCents: 0, netPaidCents: 4210 }));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+    answers[A] = ok(settledCounter({ state: "partial", refundedCents: 1200, netPaidCents: 3010 }));
+    await tick(5000);
+    // MUTANT p2g-fix-code/veto-ignored-on-detail-restored — the restored stash keeps "Paid · Change
+    // $7.90" over the refund the detail itself now states; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(
+      tf("en", "table.detail.refunded.partial", { m: "$30.10", r: "$12.00" }),
+    );
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
   });
 });
 

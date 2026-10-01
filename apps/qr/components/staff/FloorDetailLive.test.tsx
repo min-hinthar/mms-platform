@@ -5,7 +5,7 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
-import { handoffStashKey } from "@/lib/floor-pane";
+import { handoffFocusKey, handoffStashKey } from "@/lib/floor-pane";
 import { READER_COLLECT_KEY, type ReaderCollect } from "@/lib/reader-collect";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
@@ -310,6 +310,53 @@ describe("FloorDetailLive — a closed table", () => {
     await tick(5000);
     expect(replace).not.toHaveBeenCalled();
     expect(refresh).toHaveBeenCalled();
+  });
+
+  // Phase 2g · review (A11Y-4) — the refresh swaps the whole detail for the closed card; focus that
+  // was INSIDE the detail must land on the card (ClosedHandoffCard takes this one-shot note on mount
+  // — app/staff/table/[id]/page.test.tsx), and an idle phone is never given focus by a poll.
+  const PAID_VERDICT: TableDetailResult = {
+    kind: "closed",
+    label: "reg-7f3a",
+    tableNumber: null,
+    handoff: {
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: null,
+      isCounter: true,
+      cartId: "c-9",
+      sentEarly: false,
+    },
+    refund: "none",
+    orderId: "o-00a1b2c3",
+  };
+
+  it("focus INSIDE the detail when it swaps to the card: a one-shot note for the card, before the refresh", async () => {
+    mount();
+    const btn = document.querySelector<HTMLButtonElement>("main li button")!;
+    act(() => btn.focus());
+    answer = () => Promise.resolve(PAID_VERDICT);
+    let noted: string | null = "unset";
+    refresh.mockImplementation(() => {
+      noted = sessionStorage.getItem(handoffFocusKey("s1"));
+    });
+    await tick(5000);
+    expect(refresh).toHaveBeenCalled();
+    // MUTANT p2g-fix-code/swap-leaves-no-focus-note — the detail unmounts under the person and focus
+    // falls to <body>, unsaid; red.
+    expect(noted).not.toBeNull();
+    expect(Number(noted)).toBeGreaterThan(0);
+  });
+
+  it("an idle phone (focus on <body>) leaves no note: the swapped-in card is never focused by a poll", async () => {
+    mount();
+    expect(document.activeElement).toBe(document.body);
+    answer = () => Promise.resolve(PAID_VERDICT);
+    await tick(5000);
+    expect(refresh).toHaveBeenCalled();
+    // MUTANT p2g-fix-code/swap-note-always — a poll plants focus on an idle phone's card; red.
+    expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
   });
 
   it("a closed counter order with NO card (refunded, unreadable) still returns to the counter", async () => {
@@ -1871,5 +1918,87 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
   it("no server card in the detail (a table, an open cart, money that came back): no card", () => {
     mountWith({ ...SETTLED, serverHandoff: null });
     expect(screen.queryByRole("region", { name: /#A1B2C3/ })).toBeNull();
+  });
+
+  // ── Phase 2g · review (M2 · PT-3) ── the server's refund verdict VETOES this tab's card.
+  async function cashCardOnScreen() {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+    });
+    mountWith(COUNTER);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    fireEvent.change(document.getElementById("cash-tendered") as HTMLInputElement, {
+      target: { value: "50" },
+    });
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    await tick(400);
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
+  }
+
+  it.each([
+    [
+      "partly (status still 'paid')",
+      { state: "partial" as const, refundedCents: 1200, netPaidCents: 3010 },
+      () => tf("en", "table.detail.refunded.partial", { m: "$30.10", r: "$12.00" }),
+    ],
+    [
+      "in full",
+      { state: "full" as const, refundedCents: 4210, netPaidCents: 0 },
+      () => tf("en", "table.detail.refunded.full", { m: "$42.10" }),
+    ],
+  ])(
+    "a refund of the card's OWN order, %s: no 'Paid' card over it, the refund said, the stash dropped",
+    async (_, refund, said) => {
+      await cashCardOnScreen();
+      // A manager refunds it; the next read names the SAME order (`paidOrderId`) as refunded.
+      answer = () =>
+        Promise.resolve({
+          kind: "detail",
+          // The floor status stays "paid" (the chip reads the refund); the refund state is the
+          // ONE derivation's (`summarizeRefund` — status 'refunded' or the amount, either way).
+          detail: { ...SETTLED, serverHandoff: null, refund },
+        });
+      await tick(5000);
+      // MUTANT p2g-fix-code/veto-ignored-on-detail — "this tab's card wins" outranks the refund:
+      // "✓ Paid · Change $7.90 · #A1B2C3" stands over money that went back; red.
+      expect(screen.queryByRole("region", { name: /#A1B2C3/ })).toBeNull();
+      expect(document.querySelector("main")!.textContent).toContain(said());
+      // MUTANT p2g-fix-code/detail-stash-kept-after-refund — the card's stash outlives the veto, and
+      // the pane restores "Paid" over the refund on the next visit; red.
+      expect(sessionStorage.getItem(handoffStashKey("s1"))).toBeNull();
+    },
+  );
+
+  it("a refund of ANOTHER order, or an unknown refund state, never takes the card", async () => {
+    await cashCardOnScreen();
+    answer = () =>
+      Promise.resolve({
+        kind: "detail",
+        detail: {
+          ...SETTLED,
+          paidOrderId: "o-0000new2",
+          serverHandoff: null,
+          refund: { state: "full", refundedCents: 4210, netPaidCents: 0 },
+        },
+      });
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...SETTLED, refund: null } });
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
   });
 });

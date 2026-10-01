@@ -14,6 +14,8 @@ import { raceTimeout } from "@/lib/staff-outage";
 import {
   PANE_QUERY,
   acceptPaneRead,
+  closedCounterNote,
+  dropHandoffStash,
   liveTwinOf,
   lostKey,
   paneEscapeCloses,
@@ -32,7 +34,8 @@ import { HandoffCard } from "./HandoffCard";
 import { TableDetailSkeleton } from "./TableDetailSkeleton";
 import { TableNavProvider, type TableHint } from "./TableNav";
 import type { CloseReason, PaneRow } from "./TablePaneContext";
-import type { Handoff } from "@/lib/register-ui";
+import { handoffRefunded, type Handoff } from "@/lib/register-ui";
+import type { RefundState } from "@/lib/refund-view";
 import { ReaderShown } from "./ReaderCollectContext";
 
 /**
@@ -44,7 +47,9 @@ import { ReaderShown } from "./ReaderCollectContext";
  *   detail   `FloorDetailLive variant="pane"`, keyed per selection.
  *   closed   the head keeps its name and ✕; the notice, the live namesake's "View", and the table's
  *            paid card above it — this tab's stash, else (Phase 2g · P2em) the closed verdict's
- *            server-built #CODE card for a counter order.
+ *            server-built #CODE card for a counter order. Phase 2g · review — a counter order the
+ *            verdict names as refunded VETOES the stash for that order (dropped, never shown) and
+ *            says the refund under the title instead of the hedge (`closedCounterNote`).
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
  *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
@@ -64,6 +69,10 @@ type Read = { id: string; gen: number } & (
       hint: TableHint | null;
       /** Phase 2g · P2em (D2) — the verdict's server-built #CODE card (a counter order), or null. */
       handoff: Handoff | null;
+      /** Phase 2g · review — the refund state of the verdict's order and its id (null: no row, an
+       *  unreadable one, or not a counter order). */
+      refund: RefundState | null;
+      orderId: string | null;
     }
   | { kind: "fail"; cause: "outage" | "unknown" }
 );
@@ -136,6 +145,8 @@ export function TablePane({
             label: res.label ?? null,
             hint: res.label === undefined ? null : closedHint(res.label, res.tableNumber ?? null),
             handoff: res.handoff ?? null,
+            refund: res.refund ?? null,
+            orderId: res.orderId ?? null,
           });
         else if (res.kind === "signin") window.location.assign("/staff/login");
         else setRead({ id, gen, kind: "fail", cause: "outage" });
@@ -192,14 +203,29 @@ export function TablePane({
 
   // The closed table's paid card, from this tab's stash (read after mount, never during render).
   // Phase 2g · P2em (D2) — the stash WINS (it carries the cashier's tender and change, and the tap's
-  // "went out unpaid"); the closed verdict's server-built card (`cur.handoff`) is the fallback, shown
-  // only once the stash has been read, so the server card never flashes before the tab's own.
+  // "went out unpaid") unless the verdict names its order refunded (the veto below); the closed
+  // verdict's server-built card (`cur.handoff`) is the fallback, shown only once the stash has been
+  // read, so the server card never flashes before the tab's own.
   const [stashed, setStashed] = useState<{ id: string; h: Handoff | null } | null>(null);
   useEffect(() => {
     if (!closedNow || id === null) return;
     const t = setTimeout(() => setStashed({ id, h: readHandoffStash(id) }), 0);
     return () => clearTimeout(t);
   }, [closedNow, id]);
+
+  // ── Phase 2g · review (M2 · PT-3) ── the verdict's refund state VETOES this tab's card for the
+  // same order (`handoffRefunded`): "the tab's card wins" holds only while the server says nothing
+  // came back — over a refund it would print "Paid · $X" over money that went back, so it is not
+  // shown (`tabCard`) and it leaves this tab's storage, so no later visit (or the detail's restore)
+  // brings it back.
+  const closedRead = cur?.kind === "closed" ? cur : null;
+  const closedStash = closedRead !== null && stashed?.id === closedRead.id ? stashed.h : null;
+  const stashVetoed =
+    closedRead !== null && closedStash !== null && handoffRefunded(closedStash, closedRead);
+  const tabCard = stashVetoed ? null : closedStash;
+  useEffect(() => {
+    if (stashVetoed && id !== null) dropHandoffStash(id);
+  }, [stashVetoed, id]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     const t = e.target as HTMLElement;
@@ -252,7 +278,12 @@ export function TablePane({
       : null;
   const twinRow = twin ? rows.find((r) => r.sessionId === twin) : undefined;
   const closedHandoff =
-    cur?.kind === "closed" && stashed?.id === cur.id ? (stashed.h ?? cur.handoff) : null;
+    closedRead !== null && stashed?.id === closedRead.id ? (tabCard ?? closedRead.handoff) : null;
+  // The sentence under the closed title when no card stands: the refund in words, or the hedge.
+  const closedNote = closedCounterNote({
+    refund: closedRead?.refund ?? null,
+    orderId: closedRead?.orderId ?? null,
+  });
 
   return (
     <section
@@ -358,7 +389,7 @@ export function TablePane({
                   terminalReady={terminalReady}
                   focusSettle={settleOnce === cur.id}
                   paneNotice={lostLine}
-                  onClosed={(sid, handoff) => {
+                  onClosed={(sid, verdict) => {
                     if (!acceptPaneRead(sid, selectedNow())) return;
                     focusWasInPane.current =
                       paneRef.current?.contains(document.activeElement) ?? false;
@@ -368,7 +399,9 @@ export function TablePane({
                       kind: "closed",
                       label: cur.detail.label,
                       hint: closedHint(cur.detail.label, cur.detail.tableNumber),
-                      handoff,
+                      handoff: verdict.handoff ?? null,
+                      refund: verdict.refund ?? null,
+                      orderId: verdict.orderId ?? null,
                     });
                   }}
                   onLostWrite={onLostWrite}
@@ -392,9 +425,10 @@ export function TablePane({
                   title={<Chrome lang={lang} k={closedKey} />}
                   // Phase 2g integration — with the paid card standing above, the hedge ("it may
                   // have been paid, cleared or merged…") would doubt a fact the card states.
+                  // Phase 2g · review — with none, a refund the verdict names is SAID, never hedged.
                   subtitle={
                     closedHandoff ? undefined : (
-                      <Chrome lang={lang} k="floor.pane.closed.body" echo="stack" />
+                      <Chrome lang={lang} k={closedNote.k} vars={closedNote.vars} echo="stack" />
                     )
                   }
                 />

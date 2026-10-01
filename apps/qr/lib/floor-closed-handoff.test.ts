@@ -11,7 +11,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * The fake DB EVALUATES its filters, applies the sort and the limit, and PROJECTS each row to the
  * columns the select names — so a read that drops a column, a status, or the newest-first order
- * changes the OUTCOME here, never just a call transcript (the floor-settled-detail pattern).
+ * changes the OUTCOME here, never just a call transcript (the floor-settled-detail pattern). And its
+ * `maybeSingle()` answers as PostgREST does over MORE than one surviving row — an error, never the
+ * first row (Phase 2g · review, G1) — so a closed read that loses its `.limit(1)` loses the card here
+ * exactly as it would in production.
+ *
+ * Phase 2g · review (M2 · PT-3 · PT-7) — the closed verdict also carries the refund STATE of that
+ * same row and its id (`serverCounterOutcome`), so a refunded counter order can be SAID, and can
+ * veto a card a tab still holds for it, instead of hedging like an unreadable one.
  */
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -118,6 +125,12 @@ function tableApi(name: string) {
     maybeSingle() {
       if (failed()) return Promise.resolve({ data: null, error: { message: "orders unreadable" } });
       const hit = shaped(rowsOf() ?? []);
+      // PostgREST: `maybeSingle()` over more than one row is an ERROR, never the first row.
+      if (hit.length > 1)
+        return Promise.resolve({
+          data: null,
+          error: { message: "JSON object requested, multiple (or no) rows returned" },
+        });
       return Promise.resolve({ data: hit[0] ?? null, error: null });
     },
     then(resolve: (r: { data: Row[] | null; error: unknown }) => void) {
@@ -174,24 +187,29 @@ beforeEach(() => {
 });
 
 describe("getTableDetail — a CLOSED counter order carries its #CODE card", () => {
+  const CLOSED = { kind: "closed", label: "reg-7f3a", tableNumber: null } as const;
+
   it("closed + paid: the verdict names the order and carries the card, figures verbatim", async () => {
     const r = await getTableDetail(SESSION);
     // MUTANT p2g-code/closed-handoff-dropped — the closed arm reads no card; red.
-    expect(r).toEqual({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: CARD });
+    expect(r).toEqual({ ...CLOSED, handoff: CARD, refund: "none", orderId: "o-00a1b2c3" });
   });
 
-  it("a PARTLY refunded order is never carried as Paid — the refund column is READ", async () => {
+  it("a PARTLY refunded order is never carried as Paid — the refund column is READ, and SAID", async () => {
     orderRows = [{ ...PAID, refunded_cents: 1200 }];
     const r = await getTableDetail(SESSION);
     // MUTANT p2g-code/closed-handoff-select-drops-refunded — the select omits `refunded_cents`, the
     // gate reads "nothing came back", and the partly refunded order reads "Paid · $53.30"; red.
-    expect(r).toEqual({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null });
+    // MUTANT p2g-fix-code/closed-refund-dropped — the verdict loses the refund state: the pane and
+    // the page hedge ("it may have been paid, cleared…") over an order the server knows was
+    // refunded, and a stashed "Paid" card for it is never vetoed; red.
+    expect(r).toEqual({ ...CLOSED, handoff: null, refund: "partial", orderId: "o-00a1b2c3" });
   });
 
-  it("a refunded order is never Paid", async () => {
+  it("a refunded order is never Paid, and its verdict says it came back in full", async () => {
     orderRows = [{ ...PAID, status: "refunded" }];
     const r = await getTableDetail(SESSION);
-    expect(r.kind === "closed" && r.handoff).toBeNull();
+    expect(r).toEqual({ ...CLOSED, handoff: null, refund: "full", orderId: "o-00a1b2c3" });
   });
 
   it("the card is the session's LATEST order", async () => {
@@ -201,13 +219,16 @@ describe("getTableDetail — a CLOSED counter order carries its #CODE card", () 
     ];
     const r = await getTableDetail(SESSION);
     // MUTANT p2g-code/closed-handoff-oldest-order — oldest first; red.
+    // MUTANT p2g-fix-code/closed-handoff-no-limit — `.limit(1)` dropped: PostgREST's `maybeSingle()`
+    // over the session's two settled orders is an ERROR, the read logs it and the card is lost; red.
     expect(r.kind === "closed" && r.handoff?.orderId).toBe("o-0000new2");
+    expect(r.kind === "closed" && r.orderId).toBe("o-0000new2");
   });
 
-  it("no paid order: closed, no card", async () => {
+  it("no paid order: closed, no card, no refund state (nothing to name)", async () => {
     orderRows = [];
     const r = await getTableDetail(SESSION);
-    expect(r).toEqual({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null });
+    expect(r).toEqual({ ...CLOSED, handoff: null, refund: null, orderId: null });
   });
 
   it("an unreadable order is NOT an outage: still closed, no card, logged (only the session read is)", async () => {
@@ -216,7 +237,8 @@ describe("getTableDetail — a CLOSED counter order carries its #CODE card", () 
     const r = await getTableDetail(SESSION);
     // MUTANT p2g-code/closed-handoff-error-is-outage — an advisory read freezes the pane on "the
     // system is unreachable" over a counter order that simply closed; red.
-    expect(r).toEqual({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null });
+    // The refund is UNKNOWN (null), never "none": an unread order vetoes nothing and is hedged.
+    expect(r).toEqual({ ...CLOSED, handoff: null, refund: null, orderId: null });
     expect(err).toHaveBeenCalled();
     err.mockRestore();
   });
