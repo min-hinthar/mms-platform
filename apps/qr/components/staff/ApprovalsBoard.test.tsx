@@ -458,6 +458,7 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     expect(reload()).not.toBeNull();
     expect(region().contains(reload())).toBe(false);
     // The PIN is cleared — a second decision is what the sentence says not to make.
+    // MUTATION (p2h-boards/approvals/pin-kept-on-waiting): the PIN stays typed in; red.
     expect((document.getElementById("appr-r1-pin") as HTMLInputElement).value).toBe("");
     // The LATE refusal is said (9e). MUTATION (p2h-boards/approvals/late-answer-dropped): the waiting
     // line stands for good; red.
@@ -500,5 +501,87 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     expect(resolveApproval).not.toHaveBeenCalled();
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
     expect(reload()).not.toBeNull();
+  });
+  it("a LATE ok retires 'no answer yet' — it never stands over a recorded decision without its Reload (critic B2)", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {}); // the queue's re-read hangs: the card stays up
+    const write = deferred<ResolveResult>();
+    resolveApproval.mockImplementationOnce(() => write.promise);
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await tick(0);
+    // MUTATION (p2h-boards/approvals/late-ok-keeps-waiting): the waiting line ("…reload the page to
+    // see") stands with its Reload gone, for as long as the queue's re-read takes; red.
+    expect(region().textContent).toBe("");
+    expect(reload()).toBeNull();
+  });
+
+  it("while the decision's answer is still owed, Cancel refuses — the late refusal is said in the form that asked (critic B3)", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {});
+    const write = deferred<ResolveResult>();
+    resolveApproval.mockImplementationOnce(() => write.promise);
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(STAFF_HANG_MS);
+    const cancelBtn = screen.getByRole("button", { name: STAFF["table.appr.verb.cancel"].en });
+    // MUTATION (p2h-boards/approvals/cancel-while-owed · approvals/cancel-owed-not-said): Cancel acts —
+    // the form (the card's only region, and its Reload) unmounts, and the late refusal has nowhere
+    // to be said (or, re-opened, reads as the answer to the new attempt); red.
+    expect(cancelBtn.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      cancelBtn.click();
+    });
+    expect(document.getElementById("appr-msg-r1")).not.toBeNull();
+    await act(async () => {
+      write.resolve({ ok: false, reason: "pin_wrong" });
+    });
+    await tick(0);
+    expect(region().textContent).not.toBe(STAFF["table.appr.msg.waiting"].en);
+    expect(region().textContent).not.toBe("");
+    // Answered: Cancel acts again (MUTATION p2h-boards/approvals/owed-never-cleared — it never does; red).
+    expect(cancelBtn.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      cancelBtn.click();
+    });
+    expect(document.getElementById("appr-msg-r1")).toBeNull();
+  });
+
+  it("a late answer on a zone that is GONE starts no read (critic B4)", async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    pollAnswer = () => {
+      polls += 1;
+      return Promise.resolve({ ok: true, rows: [pending("r1")] });
+    };
+    const write = deferred<ResolveResult>();
+    resolveApproval.mockImplementationOnce(() => write.promise);
+    const q = mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    q.unmount();
+    polls = 0;
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await tick(1_000);
+    // MUTATION (p2h-boards/approvals/dead-zone-reads): the late ok re-reads the queue from a zone that
+    // no longer exists — three reads queued on the tab for a screen nobody is looking at; red.
+    expect(polls).toBe(0);
   });
 });

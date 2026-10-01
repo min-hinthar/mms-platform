@@ -158,6 +158,10 @@ export function ApprovalsBoard({
   }, []);
 
   const refresh = useCallback(async () => {
+    // Phase 2h · critic B4 — a decision's LATE answer can land after the zone is gone (it left its
+    // transition, so a navigation commits while it is out), and a late ok re-reads the queue: a dead
+    // zone starts no read — nothing queued on the tab for a screen nobody is looking at.
+    if (!alive.current) return;
     const gate = gateOf();
     const asked = gate.ask();
     if (asked.go === "owed") {
@@ -421,6 +425,12 @@ function RequestCard({
   const pendingRef = useRef(false);
   // The region's waiting line promises a reload: its button stands beside the region.
   const [reload, setReload] = useState(false);
+  // Phase 2h · critic B3 — a decision still out past the bound answers into THIS form (the card's only
+  // region, and its Reload, live in it): Cancel refuses until the late answer lands. Cancelled, a late
+  // refusal had no region left to be said in; re-opened, it read as the answer to the new attempt.
+  // The ref is the tap-time guard (LEARNINGS #126); the state is what `aria-disabled` renders.
+  const [late, setLate] = useState(false);
+  const lateRef = useRef(false);
   // A late answer is said only while this card is mounted (9e).
   const alive = useRef(true);
   useEffect(() => {
@@ -455,7 +465,9 @@ function RequestCard({
     setReload(false);
   }
   function cancel() {
-    if (pendingRef.current) return; // §17 — the button says so with `aria-disabled`; refused here
+    // §17 — the button says so with `aria-disabled`; refused here. Also while a decision's answer is
+    // still owed to this form (critic B3).
+    if (pendingRef.current || lateRef.current) return;
     setDecision(null);
     setPin("");
     setMsg(null);
@@ -465,7 +477,12 @@ function RequestCard({
   /** The server's verdict, said — on time, or LATE (9e: a late refusal is said if the card is still
    *  here; a late ok re-reads the queue, which takes the card away). */
   function answered(res: Awaited<ReturnType<typeof resolveApproval>>): void | Promise<void> {
-    if (res.ok) return onResolved();
+    if (res.ok) {
+      // Critic B2 — a LATE ok retires "no answer yet" (its Reload already went): the decision is
+      // recorded, and the queue's re-read takes the card away. On time the region is already empty.
+      if (alive.current) setMsg(null);
+      return onResolved();
+    }
     if (!alive.current) return;
     setPin("");
     switch (res.reason) {
@@ -541,8 +558,14 @@ function RequestCard({
       }
       setMsg({ k: "table.appr.msg.waiting" });
       setReload(true);
+      lateRef.current = true;
+      setLate(true);
       void out.late.then((late) => {
-        if (alive.current) setReload(false);
+        lateRef.current = false;
+        if (alive.current) {
+          setLate(false);
+          setReload(false);
+        }
         if (late.kind === "answer") void answered(late.value);
         else if (alive.current) setMsg({ k: "table.appr.msg.unknown" });
       });
@@ -693,7 +716,7 @@ function RequestCard({
             <button
               type="button"
               onClick={cancel}
-              aria-disabled={pending || undefined}
+              aria-disabled={pending || late || undefined}
               className="staff-btn"
               style={{ ...actionBtn, ...cancelBtn }}
             >

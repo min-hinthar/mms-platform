@@ -2556,4 +2556,42 @@ describe("Phase 2h (9f) — every read the pane starts goes through ONE gate", (
     expect(document.getElementById("order-h")).not.toBeNull();
     vi.restoreAllMocks();
   });
+  it("the answer of a table picked AWAY from never replaces what the new pick shows — even one that wins its race in the instant past the bound (table-pane/late-read-lands · critic B9)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolveA!: (r: TableDetailResult) => void;
+    let resolveB!: (r: TableDetailResult) => void;
+    answers[A] = () => new Promise((r) => (resolveA = r));
+    answers[B] = () => new Promise((r) => (resolveB = r));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    // One millisecond short of A's bound on the timers, and AT it on the clock: the race's own timer
+    // is overdue but has not run yet — a busy tablet runs a tap before an overdue timer. (The poll
+    // gate measures `missed` on `Date.now()`; `setSystemTime` moves it and keeps every timer's
+    // distance.)
+    await tick(15_000 - 1);
+    vi.setSystemTime(Date.now() + 1);
+    await tap(card(B)); // owed to A's read, and past the bound: B's pick is a failed read, said
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // A's answer arrives in that instant: it wins A's race (the race's timer has still not run), and
+    // lands in the pane's read under B. B's owed read is kicked and held in the air.
+    // MUTATION (table-pane/late-read-lands): A's answer is applied, and B's failure turns into a
+    // skeleton for as long as B's own read takes; red.
+    await act(async () => {
+      resolveA({ kind: "detail", detail: detail(A, 4) });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(getTableDetail).toHaveBeenLastCalledWith(B);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
+    // B's own read lands.
+    await act(async () => {
+      resolveB({ kind: "detail", detail: detail(B, 5) });
+    });
+    await tick(0);
+    expect(document.getElementById("order-h")).not.toBeNull();
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.fail.title"));
+    vi.restoreAllMocks();
+  });
 });

@@ -155,6 +155,13 @@ describe("Phase 2h — the zone's read is bounded, never stacked, and its Refres
     expect(screen.getByText(/Couldn’t refresh/)).toBeTruthy();
     // Taps past the bound start nothing: the read in the air is still in Next's queue. MUTATION
     // (p2h-boards/settled/reads-stack): each tap sends another behind it; red.
+    fireEvent.click(refresh);
+    await flush(0);
+    // Critic B8 — the tap is OWED to the read in the air, and Refresh says so: busy, refusing — never a
+    // live-looking control that does nothing and says nothing. MUTATION
+    // (p2h-boards/settled/owed-tap-silent): it reads live after the tap; red.
+    expect(refresh.getAttribute("aria-busy")).toBe("true");
+    expect(refresh.getAttribute("aria-disabled")).toBe("true");
     for (let i = 0; i < 3; i++) {
       fireEvent.click(refresh);
       await flush(15_000);
@@ -168,6 +175,9 @@ describe("Phase 2h — the zone's read is bounded, never stacked, and its Refres
     await act(async () => reads[1]!.resolve(snapshot(order(true))));
     expect(screen.queryByText(/Couldn’t refresh/)).toBeNull();
     expect(reads.length).toBe(2);
+    // The owed read ran and answered: Refresh is free again. MUTATION
+    // (p2h-boards/settled/owed-never-cleared): it stays busy for good; red.
+    expect(refresh.getAttribute("aria-busy")).toBeNull();
     vi.useRealTimers();
   });
 });

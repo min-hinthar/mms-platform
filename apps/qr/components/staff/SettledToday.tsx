@@ -74,6 +74,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // while it hung, every other transition's pending and every router commit on the tab was held with
   // it (LEARNINGS #149 · #200). `reading` is a state cleared in `finally`, so it frees at the bound.
   const [reading, setReading] = useState(false);
+  // Phase 2h · critic B8 — a re-read OWED to one still in the air (a Refresh past the race's give-up,
+  // or a refund's re-read): the read is coming, so Refresh stays busy until it starts. Without this a
+  // tap past the give-up looked live, did nothing and said nothing (§17).
+  const [owed, setOwed] = useState(false);
 
   // ── Phase 2h (9f) ── reads never stack (`lib/poll-gate.ts`). A manual Refresh does not disable the
   // line Refund controls, so a refund can complete — and ask for its own re-read — while the manual
@@ -109,7 +113,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     // none is needed — this zone has no two-miss banner, and the read in the air already dated the
     // list ("stale") when its own race gave up, at the same bound `missed` measures; a refused ask
     // past it would only say that again (an unreachable rule is decorative — the contract critic, F11).
-    if (asked.go === "owed") return;
+    if (asked.go === "owed") {
+      if (alive.current) setOwed(true);
+      return;
+    }
+    setOwed(false);
     setReading(true);
     try {
       // The RAW read is watched (the race frees this caller at 15 s, never Next's queue).
@@ -216,13 +224,13 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
       <button
         type="button"
         onClick={() => {
-          if (reading) return;
+          if (reading || owed) return;
           void refresh();
         }}
-        aria-disabled={reading || undefined}
-        aria-busy={reading || undefined}
+        aria-disabled={reading || owed || undefined}
+        aria-busy={reading || owed || undefined}
         className="staff-btn staff-press"
-        style={{ ...refreshBtn, opacity: reading ? 0.6 : 1 }}
+        style={{ ...refreshBtn, opacity: reading || owed ? 0.6 : 1 }}
       >
         <Chrome lang={lang} k="floor.settled.verb.refresh" echo="stack" />
       </button>

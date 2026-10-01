@@ -166,15 +166,39 @@ const saysWaiting = (m: KdsMsg | null): boolean =>
 
 /** Where a board write's outcome is said: the board's one region (`err`), and the retire of a
  *  waiting line that a late answer has made stale — ITS OWN, never a newer line. */
-type KdsSay = { err: (m: KdsMsg | null) => void; drop: (m: KdsMsg) => void };
+type KdsSay = {
+  err: (m: KdsMsg | null) => void;
+  drop: (m: KdsMsg) => void;
+  /** A NEW tap clears the region — but never a standing waiting line: that write is still out, and
+   *  its line carries the only Reload on the board. Only its own late answer retires it (`drop`). */
+  clear: () => void;
+  /** Subjects (`cart:` · `line:` · `dish:`) whose write is still out past the bound. */
+  held: ReadonlySet<string>;
+  hold: (key: string, m: KdsMsg) => void;
+  release: (key: string) => void;
+  /** A tap on a held subject: its waiting line is said again (the same line, so its own late answer
+   *  still retires it) and NOTHING is sent. True when refused. */
+  refuse: (key: string) => boolean;
+};
+
+/** The subject a kitchen write holds while it is out past the bound (see `KdsSay.held`). */
+const cartKey = (cartId: string) => `cart:${cartId}`;
+const lineKey = (lineId: string) => `line:${lineId}`;
+const dishKey = (menuItemId: string) => `dish:${menuItemId}`;
 
 /**
  * One bounded kitchen write. `land` applies an ANSWER — on time (awaited, so the control's busy covers
  * the refetch it starts) or late (the late ok lands, a late refusal is said). Never rejects.
+ *
+ * Still out at the bound, it HOLDS `key` until its late answer (critic B1): the control is free (its
+ * busy ended), but a second tap of the same ticket, line or dish is refused with the waiting line —
+ * the line says "don't tap again", and a second write queued behind the hung one would land its own
+ * stale refusal ("already updated") over the first one's landing. Every OTHER subject stays live.
  */
 async function kitchenWrite<T>(
   raw: Promise<T>,
   x: string,
+  key: string,
   say: KdsSay,
   land: (value: T) => void | Promise<void>,
 ): Promise<void> {
@@ -185,8 +209,11 @@ async function kitchenWrite<T>(
   if (out.kind === "threw") return say.err(unknownMsg(x));
   const waiting = waitingMsg(x);
   say.err(waiting);
+  say.hold(key, waiting);
   void out.late.then((late) => {
-    // `late` never rejects. The waiting line goes (if it still stands), and the answer is applied.
+    // `late` never rejects. The subject is free again, the waiting line goes (if it still stands),
+    // and the answer is applied.
+    say.release(key);
     say.drop(waiting);
     if (late.kind === "answer") void land(late.value);
     else say.err(unknownMsg(x));
@@ -217,7 +244,43 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     },
     [showErr],
   );
-  const say = useMemo<KdsSay>(() => ({ err: showErr, drop: dropErr }), [showErr, dropErr]);
+  // Phase 2h · critic B12 — a new tap clears a standing refusal, never a standing waiting line.
+  const clearErr = useCallback(() => {
+    if (!saysWaiting(errRef.current)) showErr(null);
+  }, [showErr]);
+  // Phase 2h · critic B1 — the subjects whose write is still out past the bound, each with its own
+  // waiting line. The REF is what a tap reads (LEARNINGS #126); the state is what `aria-disabled`
+  // renders. Released only by the write's own late answer (or a reload).
+  const heldRef = useRef(new Map<string, KdsMsg>());
+  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set());
+  const hold = useCallback((key: string, m: KdsMsg) => {
+    heldRef.current.set(key, m);
+    setHeld(new Set(heldRef.current.keys()));
+  }, []);
+  const release = useCallback((key: string) => {
+    if (heldRef.current.delete(key)) setHeld(new Set(heldRef.current.keys()));
+  }, []);
+  const refuseHeld = useCallback(
+    (key: string): boolean => {
+      const m = heldRef.current.get(key);
+      if (m === undefined) return false;
+      showErr(m);
+      return true;
+    },
+    [showErr],
+  );
+  const say = useMemo<KdsSay>(
+    () => ({
+      err: showErr,
+      drop: dropErr,
+      clear: clearErr,
+      held,
+      hold,
+      release,
+      refuse: refuseHeld,
+    }),
+    [showErr, dropErr, clearErr, held, hold, release, refuseHeld],
+  );
   // A refused server action: the dictionary's sentence in the device language, or the exit to
   // /staff/login when the refusal is "go sign in" — a banner in the wrong language is not an answer.
   const onRefused = useCallback(
@@ -367,6 +430,11 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   }, [stampNow]);
 
   const refresh = useCallback(async () => {
+    // Phase 2h · critic B4 — a write's LATE answer can land after the board is gone (writes left
+    // their transitions, so a navigation commits while one is out), and its `land` asks for a
+    // re-read: a dead board starts none — no read queued on the tab, no sign-in verdict sending the
+    // tablet away from the screen the cook moved on to.
+    if (!alive.current) return;
     const gate = gateOf();
     const asked = gate.ask(); // no clock — never `stampNow()` here (F2)
     if (asked.go === "owed") {
@@ -685,14 +753,17 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     // from the pill's mount, refused with no visual (§24).
     if (removeHeld(entry.shownAt, performance.now())) return;
     if (undo86BusyRef.current) return; // §17 — the handler refuses re-entry; never `disabled`
+    // (No held-dish refusal here: the bar leaves at its own six seconds, long before a put-back can
+    // be out past the bound, and while the dish is off the menu nothing else can write it.)
     haptic("commit"); // §3 — at the tap; the bar leaving (or the refusal) is the visible half
-    showErr(null);
+    say.clear();
     undo86BusyRef.current = true;
     setUndo86Busy(true);
     try {
       await kitchenWrite(
         setItemSoldOut({ menuItemId: entry.menuItemId, soldOut: false, expectedSoldOut: true }),
         entry.label,
+        dishKey(entry.menuItemId),
         say,
         (res) => {
           if (!res.ok) {
@@ -775,6 +846,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     // has no ⋯ at all.
     if (!canEightySix(line) || (line.menuItemId && pending86Ref.current.has(line.menuItemId)))
       return;
+    // Critic B1 — the dish's last write (its 86, or the put-back) is still out past the bound: the
+    // ⋯ says so again instead of opening a sheet whose 86 would only queue behind the hung one.
+    if (line.menuItemId && say.refuse(dishKey(line.menuItemId))) return;
     haptic("pick"); // the sheet rising is the visible half
     setMenuMsg(null);
     setMenuLineId(line.id);
@@ -786,6 +860,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const eightySix = async (line: KitchenLine) => {
     const id = line.menuItemId;
     if (!canEightySix(line) || id === null || pending86Ref.current.has(id)) return;
+    // (A held dish never reaches here: its ⋯ refuses to open a sheet, and the sheet already open
+    // when the hold was taken has its 86 `blocked` — the Button refuses the tap itself.)
     const key = menu.key;
     const dish = dishVisible(lang, line.name, line.nameMy);
     const seq = ++tap86Seq.current;
@@ -794,8 +870,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     haptic("commit"); // §3 — at the tap, synchronously; the busy button is the visible half
     setMenuMsg(null);
     // Codex round 5 — a stale board error (a failed Done, bring-back or Undo) outranks the notice
-    // and outlives it; the old inline sold-out handler cleared it here, and so does this one.
-    showErr(null);
+    // and outlives it; the old inline sold-out handler cleared it here, and so does this one — never
+    // a standing waiting line (critic B12: that write is still out; only its own answer retires it).
+    say.clear();
     // A refusal lands where the cook is looking: in the sheet that is open — this line's, or (Codex
     // round 3 on #304) ANOTHER line's, because a modal sheet makes the board behind it aria-hidden
     // and a refusal spoken there would never be heard; the sentence names its dish either way.
@@ -865,7 +942,11 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         const waiting = waitingMsg(dish);
         showErr(waiting);
         if (menuLineRef.current !== null) setMenuMsg(waiting);
+        // Critic B1 — the DISH is held until the late answer: its ⋯ (and this sheet's 86, and an
+        // Undo for it) refuse, saying this line again, so no second write queues behind this one.
+        hold(dishKey(id), waiting);
         void out.late.then((late) => {
+          release(dishKey(id));
           dropErr(waiting);
           setMenuMsg((m) => (m === waiting ? null : m));
           if (late.kind === "answer") settle86(late.value);
@@ -891,13 +972,17 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const recallBusyRef = useRef(false);
   const doRecall = async (entry: RecallEntry) => {
     if (recallBusyRef.current) return; // §17 — refuse re-entry in the handler, never via `disabled`
-    showErr(null);
+    // Critic B1 — this ticket's last write is still out past the bound: said again, nothing sent
+    // (a second recall queued behind it would answer "too late" over a recall that landed).
+    if (say.refuse(cartKey(entry.cartId))) return;
+    say.clear();
     recallBusyRef.current = true;
     setRecallBusy(true);
     try {
       await kitchenWrite(
         recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds }),
         entry.label,
+        cartKey(entry.cartId),
         say,
         async (res) => {
           if (!res.ok) {
@@ -1182,7 +1267,6 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 menuOpenId={menuLineId}
                 pending86={pending86}
                 onOpenMenu={openMenu}
-                onError={showErr}
                 onRefused={onRefused}
                 say={say}
                 onRefresh={refresh}
@@ -1341,7 +1425,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                   type="button"
                   className="kds-recall-btn"
                   onClick={() => void doRecall(r)}
-                  aria-disabled={recallBusy || undefined}
+                  aria-disabled={recallBusy || held.has(cartKey(r.cartId)) || undefined}
                   aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
                   <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
@@ -1367,8 +1451,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           }
           blocked={
             menu.held.menuItemId !== null &&
-            pending86.has(menu.held.menuItemId) &&
-            pending86.get(menu.held.menuItemId) !== menu.held.id
+            ((pending86.has(menu.held.menuItemId) &&
+              pending86.get(menu.held.menuItemId) !== menu.held.id) ||
+              // Critic B1 — the dish's 86 (or put-back) is still out past the bound.
+              held.has(dishKey(menu.held.menuItemId)))
           }
           msg={menuMsg}
           on86={(l) => void eightySix(l)}
@@ -1416,7 +1502,6 @@ function TicketCard({
   menuOpenId,
   pending86,
   onOpenMenu,
-  onError,
   onRefused,
   say,
   onRefresh,
@@ -1431,7 +1516,6 @@ function TicketCard({
   /** Phase 2b — dishes whose 86 is in flight → the line whose sheet sent it. */
   pending86: ReadonlyMap<string, string>;
   onOpenMenu: (line: KitchenLine) => void;
-  onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
   say: KdsSay;
@@ -1455,23 +1539,35 @@ function TicketCard({
         ? "kds-strip kds-strip-amber"
         : "kds-strip";
 
+  // Critic B1 — this ticket's last write is still out past the bound (a bump or a Cook now): the
+  // control is free, but a second tap only says the waiting line again and sends nothing.
+  const subject = cartKey(ticket.cartId);
+  const waiting = say.held.has(subject);
+
   const bumpAll = async () => {
     if (pendingRef.current) return; // §17 — refuse re-entry here; native `disabled` drops focus
+    if (say.refuse(subject)) return;
     haptic("commit"); // kitchen-9 — the biggest commit on the console buzzes like every door does
-    onError(null);
+    say.clear(); // a standing refusal goes — never another write's waiting line (critic B12)
     pendingRef.current = true;
     setPending(true);
     try {
       const lineIds = ticket.lines.map((l) => l.id);
       const label = id.main; // the name the tap was made under — a late answer says the same one
-      await kitchenWrite(bumpTicket({ cartId: ticket.cartId, lineIds }), label, say, (res) => {
-        if (!res.ok) onRefused(res, "bump", label);
-        else
-          onBumped(
-            { cartId: ticket.cartId, label, lineIds, expiresAt: Date.now() + RECALL_MS },
-            label,
-          );
-      });
+      await kitchenWrite(
+        bumpTicket({ cartId: ticket.cartId, lineIds }),
+        label,
+        subject,
+        say,
+        (res) => {
+          if (!res.ok) onRefused(res, "bump", label);
+          else
+            onBumped(
+              { cartId: ticket.cartId, label, lineIds, expiresAt: Date.now() + RECALL_MS },
+              label,
+            );
+        },
+      );
     } finally {
       pendingRef.current = false;
       setPending(false); // frees AT THE BOUND (9a's fact 3), whatever the action is doing
@@ -1480,16 +1576,23 @@ function TicketCard({
 
   const fireNow = async () => {
     if (pendingRef.current) return; // §17
+    if (say.refuse(subject)) return;
     haptic("commit");
-    onError(null);
+    say.clear();
     pendingRef.current = true;
     setPending(true);
     try {
       const label = id.main;
-      await kitchenWrite(fireTicketNow({ cartId: ticket.cartId }), label, say, async (res) => {
-        if (!res.ok) onRefused(res, "fire", label);
-        else await onRefresh(); // on time, busy covers the refetch — no stale-label flicker
-      });
+      await kitchenWrite(
+        fireTicketNow({ cartId: ticket.cartId }),
+        label,
+        subject,
+        say,
+        async (res) => {
+          if (!res.ok) onRefused(res, "fire", label);
+          else await onRefresh(); // on time, busy covers the refetch — no stale-label flicker
+        },
+      );
     } finally {
       pendingRef.current = false;
       setPending(false);
@@ -1559,7 +1662,6 @@ function TicketCard({
             menuOpen={menuOpenId === l.id}
             pending86={pending86}
             onOpenMenu={onOpenMenu}
-            onError={onError}
             onRefused={onRefused}
             say={say}
             onRefresh={onRefresh}
@@ -1572,7 +1674,7 @@ function TicketCard({
           type="button"
           className="kds-bump kds-bump-fire staff-press"
           onClick={() => void fireNow()}
-          aria-disabled={pending || undefined}
+          aria-disabled={pending || waiting || undefined}
           aria-busy={pending || undefined}
         >
           {/* The label STAYS through the round trip: this button has no `aria-label`, so an "…"
@@ -1585,7 +1687,7 @@ function TicketCard({
           type="button"
           className="kds-bump staff-press"
           onClick={() => void bumpAll()}
-          aria-disabled={pending || undefined}
+          aria-disabled={pending || waiting || undefined}
           aria-busy={pending || undefined}
           aria-label={
             al(lang, {
@@ -1612,7 +1714,6 @@ function KdsLineRow({
   menuOpen,
   pending86,
   onOpenMenu,
-  onError,
   onRefused,
   say,
   onRefresh,
@@ -1625,7 +1726,6 @@ function KdsLineRow({
   menuOpen: boolean;
   pending86: ReadonlyMap<string, string>;
   onOpenMenu: (line: KitchenLine) => void;
-  onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   /** Phase 2h — where a bounded write's waiting / couldn't-confirm line goes (the board's region). */
   say: KdsSay;
@@ -1639,20 +1739,28 @@ function KdsLineRow({
 
   const tap = async () => {
     if (pendingRef.current || held) return; // §17 — refused in the handler; a held line has nothing to act on
+    // Critic B1 — this line's last write is still out past the bound: said again, nothing sent.
+    if (say.refuse(lineKey(line.id))) return;
     haptic("pick"); // kitchen-9 — the row wash is the visible half
-    onError(null); // clear any prior board-level error as we retry
+    say.clear(); // clear any prior board-level refusal as we retry — never a waiting line (B12)
     pendingRef.current = true;
     setPending(true);
     const dish = dishVisible(lang, line.name, line.nameMy);
     try {
       // S2-audit B3: a thrown action must not silently no-op the tap — it is said on the board region
       // (Phase 2h: as "couldn't confirm", since a lost answer may have landed).
-      await kitchenWrite(bumpLine({ lineId: line.id, to }), dish, say, async (res) => {
-        if (!res.ok) onRefused(res, "line", dish);
-        // AWAIT the refresh so busy covers the refetch — releasing on the write alone flickered the
-        // row back to its stale state for a beat before the new snapshot landed.
-        else await onRefresh();
-      });
+      await kitchenWrite(
+        bumpLine({ lineId: line.id, to }),
+        dish,
+        lineKey(line.id),
+        say,
+        async (res) => {
+          if (!res.ok) onRefused(res, "line", dish);
+          // AWAIT the refresh so busy covers the refetch — releasing on the write alone flickered the
+          // row back to its stale state for a beat before the new snapshot landed.
+          else await onRefresh();
+        },
+      );
     } finally {
       pendingRef.current = false;
       setPending(false);
@@ -1661,6 +1769,9 @@ function KdsLineRow({
 
   const noteId = line.notes ? `kds-note-${line.id}` : undefined;
   const inFlight = line.menuItemId !== null && pending86.has(line.menuItemId);
+  // Critic B1 — this line's own write, and its dish's 86 / put-back, still out past the bound.
+  const lineWaiting = say.held.has(lineKey(line.id));
+  const dishWaiting = line.menuItemId !== null && say.held.has(dishKey(line.menuItemId));
   const togo = line.fulfillment === "togo";
   const cooking = line.state === "in_progress";
 
@@ -1677,7 +1788,7 @@ function KdsLineRow({
           type="button"
           className="kds-line"
           onClick={() => void tap()}
-          aria-disabled={pending || held || undefined}
+          aria-disabled={pending || held || lineWaiting || undefined}
           aria-busy={pending || undefined}
           // The held ticket's slot line says WHY a held line refuses ("fires at 5:48 PM"), and the
           // dish's kitchen note is the line's description — slot first, then the note; nothing when
@@ -1743,7 +1854,7 @@ function KdsLineRow({
             className="kds-line-more staff-press"
             aria-haspopup="dialog"
             aria-expanded={menuOpen}
-            aria-disabled={inFlight || undefined}
+            aria-disabled={inFlight || dishWaiting || undefined}
             aria-busy={
               (line.menuItemId !== null && pending86.get(line.menuItemId) === line.id) || undefined
             }

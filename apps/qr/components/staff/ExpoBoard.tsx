@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -103,6 +104,16 @@ const saysWaiting = (m: ExpoMsg | null): boolean =>
   typeof m !== "string" &&
   (m.k === "expo.err.waitingTable" || m.k === "expo.err.waitingFor");
 
+/** Phase 2h · critic B1 · B12 — the lane's bags whose write is still out past the bound. */
+type ExpoLaneHold = {
+  /** A new tap clears the region — never a standing waiting line. */
+  clear: () => void;
+  hold: (orderId: string, m: ExpoMsg) => void;
+  release: (orderId: string) => void;
+  /** A tap on a held bag: its waiting line is said again and nothing is sent. True when refused. */
+  refuse: (orderId: string) => boolean;
+};
+
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
  * queue, kept live by Postgres-Changes (useFloorRealtime watches qr_orders → re-fetch the server-
@@ -150,6 +161,37 @@ export function ExpoBoard({
       if (errRef.current === m) showErr(null);
     },
     [showErr],
+  );
+  // Phase 2h · critic B12 — a new tap clears a standing refusal, never a standing waiting line: that
+  // write is still out, and its line carries the lane's only Reload. Its own late answer retires it.
+  const clearErr = useCallback(() => {
+    if (!saysWaiting(errRef.current)) showErr(null);
+  }, [showErr]);
+  // Phase 2h · critic B1 — the bags whose Bagged & ready / Verified is still out past the bound, each
+  // with its waiting line: the card's control is free (its busy ended at the bound) but a second tap
+  // only says the line again and sends NOTHING — a second write queued behind the hung one would say
+  // "already updated" over the first one's landing. The REF is what a tap reads (LEARNINGS #126); the
+  // state is what `aria-disabled` renders. Released by the write's own late answer (or a reload).
+  const waitingRef = useRef(new Map<string, ExpoMsg>());
+  const [waitingIds, setWaitingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const lane = useMemo<ExpoLaneHold>(
+    () => ({
+      clear: clearErr,
+      hold: (orderId, m) => {
+        waitingRef.current.set(orderId, m);
+        setWaitingIds(new Set(waitingRef.current.keys()));
+      },
+      release: (orderId) => {
+        if (waitingRef.current.delete(orderId)) setWaitingIds(new Set(waitingRef.current.keys()));
+      },
+      refuse: (orderId) => {
+        const m = waitingRef.current.get(orderId);
+        if (m === undefined) return false;
+        showErr(m); // the same line object — its own late answer still retires it
+        return true;
+      },
+    }),
+    [clearErr, showErr],
   );
   const onRefused = useCallback(
     (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => {
@@ -310,6 +352,24 @@ export function ExpoBoard({
 
   useWakeLock(); // O-F: the bagging tablet is always-on too
 
+  // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
+  // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
+  // and the bag stays "ready": the safe direction.
+  const dropPicked = useCallback(
+    (orderId: string) => {
+      setPicked((prev) => {
+        if (!prev.has(orderId)) return prev;
+        const next = new Map(prev);
+        next.delete(orderId);
+        return next;
+      });
+      markHeld(orderId, NO_HOLD); // Phase 2b · feedback — a gone window holds nothing
+      committingRef.current.delete(orderId);
+      capWarnedRef.current.delete(orderId);
+      cappedRef.current.delete(orderId);
+    },
+    [markHeld],
+  );
   // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). A read `raceTimeout` gave up on at 15 s
   // is still IN Next's one-at-a-time queue; a tick that started another after it only queued an
   // abandoned call behind the hung one, every 5 s. While the RAW read is unanswered no new read
@@ -317,6 +377,14 @@ export function ExpoBoard({
   // lane's life, on first use from a callback (never during render, never in an effect's setup),
   // never disposed from a cleanup (Strict Mode would latch it): the kick is guarded by `alive`.
   const kick = useRef<() => void>(() => {});
+  // Phase 2h · critic B11 — every read the lane STARTS takes the next number, and a pick whose
+  // picked-up write THREW (its answer lost: it may have landed) is remembered with the number of the
+  // last read started before the throw. The first good read started AFTER it decides the bag: gone
+  // from the queue, the pick landed (the prune below takes its window); still there, it did not, and
+  // the bag goes back to the counter. Until then the card keeps its picked posture, Undo inert — the
+  // screen never asserts either answer before a read has said which.
+  const readSeq = useRef(0);
+  const unconfirmed = useRef<Map<string, number>>(new Map());
   const gateRef = useRef<PollGate | null>(null);
   const gateOf = useCallback((): PollGate => {
     if (gateRef.current === null) {
@@ -335,6 +403,11 @@ export function ExpoBoard({
   }, [stampNow]);
 
   const refresh = useCallback(async () => {
+    // Phase 2h · critic B4 — a write's LATE answer can land after the lane is gone (writes left their
+    // transitions, so a navigation commits while one is out), and its `land` asks for a re-read: a
+    // dead lane starts none — no read queued on the tab, and no leave-flush re-sending the windows
+    // the unmount flush already sent (a second picked_up write per bag).
+    if (!alive.current) return;
     const gate = gateOf();
     const asked = gate.ask(); // no clock — never `stampNow()` here (the contract critic, F2)
     if (asked.go === "owed") {
@@ -347,6 +420,7 @@ export function ExpoBoard({
     // after the read — the leave-flush below — ends in a navigation, so a kick it drops is moot.)
     if (inFlight.current) return;
     inFlight.current = true;
+    const seq = ++readSeq.current;
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
       // gate watches the RAW read — the race frees this caller at 15 s, never Next's queue.
@@ -385,6 +459,14 @@ export function ExpoBoard({
       // takes its window with it — writing picked_up to a gone order would only earn a "stale"
       // banner. Pruned HERE, in the poll's own callback, never in an effect on `snap`.
       const live = new Set(res.queue.tickets.map((t) => t.orderId));
+      // Critic B11 — a lost pick, decided by the first read that started after it was lost: still on
+      // the counter, it did not land, so the bag goes back (its window dropped); gone, the prune
+      // below takes it with the bag.
+      for (const [id, before] of unconfirmed.current)
+        if (seq > before) {
+          unconfirmed.current.delete(id);
+          if (live.has(id)) dropPicked(id);
+        }
       setPicked((prev) =>
         [...prev.keys()].every((id) => live.has(id))
           ? prev
@@ -416,40 +498,24 @@ export function ExpoBoard({
     } finally {
       inFlight.current = false;
     }
-  }, [stampNow, hear, pulseCards, gateOf, miss]);
+  }, [stampNow, hear, pulseCards, gateOf, miss, dropPicked]);
   useEffect(() => {
     kick.current = () => void refresh();
   }, [refresh]);
 
-  // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
-  // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
-  // and the bag stays "ready": the safe direction.
-  const dropPicked = useCallback(
-    (orderId: string) => {
-      setPicked((prev) => {
-        if (!prev.has(orderId)) return prev;
-        const next = new Map(prev);
-        next.delete(orderId);
-        return next;
-      });
-      markHeld(orderId, NO_HOLD); // Phase 2b · feedback — a gone window holds nothing
-      committingRef.current.delete(orderId);
-      capWarnedRef.current.delete(orderId);
-      cappedRef.current.delete(orderId);
-    },
-    [markHeld],
-  );
   // The deferred write. The entry STAYS in the map, marked `committing`, for the whole round trip:
   // the card keeps its picked posture (Undo inert) until the refetch drops the bag from the queue
   // — dropping the entry first flipped the card back to a live "Picked up" for the write + poll
-  // round trip on every single pick (blind pass, critical 2). A refusal or a throw drops the entry:
-  // the bag is back, honestly, with the sentence beside it.
+  // round trip on every single pick (blind pass, critical 2). A refusal drops the entry: the bag is
+  // back, honestly, with the sentence beside it.
   //
   // Phase 2h (9e) — BOUNDED. A write with no answer at STAFF_HANG_MS keeps its entry `committing` (the
   // bag may already be picked up on the server, so its Undo stays inert) and SAYS so, with the Reload
   // the sentence promises; its LATE answer is applied exactly as an on-time one. A thrown write says
-  // "we couldn't confirm" — its answer was lost, so the pick may have landed — and gives the bag back
-  // to the counter, where the next good poll shows which is true.
+  // "we couldn't confirm" — its answer was lost, so the pick may have landed — and (critic B11) keeps
+  // the entry `committing` until a read that started after the throw shows which is true: giving the
+  // bag back at once put a live "Picked up" under a sentence that says "check the screen", with the
+  // screen asserting an answer no read had given.
   const commitPicked = useCallback(
     async (orderId: string, subject: ExpoSubject) => {
       const land = async (res: Awaited<ReturnType<typeof setTogoStatus>>) => {
@@ -458,9 +524,13 @@ export function ExpoBoard({
           dropPicked(orderId);
         } else await refresh(); // the poll's prune removes the entry with the bag
       };
+      // Thrown (on time or late): the answer was LOST, so the pick may have landed. Said as "we
+      // couldn't confirm" — and the card is NOT handed back yet (critic B11): it keeps its picked
+      // posture, Undo inert, until a read that started after the throw decides (`unconfirmed`).
       const lost = () => {
         showErr(expoUnknownMsg(subject));
-        dropPicked(orderId);
+        unconfirmed.current.set(orderId, readSeq.current);
+        void refresh();
       };
       const out = await boundWrite(setTogoStatus({ orderId, to: "picked_up" }));
       if (out.kind === "answer") return land(out.value);
@@ -554,7 +624,9 @@ export function ExpoBoard({
       // "Picked up" under the same finger: inside the same gesture it is refused, not a new pick.
       if (removeHeld(undoneAt.current.get(orderId) ?? null, at)) return;
       haptic("commit");
-      showErr(null); // a user action replaces a standing refusal — the region must say THIS
+      // A user action replaces a standing refusal — the region must say THIS — but never a standing
+      // waiting line (critic B12): that bag's write is still out.
+      clearErr();
       // A KEYBOARD pick sits on the Undo by morph (the same node — no focus event fires), so the
       // pick itself opens the slot's hold; a tap never does.
       markHeld(orderId, keyboard ? setHeld(NO_HOLD, "slot", true, at) : NO_HOLD);
@@ -575,7 +647,7 @@ export function ExpoBoard({
       toastSeq.current += 1;
       setToast({ id: orderId, subject, key: toastSeq.current, phase: "open", armed: false });
     },
-    [showErr, markHeld],
+    [clearErr, markHeld],
   );
   const onUndoPicked = useCallback(
     (orderId: string, subject: ExpoSubject): boolean => {
@@ -592,7 +664,7 @@ export function ExpoBoard({
       )
         return false;
       haptic("commit");
-      showErr(null);
+      clearErr();
       dropPicked(orderId);
       undoneAt.current.set(orderId, Date.now());
       setNotice(
@@ -602,7 +674,7 @@ export function ExpoBoard({
       );
       return true;
     },
-    [picked, dropPicked, showErr],
+    [picked, dropPicked, clearErr],
   );
   useEffect(() => {
     if (!notice) return;
@@ -908,6 +980,8 @@ export function ExpoBoard({
                 onBumped={refresh}
                 onError={showErr}
                 onDropError={dropErr}
+                lane={lane}
+                waiting={waitingIds.has(r.t.orderId)}
                 onRefused={onRefused}
                 onPicked={onPicked}
                 onUndoPicked={onUndoPicked}
@@ -972,6 +1046,8 @@ function ExpoCard({
   onBumped,
   onError,
   onDropError,
+  lane,
+  waiting,
   onRefused,
   onPicked,
   onUndoPicked,
@@ -989,6 +1065,10 @@ function ExpoCard({
   onError: (msg: ExpoMsg | null) => void;
   /** Phase 2h — a late answer retires ITS OWN waiting line (never a newer one). */
   onDropError: (msg: ExpoMsg) => void;
+  /** Phase 2h · critic B1 · B12 — the lane's held bags, and the tap-time clear that keeps a waiting line. */
+  lane: ExpoLaneHold;
+  /** This bag's write is still out past the bound: the control refuses (and re-says the line). */
+  waiting: boolean;
   onRefused: (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => void;
   /** `keyboard` — the tap came the keyboard way (`:focus-visible`): the pick opens a slot hold. */
   onPicked: (orderId: string, subject: ExpoSubject, keyboard: boolean) => void;
@@ -1067,8 +1147,10 @@ function ExpoCard({
       onPicked(ticket.orderId, subject, matchesFocusVisible(e.currentTarget));
       return;
     }
+    // Critic B1 — this bag's write is still out past the bound: said again, nothing sent.
+    if (lane.refuse(ticket.orderId)) return;
     haptic("commit");
-    onError(null);
+    lane.clear(); // a standing refusal goes — never another bag's waiting line (critic B12)
     pendingRef.current = true;
     setPending(true);
     const land = async (res: Awaited<ReturnType<typeof setTogoStatus>>) => {
@@ -1084,7 +1166,9 @@ function ExpoCard({
       else {
         const waiting = expoWaitingMsg(subject);
         onError(waiting);
+        lane.hold(ticket.orderId, waiting);
         void out.late.then((late) => {
+          lane.release(ticket.orderId);
           onDropError(waiting);
           // A late ok lands (the lane re-reads); a late refusal is said.
           if (late.kind === "answer") void land(late.value);
@@ -1241,7 +1325,7 @@ function ExpoCard({
           type="button"
           data-expo-slot={ticket.orderId}
           onClick={(e) => void bump(e)}
-          aria-disabled={pending || undefined}
+          aria-disabled={pending || waiting || undefined}
           aria-busy={pending || undefined}
           aria-label={
             grocery

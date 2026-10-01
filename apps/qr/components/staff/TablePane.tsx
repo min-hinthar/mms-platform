@@ -55,12 +55,15 @@ import { ReaderShown } from "./ReaderCollectContext";
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
  *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
- * Phase 2h (9f) — every read the pane starts (a pick, a retry, the quiet retry) asks ONE gate made
- * for the pane's life (`lib/poll-gate.ts`): while a read is unanswered — this table's, or the one
- * the previous pick left in the air — no new read starts; the asks it refused are owed ONE read of
- * whatever is selected when it answers. Next runs Server Actions one at a time, so a read sent over
- * a hung one only queues behind it. An ask refused past the bound is a FAILED read (said as such,
- * with the quiet retry), never a skeleton left standing for as long as the hang lasts.
+ * Phase 2h (9f) — every read the PANE starts (a pick's first read, a retry, the quiet retry) asks ONE
+ * gate made for the pane's life (`lib/poll-gate.ts`): while one of those is unanswered — this
+ * table's, or the first read the previous pick left in the air — no new one starts; the asks it
+ * refused are owed ONE read of whatever is selected when it answers. Next runs Server Actions one at
+ * a time, so a read sent over a hung one only queues behind it. An ask refused past the bound is a
+ * FAILED read (said as such, with the quiet retry), never a skeleton left standing for as long as the
+ * hang lasts. ⚠️ The mounted detail (`FloorDetailLive`, keyed per pick) polls on its OWN gate, made
+ * per mount and not this one: a pick can still put this pane's first read beside the previous
+ * table's last detail poll — one read each at most, never a stack (critic B7; residual P2).
  *
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
  * another table); otherwise this pane's single sr-only `role=status` does (`paneStatusSays`: a lost
