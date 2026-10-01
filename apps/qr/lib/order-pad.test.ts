@@ -11,6 +11,7 @@ import {
   padPickCat,
   padSections,
   padSendView,
+  padCounterDock,
   padSettle,
   padSettleBusyKey,
   padSettleReason,
@@ -18,6 +19,7 @@ import {
   padTileBlock,
   // ── Phase 2c · review fixes · pad2 ──
   padDishHold,
+  padNameReconcile,
   padNameSave,
   padViewStatus,
   ticketGroups,
@@ -482,6 +484,7 @@ const SEND: StaffSendView = {
   blocked: null,
   staffAdded: 2,
   dinerUnits: 0,
+  counter: false,
 };
 
 describe("padSendView — the Send while adds are in flight", () => {
@@ -518,7 +521,7 @@ describe("padSendView — the Send while adds are in flight", () => {
   });
 
   it("never at a counter order or a closed one", () => {
-    const counter: StaffSendView = { kind: "counterAtPay" };
+    const counter: StaffSendView = { kind: "counterSent" };
     expect(
       padSendView(counter, { sendable: false, paying: false, pending: { ...NONE, flying: 1 } }),
     ).toEqual({ view: counter, bare: false });
@@ -674,5 +677,162 @@ describe("padNameSave — a counter name's Save is never a live-looking no-op", 
     expect(padNameSave(" Aye ", "Aye")).toBe("saved");
     expect(padNameSave("", "Aye")).toBe("save");
     expect(padNameSave("Bo", "Aye")).toBe("save");
+  });
+});
+
+// ── Phase 2f · P2v — the counter order's dock ────────────────────────────────────────────────────
+describe("padCounterDock — one filled pill; the Send never jumps slot under the finger", () => {
+  const send = (
+    emphasis: "primary" | "secondary",
+    note: "payAtPickup" | "unpaidMore" = "payAtPickup",
+  ): StaffSendView => ({
+    kind: "send",
+    units: 2,
+    emphasis,
+    note,
+    blocked: null,
+    staffAdded: 2,
+    dinerUnits: 0,
+    counter: true,
+  });
+  const WALKUP = send("secondary");
+  const PHONE = send("primary");
+  const MORE = send("primary", "unpaidMore");
+
+  it("idle: a walk-up takes payment first (filled), its Send beside it", () => {
+    // walkup-send-primary
+    expect(padCounterDock(WALKUP, "idle", null)).toEqual({
+      primary: "settle",
+      secondary: "send",
+      settleVariant: "primary",
+    });
+  });
+
+  it("idle: a phone order (or more after a send) leads with the Send; Take payment steps back", () => {
+    for (const v of [PHONE, MORE])
+      expect(padCounterDock(v, "idle", null)).toEqual({
+        primary: "send",
+        secondary: "settle",
+        settleVariant: "secondary",
+      });
+  });
+
+  it("idle: everything sent — Done · Counter leads, Take payment beside it", () => {
+    expect(padCounterDock({ kind: "counterSent" }, "idle", null)).toEqual({
+      primary: "done",
+      secondary: "settle",
+      settleVariant: "secondary",
+    });
+  });
+
+  it("idle: nothing to send — Take payment alone, filled", () => {
+    expect(padCounterDock({ kind: "none" }, "idle", null)).toEqual({
+      primary: "settle",
+      secondary: null,
+      settleVariant: "primary",
+    });
+  });
+
+  it("mid-send the Send keeps the slot it held at the tap, and nothing is filled", () => {
+    // send-slot-jumps-at-the-tap · undo-fills-settle
+    for (const view of [WALKUP, PHONE, { kind: "counterSent" } as StaffSendView]) {
+      expect(padCounterDock(view, "undo", "secondary")).toEqual({
+        primary: "settle",
+        secondary: "send",
+        settleVariant: "secondary",
+      });
+      expect(padCounterDock(view, "undo", "primary")).toEqual({
+        primary: "send",
+        secondary: "settle",
+        settleVariant: "secondary",
+      });
+      // no slot recorded: the primary (the safe default)
+      expect(padCounterDock(view, "sending", null).primary).toBe("send");
+    }
+  });
+});
+
+describe("padSettle — the counter dock's variant is honoured", () => {
+  it("an override wins over the mode's own variant", () => {
+    // counter-settle-variant-ignored
+    expect(padSettle(settleIn({ mode: "pickup", variantOverride: "secondary" })).variant).toBe(
+      "secondary",
+    );
+    expect(padSettle(settleIn({ variantOverride: "primary" })).variant).toBe("primary");
+    expect(padSettle(settleIn({ mode: "pickup" })).variant).toBe("primary");
+  });
+});
+
+describe("padSendView — the bare Send on a counter order", () => {
+  const FLY = { ...NONE, flying: 1 };
+  it("carries the counter's label, the arm's emphasis and the pay-at-pickup note", () => {
+    const r = padSendView(
+      { kind: "none" },
+      { sendable: true, paying: false, pending: FLY, counter: { arm: "phone", hasName: true } },
+    );
+    expect(r.view).toEqual({
+      kind: "send",
+      units: 0,
+      emphasis: "primary",
+      note: "payAtPickup",
+      blocked: null,
+      staffAdded: 0,
+      dinerUnits: 0,
+      counter: true,
+    });
+    expect(
+      padSendView(
+        { kind: "none" },
+        { sendable: true, paying: false, pending: FLY, counter: { arm: "walkup", hasName: true } },
+      ).view,
+    ).toMatchObject({ emphasis: "secondary", counter: true });
+  });
+
+  it("a nameless counter order's bare Send holds on noName; paying outranks it", () => {
+    // bare-counter-send-unnamed-live
+    expect(
+      padSendView(
+        { kind: "none" },
+        { sendable: true, paying: false, pending: FLY, counter: { arm: null, hasName: false } },
+      ).view,
+    ).toMatchObject({ blocked: "noName" });
+    expect(
+      padSendView(
+        { kind: "none" },
+        { sendable: true, paying: true, pending: FLY, counter: { arm: null, hasName: false } },
+      ).view,
+    ).toMatchObject({ blocked: "paying" });
+  });
+
+  it("a table's bare Send says it is not a counter Send", () => {
+    expect(
+      padSendView({ kind: "none" }, { sendable: true, paying: false, pending: FLY }).view,
+    ).toMatchObject({ counter: false });
+  });
+});
+
+describe("padNameReconcile — the counter name follows the server (Codex r3 · Phase 2f review PT-7)", () => {
+  const idle = { seen: "Aye", checkAfter: null };
+  it("no save pending: reconcile on a CHANGE of the server name, never on its value", () => {
+    expect(padNameReconcile({ server: "Aye", sync: idle, commitSeq: 9 })).toBeNull();
+    expect(padNameReconcile({ server: "", sync: idle, commitSeq: 9 })).toEqual({
+      seen: "",
+      checkAfter: null,
+    });
+  });
+  it("a save pending: a read that started at or before it says nothing; the first after it is the truth", () => {
+    const pending = { seen: "Aye", checkAfter: 4 };
+    // started before the save answered, or the one in flight as it answered — ignored, even changed
+    expect(padNameReconcile({ server: "", sync: pending, commitSeq: 3 })).toBeNull();
+    expect(padNameReconcile({ server: "", sync: pending, commitSeq: 4 })).toBeNull();
+    // the first read that started after it — adopted even when it is the OLD seen value
+    expect(padNameReconcile({ server: "Aye", sync: pending, commitSeq: 5 })).toEqual({
+      seen: "Aye",
+      checkAfter: null,
+    });
+    expect(padNameReconcile({ server: "Bo", sync: pending, commitSeq: 5 })).toEqual({
+      seen: "Bo",
+      checkAfter: null,
+    });
   });
 });

@@ -73,6 +73,13 @@ vi.mock("@/lib/staff-send", () => ({
   staffUndoFire: vi.fn(),
 }));
 
+const recordCounterNoShow = vi.fn();
+vi.mock("@/lib/voids", () => ({
+  listApprovers: () => Promise.resolve([]),
+  voidLine: vi.fn(),
+  recordCounterNoShow: (...a: unknown[]) => recordCounterNoShow(...(a as [])),
+}));
+
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
@@ -131,8 +138,26 @@ const DETAIL: TableDetail = {
   paymentHolder: null,
   hostPresent: true,
   // Both drafts were staff-added (no seat), so the Send is primary even at a hosted table.
-  send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+  send: {
+    sendable: 2,
+    staffAdded: 2,
+    togoDraft: 0,
+    inKitchen: false,
+    foodDraft: true,
+    counterDraft: 0,
+    counterSentPastGrace: false,
+  },
   serverNow: NOW,
+  // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
+  counterOrder: false,
+  counterArm: null,
+  customerName: null,
+  unpaidSent: false,
+  sentLineIds: [],
+  droppedLineIds: [],
+  compedKitchenLineIds: [],
+  payAtPickup: true,
+  mergeable: true,
 };
 
 const mount = () =>
@@ -305,7 +330,15 @@ const SETTLEABLE: TableDetail = {
   settleTotalCents: 4210,
   settleTipBaseCents: 4000,
   lines: DETAIL.lines.map((l) => ({ ...l, state: "fired", sendable: false })),
-  send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+  send: {
+    sendable: 0,
+    staffAdded: 0,
+    togoDraft: 0,
+    inKitchen: true,
+    foodDraft: false,
+    counterDraft: 0,
+    counterSentPastGrace: false,
+  },
 };
 const mountWith = (
   initial: TableDetail,
@@ -354,7 +387,13 @@ describe("FloorDetailLive — the settle section (Phase 2c · register)", () => 
 });
 
 describe("FloorDetailLive — the paid card and the ONE polite region (P2r)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
 
   async function settleInCash(tender?: string) {
     fireEvent.click(settleButtons()[0]!);
@@ -517,7 +556,13 @@ describe("FloorDetailLive — a send line stays SHOWN while the reader's status 
 });
 
 describe("FloorDetailLive — a counter settle whose response was LOST holds the closed-bounce (critic finding)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
   async function lostSettle() {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -998,7 +1043,13 @@ describe("FloorDetailLive — a refusal's figure is settled by the page's NEXT r
 });
 
 describe("FloorDetailLive — a lost counter cash settle's 'most likely went through' is bounded (R2)", () => {
-  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
   /** A counter cash settle whose response is lost, then Cancel — the order still reads open. */
   async function lostThenCancel(extra: { terminalReady?: boolean } = {}) {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
@@ -1126,7 +1177,15 @@ describe("FloorDetailLive — the reader's money status is never masked by a sta
       ...SETTLEABLE,
       lines: [{ ...line("l1", "Mohinga"), fulfillment: "togo" }],
       itemCount: 1,
-      send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: false },
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 1,
+        inKitchen: false,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     };
     answer = () => Promise.resolve({ kind: "detail", detail: { ...TOGO } });
     staffSetQty.mockResolvedValue({ ok: false, error: "That line just changed." });
@@ -1192,5 +1251,297 @@ describe("FloorDetailLive — the full page never brings back a stashed paid car
     // change-due card until Clear; red.
     // The table card names no #CODE; its change-due line is the tell ($50.00 − $42.10).
     expect(document.querySelector("main")!.textContent).not.toContain("$7.90");
+  });
+});
+
+describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () => {
+  beforeEach(() => {
+    staffFireCart.mockReset();
+    recordCounterNoShow.mockReset();
+  });
+  const togo = (id: string, name: string, state = "draft"): TableLineView => ({
+    ...line(id, name),
+    state: state as TableLineView["state"],
+    sendable: false,
+    fulfillment: "togo",
+  });
+  // A walk-up, named, two dishes not yet sent, nothing in the kitchen.
+  const WALKUP: TableDetail = {
+    ...DETAIL,
+    label: "reg-ab12",
+    tableNumber: null,
+    mode: "pickup",
+    members: [],
+    hostPresent: false,
+    counterOrder: true,
+    counterArm: "walkup",
+    customerName: "Aye",
+    lines: [togo("l1", "Mohinga"), togo("l2", "Tea Leaf Salad")],
+    settleTotalCents: 2598,
+    settleTipBaseCents: 2400,
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 2,
+      counterSentPastGrace: false,
+    },
+  };
+  // One dish reached the kitchen unpaid (past its grace); one more to send.
+  const UNPAID_MORE: TableDetail = {
+    ...WALKUP,
+    lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad")],
+    unpaidSent: true,
+    sentLineIds: ["l1"],
+    droppedLineIds: ["l2"],
+    mergeable: false,
+    send: {
+      ...WALKUP.send,
+      inKitchen: true,
+      counterDraft: 1,
+      counterSentPastGrace: true,
+    },
+  };
+  // Everything went to the kitchen unpaid.
+  const ALL_SENT: TableDetail = {
+    ...UNPAID_MORE,
+    lines: [togo("l1", "Mohinga", "fired"), togo("l2", "Tea Leaf Salad", "in_progress")],
+    sentLineIds: ["l1", "l2"],
+    droppedLineIds: [],
+    compedKitchenLineIds: [],
+    send: {
+      ...UNPAID_MORE.send,
+      foodDraft: false,
+      counterDraft: 0,
+    },
+  };
+  const sendSlot = () => document.querySelector(".staff-send")!;
+  const cash = () => settleButtons()[0]!;
+  // The Send and every settle trigger: §20 — exactly ONE filled pill between them.
+  const filled = () =>
+    [
+      ...sendSlot().querySelectorAll(".ui-btn-primary"),
+      ...document
+        .getElementById("settle-h")!
+        .closest("section")!
+        .querySelectorAll(".ui-btn-primary"),
+    ].filter((b) => b.closest('[role="dialog"]') === null);
+
+  it("a walk-up with nothing sent: the Send is SECONDARY and Take payment the one primary", () => {
+    mountWith(WALKUP);
+    const send = sendSlot().querySelector("button")!;
+    expect(send.textContent).toBe(ts("en", "table.send.cta.counter.many").replace("{n}", "2"));
+    expect(send.className).toContain("ui-btn-secondary");
+    expect(cash().className).toContain("ui-btn-primary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("a PHONE order leads with the Send; Take payment steps back", () => {
+    mountWith({ ...WALKUP, counterArm: "phone" });
+    expect(sendSlot().querySelector("button")!.className).toContain("ui-btn-primary");
+    expect(cash().className).toContain("ui-btn-secondary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("more to send after food went unpaid: the Send is the ONE primary", () => {
+    mountWith(UNPAID_MORE);
+    expect(sendSlot().querySelector("button")!.className).toContain("ui-btn-primary");
+    expect(cash().className).toContain("ui-btn-secondary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("everything sent unpaid: a status row, and Take payment is the ONE primary", () => {
+    mountWith(ALL_SENT);
+    expect(sendSlot().querySelector("button")).toBeNull();
+    expect(sendSlot().textContent).toContain(ts("en", "table.send.counterSent"));
+    expect(cash().className).toContain("ui-btn-primary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("sent unpaid with a draft LEFT under a parked switch: the row names what is NOT sent", () => {
+    mountWith({ ...UNPAID_MORE, payAtPickup: false });
+    expect(sendSlot().querySelector("button")).toBeNull();
+    expect(sendSlot().textContent).toContain(
+      ts("en", "table.send.counterSent.partial.one").replace("{n}", "1"),
+    );
+    expect(sendSlot().textContent).not.toContain(ts("en", "table.send.counterSent"));
+  });
+
+  it("while this device's undo window is open, NOTHING is filled", async () => {
+    staffFireCart.mockResolvedValueOnce({
+      ok: true,
+      fired: 1,
+      undoUntil: new Date(Date.now() + 10_000).toISOString(),
+      serverNow: new Date(Date.now()).toISOString(),
+      undoBatch: "b1",
+    });
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...UNPAID_MORE, counterArm: "phone" } });
+    mountWith({ ...WALKUP, counterArm: "phone" });
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await tick(0);
+    expect(sendSlot().textContent).toContain(ts("en", "table.send.undo"));
+    expect(filled()).toHaveLength(0);
+  });
+
+  it("food in the kitchen unpaid: the name leads, the Unpaid flag shows, No-show replaces Clear, no Merge", () => {
+    mountWith(UNPAID_MORE);
+    const main = document.querySelector("main")!;
+    expect(main.querySelector(".table-detail-name")!.textContent).toBe("Aye");
+    expect(main.textContent).toContain(ts("en", "settle.unpaid"));
+    expect(screen.getByRole("button", { name: ts("en", "table.noshow.btn") })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: ts("en", "settle.clear.btn") })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Merge with another table/ })).toBeNull();
+  });
+
+  it("No-show's dropped sentence reads the server's droppedLineIds, threaded through (Codex r2 on #308)", async () => {
+    // A comped in-grace dish (3): only the server's set knows it is dropped — the line view carries
+    // no fire_at. The draft l2 (1) rides the same set. 4 dropped units, not 1 and not 0.
+    mountWith({
+      ...UNPAID_MORE,
+      lines: [
+        ...UNPAID_MORE.lines,
+        { ...togo("c2", "Shan noodles", "fired"), qty: 3, comped: true },
+      ],
+      droppedLineIds: ["l2", "c2"],
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "table.noshow.btn") }));
+    });
+    await tick(0);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain(
+      ts("en", "table.noshow.body.drafts.many").replace("{n}", "4"),
+    );
+  });
+
+  it("a counter order with drafts only keeps Clear AND Merge, and no Unpaid flag", () => {
+    mountWith(WALKUP);
+    expect(screen.getByRole("button", { name: ts("en", "settle.clear.btn") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Merge with another table/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: ts("en", "table.noshow.btn") })).toBeNull();
+    expect(document.querySelector("main")!.textContent).not.toContain(ts("en", "settle.unpaid"));
+  });
+
+  it("no name: the Send refuses, its hint links to the name field, and a tap takes focus there", async () => {
+    mountWith({ ...WALKUP, customerName: null });
+    const send = sendSlot().querySelector("button")!;
+    expect(send.getAttribute("aria-disabled")).toBe("true");
+    const link = document.getElementById("send-name-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/staff/table/s1/add?name=1");
+    await act(async () => {
+      fireEvent.click(send);
+    });
+    expect(staffFireCart).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(link);
+  });
+
+  it("a SERVER no-name verdict: focus reaches “Add a name →” once the refreshed view draws it (PT-6)", async () => {
+    // The view still reads a name (it was cleared on another device after this read), so the Send is
+    // live and the link is not drawn; the server refuses the fire, and the refresh shows no name.
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    mountWith(WALKUP);
+    expect(document.getElementById("send-name-link")).toBeNull();
+    const send = sendSlot().querySelector("button")!;
+    await act(async () => {
+      fireEvent.click(send);
+    });
+    await tick(0);
+    expect(staffFireCart).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-sr-sheet/name-focus/owed-focus-dropped): focus stays on the Send / <body> — red.
+    expect(document.activeElement?.id).toBe("send-name-link");
+  });
+
+  it("a read already on the wire at the no-name verdict does not settle it; the read after it does", async () => {
+    // A poll starts BEFORE the tap and hangs; it answers (name still present — it predates the
+    // clear) after the verdict. Only the Send's refresh, which starts after, may pay the focus.
+    let answerStale: (r: TableDetailResult) => void = () => {};
+    answer = () => new Promise<TableDetailResult>((r) => (answerStale = r));
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    mountWith(WALKUP);
+    await tick(5000); // the poll is on the wire
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await act(async () => {
+      answerStale({ kind: "detail", detail: WALKUP });
+    });
+    await tick(0);
+    // MUTATION (p2f-sr-sheet/name-focus/stale-read-pays): the stale read drops the debt — red.
+    expect(document.activeElement?.id).toBe("send-name-link");
+  });
+
+  it("a server no-name whose refresh shows the name BACK owes nothing: a later no-name read never steals focus", async () => {
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    // The refresh after the verdict still reads the name (it came back): nothing to focus.
+    answer = () => Promise.resolve({ kind: "detail", detail: WALKUP });
+    mountWith(WALKUP);
+    await act(async () => {
+      fireEvent.click(sendSlot().querySelector("button")!);
+    });
+    await tick(0);
+    const other = document.createElement("button");
+    document.body.appendChild(other);
+    other.focus();
+    // Much later a poll shows the name gone: the link draws, but no debt is left to move focus.
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...WALKUP, customerName: null } });
+    await tick(5000);
+    expect(document.getElementById("send-name-link")).not.toBeNull();
+    // MUTATION (p2f-sr-sheet/name-focus/debt-never-dropped): the stale debt steals focus — red.
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+
+  it("No-show's kitchen-screen clause reads the server's compedKitchenLineIds, threaded through", async () => {
+    mountWith({
+      ...UNPAID_MORE,
+      lines: [...UNPAID_MORE.lines, { ...togo("c1", "Tea", "fired"), qty: 2, comped: true }],
+      compedKitchenLineIds: ["c1"],
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "table.noshow.btn") }));
+    });
+    await tick(0);
+    const dialog = document.querySelector('[role="dialog"]')!;
+    // MUTATION (p2f-sr-sheet/comped/floor-detail-drops-the-set): no clause — red.
+    expect(dialog.textContent).toContain(
+      ts("en", "table.noshow.body.comped.many").replace("{n}", "2"),
+    );
+  });
+
+  it("a cash settle of an order sent unpaid carries that to the paid card (hand it over from the lane)", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 2598,
+      tipCents: 0,
+    });
+    mountWith(ALL_SENT);
+    fireEvent.click(cash());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    expect(document.getElementById("handoff-sent-early")!.textContent).toBe(
+      ts("en", "table.detail.handoff.sentEarly"),
+    );
+  });
+
+  it("a table page is untouched: a dine-in Send keeps its words and its primary", () => {
+    mountWith(DETAIL);
+    expect(sendSlot().querySelector("button")!.textContent).toBe(
+      ts("en", "table.send.cta.many").replace("{n}", "2"),
+    );
+    expect(document.querySelector(".table-detail-name")).toBeNull();
   });
 });

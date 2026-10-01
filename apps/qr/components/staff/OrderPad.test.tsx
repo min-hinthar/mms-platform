@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
-import type { StaffFireResult } from "@/lib/staff-send-view";
+import type { StaffFireResult, StaffUndoResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
 
@@ -24,12 +24,16 @@ vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (id: string, raw: unknown) => setQty(id, raw),
   setLineNotes: vi.fn(() => Promise.resolve({ ok: true })),
 }));
-const setName = vi.fn<(raw: unknown) => Promise<{ ok: true } | { ok: false; error: string }>>();
+const setName =
+  vi.fn<
+    (raw: unknown) => Promise<{ ok: true } | { ok: false; error: string; code?: "keepName" }>
+  >();
 vi.mock("@/lib/register", () => ({ setCartCustomerName: (raw: unknown) => setName(raw) }));
 const fire = vi.fn<(raw: unknown) => Promise<StaffFireResult>>();
+const undo = vi.fn<(raw: unknown) => Promise<StaffUndoResult>>();
 vi.mock("@/lib/staff-send", () => ({
   staffFireCart: (raw: unknown) => fire(raw),
-  staffUndoFire: vi.fn(),
+  staffUndoFire: (raw: unknown) => undo(raw),
 }));
 const getTableDetail = vi.fn<(id: string) => Promise<TableDetailResult>>();
 vi.mock("@/lib/floor", () => ({ getTableDetail: (id: string) => getTableDetail(id) }));
@@ -40,8 +44,9 @@ const haptic = vi.fn();
 vi.mock("@/lib/haptics", () => ({ haptic: (m: string) => haptic(m) }));
 const push = vi.fn();
 const refresh = vi.fn();
+const replace = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, refresh, replace: vi.fn() }),
+  useRouter: () => ({ push, refresh, replace }),
   usePathname: () => "/staff/table/S/add",
 }));
 // The REAL StaffBar (P13 — the one-region test counts every region the page mounts, the bar's
@@ -148,8 +153,26 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     paymentInFlight: false,
     paymentHolder: null,
     hostPresent: false,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: false },
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: false,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
     serverNow: new Date(T).toISOString(),
+    // Phase 2f · pay at pickup — the §5.4 read-model fields (a table: none of them apply).
+    counterOrder: false,
+    counterArm: null,
+    customerName: null,
+    unpaidSent: false,
+    sentLineIds: [],
+    droppedLineIds: [],
+    compedKitchenLineIds: [],
+    payAtPickup: true,
+    mergeable: true,
     ...over,
   };
 }
@@ -160,7 +183,15 @@ const ONE = () =>
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 1,
+      staffAdded: 1,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
   });
 
 /**
@@ -175,7 +206,15 @@ const payable = () => {
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 1,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
+    },
   });
   getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
   return d;
@@ -187,11 +226,22 @@ const counterPayable = () => {
   const d = detail({
     label: "reg-ab12",
     mode: "pickup",
+    counterOrder: true,
     lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
     itemCount: 1,
     runningSubtotalCents: 1450,
     settleTotalCents: 1581,
-    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+    // Phase 2f — the counts B derives for a counter order: its to-go draft is `counterDraft` (the
+    // pay-at-pickup Send's), never `togoDraft` (a dine-in table's cook-at-payment count).
+    send: {
+      sendable: 0,
+      staffAdded: 0,
+      togoDraft: 0,
+      inKitchen: false,
+      foodDraft: true,
+      counterDraft: 1,
+      counterSentPastGrace: false,
+    },
   });
   getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
   return d;
@@ -211,7 +261,13 @@ const flush = (ms = 0) =>
 
 function mount(
   initial: TableDetail = detail(),
-  opts: { lang?: "en" | "my"; counter?: boolean; catalog?: unknown } = {},
+  opts: {
+    lang?: "en" | "my";
+    counter?: boolean;
+    catalog?: unknown;
+    name?: string | null;
+    focusName?: boolean;
+  } = {},
 ) {
   return render(
     <StaffLangProvider lang={opts.lang ?? "en"}>
@@ -221,8 +277,9 @@ function mount(
           initialDetail={initial}
           catalog={(opts.catalog ?? CATALOG) as never}
           counterOrder={opts.counter ?? false}
-          initialName={null}
+          initialName={opts.name ?? null}
           hasPin={false}
+          focusName={opts.focusName}
         />
       </main>
     </StaffLangProvider>,
@@ -552,25 +609,35 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
   });
 });
 
-describe("a counter order — no Send; the kitchen starts it when it's paid", () => {
-  it("shows counterAtPay, no Send, and Take payment as the one primary", () => {
+describe("a counter order — Take payment, and (Phase 2f) a Send that is paid at pickup", () => {
+  it("with nothing to send (pay-at-pickup off), no Send: Take payment is the one primary", () => {
     mount(
       detail({
         label: "reg-ab12",
         tableNumber: null,
         mode: "pickup",
-        lines: [line({ id: "l1", sendable: false })],
+        counterOrder: true,
+        payAtPickup: false,
+        lines: [line({ id: "l1", sendable: false, fulfillment: "togo" })],
         itemCount: 1,
         runningSubtotalCents: 1450,
         settleTotalCents: 1581,
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: true },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: false,
+          foodDraft: true,
+          counterDraft: 1,
+          counterSentPastGrace: false,
+        },
       }),
-      { counter: true },
+      { counter: true, name: "Aye" },
     );
     expect(document.querySelector(".staff-send")).toBeNull();
-    expect(document.body.textContent).toContain(STAFF["table.send.counterAtPay"].en);
     expect(settleBtn().className).toContain("ui-btn-primary");
     expect(settleBtn().closest(".pad-dock-primary")).not.toBeNull();
+    expect(document.querySelector(".pad-dock-settle")).toBeNull();
   });
 
   it("a name that fails to save keeps the pad; the next Take payment goes on without it", async () => {
@@ -640,7 +707,15 @@ describe("a removal on the ticket — a ghost while it goes, back in place if re
       itemCount: 2,
       runningSubtotalCents: 2900,
       settleTotalCents: 3162,
-      send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+      send: {
+        sendable: 2,
+        staffAdded: 2,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: true,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
   const row = (id: string) => document.querySelector<HTMLElement>(`[data-line-id="${id}"]`);
 
@@ -723,11 +798,20 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
         label: "reg-ab12",
         tableNumber: null,
         mode: "pickup",
+        counterOrder: true,
         lines: [line({ id: "l1", sendable: false })],
         itemCount: 1,
         runningSubtotalCents: 1450,
         settleTotalCents: 1581,
-        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: false, foodDraft: true },
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: false,
+          foodDraft: true,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
       { counter: true },
     );
@@ -786,7 +870,15 @@ describe("a refused tap says why — the phone bar has no room for the hint (§1
         itemCount: 1,
         runningSubtotalCents: 1450,
         paymentInFlight: true,
-        send: { sendable: 1, staffAdded: 1, togoDraft: 0, inKitchen: false, foodDraft: true },
+        send: {
+          sendable: 1,
+          staffAdded: 1,
+          togoDraft: 0,
+          inKitchen: false,
+          foodDraft: true,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
       }),
     );
     expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
@@ -981,7 +1073,15 @@ describe("a removal whose answer is lost — said as unknown, never stranded", (
       itemCount: 2,
       runningSubtotalCents: 2900,
       settleTotalCents: 3162,
-      send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+      send: {
+        sendable: 2,
+        staffAdded: 2,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: true,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
     });
 
   it("a removal that throws says it could not be confirmed — in the dictionary, by dish", async () => {
@@ -1558,5 +1658,410 @@ describe("open question — the options sheet never hides the pad's one region",
     // late refusal of a queued add is still spoken while the sheet is up.
     expect(region().closest('[aria-hidden="true"]')).toBeNull();
     expect(region().getAttribute("aria-live")).toBe("polite");
+  });
+});
+
+describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () => {
+  const counter = (over: Partial<TableDetail> = {}) =>
+    detail({
+      label: "reg-ab12",
+      tableNumber: null,
+      mode: "pickup",
+      counterOrder: true,
+      counterArm: "walkup",
+      customerName: "Aye",
+      lines: [line({ id: "l1", sendable: false, fulfillment: "togo" })],
+      itemCount: 1,
+      runningSubtotalCents: 1450,
+      settleTotalCents: 1581,
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: true,
+        counterDraft: 1,
+        counterSentPastGrace: false,
+      },
+      ...over,
+    });
+  const primary = () => document.querySelector<HTMLElement>(".pad-dock-primary")!;
+  const filled = () => document.querySelectorAll(".pad-dock .ui-btn-primary");
+  const serve = (d: TableDetail) => getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+
+  it("a WALK-UP leads with Take payment; the Send (pay at pickup) sits second", async () => {
+    const d = counter();
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    expect(settleBtn().closest(".pad-dock-primary")).not.toBeNull();
+    expect(settleBtn().className).toContain("ui-btn-primary");
+    const send = sendBtn();
+    expect(send.closest(".pad-dock-settle")).not.toBeNull();
+    expect(send.className).toContain("ui-btn-secondary");
+    expect(send.textContent).toBe(STAFF["table.send.cta.counter.one"].en.replace("{n}", "1"));
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("a PHONE order leads with the Send; Take payment steps back", async () => {
+    const d = counter({ counterArm: "phone" });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    expect(sendBtn().closest(".pad-dock-primary")).not.toBeNull();
+    expect(sendBtn().className).toContain("ui-btn-primary");
+    expect(settleBtn().closest(".pad-dock-settle")).not.toBeNull();
+    expect(settleBtn().className).toContain("ui-btn-secondary");
+    expect(filled()).toHaveLength(1);
+  });
+
+  it("after a walk-up's Send: the Undo stays in the Send's slot and nothing is filled", async () => {
+    const d = counter();
+    serve(d);
+    fire.mockResolvedValueOnce({
+      ok: true,
+      fired: 1,
+      undoUntil: new Date(T + 10_000).toISOString(),
+      serverNow: new Date(T).toISOString(),
+      undoBatch: "b1",
+    });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const before = sendBtn();
+    // The detail after the fire: nothing left to send, nothing past its grace yet.
+    serve(counter({ send: { ...d.send, counterDraft: 0 } }));
+    await act(async () => {
+      fireEvent.click(before);
+    });
+    await flush();
+    expect(fire).toHaveBeenCalledWith({ sessionId: SESSION });
+    // MUTATION (pad/send-slot-jumps-at-the-tap): the Undo remounts in the primary slot — red.
+    expect(sendBtn()).toBe(before);
+    expect(sendBtn().closest(".pad-dock-settle")).not.toBeNull();
+    expect(sendBtn().textContent).toContain(STAFF["table.send.undo"].en);
+    expect(filled()).toHaveLength(0);
+  });
+
+  it("Codex r4 — a reload inside the grace with pay at pickup PARKED: the restored Undo still shows and works", async () => {
+    // The send fired before the switch was parked; the page reloaded inside its 10s. The switch
+    // parks NEW sends only — the server takes a send in its grace back regardless.
+    sessionStorage.setItem(
+      `mms-staff-undo:${SESSION}`,
+      JSON.stringify({ batch: "b1", deadlineMs: T + 8_000 }),
+    );
+    const d = counter({
+      payAtPickup: false,
+      unpaidSent: true,
+      sentLineIds: [],
+      lines: [line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" })],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
+    });
+    serve(d);
+    undo.mockResolvedValueOnce({ ok: true, unfired: 1 });
+    mount(d, { counter: true, name: "Aye" });
+    // The stash re-arms on a scheduled tick (its relabel commits as the timers drain); then past
+    // the relabel's same-gesture hold before the tap.
+    await flush();
+    await flush(400);
+    // MUTATION (p2f-cx4/pad/restored-undo-hidden-by-switch): gated on `sendable`, no Undo — red.
+    const u = sendBtn();
+    expect(u).not.toBeNull();
+    expect(u.textContent).toContain(STAFF["table.send.undo"].en);
+    await act(async () => {
+      fireEvent.click(u);
+    });
+    await flush();
+    expect(undo).toHaveBeenCalledWith({ sessionId: SESSION, batch: "b1" });
+  });
+
+  it("Codex r4 — pay at pickup PARKED and no undo open: drafts get no new Send", async () => {
+    const d = counter({ payAtPickup: false });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush(400);
+    expect(document.querySelector(".staff-send")).toBeNull();
+    expect(settleBtn().closest(".pad-dock-primary")).not.toBeNull();
+  });
+
+  it("everything went unpaid: 'Done · Counter' leads, Take payment second, the foot says so", async () => {
+    const d = counter({
+      unpaidSent: true,
+      sentLineIds: ["l1"],
+      droppedLineIds: [],
+      compedKitchenLineIds: [],
+      lines: [line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" })],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: true,
+      },
+    });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const done = primary().querySelector("button")!;
+    expect(done.textContent).toBe(STAFF["pad.done.counter"].en);
+    expect(done.className).toContain("ui-btn-primary");
+    expect(settleBtn().closest(".pad-dock-settle")).not.toBeNull();
+    expect(settleBtn().className).toContain("ui-btn-secondary");
+    expect(document.querySelector(".pad-status")!.textContent).toBe(
+      STAFF["table.send.counterSent"].en,
+    );
+    // The ticket's head carries the Unpaid flag.
+    expect(document.querySelector(".pad-ticket-head")!.textContent).toContain(
+      STAFF["settle.unpaid"].en,
+    );
+    fireEvent.click(done);
+    expect(push).toHaveBeenCalledWith("/staff?floor=1");
+  });
+
+  it("sent unpaid with drafts LEFT under a parked switch: the foot names what is NOT sent", async () => {
+    const d = counter({
+      payAtPickup: false,
+      unpaidSent: true,
+      sentLineIds: ["l1"],
+      droppedLineIds: [],
+      compedKitchenLineIds: [],
+      lines: [
+        line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" }),
+        line({ id: "l2", sendable: false, fulfillment: "togo", state: "draft", qty: 2 }),
+      ],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: true,
+        counterDraft: 2,
+        counterSentPastGrace: true,
+      },
+    });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    // Never "Sent to the kitchen" over two dishes the kitchen does not have.
+    expect(document.querySelector(".pad-status")!.textContent).toBe(
+      STAFF["table.send.counterSent.partial.many"].en.replace("{n}", "2"),
+    );
+  });
+
+  it("a name typed but not saved is saved BEFORE the unpaid fire", async () => {
+    const d = counter({ customerName: null });
+    serve(d);
+    const order: string[] = [];
+    setName.mockImplementationOnce(async () => {
+      order.push("name");
+      return { ok: true };
+    });
+    fire.mockImplementationOnce(async () => {
+      order.push("fire");
+      return { ok: false, reason: "nothing" };
+    });
+    mount(d, { counter: true });
+    await flush();
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "Aye" },
+    });
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
+    expect(order).toEqual(["name", "fire"]);
+  });
+
+  it("a name save that fails holds the fire and says so", async () => {
+    const d = counter({ customerName: null });
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: false, error: "Couldn’t save." });
+    mount(d, { counter: true });
+    await flush();
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "Aye" },
+    });
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["pad.nameNotSaved"].en);
+  });
+
+  it("no name at all: the Send refuses, says why, and takes the finger to the name field", async () => {
+    const d = counter({ customerName: null });
+    serve(d);
+    mount(d, { counter: true });
+    await flush();
+    const send = sendBtn();
+    expect(send.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(send);
+    });
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["table.send.hold.noName"].en);
+    expect(document.activeElement).toBe(screen.getByLabelText(STAFF["browse.name.label"].en));
+  });
+
+  it("the SERVER finds no name (cleared on another tablet): the name field takes the finger", async () => {
+    const d = counter();
+    serve(d); // this pad's reads still show the name — the fire's own statement is what finds none
+    fire.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-cx3-name/pad-server-noName-no-focus): the verdict never reaches the field — red.
+    expect(document.activeElement).toBe(screen.getByLabelText(STAFF["browse.name.label"].en));
+    expect(region().textContent).toBe(STAFF["table.send.err.noName"].en);
+  });
+
+  it("a live read with the name CLEARED elsewhere empties a pristine field; the Send blocks", async () => {
+    const d = counter();
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    expect(field.value).toBe("Aye");
+    serve(counter({ customerName: null }));
+    await flush(5000);
+    // MUTATION (p2f-cx3-name/server-name-not-reconciled): the field keeps "Aye", the Send fires — red.
+    expect(field.value).toBe("");
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a live read with the name cleared never clobbers a name being TYPED", async () => {
+    const d = counter();
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Aye Aye" } });
+    serve(counter({ customerName: null }));
+    await flush(5000);
+    // MUTATION (p2f-cx3-name/reconcile-clobbers-dirty): the typing is thrown away — red.
+    expect(field.value).toBe("Aye Aye");
+    expect(sendBtn().getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("a stale read that still shows NO name after this pad saved one does not revert it", async () => {
+    // Phase 2f review (PT-7) — the stale read is made GENUINELY stale: it STARTS before the save and
+    // answers after it. (This test once let a read that began AFTER the save play the stale one;
+    // under PT-7 that read is authoritative, and a server with no name after the save means no name.)
+    const d = counter({ customerName: null });
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    const stale = deferred<TableDetailResult>();
+    getTableDetail.mockReturnValueOnce(stale.promise);
+    await flush(5000); // the poll is on the wire, before the save
+    fireEvent.change(field, { target: { value: "Aye" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
+    await act(async () => {
+      stale.resolve({ kind: "detail", detail: d });
+    });
+    await flush();
+    // MUTATION (p2f-cx3-name/reconcile-by-value · p2f-sr-sheet/pad-name/pre-save-read-boundary): the
+    // pre-save read reverts the name to "" — red.
+    expect(field.value).toBe("Aye");
+    expect(sendBtn().getAttribute("aria-disabled")).not.toBe("true");
+    // The first read that starts AFTER the save is the truth — the server holds the name.
+    serve(counter({ customerName: "Aye" }));
+    await flush(5000);
+    expect(field.value).toBe("Aye");
+  });
+
+  it("after a save, the first read that STARTS after it is the truth — even the OLD name back (PT-7)", async () => {
+    const d = counter(); // the server holds "Aye", and the pad has seen it
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Bo" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Bo" });
+    expect(field.value).toBe("Bo");
+    // Another device wrote "Aye" back after this save: the post-save read carries exactly the value
+    // the pad had last seen — invisible to a change-keyed reconcile.
+    await flush(5000);
+    // MUTATION (p2f-sr-sheet/pad-name/save-never-arms · p2f-sr-sheet/pad-name/post-save-read-ignored):
+    // the pad keeps showing "Bo" while every other surface says "Aye" — red.
+    expect(field.value).toBe("Aye");
+    expect(screen.getByRole("button", { name: STAFF["browse.name.saved"].en })).toBeTruthy();
+  });
+
+  it("the post-save read never clobbers a name being TYPED — only the saved name follows it (PT-7)", async () => {
+    const d = counter();
+    serve(d);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Bo" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    fireEvent.change(field, { target: { value: "Bobo" } }); // typing again, not yet saved
+    await flush(5000);
+    expect(field.value).toBe("Bobo");
+    // The saved name followed the server ("Aye"), so the typed "Bobo" is still offered as a Save.
+    expect(screen.getByRole("button", { name: STAFF["browse.name.save"].en })).toBeTruthy();
+  });
+
+  it("?name=1 lands on the name field ONCE and drops the param", async () => {
+    const d = counter({ customerName: null });
+    serve(d);
+    mount(d, { counter: true, focusName: true });
+    await flush();
+    expect(document.activeElement).toBe(screen.getByLabelText(STAFF["browse.name.label"].en));
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/staff/table/S/add", { scroll: false });
+  });
+
+  it("clearing the name of an order cooking unpaid is refused: the pad's sentence, the name back", async () => {
+    const d = counter({ unpaidSent: true });
+    serve(d);
+    setName.mockResolvedValueOnce({
+      ok: false,
+      error: "This order is cooking unpaid — keep a name on it so the counter can call it.",
+      code: "keepName",
+    });
+    mount(d, { counter: true, name: "Aye" });
+    await flush();
+    const field = screen.getByLabelText<HTMLInputElement>(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "" } });
+    await act(async () => {
+      fireEvent.submit(field.closest("form")!);
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "" });
+    expect(region().textContent).toBe(STAFF["browse.name.keep"].en);
+    expect(field.value).toBe("Aye");
   });
 });

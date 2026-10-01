@@ -1,6 +1,6 @@
 "use client";
 import { useId, useState, type ReactNode, type RefObject } from "react";
-import { Button, Field } from "@mms/ui";
+import { Badge, Button, Field, Icon } from "@mms/ui";
 import type { TableDetail, TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import type { PendingAdd } from "@/lib/pad-pending";
@@ -43,6 +43,8 @@ export type CounterNameField = {
   /** ── Phase 2c · review fixes · pad2 ── nothing typed and nothing saved: Save refuses and says why
    *  (`padNameSave`) — never a live-looking button that does nothing. */
   empty: boolean;
+  /** Phase 2f — the field itself, so a refused counter Send (no name) and `?name=1` can focus it. */
+  inputRef?: RefObject<HTMLInputElement | null>;
 };
 
 /**
@@ -141,6 +143,14 @@ export function StaffTicket({
         <h2 id={`${ids}-h`} ref={headingRef} tabIndex={-1} className="pad-ticket-title">
           <Chrome lang={lang} k="pad.ticket.title" />
         </h2>
+        {/* Phase 2f — food on this counter order reached the kitchen before it was paid. A badge is
+            a 44px object: no echo inside it (the table page's rule). */}
+        {detail.unpaidSent && (
+          <Badge tone="warn" bordered>
+            <Icon name="receipt" size={14} aria-hidden />
+            <Chrome lang={lang} k="settle.unpaid" />
+          </Badge>
+        )}
         {counterName && (
           <form
             className="pad-name"
@@ -154,6 +164,7 @@ export function StaffTicket({
                 <span className="pad-name-row">
                   <input
                     {...control}
+                    ref={counterName.inputRef}
                     value={counterName.value}
                     // Codex round 3 (P2) — read-only while the name SAVES: a call-out changed during
                     // the round trip would be marked saved as the old value and thrown away.

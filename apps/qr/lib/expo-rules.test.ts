@@ -5,6 +5,7 @@ import {
   expoAge,
   isScanGoBasket,
   kitchenStateOf,
+  laneRows,
   PICKED_UNDO_ARM_MS,
   PICKED_UNDO_MS,
   pickedUndoArmed,
@@ -12,6 +13,7 @@ import {
   toastPick,
   type ExpoOrderKey,
 } from "./expo-rules";
+import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
 
 /**
  * A4·2 · K30 (B) — both rules falsified by VALUE: a fixture where the discriminating line and the
@@ -178,5 +180,61 @@ describe("isScanGoBasket — the card's scan-and-go predicate, named once", () =
     // over" on a bag of food the counter still has to hand OUT, and no kitchen badge.
     expect(isScanGoBasket([line("togo"), line("grocery")])).toBe(false);
     expect(isScanGoBasket([line("togo")])).toBe(false);
+  });
+});
+
+// ── Phase 2f · P2v ──
+describe("laneRows — paid and unpaid bags in the lane's ONE order", () => {
+  const paid = (orderId: string, over: Partial<ExpoTicket> = {}): ExpoTicket => ({
+    orderId,
+    cartId: `c-${orderId}`,
+    label: "reg-x",
+    tableNumber: null,
+    mode: "pickup",
+    customerName: null,
+    customerPhone: null,
+    shortCode: orderId.toUpperCase(),
+    status: "preparing",
+    kitchen: "cooking",
+    pickupSlot: null,
+    arrivedAt: null,
+    lines: [],
+    createdAt: "2026-09-13T17:00:00Z",
+    ...over,
+  });
+  const bag = (cartId: string, over: Partial<ExpoUnpaidBag> = {}): ExpoUnpaidBag => ({
+    cartId,
+    sessionId: `s-${cartId}`,
+    customerName: "Aye",
+    lines: [],
+    moreUnits: 0,
+    owes: true,
+    kitchen: "done",
+    sentAt: "2026-09-13T18:00:00Z",
+    ...over,
+  });
+  const order = (rows: ReturnType<typeof laneRows>) =>
+    rows.map((r) => (r.kind === "paid" ? r.t.orderId : `unpaid:${r.b.cartId}`));
+
+  it("a kitchen-done unpaid bag sorts above a cooking paid bag, below a waiting guest", () => {
+    // unpaid-bags-sink
+    const rows = laneRows(
+      [paid("cooking"), paid("here", { arrivedAt: "2026-09-13T18:05:00Z" })],
+      [bag("u")],
+    );
+    expect(order(rows)).toEqual(["here", "unpaid:u", "cooking"]);
+  });
+
+  it("an unpaid bag still cooking takes its due-time place by when it was sent", () => {
+    const rows = laneRows(
+      [paid("late", { createdAt: "2026-09-13T18:30:00Z" })],
+      [bag("u", { kitchen: "cooking", sentAt: "2026-09-13T18:10:00Z" })],
+    );
+    // both cooking: the earlier (the bag, sent 18:10) first
+    expect(order(rows)).toEqual(["unpaid:u", "late"]);
+  });
+
+  it("no unpaid bags: the paid order is unchanged", () => {
+    expect(order(laneRows([paid("a"), paid("b", { kitchen: "done" })], []))).toEqual(["b", "a"]);
   });
 });

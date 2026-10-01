@@ -727,6 +727,28 @@ export const voidLineInput = z.object({
 
 export type VoidLineInput = z.infer<typeof voidLineInput>;
 
+/** recordCounterNoShow (Phase 2f · P2v) — write off a COUNTER order's SENT food when the guest never
+ *  came (owner decision 7b). Shape only: the server re-derives the open cart, the counter predicate,
+ *  the sent set, the loss gate and the approver's role (mms_counter_no_show). The client never
+ *  asserts an amount or whether a manager is needed; the PIN rides only the step-up.
+ *
+ *  `expectedLineIds` (Phase 2f blind review) — the SENT line ids the sheet SHOWED, i.e. what the
+ *  staff member and the approving manager agreed to write off. It asserts nothing the server trusts:
+ *  mms_counter_no_show derives its own set under the cart lock and refuses 'changed' (no write) when
+ *  the two differ as sets, so an approval can never land on a different write-off than the one seen.
+ *  Bounded at 200 (a counter order past that is not a real sheet). Empty is allowed — the SQL then
+ *  answers nothing_sent or changed, both honest. */
+export const counterNoShowInput = z.object({
+  sessionId: uuid,
+  expectedLineIds: z.array(uuid).max(200),
+  approverStaffId: uuid.optional(),
+  pin: z
+    .string()
+    .regex(/^\d{4,8}$/)
+    .optional(),
+});
+export type CounterNoShowInput = z.infer<typeof counterNoShowInput>;
+
 /**
  * requestApproval (S2.4) — a server REQUESTS a manager's approval for a gated void/comp when no manager
  * is at hand. Same shape as the void action minus the inline PIN: the loss gate is still SERVER-derived

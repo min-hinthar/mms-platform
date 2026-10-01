@@ -26,3 +26,16 @@ A failed assertion aborts with a non-zero exit (so CI goes red). CI runs this on
 
 It impersonates a diner the same way the app's anon-auth does: `set local role authenticated` +
 `set local request.jwt.claims` so `auth.uid()` (and thus `is_member`/`is_host`) evaluate the real policies.
+
+## p2f_counter_cook_before_paid_test.sql (Phase 2f · P2v)
+
+Pins `20261001000000_p2f_counter_cook_before_paid.sql`: the staff-only unpaid fire of a `reg-` counter
+order and its undo (and its `closed` signal, and its refusal on an expired session), the name lock
+(`mms_clear_cart_name`), the no-show write-off (SENT food only — a null `fire_at` counts as sent — the
+loss gate's cooked and ceiling legs, the pay-lock and settle-freeze refusals, the 'changed' refusal
+when the sent set is not the one the approver saw, the pending-request supersede, the reverse
+two-tablet race) and the sweeper's counter exemption (an OPEN cart's SENT food only) — each refusal
+beside the legitimate case it must not over-block. Rolls back. Every case is falsified by name in
+`scripts/verify-mode-authority.mjs` (suite `p2f`); the locks no single session can observe (the fire
+vs the name clear, the fire vs the sweeper) are falsified by
+`scripts/verify-counter-fire-race.mjs --mutants`.

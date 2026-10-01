@@ -49,6 +49,9 @@ import {
 import { StaffSendButton } from "./StaffSendButton";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
+// ── Phase 2f · pay at pickup ──
+import { counterSettleVariant } from "@/lib/counter-order";
+import { CounterNoShowButton } from "./CounterNoShowButton";
 // ── Phase 2c · register ──
 import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
 import { settleUnknownAfterRead } from "@/lib/register-math";
@@ -206,7 +209,9 @@ export function FloorDetailLive({
   // P2w — who holds an in-flight payment (the banner below); a missing holder is unsure, never phone.
   const payingHolder = detail.paymentHolder ?? "unsure";
   const payingMsg = inFlightMsg(payingHolder);
-  const isCounter = detail.label.startsWith("reg-");
+  // Phase 2f — THE counter-order predicate, decided once on the server (`isCounterOrder`: a pickup
+  // session minted with a `reg-` code), never re-derived here from the label.
+  const isCounter = detail.counterOrder;
   // W6a review (confirmed HIGH): the settle handoff card must SURVIVE the settled detail state — the
   // settle button lives inside the open-cart conditional, and the realtime/poll refresh unmounts it
   // (client state included) within ~0.4-5s of the settle, mid-handoff. The card's data lives HERE.
@@ -330,6 +335,8 @@ export function FloorDetailLive({
     setHeld(false); // Phase 2d · Codex round 1 · pane — the reader's newer money fact speaks
   }, []);
   const handoffRef = useRef<HTMLElement>(null);
+  // Phase 2f — `detail.unpaidSent` as it read when the reader collect started (null: no tap here).
+  const sentEarlyAtTap = useRef<boolean | null>(null);
   // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
   // to the floor while the collect panel / handoff card IS the live surface — the cashier would
   // never see the #CODE call-out (review finding). "← Floor" is the deliberate exit. Phase 2c: a
@@ -500,6 +507,11 @@ export function FloorDetailLive({
     hostPresent: detail.hostPresent,
     counterAsk: counterAskLive(detail.counterRequestedAt),
     counts: detail.send,
+    // Phase 2f — a counter order's pay-at-pickup Send: its arm (phone orders lead with it), whether
+    // it has the name it needs to be sent, and the switch that parks NEW sends (drawn server-side).
+    counterArm: detail.counterArm,
+    hasName: (detail.customerName ?? "").trim() !== "",
+    payAtPickup: detail.payAtPickup,
   });
   // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
   // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
@@ -611,6 +623,26 @@ export function FloorDetailLive({
     setSendHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
   const getHold = useCallback(() => sendHoldFrom([...lineEdits.current.values()]), []);
+  // Phase 2f review (PT-6) — a no-name refusal takes the finger to "Add a name →". The link renders
+  // only once the VIEW knows the name is missing, so a SERVER verdict (the name cleared on another
+  // device after this view read it) finds no link yet: the attempt is owed to the first read that
+  // STARTS after the verdict (the Send's refresh), which focuses the link if that read drew it — or
+  // drops the debt if it did not (the name came back), so a much later no-name never steals focus.
+  const nameFocusAfter = useRef<number | null>(null);
+  const onSendBlocked = useCallback((b: "paying" | "noName") => {
+    if (b !== "noName") return;
+    const link = document.getElementById("send-name-link");
+    if (link) {
+      link.focus();
+      nameFocusAfter.current = null;
+    } else nameFocusAfter.current = reads.current;
+  }, []);
+  useEffect(() => {
+    const after = nameFocusAfter.current;
+    if (after === null || readTicket <= after) return;
+    nameFocusAfter.current = null;
+    document.getElementById("send-name-link")?.focus();
+  }, [readTicket]);
   const send = useStaffSend({
     sessionId,
     view: sendView,
@@ -620,7 +652,13 @@ export function FloorDetailLive({
     rootRef: orderCardRef,
     onNotice: onSendNotice,
     onRefresh: refresh,
+    // Phase 2f — a no-name tap goes to the "Add a name →" link under the Send (the pad's name field).
+    onBlocked: onSendBlocked,
   });
+  // Phase 2f · pay at pickup — the table page's settle emphasis on a counter order (D6): Settle is the
+  // primary EXCEPT while the counter Send is (a phone order, or more to send after food went unpaid)
+  // or while this device's undo window is open — exactly one filled pill at a time.
+  const counterVariant = counterSettleVariant(sendView, send.phase);
   // ── Phase 2c · gate ── a refused settle tap (or a server `unsent`): say why in the ONE region, at
   // the settle rank, and take the cashier to the fix — the Send for cash or the reader; the order's
   // lines (its heading) for the running-bill close, where the guest may have left and removing comes
@@ -720,7 +758,20 @@ export function FloorDetailLive({
       <div className={inPane ? undefined : "staff-col"} style={inPane ? undefined : wrap}>
         <div style={header}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                columnGap: 10,
+                rowGap: "var(--s1)",
+                flexWrap: "wrap",
+              }}
+            >
+              {/* Phase 2f — a counter order is found by its NAME (the kitchen's and the lane's
+                  handle), so the name leads the row; the Unpaid flag follows the status chip. */}
+              {isCounter && detail.customerName?.trim() && (
+                <span className="table-detail-name">{detail.customerName.trim()}</span>
+              )}
               {!isCounter && tableDisplay(detail).unregistered && (
                 // A badge is a 44px object: two scripts cannot legibly stack inside one, so no echo.
                 <Badge tone="warn" bordered>
@@ -728,6 +779,14 @@ export function FloorDetailLive({
                 </Badge>
               )}
               <FloorStatusChip status={detail.status} refund={detail.refund} lang={lang} />
+              {detail.unpaidSent && (
+                // A badge is a 44px object: no echo inside it (the unregistered badge's rule). The
+                // echoed K15-HIGH form of the phrase is the KDS's line, not a chip's.
+                <Badge tone="warn" bordered>
+                  <Icon name="receipt" size={14} aria-hidden />
+                  <Chrome lang={lang} k="settle.unpaid" />
+                </Badge>
+              )}
               {detail.tab !== "none" && (
                 // Announced (not decorative): this chip's text is the only place the tab state is named.
                 // Secured = jade (affirmative, card-backed); open = accent (neutral-attention). `bordered`
@@ -1096,6 +1155,8 @@ export function FloorDetailLive({
             statusRef={send.statusRef}
             hold={sendHold}
             hostName={detail.members.find((m) => m.isHost)?.name ?? null}
+            nameHref={isCounter ? `/staff/table/${sessionId}/add?name=1` : undefined}
+            counterNotSent={detail.send.counterDraft}
           />
           {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
@@ -1319,11 +1380,19 @@ export function FloorDetailLive({
               tipBaseCents={detail.settleTipBaseCents}
               intendedTipCents={detail.intendedTipCents}
               isTab={detail.tab !== "none"}
-              variant={settlePrimary(detail.tab) === "cash" ? "primary" : "secondary"}
+              variant={
+                isCounter
+                  ? counterVariant
+                  : settlePrimary(detail.tab) === "cash"
+                    ? "primary"
+                    : "secondary"
+              }
               // W6a: a counter (register) order always ends in the paid card (#CODE to call out); a
               // table gets the rows-only card when a tender was entered (owner decision 7).
               handoff={isCounter}
-              onSettled={(h) => setHandoff({ ...h, isCounter, cartId: detail.cartId })}
+              onSettled={(h) =>
+                setHandoff({ ...h, isCounter, cartId: detail.cartId, sentEarly: detail.unpaidSent })
+              }
               onChanged={onChange}
               // Only a COUNTER session closes behind its settle; a table's landed settle shows paid.
               onOutcomeUnknown={
@@ -1349,7 +1418,12 @@ export function FloorDetailLive({
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
                 variant="secondary"
-                onStarted={setTerminalCollect}
+                onStarted={(c) => {
+                  // Phase 2f — whether food went to the kitchen unpaid, captured AT THE TAP: the
+                  // reader's paid card lands after the cart is paid, when the detail no longer says so.
+                  sentEarlyAtTap.current = detail.unpaidSent;
+                  setTerminalCollect(c);
+                }}
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("reader", units)}
@@ -1409,6 +1483,8 @@ export function FloorDetailLive({
                   tenderedCents: null,
                   isCounter: true,
                   cartId: detail.cartId,
+                  // A collect restored after a reload has no tap on this device: the detail decides.
+                  sentEarly: sentEarlyAtTap.current ?? detail.unpaidSent,
                 });
             }}
           />
@@ -1480,7 +1556,7 @@ export function FloorDetailLive({
 
         {/* Soft convergence (S1.4): fold a double-order into another table. Same gate as a write (open cart,
           not mid-payment) and only when there's something to move. */}
-        {canWrite && detail.itemCount > 0 && detail.tab !== "secure" && (
+        {canWrite && detail.itemCount > 0 && detail.tab !== "secure" && detail.mergeable && (
           <section
             style={{ marginTop: "var(--s4)" }}
             aria-label={sx(lang, "table.detail.a11y.merge")}
@@ -1494,11 +1570,25 @@ export function FloorDetailLive({
         )}
 
         <section style={{ marginTop: "var(--s5)" }}>
-          <ClearTableButton
-            sessionId={sessionId}
-            label={tableDisplay(detail).text}
-            paymentInFlight={detail.paymentInFlight}
-          />
+          {/* Phase 2f — a counter order whose food reached the kitchen unpaid is never cleared
+              (that drops cooked food with no loss recorded): "They didn't come" writes it off. */}
+          {isCounter && detail.unpaidSent ? (
+            <CounterNoShowButton
+              sessionId={sessionId}
+              customerName={detail.customerName}
+              lines={detail.lines}
+              sentLineIds={detail.sentLineIds}
+              droppedLineIds={detail.droppedLineIds}
+              compedKitchenLineIds={detail.compedKitchenLineIds}
+              lang={lang}
+            />
+          ) : (
+            <ClearTableButton
+              sessionId={sessionId}
+              label={tableDisplay(detail).text}
+              paymentInFlight={detail.paymentInFlight}
+            />
+          )}
         </section>
       </div>
     </DetailRoot>

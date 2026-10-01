@@ -381,8 +381,10 @@ export const STAFF = {
     en: "No tables or counter orders",
     my: "စားပွဲ ဒါမှမဟုတ် ကောင်တာ အော်ဒါ မရှိပါ",
   },
-  // A segment of the count line ("40 counter orders · the newest are not listed"): a FULL read.
-  "floor.counter.truncated": { en: "the newest are not listed", my: "အသစ်ဆုံးတွေ မပါပါ" },
+  // A segment of the count line ("40 counter orders · the oldest are not listed"): a TRUNCATED read
+  // (CAP + 1). The read keeps the NEWEST (Phase 2f review M1), so the OLDEST are the ones not shown.
+  // K15 draft; grounded: အဟောင်း is table.appr.empty.hint's "oldest" (အဟောင်းက အရင်ပြပါတယ်).
+  "floor.counter.truncated": { en: "the oldest are not listed", my: "အဟောင်းဆုံးတွေ မပါပါ" },
 
   // ── the floor: the per-table STATUS chip ──────────────────────────────────
   // ⚠️ THE VISIBLE CHIP AND THE ACCESSIBLE NAME READ THESE SAME KEYS (`FLOOR_STATUS_KEY` in
@@ -2385,6 +2387,16 @@ export const STAFF = {
     en: "A manager has to approve this — none are signed in right now.",
     my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — အခု ဘယ်မန်နေဂျာမှ အကောင့် မဝင်ထားပါ။",
   },
+  // Codex round 2 on #308 — the roster READ failed (an outage), which is not the same as nobody on
+  // shift: the old sheets fell back to an empty list and said `pin.manager.none`, so a write-off that
+  // needed a manager was blocked with one standing there. The option says the list is unreadable; the
+  // note says so plainly and points at the Try again beside it (`out.shell.retry`). Claude-authored
+  // drafts pending K15.
+  "pin.manager.unavailable": { en: "Couldn’t load managers", my: "မန်နေဂျာ စာရင်း မဖွင့်နိုင်ပါ" },
+  "pin.manager.loadFailed": {
+    en: "Couldn’t load the list of managers — that doesn’t mean none are here. Try again.",
+    my: "မန်နေဂျာ စာရင်းကို မဖွင့်နိုင်ပါ — မန်နေဂျာ မရှိလို့ မဟုတ်ပါ။ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an outage must never read as "no manager on shift"
   "pin.badApprover.self": {
     en: "Pick a manager other than yourself to approve.",
     my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
@@ -2709,18 +2721,16 @@ export const STAFF = {
     en: "{n} to-go items — the kitchen starts them when the table pays.",
     my: "ပါဆယ် {n} ခု — ငွေရှင်းတာနဲ့ မီးဖိုချောင်က စချက်ပါမယ်။",
   },
-  "table.send.counterAtPay": {
-    en: "The kitchen starts this order when it’s paid.",
-    my: "ငွေရှင်းပြီးမှ မီးဖိုချောင်က ဒီအော်ဒါကို စချက်ပါမယ်။",
-  }, // K15-HIGH — why a counter order has no Send (it cooks at payment)
   "table.send.err.nothing": { en: "Nothing new to send.", my: "ပို့စရာ အသစ် မရှိပါ။" },
   "table.send.err.closed": {
     en: "This order is paid or closed — nothing to send.",
     my: "ဒီအော်ဒါ ရှင်းပြီး ဒါမှမဟုတ် ပိတ်ပြီးပြီ — ပို့စရာ မရှိပါ။",
   },
+  // Phase 2f — reworded: a counter order CAN now be sent before it is paid, so this refusal only
+  // reaches an order that pays first (a kiosk / diner pickup, or pay-at-pickup switched off).
   "table.send.err.counter": {
-    en: "Counter orders go to the kitchen when they’re paid.",
-    my: "ကောင်တာ အော်ဒါတွေက ငွေရှင်းပြီးမှ မီးဖိုချောင် ရောက်ပါတယ်။",
+    en: "This order pays first — the kitchen gets it once it’s paid.",
+    my: "ဒီအော်ဒါက အရင် ငွေရှင်းရပါတယ် — ငွေရှင်းပြီးမှ မီးဖိုချောင် ရောက်ပါမယ်။",
   },
   "table.send.err.expired": {
     en: "Too late to bring it back — the kitchen has it. Use “Remove or make free” on the dish if it shouldn’t be made.",
@@ -3194,6 +3204,9 @@ export const STAFF = {
   "floor.kitchen.notSent": { en: "{n} not sent", my: "{n} ခု မပို့ရသေး" }, // K15-HIGH — the cue that dishes never reached the kitchen
   "floor.kitchen.inKitchen": { en: "{n} in kitchen", my: "မီးဖိုချောင်မှာ {n} ခု" }, // grounded: kds.title မီးဖိုချောင်
   "floor.kitchen.up": { en: "{n} ready to serve", my: "{n} ခု ဟင်းထွက်ပြီ" }, // grounded: board.pulse.up
+  // Phase 2f review — the same segment on a COUNTER order's card: nobody serves a bag, it is bagged
+  // and handed over (the lane's own verb, `expo.verb.bagged`). K15 draft.
+  "floor.kitchen.up.pickup": { en: "{n} ready to bag", my: "{n} ခု ထုပ်လို့ရပြီ" }, // grounded: kds.line.bagit ထုပ်, board.status ယူလို့ရပြီ
   "floor.kitchen.wait": { en: "{n} min", my: "{n} မိနစ်" }, // grounded: time.minAgo မိနစ်
   // The floor's ONE region when food comes out: one table, or several joined ", " in {id}.
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
@@ -3366,6 +3379,164 @@ export const STAFF = {
     en: "Finish the card payment first.",
     my: "ကတ်နဲ့ ငွေရှင်းတာ အရင် ပြီးအောင် လုပ်ပါ။",
   }, // K15-HIGH — misread, the cashier leaves a card payment mid-collect and it is never recorded
+  // ── Phase 2f · pay at pickup ──
+  // A COUNTER order (phone / walk-up, a `reg-` session) may be sent to the kitchen before it is paid
+  // (owner decisions 1 and 7, OPEN-ITEMS P2v). Every MY value below is a Claude-authored K15 draft
+  // pending Min's native check. Counts ride {n} (Burmese digits under `my`); a name rides {x}. The
+  // first-band markers are the strings that gate food or money: cooking unpaid, a write-off, the name
+  // lock that keeps an unpaid bag findable.
+  "settle.unpaid": {
+    en: "Unpaid — collect at pickup",
+    my: "ငွေ မရှင်းရသေး — လာယူချိန် ငွေ လက်ခံ",
+  }, // K15-HIGH — money not yet taken at a hand-over
+  "table.send.cta.counter.one": {
+    en: "Send now, pay at pickup · {n} item",
+    my: "အခု ပို့၊ လာယူချိန် ရှင်း · {n} ခု",
+  }, // K15-HIGH — starts cooking unpaid
+  "table.send.cta.counter.many": {
+    en: "Send now, pay at pickup · {n} items",
+    my: "အခု ပို့၊ လာယူချိန် ရှင်း · {n} ခု",
+  }, // K15-HIGH — starts cooking unpaid
+  "table.send.payAtPickupNote": {
+    en: "They pay when they collect it. Paying now? Use Take payment instead — it cooks as soon as it’s paid.",
+    my: "လာယူချိန်မှ ငွေရှင်းပါမယ်။ အခု ရှင်းမလား? ငွေရှင်း ကို နှိပ်ပါ — ငွေရှင်းတာနဲ့ ချက်ပါမယ်။",
+  }, // K15-HIGH — the choice between cooking unpaid and taking the money first
+  "table.send.unpaidMoreNote": {
+    en: "Part of this order is already in the kitchen, unpaid — send the rest to cook with it.",
+    my: "ဒီအော်ဒါ တစ်ချို့ ငွေမရှင်းဘဲ မီးဖိုချောင် ရောက်နေပြီ — ကျန်တာကိုပါ ပို့ပြီး အတူ ချက်ပါ။",
+  }, // K15-HIGH — says food is already cooking unpaid
+  "table.send.hold.noName": {
+    en: "Add a name first — it’s how the kitchen and the counter find this order.",
+    my: "နာမည် အရင် ထည့်ပါ — မီးဖိုချောင်နဲ့ ကောင်တာက ဒီအော်ဒါကို နာမည်နဲ့ ရှာပါတယ်။",
+  }, // K15-HIGH — an unpaid bag with no name is a bag nobody can call
+  "table.send.addName": { en: "Add a name →", my: "နာမည် ထည့် →" },
+  "table.send.counterSent": {
+    en: "Sent to the kitchen — unpaid. Take payment when they collect it.",
+    my: "မီးဖိုချောင် ပို့ပြီး — ငွေ မရှင်းရသေးပါ။ လာယူချိန် ငွေ လက်ခံပါ။",
+  }, // K15-HIGH — the food is cooking and the money is still to take
+  // Phase 2f review — the counterSent row when drafts REMAIN (the pay-at-pickup switch parked NEW
+  // sends): what is in the kitchen and what is not, never "sent" over unsent food. The rest is
+  // pay-first again, so it cooks at payment (`table.send.payAtPickupNote`'s own promise). K15 draft.
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.send.counterSent.partial.one": {
+    en: "Part of this order is in the kitchen, unpaid — {n} more item isn’t sent and cooks when they pay.",
+    my: "ဒီအော်ဒါ တစ်ချို့ ငွေမရှင်းဘဲ မီးဖိုချောင် ရောက်နေပြီ — နောက်ထပ် {n} ခု မပို့ရသေး၊ ငွေရှင်းတာနဲ့ ချက်ပါမယ်။",
+  }, // K15-HIGH — says which food is cooking unpaid and which is not
+  "table.send.counterSent.partial.many": {
+    en: "Part of this order is in the kitchen, unpaid — {n} more items aren’t sent and cook when they pay.",
+    my: "ဒီအော်ဒါ တစ်ချို့ ငွေမရှင်းဘဲ မီးဖိုချောင် ရောက်နေပြီ — နောက်ထပ် {n} ခု မပို့ရသေး၊ ငွေရှင်းတာနဲ့ ချက်ပါမယ်။",
+  }, // K15-HIGH — says which food is cooking unpaid and which is not
+  "table.send.err.noName": {
+    en: "Add a name before sending — nothing went to the kitchen.",
+    my: "မပို့ခင် နာမည် ထည့်ပါ — မီးဖိုချောင်ကို ဘာမှ မရောက်သေးပါ။",
+  }, // K15-HIGH — says nothing was sent
+  "pad.done.counter": { en: "Done · Counter", my: "ပြီးပြီ · ကောင်တာ" },
+  "browse.name.keep": {
+    en: "This order is cooking unpaid — keep a name on it so the counter can call it.",
+    my: "ဒီအော်ဒါ ငွေမရှင်းဘဲ ချက်နေပါတယ် — ကောင်တာက ခေါ်နိုင်အောင် နာမည် ထားပါ။",
+  },
+  // The unpaid bag's one action (a `…verb…` key: the link's NAME is `al()`'s verb + the bag's name).
+  "expo.verb.takePayment": { en: "Take payment", my: "ငွေ လက်ခံ" },
+  "expo.a11y.cardUnpaid": {
+    en: "Unpaid bag for {x}",
+    my: "{x} အတွက် ငွေ မရှင်းရသေးတဲ့ ပါဆယ်ထုပ်",
+  },
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "expo.unpaid.more.one": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
+  "expo.unpaid.more.many": { en: "{n} more not sent yet", my: "နောက်ထပ် {n} ခု မပို့ရသေး" },
+  "expo.count.unpaid": { en: "{n} unpaid", my: "ငွေ မရှင်းရသေး {n} ခု" },
+  // Phase 2f self-review PT-2 — a counter bag whose every chargeable line was made free: it is still
+  // collected, but nothing is owed, so it is never "Unpaid" and offers no payment. Its badge and its
+  // card name. K15 drafts; grounded: ငွေ ရှင်း is settle.unpaid's ("pay"), ပါဆယ်ထုပ် is
+  // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
+  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid
+  "expo.a11y.cardNoCharge": {
+    en: "Bag for {x}",
+    my: "{x} အတွက် ပါဆယ်ထုပ်",
+  },
+  // Phase 2f review — the unpaid read hit its cap: the lane shows some unpaid bags, not all (the
+  // paid bags stay). K15 draft; grounded: expo.count.unpaid ငွေ မရှင်းရသေး.
+  "expo.count.unpaidMore": {
+    en: "more unpaid than shown",
+    my: "ငွေ မရှင်းရသေးတာ ပြထားတာထက် ပိုရှိ",
+  }, // K15-HIGH — an unpaid bag the lane cannot show is money nobody collects
+  "table.noshow.btn": {
+    en: "They didn’t come — remove the order",
+    my: "လာမယူဘူး — အော်ဒါ ဖျက်",
+  }, // K15-HIGH — writes off cooked food
+  "table.noshow.title": { en: "Remove {x}’s order?", my: "{x} ရဲ့ အော်ဒါ ဖျက်မလား?" },
+  "table.noshow.title.anon": { en: "Remove this order?", my: "ဒီအော်ဒါ ဖျက်မလား?" },
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.noshow.body.one": {
+    en: "The kitchen was sent {n} item for this order. Removing records it as a no-show loss — nothing is charged and nothing is refunded.",
+    my: "ဒီအော်ဒါအတွက် မီးဖိုချောင်ကို {n} ခု ပို့ထားပြီး။ ဖျက်ရင် လာမယူတဲ့ အရှုံးအဖြစ် မှတ်ပါမယ် — ငွေ မယူ၊ ပြန်လည်း မအမ်းပါ။",
+  }, // K15-HIGH — what the write-off does and does not do with money
+  "table.noshow.body.many": {
+    en: "The kitchen was sent {n} items for this order. Removing records them as a no-show loss — nothing is charged and nothing is refunded.",
+    my: "ဒီအော်ဒါအတွက် မီးဖိုချောင်ကို {n} ခု ပို့ထားပြီး။ ဖျက်ရင် လာမယူတဲ့ အရှုံးအဖြစ် မှတ်ပါမယ် — ငွေ မယူ၊ ပြန်လည်း မအမ်းပါ။",
+  }, // K15-HIGH — what the write-off does and does not do with money
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "table.noshow.body.drafts.one": {
+    en: "{n} more not sent — it’s dropped, not counted as a loss.",
+    my: "နောက်ထပ် {n} ခု မပို့ရသေး — အရှုံးထဲ မထည့်ဘဲ ဖယ်ပါမယ်။",
+  },
+  "table.noshow.body.drafts.many": {
+    en: "{n} more not sent — they’re dropped, not counted as a loss.",
+    my: "နောက်ထပ် {n} ခု မပို့ရသေး — အရှုံးထဲ မထည့်ဘဲ ဖယ်ပါမယ်။",
+  },
+  // Phase 2f review — a comped dish the kitchen already has: not the loss, not dropped, but the
+  // cancelled order takes it off the kitchen screen. EN singular/plural pair — ONE Burmese value (see
+  // STAFF_PLURAL_PAIRS). K15 draft; grounded: အခမဲ့ (table.line.comped), မီးဖိုချောင် စခရင်
+  // (floor.door.kitchen.sub).
+  "table.noshow.body.comped.one": {
+    en: "{n} no-charge item also comes off the kitchen screen.",
+    my: "အခမဲ့ {n} ခုလည်း မီးဖိုချောင် စခရင်ပေါ်က ဖယ်ပါမယ်။",
+  }, // K15-HIGH — food the kitchen is holding leaves its screen
+  "table.noshow.body.comped.many": {
+    en: "{n} no-charge items also come off the kitchen screen.",
+    my: "အခမဲ့ {n} ခုလည်း မီးဖိုချောင် စခရင်ပေါ်က ဖယ်ပါမယ်။",
+  }, // K15-HIGH — food the kitchen is holding leaves its screen
+  // Phase 2f review — the order moved under the open sheet: this tap adopts it as it is now (the
+  // write stays refused until it is tapped). K15 draft; grounded: အော်ဒါ (table.noshow.title).
+  "table.noshow.rearm": {
+    en: "Show the order as it is now",
+    my: "အော်ဒါကို အခု အတိုင်း ပြပါ",
+  }, // K15-HIGH — re-arms a write-off of sent food
+  "table.noshow.confirm": { en: "Remove order", my: "အော်ဒါ ဖျက်" }, // K15-HIGH — the tap that writes off sent food
+  "table.noshow.err.inFlight": {
+    en: "A payment is under way on this order — let it finish first.",
+    my: "ဒီအော်ဒါမှာ ငွေရှင်းနေဆဲပါ — ပြီးအောင် အရင် စောင့်ပါ။",
+  },
+  "table.noshow.err.notOpen": {
+    en: "This order is already paid or closed — nothing to remove.",
+    my: "ဒီအော်ဒါ ရှင်းပြီး ဒါမှမဟုတ် ပိတ်ပြီးပြီ — ဖျက်စရာ မရှိပါ။",
+  },
+  "table.noshow.err.notCounter": {
+    en: "This isn’t a counter order — remove its dishes one at a time instead.",
+    my: "ဒါ ကောင်တာ အော်ဒါ မဟုတ်ပါ — ဟင်းတစ်ခုချင်း ဖျက်ပါ။",
+  },
+  "table.noshow.err.nothingSent": {
+    en: "Nothing on this order reached the kitchen — clear it instead.",
+    my: "ဒီအော်ဒါက မီးဖိုချောင် ဘာမှ မရောက်သေးပါ — စားပွဲ ရှင်း ကို သုံးပါ။",
+  },
+  // The cross-area decision: the sent set changed between what the sheet showed and the write —
+  // nothing was removed. K15 draft; grounded: table.noshow.err.failed ထပ်စမ်းပါ.
+  "table.noshow.err.changed": {
+    en: "The order changed — check it and try again.",
+    my: "အော်ဒါ ပြောင်းသွားပြီ — ပြန်စစ်ပြီး ထပ်စမ်းပါ။",
+  }, // K15-HIGH — a write-off refused because the food on it moved; money
+  "table.noshow.err.failed": {
+    en: "Couldn’t remove the order — try again.",
+    my: "အော်ဒါ မဖျက်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  "settle.clear.counterSent": {
+    en: "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
+    my: "ဒီအော်ဒါရဲ့ ဟင်းတွေ မီးဖိုချောင် ရောက်ပြီးပြီ — ရှင်းမယ့်အစား “လာမယူဘူး” ကို သုံးပါ။",
+  }, // K15-HIGH — clearing would drop cooked, unpaid food with no loss recorded
+  "table.detail.handoff.sentEarly": {
+    en: "Their food went to the kitchen before they paid — hand it over from Takeaway bags.",
+    my: "ငွေမရှင်းခင် ဟင်းတွေ မီးဖိုချောင် ရောက်ပြီးသားပါ — ပါဆယ်ထုပ်များ ကနေ ပေးလိုက်ပါ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3405,6 +3576,14 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.send.settleBlocked.tab.one", "table.send.settleBlocked.tab.many"],
   // ── Phase 2d · floor ──
   ["floor.kitchen.upNotice.one", "floor.kitchen.upNotice.many"],
+  // ── Phase 2f · pay at pickup ──
+  ["table.send.cta.counter.one", "table.send.cta.counter.many"],
+  ["expo.unpaid.more.one", "expo.unpaid.more.many"],
+  ["table.noshow.body.one", "table.noshow.body.many"],
+  ["table.noshow.body.drafts.one", "table.noshow.body.drafts.many"],
+  ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
+  // ── Phase 2f review ──
+  ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
 ];
 
 /**
@@ -3497,6 +3676,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "out.tail.paper",
   "out.write.failed",
   "pin.lockedFor",
+  "pin.manager.loadFailed",
   "pin.outage",
   "promo.err.locked",
   "promo.worth",
@@ -3526,7 +3706,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.mixedNote",
   "table.send.counterAskNote",
   "table.send.hold.note",
-  "table.send.counterAtPay",
   "table.send.err.expired",
   "table.send.err.unknown",
   "browse.add.unconfirmed",
@@ -3586,6 +3765,30 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.pane.lostSettleUnknown",
   // ── Phase 2d · Codex round 1 · pane ──
   "floor.pane.payingHeld",
+  // ── Phase 2f · pay at pickup ──
+  "settle.unpaid",
+  "table.send.cta.counter.one",
+  "table.send.cta.counter.many",
+  "table.send.payAtPickupNote",
+  "table.send.unpaidMoreNote",
+  "table.send.hold.noName",
+  "table.send.counterSent",
+  "table.send.err.noName",
+  "table.noshow.btn",
+  "table.noshow.body.one",
+  "table.noshow.body.many",
+  "table.noshow.confirm",
+  "settle.clear.counterSent",
+  // ── Phase 2f review ──
+  "table.send.counterSent.partial.one",
+  "table.send.counterSent.partial.many",
+  "expo.count.unpaidMore",
+  "table.noshow.err.changed",
+  // ── Phase 2f self-review ──
+  "table.noshow.body.comped.one",
+  "table.noshow.body.comped.many",
+  "table.noshow.rearm",
+  "expo.bag.noCharge",
 ]);
 
 /**

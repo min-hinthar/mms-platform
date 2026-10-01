@@ -63,7 +63,7 @@ import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock } from "@/lib/staff-clock";
 import { plural, tf } from "@/lib/i18n/fill";
-import { al, dishVisible, sx } from "@/lib/staff-labels";
+import { al, chromeVisible, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { servedMoreKey } from "@/lib/kitchen-stats";
 
@@ -130,9 +130,18 @@ function ticketId(
       sub: null,
     };
   }
-  const code = t.shortCode ? `#${t.shortCode}` : t.label;
-  const main = t.customerName ?? code;
+  // Phase 2f — an UNPAID counter ticket has no #CODE yet (the order does not exist until it is
+  // paid), and its session label is the raw `reg-` token, which means nothing to a cook and must
+  // never be printed: the name, or "Walk-up", is its whole handle.
+  const code = t.shortCode ? `#${t.shortCode}` : t.unpaid ? null : t.label;
+  const main = t.customerName ?? code ?? ts(lang, "reg.row.walkup");
   return { main, node: main, sub: t.customerName ? code : null };
+}
+
+/** Phase 2f — the Unpaid line's words exactly as it draws them (`echo="stack"`, the device's `shown`),
+ *  for the ticket's name (WCAG 2.5.3 — the name contains the visible label). */
+function unpaidWords(lang: StaffLang, shown: boolean): string {
+  return chromeVisible(lang, "settle.unpaid", "stack", shown);
 }
 
 /** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
@@ -1340,7 +1349,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
@@ -1369,6 +1378,15 @@ function TicketCard({
           </span>
         </span>
       </header>
+
+      {/* Phase 2f — sent before it was paid (a counter order, pay at pickup). Said, NOT in warn: the
+          kitchen cooks it the same either way; the money is the counter's to take. */}
+      {ticket.unpaid && (
+        <p className="kds-unpaid">
+          <Icon name="receipt" size={18} aria-hidden />
+          <Chrome lang={lang} k="settle.unpaid" echo="stack" />
+        </p>
+      )}
 
       {ticket.held && ticket.pickupSlot && (
         <p className="kds-slot" id={`kds-slot-${ticket.cartId}`}>

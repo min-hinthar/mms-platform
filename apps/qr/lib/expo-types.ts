@@ -29,6 +29,10 @@ export type ExpoLine = {
  *  → [picked_up drops off the board]); `label` is what the expo calls out (table code, or the channel). */
 export type ExpoTicket = {
   orderId: string;
+  /** Phase 2f — the order's cart (`qr_orders.cart_id`), or null on an order that carries none. The
+   *  counter bell keys a bag's food by its CART, so an unpaid bag and the paid bag that replaces it
+   *  are one bell, never two. */
+  cartId: string | null;
   label: string;
   /** K2: the registered table (1–10) a dine-in to-go bag came from, or null for a pickup/scango bag
    *  (no table) or an unregistered sticker. Denormalized snapshot — durable past session expiry. */
@@ -49,6 +53,10 @@ export type ExpoTicket = {
    *  cart (`lib/expo-rules.ts`) — ADVISORY. `done` badges the card and lifts it above bags still
    *  cooking; `unknown` (the lines could not be read) draws nothing and moves nothing. */
   kitchen: KitchenState;
+  /** Phase 2f review PT3 — when the kitchen FINISHED the bag (`kitchenDoneAt` over the cart's
+   *  lines, the latest bump), read only while `kitchen === "done"`; null/absent otherwise. A counter
+   *  order's finished food rings the bell once per finish, keyed by it (`laneFacts`). */
+  doneAt?: string | null;
   /** Pickup orders carry a slot — the expo shows it as the honest ready-by time (no fabricated countdown). */
   pickupSlot: string | null;
   /** J5: the diner's "I'm here" stamp (null until they announce) — the board flags a waiting diner. */
@@ -58,8 +66,39 @@ export type ExpoTicket = {
   createdAt: string;
 };
 
+/** Phase 2f · P2v — an OPEN counter order whose food the kitchen has, before it is paid ("Unpaid —
+ *  collect at pickup"). Read off the cart (there is no order yet); its one action is Take payment. */
+export type ExpoUnpaidBag = {
+  cartId: string;
+  sessionId: string;
+  customerName: string | null;
+  /** The lines IN THE KITCHEN only (`counterKitchenLine`: past their grace, comps included),
+   *  Burmese-first names like every bag line. */
+  lines: ExpoLine[];
+  /** Units still draft (not grocery) — on the order, not in the bag. */
+  moreUnits: number;
+  /** Self-review PT-2 — taking payment would collect something (`counterOwes`). False when every
+   *  chargeable line was comped: the bag is still collected, but it is not Unpaid and there is no
+   *  payment to take. */
+  owes: boolean;
+  /** `kitchenStateOf` over those lines — "done" when every one of them is served — but never "done"
+   *  while `moreUnits > 0` (self-review PT-4, the floor card's rule): then "cooking". */
+  kitchen: KitchenState;
+  /** Phase 2f review PT3 — when the kitchen finished it (the latest bump), null while it is not done.
+   *  The bell's key for this bag's food, and the SAME stamp its paid bag carries. */
+  doneAt?: string | null;
+  /** The earliest sent line's fire_at — the bag's age on the lane (`expoAge`'s `createdAt`). */
+  sentAt: string;
+};
+
 export type ExpoQueue = {
   tickets: ExpoTicket[];
+  /** Phase 2f — the unpaid counter bags ([] when none). An unreadable unpaid read makes the whole
+   *  poll an `outage`, never an empty list. */
+  unpaid: ExpoUnpaidBag[];
+  /** Phase 2f review M1 — the unpaid read hit its cap: `unpaid` holds the NEWEST bags and there are
+   *  more (older) ones than shown. The paid bags are unaffected. Absent reads as false. */
+  unpaidTruncated?: boolean;
   /** Server clock at snapshot (ISO) — the client seeds relative-time ticks from this (clock-skew safe). */
   serverNow: string;
 };

@@ -38,13 +38,11 @@ const menuQuery = {
 };
 vi.mock("@mms/db/server", () => ({
   publicClient: () => ({ from: () => menuQuery }),
-  serviceClient: () => ({
-    from: () => ({
-      select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: { customer_name: "Aye" } }) }),
-      }),
-    }),
-  }),
+  // Phase 2f — the page no longer reads the cart itself: a second read here would be a second
+  // answer to "whose order is this". Any service-client use is now a failure.
+  serviceClient: () => {
+    throw new Error("the add page must not read the cart itself");
+  },
 }));
 vi.mock("@/components/staff/OrderPad", () => ({
   OrderPad: (p: Record<string, unknown>) => {
@@ -68,6 +66,8 @@ function table(over: Partial<TableDetail> = {}): TableDetailResult {
       label: "t-7",
       hostPresent: false,
       send: { sendable: 5, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
+      counterOrder: false,
+      customerName: null,
       ...over,
     } as TableDetail,
   };
@@ -84,8 +84,13 @@ const row = (over: Record<string, unknown>) => ({
   ...over,
 });
 
-async function mount() {
-  render(await StaffAddItems({ params: Promise.resolve({ id: ID }) }));
+async function mount(search?: { name?: string }) {
+  render(
+    await StaffAddItems({
+      params: Promise.resolve({ id: ID }),
+      ...(search ? { searchParams: Promise.resolve(search) } : {}),
+    }),
+  );
   return h.padProps!;
 }
 
@@ -182,11 +187,25 @@ describe("the add page — the pad's app shell", () => {
     expect((await mount()).catalog).toEqual({ kind: "outage" });
   });
 
-  it("a counter order is flagged and carries its saved name", async () => {
-    h.detail = table({ label: "reg-ab12" });
+  it("a counter order is flagged BY THE DETAIL and carries the detail's saved name", async () => {
+    h.detail = table({ label: "reg-ab12", counterOrder: true, customerName: "Aye" });
     const p = await mount();
     expect(p.counterOrder).toBe(true);
     expect(p.initialName).toBe("Aye");
+    expect(p.focusName).toBe(false);
+  });
+
+  it("Phase 2f — the flag is the server's predicate, never the label's prefix", async () => {
+    // A `reg-`-looking label the server did NOT call a counter order (a diner pickup, say): a table.
+    h.detail = table({ label: "reg-ab12", counterOrder: false, customerName: null });
+    expect((await mount()).counterOrder).toBe(false);
+  });
+
+  it("Phase 2f — ?name=1 asks the pad to land on the name field (and only exactly that)", async () => {
+    h.detail = table({ label: "reg-ab12", counterOrder: true, customerName: null });
+    expect((await mount({ name: "1" })).focusName).toBe(true);
+    cleanup();
+    expect((await mount({ name: "yes" })).focusName).toBe(false);
   });
 
   it("the interim 'Review · N not sent' bridge is gone (the pad has its own Send)", async () => {

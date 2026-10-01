@@ -1,11 +1,21 @@
 import { Fragment } from "react";
 import { Icon } from "@mms/ui";
-import { kitchenSegments } from "@/lib/floor-kitchen";
+import { kitchenSegments, type KitchenSegment } from "@/lib/floor-kitchen";
 import type { FloorKitchen } from "@/lib/floor-types";
 import type { KdsThresholds } from "@/lib/kitchen-types";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { FloorWait } from "./FloorWait";
+
+/**
+ * Phase 2f review — the key a segment SAYS on a given card. A table serves a dish ("ready to
+ * serve", the wall's words); a counter order's bag is bagged and handed over, so its ready segment
+ * says "ready to bag". Every other segment is the same on both. The one mapping the row and the
+ * counter card's NAME (`CounterOrderCard.subjectOf`) both read, so the two cannot word it apart.
+ */
+export function kitchenSegKey(k: KitchenSegment["k"], pickup: boolean) {
+  return pickup && k === "floor.kitchen.up" ? ("floor.kitchen.up.pickup" as const) : k;
+}
 
 /**
  * Phase 2d · floor — the table card's KITCHEN ROW: "2 not sent · 3 in kitchen · 1 ready to serve",
@@ -22,6 +32,8 @@ export function FloorKitchenLine({
   thresholds,
   lang,
   frozen,
+  wait = true,
+  pickup = false,
 }: {
   kitchen: FloorKitchen;
   serverNow: string;
@@ -29,6 +41,12 @@ export function FloorKitchenLine({
   lang: StaffLang;
   /** Phase 2d · review — the floor is not updating: the wait pill holds (`FloorWait`). */
   frozen: boolean;
+  /** Phase 2f — false on a counter order's card: the wait pill reads the DINE-IN thresholds
+   *  (`floorWait`), which would misjudge a pickup bag (a pickup-threshold pill is filed, D7). */
+  wait?: boolean;
+  /** Phase 2f review — a counter order's card: its ready segment says "ready to bag"
+   *  (`kitchenSegKey`). */
+  pickup?: boolean;
 }) {
   const segs = kitchenSegments(kitchen);
   return (
@@ -42,19 +60,21 @@ export function FloorKitchenLine({
               {s.k === "expo.kitchenDone" ? (
                 <Chrome lang={lang} k={s.k} />
               ) : (
-                <Chrome lang={lang} k={s.k} vars={{ n: s.n }} />
+                <Chrome lang={lang} k={kitchenSegKey(s.k, pickup)} vars={{ n: s.n }} />
               )}
             </span>
           </Fragment>
         ))}
       </span>
-      <FloorWait
-        kitchen={kitchen}
-        serverNow={serverNow}
-        thresholds={thresholds}
-        lang={lang}
-        frozen={frozen}
-      />
+      {wait && (
+        <FloorWait
+          kitchen={kitchen}
+          serverNow={serverNow}
+          thresholds={thresholds}
+          lang={lang}
+          frozen={frozen}
+        />
+      )}
     </div>
   );
 }

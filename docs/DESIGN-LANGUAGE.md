@@ -1496,6 +1496,128 @@ _As built — where the spec moved, in the places a reader relies on._
   joined to the sheet views' padding rule; (5) `.help-lang-back` joined to `.help-size-back`, which
   must follow `.staff-back` to win at equal specificity.
 
+**Phase 2f — counter orders cook before they're paid (2026-09-30; owner decisions 1 and 7,
+OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. The rules as built:
+
+- **Who may send an unpaid order, and when.** Only STAFF, only a COUNTER order — a `reg-` session
+  in pickup mode (`isCounterOrder`, `lib/counter-order.ts`; its SQL twin
+  `s.mode = 'pickup' and s.qr_code like 'reg-%'` is restated inside each function's own statement)
+  — and only through `mms_fire_counter_cart`, which is `service_role`-only behind the staff gate.
+  Its UPDATE is the whole guard: an OPEN cart, an ACTIVE and UNEXPIRED session, a non-blank name,
+  draft TO-GO lines (grocery never fires). A kiosk order, a diner's own pickup and scan-and-go stay
+  pay-first; the diner's `mms_fire_cart` is untouched. A diner can no longer JOIN an active reserved
+  code — `reg-` (Codex r3 on #308) or `kiosk-` (self-review): `reservedCodeRefusal` answers 403
+  "That order can’t be joined from a phone — please ask staff." — one sentence true for both kinds
+  (the staff own a counter order; a kiosk order is the kiosk's own). And `assertCartMember` refuses
+  any member of an active `reg-` session, so a membership that predates the join refusal cannot add
+  a draft the counter Send would fire unpaid (defence in depth; prod held none, measured).
+  `SURFACES.payAtPickup` parks NEW sends and never hides food already sent — nor an open Undo: one
+  restored after a reload inside the grace always draws, on the pad as on the table page, so a valid
+  take-back is never stranded behind the switch (Codex r4 on #308). A future writer minting
+  `reg-` codes anywhere but `openRegisterOrder` inherits fire-before-pay — the migration header says
+  so. There is no freeze guard on the fire or its undo, deliberately: moving a line draft ↔ fired
+  changes no amount; the no-show, which does write money state, refuses a fresh freeze and pay lock.
+- **One definition of "sent unpaid food".** SENT = fired / in progress / served, not grocery, not
+  comped (a comp is already an audited loss). Every staff read and the no-show refine it with "PAST
+  the grace" — a line inside its 10 s undo never reached the KDS — and a NULL `fire_at` counts as
+  fired at or before now. `counterSentLine` is the TS twin; the table page's flag, the KDS flag, the
+  floor card and the no-show's count read it, on the DATABASE clock where it gates a
+  write-off; Clear's refusal is the SQL predicate itself, decided under the locks (below). The sweeper exempts ANY KITCHEN line — sent with
+  comps INCLUDED (`counterKitchenLine`), in-grace included — so a comped-only order is not swept
+  with its cart left open (self-review), and every exempt session keeps an exit (a settle, a no-show
+  that is never `nothing_sent` once the grace has run, or a Clear for a comped-only order). Never write a second test for "sent" at a call site, and never `label.startsWith("reg-")`.
+  **The bag is what the kitchen HAS, not what is owed** (Codex r3 on #308): the unpaid bag, its
+  kitchen state and its `sentAt` read `counterKitchenLine` — SENT with comps INCLUDED — so a comped
+  dish is listed and cooks before "Kitchen done", and a comped-only bag still appears; loss, the
+  Unpaid flag and the refusals keep `counterSentLine` (comps excluded). Bag ↔ KDS parity is a test.
+- **"Unpaid — collect at pickup" (`settle.unpaid`) shows exactly while an OPEN counter cart holds
+  SENT food** — never during the grace, gone at settlement — on the table page's header, the pad's
+  ticket, the counter's floor card, the lane's unpaid bag and the kitchen ticket. On the counter
+  surfaces it is a **warn** `Badge` with the receipt glyph (warn also marks money not yet taken at a
+  hand-over); on the KDS it is a **neutral** `--tx` line (a cook acts on food, not money). A chip is a
+  44px object and never echoes; the KDS line echoes (`echo="stack"`), so it is the one place a
+  Burmese-only kitchen tablet keeps the K15-HIGH English. **The KDS flag is the CART's, never a
+  visible line's** (Codex r4 on #308): `kdsLineGate` takes a required `cartOwes`, decided by
+  `counterOwes` over EVERY line of the open counter cart (one capped read; a failed or saturated read
+  is `outage`, never a guessed paid) — so a ticket whose chargeable dish was served while a comp still
+  cooks keeps Unpaid while the order owes, and a comp-only order never shows it. Every accessible name carrying the flag
+  composes it with the device's `shown` (`unpaidWords` / `unpaidBadgeWords`). The KDS ticket never
+  prints the raw `reg-` token — the guest's name, the `#CODE` once paid, else "Walk-up".
+- **The name lock.** A name is REQUIRED to send (the fire's own conjunct — the name is the only
+  pre-payment identity; `named = false` → "Add a name first", with an **Add a name →** link, and the
+  pad saves a typed name before it sends; a PRISTINE pad name field follows the live server name
+  when that value changes — never over typing — and a server `noName` moves focus to the field with
+  the same "Add a name first" copy). Once any line is fired / in progress / served — by STATE,
+  in-grace included — clearing it is refused (`mms_clear_cart_name` → `keep_name`, under the cart
+  row lock the fire takes, proven two-session); a non-empty rename is still allowed, and the schema
+  trims first, so whitespace is empty.
+- **The no-show.** "They didn't come — remove the order" REPLACES Clear on a counter order with sent
+  food (Clear refuses it and names the way out). It writes off only the SENT set past its grace, as
+  approved `void` rows with `reason_code = 'no_show'` through `mms_void_line`'s own loss gate — a
+  manager's PIN when any sent dish was started or served (`cooked`), or the sent value exceeds
+  `mms_loss_config.max_loss_cents` (`ceiling`); drafts and grocery drop with NO row and never count
+  toward the ceiling; in-grace lines go back to draft; pending approvals on the cart are superseded;
+  the cart is cancelled and the session closed. It records a loss and nothing else: no order, no
+  charge, no refund — the copy says exactly "nothing is charged and nothing is refunded", and says
+  **Remove**, never "void". It carries the sent line ids the sheet SHOWED (`expectedLineIds`) and
+  refuses `changed` — writing nothing — when the set it derives under its locks differs, so an
+  approval never lands on a write-off other than the one approved. It refuses while a payment is in
+  flight. The sheet names what it drops from the SERVER's set, never a client re-derivation
+  (`counterNoShowDropped` → `droppedLineIds`, on the DB clock: every draft and every in-grace send,
+  comped and grocery included — exactly what the SQL removes; Codex r2 on #308). **The sheet submits
+  what the manager read** (self-review): it SNAPSHOTS its sent, dropped and comped sets — and their
+  lines — when it opens, renders and submits from the snapshot, and when the live sets — or the
+  unit count on any line they name (`noShowQtyMoved`, Codex r4 on #308) — move under it it says "The order changed" in its one region, refuses the write, and offers an explicit **Show the
+  order as it is now** (`table.noshow.rearm`, focus to the new count) — never a silent swap of what
+  a PIN approves. A comped dish the kitchen already has is named too — "{n} no-charge items also come
+  off the kitchen screen" (`compedKitchenLineIds`, DB clock) — never counted as a loss. A manager roster
+  that fails to load is an OUTAGE, never an empty shift: "Couldn’t load managers", a 44px **Try
+  again**, and the step stays blocked (`useApproverRoster`, shared with the loss sheet); a retry that recovers
+  restores "a manager needs to approve" while the step-up is pending, in both sheets.
+- **The lane never blanks over the unpaid read.** Unpaid bags are drawn beside the paid ones, with
+  ONE action, **Take payment** (the table page's payment). An unreadable unpaid read is an outage,
+  said; a SATURATED one keeps every paid bag and says "more unpaid than shown" — in the count line
+  and the announcement, and never "No bags waiting". The register queue reads newest first, so stale
+  unpaid orders never push a new one out; both counter reads fetch CAP + 1 and call a read truncated
+  only on that extra row, and the floor's count line says so truthfully — "the oldest are not
+  listed" (`floor.counter.truncated`, self-review; older orders have no view yet, OPEN-ITEMS).
+  **A bag that owes nothing is not unpaid** (self-review): `counterOwes` — the settle section's own
+  chargeable rule — decides, and a bag whose every chargeable line was made free shows a neutral
+  **No charge** (`expo.bag.noCharge`, K15-HIGH) with a View link to its order, never Unpaid or Take
+  payment, and is not counted in the unpaid line. **Never "done" over unsent drafts:** an unpaid bag
+  with a draft still unsent never reads Kitchen done and never rings — the kitchen has not finished
+  an order it has not been given.
+- **The bell rings once per finished batch.** A counter order's finished food is keyed by its CART
+  and its finish (`food:<cartId>:<doneAt>`, the latest bump) — paid or unpaid, so an unpaid bag and
+  its paid bag do not ring twice, and a second batch done later rings again. Every other paid bag
+  keeps `food:<orderId>`.
+- **One filled button per arm, on the table page and the pad (§20).** Before any food is in: a
+  **phone** order leads with "Send now, pay at pickup" and Take payment is secondary; a **walk-up**
+  leads with Take payment and the Send sits beside it. Once food is in and more drafts remain, the
+  Send leads again on both arms ("send the rest to cook with it"). When everything is in, the table
+  page's Cash is the primary (the job at pickup IS taking payment) and the pad's primary is
+  **Done · Counter** with Take payment secondary. While THIS device's Send is mid-life (tap →
+  sending → undo), nothing on the table page is filled, and on the pad the Send keeps the dock slot it
+  was tapped in until its undo closes — a control never remounts under the finger. The reader stays
+  secondary on a counter order. One derivation each: `counterSettleVariant` (the table page) and
+  `padCounterDock` (the pad).
+- **Merge and Clear.** Nothing merges INTO a counter order; a counter order with food sent does not
+  merge out; one that sent nothing merges as before. Both refusals are decided INSIDE
+  `mms_merge_table_orders`, under its cart lock, with the source's pending approvals and then its
+  lines locked (-2 a counter target, -1 a SENT source; `floor.ts` keeps its read as the fast path and
+  maps both to one message — Codex r3 on #308). **Decision: an IN-GRACE line moves with a merge — as a DRAFT.**
+  It is not sent — the sender can still Undo it and the KDS has not drawn it — so the merge first
+  returns it to draft (`fire_at` and batch cleared, the undo's own edge; self-review) and it then
+  fires on the TARGET cart's own schedule — a pay-first target fires drafts only once paid, in its
+  slot. It never arrives still fired on the counter's clock. Only SENT food refuses. Clear keeps clearing a
+  drafts-only counter order. Its SENT check and its cancel are ONE locked decision
+  (`mms_clear_counter_cart`: the cart row, then its lines, `FOR UPDATE`; one transaction clock), and
+  an error or an unknown verdict refuses — a Send or a grace crossing mid-clear can no longer cancel
+  due kitchen food (Codex r2 on #308).
+- **The paid card.** After a pickup whose food went in first, the HandoffCard adds one line — "Their
+  food went to the kitchen before they paid — hand it over from Takeaway bags." — and never claims
+  the bag is ready (no auto-advance at settlement, owner decision 7d).
+
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
 Min's brief was one line — "dynamic aspect ratios: mobiles, tablets, desktop" — and the app was

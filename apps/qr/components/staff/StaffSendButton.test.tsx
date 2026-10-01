@@ -27,7 +27,6 @@ vi.mock("@/lib/staff-send", () => ({
 }));
 const haptic = vi.fn();
 vi.mock("@/lib/haptics", () => ({ haptic: (m: string) => haptic(m) }));
-
 const { useStaffSend, undoStashKey } = await import("./useStaffSend");
 const { StaffSendButton } = await import("./StaffSendButton");
 
@@ -35,7 +34,8 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 const T = Date.parse("2026-09-24T18:00:00.000Z");
 const iso = (ms: number) => new Date(ms).toISOString();
 
-const SEND: StaffSendView = {
+type SendKind = Extract<StaffSendView, { kind: "send" }>;
+const SEND: SendKind = {
   kind: "send",
   units: 3,
   emphasis: "primary",
@@ -43,8 +43,20 @@ const SEND: StaffSendView = {
   blocked: null,
   staffAdded: 3,
   dinerUnits: 0,
+  counter: false,
 };
 const ALL_SENT: StaffSendView = { kind: "allSent" };
+// Phase 2f — a counter order's pay-at-pickup Send (plan §5.2): a walk-up, named, nothing sent yet.
+const COUNTER: SendKind = {
+  kind: "send",
+  units: 3,
+  emphasis: "secondary",
+  note: "payAtPickup",
+  blocked: null,
+  staffAdded: 3,
+  dinerUnits: 0,
+  counter: true,
+};
 
 let hold: StaffSendHold = null;
 const notices: (SendNotice | null)[] = [];
@@ -57,6 +69,9 @@ function Host({
   slot = true,
   renderedHold = null,
   degraded = false,
+  onBlocked,
+  nameHref,
+  counterNotSent,
 }: {
   view: StaffSendView;
   seq: number;
@@ -64,6 +79,9 @@ function Host({
   slot?: boolean;
   renderedHold?: StaffSendHold;
   degraded?: boolean;
+  onBlocked?: (b: "paying" | "noName") => void;
+  nameHref?: string;
+  counterNotSent?: number;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ctl = useStaffSend({
@@ -75,6 +93,7 @@ function Host({
     rootRef,
     onNotice: (n) => notices.push(n),
     onRefresh: refreshes,
+    onBlocked,
   });
   return (
     <div ref={rootRef}>
@@ -88,6 +107,8 @@ function Host({
           statusRef={ctl.statusRef}
           hold={renderedHold}
           hostName={null}
+          nameHref={nameHref}
+          counterNotSent={counterNotSent}
         />
       )}
     </div>
@@ -448,6 +469,134 @@ describe("refusals and the unknown", () => {
     r.rerender(<Host view={ALL_SENT} seq={1} />);
     await flush(10_250);
     expect(live()).toBeNull();
+  });
+});
+
+describe("Phase 2f · pay at pickup — a counter order's Send", () => {
+  const describedText = (btn: HTMLElement) =>
+    (btn.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .filter(Boolean)
+      .map((id) => document.getElementById(id)!.textContent)
+      .join(" | ");
+
+  it("says it cooks now and is paid at pickup, at the view's emphasis, described by the note BELOW it", async () => {
+    render(<Host view={COUNTER} seq={0} />);
+    await flush();
+    const btn = control();
+    expect(btn.textContent).toBe(STAFF["table.send.cta.counter.many"].en.replace("{n}", "3"));
+    expect(btn.className).toContain("ui-btn-secondary");
+    expect(describedText(btn)).toBe(STAFF["table.send.payAtPickupNote"].en);
+    // The hint sits AFTER the control in the slot (a hint above it moves the control under a thumb).
+    const hint = document.getElementById(btn.getAttribute("aria-describedby")!)!;
+    expect(btn.compareDocumentPosition(hint) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    cleanup();
+    render(
+      <Host view={{ ...COUNTER, units: 1, emphasis: "primary", note: "unpaidMore" }} seq={0} />,
+    );
+    await flush();
+    expect(control().textContent).toBe(STAFF["table.send.cta.counter.one"].en.replace("{n}", "1"));
+    expect(control().className).toContain("ui-btn-primary");
+    expect(describedText(control())).toBe(STAFF["table.send.unpaidMoreNote"].en);
+  });
+
+  it("a table's Send keeps the plain label — the counter words are the counter's alone", async () => {
+    render(<Host view={{ ...SEND, counter: false }} seq={0} />);
+    await flush();
+    expect(control().textContent).toBe(STAFF["table.send.cta.many"].en.replace("{n}", "3"));
+  });
+
+  it("no name: aria-disabled (never [disabled]), the tap sends nothing and tells the host, the hint links to the name", async () => {
+    const blockedTaps: string[] = [];
+    render(
+      <Host
+        view={{ ...COUNTER, blocked: "noName" }}
+        seq={0}
+        onBlocked={(b) => blockedTaps.push(b)}
+        nameHref="/staff/table/s/add?name=1"
+      />,
+    );
+    await flush();
+    const btn = control();
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(document.querySelector("[disabled]")).toBeNull();
+    expect(describedText(btn)).toContain(STAFF["table.send.hold.noName"].en);
+    const link = document.getElementById("send-name-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/staff/table/s/add?name=1");
+    expect(link.textContent).toBe(STAFF["table.send.addName"].en);
+    fireEvent.click(btn);
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(haptic).not.toHaveBeenCalled();
+    expect(blockedTaps).toEqual(["noName"]);
+  });
+
+  it("a paying hold tells the host too, and the pad (no nameHref) gets no link", async () => {
+    const blockedTaps: string[] = [];
+    render(
+      <Host
+        view={{ ...COUNTER, blocked: "paying" }}
+        seq={0}
+        onBlocked={(b) => blockedTaps.push(b)}
+      />,
+    );
+    await flush();
+    fireEvent.click(control());
+    await flush();
+    expect(fire).not.toHaveBeenCalled();
+    expect(blockedTaps).toEqual(["paying"]);
+    expect(describedText(control())).toContain(STAFF["table.send.paying"].en);
+    cleanup();
+    render(<Host view={{ ...COUNTER, blocked: "noName" }} seq={0} />);
+    await flush();
+    expect(document.getElementById("send-name-link")).toBeNull();
+  });
+
+  it("the SERVER's no-name verdict (cleared elsewhere) tells the host like the view's block", async () => {
+    // The view still reads named (this device's last read); the fire's own statement finds no name.
+    const blockedTaps: string[] = [];
+    fire.mockResolvedValueOnce({ ok: false, reason: "noName" });
+    render(<Host view={COUNTER} seq={0} onBlocked={(b) => blockedTaps.push(b)} />);
+    await flush();
+    fireEvent.click(control());
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(1);
+    // MUTATION (p2f-cx3-name/server-noName-not-blocked): the host is never told — red.
+    expect(blockedTaps).toEqual(["noName"]);
+    // The words stay the verdict's, in the one region: nothing went to the kitchen.
+    expect(notices.at(-1)).toEqual({ tone: "warn", msg: { k: "table.send.err.noName" } });
+    // Any OTHER refusal does not move the finger to the name.
+    fire.mockResolvedValueOnce({ ok: false, reason: "nothing" });
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    expect(fire).toHaveBeenCalledTimes(2);
+    expect(blockedTaps).toEqual(["noName"]);
+  });
+
+  it("sent unpaid: a status row (receipt glyph hidden), no Send, no live region", async () => {
+    render(<Host view={{ kind: "counterSent" }} seq={0} />);
+    await flush();
+    expect(control()).toBeNull();
+    const row = document.querySelector(".staff-send-status")!;
+    expect(accessibleText(row)).toBe(STAFF["table.send.counterSent"].en);
+    expect(row.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.querySelector("[role=status],[role=alert],[aria-live]")).toBeNull();
+  });
+
+  it("sent unpaid with drafts LEFT (the switch parked new sends): says what is not sent", async () => {
+    render(<Host view={{ kind: "counterSent" }} seq={0} counterNotSent={2} />);
+    await flush();
+    const row = document.querySelector(".staff-send-status")!;
+    expect(accessibleText(row)).toBe(
+      STAFF["table.send.counterSent.partial.many"].en.replace("{n}", "2"),
+    );
+    cleanup();
+    render(<Host view={{ kind: "counterSent" }} seq={0} counterNotSent={1} />);
+    await flush();
+    expect(accessibleText(document.querySelector(".staff-send-status")!)).toBe(
+      STAFF["table.send.counterSent.partial.one"].en.replace("{n}", "1"),
+    );
   });
 });
 

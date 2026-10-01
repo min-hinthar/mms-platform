@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import type { LineState } from "./permissions";
+import { REG_PREFIX } from "./register-queue";
 import {
   SESSION_RENEW_THRESHOLD_MS,
   sessionExpiryFromNow,
@@ -192,12 +193,28 @@ export async function assertCartMember(cartId: string): Promise<CartAuthz> {
 
   const { data: sess, error: sessErr } = await db
     .from("table_sessions")
-    .select("status,expires_at,mode")
+    .select("status,expires_at,mode,qr_code")
     .eq("id", cart.session_id)
     .maybeSingle();
   if (sessErr) throw UNAVAILABLE(); // W10a — unknowable ≠ expired
   if (!sess || sess.status === "closed" || new Date(sess.expires_at) <= new Date())
     throw new AuthzError("Session is no longer active", 403, "session_expired");
+  // Phase 2f · P2v (defence in depth behind /api/session's `reservedCodeRefusal`) — a staff-minted
+  // `reg-` counter order has NO diner. The register mints it with no member row and staff build it
+  // through service-role actions (`lib/register.ts`, `lib/staff-cart.ts` — `requireStaff`, never
+  // this guard). The route now refuses a NEW join, but a membership that already exists (or one
+  // made by the pre-fix route between the migration apply and this deploy) would otherwise pass
+  // here and add a to-go draft the counter Send (`mms_fire_counter_cart`) fires to the kitchen
+  // unpaid. Any `reg-` code, whatever its mode — the same fail-closed reading as the route's join
+  // refusal. Read from the SAME row as the liveness check, so it costs no second round trip and
+  // inherits its fail-closed 503. A `kiosk-` session is untouched: the kiosk device IS its member
+  // (`lib/kiosk.ts` inserts it) and drives the whole diner cart through this guard.
+  if (sess.qr_code.startsWith(REG_PREFIX))
+    throw new AuthzError(
+      "This is a counter order — staff take it at the register.",
+      403,
+      "not_member",
+    );
 
   const { data: member, error: memberErr } = await db
     .from("session_members")

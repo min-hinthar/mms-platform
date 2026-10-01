@@ -7,10 +7,17 @@ import { setTogoStatusInput } from "@mms/db/schemas";
 import { getStaffAuth, STAFF_SIGNIN_REQUIRED, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
-import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
-import { compareExpoTickets, kitchenStateOf, type KitchenLineRow } from "./expo-rules";
+import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket, ExpoUnpaidBag } from "./expo-types";
+import {
+  compareExpoTickets,
+  kitchenDoneAt,
+  kitchenStateOf,
+  type KitchenLineRow,
+} from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
+import { readUnpaidCounterCarts } from "./register-queue";
+import { unpaidBag } from "./counter-order";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -44,6 +51,12 @@ const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound 
  * due — a 6pm slot paid at noon no longer heads the queue all afternoon while a walk-up scango bag
  * waits at the bottom. K10: gate failures return a discriminant (signin/locked), never a throw the
  * client can't tell from a dropped socket.
+ *
+ * Phase 2f · P2v — beside the paid bags, the OPEN counter (`reg-`) orders whose food the kitchen has
+ * (`readUnpaidCounterCarts`, shaped by `unpaidBag`): "Unpaid — collect at pickup", whose one action is
+ * Take payment. That read is NOT advisory — an unreadable one is an outage of the lane, because an
+ * empty unpaid list over cooked food is the lie the W10b posture refuses. A SATURATED one keeps the
+ * paid bags and the newest unpaid ones, and says so (`unpaidTruncated`, review M1).
  */
 export async function getExpoQueue(): Promise<ExpoPoll> {
   const auth = await getStaffAuth();
@@ -60,23 +73,41 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // W10b — every read that feeds ticket assembly checks its error → `outage`: a failed orders read
   // rendered "No bags waiting" over a counter of paid bags; a failed items/sessions read silently
   // dropped or mislabeled them. The freeze-on-outage client keeps the last-known queue regardless.
-  const { data: orders, error: ordersError } = await db
-    .from("qr_orders")
-    .select(
-      "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
-    )
-    .in("togo_status", ["preparing", "ready"])
-    // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
-    // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
-    // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
-    // still-future bag off the counter before staff should even start it. The kitchen's floor never
-    // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
-    // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
-    .or(
-      `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
-    )
-    .order("created_at", { ascending: true })
-    .limit(QUEUE_CAP);
+  //
+  // ⚠️ THE UNPAID READ FINISHES BEFORE THE PAID READ STARTS (Codex round 1 on #308, P2). Settlement
+  // moves a counter order from one list to the other; issued concurrently, the two statements take
+  // their snapshots in either order, and with the paid snapshot FIRST a bag settled between them is
+  // in neither list. Awaited in sequence (each PostgREST statement snapshots at its start), a cart
+  // the unpaid read saw leave `open` already has its settled order row for the paid read — so the
+  // only interleaving left is the harmless one, the same bag in BOTH lists, and the dedupe below
+  // (the paid bag wins) takes it out. One round trip of latency buys the ordering.
+  //
+  // RESIDUAL, NOT FIXED HERE: a settled order joins the paid read only once `mms_init_togo_status`
+  // stamps `togo_status`, which runs in the settle's `after()` drain (backstop: the pg_cron
+  // reconciler), not in the settling transaction. For that window — normally milliseconds — the bag
+  // is in neither list for one poll, and the next poll shows it paid. Closing it needs the stamp in
+  // the settle itself, a migration on the money path.
+  const paidRead = () =>
+    db
+      .from("qr_orders")
+      .select(
+        "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
+      )
+      .in("togo_status", ["preparing", "ready"])
+      // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
+      // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
+      // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
+      // still-future bag off the counter before staff should even start it. The kitchen's floor never
+      // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
+      // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
+      .or(
+        `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
+      )
+      .order("created_at", { ascending: true })
+      .limit(QUEUE_CAP);
+  const unpaidRead = await readUnpaidCounterCarts(db, nowIso);
+  if (!unpaidRead.ok) return { ok: false, reason: "outage" };
+  const { data: orders, error: ordersError } = await paidRead();
   if (ordersError) return { ok: false, reason: "outage" };
   // ⚠️ SATURATION IS AN OUTAGE, NOT A FOOTNOTE (Codex round 2, P2). Logging and continuing returned
   // `ok: true` with a partial list — the oldest-first cap silently omits every newer order, so a
@@ -91,16 +122,41 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
     return { ok: false, reason: "outage" };
   }
-  if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], serverNow: nowIso } };
+  // Phase 2f review M1 — a SATURATED unpaid read degrades the unpaid section only. A sent-unpaid
+  // counter order is exempt from the sweep, so uncollected ones accrue; turning the whole lane into
+  // an outage at the cap hid every PAID bag over orders nobody came for. The read keeps the NEWEST
+  // carts (`readUnpaidCounterCarts`), and `unpaidTruncated` tells the lane its unpaid list is not the
+  // whole list — never passed off as complete.
+  const unpaidTruncated = unpaidRead.truncated;
+  if (unpaidTruncated)
+    console.error("[expo] unpaid counter read saturated — the oldest unpaid bags are not shown", {
+      rows: unpaidRead.carts.length,
+    });
+  const nowMs = Date.parse(nowIso);
+  // A cart the paid read already holds settled between the two reads: it is a PAID bag now, drawn
+  // once, as paid (Codex round 1 on #308 — never twice, once each way).
+  const paidCarts = new Set((orders ?? []).map((o) => o.cart_id).filter((c) => !!c));
+  const bags = unpaidRead.carts.flatMap((c) => {
+    if (paidCarts.has(c.id)) return [];
+    const b = unpaidBag({
+      cartId: c.id,
+      sessionId: c.session_id,
+      customerName: c.customer_name ?? null,
+      lines: c.items ?? [],
+      nowMs,
+    });
+    return b ? [b] : [];
+  });
 
-  const orderIds = orders.map((o) => o.id);
+  const orderIds = (orders ?? []).map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.
-  const { data: items, error: itemsError } = await db
-    .from("qr_order_items")
-    .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
-    .in("order_id", orderIds)
-    .in("fulfillment", ["togo", "grocery"]);
+  const { data: items, error: itemsError } = orderIds.length
+    ? await db
+        .from("qr_order_items")
+        .select("id,order_id,name,qty,modifiers,modifier_option_ids,fulfillment,notes,menu_item_id")
+        .in("order_id", orderIds)
+        .in("fulfillment", ["togo", "grocery"])
+    : { data: [], error: null };
   if (itemsError) return { ok: false, reason: "outage" };
 
   // P1 — the Burmese half of every bag line, from the LIVE catalog, through the ONE loader (F18,
@@ -108,12 +164,23 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // IN-lists and ADVISORY by table, so a failed name read logs and that half renders English (what
   // the counter showed before P1), never `outage`. A name read cannot misidentify a bag; freezing
   // the counter over a label is the over-blocking direction.
-  const { nameMyByRef, optionNameMy } = await loadLineNames(db, items ?? [], { tag: "expo" });
-
-  const linesByOrder = new Map<string, ExpoLine[]>();
-  for (const it of items ?? []) {
+  const { nameMyByRef, optionNameMy } = await loadLineNames(
+    db,
+    [...(items ?? []), ...bags.flatMap((b) => b.lines)],
+    { tag: "expo" },
+  );
+  const toExpoLine = (it: {
+    id: string;
+    name: string;
+    qty: number;
+    modifiers: unknown;
+    modifier_option_ids: unknown;
+    fulfillment: string;
+    notes: string | null;
+    menu_item_id: string;
+  }): ExpoLine => {
     const modifiers = Array.isArray(it.modifiers) ? (it.modifiers as string[]) : [];
-    const line: ExpoLine = {
+    return {
       id: it.id,
       name: it.name,
       nameMy: catalogNameMy(nameMyByRef.get(it.menu_item_id), it.name),
@@ -123,6 +190,14 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       fulfillment: it.fulfillment === "grocery" ? "grocery" : "togo",
       notes: it.notes ?? null,
     };
+  };
+  const unpaid: ExpoUnpaidBag[] = bags.map((b) => ({ ...b, lines: b.lines.map(toExpoLine) }));
+  if (!orders || orders.length === 0)
+    return { ok: true, queue: { tickets: [], unpaid, unpaidTruncated, serverNow: nowIso } };
+
+  const linesByOrder = new Map<string, ExpoLine[]>();
+  for (const it of items ?? []) {
+    const line = toExpoLine(it);
     const arr = linesByOrder.get(it.order_id);
     if (arr) arr.push(line);
     else linesByOrder.set(it.order_id, [line]);
@@ -156,14 +231,19 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   } = cartIds.length
     ? await db
         .from("qr_cart_items")
-        .select("cart_id,state,fulfillment", { count: "exact" })
+        .select("cart_id,state,fulfillment,bumped_at", { count: "exact" })
         .in("cart_id", cartIds)
     : {
-        data: [] as { cart_id: string; state: string; fulfillment: string }[],
+        data: [] as {
+          cart_id: string;
+          state: string;
+          fulfillment: string;
+          bumped_at: string | null;
+        }[],
         error: null,
         count: 0,
       };
-  const linesByCart = new Map<string, KitchenLineRow[]>();
+  const linesByCart = new Map<string, (KitchenLineRow & { bumped_at: string | null })[]>();
   // A response SHORT of its own count is PostgREST's max-rows cap, and it is silent (Codex round 1
   // on A4·2): a cart whose cooking row fell past the cap would read `done` off its surviving served
   // rows and be lifted as finished. `count: "exact"` rides the same statement; a count above the
@@ -195,8 +275,11 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     const lines = linesByOrder.get(o.id);
     if (!lines || lines.length === 0) continue; // no takeaway line snapshot — not a bag (defensive)
     const sess = o.session_id ? sessById.get(o.session_id) : undefined;
+    const cartLinesOf = o.cart_id ? linesByCart.get(o.cart_id) : undefined;
+    const kitchen = kitchenStateOf(cartLinesOf);
     tickets.push({
       orderId: o.id,
+      cartId: o.cart_id ?? null,
       label: sess?.qr_code ?? "Order",
       // K2: the denormalized table snapshot (stamped at fulfillment) — durable past session expiry,
       // and null for a pickup/scango bag (no table). Read off the ORDER, not the (maybe-gone) session.
@@ -206,7 +289,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       customerPhone: (o.cart_id ? phoneByCart.get(o.cart_id) : null) ?? null,
       shortCode: o.id.slice(-6).toUpperCase(),
       status: o.togo_status === "ready" ? "ready" : "preparing",
-      kitchen: kitchenStateOf(o.cart_id ? linesByCart.get(o.cart_id) : undefined),
+      kitchen,
+      // Phase 2f review PT3 — the finish, off the SAME cart lines an unpaid bag reads its own from.
+      doneAt: kitchen === "done" && cartLinesOf ? kitchenDoneAt(cartLinesOf) : null,
       pickupSlot: o.pickup_slot ?? null,
       arrivedAt: o.arrived_at ?? null,
       lines,
@@ -218,7 +303,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // finished, then the effective due time (the pickup slot when one exists, else payment time), then
   // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
   tickets.sort(compareExpoTickets);
-  return { ok: true, queue: { tickets, serverNow: nowIso } };
+  return { ok: true, queue: { tickets, unpaid, unpaidTruncated, serverNow: nowIso } };
 }
 
 export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };

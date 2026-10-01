@@ -1,5 +1,6 @@
+import { isCounterOrder } from "./counter-order";
 import { isScanGoBasket } from "./expo-rules";
-import type { ExpoTicket } from "./expo-types";
+import type { ExpoTicket, ExpoUnpaidBag } from "./expo-types";
 import type { FloorTable } from "./floor-types";
 
 /**
@@ -68,8 +69,31 @@ export function floorFacts(
  *           already standing there: an arrived guest already rang, and the bag is theirs to hand
  *           over — a second bell for the same person is noise.
  */
+/**
+ * Phase 2f review PT3 — a COUNTER order's finished food: its CART (an unpaid bag and the paid bag
+ * that replaces it are one cart) AND the finish (`doneAt`, the latest bump). Keyed by the cart alone,
+ * a second batch sent unpaid — or the rest fired at settlement — finished later and never rang; keyed
+ * by the finish too, each finish is one event: the same finish seen unpaid and then paid is one
+ * ring, a later one is a new ring. No stamp (a legacy served line) keys by the cart alone.
+ */
+function counterFoodKey(cartId: string, doneAt: string | null | undefined): string {
+  return doneAt ? `food:${cartId}:${doneAt}` : `food:${cartId}`;
+}
+
 export function laneFacts(
-  tickets: readonly Pick<ExpoTicket, "orderId" | "status" | "arrivedAt" | "kitchen" | "lines">[],
+  tickets: readonly Pick<
+    ExpoTicket,
+    | "orderId"
+    | "cartId"
+    | "mode"
+    | "label"
+    | "doneAt"
+    | "status"
+    | "arrivedAt"
+    | "kitchen"
+    | "lines"
+  >[],
+  unpaid: readonly Pick<ExpoUnpaidBag, "cartId" | "kitchen" | "doneAt">[] = [],
 ): CounterFacts {
   const guest = new Set<string>();
   const food = new Set<string>();
@@ -78,8 +102,16 @@ export function laneFacts(
     if (t.arrivedAt !== null) guest.add(`here:${t.orderId}`);
     if (basket && t.status === "preparing") guest.add(`verify:${t.orderId}`);
     if (!basket && t.status === "preparing" && t.kitchen === "done" && t.arrivedAt === null)
-      food.add(`food:${t.orderId}`);
+      // A counter order's paid bag keys as its unpaid bag did (one finish, one ring); every other
+      // paid bag keys by its ORDER, exactly as before Phase 2f.
+      food.add(
+        t.cartId && isCounterOrder({ mode: t.mode, qrCode: t.label })
+          ? counterFoodKey(t.cartId, t.doneAt)
+          : `food:${t.orderId}`,
+      );
   }
+  // Phase 2f · P2v — an unpaid counter bag the kitchen finished is food too.
+  for (const b of unpaid) if (b.kitchen === "done") food.add(counterFoodKey(b.cartId, b.doneAt));
   return { guest, food };
 }
 
@@ -111,7 +143,9 @@ export function counterRing(seen: ReadonlySet<string> | null, next: CounterFacts
 /**
  * The subject of a fact key — the session of an ask, the order of a lane fact — so a board can put
  * the one-shot ring on the card the news is about. Keys are `kind:subject[:stamp]`; a uuid carries
- * no colon, an ISO stamp does, so the subject is the SECOND segment.
+ * no colon, an ISO stamp does, so the subject is the SECOND segment. Phase 2f: a COUNTER order's
+ * `food:` key's subject is its CART id (paid or unpaid — `counterFoodKey`); every other bag's is its
+ * order id, so a board matches a paid card by either.
  */
 export function factSubject(key: string): string {
   return key.split(":")[1] ?? "";

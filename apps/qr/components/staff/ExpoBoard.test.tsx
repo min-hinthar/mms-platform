@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExpoPoll, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import type { ExpoPoll, ExpoQueue, ExpoTicket, ExpoUnpaidBag } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
 
 /**
@@ -27,6 +27,7 @@ const haptic = vi.fn();
 
 const ticket = (over: Partial<ExpoTicket> = {}): ExpoTicket => ({
   orderId: "order-1",
+  cartId: null,
   label: "T7",
   mode: "dinein",
   customerName: null,
@@ -52,7 +53,11 @@ const ticket = (over: Partial<ExpoTicket> = {}): ExpoTicket => ({
   createdAt: iso(-3),
   ...over,
 });
-const queue = (tickets: ExpoTicket[] = [ticket()]): ExpoQueue => ({ tickets, serverNow: NOW });
+const queue = (tickets: ExpoTicket[] = [ticket()]): ExpoQueue => ({
+  tickets,
+  unpaid: [],
+  serverNow: NOW,
+});
 let currentQueue = queue();
 
 const getExpoQueue = vi.fn(
@@ -69,7 +74,9 @@ vi.mock("./LiveConnection", () => ({
   useLiveBoardState: () => undefined,
   useReportLive: () => {},
 }));
-
+// Phase 2f — the unpaid bag's Take payment pushes the pane at split width (read at click time).
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ExpoBoard } = await import("./ExpoBoard");
 const { tf } = await import("@/lib/i18n/fill");
@@ -772,5 +779,202 @@ describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
     expect(pill(container)?.textContent).toContain(
       tf("en", "expo.toast.handedOver", { x: "#A1B2C3" }),
     );
+  });
+});
+
+describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)", () => {
+  const bag = (over: Partial<ExpoUnpaidBag> = {}): ExpoUnpaidBag => ({
+    cartId: "cart-reg",
+    sessionId: "sess-reg",
+    customerName: "Aye",
+    lines: [
+      {
+        id: "u-1",
+        name: "Tea Leaf Salad",
+        nameMy: null,
+        qty: 1,
+        modifiers: [],
+        modifiersMy: [],
+        fulfillment: "togo",
+        notes: null,
+      },
+    ],
+    moreUnits: 0,
+    owes: true,
+    kitchen: "done",
+    sentAt: iso(-4),
+    ...over,
+  });
+  const withBag = (b = bag(), tickets: ExpoTicket[] = []) =>
+    ({ tickets, unpaid: [b], serverNow: NOW }) satisfies ExpoQueue;
+  const unpaidCard = (root: HTMLElement) =>
+    root.querySelector<HTMLElement>("article[data-unpaid]")!;
+
+  it("draws the Unpaid flag, the SENT lines, what is not sent yet, and ONE link — to take payment", () => {
+    // A bag with a draft still unsent is never "done" (lib's `unpaidBag`, self-review PT-4).
+    const { container } = mount("en", withBag(bag({ moreUnits: 1, kitchen: "cooking" })));
+    const card = unpaidCard(container);
+    expect(card.textContent).toContain(ts("en", "settle.unpaid"));
+    expect(card.textContent).not.toContain(ts("en", "expo.bag.noCharge"));
+    expect(card.textContent).toContain("Tea Leaf Salad");
+    expect(card.textContent).toContain(tf("en", "expo.unpaid.more.one", { n: 1 }));
+    expect(card.textContent).not.toContain(ts("en", "expo.kitchenDone"));
+    // ONE action, and never the lane's stage buttons: an unpaid bag is not bagged or handed over.
+    expect(within(card).queryAllByRole("button")).toHaveLength(0);
+    const links = within(card).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute("href")).toBe("/staff/table/sess-reg?settle=1");
+    expect(links[0]!.className).toContain("ui-btn-primary");
+    expect(links[0]!.getAttribute("aria-label")).toContain("Aye");
+    expect(links[0]!.textContent).toBe(ts("en", "expo.verb.takePayment"));
+  });
+
+  it("a finished bag with nothing unsent says Kitchen done, and no 'more not sent' line", () => {
+    const { container } = mount("en", withBag());
+    const card = unpaidCard(container);
+    expect(card.textContent).toContain(ts("en", "expo.kitchenDone"));
+    expect(card.textContent).not.toContain(tf("en", "expo.unpaid.more.one", { n: 1 }));
+  });
+
+  // Self-review PT-2 — every chargeable line made free: the bag is still collected, but nothing is
+  // owed. Never "Unpaid", never counted unpaid, never a Take payment into a page with no payment.
+  it("a bag that owes nothing: 'No charge', a plain View link to its page, and no Unpaid anywhere", () => {
+    // p2f-sr-lane/expo-board/free-bag-reads-unpaid · free-bag-takes-payment
+    const { container } = mount("en", withBag(bag({ owes: false })));
+    const card = unpaidCard(container);
+    expect(card.textContent).toContain(ts("en", "expo.bag.noCharge"));
+    expect(card.textContent).not.toContain(ts("en", "settle.unpaid"));
+    const name = card.getAttribute("aria-label")!;
+    expect(name).toContain(tf("en", "expo.a11y.cardNoCharge", { x: "Aye" }));
+    expect(name).toContain(ts("en", "expo.bag.noCharge"));
+    expect(name).not.toContain(ts("en", "settle.unpaid"));
+    const links = within(card).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute("href")).toBe("/staff/table/sess-reg");
+    expect(links[0]!.className).toContain("ui-btn-secondary");
+    expect(links[0]!.textContent).toBe(ts("en", "floor.verb.view"));
+    expect(links[0]!.textContent).not.toBe(ts("en", "expo.verb.takePayment"));
+    const linkName = links[0]!.getAttribute("aria-label")!;
+    expect(linkName).toContain("Aye");
+    expect(linkName).toContain(ts("en", "floor.verb.view"));
+    expect(linkName).not.toContain(ts("en", "expo.verb.takePayment"));
+  });
+
+  it("the unpaid count counts only the bags that OWE — a free bag is still counted as a bag", () => {
+    // p2f-sr-lane/expo-board/free-bag-counted-unpaid
+    const q = {
+      tickets: [],
+      unpaid: [bag({ owes: false }), bag({ cartId: "cart-2", sessionId: "sess-2", owes: true })],
+      serverNow: NOW,
+    } satisfies ExpoQueue;
+    const { container } = mount("en", q);
+    const [announced, visible] = container.querySelectorAll(".expo-status");
+    expect(visible!.textContent).toContain(tf("en", "expo.count.many", { n: 2 }));
+    expect(visible!.textContent).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+    expect(announced!.textContent).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+    cleanup();
+    const free = mount("en", withBag(bag({ owes: false })));
+    const line = free.container.querySelectorAll(".expo-status")[1]!.textContent!;
+    expect(line).toContain(tf("en", "expo.count.one", { n: 1 }));
+    expect(line).not.toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+  });
+
+  it("its name says whose bag it is and the visible Unpaid words — in every language mode", () => {
+    for (const lang of ["en", "my"] as const) {
+      const { container } = mount(lang, withBag());
+      const name = unpaidCard(container).getAttribute("aria-label")!;
+      expect(name).toContain(tf(lang, "expo.a11y.cardUnpaid", { x: "Aye" }));
+      expect(name).toContain(ts(lang, "settle.unpaid"));
+      cleanup();
+    }
+    const { container } = mount("en", withBag(bag({ customerName: null })));
+    expect(unpaidCard(container).getAttribute("aria-label")).toContain(ts("en", "reg.row.walkup"));
+  });
+
+  it("the lane's count names the unpaid bag, and counts it as a bag", () => {
+    const { container } = mount("en", withBag(bag(), [ticket()]));
+    const visible = container.querySelectorAll(".expo-status")[1]!.textContent!;
+    expect(visible).toContain(tf("en", "expo.count.many", { n: 2 }));
+    expect(visible).toContain(tf("en", "expo.count.unpaid", { n: 1 }));
+  });
+
+  // Phase 2f review (M1, lib's `unpaidTruncated` — resolves at integration): the unpaid read hit
+  // its cap. The paid bags stay; the lane SAYS the unpaid list is partial, in its visible line and
+  // its announcement, and never reads as an all-clear.
+  it("a saturated unpaid read: the count line and the announcement say more are unpaid", () => {
+    const q: ExpoQueue & { unpaidTruncated?: boolean } = {
+      ...withBag(bag(), [ticket()]),
+      unpaidTruncated: true,
+    };
+    const { container } = mount("en", q);
+    const [announced, visible] = container.querySelectorAll(".expo-status");
+    expect(visible!.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    expect(announced!.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    cleanup();
+    const plain = mount("en", withBag(bag(), [ticket()]));
+    expect(plain.container.textContent).not.toContain(ts("en", "expo.count.unpaidMore"));
+  });
+
+  it("a saturated unpaid read with nothing drawable is never 'No bags waiting'", () => {
+    const q: ExpoQueue & { unpaidTruncated?: boolean } = {
+      tickets: [],
+      unpaid: [],
+      serverNow: NOW,
+      unpaidTruncated: true,
+    };
+    const { container } = mount("en", q);
+    expect(container.textContent).toContain(ts("en", "expo.count.unpaidMore"));
+    expect(container.textContent).not.toContain(ts("en", "expo.none"));
+    expect(container.textContent).not.toContain(ts("en", "expo.empty"));
+  });
+
+  it("a kitchen-done unpaid bag sorts beside the paid bags (never a second list)", () => {
+    const { container } = mount(
+      "en",
+      withBag(bag(), [ticket({ kitchen: "cooking", status: "preparing" })]),
+    );
+    const cards = [...container.querySelectorAll("article")];
+    expect(cards).toHaveLength(2);
+    expect(cards[0]!.hasAttribute("data-unpaid")).toBe(true);
+    expect(container.querySelectorAll('[role="list"][aria-label]').length).toBeGreaterThan(0);
+  });
+
+  it("at split width a plain click opens the counter's pane on the settle section", () => {
+    // jsdom has no matchMedia: stand one in for this case only.
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mount("en", withBag());
+    // Installed AFTER the mount (the motion hooks subscribe to their own queries on mount).
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(push).toHaveBeenCalledWith("/staff?floor=1&settle=1#table-sess-reg");
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("at split width a bag that owes nothing opens its pane on the order — no settle section", () => {
+    // p2f-sr-lane/expo-board/free-bag-pane-settles
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mount("en", withBag(bag({ owes: false })));
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      push.mockClear();
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(push).toHaveBeenCalledWith("/staff?floor=1#table-sess-reg");
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("the lane heading takes focus when the paid card's link lands on #expo-h", () => {
+    window.history.replaceState(null, "", "/staff?floor=1#expo-h");
+    const { container } = mount("en", withBag());
+    expect(document.activeElement).toBe(container.querySelector("#expo-h"));
+    window.history.replaceState(null, "", "/");
   });
 });

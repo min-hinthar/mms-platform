@@ -30,6 +30,11 @@ vi.mock("./pay-guard", () => ({
   isFresh: () => false,
   paymentInFlightReason: () => Promise.resolve(null),
 }));
+// Phase 2f · Codex r1 — the pay-at-pickup switch, flippable per case (the Send's route reads it).
+let payAtPickup = true;
+vi.mock("./surfaces", () => ({
+  surfaceOpen: (s: string) => (s === "payAtPickup" ? payAtPickup : false),
+}));
 vi.mock("@mms/db/schemas", () => ({
   clearTableInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
   mergeTablesInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
@@ -53,6 +58,7 @@ type Row = Record<string, unknown>;
 const SESSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 let hostSeat: string | null = null;
 let mode = "dinein";
+let qrCode = "t-7";
 let cartRow: Row | null = null;
 let cartItemRows: Row[] = [];
 let orderRows: Row[] = [];
@@ -106,7 +112,7 @@ function tableApi(name: string) {
         return Promise.resolve({
           data: {
             id: SESSION,
-            qr_code: "t-7",
+            qr_code: qrCode,
             table_number: 7,
             mode,
             status: "active",
@@ -176,6 +182,8 @@ async function detail() {
 beforeEach(() => {
   hostSeat = null;
   mode = "dinein";
+  qrCode = "t-7";
+  payAtPickup = true;
   cartRow = {
     id: "cart-1",
     locked: false,
@@ -202,6 +210,8 @@ describe("getTableDetail — the Send's one count", () => {
       togoDraft: 1,
       inKitchen: true,
       foodDraft: true,
+      counterDraft: 0,
+      counterSentPastGrace: false,
     });
     // The column the count rests on is actually READ.
     expect(lastItemsSelect.split(",")).toContain("fulfillment");
@@ -224,6 +234,52 @@ describe("getTableDetail — the Send's one count", () => {
     expect((await detail()).hostPresent).toBe(false);
     hostSeat = "s1";
     expect((await detail()).hostPresent).toBe(true);
+  });
+});
+
+// Phase 2f · Codex r1 (P1) — the tag is "the Send fires this line", and a counter order's Send fires
+// its TO-GO drafts (`mms_fire_counter_cart`). A counter draft untagged sat outside the drain-before-
+// fire hold (`sendHoldFrom` reads `sendable`), so a Send over an unsaved allergy note fired the dish
+// and the draft-guarded note save could no longer land.
+describe("getTableDetail — a counter order's lines, as its Send fires them", () => {
+  const COUNTER = () => [
+    line({ id: "t", qty: 2, fulfillment: "togo" }),
+    line({ id: "f", fulfillment: "togo", state: "fired" }),
+    line({ id: "g", fulfillment: "grocery" }),
+    line({ id: "n", fulfillment: "dinein" }),
+  ];
+  beforeEach(() => {
+    mode = "pickup";
+    qrCode = "reg-ab12";
+    cartItemRows = COUNTER();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  it("tags exactly the to-go DRAFTS the counter Send fires — never fired, grocery or dine-in", async () => {
+    const d = await detail();
+    expect(d.counterOrder).toBe(true);
+    const by = Object.fromEntries(d.lines.map((l) => [l.id, l.sendable]));
+    expect(by).toEqual({ t: true, f: false, g: false, n: false });
+  });
+
+  it("with pay at pickup parked there is no counter Send, so nothing is tagged", async () => {
+    payAtPickup = false;
+    const d = await detail();
+    expect(d.lines.some((l) => l.sendable)).toBe(false);
+  });
+
+  it("a pickup order that is not a counter order (a diner's own) is pay-first: nothing tagged", async () => {
+    qrCode = "t-7";
+    const d = await detail();
+    expect(d.lines.some((l) => l.sendable)).toBe(false);
+  });
+
+  it("a dine-in table is unchanged: its to-go draft is still NOT fired by the Send", async () => {
+    mode = "dinein";
+    qrCode = "t-7";
+    cartItemRows = MIXED();
+    const d = await detail();
+    expect(d.lines.find((l) => l.id === "c")?.sendable).toBe(false);
   });
 });
 

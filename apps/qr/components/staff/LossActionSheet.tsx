@@ -1,14 +1,21 @@
 "use client";
-import { useEffect, useState, useTransition, type CSSProperties, type FormEvent } from "react";
+import { useState, useTransition, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
-import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/lib/voids";
+import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
-import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
+import {
+  ManagerPinFields,
+  PIN_NO_PIN_COPY,
+  pinFailureCopy,
+  rosterRetryMsg,
+  useApproverRoster,
+  useLockout,
+} from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
@@ -97,7 +104,6 @@ export function LossActionSheet({
   const [action, setAction] = useState<Action>("void");
   const [reason, setReason] = useState<Reason | "">("");
   const [reasonInvalid, setReasonInvalid] = useState(false); // S14: inline "pick a reason" validation
-  const [approvers, setApprovers] = useState<Approver[] | null>(null);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
@@ -116,15 +122,10 @@ export function LossActionSheet({
   // Load the manager list once on mount. The sheet is MOUNTED only while open (StaffLineEditor gates it),
   // so a fresh mount each open both refetches the roster (a manager added/removed mid-shift is reflected)
   // and resets all transient state via the initial useState values — no setState-in-effect reset needed.
-  useEffect(() => {
-    let live = true;
-    listApprovers()
-      .then((a) => live && setApprovers(a))
-      .catch(() => live && setApprovers([]));
-    return () => {
-      live = false;
-    };
-  }, []);
+  // A failed read stays an OUTAGE (`roster.failed`), never `[]` — an empty roster would promote the
+  // deferred request to primary and tell the server nobody is on shift (Codex round 2 on #308).
+  const roster = useApproverRoster(listApprovers);
+  const approvers = roster.approvers;
 
   const reasonOptions = REASONS[action];
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
@@ -282,6 +283,14 @@ export function LossActionSheet({
   }
 
   // The lockout countdown takes precedence over a transient message.
+  // Try again on the roster: a second failure is said in the ONE region; a recovery clears only that
+  // — and puts back "a manager needs to approve" while the server's step-up is still pending.
+  async function retryRoster(): Promise<boolean> {
+    const ok = await roster.retry();
+    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
+    return ok;
+  }
+
   const shown = lockCopy ?? msg;
   return (
     // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
@@ -401,6 +410,9 @@ export function LossActionSheet({
               pin={pin}
               onPinChange={setPin}
               locked={locked}
+              rosterFailed={roster.failed}
+              retrying={roster.retrying}
+              onRetry={retryRoster}
             />
           </fieldset>
         )}

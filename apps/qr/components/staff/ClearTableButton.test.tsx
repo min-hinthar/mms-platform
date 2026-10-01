@@ -57,3 +57,42 @@ describe("ClearTableButton — a successful clear", () => {
     expect(screen.getByRole("alert")).toBeTruthy();
   });
 });
+
+describe("ClearTableButton — Phase 2f · a counter order with food in the kitchen", () => {
+  it("a `sent` refusal says the page's sentence (the way out), not the server's English", async () => {
+    clearTable.mockResolvedValue({
+      ok: false,
+      error:
+        "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
+      code: "sent",
+    });
+    render(
+      <StaffLangProvider lang="my">
+        <ClearTableButton sessionId="s1" label="reg-x" paymentInFlight={false} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /ရှင်း|Clear/ }));
+    await act(async () => {
+      fireEvent.click(document.querySelectorAll("button")[1]!);
+    });
+    const alert = screen.getByRole("alert");
+    expect(alert.querySelector('[lang="my"]')?.textContent).toContain(
+      ts("my", "settle.clear.counterSent"),
+    );
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("any other refusal still reads the server's sentence through OutageText", async () => {
+    clearTable.mockResolvedValue({ ok: false, error: "Invalid request." });
+    render(
+      <StaffLangProvider lang="en">
+        <ClearTableButton sessionId="s1" label="4" paymentInFlight={false} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.clear.btn") }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.confirm") }));
+    });
+    expect(screen.getByRole("alert").textContent).toBe("Invalid request.");
+  });
+});

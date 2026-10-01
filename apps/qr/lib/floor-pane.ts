@@ -319,6 +319,8 @@ export function parseHandoffStash(raw: string | null): Handoff | null {
     tenderedCents: o.tenderedCents as number | null,
     isCounter: o.isCounter,
     cartId: o.cartId as string | null,
+    // Phase 2f — a stash written before the field existed (or anything but `true`) reads false.
+    sentEarly: o.sentEarly === true,
   };
 }
 

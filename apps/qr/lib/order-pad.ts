@@ -4,10 +4,12 @@ import { catalogNameMy } from "./ticket-names";
 import type { TableDetail, TableLineView } from "./floor-types";
 import {
   sendHoldMsg,
+  type SendPhase,
   type StaffKeyMsg,
   type StaffLineEdit,
   type StaffSendView,
 } from "./staff-send-view";
+import type { CounterArm } from "./counter-order";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "./staff-send-view";
 import { staffSettleBlockedByUnsent } from "./checkout-stage";
@@ -239,6 +241,9 @@ export type PadSettleInput = {
   /** Phase 2c · gate — the server's unsent dine-in units (`detail.send.sendable`), the count the
    *  settle gate reads. Never restated: `padSettle` hands it to `staffSettleBlockedByUnsent`. */
   unsentUnits: number;
+  /** Phase 2f — a counter order's dock decides Take payment's fill (`padCounterDock`); absent, the
+   *  mode's own variant stands. */
+  variantOverride?: "primary" | "secondary";
 };
 
 export type PadSettle = {
@@ -273,7 +278,7 @@ export function padSettle(i: PadSettleInput): PadSettle {
             ? "empty"
             : null;
   return {
-    variant,
+    variant: i.variantOverride ?? variant,
     // A tap while an add FLIES is accepted: the pad drains the add chain, then goes.
     enabled: i.open && block === null && !busy,
     busy,
@@ -344,11 +349,33 @@ export function padSettleStartPhase(i: {
  */
 export function padSendView(
   view: StaffSendView,
-  i: { sendable: boolean; paying: boolean; pending: PendingCounts },
+  i: {
+    sendable: boolean;
+    paying: boolean;
+    pending: PendingCounts;
+    /** Phase 2f — a counter order: its bare Send is the pay-at-pickup Send (the arm's emphasis, the
+     *  note, and the name hold), never a table's. */
+    counter?: { arm: CounterArm | null; hasName: boolean };
+  },
 ): { view: StaffSendView; bare: boolean } {
   if (!i.sendable) return { view, bare: false };
   const bare = i.pending.flying + i.pending.unseen > 0;
   if (!bare || view.kind === "send") return { view, bare };
+  const c = i.counter;
+  if (c)
+    return {
+      view: {
+        kind: "send",
+        units: 0,
+        emphasis: c.arm === "phone" ? "primary" : "secondary",
+        note: "payAtPickup",
+        blocked: i.paying ? "paying" : !c.hasName ? "noName" : null,
+        staffAdded: 0,
+        dinerUnits: 0,
+        counter: true,
+      },
+      bare,
+    };
   return {
     view: {
       kind: "send",
@@ -358,9 +385,44 @@ export function padSendView(
       blocked: i.paying ? "paying" : null,
       staffAdded: 0,
       dinerUnits: 0,
+      counter: false,
     },
     bare,
   };
+}
+
+// ── Phase 2f · P2v — the counter order's dock ──
+/** What the order pad's two dock slots hold on a COUNTER order, and Take payment's fill. */
+export type PadCounterDock = {
+  primary: "send" | "settle" | "done";
+  secondary: "send" | "settle" | null;
+  settleVariant: "primary" | "secondary";
+};
+
+/**
+ * The counter order's dock (§20: one filled pill). A walk-up takes payment first (Take payment
+ * filled in the primary slot, the Send beside it); a phone order — or more drafts after food went —
+ * leads with the Send; once everything is sent, "Done · Counter" leads and Take payment waits beside
+ * it. The Send NEVER changes slot during its own life (tap → sending → undo → back): the slot it held
+ * at the tap is where it stays — a swap would remount the control under the finger and drop its
+ * focus — and nothing is filled while its window is open.
+ */
+export function padCounterDock(
+  view: StaffSendView,
+  phase: SendPhase,
+  heldSlot: "primary" | "secondary" | null,
+): PadCounterDock {
+  if (phase !== "idle")
+    return (heldSlot ?? "primary") === "primary"
+      ? { primary: "send", secondary: "settle", settleVariant: "secondary" }
+      : { primary: "settle", secondary: "send", settleVariant: "secondary" };
+  if (view.kind === "send" && view.counter)
+    return view.emphasis === "primary"
+      ? { primary: "send", secondary: "settle", settleVariant: "secondary" }
+      : { primary: "settle", secondary: "send", settleVariant: "primary" };
+  if (view.kind === "counterSent")
+    return { primary: "done", secondary: "settle", settleVariant: "secondary" };
+  return { primary: "settle", secondary: null, settleVariant: "primary" };
 }
 
 export type PadTileBlock = "closed" | "paying" | "waiting" | "settling" | "held";
@@ -437,4 +499,34 @@ export function padNameSave(value: string, saved: string): PadNameSave {
   const v = value.trim();
   if (v !== saved) return "save";
   return v === "" ? "empty" : "saved";
+}
+
+/**
+ * Phase 2f review (PT-7) — how the pad follows the server's counter-order name. `seen` is the server
+ * name the pad last adopted; `checkAfter` is set by this pad's own successful save: the read START
+ * sequence (`readsRef`) at the moment the save answered.
+ *
+ * Without a pending save the rule is Codex r3's: reconcile on a CHANGE of the server's name, never on
+ * its value. With one pending, a read that STARTED at or before the save answered says nothing about
+ * the name (it may predate the write — adopting it would revert the name just saved), and the FIRST
+ * read that started after it is authoritative: its value becomes `seen` whatever it is — including
+ * the very value `seen` already held, which the change-keyed rule alone could never see (another
+ * device writing the OLD name back after this save left the pad showing its own name forever).
+ *
+ * Returns the next state, or null for "nothing to do". The caller adopts `server` into its saved name
+ * (and a PRISTINE field) whenever this returns non-null — a no-op when they already agree.
+ */
+export type PadNameSync = { seen: string; checkAfter: number | null };
+
+export function padNameReconcile(i: {
+  server: string;
+  sync: PadNameSync;
+  /** The START sequence of the read the rendered detail came from. */
+  commitSeq: number;
+}): PadNameSync | null {
+  if (i.sync.checkAfter !== null) {
+    if (i.commitSeq <= i.sync.checkAfter) return null;
+    return { seen: i.server, checkAfter: null };
+  }
+  return i.server !== i.sync.seen ? { seen: i.server, checkAfter: null } : null;
 }

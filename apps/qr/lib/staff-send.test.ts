@@ -33,7 +33,17 @@ const h = vi.hoisted(() => ({
   },
   paying: null as null | string,
   rpcCalls: [] as { fn: string; args: Record<string, unknown> }[],
-  fireRows: [] as { fired: number; batch: string; fire_deadline: string }[],
+  fireRows: [] as {
+    fired: number;
+    batch: string;
+    fire_deadline: string;
+    named?: boolean;
+    closed?: boolean;
+  }[],
+  /** Phase 2f review — the cart's status as a read-back of `qr_carts` answers it (null = error). */
+  cartStatus: "open" as string | null,
+  /** Phase 2f — `surfaceOpen("payAtPickup")`, as the action reads it. */
+  payAtPickup: true,
   unfired: 0,
   rpcError: null as null | { message: string },
   touched: [] as string[],
@@ -61,6 +71,9 @@ vi.mock("./staff-open-cart", () => ({
     h.reads += 1;
     return Promise.resolve(h.open);
   },
+}));
+vi.mock("./surfaces", () => ({
+  surfaceOpen: (s: string) => (s === "payAtPickup" ? h.payAtPickup : false),
 }));
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(h.paying) }));
 vi.mock("./order-lines", () => ({
@@ -91,6 +104,13 @@ function itemsQuery(table: string) {
     limit() {
       return q;
     },
+    maybeSingle() {
+      return Promise.resolve(
+        h.cartStatus === null
+          ? { data: null, error: { message: "cart unreadable" } }
+          : { data: { status: h.cartStatus }, error: null },
+      );
+    },
     then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
       return Promise.resolve(
         h.batchReadError
@@ -108,7 +128,7 @@ vi.mock("@mms/db/server", () => ({
       h.rpcCalls.push({ fn, args });
       if (h.rpcError) return Promise.resolve({ data: null, error: h.rpcError });
       return Promise.resolve({
-        data: fn === "mms_fire_cart" ? h.fireRows : h.unfired,
+        data: fn === "mms_fire_cart" || fn === "mms_fire_counter_cart" ? h.fireRows : h.unfired,
         error: null,
       });
     },
@@ -135,6 +155,7 @@ beforeEach(() => {
     unavailable: false,
   };
   h.paying = null;
+  h.payAtPickup = true;
   h.rpcCalls = [];
   h.fireRows = [{ fired: 3, batch: BATCH, fire_deadline: DEADLINE }];
   h.unfired = 2;
@@ -145,11 +166,12 @@ beforeEach(() => {
   // Three rows of qty 1 — the default where rows and units agree. The units case below separates them.
   h.batchRows = [{ qty: 1 }, { qty: 1 }, { qty: 1 }];
   h.batchReadError = null;
+  h.cartStatus = "open";
   h.itemReads = [];
 });
 
 describe("staffFireCart — refusals decided by where they happen", () => {
-  it("a counter order is refused as `counter`, and the kitchen RPC is never called", async () => {
+  it("a diner's pickup is refused as `counter`, and the kitchen RPC is never called", async () => {
     h.open.session!.mode = "pickup";
     expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "counter" });
     expect(h.rpcCalls).toEqual([]);
@@ -337,6 +359,115 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
     expect(await staffUndoFire({ sessionId: SESSION, batch: "x" })).toEqual({
       ok: false,
       reason: "invalid",
+    });
+    expect(h.rpcCalls).toEqual([]);
+  });
+});
+
+// ── Phase 2f · P2v — a counter order may cook before it is paid ──────────────────────────────────
+describe("staffFireCart / staffUndoFire — the counter's pay-at-pickup Send", () => {
+  const counter = (code = "reg-ab12") => {
+    h.open.session!.mode = "pickup";
+    h.open.session!.qr_code = code;
+  };
+
+  it("a reg- counter order fires through the staff-only counter RPC, batch and deadline back", async () => {
+    counter();
+    h.fireRows = [{ fired: 2, batch: BATCH, fire_deadline: DEADLINE, named: true }];
+    h.batchRows = [{ qty: 1 }, { qty: 2 }];
+    const r = await staffFireCart({ sessionId: SESSION });
+    // counter-fires-through-the-dine-in-rpc
+    expect(h.rpcCalls).toEqual([{ fn: "mms_fire_counter_cart", args: { p_cart_id: "cart-1" } }]);
+    expect(r).toMatchObject({ ok: true, fired: 3, undoUntil: DEADLINE, undoBatch: BATCH });
+    expect(h.touched).toEqual(["cart-1"]);
+  });
+
+  it("a kiosk order is refused as `counter` — no RPC (kiosk-fires-unpaid)", async () => {
+    counter("kiosk-ab12");
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "counter" });
+    expect(h.rpcCalls).toEqual([]);
+  });
+
+  it("the switch parked: a counter order is refused as `counter` — no RPC", async () => {
+    counter();
+    h.payAtPickup = false;
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "counter" });
+    expect(h.rpcCalls).toEqual([]);
+  });
+
+  it("nothing fired and the row says no name → `noName`; with a name → `nothing`", async () => {
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    // nameless-counter-reads-nothing
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: true }];
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "nothing" });
+    expect(h.touched).toEqual([]);
+  });
+
+  it("a Send that raced a settle or a clear answers `closed`, never `noName` (review)", async () => {
+    // p2f-rev-lib/staff-send/raced-settle-reads-noname — the cart was settled (or cleared) between
+    // the page's read and the fire's lock: nothing fired, and the order is gone. "Add a name" would
+    // send staff to rename an order that no longer exists.
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    h.cartStatus = "paid";
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    h.cartStatus = "cancelled";
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: true }];
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    expect(h.touched).toEqual([]);
+  });
+
+  it("the fire's own `open` signal is read first — no read-back when the RPC says it", async () => {
+    // Resolves at integration: `mms_fire_counter_cart` reports whether the cart was open under its
+    // lock (the db half of the review fix). The read-back is the fallback when it does not.
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, closed: true }];
+    h.cartStatus = "open"; // a read-back would say open — the lock's answer wins
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "closed" });
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false, closed: false }];
+    h.cartStatus = "paid";
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
+  });
+
+  it("an unreadable read-back never invents `closed` — the fire's own verdict stands", async () => {
+    counter();
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    h.cartStatus = null;
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "noName" });
+  });
+
+  it("a table's empty fire is never read as noName (its RPC has no `named`)", async () => {
+    h.fireRows = [{ fired: 0, batch: BATCH, fire_deadline: DEADLINE, named: false }];
+    expect(await staffFireCart({ sessionId: SESSION })).toEqual({ ok: false, reason: "nothing" });
+    expect(h.rpcCalls[0]?.fn).toBe("mms_fire_cart");
+  });
+
+  it("the undo of a counter send goes through the counter undo, with THIS batch", async () => {
+    counter();
+    // the undo follows the session, never the switch
+    h.payAtPickup = false;
+    const r = await staffUndoFire({ sessionId: SESSION, batch: BATCH });
+    // counter-undo-through-the-dine-in-rpc
+    expect(h.rpcCalls).toEqual([
+      { fn: "mms_undo_counter_fire", args: { p_cart_id: "cart-1", p_batch: BATCH } },
+    ]);
+    expect(r).toEqual({ ok: true, unfired: 2 });
+  });
+
+  it("a table's undo is unchanged", async () => {
+    await staffUndoFire({ sessionId: SESSION, batch: BATCH });
+    expect(h.rpcCalls).toEqual([
+      { fn: "mms_undo_fire", args: { p_cart_id: "cart-1", p_batch: BATCH } },
+    ]);
+  });
+
+  it("a kiosk order's undo is refused as `counter` — no RPC", async () => {
+    counter("kiosk-ab12");
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "counter",
     });
     expect(h.rpcCalls).toEqual([]);
   });

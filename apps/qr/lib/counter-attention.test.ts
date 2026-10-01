@@ -19,7 +19,10 @@ import type { FloorTable } from "./floor-types";
  */
 
 type Table = Pick<FloorTable, "sessionId" | "status" | "counterRequestedAt">;
-type Ticket = Pick<ExpoTicket, "orderId" | "status" | "arrivedAt" | "kitchen" | "lines">;
+type Ticket = Pick<
+  ExpoTicket,
+  "orderId" | "cartId" | "mode" | "label" | "doneAt" | "status" | "arrivedAt" | "kitchen" | "lines"
+>;
 
 const ASK_AT = "2026-09-29T18:00:00.000Z";
 const LATER_ASK = "2026-09-29T18:20:00.000Z";
@@ -43,6 +46,10 @@ const grocery = [{ fulfillment: "grocery" as const }, { fulfillment: "grocery" a
 const mixed = [{ fulfillment: "grocery" as const }, { fulfillment: "togo" as const }];
 const bag = (orderId: string, over: Partial<Ticket> = {}): Ticket => ({
   orderId,
+  cartId: null,
+  mode: "pickup",
+  label: "T7",
+  doneAt: null,
   status: "preparing",
   arrivedAt: null,
   kitchen: "cooking",
@@ -260,5 +267,71 @@ describe("mayRing — two boards on one tick are one ring per kind", () => {
     // MUTATION (counter-attention/the-exemption-is-symmetric): any change of kind rings — a guest's
     // bell followed half a second later by a bag's is two bells for one glance.
     expect(mayRing({ ring: "guest", at: T }, "food", T + 500)).toBe(false);
+  });
+});
+
+// ── Phase 2f · P2v (+ review PT3) ──
+describe("laneFacts — finished counter food rings once per FINISH, never twice for one", () => {
+  const CART = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const T1 = "2026-09-29T18:10:00.000Z";
+  const T2 = "2026-09-29T18:30:00.000Z";
+  const unpaid = (kitchen: "done" | "cooking", doneAt: string | null = null) => ({
+    cartId: CART,
+    kitchen,
+    doneAt,
+  });
+  const paidCounter = (over: Partial<Ticket> = {}) =>
+    bag(O1, { cartId: CART, label: "reg-ab12", mode: "pickup", ...over });
+
+  it("an unpaid bag the kitchen finished is food, keyed by its CART and its finish", () => {
+    const f = laneFacts([], [unpaid("done", T1)]);
+    expect([...f.food]).toEqual([`food:${CART}:${T1}`]);
+    expect(factSubject([...f.food][0]!)).toBe(CART);
+    expect(laneFacts([], [unpaid("cooking")]).food.size).toBe(0);
+  });
+
+  it("done unpaid, then paid on the next poll (nothing more fired): it rings ONCE", () => {
+    // pay-at-pickup-rings-twice
+    const rings = polls(
+      laneFacts([], [unpaid("cooking")]),
+      laneFacts([], [unpaid("done", T1)]),
+      laneFacts([paidCounter({ kitchen: "done", doneAt: T1 })], []),
+    );
+    expect(rings).toEqual(["food", null]);
+  });
+
+  it("a SECOND batch sent unpaid and finished later rings again (review PT3)", () => {
+    // p2f-rev-lib/counter-attention/food-keyed-per-cart — keyed by the cart alone, the second
+    // batch's finish is the first's key and the counter never hears it.
+    const rings = polls(
+      laneFacts([], [unpaid("cooking")]),
+      laneFacts([], [unpaid("done", T1)]),
+      laneFacts([], [unpaid("cooking")]),
+      laneFacts([], [unpaid("done", T2)]),
+    );
+    expect(rings).toEqual(["food", null, "food"]);
+  });
+
+  it("the rest fired at settlement and finished later rings again on the PAID bag", () => {
+    const rings = polls(
+      laneFacts([], [unpaid("cooking")]),
+      laneFacts([], [unpaid("done", T1)]),
+      laneFacts([paidCounter({ kitchen: "cooking" })], []),
+      laneFacts([paidCounter({ kitchen: "done", doneAt: T2 })], []),
+    );
+    expect(rings).toEqual(["food", null, "food"]);
+  });
+
+  it("a paid bag that is NOT a counter order keys by its ORDER, as it always did", () => {
+    // p2f-rev-lib/counter-attention/paid-bag-keys-moved — a diner's pickup carries a cart too;
+    // its key (and the card its ring lands on) must not move under it.
+    expect([...laneFacts([bag(O1, { cartId: CART, kitchen: "done", doneAt: T1 })]).food]).toEqual([
+      `food:${O1}`,
+    ]);
+    expect([
+      ...laneFacts([bag(O1, { cartId: CART, label: "kiosk-ab12", kitchen: "done", doneAt: T1 })])
+        .food,
+    ]).toEqual([`food:${O1}`]);
+    expect([...laneFacts([bag(O1, { kitchen: "done" })]).food]).toEqual([`food:${O1}`]);
   });
 });

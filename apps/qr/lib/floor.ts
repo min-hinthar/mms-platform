@@ -14,7 +14,20 @@ import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
-import { staffSendCounts } from "./staff-send-view";
+import { sendFiresLine, sendRoute, staffSendCounts } from "./staff-send-view";
+// ── Phase 2f · P2v ──
+import {
+  counterArmOf,
+  counterSent,
+  counterKitchenLine,
+  counterNoShowDropped,
+  counterSentLine,
+  isCounterOrder,
+  mergeCounterRefusal,
+  mergeCounterRefusalMessage,
+  mergeRpcCounterRefusal,
+} from "./counter-order";
+import { surfaceOpen } from "./surfaces";
 // ── Phase 2d · floor ──
 import { isConsoleLocked } from "./staff-lock";
 import { shapeKdsThresholds } from "./kds-urgency";
@@ -25,6 +38,7 @@ import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import type {
   ClearTableResult,
+  CounterFloorRow,
   FloorPoll,
   FloorStatus,
   FloorTable,
@@ -176,6 +190,28 @@ export async function getFloorView(): Promise<FloorPoll> {
       message: nowRes.error.message,
     });
   const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
+  // Phase 2f · P2v — a register row whose food reached the kitchen (past its grace, on the DB clock)
+  // is flagged Unpaid, and carries the SAME kitchen row the tables fold (mode pickup: a walk-up's
+  // drafts are pay-first, never "owed" — until food reached the kitchen, when the drafts beside it
+  // are "not sent" and the card is never "Kitchen done"; `foldFloorKitchen`). A kiosk row never
+  // cooks unpaid.
+  const counterNowMs = Number.isFinite(Date.parse(serverNow))
+    ? Date.parse(serverNow)
+    : Date.parse(nowIso);
+  const counterRows: CounterFloorRow[] = counter.rows.map((r) => {
+    const ls = counter.lines.get(r.sessionId) ?? [];
+    return {
+      ...r,
+      unpaidSent: r.source === "register" && counterSent(ls, counterNowMs),
+      kitchen:
+        r.source === "register"
+          ? foldFloorKitchen(
+              ls.map((l) => ({ ...l, onOpenCart: true })),
+              { mode: "pickup", hostPresent: false, nowMs: counterNowMs },
+            )
+          : null,
+    };
+  });
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
@@ -187,7 +223,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       ok: true,
       snapshot: {
         tables: [],
-        counter: counter.rows,
+        counter: counterRows,
         counterTruncated: counter.truncated,
         serverNow,
         registry,
@@ -490,7 +526,7 @@ export async function getFloorView(): Promise<FloorPoll> {
     ok: true,
     snapshot: {
       tables,
-      counter: counter.rows,
+      counter: counterRows,
       counterTruncated: counter.truncated,
       serverNow,
       registry,
@@ -530,12 +566,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   if (session.status === "closed")
     return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
 
-  const [membersRes, cartRes, paidRes, tabConfigRes] = await Promise.all([
+  // Phase 2f · P2v — THE counter-order predicate, once; its "sent" is measured on the DB clock.
+  const counterOrder = isCounterOrder({ mode: session.mode, qrCode: session.qr_code });
+  const [membersRes, cartRes, paidRes, tabConfigRes, clockRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
       .select(
-        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",
+        "id,locked,locked_at,settle_at,settle_by,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code,customer_name,counter_arm",
       )
       .eq("session_id", sessionId)
       .eq("status", "open")
@@ -562,6 +600,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       .from("mms_tab_config")
       .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
       .maybeSingle(),
+    counterOrder ? db.rpc("mms_now") : Promise.resolve({ data: null, error: null }),
   ]);
   // Party/cart/paid feed the order view — an error misstates the table (an empty party, a "settled"
   // read over an open cart), so it's an outage. Tab config alone falls back (advisory, safe default).
@@ -573,6 +612,21 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   const settledOrders = paidRes.data ?? [];
   const paid = settledOrders[0] ?? null;
   const tabConfig = tabConfigRes.data;
+  // Phase 2f — the DB clock on a counter order. ADVISORY: it only decides what the page SAYS (the
+  // Unpaid flag, the no-show's count); every write re-decides in SQL on its own `now()`. An
+  // unreadable clock is logged and falls back to the process clock rather than failing the page.
+  let dbNowMs = Date.now();
+  if (counterOrder) {
+    const parsed = typeof clockRes.data === "string" ? Date.parse(clockRes.data) : Number.NaN;
+    if (clockRes.error || !Number.isFinite(parsed))
+      console.error("[floor] getTableDetail mms_now failed — Unpaid is timed on the app clock", {
+        message: clockRes.error?.message,
+      });
+    else dbNowMs = parsed;
+  }
+  let sentLineIds: string[] = [];
+  let droppedLineIds: string[] = [];
+  let compedKitchenLineIds: string[] = [];
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -587,11 +641,16 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   let lastLineAt: string | null = null;
   // Phase 2a · send — zero until an open cart's rows say otherwise (a settled record sends nothing).
   let send = staffSendCounts(session.mode, []);
+  // Which RPC this session's Send goes through — the SAME answer `staffFireCart` acts on.
+  const route = sendRoute(
+    { mode: session.mode, qrCode: session.qr_code },
+    surfaceOpen("payAtPickup"),
+  );
   if (cart) {
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select(
-        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids",
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids,fire_at",
       )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
@@ -652,8 +711,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
       soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
       state: (i.state ?? "draft") as TableLineView["state"],
-      // Phase 2a · send — `mms_fire_cart`'s own predicate, per line: the Send fires exactly these.
-      sendable: session.mode === "dinein" && i.state === "draft" && i.fulfillment === "dinein",
+      // Phase 2a · send — the fire RPC's own predicate, per line: the Send fires exactly these
+      // (Phase 2f · Codex r1: a counter order's to-go drafts too, while pay at pickup is on).
+      sendable: sendFiresLine(route, i),
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
       notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)
@@ -683,8 +743,33 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
         fulfillment: i.fulfillment,
         qty: i.qty,
         by_seat: i.by_seat,
+        fire_at: i.fire_at,
+        comped: i.comped ?? false,
       })),
+      dbNowMs,
     );
+    // Phase 2f — exactly the set `mms_counter_no_show` writes off (the no-show sheet's count), and
+    // beside it, on the SAME rows and the SAME DB clock, the set it drops (Codex r2 on #308: a comped
+    // in-grace dish is dropped too — named once here, never re-derived by the sheet).
+    if (counterOrder) {
+      const rows = (items ?? []).map((i) => ({
+        id: i.id,
+        line: {
+          state: i.state ?? "draft",
+          fulfillment: i.fulfillment,
+          fire_at: i.fire_at,
+          comped: i.comped ?? false,
+        },
+      }));
+      sentLineIds = rows.filter((r) => counterSentLine(r.line, dbNowMs)).map((r) => r.id);
+      droppedLineIds = rows.filter((r) => counterNoShowDropped(r.line, dbNowMs)).map((r) => r.id);
+      // …and the third set a no-show touches, on the same rows and clock: a comped dish the kitchen
+      // already has. Neither written off (the comp is already an audited loss) nor dropped — but the
+      // cancelled cart takes it off the kitchen screen, so the sheet must say so (Phase 2f review).
+      compedKitchenLineIds = rows
+        .filter((r) => counterKitchenLine(r.line, dbNowMs) && r.line.comped)
+        .map((r) => r.id);
+    }
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
     const chargeable = lines.filter((l) => l.state !== "voided" && !l.comped);
@@ -816,6 +901,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       nudgeSecure = "age";
   }
 
+  // Phase 2f — ONE binding for "this counter order has food in the kitchen, unpaid".
+  const unpaidSent = counterOrder && cart != null && send.counterSentPastGrace;
   const detail: TableDetail = {
     sessionId: session.id,
     // K33 — read the settled order's lines, so the surface says "Ordered" and never offers an editor.
@@ -873,7 +960,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // Phase 2a · send — create-intent's binding for "someone at the table can send".
     hostPresent: session.host_seat != null,
     send,
-    serverNow: nowIso,
+    serverNow: counterOrder ? new Date(dbNowMs).toISOString() : nowIso,
+    // ── Phase 2f · P2v ──
+    counterOrder,
+    counterArm: counterOrder && cart ? counterArmOf(cart.counter_arm) : null,
+    customerName: cart?.customer_name ?? null,
+    unpaidSent,
+    sentLineIds,
+    droppedLineIds,
+    compedKitchenLineIds,
+    payAtPickup: surfaceOpen("payAtPickup"),
+    mergeable: cart != null && !(counterOrder && unpaidSent),
   };
   return { kind: "detail", detail };
 }
@@ -899,7 +996,7 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode")
+    .select("id,status,mode,qr_code")
     .eq("id", sessionId)
     .maybeSingle();
   // W10b — an unread session is not "no such table" (a phantom-table verdict mid-outage); and an
@@ -939,12 +1036,36 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
       .select("id", { count: "exact", head: true })
       .eq("cart_id", cart.id);
     hadItems = (count ?? 0) > 0;
-    const { error: cartErr } = await db
-      .from("qr_carts")
-      .update({ status: "cancelled" })
-      .eq("id", cart.id)
-      .eq("status", "open");
-    if (cartErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+    if (isCounterOrder({ mode: session.mode, qrCode: session.qr_code })) {
+      // Phase 2f · P2v — a counter order whose food reached the kitchen is NOT cleared: a cancel
+      // would write off cooked food with no audit row. "They didn't come" (the loss-gated no-show,
+      // `recordCounterNoShow`) is that order's exit. The SENT check and the cancel are ONE locked
+      // decision in SQL (`mms_clear_counter_cart`, Codex r2 on #308): a Send or a kitchen fire that
+      // commits mid-clear, or a line crossing its grace, can no longer land between a read here and
+      // the cancel. Fails CLOSED on an error or an unexpected verdict (it guards a write-off path).
+      // 'not_open' — the cart left `open` since the read above — proceeds, as a plain cancel that
+      // matched no row always has. A table's fired lines still clear, below, as before.
+      const { data: verdict, error: clearErr } = await db.rpc("mms_clear_counter_cart", {
+        p_cart_id: cart.id,
+      });
+      if (clearErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+      if (verdict === "sent")
+        return {
+          ok: false,
+          error:
+            "Food for this order went to the kitchen — use “They didn’t come” instead of clearing it.",
+          code: "sent",
+        };
+      if (verdict !== "ok" && verdict !== "not_open")
+        return { ok: false, error: STAFF_WRITE_OUTAGE };
+    } else {
+      const { error: cartErr } = await db
+        .from("qr_carts")
+        .update({ status: "cancelled" })
+        .eq("id", cart.id)
+        .eq("status", "open");
+      if (cartErr) return { ok: false, error: "Couldn’t clear that table. Try again." };
+    }
   }
   const { error: sessErr } = await db
     .from("table_sessions")
@@ -1092,6 +1213,9 @@ export async function getMergeCandidates(sourceSessionId: string): Promise<Merge
   return candidates;
 }
 
+/** A merge the RPC could not complete as asked — a cart flipped out of 'open' under it (settle/clear race). */
+const MERGE_CHANGED = "Couldn’t merge — a table changed. Check both and try again.";
+
 /**
  * One-tap merge of two table orders (S1.4) — the recovery for a double-order (a guest scans AND tells the
  * server). Folds the SOURCE table's open cart into the TARGET, then closes the source. Any active staff may
@@ -1125,6 +1249,32 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
   if (!tgt.cart) return { ok: false, error: "The table you picked has no open order." };
   if (src.session.mode !== tgt.session.mode)
     return { ok: false, error: "Only tables of the same kind can be merged." };
+
+  // Phase 2f · P2v — never INTO a counter order, and never a counter order whose food reached the
+  // kitchen (its Unpaid flag would silently become another order's bill). A counter order that sent
+  // nothing merges as before. This read is the FAST PATH — it names the refusal before the promo and
+  // pay-guard reads; the AUTHORITY is `mms_merge_table_orders`, which re-decides it under its cart and
+  // line locks (Codex r3 on #308: a Send committing after this read was re-parented onto the target)
+  // and answers it as a negative count, mapped below. The source's "sent" is measured on the DB
+  // clock, and an unreadable check refuses.
+  const srcCounter = isCounterOrder({ mode: src.session.mode, qrCode: src.session.qr_code });
+  const tgtCounter = isCounterOrder({ mode: tgt.session.mode, qrCode: tgt.session.qr_code });
+  if (srcCounter || tgtCounter) {
+    const [srcLines, clock] = await Promise.all([
+      db
+        .from("qr_cart_items")
+        .select("state,fire_at,fulfillment,comped")
+        .eq("cart_id", src.cart.id),
+      db.rpc("mms_now"),
+    ]);
+    if (srcLines.error || clock.error) return { ok: false, error: STAFF_WRITE_OUTAGE };
+    const mergeRefusal = mergeCounterRefusal({
+      src: { counterOrder: srcCounter, lines: srcLines.data ?? [] },
+      tgt: { counterOrder: tgtCounter },
+      nowMs: Date.parse(clock.data as string),
+    });
+    if (mergeRefusal) return { ok: false, error: mergeCounterRefusalMessage(mergeRefusal) };
+  }
 
   // A promo code lives on the CART (qr_carts.promo_code), and the discount/tax are re-derived per cart at
   // settle (lib/totals.ts → mms_promo_discount). Merging moves the lines but can't carry a promo cleanly
@@ -1194,8 +1344,14 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
     if (error?.message?.includes("same kind"))
       return { ok: false, error: "Only tables of the same kind can be merged." };
     // Otherwise a raise means a cart flipped out of 'open' under the merge (a race with settle/clear).
-    return { ok: false, error: "Couldn’t merge — a table changed. Check both and try again." };
+    return { ok: false, error: MERGE_CHANGED };
   }
+  // Codex r3 on #308 — the RPC's own counter refusal (decided under its locks, nothing written). A
+  // negative count is never a success: an unknown one falls to the race sentence rather than
+  // reporting a merge that moved "-3" units.
+  const rpcRefusal = mergeRpcCounterRefusal(movedCount);
+  if (rpcRefusal) return { ok: false, error: mergeCounterRefusalMessage(rpcRefusal) };
+  if (movedCount < 0) return { ok: false, error: MERGE_CHANGED };
 
   // Logged (non-PII): who (role) merged which two tables and how many units moved. Best-effort via
   // after() — an analytics outage must never fail a completed merge. Durable two-party audit = S2.

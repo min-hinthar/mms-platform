@@ -69,7 +69,7 @@ let floorAnswer: unknown = {
   ok: true,
   snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D },
 };
-let expoAnswer: unknown = { ok: true, queue: { tickets: [], serverNow: NOW } };
+let expoAnswer: unknown = { ok: true, queue: { tickets: [], unpaid: [], serverNow: NOW } };
 vi.mock("@/lib/floor", () => ({ getFloorView: () => Promise.resolve(floorAnswer) }));
 vi.mock("@/lib/expo", () => ({
   getExpoQueue: () => Promise.resolve(expoAnswer),
@@ -105,11 +105,12 @@ afterEach(() => {
     ok: true,
     snapshot: { tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D },
   };
-  expoAnswer = { ok: true, queue: { tickets: [], serverNow: NOW } };
+  expoAnswer = { ok: true, queue: { tickets: [], unpaid: [], serverNow: NOW } };
 });
 
-const bag = (id: string) => ({
+const bag = (id: string): ExpoTicket => ({
   orderId: id,
+  cartId: null,
   label: "Order",
   tableNumber: null,
   mode: "pickup" as const,
@@ -146,7 +147,7 @@ describe("the counter screen's two live boards on one singleton client", () => {
         <FloorBoard
           initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D }}
         />
-        <ExpoBoard initial={{ tickets: [], serverNow: NOW }} />
+        <ExpoBoard initial={{ tickets: [], unpaid: [], serverNow: NOW }} />
       </StaffLangProvider>,
     );
     await waitFor(() => expect(topics.length).toBe(2));
@@ -172,7 +173,7 @@ describe("the lane's announcements — heard, never twice (Codex round 1 on A4·
           <FloorBoard
             initial={{ tables: [], counter: [], counterTruncated: false, serverNow: NOW, ...P2D }}
           />
-          <ExpoBoard initial={{ tickets, serverNow: NOW }} />
+          <ExpoBoard initial={{ tickets, unpaid: [], serverNow: NOW }} />
         </LiveConnectionProvider>
       </StaffLangProvider>,
     );
@@ -190,6 +191,7 @@ describe("the lane's announcements — heard, never twice (Codex round 1 on A4·
           bag("11111111-1111-4111-8111-111111111111"),
           bag("22222222-2222-4222-8222-222222222222"),
         ],
+        unpaid: [],
         serverNow: NOW,
       },
     };
@@ -253,7 +255,7 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
   });
   const laneOf = (tickets: ExpoTicket[]) => ({
     ok: true,
-    queue: { tickets, serverNow: NOW },
+    queue: { tickets, unpaid: [], serverNow: NOW },
   });
   const arrived = (id: string): ExpoTicket => ({
     ...bag(id),
@@ -340,7 +342,7 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
               }}
             />
             <ExpoBoard
-              initial={{ tickets: opts.laneOutage ? [] : laneInit, serverNow: NOW }}
+              initial={{ tickets: opts.laneOutage ? [] : laneInit, unpaid: [], serverNow: NOW }}
               initialOutage={opts.laneOutage}
             />
           </CounterBellProvider>
@@ -552,7 +554,7 @@ describe("the counter bell on the counter's two boards (owner decision 5c)", () 
       <StaffLangProvider lang="en">
         <LiveConnectionProvider>
           <CounterBellProvider>
-            {lane && <ExpoBoard initial={{ tickets: [bag(B2)], serverNow: NOW }} />}
+            {lane && <ExpoBoard initial={{ tickets: [bag(B2)], unpaid: [], serverNow: NOW }} />}
           </CounterBellProvider>
         </LiveConnectionProvider>
       </StaffLangProvider>

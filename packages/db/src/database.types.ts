@@ -1208,6 +1208,7 @@ export type Database = {
       qr_carts: {
         Row: {
           applied_reward_id: string | null
+          counter_arm: string | null
           counter_requested_at: string | null
           created_at: string
           customer_name: string | null
@@ -1233,6 +1234,7 @@ export type Database = {
         }
         Insert: {
           applied_reward_id?: string | null
+          counter_arm?: string | null
           counter_requested_at?: string | null
           created_at?: string
           customer_name?: string | null
@@ -1258,6 +1260,7 @@ export type Database = {
         }
         Update: {
           applied_reward_id?: string | null
+          counter_arm?: string | null
           counter_requested_at?: string | null
           created_at?: string
           customer_name?: string | null
@@ -1913,6 +1916,8 @@ export type Database = {
         Args: { p_id: string; p_qty: number }
         Returns: number
       }
+      mms_clear_cart_name: { Args: { p_session_id: string }; Returns: string }
+      mms_clear_counter_cart: { Args: { p_cart_id: string }; Returns: string }
       mms_clear_pickup_slot: {
         Args: { p_cart_id: string }
         Returns: {
@@ -1921,6 +1926,15 @@ export type Database = {
         }[]
       }
       mms_clear_reward: { Args: { p_cart: string }; Returns: undefined }
+      mms_counter_no_show: {
+        Args: {
+          p_approver?: string
+          p_cart_id: string
+          p_expected_line_ids: string[]
+          p_initiator: string
+        }
+        Returns: string
+      }
       mms_dropped_snapshot: {
         Args: { p_cart: string; p_intent: string }
         Returns: Json
@@ -1935,6 +1949,16 @@ export type Database = {
           batch: string
           fire_deadline: string
           fired: number
+        }[]
+      }
+      mms_fire_counter_cart: {
+        Args: { p_cart_id: string }
+        Returns: {
+          batch: string
+          closed: boolean
+          fire_deadline: string
+          fired: number
+          named: boolean
         }[]
       }
       mms_fire_line: { Args: { p_line: string }; Returns: string }
@@ -2204,6 +2228,10 @@ export type Database = {
       mms_taxable: {
         Args: { category: string; dine_in: boolean }
         Returns: boolean
+      }
+      mms_undo_counter_fire: {
+        Args: { p_batch: string; p_cart_id: string }
+        Returns: number
       }
       mms_undo_fire: {
         Args: { p_batch: string; p_cart_id: string }

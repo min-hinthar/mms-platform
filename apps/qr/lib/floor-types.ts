@@ -16,6 +16,10 @@ import type { RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
 import type { KdsThresholds } from "./kitchen-types";
+import type { CounterArm as CounterArmOf } from "./counter-order";
+
+/** Phase 2f — how a counter order was started (re-exported for the client components). */
+export type CounterArm = CounterArmOf;
 
 /** A table's at-a-glance state on the floor. Payment-level only — the kitchen picture rides beside
  *  it as `FloorTable.kitchen` (Phase 2d), never folded into this word; a paid order rests at "paid". */
@@ -99,7 +103,7 @@ export type FloorSnapshot = {
   /** A4·2 — the open COUNTER orders (`reg-` and kiosk pickup sessions with an open cart), read by
    *  `readRegisterQueue` on the same poll. The floor's `tables` never carry these sessions, so the
    *  one list `mergeFloorRows` builds cannot key a session twice. */
-  counter: RegisterQueueRow[];
+  counter: CounterFloorRow[];
   /** The counter read hit its cap — the newest orders are not in `counter`, and the board says so. */
   counterTruncated: boolean;
   /** Server clock at snapshot time (ISO) — the client seeds its relative-time ticks from this so a
@@ -139,9 +143,11 @@ export type TableLineView = {
   /** Kitchen-life state (S2.1) — drives the staff line controls: a 'draft' line edits via the stepper; a
    *  fired/cooking/served line is post-fire (the void/comp loss path, S2.3); 'voided' is terminal. */
   state: LineState;
-  /** Phase 2a · send — this line is what the table page's Send fires: a dine-in session's DRAFT
-   *  whose fulfillment is dine-in (`mms_fire_cart`'s own predicate). The editor tags it "Not sent";
-   *  a to-go draft (cooks at pay) and every settled record line are false. */
+  /** Phase 2a · send — this line is what the Send fires (`sendFiresLine`): a dine-in session's DRAFT
+   *  whose fulfillment is dine-in (`mms_fire_cart`), or — Phase 2f · Codex r1, while pay at pickup
+   *  is on — a counter order's to-go DRAFT (`mms_fire_counter_cart`). The editor tags it "Not sent"
+   *  and an unsaved note on it holds the Send (`sendHoldFrom`); a table's to-go draft (cooks at pay)
+   *  and every settled record line are false. */
   sendable: boolean;
   /** Comped (S2.3) — given away free; the kitchen still makes it, the charge excludes it. */
   comped: boolean;
@@ -292,7 +298,48 @@ export type TableDetail = {
    *  (`staffSendCounts`; `sendable` is `kitchenDraftUnitsFromRows` on a dine-in session). All zero
    *  with no open cart. */
   send: StaffSendCounts;
+  /** The DATABASE clock (`mms_now`) on a counter order — the grace behind `unpaidSent` is measured
+   *  on it; the process clock otherwise. */
   serverNow: string;
+  // ── Phase 2f · P2v — a counter order may cook before it is paid ──
+  /** A staff-minted `reg-` counter order (`isCounterOrder`) — the ONE predicate, never
+   *  `label.startsWith("reg-")` at a call site. */
+  counterOrder: boolean;
+  /** The counter order's arm (`qr_carts.counter_arm`); null off a counter order, with no open cart,
+   *  or on a row that predates the column (reads as a walk-up). */
+  counterArm: CounterArm | null;
+  /** The open cart's `customer_name` (every mode; the page shows it only for counter orders). */
+  customerName: string | null;
+  /** A counter order with food PAST its grace (DB clock) on its open cart — "Unpaid — collect at
+   *  pickup". ONE binding: `counterOrder && cart open && send.counterSentPastGrace`. */
+  unpaidSent: boolean;
+  /** The open-cart lines `counterSentLine` holds true for (DB clock) — exactly the set a no-show
+   *  writes off. Empty off a counter order. */
+  sentLineIds: string[];
+  /** The open-cart lines `counterNoShowDropped` holds true for, on the SAME DB clock as `sentLineIds`
+   *  — what a no-show drops without writing off: every draft and every in-grace `fired` line, comped
+   *  or grocery included (the SQL reverts those and cancels the cart). Disjoint from `sentLineIds`.
+   *  Empty off a counter order. */
+  droppedLineIds: string[];
+  /** The open-cart lines that are `counterKitchenLine` AND comped, on the SAME DB clock — a no-charge
+   *  dish the kitchen already has. A no-show neither writes it off (the comp is already an audited
+   *  loss) nor drops it, but cancelling the cart takes it off the kitchen screen, so the no-show sheet
+   *  says so (never as a loss, never with an amount). Disjoint from both sets above. Empty off a
+   *  counter order. */
+  compedKitchenLineIds: string[];
+  /** `surfaceOpen("payAtPickup")` — the counter Send is DRAWN only while it is true. */
+  payAtPickup: boolean;
+  /** The merge tool may be offered: an open cart, and not a counter order with food in the kitchen
+   *  (the server refuses those — `mergeCounterRefusal`). */
+  mergeable: boolean;
+};
+
+/** Phase 2f — a counter-queue row as the floor draws it: whether its food is in the kitchen
+ *  unpaid, and its kitchen row (the SAME `foldFloorKitchen` the tables use, mode pickup). Kiosk rows
+ *  carry `false` / `null` (they never cook before payment). */
+export type CounterFloorRow = RegisterQueueRow & {
+  unpaidSent: boolean;
+  kitchen: FloorKitchen | null;
 };
 
 /** K2: the human table label for staff surfaces — the registered number (bare, e.g. "7"), or a
@@ -308,7 +355,9 @@ export function tableDisplay(t: { tableNumber: number | null; label: string }): 
     : { text: t.label, unregistered: true };
 }
 
-export type ClearTableResult = { ok: true } | { ok: false; error: string };
+/** `code: "sent"` (Phase 2f) — a counter order whose food reached the kitchen: the page says the
+ *  no-show's words instead of the server's sentence. */
+export type ClearTableResult = { ok: true } | { ok: false; error: string; code?: "sent" };
 
 /** W10b: the drill-down read result. `closed` is the ONLY state that bounces back to the floor — a
  *  cleared table is gone, but an unreadable one ISN'T (the old `null` conflated them, so an outage

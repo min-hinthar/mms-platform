@@ -54,7 +54,7 @@ function sheetCallers(): string[] {
   return rendering("Sheet");
 }
 
-/** The five that perform an irreversible write, and why each one earned the prop. */
+/** The six that perform an irreversible write, and why each one earned the prop. */
 const GUARDED: [file: string, because: string][] = [
   [
     "staff/LossActionSheet.tsx",
@@ -69,6 +69,9 @@ const GUARDED: [file: string, because: string][] = [
   // order server-side, and this guard is what turned its hand-rolled `busy` boolean into a
   // transition (a rejected settle would have stranded the lock inside a modal).
   ["staff/CashSettleButton.tsx", "the settle records the cash and closes the order"],
+  // Phase 2f — "They didn't come": the no-show cancels the order and records the sent food as a
+  // loss, and its step-up spends one of the manager's PIN attempts (LossActionSheet's reason).
+  ["staff/CounterNoShowButton.tsx", "the no-show cancels the order and records the loss"],
 ];
 
 /** Sheets that must stay dismissible — pickers, viewers, and writes that land above the sheet. */
@@ -103,11 +106,12 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     for (const [rel] of GUARDED) {
       expect(read(rel)).toMatch(/busy=\{pending\}/);
     }
-    // Three of the five own their transition outright.
+    // Four of the six own their transition outright.
     for (const rel of [
       "staff/LossActionSheet.tsx",
       "staff/RefundActionSheet.tsx",
       "staff/CashSettleButton.tsx",
+      "staff/CounterNoShowButton.tsx",
     ]) {
       expect(read(rel)).toMatch(/useTransition\(\)/);
     }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
-import { generateJoinCode, isReservedSessionCode } from "@/lib/session-code";
+import { generateJoinCode, reservedCodeRefusal, sweepsExpiredSquatter } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
 import { isTransportFailure } from "@/lib/authz";
@@ -166,7 +166,9 @@ export async function POST(req: NextRequest) {
   // Trust note: only an ALREADY-expired session is swept (its legit diners are already locked out by
   // the expiry check), and whoever re-mints becomes host — the same "first scanner provisions" model
   // the sticker flow already trusts, not a new takeover vector against a live table.
-  if (!sess && resolvedQr && !joinOnly) {
+  // Phase 2f (D10) — never on a reserved code: a forged `?t=reg-…` must not close a counter order.
+  // (`resolvedQr &&` only narrows the type for the update below — the predicate already requires it.)
+  if (resolvedQr && sweepsExpiredSquatter({ found: sess !== null, code: resolvedQr, joinOnly })) {
     await db
       .from("table_sessions")
       .update({ status: "closed" })
@@ -176,12 +178,22 @@ export async function POST(req: NextRequest) {
   }
 
   // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
-  // register queue / floor board / kiosk reset all trust — a client may JOIN an existing one (the
-  // code is unguessable; that is how the kiosk device attaches to its own minted session) but must
-  // never CREATE one here. Without this, any visitor could mint fake counter-queue entries.
-  if (!sess && resolvedQr && isReservedSessionCode(resolvedQr)) {
+  // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
+  // (without this, any visitor could mint fake counter-queue entries). Phase 2f (Codex r3 on #308):
+  // nor JOIN an active reserved session — a member of a `reg-` counter order could add a to-go draft
+  // after staff reviewed it (the counter Send fires every draft unpaid), a member of a `kiosk-`
+  // dine-in could add drafts its host fires unpaid, and no real client joins either. Decided BEFORE
+  // the expiry slide, the host claim and the membership insert below, so a refused join touches
+  // nothing. One predicate: `reservedCodeRefusal` (lib/session-code.ts). The copy names neither
+  // kind: it must be true for a counter order AND a kiosk order.
+  const reserved = reservedCodeRefusal({ found: sess !== null, code: resolvedQr });
+  if (reserved === "create")
     return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
-  }
+  if (reserved === "join")
+    return NextResponse.json(
+      { error: "That order can’t be joined from a phone — please ask staff." },
+      { status: 403 },
+    );
 
   // Create when no active session exists for the code (or when the host omitted one → mint a code).
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that

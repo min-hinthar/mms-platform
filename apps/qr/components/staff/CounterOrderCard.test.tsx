@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RegisterQueueRow } from "@/lib/register-queue";
+import type { CounterFloorRow } from "@/lib/floor-types";
 import { STAFF } from "@/lib/i18n/staff";
 
 /**
@@ -32,13 +32,23 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 
 afterEach(cleanup);
 
-const WALK_UP: RegisterQueueRow = {
+const WALK_UP: CounterFloorRow = {
   sessionId: "s-1",
   customerName: null,
   itemCount: 2,
   subtotalCents: 1200,
   startedAt: "2026-09-09T01:00:00.000Z",
   source: "register",
+  // Phase 2f — nothing sent: no flag, no kitchen row.
+  unpaidSent: false,
+  kitchen: null,
+};
+const TH = {
+  dineinAmberMin: 8,
+  dineinRedMin: 12,
+  pickupAmberMin: 8,
+  pickupRedMin: 12,
+  rechimeSec: 60,
 };
 
 /** Joiners the name and the screen spell differently (a middot, a comma, a dash, a line break). */
@@ -67,7 +77,13 @@ describe("the counter card's name is the card's own text, in one run, in every m
     it(`${what}: the visible text is a contiguous run of the name, after the verb`, () => {
       render(
         <StaffLangProvider lang={lang} echoes={echoes}>
-          <CounterOrderCard order={WALK_UP} serverNow="2026-09-09T01:05:00.000Z" lang={lang} />
+          <CounterOrderCard
+            order={WALK_UP}
+            serverNow="2026-09-09T01:05:00.000Z"
+            lang={lang}
+            thresholds={TH}
+            frozen={false}
+          />
         </StaffLangProvider>,
       );
       const link = screen.getByRole("link");
@@ -82,7 +98,13 @@ describe("the counter card's name is the card's own text, in one run, in every m
   it("Burmese only: the name carries no English echo the card no longer shows", () => {
     render(
       <StaffLangProvider lang="my" echoes={false}>
-        <CounterOrderCard order={WALK_UP} serverNow="2026-09-09T01:05:00.000Z" lang="my" />
+        <CounterOrderCard
+          order={WALK_UP}
+          serverNow="2026-09-09T01:05:00.000Z"
+          lang="my"
+          thresholds={TH}
+          frozen={false}
+        />
       </StaffLangProvider>,
     );
     const link = screen.getByRole("link");
@@ -101,7 +123,13 @@ describe("the counter card's name is the card's own text, in one run, in every m
   it("Both: the echoes are on screen AND in the name — the mode that must not move", () => {
     render(
       <StaffLangProvider lang="my">
-        <CounterOrderCard order={WALK_UP} serverNow="2026-09-09T01:05:00.000Z" lang="my" />
+        <CounterOrderCard
+          order={WALK_UP}
+          serverNow="2026-09-09T01:05:00.000Z"
+          lang="my"
+          thresholds={TH}
+          frozen={false}
+        />
       </StaffLangProvider>,
     );
     const link = screen.getByRole("link");
@@ -109,5 +137,107 @@ describe("the counter card's name is the card's own text, in one run, in every m
     expect(link.textContent).toContain(STAFF["reg.row.walkup"].en);
     expect(name).toContain(STAFF["reg.row.walkup"].en);
     expect(name).toContain("2 items · $12.00 + tax");
+  });
+});
+
+describe("Phase 2f — a counter order whose food went to the kitchen unpaid", () => {
+  const SENT: CounterFloorRow = {
+    ...WALK_UP,
+    customerName: "Aye",
+    unpaidSent: true,
+    kitchen: {
+      notSent: 0,
+      inKitchen: 1,
+      up: 0,
+      upKeys: [],
+      done: 1,
+      oldestFireAt: "2026-09-09T00:40:00.000Z",
+    },
+  };
+  for (const [what, lang, echoes] of MODES) {
+    it(`${what}: the Unpaid flag and the kitchen row are drawn, and in the name in visible order`, () => {
+      render(
+        <StaffLangProvider lang={lang} echoes={echoes}>
+          <CounterOrderCard
+            order={SENT}
+            serverNow="2026-09-09T01:05:00.000Z"
+            lang={lang}
+            thresholds={TH}
+            frozen={false}
+          />
+        </StaffLangProvider>,
+      );
+      const link = screen.getByRole("link");
+      const name = link.getAttribute("aria-label") ?? "";
+      const verb = lang === "en" ? STAFF["reg.verb.resume"].en : STAFF["reg.verb.resume"].my;
+      const unpaid = lang === "en" ? STAFF["settle.unpaid"].en : STAFF["settle.unpaid"].my;
+      expect(link.querySelector(".counter-card-kitchen")!.textContent).toContain(unpaid);
+      // The name IS the card's text, in one run — the new row included, in its drawn order.
+      expect(norm(name.slice(`${verb} — `.length))).toBe(shownText(link));
+      expect(name.indexOf(unpaid)).toBeGreaterThan(-1);
+      // No dine-in wait pill on a counter card (its thresholds are the dine-in ones).
+      expect(link.querySelector(".floor-wait")).toBeNull();
+    });
+  }
+
+  // Phase 2f review — a bag is bagged, never "served"; and (PT1, lib's fold) drafts left beside
+  // cooked food are a "not sent" count, never "Kitchen done". The fold is lib's; this pins the render.
+  const DONE_WITH_DRAFTS: CounterFloorRow = {
+    ...SENT,
+    kitchen: {
+      notSent: 2,
+      inKitchen: 0,
+      up: 1,
+      upKeys: ["l1"],
+      done: 1,
+      oldestFireAt: "2026-09-09T00:40:00.000Z",
+    },
+  };
+  for (const [what, lang, echoes] of MODES) {
+    it(`${what}: the ready segment says "ready to bag", drafts say "not sent", and the name agrees`, () => {
+      render(
+        <StaffLangProvider lang={lang} echoes={echoes}>
+          <CounterOrderCard
+            order={DONE_WITH_DRAFTS}
+            serverNow="2026-09-09T01:05:00.000Z"
+            lang={lang}
+            thresholds={TH}
+            frozen={false}
+          />
+        </StaffLangProvider>,
+      );
+      const link = screen.getByRole("link");
+      const row = link.querySelector(".counter-card-kitchen")!.textContent ?? "";
+      const say = (k: keyof typeof STAFF, n: number) =>
+        STAFF[k][lang === "en" ? "en" : "my"].replace(
+          "{n}",
+          lang === "en" ? String(n) : String(n).replace(/\d/g, (d) => "၀၁၂၃၄၅၆၇၈၉"[+d]!),
+        );
+      expect(row).toContain(say("floor.kitchen.up.pickup", 1));
+      expect(row).not.toContain(say("floor.kitchen.up", 1));
+      expect(row).toContain(say("floor.kitchen.notSent", 2));
+      expect(row).not.toContain(STAFF["expo.kitchenDone"][lang === "en" ? "en" : "my"]);
+      const verb = lang === "en" ? STAFF["reg.verb.resume"].en : STAFF["reg.verb.resume"].my;
+      const name = link.getAttribute("aria-label") ?? "";
+      expect(norm(name.slice(`${verb} — `.length))).toBe(shownText(link));
+    });
+  }
+
+  it("with nothing sent there is no flag and no kitchen row", () => {
+    render(
+      <StaffLangProvider lang="en">
+        <CounterOrderCard
+          order={WALK_UP}
+          serverNow="2026-09-09T01:05:00.000Z"
+          lang="en"
+          thresholds={TH}
+          frozen={false}
+        />
+      </StaffLangProvider>,
+    );
+    expect(document.querySelector(".counter-card-kitchen")).toBeNull();
+    expect(screen.getByRole("link").getAttribute("aria-label")).not.toContain(
+      STAFF["settle.unpaid"].en,
+    );
   });
 });

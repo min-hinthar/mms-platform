@@ -2,10 +2,30 @@
 import { useId } from "react";
 import { Button, Icon } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
-import { sendRefusalMsg, type StaffSendHold } from "@/lib/staff-send-view";
+import { sendRefusalMsg, type StaffKeyMsg, type StaffSendHold } from "@/lib/staff-send-view";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import type { StaffSendController } from "./useStaffSend";
+
+/**
+ * Phase 2f review — what the `counterSent` row SAYS. The view reads `counterSent` whenever food is
+ * past its grace and no counter Send is offered — which includes drafts LEFT while the pay-at-pickup
+ * switch parks new sends. Over those it must name what is not sent (they cook at payment again),
+ * never read as if the whole order were in the kitchen. `notSent` is the detail's own
+ * `send.counterDraft` — what the counter Send would fire.
+ */
+export function counterSentMsg(notSent: number): StaffKeyMsg {
+  if (notSent > 0)
+    return {
+      k: plural(
+        notSent,
+        "table.send.counterSent.partial.one",
+        "table.send.counterSent.partial.many",
+      ),
+      vars: { n: notSent },
+    };
+  return { k: "table.send.counterSent" };
+}
 
 /** The controller's STATE — its two refs arrive as their own props, so this view never reads a ref
  *  off an object during render (react-hooks/refs). */
@@ -35,6 +55,8 @@ export function StaffSendButton({
   hold,
   hostName,
   bare = false,
+  nameHref,
+  counterNotSent = 0,
 }: {
   lang: StaffLang;
   ctl: SendState;
@@ -48,6 +70,13 @@ export function StaffSendButton({
    *  is still in flight the order pad's Send reads "Send to kitchen" with no count. The table page
    *  never passes it. */
   bare?: boolean;
+  /** ── Phase 2f · pay at pickup ── where a counter order's name is added (the table page: the order
+   *  pad's name field). Set, the no-name hint ends with an "Add a name →" link (`#send-name-link`,
+   *  which the host focuses on a blocked tap); unset (the pad), the pad focuses its own field. */
+  nameHref?: string;
+  /** ── Phase 2f review ── a counter order's unsent drafts (`detail.send.counterDraft`), which the
+   *  `counterSent` row names instead of reading as all sent (`counterSentMsg`). */
+  counterNotSent?: number;
 }) {
   const ids = useId();
   const { display, phase } = ctl;
@@ -63,6 +92,7 @@ export function StaffSendButton({
           <Icon
             name={v.kind === "allSent" ? "check" : v.kind === "togoAtPay" ? "bag" : "receipt"}
             size={18}
+            aria-hidden
           />
           <span>
             {v.kind === "allSent" ? (
@@ -75,7 +105,15 @@ export function StaffSendButton({
                 echo="stack"
               />
             ) : (
-              <Chrome lang={lang} k="table.send.counterAtPay" echo="stack" />
+              // Phase 2f — a counter order's food went to the kitchen UNPAID: the money is still to
+              // take at pickup (the view only says this past the grace — the kitchen really has it),
+              // and what is NOT sent when drafts remain (`counterSentMsg`).
+              <Chrome
+                lang={lang}
+                k={counterSentMsg(counterNotSent).k}
+                vars={counterSentMsg(counterNotSent).vars}
+                echo="stack"
+              />
             )}
           </span>
         </div>
@@ -88,7 +126,9 @@ export function StaffSendButton({
   const view = display.kind === "send" ? display.view : null;
   // Hints describe the send; they vanish AT THE TAP (the thumb is on the control), never above it.
   const live = phase === "idle" && view !== null;
-  const blocked = live && view.blocked === "paying";
+  // Phase 2f — ANY view block (a payment in flight, a counter order with no name) is aria-disabled:
+  // the tap reaches the hook, which refuses it and tells the host (`onBlocked`).
+  const blocked = live && view.blocked !== null;
   const held = live && !blocked && hold !== null;
   const noteId = `${ids}-note`;
   const reasonId = `${ids}-why`;
@@ -96,7 +136,17 @@ export function StaffSendButton({
   // order pad also says when a refused Send is tapped; the table page renders exactly what it did.
   const refusal = live ? sendRefusalMsg(view, hold) : null;
   const reason = refusal ? (
-    <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
+    <>
+      <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
+      {view?.blocked === "noName" && nameHref && (
+        <>
+          {" "}
+          <a id="send-name-link" className="staff-send-name-link" href={nameHref}>
+            <Chrome lang={lang} k="table.send.addName" echo="stack" />
+          </a>
+        </>
+      )}
+    </>
   ) : null;
   const note =
     live && view.note === "host" ? (
@@ -114,6 +164,10 @@ export function StaffSendButton({
       />
     ) : live && view.note === "counterAsk" ? (
       <Chrome lang={lang} k="table.send.counterAskNote" vars={{ n: view.units }} echo="stack" />
+    ) : live && view.note === "payAtPickup" ? (
+      <Chrome lang={lang} k="table.send.payAtPickupNote" echo="stack" />
+    ) : live && view.note === "unpaidMore" ? (
+      <Chrome lang={lang} k="table.send.unpaidMoreNote" echo="stack" />
     ) : null;
   const describedBy = [reason ? reasonId : null, note ? noteId : null].filter(Boolean).join(" ");
 
@@ -154,6 +208,15 @@ export function StaffSendButton({
           </span>
         ) : view && bare ? (
           <Chrome lang={lang} k="table.send.cta.bare" echo="stack" />
+        ) : view?.counter ? (
+          // Phase 2f — a counter order's Send says what it does to the money: it cooks NOW and is
+          // paid at pickup (never the plain "Send to kitchen", which reads as the table's send).
+          <Chrome
+            lang={lang}
+            k={plural(view.units, "table.send.cta.counter.one", "table.send.cta.counter.many")}
+            vars={{ n: view.units }}
+            echo="stack"
+          />
         ) : view ? (
           <Chrome
             lang={lang}

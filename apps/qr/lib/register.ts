@@ -73,10 +73,14 @@ export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResul
     }
     // The order's cart. `customer_name` lands at mint for a phone order (the caller told us who's
     // calling); the walk-up captures it on the order screen. The cash RPC snapshots it to the order,
-    // which is the expo/KDS call-out for a no-table ticket.
-    const { error: cartErr } = await db
-      .from("qr_carts")
-      .insert({ session_id: sess.id, customer_name: customerName?.trim() || null });
+    // which is the expo/KDS call-out for a no-table ticket. Phase 2f (owner decision 7a) — the ARM is
+    // recorded once, here: a phone order leads with Send, a walk-up with Take payment
+    // (`staffSendView`). `kind` is narrowed to walkup | phone by the table branch above.
+    const { error: cartErr } = await db.from("qr_carts").insert({
+      session_id: sess.id,
+      customer_name: customerName?.trim() || null,
+      counter_arm: kind,
+    });
     if (cartErr) {
       // The session just minted with a unique code — a cart-insert failure here is transport, not a
       // race. Close the orphan session best-effort so it never squats on the floor cap, and refuse.
@@ -173,12 +177,19 @@ async function ensureOpenCart(db: ReturnType<typeof serviceClient>, sessionId: s
   }
 }
 
-export type SetCartNameResult = { ok: true } | { ok: false; error: string };
+/** `code: "keepName"` (Phase 2f) — clearing the name of a counter order whose food is in the kitchen;
+ *  the page says the key's words, never this sentence. */
+export type SetCartNameResult = { ok: true } | { ok: false; error: string; code?: "keepName" };
 
 /** The register's name capture (W6a) — the call-out identity for a cash order. The card path writes
  *  this in create-intent; a cash walk-up had NO write path, so its expo ticket was a bare #CODE.
  *  Open-cart-guarded in the statement; `.select` verifies a row actually changed (a 0-row UPDATE
- *  returns `{ error: null }` — indistinguishable from success without the read-back). */
+ *  returns `{ error: null }` — indistinguishable from success without the read-back).
+ *
+ *  Phase 2f · P2v (owner decision 7c) — CLEARING a name is decided by `mms_clear_cart_name` UNDER THE
+ *  CART-ROW LOCK the counter fire also takes: a counter order with food in the kitchen keeps its name
+ *  (the only pre-payment identity the counter can call), and a clear racing a send is totally ordered
+ *  by the cart row — a TS pre-read could not be. A non-empty RENAME stays the guarded update below. */
 export async function setCartCustomerName(raw: unknown): Promise<SetCartNameResult> {
   const gate = await staffGate();
   if (!gate.ok) return { ok: false, error: gate.error };
@@ -186,6 +197,22 @@ export async function setCartCustomerName(raw: unknown): Promise<SetCartNameResu
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { sessionId, name } = parsed.data;
   const db = serviceClient();
+  if (name === "") {
+    const { data: verdict, error: clearErr } = await db.rpc("mms_clear_cart_name", {
+      p_session_id: sessionId,
+    });
+    if (clearErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+    if (verdict === "keep_name")
+      return {
+        ok: false,
+        error: "This order is cooking unpaid — keep a name on it so the counter can call it.",
+        code: "keepName",
+      };
+    if (verdict !== "ok")
+      return { ok: false, error: "This order is already settled — the name didn’t change." };
+    revalidatePath(`/staff/table/${sessionId}`);
+    return { ok: true };
+  }
   const { data, error } = await db
     .from("qr_carts")
     .update({ customer_name: name || null })

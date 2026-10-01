@@ -29,6 +29,12 @@ type Q = {
 let queries: Q[] = [];
 /** Rows the update's read-back returns (the 0-row honesty test flips this). */
 let updatedRows: { id: string }[] = [];
+/** Phase 2f — every RPC called, and what `mms_clear_cart_name` answers. */
+let rpcCalls: { fn: string; args: unknown }[] = [];
+let clearVerdict: { data: unknown; error: { message: string } | null } = {
+  data: "ok",
+  error: null,
+};
 
 function chain(q: Q) {
   const api = {
@@ -66,7 +72,11 @@ vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     // The service-day read (`readServiceDay`): the server's clock; `pickup_config` answers null
     // through the chain below, so the floor is the default zone's.
-    rpc: () => Promise.resolve({ data: "2026-09-13T19:00:00.000Z", error: null }),
+    rpc: (fn: string, args: unknown) => {
+      rpcCalls.push({ fn, args });
+      if (fn === "mms_clear_cart_name") return Promise.resolve(clearVerdict);
+      return Promise.resolve({ data: "2026-09-13T19:00:00.000Z", error: null });
+    },
     from: (table: string) => ({
       select: (_cols: string) => chain(pushQ(table, "select")),
       insert: (payload: Record<string, unknown>) => chain(pushQ(table, "insert", payload)),
@@ -88,6 +98,8 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
   queries = [];
   updatedRows = [{ id: "cart-1" }];
+  rpcCalls = [];
+  clearVerdict = { data: "ok", error: null };
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -124,5 +136,56 @@ describe("setCartCustomerName — open-cart-guarded, read-back-verified", () => 
     updatedRows = [];
     const r = await setCartCustomerName({ sessionId: SESSION, name: "Ko Ko" });
     expect(r.ok).toBe(false);
+  });
+});
+
+// ── Phase 2f · P2v — the arm is recorded; a name is kept once food is in ─────────────────────────
+describe("openRegisterOrder — the counter arm is recorded at mint (owner decision 7a)", () => {
+  it("a phone order records `phone`, a walk-up `walkup`", async () => {
+    // phone-arm-not-recorded
+    await openRegisterOrder({ kind: "phone", customerName: "Thiri" });
+    expect(
+      queries.find((q) => q.table === "qr_carts" && q.op === "insert")?.payload?.counter_arm,
+    ).toBe("phone");
+    queries = [];
+    await openRegisterOrder({ kind: "walkup" });
+    expect(
+      queries.find((q) => q.table === "qr_carts" && q.op === "insert")?.payload?.counter_arm,
+    ).toBe("walkup");
+  });
+});
+
+describe("setCartCustomerName — clearing a name goes through the cart-locked SQL (decision 7c)", () => {
+  it("an EMPTY name is decided by mms_clear_cart_name, never the PostgREST update", async () => {
+    const r = await setCartCustomerName({ sessionId: SESSION, name: "" });
+    expect(r).toEqual({ ok: true });
+    expect(rpcCalls).toEqual([{ fn: "mms_clear_cart_name", args: { p_session_id: SESSION } }]);
+    expect(queries.some((q) => q.op === "update")).toBe(false);
+  });
+
+  it("`keep_name` refuses with the keepName CODE, and nothing else is written", async () => {
+    // empty-name-bypasses-the-lock
+    clearVerdict = { data: "keep_name", error: null };
+    const r = await setCartCustomerName({ sessionId: SESSION, name: "  " });
+    expect(r).toMatchObject({ ok: false, code: "keepName" });
+    expect(queries.some((q) => q.op === "update")).toBe(false);
+  });
+
+  it("`not_open` is the settled sentence; an RPC error is the outage", async () => {
+    clearVerdict = { data: "not_open", error: null };
+    const r = await setCartCustomerName({ sessionId: SESSION, name: "" });
+    expect(r.ok).toBe(false);
+    expect(r).not.toHaveProperty("code");
+    clearVerdict = { data: null, error: { message: "boom" } };
+    expect(await setCartCustomerName({ sessionId: SESSION, name: "" })).toEqual({
+      ok: false,
+      error: "outage",
+    });
+  });
+
+  it("a non-empty rename is still the guarded update, no RPC", async () => {
+    await setCartCustomerName({ sessionId: SESSION, name: "Ko Ko" });
+    expect(rpcCalls).toEqual([]);
+    expect(queries.find((q) => q.op === "update")?.payload).toEqual({ customer_name: "Ko Ko" });
   });
 });
