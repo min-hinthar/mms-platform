@@ -5,6 +5,7 @@ import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
 import { releaseLockAfterSignOut } from "@/lib/staff-pin-actions";
+import { track } from "@/lib/bounded-write";
 import { BRAND_EMAIL, BRAND_NAME } from "@/lib/brand";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
@@ -29,6 +30,13 @@ const GOOGLE = "Google";
  * focus to `<body>` (the language switch's measured rule), and on THIS screen it also stranded the
  * old copy: a 429 disabled Send under a message telling the person to tap it. Every gate is
  * `aria-disabled` + a refusal inside the handler, so the button keeps its place and its name.
+ *
+ * Phase 2h (decision 9g) — THIS page releases the device lock. A sign-out (the lock screen's "Forgot
+ * PIN? Sign out", or "Sign out" here for a wrong account) hard-navigates to this page and awaits no
+ * Server Action first: Next runs actions one at a time per tab, so a release awaited on a tablet
+ * whose queue is stuck never answered, and the escape stranded the person it existed for. The form
+ * sends `releaseLockAfterSignOut` once it mounts — on a fresh document, whose queue nothing can be
+ * stuck in — and the server still releases only when it sees NO session (a live one keeps its lock).
  */
 export function StaffLogin({
   lang,
@@ -68,6 +76,18 @@ export function StaffLogin({
   const [sentTo, setSentTo] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+
+  // Phase 2h (9g) — release a lock left behind by a sign-out (the docblock). Only an anonymous
+  // visitor reaches this form's release with any effect: the server refuses it for a live session
+  // (a wrong account's, `denied`) and for an unknowable one (an outage never reads as signed out).
+  // Not awaited — nothing on this form waits for it — but TRACKED, so it sits in the stall ledger
+  // like every action on the tab; its answer changes nothing here, so a failure is swallowed.
+  useEffect(() => {
+    void track(releaseLockAfterSignOut()).catch(() => {
+      // Deliberate: the cookie stays, and the next console page shows the lock — whose own
+      // "Forgot PIN? Sign out" lands back here and asks again.
+    });
+  }, []);
 
   // Move focus deliberately on each step change (QA §A) — to the code field when it appears, back to
   // the email field on "use a different email". Also covers the initial mount (step starts 'email').
@@ -245,10 +265,14 @@ export function StaffLogin({
       return;
     }
     // A wrong account can be signed in on a LOCKED tablet (the lock is a device cookie the browser
-    // sign-out cannot clear); release it now the session is gone, or the right account's first
-    // screen is the lock with no PIN to enter (blind pass, CRITICAL).
-    await releaseLockAfterSignOut();
-    router.refresh();
+    // sign-out cannot clear); it must be released now the session is gone, or the right account's
+    // first screen is the lock with no PIN to enter (blind pass, CRITICAL). Phase 2h (9g): by a HARD
+    // navigation back to this form — whose mount sends the release on a fresh document — never an
+    // awaited action here (a stuck queue held it, and the soft refresh after it, forever). The
+    // destination is kept; the "not staff" notice is not (that session is gone).
+    window.location.assign(
+      next === DEFAULT_NEXT ? "/staff/login" : `/staff/login?next=${encodeURIComponent(next)}`,
+    );
   }
 
   const shown = error ?? notice;

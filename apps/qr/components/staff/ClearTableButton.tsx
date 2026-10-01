@@ -1,16 +1,25 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { clearTable } from "@/lib/floor";
+import { boundWrite } from "@/lib/bounded-write";
 import { dropHandoffStash } from "@/lib/floor-pane";
 import { useTableNav } from "./TableNav";
 import { tf } from "@/lib/i18n/fill";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * Clear a table on turnover (S1.2). Two-step confirm (no accidental clear), and DISABLED with an honest
  * reason while a payment is in flight — the server refuses it regardless (the button gating is just the
  * affordance). On success the session is closed; we leave the now-defunct detail page for the floor.
+ *
+ * Phase 2h (P2fc) — the clear is awaited with a BOUND (`boundWrite`): a hung action used to leave
+ * "Clearing…" up with Cancel natively disabled until a reload. Busy is state cleared in a `finally`,
+ * every control is `aria-disabled` (never native), and the outcome is said honestly: a lost answer
+ * "couldn't confirm" (the table may already be cleared), a slow one "no answer yet — don't clear it
+ * again" with the reload beside it; the late answer still lands (a late clear leaves the table).
  */
 export function ClearTableButton({
   sessionId,
@@ -30,6 +39,21 @@ export function ClearTableButton({
   // Phase 2f — a counter order whose food reached the kitchen unpaid is refused by code (`sent`):
   // the page's own sentence, which names the way out ("They didn't come"), not the server's English.
   const [sentRefused, setSentRefused] = useState(false);
+  // Phase 2h — the clear's own outcome when no answer came: `unknown` (it threw — the answer was
+  // lost) or `waiting` (still out at the bound). Kept apart from the server's sentence (`error`).
+  const [unanswered, setUnanswered] = useState<"waiting" | "unknown" | null>(null);
+  // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
+  // render), beside the `busy` the buttons say.
+  const inFlight = useRef(false);
+  // Whether this control is still mounted when a LATE answer lands. Re-armed at setup (Strict Mode).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const midPaymentId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -43,14 +67,11 @@ export function ClearTableButton({
     wasConfirming.current = confirming;
   }, [confirming]);
 
-  async function confirm() {
-    setBusy(true);
-    setError(null);
-    setSentRefused(false);
-    const res = await clearTable({ sessionId });
+  /** The clear's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
+  function land(res: Awaited<ReturnType<typeof clearTable>>) {
     if (!res.ok) {
-      setBusy(false);
       setConfirming(false);
+      setUnanswered(null);
       setError(res.error);
       setSentRefused(res.code === "sent");
       return;
@@ -63,13 +84,59 @@ export function ClearTableButton({
     nav.toFloor("cleared");
   }
 
+  async function confirm() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setSentRefused(false);
+    setUnanswered(null);
+    let left = false;
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(clearTable({ sessionId }));
+      if (out.kind === "answer") {
+        left = out.value.ok; // a cleared table is leaving: stay busy until the swap
+        land(out.value);
+        return;
+      }
+      setConfirming(false); // the effect returns focus to the trigger, beside the line
+      if (out.kind === "threw") {
+        console.error("[ClearTableButton] clear unconfirmed", out.error);
+        setUnanswered("unknown");
+        return;
+      }
+      setUnanswered("waiting");
+      void out.late.then((late) => {
+        // A detail that is gone has nothing to leave or say; a late clear is seen on the floor.
+        if (!alive.current) return;
+        if (late.kind === "answer") land(late.value);
+        else setUnanswered("unknown");
+      });
+    } finally {
+      // Frees AT THE BOUND (fact 3) — unless the table is leaving under this control.
+      if (!left) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
   if (paymentInFlight) {
     return (
       <div>
-        <button type="button" disabled style={{ ...clearBtn, opacity: 0.5, cursor: "not-allowed" }}>
+        {/* Phase 2h — `aria-disabled`, never native: a native disable drops a focused control's
+            focus to <body> as the payment starts under it, and hides the reason from a screen
+            reader. The note says why (its description); a tap does nothing. */}
+        <button
+          type="button"
+          aria-disabled
+          aria-describedby={midPaymentId}
+          style={{ ...clearBtn, opacity: 0.5, cursor: "not-allowed" }}
+        >
           <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
         </button>
-        <p style={hint}>
+        <p id={midPaymentId} style={hint}>
           <Chrome lang={lang} k="settle.clear.midPayment" echo="stack" />
         </p>
       </div>
@@ -92,15 +159,26 @@ export function ClearTableButton({
             <Chrome lang={lang} k="settle.clear.question" vars={{ id: label }} echo="inline" />
           </span>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
+            {/* aria-disabled + the handlers' guards (§17, K35) — never native `disabled`, which drops
+                focus to <body> under the tap; busy frees at the bound, so neither is stranded. */}
             <button
               type="button"
-              onClick={() => setConfirming(false)}
-              disabled={busy}
+              onClick={() => {
+                if (busy) return;
+                setConfirming(false);
+              }}
+              aria-disabled={busy || undefined}
               style={cancelBtn}
             >
               <Chrome lang={lang} k="settle.cancel" echo={false} />
             </button>
-            <button type="button" onClick={confirm} disabled={busy} style={clearBtn}>
+            <button
+              type="button"
+              onClick={() => void confirm()}
+              aria-disabled={busy || undefined}
+              aria-busy={busy || undefined}
+              style={clearBtn}
+            >
               {busy ? (
                 <Chrome lang={lang} k="settle.clear.clearing" echo={false} />
               ) : (
@@ -116,14 +194,25 @@ export function ClearTableButton({
       )}
       {/* Assertive alert (not a polite live region) so the detail view keeps ONE polite region — its
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
-      {error && (
+      {(error || unanswered) && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
-          {sentRefused ? (
+          {unanswered === "waiting" ? (
+            <Chrome lang={lang} k="settle.clear.waiting" echo={false} />
+          ) : unanswered === "unknown" ? (
+            <Chrome lang={lang} k="settle.clear.unknown" echo={false} />
+          ) : sentRefused ? (
             <Chrome lang={lang} k="settle.clear.counterSent" echo="stack" />
           ) : (
-            <OutageText lang={lang} error={error} />
+            <OutageText lang={lang} error={error ?? ""} />
           )}
         </p>
+      )}
+      {/* Phase 2h — the waiting line says "reload the page", and the console is installed standalone
+          (no browser reload): the one way out sits BESIDE the alert, never inside it. */}
+      {unanswered === "waiting" && (
+        <div style={{ marginTop: "var(--s2)" }}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </div>
   );

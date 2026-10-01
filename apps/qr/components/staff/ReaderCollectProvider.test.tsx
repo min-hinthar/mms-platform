@@ -3,7 +3,7 @@ import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
-import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, stalledSince, track } from "@/lib/bounded-write";
 import {
   READER_COLLECT_KEY,
   READER_LANDED_KEY,
@@ -638,5 +638,129 @@ describe("Phase 2h (9d) — the status read sits on the stall ledger until it an
     expect(stalledSince()).toBe(startedAt);
     // Never a second read over the hung one (`flight`).
     expect(terminalStatus).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Phase 2h — the reader CANCEL is bounded (9b · 9d · 9e)", () => {
+  /** A cancel whose answer the case holds. */
+  function hungCancel() {
+    let answer!: (v: { ok: true } | { ok: false; error: string }) => void;
+    let fail!: (e: Error) => void;
+    cancelTerminal.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        answer = res;
+        fail = rej;
+      }),
+    );
+    return { answer: (v: { ok: true } | { ok: false; error: string }) => answer(v), fail };
+  }
+  async function collectingNow() {
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+  }
+  const declined = { ok: true, state: "failed", error: "The card was declined." } as const;
+
+  it("no answer at the bound: busy frees, the region says 'no answer yet' — and the LATE cancel lands canceled", async () => {
+    const h = hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    expect(api.cancelBusy).toBe(true);
+    await tick(STAFF_HANG_MS - 1);
+    expect(api.cancelBusy).toBe(true);
+    expect(api.cancelError).toBeNull();
+    await tick(1);
+    // Free AT the bound, never held by the raw (fact 3).
+    expect(api.cancelBusy).toBe(false);
+    // MUTATION (p2h-doors/cancel-waiting-unsaid): the bound passes in silence — the cashier is told
+    // nothing while the reader may still take the card; red.
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    expect(api.spoken).toEqual({ tone: "warn", msg: { k: "settle.reader.cancelWaiting" } });
+    // MUTATION (p2h-doors/cancel-late-ok-dropped): the late answer is dropped — the reader WAS
+    // cancelled, and the collect keeps saying "on the reader"; red.
+    await act(async () => h.answer({ ok: true }));
+    expect(api.poll.phase).toBe("canceled");
+    expect(api.cancelError).toBeNull();
+    expect(api.spoken).toEqual({ tone: "ok", msg: { k: "settle.reader.status.canceled" } });
+    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
+  });
+
+  it("a LATE refusal while the collect is where it was asked is said over the waiting line", async () => {
+    const h = hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    await act(async () => h.answer({ ok: false, error: "Too late to cancel." }));
+    expect(api.spoken).toEqual({ tone: "warn", msg: "Too late to cancel." });
+  });
+
+  it("a LATE throw while the collect is where it was asked says 'couldn't confirm' over the waiting line", async () => {
+    const h = hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    // MUTATION (p2h-doors/cancel-late-throw-unsaid): the lost answer leaves "no answer yet"
+    // standing for good; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(api.cancelError).toEqual({ kind: "local" });
+    expect(api.spoken).toEqual({ tone: "warn", msg: { k: "settle.reader.cancelUnknown" } });
+  });
+
+  it("a waiting line is never written over a collect that moved on before the bound", async () => {
+    hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    terminalStatus.mockResolvedValue(declined);
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    await tick(STAFF_HANG_MS);
+    expect(api.cancelBusy).toBe(false);
+    // MUTATION (p2h-doors/cancel-waiting-masks-the-outcome): the bound writes "no answer yet" over
+    // the decline — and a failed collect never polls again, so it masks the decline for good; red.
+    expect(api.cancelError).toBeNull();
+    expect(api.spoken).toEqual(api.status);
+  });
+
+  it("a LATE throw after the collect moved on is dropped — the newer outcome stands", async () => {
+    const h = hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    terminalStatus.mockResolvedValue(declined);
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    expect(api.cancelError).toBeNull(); // the phase change retired the waiting line
+    // MUTATION (p2h-doors/cancel-late-throw-masks-the-outcome): the lost answer is written as
+    // "couldn't confirm" over the decline, for good; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(api.cancelError).toBeNull();
+    expect(api.spoken).toEqual(api.status);
+  });
+
+  it("refused AT THE TAP while an earlier action is stuck: never sent, the region says so (9d)", async () => {
+    await collectingNow();
+    void track(new Promise(() => {}));
+    await tick(STAFF_HANG_MS);
+    await act(async () => api.cancel());
+    // MUTATION (p2h-doors/cancel-stalled-dispatched): the cancel is queued behind the stuck action —
+    // it could reach the reader minutes from now, after a second payment was taken; red.
+    expect(cancelTerminal).not.toHaveBeenCalled();
+    expect(api.cancelBusy).toBe(false);
+    expect(api.cancelError).toEqual({ kind: "stalled" });
+    expect(api.spoken).toEqual({ tone: "warn", msg: { k: "out.stalled" } });
   });
 });

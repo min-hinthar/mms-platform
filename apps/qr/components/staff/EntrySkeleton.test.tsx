@@ -9,7 +9,9 @@ vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({
   lockConsole: vi.fn(),
   unlockConsole: vi.fn(),
-  releaseLockAfterSignOut: vi.fn(),
+  // Phase 2h (9g) — the sign-in form sends the lock release as it mounts: a Server Action answers
+  // a promise, so the stand-in does too.
+  releaseLockAfterSignOut: vi.fn(() => Promise.resolve({ released: false })),
 }));
 vi.mock("@mms/db", () => ({
   browserClient: () => ({

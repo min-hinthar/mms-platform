@@ -2,12 +2,16 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useTableNav } from "./TableNav";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
+import { boundWrite } from "@/lib/bounded-write";
+import { raceTimeout } from "@/lib/staff-outage";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * P2 — the two error sources this panel has, kept APART rather than flattened to one string.
@@ -17,7 +21,13 @@ import { useStaffLang } from "./StaffLangProvider";
  * into the first would send an authored English literal through `<OutageText>`, which passes every
  * sentence but that one through verbatim — so it would look converted and render English forever.
  */
-type MergeError = { kind: "server"; text: string } | { kind: "loadFailed" };
+type MergeError =
+  | { kind: "server"; text: string }
+  | { kind: "loadFailed" }
+  // Phase 2h (9e) — the merge's answer is still out at the bound: the tables may yet be merged.
+  | { kind: "waiting" }
+  // Phase 2h (9e) — the merge THREW: the answer was lost, so it may have landed ("couldn't confirm").
+  | { kind: "unknown" };
 
 /**
  * One-tap merge (S1.4 soft convergence). The recovery for a double-order: fold THIS table's open order
@@ -26,6 +36,12 @@ type MergeError = { kind: "server"; text: string } | { kind: "loadFailed" };
  * both carts, refuses mid-payment, and re-parents the already-server-priced lines (no client price). On
  * success we route to the target table (this one is now closed). One assertive error region (no extra
  * live region — parity with the detail view's single status region).
+ *
+ * Phase 2h (P2fc) — both server calls are BOUNDED. The candidate read races `STAFF_HANG_MS` (a hung
+ * read says it could not load, never "Loading…" forever); the merge is awaited with `boundWrite`,
+ * busy is state cleared in a `finally`, every control is `aria-disabled` (never native — Back and
+ * Cancel were natively disabled for as long as the action hung), and a lost or slow answer is said
+ * as one ("couldn't confirm" / "no answer yet — don't merge again"); the late answer still lands.
  */
 export function MergeTableButton({
   sourceSessionId,
@@ -45,6 +61,16 @@ export function MergeTableButton({
   const [error, setError] = useState<MergeError | null>(null);
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
+  // Phase 2h — the merge's tap-time guard (a REF: two taps in one frame both read the same render),
+  // and whether this control is still mounted when a LATE answer lands (re-armed at setup).
+  const inFlight = useRef(false);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pickingRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
@@ -66,7 +92,9 @@ export function MergeTableButton({
     setError(null);
     setLoading(true);
     try {
-      setCandidates(await getMergeCandidates(sourceSessionId));
+      // Phase 2h — a READ, raced at the bound (a timeout is a failure: "Couldn't load tables. Try
+      // again."), never left on "Loading…" while the action queue is stuck.
+      setCandidates(await raceTimeout(getMergeCandidates(sourceSessionId)));
     } catch {
       setError({ kind: "loadFailed" });
     } finally {
@@ -75,24 +103,59 @@ export function MergeTableButton({
   }
 
   function reset() {
+    if (busy) return; // aria-disabled while the merge is out (§17) — the refusal is here
     setStep("idle");
     setTarget(null);
     setError(null);
   }
 
-  async function confirm() {
-    if (!target) return;
-    setBusy(true);
-    setError(null);
-    const res = await mergeTables({ sourceSessionId, targetSessionId: target.sessionId });
+  /** The merge's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
+  function land(res: Awaited<ReturnType<typeof mergeTables>>, into: MergeCandidate) {
     if (!res.ok) {
-      setBusy(false);
       setError({ kind: "server", text: res.error });
       return;
     }
     // This table is now closed; go to the table that received the order — its page, or (in the
     // counter's pane) the pane switches to it, named by the candidate's own label.
-    nav.toTable(res.targetSessionId, { counter: false, display: tableDisplay(target).text });
+    nav.toTable(res.targetSessionId, { counter: false, display: tableDisplay(into).text });
+  }
+
+  async function confirm() {
+    if (!target || inFlight.current) return;
+    const into = target;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    let left = false;
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(
+        mergeTables({ sourceSessionId, targetSessionId: into.sessionId }),
+      );
+      if (out.kind === "answer") {
+        left = out.value.ok; // this table is leaving: stay busy until the swap
+        land(out.value, into);
+        return;
+      }
+      if (out.kind === "threw") {
+        console.error("[MergeTableButton] merge unconfirmed", out.error);
+        setError({ kind: "unknown" });
+        return;
+      }
+      setError({ kind: "waiting" });
+      void out.late.then((late) => {
+        // A detail that is gone has nothing to leave or say; a late merge is seen on the floor.
+        if (!alive.current) return;
+        if (late.kind === "answer") land(late.value, into);
+        else setError({ kind: "unknown" });
+      });
+    } finally {
+      // Frees AT THE BOUND (fact 3) — unless the table is leaving under this control.
+      if (!left) {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
   }
 
   return (
@@ -126,7 +189,7 @@ export function MergeTableButton({
               className="staff-btn"
               type="button"
               onClick={reset}
-              disabled={busy}
+              aria-disabled={busy || undefined}
               style={linkBtn}
             >
               <Chrome lang={lang} k="settle.cancel" echo={false} />
@@ -202,11 +265,16 @@ export function MergeTableButton({
             <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
+            {/* aria-disabled + the handlers' guards (§17, K35) — never native `disabled`, which drops
+                focus to <body> under the tap; busy frees at the bound, so neither is stranded. */}
             <button
               className="staff-btn"
               type="button"
-              onClick={() => setStep("picking")}
-              disabled={busy}
+              onClick={() => {
+                if (busy) return;
+                setStep("picking");
+              }}
+              aria-disabled={busy || undefined}
               style={cancelBtn}
             >
               <Chrome lang={lang} k="settle.back" echo={false} />
@@ -214,8 +282,9 @@ export function MergeTableButton({
             <button
               className="staff-btn"
               type="button"
-              onClick={confirm}
-              disabled={busy}
+              onClick={() => void confirm()}
+              aria-disabled={busy || undefined}
+              aria-busy={busy || undefined}
               style={mergeBtn}
             >
               {busy ? (
@@ -237,10 +306,21 @@ export function MergeTableButton({
         <p role="alert" style={{ ...muted, marginTop: 6, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "waiting" ? (
+            <Chrome lang={lang} k="settle.merge.waiting" echo={false} />
+          ) : error.kind === "unknown" ? (
+            <Chrome lang={lang} k="settle.merge.unknown" echo={false} />
           ) : (
             <Chrome lang={lang} k="settle.merge.loadFailed" echo={false} />
           )}
         </p>
+      )}
+      {/* Phase 2h — the waiting line says "reload the page", and the console is installed standalone
+          (no browser reload): the one way out sits BESIDE the alert, never inside it. */}
+      {error?.kind === "waiting" && (
+        <div style={{ marginTop: "var(--s2)" }}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </div>
   );

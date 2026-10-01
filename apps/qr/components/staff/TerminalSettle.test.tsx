@@ -6,6 +6,7 @@ import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { READER_UNRECORDED_MS } from "@/lib/reader-collect";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * Phase 2c · register — the card reader's two halves after the register's Button conversion and the
@@ -89,8 +90,177 @@ describe("TerminalSettleButton — a Button, secondary by default", () => {
       fail(new Error("fetch failed"));
     });
     expect(trigger.getAttribute("aria-busy")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.startFailed"].en);
+    // Phase 2h (9e) — THROWN is a LOST answer: "couldn't confirm … the reader may be asking for the
+    // card now", never "couldn't start — try again" (a second tender while the reader collects).
+    // MUTATION (p2h-doors/reader-start-threw-says-start-failed): red.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
     expect(onStarted).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9e)", () => {
+  // A landed start writes the reader stash; a fresh provider would restore (and poll) it.
+  beforeEach(() => {
+    sessionStorage.clear();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+  });
+  /** The button in its provider, with the page's outcome hook, and a way to take it off the page. */
+  function startTree() {
+    const onSettleOutcome = vi.fn();
+    const onStarted = vi.fn();
+    const onBlockedTap = vi.fn();
+    const view = (withButton: boolean) => (
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          {withButton && (
+            <TerminalSettleButton
+              sessionId="s1"
+              totalCents={4210}
+              tap={TAP}
+              onStarted={onStarted}
+              onSettleOutcome={onSettleOutcome}
+              onBlockedTap={onBlockedTap}
+            />
+          )}
+        </ReaderCollectProvider>
+      </StaffLangProvider>
+    );
+    const r = render(view(true));
+    // Held once: a busy Button keeps its element (the label swaps to "Starting the reader…").
+    const el = screen.getByRole("button", { name: /Card on the reader/ });
+    const trigger = () => el;
+    const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+    return {
+      ...r,
+      onSettleOutcome,
+      onStarted,
+      onBlockedTap,
+      trigger,
+      reloadBtn,
+      unmountButton: () => r.rerender(view(false)),
+    };
+  }
+  /** A start whose answer the case holds. */
+  function hungStart() {
+    let answer!: (v: unknown) => void;
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        answer = res;
+        fail = rej;
+      }),
+    );
+    return { answer: (v: unknown) => answer(v), fail: (e: Error) => fail(e) };
+  }
+
+  it("a start with no answer frees the trigger AT the bound, says 'no answer yet' and offers the reload", async () => {
+    // MUTATION (p2h-doors/reader-start-unbounded): the bound never fires — "Starting…" holds for as
+    // long as the queue is stuck, the W10c latch in a new shape; red.
+    hungStart();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(t.trigger().getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await flush(1);
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull();
+    // MUTATION (p2h-doors/reader-start-waiting-unsaid): said as "couldn't confirm" — the waiting
+    // line's reload is never offered, and a late start reads as a lost one; red.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-reload-missing): the line says "reload the page" on a
+    // standalone console with no browser reload button; red.
+    const reload = t.reloadBtn();
+    expect(reload).not.toBeNull();
+    // Beside the alert, never inside it (one live region; the button is no region of its own).
+    expect(screen.getByRole("alert").contains(reload)).toBe(false);
+    expect(t.onSettleOutcome).toHaveBeenCalledWith("unknown");
+    expect(document.querySelectorAll("[disabled]")).toHaveLength(0);
+  });
+
+  it("a LATE start lands: the provider's collect starts with the TAP's facts, and 'no answer yet' goes", async () => {
+    const h = hungStart();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    expect(api.record).toBeNull();
+    // MUTATION (p2h-doors/reader-start-late-ok-dropped): the late answer is dropped — the reader IS
+    // asking for the card, and no poll records the charge or slides the freeze; red.
+    await act(async () => h.answer({ ok: true, paymentIntentId: "pi_late", totalCents: 4210 }));
+    expect(api.record).toMatchObject({ sessionId: "s1", paymentIntentId: "pi_late", cartId: "c1" });
+    expect(t.onStarted).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(STAFF["settle.reader.waiting"].en)).toBeNull();
+    expect(t.reloadBtn()).toBeNull();
+  });
+
+  it("a LATE refusal is said while the button is here; after it left, the page is told instead", async () => {
+    const first = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull(); // free at the bound, not at the answer
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-late-refusal-unsaid): a late refusal is never said — the
+    // cashier is left on "no answer yet" for a start the server refused; red.
+    await act(async () => first.answer({ ok: false, error: "The reader is offline." }));
+    expect(screen.getByRole("alert").textContent).toBe("The reader is offline.");
+    expect(t.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    const second = hungStart();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    t.unmountButton();
+    // MUTATION (p2h-doors/reader-start-late-refusal-after-unmount): a late `unsent` refusal from a
+    // button that is GONE still jumps the page to the Send — focus pulled off wherever the cashier
+    // went; red. The page is told through `onSettleOutcome` instead.
+    await act(async () =>
+      second.answer({ ok: false, code: "unsent", units: 2, error: "Send the dishes first." }),
+    );
+    expect(t.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    expect(t.onBlockedTap).not.toHaveBeenCalled();
+    expect(api.record).toBeNull();
+  });
+
+  it("a LATE throw says 'couldn't confirm' over the waiting line — the reader may still be asking", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-late-throw-unsaid): the lost answer leaves "no answer yet"
+    // standing for good; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(t.reloadBtn()).toBeNull();
+  });
+
+  it("refused AT THE TAP while an earlier action is stuck: nothing is sent, the alert says so, the reload is beside it (9d)", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    // An earlier action on this tab, unanswered for the bound (a hung poll, another sheet's write).
+    void track(new Promise(() => {}));
+    await flush(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    // MUTATION (p2h-doors/reader-start-stalled-dispatched): the start is dispatched into the stuck
+    // queue — it could start the reader minutes from now, after the cashier took cash; red.
+    expect(settleCard).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+    expect(t.reloadBtn()).not.toBeNull();
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull();
   });
 });
 
@@ -199,6 +369,30 @@ describe("TerminalCollectPanel — a view over the provider: shown here, said by
     // Declined or cancelled: "Back to payment" clears the collect — the panel goes.
     expect(group()).toBeNull();
     expect(api.record).toBeNull();
+  });
+
+  it("a cancel with no answer at the bound frees, says 'no answer yet' in the panel and the region, and offers the reload beside them", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    cancelTerminal.mockReturnValueOnce(new Promise(() => {}));
+    const { onStatus } = await panel();
+    await flush();
+    const cancel = screen.getByRole("button", { name: /Cancel the reader|Canceling/ });
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(cancel.getAttribute("aria-busy")).toBeNull();
+    expect(group()!.textContent).toContain(STAFF["settle.reader.cancelWaiting"].en);
+    expect(lastStatus(onStatus)).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelWaiting" },
+    });
+    // MUTATION (p2h-doors/panel-cancel-reload-missing): the line says "reload the page" and the
+    // panel offers no reload — on a standalone console there is no other; red.
+    const reload = screen.getByRole("button", { name: STAFF["out.reload"].en });
+    expect(group()!.contains(reload)).toBe(true);
+    // The panel is no live region; the button is none either (the page's region says it).
+    expect(group()!.querySelectorAll('[role="alert"],[role="status"],[aria-live]')).toHaveLength(0);
   });
 
   it("a THROWN cancel says 'couldn't confirm' — in the panel and the region, one binding (Phase 2h · 9e)", async () => {

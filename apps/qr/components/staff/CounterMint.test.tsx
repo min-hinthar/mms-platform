@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
-import type { MouseEvent } from "react";
+import { startTransition, type MouseEvent } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import type { TablePaneApi } from "./TablePaneContext";
 
 /**
@@ -254,3 +255,169 @@ describe("CounterMint — a start that lands after the pane moved and came back"
  * start mid-collect is an ordinary start. Its end-to-end proof (the start lands AND the poll survives
  * the route swap) is `CounterSplit.integration.test`'s, against the real split and provider.
  */
+
+/**
+ * Phase 2h (P2fc · LEARNINGS #158 · #200) — the start is no TRANSITION and is BOUNDED. Under
+ * `startTransition(async …)` its lock could only release when the raw action answered, and the
+ * landing's `router.push` could not commit while any async transition on the tab hung. Now the lock
+ * re-arms at STAFF_HANG_MS with "no answer yet", and the LATE answer still lands — unless the screen
+ * moved on to a newer start.
+ */
+describe("CounterMint — Phase 2h: the start is bounded, and its late answer lands", () => {
+  const settle: Array<() => void> = [];
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(async () => {
+    await act(async () => {
+      for (const s of settle.splice(0)) s();
+    });
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const onRefusal = vi.fn();
+  function StartWith({ id, table }: { id: "table-7" | "walkup"; table?: number }) {
+    const mint = useCounterMint();
+    return (
+      <button
+        type="button"
+        aria-disabled={mint.held || undefined}
+        onClick={() =>
+          mint.run(
+            id,
+            table === undefined ? { kind: "walkup" } : { kind: "table", tableNumber: table },
+            { onStart: () => {}, onRefusal },
+          )
+        }
+      >
+        {id}
+      </button>
+    );
+  }
+  function mount() {
+    onRefusal.mockReset();
+    const api: TablePaneApi = {
+      selectedId: null,
+      selectionGen: 0,
+      openFromCard: () => {},
+      openSession: () => false,
+      publishFloor: () => {},
+    };
+    render(
+      <TablePaneContext.Provider value={api}>
+        <CounterMintProvider>
+          <StartWith id="walkup" />
+          <StartWith id="table-7" table={7} />
+        </CounterMintProvider>
+      </TablePaneContext.Provider>,
+    );
+  }
+  const walkup = () => screen.getByRole("button", { name: "walkup" });
+  const table7 = () => screen.getByRole("button", { name: "table-7" });
+
+  it("no answer at the bound: the lock re-arms even beside an unrelated hung transition, and the caller says 'no answer yet'", async () => {
+    // Another surface's async transition, never answered (the expo lane, the approvals queue).
+    startTransition(async () => {
+      await new Promise<void>((r) => settle.push(r));
+    });
+    openRegisterOrder.mockReturnValueOnce(deferred<Landing>().promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    expect(table7().getAttribute("aria-disabled")).toBe("true");
+    await flush(STAFF_HANG_MS - 1);
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-doors/mint-unbounded): the bound never fires — every start control on the
+    // counter stays dimmed for as long as the action queue is stuck; red.
+    await flush(1);
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    expect(table7().getAttribute("aria-disabled")).toBeNull();
+    // MUTATION (p2h-doors/mint-waiting-unsaid): said as "no answer … it may have started — check"
+    // with no reload, while the floor's own read is queued behind the stuck start; red.
+    expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("a LATE start lands: its order opens, and the screen is held for the route swap", async () => {
+    const d = deferred<Landing>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    // MUTATION (p2h-doors/mint-late-ok-dropped): the late answer is dropped — the order WAS
+    // started and the cashier is left on the counter, told only "no answer yet"; red.
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s-late", created: true });
+      await d.promise;
+    });
+    expect(push).toHaveBeenCalledWith("/staff/table/s-late/add");
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a LATE start never lands over a NEWER start — the newer one keeps the screen", async () => {
+    const first = deferred<Landing>();
+    openRegisterOrder.mockReturnValueOnce(first.promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    await flush(STAFF_HANG_MS);
+    openRegisterOrder.mockReturnValueOnce(deferred<Landing>().promise);
+    await act(async () => {
+      fireEvent.click(table7());
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(2);
+    // MUTATION (p2h-doors/mint-late-ok-over-a-newer-start): the late Walk-up pushes its add screen
+    // while the Table 7 start is still out — the cashier is yanked off the start they made last;
+    // red.
+    await act(async () => {
+      first.resolve({ ok: true, sessionId: "s-late", created: true });
+      await first.promise;
+    });
+    expect(push).not.toHaveBeenCalled();
+    expect(table7().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a LATE throw says the start couldn't be confirmed", async () => {
+    let fail!: (e: Error) => void;
+    openRegisterOrder.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
+    // MUTATION (p2h-doors/mint-late-throw-unsaid): "no answer yet" stands for good; red.
+    await act(async () => fail(new Error("fetch failed")));
+    expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.unknown" });
+  });
+
+  it("a LATE refusal is said in the caller's region", async () => {
+    const d = deferred<Landing | { ok: false; error: string }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
+    // MUTATION (p2h-doors/mint-late-refusal-unsaid): the refusal is dropped — "no answer yet"
+    // stands over a start the server refused; red.
+    await act(async () => {
+      d.resolve({ ok: false, error: "The counter is closed." });
+      await d.promise;
+    });
+    expect(onRefusal).toHaveBeenLastCalledWith("The counter is closed.");
+    expect(push).not.toHaveBeenCalled();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+  });
+});

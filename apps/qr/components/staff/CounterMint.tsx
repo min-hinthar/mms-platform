@@ -7,11 +7,11 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useTransition,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { openRegisterOrder } from "@/lib/register";
+import { openRegisterOrder, type OpenRegisterResult } from "@/lib/register";
+import { boundWrite } from "@/lib/bounded-write";
 import { haptic } from "@/lib/haptics";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { useTablePane } from "./TablePaneContext";
@@ -38,6 +38,13 @@ import { useTablePane } from "./TablePaneContext";
  *     every pending async transition, so the expo lane's or the approvals queue's action still in
  *     flight on this page kept a `pending`-read lock held — every start control dimmed and taps
  *     went nowhere for a reason that was not a start;
+ *   · Phase 2h (P2fc) — and the start is no TRANSITION at all any more (LEARNINGS #158 · #200): a
+ *     transition whose action hangs holds every other transition's `pending` and every router
+ *     commit on the tab, so the landing's own `router.push` could not commit. The action is awaited
+ *     with a BOUND (`boundWrite`); still out at the bound, the lock RE-ARMS and the caller says "no
+ *     answer yet — it may still start" with the reload. Its LATE answer still lands: a late start
+ *     opens its order exactly as an on-time one would — unless the screen is gone, the pane moved,
+ *     or a newer start holds the lock (then the next poll shows it) — and a late refusal is said;
  *   · a start that lands after the screen is GONE (the person opened a table from a card while it
  *     was in flight) does not navigate: the router is global, and a push from an unmounted screen
  *     yanks them off the table they chose. The start still landed; the next poll shows it.
@@ -113,8 +120,6 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   // ── Phase 2d · split ── the counter's pane (the provider sits OUTSIDE this one).
   const pane = useTablePane();
-  // The transition only schedules the action; its `pending` is NOT the lock (docblock).
-  const [, startTransition] = useTransition();
   // The ref and the state are ONE fact with a synchronous twin: written together, cleared together.
   const inFlight = useRef<MintId | null>(null);
   const [minting, setMinting] = useState<MintId | null>(null);
@@ -147,50 +152,82 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
       onStart();
       // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
       haptic("commit");
-      startTransition(async () => {
+
+      /** Where an ANSWERED start goes. Returns whether the screen is now held for a route swap. */
+      const land = (r: OpenRegisterResult): boolean => {
+        if (!r.ok) {
+          onRefusal(r.error);
+          return false;
+        }
+        // The screen that asked is gone: never navigate from it (docblock).
+        // Phase 2d · split — a start that CONVERGED on a seated table opens it where a card tap
+        // would: the pane beside the floor at split width (`openSession` says whether it did).
+        if (!mounted.current) return true;
+        // The screen stayed but the person moved the pane (docblock): never pull them off the
+        // table they chose, and hand the lock back — no route swap will unmount this screen.
+        const now = paneNow.current;
+        if ((now?.selectedId ?? null) !== pickedAtTap || (now?.selectionGen ?? 0) !== genAtTap) {
+          return false; // re-armed: they moved the pane while this start was out
+        }
+        const hint =
+          input.kind === "table" ? { counter: false, display: String(input.tableNumber) } : null;
+        if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {
+          // Re-armed: the screen stays (no route swap will unmount it).
+          return false;
+        }
+        router.push(mintLanding(r.sessionId, r.created));
+        return true;
+      };
+
+      // Phase 2h (9b) — called OUTSIDE any transition, the RAW action awaited with a bound.
+      void (async () => {
         let landed = false;
         try {
-          const r = await openRegisterOrder(input);
-          if (!r.ok) {
-            onRefusal(r.error);
+          const out = await boundWrite(openRegisterOrder(input));
+          if (out.kind === "answer") {
+            landed = land(out.value);
             return;
           }
-          landed = true;
-          // The screen that asked is gone: never navigate from it (docblock).
-          // Phase 2d · split — a start that CONVERGED on a seated table opens it where a card tap
-          // would: the pane beside the floor at split width (`openSession` says whether it did).
-          if (!mounted.current) return;
-          // The screen stayed but the person moved the pane (docblock): never pull them off the
-          // table they chose, and hand the lock back — no route swap will unmount this screen.
-          const now = paneNow.current;
-          if ((now?.selectedId ?? null) !== pickedAtTap || (now?.selectionGen ?? 0) !== genAtTap) {
-            landed = false; // re-armed: they moved the pane while this start was out
+          if (out.kind === "threw") {
+            // A server action that REJECTS — offline, or the transport dropped. Caught, so the
+            // counter screen is never replaced by the error boundary; said as unknown (docblock).
+            console.error("[CounterMint] start failed in transport", out.error);
+            onRefusal({ k: "floor.mint.unknown" });
             return;
           }
-          const hint =
-            input.kind === "table" ? { counter: false, display: String(input.tableNumber) } : null;
-          if (!r.created && hint && pane?.openSession(r.sessionId, hint)) {
-            // Re-armed: the screen stays (no route swap will unmount it).
-            landed = false;
-            return;
-          }
-          router.push(mintLanding(r.sessionId, r.created));
-        } catch (e) {
-          // A server action that REJECTS — offline, or the transport dropped. Caught, so the counter
-          // screen is never replaced by the error boundary; said as unknown (docblock).
-          console.error("[CounterMint] start failed in transport", e);
-          onRefusal({ k: "floor.mint.unknown" });
+          // Still out at the bound: it may yet start. The lock re-arms below (the `finally`).
+          onRefusal({ k: "floor.mint.waiting" });
+          void out.late.then((late) => {
+            // 9e — the late answer is APPLIED, never dropped. A screen that is gone navigates
+            // nowhere (`land` reads `mounted` itself); its caller's own state is a no-op by then.
+            if (late.kind === "threw") {
+              onRefusal({ k: "floor.mint.unknown" });
+              return;
+            }
+            if (!late.value.ok) {
+              onRefusal(late.value.error);
+              return;
+            }
+            // A newer start holds the screen: this one is not pushed over it (the poll shows it).
+            if (isBusy()) return;
+            inFlight.current = id;
+            setMinting(id);
+            if (!land(late.value)) {
+              inFlight.current = null;
+              setMinting(null);
+            }
+          });
         } finally {
-          // Re-armed on a refusal or a throw only. A landed mint keeps the screen held until the
-          // route swap unmounts it — releasing here re-armed every start for the beat of the swap.
+          // Re-armed on a refusal, a throw or the bound. A landed mint keeps the screen held until
+          // the route swap unmounts it — releasing here re-armed every start for the beat of the swap.
           if (!landed) {
             inFlight.current = null;
             setMinting(null);
           }
         }
-      });
+      })();
     },
-    [router, pane],
+    [router, pane, isBusy],
   );
 
   const value: CounterMint = { minting, held: minting !== null, isBusy, run };

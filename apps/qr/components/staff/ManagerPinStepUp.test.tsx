@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Approver } from "@/lib/voids";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import { StaffLangProvider } from "./StaffLangProvider";
 import {
   ManagerPinFields,
@@ -8,6 +10,7 @@ import {
   lockoutDuration,
   pinFailureCopy,
   secondsUntil,
+  useApproverRoster,
 } from "./ManagerPinStepUp";
 
 /**
@@ -98,5 +101,61 @@ describe("ManagerPinFields", () => {
     expect(document.querySelector('option[value=""]')?.textContent).toBe("No managers available");
     expect((screen.getByLabelText("Manager") as HTMLSelectElement).disabled).toBe(true);
     expect(screen.getByText(/none are signed in right now/)).not.toBeNull();
+  });
+});
+
+/**
+ * Phase 2h (P2fc) — the roster reads are BOUNDED. Next runs Server Actions one at a time per tab, so
+ * behind a stuck action the mount read sat on "Loading…" and Try again on "Trying again…" forever,
+ * with nothing saying why — and a write-off that needs a manager could not even be asked for. A read
+ * with no answer at STAFF_HANG_MS is a failure like any other (`pin.manager.loadFailed`, with Try
+ * again), never an empty roster and never a spinner that cannot end.
+ */
+describe("useApproverRoster — Phase 2h: both reads end at the bound", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  it("a mount read with no answer becomes a FAILURE at the bound — never 'Loading…' for good, never an empty roster", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn((): Promise<Approver[]> => new Promise(() => {}));
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush(STAFF_HANG_MS - 1);
+    expect(result.current.approvers).toBeNull();
+    expect(result.current.failed).toBe(false);
+    // MUTATION (p2h-doors/roster-mount-unbounded): the read is awaited raw — the picker says
+    // "Loading…" for as long as the queue is stuck, and no Try again is ever offered; red.
+    await flush(1);
+    expect(result.current.failed).toBe(true);
+    expect(result.current.approvers).toBeNull();
+  });
+
+  it("a Try again with no answer stops 'retrying' at the bound and reports the failure", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const load = vi.fn((): Promise<Approver[]> => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error("unavailable")) : new Promise(() => {});
+    });
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush();
+    expect(result.current.failed).toBe(true);
+    let ok: boolean | undefined;
+    await act(async () => {
+      void result.current.retry().then((v) => (ok = v));
+    });
+    expect(result.current.retrying).toBe(true);
+    await flush(STAFF_HANG_MS - 1);
+    expect(result.current.retrying).toBe(true);
+    // MUTATION (p2h-doors/roster-retry-unbounded): "Trying again…" holds for good — the button
+    // never comes back, so the manager cannot even ask again; red.
+    await flush(1);
+    expect(result.current.retrying).toBe(false);
+    expect(ok).toBe(false);
+    expect(result.current.failed).toBe(true);
   });
 });

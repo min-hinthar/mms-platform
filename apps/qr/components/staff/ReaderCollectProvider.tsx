@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { terminalStatus, cancelTerminal } from "@/lib/terminal";
-import { track } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
   READER_POLL_MS,
@@ -307,21 +307,27 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const cancel = useCallback(async () => {
     const rec = recordRef.current;
     if (rec === null || cancelInFlight.current) return;
+    // Phase 2h (9d) — refused AT THE TAP, never sent, while an earlier action has been unanswered for
+    // the bound: Next runs Server Actions one at a time, so this cancel would only queue behind the
+    // stuck one and could reach the reader minutes from now. Read now, never from render state.
+    if (stalledSince() !== null) {
+      setCancelError({ kind: "stalled" });
+      return;
+    }
     cancelInFlight.current = true;
     setCancelBusy(true);
     setCancelError(null);
     // Codex r4 on #309 — a refusal answers the phase the cancel was ASKED in. A poll already in the
     // air can move the collect on (declined, given up) before this answers; a refusal landing after
     // that would mask the newer outcome for good, since those phases never poll (or clear) again.
+    // Phase 2h — the same guard holds for EVERY refusal this cancel writes, the bound's `waiting`
+    // and a late answer's included: written after the collect moved on, each masks the newer fact.
     const askedIn = pollRef.current.phase;
     const stillAsked = () =>
       recordRef.current?.paymentIntentId === rec.paymentIntentId &&
       pollRef.current.phase === askedIn;
-    try {
-      const res = await cancelTerminal({
-        sessionId: rec.sessionId,
-        paymentIntentId: rec.paymentIntentId,
-      });
+    /** The cancel's answer, whenever it lands — at once, or late (9e: never dropped). */
+    const landCancel = (res: Awaited<ReturnType<typeof cancelTerminal>>) => {
       if (!res.ok) {
         // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
         if (stillAsked()) setCancelError({ kind: "server", text: res.error });
@@ -329,13 +335,34 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       }
       if (recordRef.current?.paymentIntentId !== rec.paymentIntentId) return;
       const p = pollRef.current;
+      // The phase change clears a standing `waiting` (commitPoll's rule): the cancel is the newer fact.
       if (readerPolling(p.phase)) commitPoll({ ...p, phase: "canceled" });
       dropReaderStash();
-    } catch {
-      if (stillAsked()) setCancelError({ kind: "local" });
+    };
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(
+        cancelTerminal({ sessionId: rec.sessionId, paymentIntentId: rec.paymentIntentId }),
+      );
+      if (out.kind === "answer") {
+        landCancel(out.value);
+        return;
+      }
+      if (out.kind === "threw") {
+        // The answer was lost — the reader may already be cancelled, or still take the card (9e).
+        if (stillAsked()) setCancelError({ kind: "local" });
+        return;
+      }
+      // Still out at the bound: no answer yet, and the reader may still take the card. The provider
+      // never unmounts mid-service, and the poll keeps reporting the truth meanwhile.
+      if (stillAsked()) setCancelError({ kind: "waiting" });
+      void out.late.then((late) => {
+        if (late.kind === "answer") landCancel(late.value);
+        else if (stillAsked()) setCancelError({ kind: "local" });
+      });
     } finally {
       cancelInFlight.current = false;
-      setCancelBusy(false);
+      setCancelBusy(false); // frees AT THE BOUND (fact 3) — never held by the raw
     }
   }, [commitPoll]);
 
