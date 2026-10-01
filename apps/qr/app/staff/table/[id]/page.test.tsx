@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableDetailResult } from "@/lib/floor-types";
 import type { Handoff } from "@/lib/register-ui";
+import { handoffFocusKey, markHandoffFocus } from "@/lib/floor-pane";
 
 /**
  * Phase 2g · P2em (D2) — the table page's CLOSED branch. A counter session closes behind its settle,
@@ -62,9 +63,19 @@ async function mount(wrap: (n: ReactNode) => ReactNode = (n) => n) {
 const barTitle = () => document.querySelector("header")!.getAttribute("data-title");
 
 beforeEach(() => {
-  h.detail = { kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: CARD };
+  h.detail = {
+    kind: "closed",
+    label: "reg-7f3a",
+    tableNumber: null,
+    handoff: CARD,
+    refund: "none",
+    orderId: CARD.orderId,
+  };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear();
+});
 
 describe("the table page — a CLOSED counter order shows its paid card (P2em · D2)", () => {
   it("the verdict's card: Paid · $42.10 · #A1B2C3, the call-out, the way back; the counter title", async () => {
@@ -91,10 +102,17 @@ describe("the table page — a CLOSED counter order shows its paid card (P2em ·
     expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
   });
 
-  it("a counter order with no card (refunded, unreadable) is named as one and hedged — never 'sat idle'", async () => {
-    // p2g-int/page-counter-without-card-says-idle — a paid-then-refunded counter order read "It was
+  it("a counter order with no card the server could not name (unreadable) is named as one and hedged — never 'sat idle'", async () => {
+    // p2g-int/page-counter-without-card-says-idle — a counter order with no card read "It was
     // cleared or sat idle too long" under "This table is closed"; red.
-    h.detail = { kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null };
+    h.detail = {
+      kind: "closed",
+      label: "reg-7f3a",
+      tableNumber: null,
+      handoff: null,
+      refund: null,
+      orderId: null,
+    };
     await mount();
     expect(barTitle()).toBe("floor.pane.closed.counterTitle");
     expect(document.body.textContent).toContain(ts("en", "floor.pane.closed.body"));
@@ -121,5 +139,65 @@ describe("the table page — a CLOSED counter order shows its paid card (P2em ·
     expect(document.getElementById("handoff-sent-early")!.textContent).toBe(
       ts("en", "table.detail.handoff.sentEarly"),
     );
+  });
+
+  // ── Phase 2g · review (PT-7) ── a counter order the server KNOWS was refunded says so.
+  it("refunded in part: no Paid card, the refund said with the order's #CODE and a manager check", async () => {
+    h.detail = {
+      kind: "closed",
+      label: "reg-7f3a",
+      tableNumber: null,
+      handoff: null,
+      refund: "partial",
+      orderId: CARD.orderId,
+    };
+    await mount();
+    // MUTANT p2g-fix-code/page-refund-hedged — the page hedges "it may have been paid, cleared or
+    // merged…" over an order the server read as partly refunded, and the #CODE the rest of the bag
+    // is handed over under is nowhere; red.
+    expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
+    expect(barTitle()).toBe("floor.pane.closed.counterTitle");
+    expect(document.body.textContent).toContain(
+      "Part of this order was refunded — order #A1B2C3. Check with a manager before handing it over.",
+    );
+    expect(document.body.textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+  });
+
+  it("refunded in full: the plain fact, never the hedge", async () => {
+    h.detail = {
+      kind: "closed",
+      label: "reg-7f3a",
+      tableNumber: null,
+      handoff: null,
+      refund: "full",
+      orderId: CARD.orderId,
+    };
+    await mount();
+    expect(document.body.textContent).toContain(ts("en", "floor.pane.closed.refundedFull"));
+    expect(document.body.textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+  });
+});
+
+// ── Phase 2g · review (A11Y-4) ── the phone's detail swapped to this card under the person's focus.
+describe("the table page — the closed card takes focus ONCE, only when the detail it replaced asked", () => {
+  it("with the detail's one-shot note: the card is focused on mount, and the note is spent", async () => {
+    markHandoffFocus(ID, Date.now());
+    await act(async () => {
+      await mount();
+    });
+    const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    // MUTANT p2g-fix-code/closed-card-ignores-focus-note — the card replaces the detail under the
+    // person's focus and focus falls to <body>, unsaid; red.
+    expect(document.activeElement).toBe(card);
+    expect(sessionStorage.getItem(handoffFocusKey(ID))).toBeNull();
+  });
+
+  it("without one (a deep link, a reload, the chip's View): never focused", async () => {
+    await act(async () => {
+      await mount();
+    });
+    const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    // MUTANT p2g-fix-code/closed-card-always-focused — every arrival pulls focus onto the card; red.
+    expect(document.activeElement).not.toBe(card);
   });
 });

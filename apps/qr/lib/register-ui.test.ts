@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { handoffStillCurrent, serverCounterHandoff, settlePrimary } from "./register-ui";
+import {
+  handoffRefunded,
+  handoffStillCurrent,
+  serverCounterHandoff,
+  serverCounterOutcome,
+  settlePrimary,
+} from "./register-ui";
 
 /**
  * Phase 2c · register — the settle section's UI decisions, pure. A mutate-set module since Phase 2d
@@ -92,5 +98,68 @@ describe("serverCounterHandoff — a counter order's paid card, from its persist
   it("no row, no card; a null refunded column reads as nothing came back", () => {
     expect(serverCounterHandoff(null)).toBeNull();
     expect(serverCounterHandoff({ ...ROW, refunded_cents: null })?.totalCents).toBe(5330);
+  });
+});
+
+// ── Phase 2g · review (M2 · PT-3 · PT-7) — the refund STATE beside the card, and its veto ────────────
+describe("serverCounterOutcome — the card and the refund state of the SAME row, from one derivation", () => {
+  const ROW = {
+    id: "o-00a1b2c3",
+    total_cents: 5330,
+    tip_cents: 300,
+    status: "paid",
+    refunded_cents: 0,
+    cart_id: "c-9",
+  };
+
+  it("unrefunded: the card, refund none, the row's id", () => {
+    const o = serverCounterOutcome(ROW);
+    expect(o.refund).toBe("none");
+    expect(o.orderId).toBe("o-00a1b2c3");
+    expect(o.handoff).toEqual(serverCounterHandoff(ROW));
+    expect(o.handoff).not.toBeNull();
+  });
+
+  it("partly refunded: no card, the state SAID as partial, the id kept for the #CODE", () => {
+    // MUTANT p2g-fix-code/outcome-partial-reads-unknown — the state is dropped on a refunded row:
+    // the pane hedges like an unreadable order and the stale "Paid" stash is never vetoed; red.
+    expect(serverCounterOutcome({ ...ROW, refunded_cents: 1200 })).toEqual({
+      handoff: null,
+      refund: "partial",
+      orderId: "o-00a1b2c3",
+    });
+  });
+
+  it("fully refunded — by status, or by amount a beat before the status flip — reads full", () => {
+    expect(serverCounterOutcome({ ...ROW, status: "refunded" }).refund).toBe("full");
+    expect(serverCounterOutcome({ ...ROW, refunded_cents: 5330 }).refund).toBe("full");
+    expect(serverCounterOutcome({ ...ROW, refunded_cents: 5330 }).handoff).toBeNull();
+  });
+
+  it("no row (none read, or the read failed): everything unknown — never 'none'", () => {
+    // MUTANT p2g-fix-code/outcome-no-row-reads-none — an unread order would read as "nothing came
+    // back", which is a claim the server never made; red.
+    expect(serverCounterOutcome(null)).toEqual({ handoff: null, refund: null, orderId: null });
+  });
+});
+
+describe("handoffRefunded — the server's refund verdict vetoes the tab's card for the SAME order", () => {
+  const card = { orderId: "o1" };
+  it("a partial or full refund of the card's own order vetoes it", () => {
+    // MUTANT p2g-fix-code/veto-partial-ignored — only a FULL refund vetoes: a partly refunded
+    // order keeps "Paid · $X" from the tab's stash; red.
+    expect(handoffRefunded(card, { orderId: "o1", refund: "partial" })).toBe(true);
+    expect(handoffRefunded(card, { orderId: "o1", refund: "full" })).toBe(true);
+  });
+  it("never while the server says nothing came back, or cannot say (the tab's card wins)", () => {
+    // MUTANT p2g-fix-code/veto-on-unknown — an unread order vetoes the cashier's own card; red.
+    expect(handoffRefunded(card, { orderId: "o1", refund: "none" })).toBe(false);
+    expect(handoffRefunded(card, { orderId: "o1", refund: null })).toBe(false);
+    expect(handoffRefunded(card, { orderId: null, refund: null })).toBe(false);
+  });
+  it("never over ANOTHER order's refund (a read this card's landing post-dates)", () => {
+    // MUTANT p2g-fix-code/veto-any-order — the order check dropped: a refund of a different order
+    // takes the card for this one; red.
+    expect(handoffRefunded(card, { orderId: "o2", refund: "full" })).toBe(false);
   });
 });

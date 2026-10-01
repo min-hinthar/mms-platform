@@ -3302,6 +3302,21 @@ export const STAFF = {
     en: "It may have been paid, cleared or merged, or left unused too long.",
     my: "ငွေရှင်းပြီးသွားတာ၊ ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် ကြာကြာ မသုံးဘဲ ထားခဲ့တာ ဖြစ်နိုင်ပါတယ်။",
   },
+  // Phase 2g · review (PT-3 · PT-7) — a closed COUNTER order the server KNOWS was refunded says so,
+  // in place of the hedge above (which stays for an order nobody could read): in full, the plain fact;
+  // in part, the order's #CODE (the guest is still owed the rest of the bag) and the one safe step —
+  // a manager decides what is handed over. Never "Paid" over money that came back. Claude-authored
+  // K15 drafts pending Min's native check. Words: ပြန်အမ်းပြီး (floor.status.refunded),
+  // တစ်စိတ်တစ်ပိုင်း (floor.status.partlyRefunded), လွှဲပေး (expo.verb.handedOver), မန်နေဂျာ
+  // (floor.refund.pin), အော်ဒါ (floor.counter). {id} is the pickup code ("#A1B2C3" — always Latin).
+  "floor.pane.closed.refundedFull": {
+    en: "This order was refunded.",
+    my: "ဒီအော်ဒါကို ပြန်အမ်းပြီးပါပြီ။",
+  }, // K15-HIGH — misread, a refunded order's food is handed over as if it were paid
+  "floor.pane.closed.refundedPart": {
+    en: "Part of this order was refunded — order {id}. Check with a manager before handing it over.",
+    my: "ဒီအော်ဒါ တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီးပါပြီ — အော်ဒါ {id}။ မလွှဲပေးခင် မန်နေဂျာနဲ့ အရင် စစ်ပါ။",
+  }, // K15-HIGH — misread, a partly refunded bag is handed over whole, or a guest owed food is turned away
   // A closed Table 7 beside a NEW party's live Table 7: the one way to the table that is there now.
   "floor.pane.closed.openCurrent": {
     en: "View the current {x}",
@@ -3872,6 +3887,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.counter.uncollected.badge.many",
   "table.detail.uncollected.one",
   "table.detail.uncollected.many",
+  // ── Phase 2g · review (fix-code) ──
+  "floor.pane.closed.refundedFull",
+  "floor.pane.closed.refundedPart",
 ]);
 
 /**

@@ -11,7 +11,7 @@
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
 import type { LineState } from "@mms/db";
-import type { RefundSummary } from "./refund-view";
+import type { RefundState, RefundSummary } from "./refund-view";
 import type { CounterCursor, RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
@@ -253,7 +253,8 @@ export type TableDetail = {
    *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null
    *  (or absent) off a counter order, over an open cart, and whenever money came back. The surface
    *  renders it only when it has no card of its own — this tab's card (with the tender and change)
-   *  wins. */
+   *  wins, but only while `refund` above (the same row, `paidOrderId`) says nothing came back: a
+   *  refund of the card's own order VETOES it (Phase 2g · review, `handoffRefunded`). */
   serverHandoff?: Handoff | null;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
@@ -409,13 +410,24 @@ export type TableDetailResult =
       label?: string;
       tableNumber?: number | null;
       /** Phase 2g · P2em (D2) — a closed COUNTER order's #CODE card, from its latest order row
-       *  (`serverCounterHandoff`): the counter session closes behind its settle, so this is where a
+       *  (`serverCounterOutcome`): the counter session closes behind its settle, so this is where a
        *  card lost with its panel or its tab is found again. Absent off a counter session; null when
        *  there is no unrefunded paid order, or its read failed (logged — never an outage). */
       handoff?: Handoff | null;
+      /** Phase 2g · review (M2 · PT-3 · PT-7) — the refund state of that SAME row (one
+       *  `summarizeRefund`, beside the card): "partial"/"full" vetoes a card this tab still holds for
+       *  the order and is said in words; null when there is no row or its read failed (the hedge).
+       *  Absent off a counter session. */
+      refund?: RefundState | null;
+      /** The id of that row — the #CODE a partly refunded order is still handed over under. Null with
+       *  no row; absent off a counter session. */
+      orderId?: string | null;
     }
   | { kind: "signin" }
   | { kind: "outage" };
+
+/** The `closed` verdict alone — what the drill-down hands its pane when the table closes under it. */
+export type ClosedVerdict = Extract<TableDetailResult, { kind: "closed" }>;
 
 /** A table the current (source) table can be merged INTO (S1.4). Same mode, active, has an open cart, not
  *  mid-payment — the legible candidates a server picks from in the explicit merge tool. */

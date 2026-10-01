@@ -2,11 +2,12 @@
  * Phase 2c · register — the settle section's UI decisions, pure and directive-free (it is imported by
  * client components AND by `lib/floor.ts` on the server). In the verify:slice mutate set: nothing here
  * charges anything — what is charged is always the server's — but `handoffStillCurrent` decides which
- * paid card a screen shows (Phase 2d · Codex round 1) and `serverCounterHandoff` decides whether an
- * order row may be shown as "Paid" at all (Phase 2g), and a screen stating the wrong money fact is a
- * product-truth defect the mutants pin. Pinned by `register-ui.test.ts`.
+ * paid card a screen shows (Phase 2d · Codex round 1), `serverCounterOutcome` decides whether an
+ * order row may be shown as "Paid" at all (Phase 2g), and `handoffRefunded` lets the server's refund
+ * verdict veto a card this tab still holds (Phase 2g · review) — a screen stating the wrong money fact
+ * is a product-truth defect the mutants pin. Pinned by `register-ui.test.ts`.
  */
-import { summarizeRefund } from "./refund-view";
+import { summarizeRefund, type RefundState } from "./refund-view";
 
 /** A table's running-bill kind, as `TableDetail.tab` carries it. */
 export type SettleTab = "none" | "trust" | "secure";
@@ -100,9 +101,33 @@ export type ServerHandoffRow = {
  * stands). Display-only, like every `Handoff`.
  */
 export function serverCounterHandoff(row: ServerHandoffRow | null): Handoff | null {
-  if (row === null) return null;
+  return serverCounterOutcome(row).handoff;
+}
+
+/**
+ * Phase 2g · review (M2 · PT-3 · PT-7) — what the server knows about a counter order's latest row:
+ * the card (above), the refund STATE of that same row, and the row's id. Named once: the card and the
+ * refund state come from ONE `summarizeRefund` call, so they can never disagree.
+ *
+ * The refund state is what lets a screen tell "no card because money came back" (say so, and veto
+ * any card this tab still holds for that order) from "no card because nothing could be read" (hedge).
+ * `refund: null` and `orderId: null` mean no row — none read, or the read failed (`getTableDetail`
+ * passes `null` for both) — and an unknown is never a veto.
+ */
+export type ServerCounterOutcome = {
+  handoff: Handoff | null;
+  refund: RefundState | null;
+  orderId: string | null;
+};
+
+export function serverCounterOutcome(row: ServerHandoffRow | null): ServerCounterOutcome {
+  if (row === null) return { handoff: null, refund: null, orderId: null };
   const refund = summarizeRefund(row.total_cents, row.refunded_cents ?? 0, row.status);
-  if (refund.state !== "none") return null;
+  if (refund.state !== "none") return { handoff: null, refund: refund.state, orderId: row.id };
+  return { handoff: serverCard(row), refund: refund.state, orderId: row.id };
+}
+
+function serverCard(row: ServerHandoffRow): Handoff {
   return {
     orderId: row.id,
     totalCents: row.total_cents,
@@ -112,4 +137,21 @@ export function serverCounterHandoff(row: ServerHandoffRow | null): Handoff | nu
     cartId: row.cart_id,
     sentEarly: false,
   };
+}
+
+/**
+ * Phase 2g · review (M2 · PT-3) — the server's refund verdict VETOES a paid card this tab holds. The
+ * tab's card wins over the server's while the server agrees the order is unrefunded (it carries the
+ * tender, the change and the tap's "went out unpaid"); once a fresh read names the SAME order as
+ * partly or fully refunded, the card would print "Paid · $X" over money that came back — so it goes,
+ * from the screen and from the stash. Only the same order: a read describing another order (one this
+ * card's landing post-dates) says nothing about this one. An unknown state (`null` — no row, or an
+ * unreadable one) is never a veto: the hedge, not a guess.
+ */
+export function handoffRefunded(
+  h: Pick<Handoff, "orderId">,
+  server: { orderId: string | null; refund: RefundState | null },
+): boolean {
+  if (server.orderId !== h.orderId) return false;
+  return server.refund === "partial" || server.refund === "full";
 }

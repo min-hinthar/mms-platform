@@ -10,7 +10,7 @@ import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
-import { serverCounterHandoff } from "./register-ui";
+import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
@@ -652,10 +652,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     if (!counterOrder) return closed;
     // Phase 2g · P2em (D2) — a counter session closes behind its settle (the webhook's after(), the
     // cash settle's), so its closed verdict carries the #CODE card, built from the session's latest
-    // order row (`serverCounterHandoff`: figures verbatim, never "Paid" over money that came back).
+    // order row (`serverCounterOutcome`: figures verbatim, never "Paid" over money that came back).
     // The card no longer needs the panel that took the charge to be mounted, or this tab's stash.
+    // Phase 2g · review — the row's refund STATE and id ride beside the card: a refunded order says
+    // so (and vetoes a card this tab still holds for it) instead of hedging like an unreadable one.
     // ADVISORY (the W10b posture): only the session read above is an outage — an unreadable order
-    // costs the card, never the honest closed verdict, and is logged.
+    // costs the card, never the honest closed verdict, and is logged (no row: refund unknown).
     const { data: order, error: orderError } = await db
       .from("qr_orders")
       .select("id,total_cents,tip_cents,status,refunded_cents,cart_id")
@@ -669,9 +671,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
         sessionId,
         message: orderError.message,
       });
-      return { ...closed, handoff: null };
+      return { ...closed, ...serverCounterOutcome(null) };
     }
-    return { ...closed, handoff: serverCounterHandoff(order) };
+    return { ...closed, ...serverCounterOutcome(order) };
   }
 
   const [membersRes, cartRes, paidRes, tabConfigRes, clockRes] = await Promise.all([

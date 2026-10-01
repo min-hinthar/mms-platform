@@ -15,7 +15,7 @@ import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
-import { type TableDetail, tableDisplay } from "@/lib/floor-types";
+import { type ClosedVerdict, type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
@@ -54,7 +54,12 @@ import { useStaffSend } from "./useStaffSend";
 import { COUNTER_UNCOLLECTED_HOURS, counterSettleVariant } from "@/lib/counter-order";
 import { CounterNoShowButton } from "./CounterNoShowButton";
 // ── Phase 2c · register ──
-import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
+import {
+  handoffRefunded,
+  handoffStillCurrent,
+  settlePrimary,
+  type Handoff,
+} from "@/lib/register-ui";
 import { settleUnknownAfterRead } from "@/lib/register-math";
 import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
@@ -63,6 +68,7 @@ import type { ReaderStatus } from "./TerminalSettle";
 import {
   dropHandoffStash,
   handoffSuperseded,
+  markHandoffFocus,
   paneFreezeSpoken,
   readHandoffStash,
   stashHandoff,
@@ -122,8 +128,9 @@ export function FloorDetailLive({
   variant?: "page" | "pane";
   /** Pane — the table closed (and no terminal flow holds it): the pane shows its notice, with the
    *  closed verdict's server-built #CODE card for a counter order (Phase 2g · P2em, D2; null when the
-   *  verdict carries none). */
-  onClosed?: (sessionId: string, handoff: Handoff | null) => void;
+   *  verdict carries none) and — Phase 2g · review — the refund state of that order, so a refunded
+   *  one is said in words and vetoes the tab's own card. The verdict is handed over whole. */
+  onClosed?: (sessionId: string, verdict: ClosedVerdict) => void;
   /** Pane — a line or discount write refused AFTER this detail unmounted (the pane moved on): the
    *  pane says so, naming this table, so the refusal is never dropped silently. Phase 2d · review
    *  fixes — a settle's refusal or unknown outcome too (`settle` / `settleUnknown`). */
@@ -177,6 +184,9 @@ export function FloorDetailLive({
   // <body>"), its heading level (Tables › Table 7 › Order), the exits, and the freeze it shares.
   const inPane = variant === "pane";
   const rootRef = useRef<HTMLDivElement>(null);
+  // Phase 2g · review (A11Y-4) — the PAGE's <main>: "focus inside this detail" when a closed counter
+  // order swaps the page to its card (the closed arm below).
+  const pageRef = useRef<HTMLElement>(null);
   const H = inPane ? "h3" : "h2";
   const nav = useTableNav();
   // The floor beside the pane speaks a shared freeze once (`paneFreezeSpoken`, the lane's rule); on
@@ -239,6 +249,14 @@ export function FloorDetailLive({
     setHandoffState(null);
   if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId, detail.paidOrderId))
     setRestoredHandoff(null);
+  // ── Phase 2g · review (M2 · PT-3) ── the server's refund verdict VETOES this tab's card: once a
+  // read names the card's OWN order (`paidOrderId`) as partly or fully refunded (`refund`, the one
+  // `summarizeRefund` of that row), "Paid · $X" would stand over money that came back — the card
+  // goes, from state here and from the stash below, and the detail's settled record (which says the
+  // refund) is what stands. "This tab's card wins" holds only while the server says nothing came back.
+  const serverRefund = { orderId: detail.paidOrderId, refund: detail.refund?.state ?? null };
+  if (handoff && handoffRefunded(handoff, serverRefund)) setHandoffState(null);
+  if (restoredHandoff && handoffRefunded(restoredHandoff, serverRefund)) setRestoredHandoff(null);
   const shownHandoff = handoff ?? restoredHandoff;
   // The card on screen. THIS TAB'S card wins — a settle this screen watched land, a reader landing
   // it adopted, or the pane's restored stash: it carries the tender and the change, and the tap's
@@ -279,6 +297,15 @@ export function FloorDetailLive({
     if (stashed && handoffSuperseded(stashed, detail.cartId, detail.paidOrderId))
       dropHandoffStash(sessionId);
   }, [sessionId, detail.cartId, detail.paidOrderId]);
+  // Phase 2g · review (M2 · PT-3) — the refund veto's stash half: a stashed card for an order the
+  // server now reads as refunded leaves storage, so no later visit (the pane restores on mount)
+  // brings "Paid" back over it. Re-read at the time, never a closure.
+  const refundState = detail.refund?.state ?? null;
+  useEffect(() => {
+    const stashed = readHandoffStash(sessionId);
+    if (stashed && handoffRefunded(stashed, { orderId: detail.paidOrderId, refund: refundState }))
+      dropHandoffStash(sessionId);
+  }, [sessionId, detail.paidOrderId, refundState]);
   // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
   // panel shows it, and carries no region of its own). A STATE mirrored from the live panel, not a
   // one-shot note: no other setter clears it, and it goes when the panel goes (render-time, the
@@ -303,8 +330,11 @@ export function FloorDetailLive({
   // still returns to the floor).
   const terminalFlowLive = useRef(false);
   const collectLive = mine && reader.live;
+  // Phase 2g · review (M2) — the counter card holding the bounce, for the refund veto below.
+  const heldCard = useRef<Handoff | null>(null);
   useEffect(() => {
     terminalFlowLive.current = collectLive || shownHandoff?.isCounter === true;
+    heldCard.current = shownHandoff?.isCounter === true ? shownHandoff : null;
   }, [collectLive, shownHandoff]);
   useEffect(() => {
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
@@ -397,17 +427,36 @@ export function FloorDetailLive({
             // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
             // Phase 2c · register: HELD while a counter cash settle's outcome is unknown — the close
             // is then most likely that settle landing (see `settleUnknown`); the page says so.
+            // Phase 2g · review (M2) — a closed verdict naming the HELD card's order refunded vetoes
+            // it like a detail read does: the card leaves state and stash, so it holds the bounce no
+            // longer and the NEXT read hands the verdict on (only a live collect still holds) — or
+            // "Paid · $X" would stand over the refund for as long as the screen stayed open.
+            const held = heldCard.current;
+            if (
+              held &&
+              handoffRefunded(held, { orderId: res.orderId ?? null, refund: res.refund ?? null })
+            ) {
+              dropHandoffStash(sessionId);
+              setHandoffState(null);
+              setRestoredHandoff(null);
+            }
             if (settleUnknown.current !== null) setClosedAfterUnknown(true);
             else if (!terminalFlowLive.current) {
               // Phase 2d · split — in the pane the floor is already beside it: the pane says the
               // table closed (and keeps its paid card) instead of navigating anywhere.
               // Phase 2g · P2em (D2) — with the verdict's server-built #CODE card (a counter order).
-              if (onClosedRef.current) onClosedRef.current(sessionId, res.handoff ?? null);
+              if (onClosedRef.current) onClosedRef.current(sessionId, res);
               else if (res.handoff) {
                 // Phase 2g integration — a counter order the server can show as PAID (a colleague's
                 // settle, another tablet's reader): STAY and let this page render its closed branch,
                 // the order row's #CODE card, instead of bouncing to the counter, where a paid order
                 // is no longer listed and the code the guest is waiting on would be nowhere.
+                // Phase 2g · review (A11Y-4) — the refresh swaps this whole detail for that card,
+                // so focus inside it would fall to <body> unsaid: leave the card a one-shot note to
+                // take focus on mount (`ClosedHandoffCard`). Only when focus WAS in here — an idle
+                // phone (focus on <body>) is never given focus by a poll.
+                if (pageRef.current?.contains(document.activeElement))
+                  markHandoffFocus(sessionId, Date.now());
                 router.refresh();
               } else {
                 router.replace(STAFF_DOOR_TARGET.counter);
@@ -721,7 +770,7 @@ export function FloorDetailLive({
   useReportLive("table", degraded ? "not_updating" : "live");
 
   return (
-    <DetailRoot inPane={inPane} rootRef={rootRef} onFocusCapture={markFocus}>
+    <DetailRoot inPane={inPane} rootRef={rootRef} pageRef={pageRef} onFocusCapture={markFocus}>
       {/* P7·1b — the staff bar is the h1 (P2e: no in-service bar carries the language control; its
           Back pill leads to the counter, whose Help sheet has the Language row — rule 4d). K2: the real table number; an unregistered/legacy sticker shows its
           raw token + flag. W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table —
@@ -1583,11 +1632,13 @@ export function FloorDetailLive({
 function DetailRoot({
   inPane,
   rootRef,
+  pageRef,
   onFocusCapture,
   children,
 }: {
   inPane: boolean;
   rootRef: Ref<HTMLDivElement>;
+  pageRef: Ref<HTMLElement>;
   onFocusCapture: () => void;
   children: ReactNode;
 }) {
@@ -1596,7 +1647,7 @@ function DetailRoot({
       {children}
     </div>
   ) : (
-    <main className="staff-main" onFocusCapture={onFocusCapture}>
+    <main className="staff-main" ref={pageRef} onFocusCapture={onFocusCapture}>
       {children}
     </main>
   );

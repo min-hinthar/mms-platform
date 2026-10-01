@@ -15,6 +15,8 @@ import { STAFF_DOOR_TARGET } from "./staff-door";
 import type { LiveBoardState } from "./live-connection";
 import { handoffStillCurrent, type Handoff } from "./register-ui";
 import type { StaffKey } from "./i18n/staff";
+import type { RefundState } from "./refund-view";
+import { handoffCode } from "./reader-collect";
 
 /** Side by side from here (JS reads it at CLICK time). Parity-tested against globals.css. */
 export const PANE_QUERY = "(min-width: 48em)";
@@ -229,6 +231,25 @@ export function paneStatusSays(p: {
   return p.read;
 }
 
+/**
+ * Phase 2g · review (PT-3 · PT-7) — the sentence under a CLOSED order's title when no paid card
+ * stands above it (the pane's closed state, the table page's closed branch). A counter order the
+ * server knows was refunded says THAT, from the verdict's refund state: in full, "This order was
+ * refunded."; in part, which order (its #CODE — the guest is still owed the rest of the bag) and
+ * that a manager is checked with before anything is handed over. The hedge ("it may have been paid,
+ * cleared or merged…") stays for everything the server could not name: no order, an unreadable one,
+ * a table. Never "Paid" over money that came back, and never a guess dressed as a fact.
+ */
+export function closedCounterNote(v: { refund: RefundState | null; orderId: string | null }): {
+  k: StaffKey;
+  vars?: { id: string };
+} {
+  if (v.refund === "full") return { k: "floor.pane.closed.refundedFull" };
+  if (v.refund === "partial" && v.orderId !== null)
+    return { k: "floor.pane.closed.refundedPart", vars: { id: handoffCode(v.orderId) } };
+  return { k: "floor.pane.closed.body" };
+}
+
 /** A closed table's LIVE namesake on the floor (a new party at Table 7), for "Open the current
  *  Table 7". Never the closed session itself; never for a counter order (`reg-` names no place). */
 export function liveTwinOf(
@@ -343,5 +364,53 @@ export function dropHandoffStash(sessionId: string, store: Store | null = sessio
     store?.removeItem(handoffStashKey(sessionId));
   } catch {
     /* deliberate: nothing to remove from storage that cannot be read */
+  }
+}
+
+/**
+ * Phase 2g · review (A11Y-4) — the phone's table page swaps a counter order that closed PAID under it
+ * to the closed branch's card through `router.refresh()`: the whole detail unmounts, and focus that
+ * was inside it would fall to <body> with nothing said (the pathname never changes, so no route cue
+ * fires). The detail leaves a ONE-SHOT note in this tab before the refresh — only when focus was
+ * inside it — and the closed card takes focus once, on mount, when it finds the note. No note (a deep
+ * link, a reload, focus already on <body>) means nothing just landed under anyone: never focused.
+ *
+ * The note is the time it was written, honoured for `HANDOFF_FOCUS_TTL_MS`: a refresh that renders
+ * something else (the verdict changed again) must not leave a note that a LATER visit to the same
+ * order would act on. Every storage failure is a deliberate swallow — the card still renders; only
+ * the focus move is lost.
+ */
+export const HANDOFF_FOCUS_TTL_MS = 10_000;
+
+export function handoffFocusKey(sessionId: string): string {
+  return `mms-handoff-focus:${sessionId}`;
+}
+
+export function markHandoffFocus(
+  sessionId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): void {
+  try {
+    store?.setItem(handoffFocusKey(sessionId), String(nowMs));
+  } catch {
+    /* deliberate: quota or privacy mode — the card renders, unfocused */
+  }
+}
+
+/** Read AND clear the note (one shot); true only for a note written within the TTL. */
+export function takeHandoffFocus(
+  sessionId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): boolean {
+  try {
+    const raw = store?.getItem(handoffFocusKey(sessionId)) ?? null;
+    if (raw === null) return false;
+    store?.removeItem(handoffFocusKey(sessionId));
+    const at = Number(raw);
+    return Number.isFinite(at) && nowMs - at >= 0 && nowMs - at <= HANDOFF_FOCUS_TTL_MS;
+  } catch {
+    return false; // deliberate: unreadable storage is no note
   }
 }
