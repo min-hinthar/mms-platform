@@ -12,7 +12,7 @@
 // wrong. Re-examine this line if the file ever grows a second function.
 import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
-import type { RegisterQueueRow } from "./register-queue";
+import type { CounterCursor, RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
 import type { KdsThresholds } from "./kitchen-types";
@@ -104,7 +104,9 @@ export type FloorSnapshot = {
    *  `readRegisterQueue` on the same poll. The floor's `tables` never carry these sessions, so the
    *  one list `mergeFloorRows` builds cannot key a session twice. */
   counter: CounterFloorRow[];
-  /** The counter read hit its cap — the newest orders are not in `counter`, and the board says so. */
+  /** The counter read hit its cap — the OLDEST orders are not in `counter` (the read keeps the newest
+   *  `REGISTER_QUEUE_CAP`, Phase 2f review M1), and the board says so and offers the oldest-first
+   *  sheet (Phase 2g · P2fz). */
   counterTruncated: boolean;
   /** Server clock at snapshot time (ISO) — the client seeds its relative-time ticks from this so a
    *  clock skew between the staff device and the server doesn't show "in 3m" for a fresh table. */
@@ -327,6 +329,10 @@ export type TableDetail = {
    *  says so (never as a loss, never with an amount). Disjoint from both sets above. Empty off a
    *  counter order. */
   compedKitchenLineIds: string[];
+  /** Phase 2g · P2fk — a counter order whose food has waited in the kitchen `COUNTER_UNCOLLECTED_MS`
+   *  or longer (`counterUncollected` over the open cart's lines, on the SAME DB clock as the sets
+   *  above): the page says so above the No-show / Clear choice. Absent reads as false. */
+  counterUncollected?: boolean;
   /** `surfaceOpen("payAtPickup")` — the counter Send is DRAWN only while it is true. */
   payAtPickup: boolean;
   /** The merge tool may be offered: an open cart, and not a counter order with food in the kitchen
@@ -340,7 +346,29 @@ export type TableDetail = {
 export type CounterFloorRow = RegisterQueueRow & {
   unpaidSent: boolean;
   kitchen: FloorKitchen | null;
+  /** Phase 2g · P2fk — the order's food has waited in the kitchen `COUNTER_UNCOLLECTED_MS` or longer
+   *  (`counterUncollected`, on the DATABASE clock). Register rows only — a kiosk order pays first,
+   *  so it never waits unpaid. Absent reads as false. */
+  uncollected?: boolean;
 };
+
+/**
+ * Phase 2g · P2fz — one page of the oldest-first counter sheet (`getOldestCounterOrders`): the rows
+ * as the floor draws them (`counterFloorRow`, the one mapper), whether a page follows, and the cursor
+ * that reads it (the LAST row's `(startedAt, sessionId)`, null when there is no more). `serverNow` is
+ * the DB clock the rows were judged on — the cards seed their relative time from it. `signin`/`locked`
+ * are the floor poll's verdicts (the sheet redirects exactly as the board does), `outage` an
+ * unreadable answer (never an empty list), `invalid` a cursor the schema refused.
+ */
+export type OlderCounterPoll =
+  | {
+      ok: true;
+      rows: CounterFloorRow[];
+      more: boolean;
+      next: CounterCursor | null;
+      serverNow: string;
+    }
+  | { ok: false; reason: "signin" | "outage" | "locked" | "invalid" };
 
 /** K2: the human table label for staff surfaces — the registered number (bare, e.g. "7"), or a
  *  flagged fallback to the raw sticker token so an unregistered/legacy sticker stays visible +

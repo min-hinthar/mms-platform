@@ -95,6 +95,10 @@ export type ExpoUnpaidBag = {
   doneAt?: string | null;
   /** The earliest sent line's fire_at — the bag's age on the lane (`expoAge`'s `createdAt`). */
   sentAt: string;
+  /** Phase 2g · P2fk — that food has waited `COUNTER_UNCOLLECTED_MS` or longer (`counterUncollected`
+   *  over the SAME lines on the SAME DB clock as `sentAt`): the card says "Waiting over 4 hours" in
+   *  its badge and its name. A flag only — the lane's order is unchanged. Absent reads as false. */
+  uncollected?: boolean;
 };
 
 export type ExpoQueue = {

@@ -22,13 +22,14 @@ import { STAFF } from "@/lib/i18n/staff";
 vi.mock("next/link", () => ({
   default: ({ children, ...rest }: { children: React.ReactNode }) => <a {...rest}>{children}</a>,
 }));
-// The clock is not what this file is about, and it prints no word inside the name.
-vi.mock("./RelativeTime", () => ({
-  RelativeTime: ({ iso }: { iso: string }) => <time dateTime={iso} />,
-}));
+// Phase 2g — NO clock mock: the card's visible age ("5m ago") is text inside the link, so it is in
+// the name (WCAG 2.5.3), and every "the name IS the card's text" case below now pins that too. The
+// fixtures' `serverNow` is five minutes after `startedAt`, so the age is a stable "5m ago".
 
 const { CounterOrderCard } = await import("./CounterOrderCard");
 const { StaffLangProvider } = await import("./StaffLangProvider");
+const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+const { tf } = await import("@/lib/i18n/fill");
 
 afterEach(cleanup);
 
@@ -239,5 +240,129 @@ describe("Phase 2f — a counter order whose food went to the kitchen unpaid", (
     expect(screen.getByRole("link").getAttribute("aria-label")).not.toContain(
       STAFF["settle.unpaid"].en,
     );
+  });
+});
+
+// ── Phase 2g · P2fk · P2fz ──
+describe("Phase 2g — the uncollected badge, the visible age in the name, and where the card opens", () => {
+  const UNCOLLECTED: CounterFloorRow = {
+    ...WALK_UP,
+    customerName: "Aye",
+    unpaidSent: true,
+    uncollected: true,
+    kitchen: {
+      notSent: 0,
+      inKitchen: 0,
+      up: 0,
+      upKeys: [],
+      done: 1,
+      oldestFireAt: null,
+    },
+  };
+  const badgeKey =
+    COUNTER_UNCOLLECTED_HOURS === 1
+      ? ("floor.counter.uncollected.badge.one" as const)
+      : ("floor.counter.uncollected.badge.many" as const);
+  const card = (order: CounterFloorRow, lang: "en" | "my" = "en", echoes = true) =>
+    render(
+      <StaffLangProvider lang={lang} echoes={echoes}>
+        <CounterOrderCard
+          order={order}
+          serverNow="2026-09-09T01:05:00.000Z"
+          lang={lang}
+          thresholds={TH}
+          frozen={false}
+        />
+      </StaffLangProvider>,
+    );
+
+  for (const [what, lang, echoes] of MODES) {
+    it(`${what}: an uncollected order draws the badge AFTER Unpaid, and the name says it in that order`, () => {
+      // p2g-uncollected/counter-card/badge-unnamed · badge-never-drawn
+      card(UNCOLLECTED, lang, echoes);
+      const link = screen.getByRole("link");
+      const words = tf(lang, badgeKey, { n: COUNTER_UNCOLLECTED_HOURS });
+      const unpaid = lang === "en" ? STAFF["settle.unpaid"].en : STAFF["settle.unpaid"].my;
+      const row = link.querySelector(".counter-card-kitchen")!.textContent ?? "";
+      expect(row).toContain(words);
+      expect(row.indexOf(unpaid)).toBeLessThan(row.indexOf(words));
+      const name = link.getAttribute("aria-label") ?? "";
+      expect(name).toContain(words);
+      expect(name.indexOf(unpaid)).toBeLessThan(name.indexOf(words));
+      const verb = lang === "en" ? STAFF["reg.verb.resume"].en : STAFF["reg.verb.resume"].my;
+      expect(norm(name.slice(`${verb} — `.length))).toBe(shownText(link));
+    });
+  }
+
+  it("the hours ride the badge as a COUNT — Burmese numerals on a Burmese console", () => {
+    card(UNCOLLECTED, "my", false);
+    const row = screen.getByRole("link").querySelector(".counter-card-kitchen")!.textContent ?? "";
+    expect(row).toContain(tf("my", badgeKey, { n: COUNTER_UNCOLLECTED_HOURS }));
+    expect(row).not.toMatch(/[0-9]/);
+  });
+
+  it("a comped-only order that waits is still flagged — no Unpaid, the badge alone", () => {
+    card({ ...UNCOLLECTED, unpaidSent: false, kitchen: null });
+    const link = screen.getByRole("link");
+    const words = tf("en", badgeKey, { n: COUNTER_UNCOLLECTED_HOURS });
+    expect(link.querySelector(".counter-card-kitchen")!.textContent).toBe(words);
+    expect(link.getAttribute("aria-label")).toContain(words);
+    expect(link.getAttribute("aria-label")).not.toContain(STAFF["settle.unpaid"].en);
+  });
+
+  it("absent or false reads as NOT uncollected — no badge, nothing in the name", () => {
+    const words = tf("en", badgeKey, { n: COUNTER_UNCOLLECTED_HOURS });
+    const { uncollected: _drop, ...absent } = UNCOLLECTED;
+    void _drop;
+    for (const order of [absent, { ...UNCOLLECTED, uncollected: false }]) {
+      card(order);
+      const link = screen.getByRole("link");
+      expect(link.textContent).not.toContain(words);
+      expect(link.getAttribute("aria-label")).not.toContain(words);
+      cleanup();
+    }
+  });
+
+  it("the visible age is in the name — the last thing the card shows is the last thing it says", () => {
+    // p2g-older/counter-card/age-unnamed — the <time> sits inside the link (WCAG 2.5.3).
+    card(WALK_UP);
+    const link = screen.getByRole("link");
+    const age = tf("en", "time.minAgo", { n: 5 });
+    expect(link.querySelector("time")!.textContent).toBe(age);
+    expect(link.querySelector("time")!.getAttribute("dateTime")).toBe(WALK_UP.startedAt);
+    expect((link.getAttribute("aria-label") ?? "").endsWith(age)).toBe(true);
+  });
+
+  it("the floor's card resumes the ORDER PAD; the sheet's (`opens=\"page\"`) views the order's PAGE", () => {
+    // p2g-older/counter-card/sheet-row-opens-the-pad
+    card(WALK_UP);
+    const pad = screen.getByRole("link");
+    expect(pad.getAttribute("href")).toBe("/staff/table/s-1/add");
+    expect(pad.getAttribute("aria-label")!.startsWith(`${STAFF["reg.verb.resume"].en} — `)).toBe(
+      true,
+    );
+    cleanup();
+    // The sheet's handler prevents the navigation at split width; here it always does (jsdom has none).
+    const onOpen = vi.fn((e: { preventDefault: () => void }) => e.preventDefault());
+    render(
+      <StaffLangProvider lang="en">
+        <CounterOrderCard
+          order={WALK_UP}
+          serverNow="2026-09-09T01:05:00.000Z"
+          lang="en"
+          thresholds={TH}
+          frozen={false}
+          opens="page"
+          onOpen={onOpen}
+        />
+      </StaffLangProvider>,
+    );
+    const page = screen.getByRole("link");
+    expect(page.getAttribute("href")).toBe("/staff/table/s-1");
+    const name = page.getAttribute("aria-label") ?? "";
+    expect(name.startsWith(`${STAFF["floor.verb.view"].en} — `)).toBe(true);
+    expect(norm(name.slice(`${STAFF["floor.verb.view"].en} — `.length))).toBe(shownText(page));
+    page.click();
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

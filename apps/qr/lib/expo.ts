@@ -18,7 +18,7 @@ import {
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { readUnpaidCounterCarts } from "./register-queue";
-import { unpaidBag } from "./counter-order";
+import { counterUncollected, unpaidBag } from "./counter-order";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -171,7 +171,9 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       lines: c.items ?? [],
       nowMs,
     });
-    return b ? [b] : [];
+    // Phase 2g · P2fk — uncollected on the DB clock (`nowMs`, `mms_now`), over the SAME lines
+    // `sentAt` was derived from (`counterSentMs` inside both): the flag and the age cannot part.
+    return b ? [{ ...b, uncollected: counterUncollected(c.items ?? [], nowMs) }] : [];
   });
 
   const orderIds = (orders ?? []).map((o) => o.id);

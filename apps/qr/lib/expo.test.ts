@@ -307,6 +307,8 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
         kitchen: "cooking",
         doneAt: null,
         sentAt: "2026-09-13T17:50:00.000Z",
+        // Phase 2g · P2fk — ten minutes on the DB clock: not uncollected.
+        uncollected: false,
       },
     ]);
   });
@@ -442,6 +444,55 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
       [ORDER_A]: CART_A,
       [ORDER_B]: CART_B,
     });
+  });
+
+  // ── Phase 2g · P2fk — a bag nobody came for, flagged on the DATABASE clock ──
+  // The fake's DB clock (`NOW`, 2026-09-13) is weeks behind the process clock, so a bag sent half an
+  // hour before it is fresh by the DB and four-hours-plus by the app: the two clocks separate.
+  it("a bag whose food has waited past the horizon BY THE DB CLOCK is uncollected; a fresh one is not", async () => {
+    // p2g-uncollected/expo/app-clock · flag-dropped
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        {
+          ...unpaidCart([
+            item({ id: "fresh", state: "served", fire_at: "2026-09-13T17:30:00.000Z" }),
+          ]),
+          id: "cart-fresh",
+          session_id: "sess-fresh",
+        },
+        {
+          ...unpaidCart([
+            item({ id: "old", state: "served", fire_at: "2026-09-13T13:59:00.000Z" }),
+          ]),
+          id: "cart-old",
+          session_id: "sess-old",
+        },
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const by = new Map(res.queue.unpaid.map((b) => [b.cartId, b]));
+    expect(by.get("cart-fresh")?.uncollected).toBe(false);
+    expect(by.get("cart-old")?.uncollected).toBe(true);
+    // The flag and the age are one derivation: the bag's age is the line that aged it.
+    expect(by.get("cart-old")?.sentAt).toBe("2026-09-13T13:59:00.000Z");
+  });
+
+  it("a comped-only bag that waits is uncollected too — it owes nothing, and it is still a bag", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        unpaidCart([
+          item({ id: "c", state: "served", comped: true, fire_at: "2026-09-13T12:00:00.000Z" }),
+        ]),
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid[0]).toMatchObject({ owes: false, uncollected: true });
   });
 });
 

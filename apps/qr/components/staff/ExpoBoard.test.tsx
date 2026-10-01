@@ -81,6 +81,7 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ExpoBoard } = await import("./ExpoBoard");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 const { SAME_GESTURE_MS: SAME_GESTURE, TOAST_LEAVE_MS: LEAVE } = await import("@mms/ui");
 
 afterEach(() => {
@@ -1049,5 +1050,81 @@ describe("M250 — a comped line says 'No charge' on its line; a free bag says i
       (el) => el.textContent === ts("my", "expo.bag.noCharge"),
     );
     expect(my).toBeTruthy();
+  });
+});
+
+// ── Phase 2g · P2fk — a bag nobody came for ──
+describe("Phase 2g — an unpaid bag that has waited past the horizon says so, in its name too", () => {
+  const words = (lang: "en" | "my") =>
+    tf(
+      lang,
+      COUNTER_UNCOLLECTED_HOURS === 1
+        ? "floor.counter.uncollected.badge.one"
+        : "floor.counter.uncollected.badge.many",
+      { n: COUNTER_UNCOLLECTED_HOURS },
+    );
+  const bag = (over: Partial<ExpoUnpaidBag> = {}): ExpoUnpaidBag => ({
+    cartId: "cart-reg",
+    sessionId: "sess-reg",
+    customerName: "Aye",
+    lines: [
+      {
+        id: "u-1",
+        name: "Tea Leaf Salad",
+        nameMy: null,
+        qty: 1,
+        modifiers: [],
+        modifiersMy: [],
+        fulfillment: "togo",
+        notes: null,
+      },
+    ],
+    moreUnits: 0,
+    owes: true,
+    kitchen: "done",
+    sentAt: iso(-300),
+    uncollected: true,
+    ...over,
+  });
+  const card = (b: ExpoUnpaidBag, lang: "en" | "my" = "en", echoes = true) =>
+    render(
+      <StaffLangProvider lang={lang} echoes={echoes}>
+        <ExpoBoard initial={{ tickets: [], unpaid: [b], serverNow: NOW }} />
+      </StaffLangProvider>,
+    ).container.querySelector<HTMLElement>("article[data-unpaid]")!;
+
+  for (const [lang, echoes] of [
+    ["en", true],
+    ["my", true],
+    ["my", false],
+  ] as const) {
+    it(`${lang}${echoes ? "" : " (Burmese only)"}: the badge is drawn after the money badge, and named after it`, () => {
+      // p2g-uncollected/expo-board/badge-unnamed · badge-never-drawn
+      const el = card(bag(), lang, echoes);
+      const unpaid = ts(lang, "settle.unpaid");
+      expect(el.textContent).toContain(words(lang));
+      expect(el.textContent!.indexOf(unpaid)).toBeLessThan(el.textContent!.indexOf(words(lang)));
+      const name = el.getAttribute("aria-label")!;
+      expect(name.endsWith(`${unpaid}, ${words(lang)}`)).toBe(true);
+      cleanup();
+    });
+  }
+
+  it("a bag that owes nothing and waits: 'No charge', then the badge — in the name in that order", () => {
+    const el = card(bag({ owes: false }));
+    const name = el.getAttribute("aria-label")!;
+    expect(name.endsWith(`${ts("en", "expo.bag.noCharge")}, ${words("en")}`)).toBe(true);
+    expect(el.textContent).toContain(words("en"));
+  });
+
+  it("absent or false reads as NOT uncollected — no badge, nothing in the name", () => {
+    const { uncollected: _drop, ...absent } = bag();
+    void _drop;
+    for (const b of [absent, bag({ uncollected: false })]) {
+      const el = card(b);
+      expect(el.textContent).not.toContain(words("en"));
+      expect(el.getAttribute("aria-label")).not.toContain(words("en"));
+      cleanup();
+    }
   });
 });

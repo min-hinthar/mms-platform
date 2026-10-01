@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  COUNTER_OLDER_PAGE,
+  readCounterOrdersOldestFirst,
   readRegisterQueue,
   readUnpaidCounterCarts,
   REG_PREFIX,
@@ -21,6 +23,8 @@ type Rec = {
   likes: [string, unknown][];
   ins: [string, unknown][];
   order: [string, { ascending?: boolean } | undefined] | null;
+  /** Phase 2g — EVERY `.order()` in call order (`order` keeps the last, for the older cases). */
+  orders: [string, { ascending?: boolean } | undefined][];
   limit: number | null;
 };
 let rec: Rec | null = null;
@@ -39,6 +43,7 @@ function fakeDb() {
         likes: [],
         ins: [],
         order: null,
+        orders: [],
         limit: null,
       };
       rec = r;
@@ -69,6 +74,7 @@ function fakeDb() {
         },
         order(col: string, opts?: { ascending?: boolean }) {
           r.order = [col, opts];
+          r.orders.push([col, opts]);
           return api;
         },
         limit(n: number) {
@@ -520,5 +526,112 @@ describe("readUnpaidCounterCarts — every capped candidate yields a bag (Codex 
     );
     if (!res.ok) throw new Error("expected ok");
     expect(res.carts.map((c) => c.id)).toEqual(["at-now", "null"]);
+  });
+});
+
+// ── Phase 2g · P2fz — every open counter order, oldest first ──
+describe("readCounterOrdersOldestFirst — the floor's own orders, oldest first, a page at a time", () => {
+  const SID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  // PostgREST's own timestamptz form: microseconds and a `+00:00` offset — never what `Date` prints.
+  const RAW = "2026-09-13T18:00:00.123456+00:00";
+  // Oldest first, as the query orders them: `old-0` is the oldest.
+  const oldPage = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      cart({
+        id: `cart-${i}`,
+        session_id: `old-${i}`,
+        created_at: new Date(Date.parse("2026-09-13T08:00:00Z") + i * 60_000).toISOString(),
+      }),
+    );
+
+  it("reads with EXACTLY the floor's predicate — one builder, so the two lists cannot drift", async () => {
+    await readRegisterQueue(fakeDb());
+    const floor = rec!;
+    await readCounterOrdersOldestFirst(fakeDb(), null);
+    const older = rec!;
+    expect(older.table).toBe(floor.table);
+    expect(older.cols).toBe(floor.cols);
+    expect(older.eqs).toEqual(floor.eqs);
+    expect(older.neqs).toEqual(floor.neqs);
+    expect(older.likes).toEqual(floor.likes);
+    expect(older.ins).toEqual(floor.ins);
+    // …the kiosk + reg- prefix included, and no cursor on the first page.
+    expect(older.ors).toEqual(floor.ors);
+    expect(older.ors).toEqual([
+      [`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" }],
+    ]);
+  });
+
+  it("oldest first, ties broken by session, PAGE + 1 rows", async () => {
+    // p2g-older/register-queue/newest-first · no-tiebreak · page-not-plus-one
+    await readCounterOrdersOldestFirst(fakeDb(), null);
+    expect(rec?.orders).toEqual([
+      ["created_at", { ascending: true }],
+      ["session_id", { ascending: true }],
+    ]);
+    expect(rec?.limit).toBe(COUNTER_OLDER_PAGE + 1);
+  });
+
+  it("a page of exactly PAGE is the END — no more, every row shown in the read's order", async () => {
+    // p2g-older/register-queue/full-page-says-more
+    rows = oldPage(COUNTER_OLDER_PAGE);
+    const res = await readCounterOrdersOldestFirst(fakeDb(), null);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.more).toBe(false);
+    expect(res.rows.map((r) => r.sessionId)).toEqual(
+      Array.from({ length: COUNTER_OLDER_PAGE }, (_, i) => `old-${i}`),
+    );
+  });
+
+  it("PAGE + 1 rows: there is MORE, and the probe row is dropped (never shown twice)", async () => {
+    // p2g-older/register-queue/keeps-the-probe
+    rows = oldPage(COUNTER_OLDER_PAGE + 1);
+    const res = await readCounterOrdersOldestFirst(fakeDb(), null);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.more).toBe(true);
+    expect(res.rows).toHaveLength(COUNTER_OLDER_PAGE);
+    expect(res.rows[0]?.sessionId).toBe("old-0");
+    expect(res.rows.at(-1)?.sessionId).toBe(`old-${COUNTER_OLDER_PAGE - 1}`);
+    expect(res.rows.map((r) => r.sessionId)).not.toContain(`old-${COUNTER_OLDER_PAGE}`);
+    expect(res.lines.has(`old-${COUNTER_OLDER_PAGE}`)).toBe(false);
+    expect(res.lines.size).toBe(COUNTER_OLDER_PAGE);
+  });
+
+  it("seeks past the cursor with the RAW timestamp, quoted — strictly after, ties by session", async () => {
+    // p2g-older/register-queue/cursor-ignored · tie-repeats-the-last-row
+    await readCounterOrdersOldestFirst(fakeDb(), { startedAt: RAW, sessionId: SID });
+    expect(rec?.ors).toEqual([
+      [`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" }],
+      [`created_at.gt."${RAW}",and(created_at.eq."${RAW}",session_id.gt."${SID}")`, undefined],
+    ]);
+    // the microseconds survive — a Date round-trip would have printed `.123Z`
+    expect(rec?.ors[1]?.[0]).toContain(".123456+00:00");
+  });
+
+  it("rows are shaped as the floor's are — live lines counted, every line kept for the fold", async () => {
+    rows = [cart({ session_id: "old-0" })];
+    const res = await readCounterOrdersOldestFirst(fakeDb(), null);
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.rows).toEqual([
+      {
+        sessionId: "old-0",
+        source: "register",
+        customerName: "Aye",
+        itemCount: 2,
+        subtotalCents: 1200,
+        startedAt: "2026-09-13T18:00:00Z",
+      },
+    ]);
+    expect(res.lines.get("old-0")).toHaveLength(3);
+  });
+
+  it("a failed read is an OUTAGE, never an empty list", async () => {
+    // p2g-older/register-queue/failure-reads-empty
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    fail = true;
+    expect(await readCounterOrdersOldestFirst(fakeDb(), null)).toEqual({
+      ok: false,
+      reason: "outage",
+    });
   });
 });

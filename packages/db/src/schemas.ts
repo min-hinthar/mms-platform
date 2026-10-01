@@ -750,6 +750,24 @@ export const counterNoShowInput = z.object({
 export type CounterNoShowInput = z.infer<typeof counterNoShowInput>;
 
 /**
+ * getOldestCounterOrders (Phase 2g · P2fz) — the oldest-first counter sheet's page cursor: null for
+ * the first page, else the LAST row shown, `(startedAt, sessionId)`. Both halves reach a PostgREST
+ * `or=` filter as quoted values, so the rail is what keeps them values: `startedAt` must be an ISO
+ * timestamp WITH an offset (PostgREST's own `+00:00` form, microseconds and all — never a string
+ * that could close the quote or the group), bounded; `sessionId` a uuid. A refused cursor reads
+ * `invalid`, before any read.
+ */
+export const counterOlderInput = z.object({
+  after: z
+    .object({
+      startedAt: z.string().max(40).datetime({ offset: true }),
+      sessionId: uuid,
+    })
+    .nullable(),
+});
+export type CounterOlderInput = z.infer<typeof counterOlderInput>;
+
+/**
  * requestApproval (S2.4) — a server REQUESTS a manager's approval for a gated void/comp when no manager
  * is at hand. Same shape as the void action minus the inline PIN: the loss gate is still SERVER-derived
  * (mms_request_approval refuses if the action wouldn't need a manager). Creates a default-safe `pending`

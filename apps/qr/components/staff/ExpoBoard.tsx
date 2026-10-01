@@ -70,6 +70,8 @@ import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
 import { useCounterAttention } from "./CounterBell";
+import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
+import { uncollectedBadgeWords } from "./CounterOrderCard";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -642,10 +644,8 @@ export function ExpoBoard({
   // free is still a bag (in `bagCount`) but nothing is collected for it.
   const unpaidCount = unpaid.filter((b) => b.owes).length;
   // Phase 2f review (M1) — the unpaid read hit its cap: the paid bags are all here, the unpaid ones
-  // are not. Said beside the count, and the lane never reads as an all-clear over it. The widening
-  // is a no-op once lib's `ExpoQueue.unpaidTruncated` lands (resolves at integration).
-  const unpaidTruncated =
-    (snap as ExpoQueue & { unpaidTruncated?: boolean }).unpaidTruncated === true;
+  // are not. Said beside the count, and the lane never reads as an all-clear over it.
+  const unpaidTruncated = snap.unpaidTruncated === true;
   const empty = count === 0 && !unpaidTruncated;
 
   // What the lane's region ANNOUNCES (Codex round 1 on A4·2): the counts as they change — a bag
@@ -1193,9 +1193,12 @@ function UnpaidBagCard({
   const owes = bag.owes;
   // The card's NAME carries the visible badge words exactly as the badge draws them (no echo in a
   // badge — the device's `shown` decides nothing there, but the name follows the same call).
+  // Phase 2g · P2fk — the uncollected badge follows the bag's money badge, so its words follow them
+  // in the name (the floor card's words, `uncollectedBadgeWords`).
+  const uncollected = bag.uncollected === true ? `, ${uncollectedBadgeWords(lang, echoes)}` : "";
   const cardName = owes
-    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}`
-    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${noChargeBadgeWords(lang, echoes)}`;
+    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}${uncollected}`
+    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${noChargeBadgeWords(lang, echoes)}${uncollected}`;
   const href = owes ? `/staff/table/${bag.sessionId}?settle=1` : `/staff/table/${bag.sessionId}`;
   return (
     <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
@@ -1231,6 +1234,24 @@ function UnpaidBagCard({
           <Badge tone="neutral" bordered>
             <Chrome lang={lang} k="expo.bag.noCharge" />
           </Badge>
+        )}
+        {/* Phase 2g · P2fk — nobody has come for this food in hours: a fact beside the money badge.
+            Flag only: the lane's order is unchanged. */}
+        {bag.uncollected === true && (
+          <>
+            {" "}
+            <Badge tone="warn" bordered>
+              <Chrome
+                lang={lang}
+                k={plural(
+                  COUNTER_UNCOLLECTED_HOURS,
+                  "floor.counter.uncollected.badge.one",
+                  "floor.counter.uncollected.badge.many",
+                )}
+                vars={{ n: COUNTER_UNCOLLECTED_HOURS }}
+              />
+            </Badge>
+          </>
         )}
       </p>
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>

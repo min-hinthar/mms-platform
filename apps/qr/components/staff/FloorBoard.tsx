@@ -6,7 +6,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
 import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
-import { EmptyState } from "@mms/ui";
+import { Button, EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { CounterOrderCard } from "./CounterOrderCard";
 import { StaggerList } from "./StaggerList";
@@ -18,13 +18,17 @@ import { useReportLive } from "./LiveConnection";
 // ── Phase 2d · floor ──
 import { UP_NOTICE_DWELL_MS, heardUp, upRose } from "@/lib/floor-kitchen";
 import { ERR_DWELL_MS } from "@/lib/kds-errors";
-import { plural } from "@/lib/i18n/fill";
+import { localizeCount, plural } from "@/lib/i18n/fill";
+import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
+import { paneUrl } from "@/lib/floor-pane";
 import { tableDisplay } from "@/lib/floor-types";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { TableStrip } from "./TableStrip";
 import { useCounterAttention } from "./CounterBell";
 // ── Phase 2d · split ──
 import { useTablePane } from "./TablePaneContext";
+// ── Phase 2g · counter ──
+import { CounterOlderSheet } from "./CounterOlderSheet";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -281,6 +285,30 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   const counterCount = snap.counter.length;
   // Phase 2d · floor — the ask a screen-reader user must hear when it appears.
   const askCount = snap.tables.filter((t) => t.status === "counter").length;
+  // Phase 2g · P2fk — counter orders whose food nobody has come for in hours (an absent flag is not).
+  const uncollectedCount = snap.counter.filter((o) => o.uncollected === true).length;
+
+  // ── Phase 2g · P2fz ── the oldest-first sheet. Mounted fresh on EVERY open (`seq` keys it), so a
+  // reopen re-reads page one. A row that opens the PANE unmounts it (`handedOff`) rather than closing
+  // it: an exiting sheet keeps the page under `aria-hidden` while focus is already on the pane, and
+  // its close-restore would pull focus back to the door.
+  const [older, setOlder] = useState({ seq: 0, open: false, handedOff: false });
+  const olderDoor = useRef<HTMLButtonElement>(null);
+  const olderHandedOff = useRef(false);
+  const openOlder = () => {
+    olderHandedOff.current = false;
+    setOlder((o) => ({ seq: o.seq + 1, open: true, handedOff: false }));
+  };
+  const openOlderInPane = (sessionId: string) => {
+    olderHandedOff.current = true;
+    setOlder((o) => ({ ...o, open: false, handedOff: true }));
+    // The split's own opener (it selects and focuses the pane in place — a router push of the hash
+    // would fire no `hashchange` on this screen). A counter order names no place, so its hint says
+    // only that it is one. With no split mounted (never on the counter screen, which is always one),
+    // a real navigation to the pane URL, whose hash the split seeds from on load.
+    if (!pane?.openSession(sessionId, { counter: true, display: "" }))
+      window.location.assign(paneUrl(sessionId));
+  };
 
   return (
     <section aria-labelledby="floor-h" className="staff-zone">
@@ -362,6 +390,23 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
               snap.counterTruncated ? (
                 <Chrome key="truncated" lang={lang} k="floor.counter.truncated" />
               ) : null,
+              // Phase 2g · P2fk — how many counter orders have waited past the horizon. {h} is a
+              // second count, localized here (only {n} is a count slot).
+              uncollectedCount > 0 ? (
+                <Chrome
+                  key="uncollected"
+                  lang={lang}
+                  k={plural(
+                    COUNTER_UNCOLLECTED_HOURS,
+                    "floor.counter.uncollected.one",
+                    "floor.counter.uncollected.many",
+                  )}
+                  vars={{
+                    n: uncollectedCount,
+                    h: localizeCount(COUNTER_UNCOLLECTED_HOURS, lang),
+                  }}
+                />
+              ) : null,
               // Phase 2d · review (floor #6) — the kitchen read came back full: every card's
               // kitchen row is unknown this poll, said once here rather than vanishing unsaid.
               snap.kitchenUnknown ? (
@@ -378,6 +423,36 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           )}
         </p>
       </div>
+      {/* Phase 2g · P2fz — the door to every open counter order, oldest first: shown when the list
+          below is cut short or an order has waited past the horizon. UNDER the head row and outside
+          the region above (no control inside a live region); the region already said why. */}
+      {(snap.counterTruncated || uncollectedCount > 0) && (
+        <div style={olderDoorRow}>
+          <Button ref={olderDoor} variant="secondary" onClick={openOlder}>
+            <Chrome lang={lang} k="floor.counter.older.open" echo="inline" />
+          </Button>
+        </div>
+      )}
+      {older.seq > 0 && !older.handedOff && (
+        <CounterOlderSheet
+          key={older.seq}
+          open={older.open}
+          onOpenChange={(open) => setOlder((o) => ({ ...o, open }))}
+          onPaneOpen={openOlderInPane}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            // Handed to the pane: focus is already there. Otherwise back to the door — by hand, since
+            // a tapped button is not focused on WebKit — or, if the door has gone (the list caught
+            // up), the floor's heading.
+            if (olderHandedOff.current) return;
+            const door = olderDoor.current;
+            if (door?.isConnected) door.focus();
+            else document.getElementById("floor-h")?.focus();
+          }}
+          lang={lang}
+          thresholds={snap.thresholds}
+        />
+      )}
 
       {/* Phase 2d · floor — THE STRIP: the room's map and its one-tap start, above the cards (and
           above the empty state: at open, every table free is the most useful screen). */}
@@ -478,6 +553,7 @@ const headRow: CSSProperties = {
   gap: "var(--s4)",
   flexWrap: "wrap",
 };
+const olderDoorRow: CSSProperties = { display: "flex", margin: "var(--s2) 0 0" };
 const grid: CSSProperties = {
   listStyle: "none",
   margin: 0,

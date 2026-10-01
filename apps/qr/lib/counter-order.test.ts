@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  COUNTER_UNCOLLECTED_HOURS,
+  COUNTER_UNCOLLECTED_MS,
   counterArmOf,
   counterChargeableLine,
   counterKitchenLine,
@@ -7,7 +9,9 @@ import {
   counterOwes,
   counterSent,
   counterSentLine,
+  counterSentMs,
   counterSettleVariant,
+  counterUncollected,
   isCounterOrder,
   kdsLineGate,
   mergeCounterRefusal,
@@ -19,6 +23,7 @@ import {
   type KdsGateInput,
 } from "./counter-order";
 import type { StaffSendView } from "./staff-send-view";
+import { SESSION_TTL_MS } from "./session-ttl";
 
 /**
  * Phase 2f · P2v — the counter order's pure rules as values. Every case is the one a named
@@ -586,5 +591,77 @@ describe("noShowOutcome — every RPC status, and never a silent ok", () => {
     [null, "error"],
   ] as const)("%s → %s", (status, reason) => {
     expect(noShowOutcome(status)).toBe(reason);
+  });
+});
+
+// ── Phase 2g · P2fk — the order nobody collected ─────────────────────────────────────────────────
+describe("counterSentMs / counterUncollected — the bag's age, and when it reads uncollected", () => {
+  const msAgo = (ms: number) => new Date(NOW - ms).toISOString();
+
+  it("the horizon is the app's idle horizon, in WHOLE hours (the badge says '{n} hours')", () => {
+    // Owner decision D7 — 4h, the idle-session TTL restated. A deliberate change edits this line.
+    expect(COUNTER_UNCOLLECTED_MS).toBe(SESSION_TTL_MS);
+    expect(Number.isInteger(COUNTER_UNCOLLECTED_HOURS)).toBe(true);
+    expect(COUNTER_UNCOLLECTED_HOURS * 3_600_000).toBe(COUNTER_UNCOLLECTED_MS);
+  });
+
+  it("AT the horizon it is uncollected; one millisecond short of it, it is not (>=, not >)", () => {
+    // p2g-uncollected/counter-order/at-threshold-not-uncollected
+    expect(counterUncollected([line({ fire_at: msAgo(COUNTER_UNCOLLECTED_MS) })], NOW)).toBe(true);
+    expect(counterUncollected([line({ fire_at: msAgo(COUNTER_UNCOLLECTED_MS - 1) })], NOW)).toBe(
+      false,
+    );
+  });
+
+  it("drafts, an in-grace send and grocery are nothing the kitchen has — they never age", () => {
+    // p2g-uncollected/counter-order/drafts-age · grocery-ages
+    const old = msAgo(COUNTER_UNCOLLECTED_MS * 3);
+    expect(counterUncollected([line({ state: "draft", fire_at: null })], NOW)).toBe(false);
+    expect(counterUncollected([line({ state: "draft", fire_at: old })], NOW)).toBe(false);
+    expect(counterUncollected([line({ fire_at: msAgo(-5_000) })], NOW)).toBe(false);
+    expect(counterUncollected([line({ fulfillment: "grocery", fire_at: old })], NOW)).toBe(false);
+    expect(counterUncollected([line({ state: "voided", fire_at: old })], NOW)).toBe(false);
+    expect(counterSentMs([line({ state: "draft", fire_at: old })], NOW)).toBeNull();
+    expect(counterUncollected([], NOW)).toBe(false);
+  });
+
+  it("a COMPED dish the kitchen has ages like any other — it is collected like any other", () => {
+    // p2g-uncollected/counter-order/comped-never-ages
+    const comp = line({ state: "served", comped: true, fire_at: msAgo(COUNTER_UNCOLLECTED_MS) });
+    expect(counterUncollected([comp], NOW)).toBe(true);
+  });
+
+  it("the EARLIEST send counts — a later batch never makes an old order young", () => {
+    // p2g-uncollected/counter-order/latest-send
+    const first = line({ state: "served", fire_at: msAgo(COUNTER_UNCOLLECTED_MS + 60_000) });
+    const later = line({ state: "fired", fire_at: msAgo(10 * 60_000) });
+    expect(counterSentMs([later, first], NOW)).toBe(NOW - COUNTER_UNCOLLECTED_MS - 60_000);
+    expect(counterUncollected([later, first], NOW)).toBe(true);
+  });
+
+  it("a kitchen line with NO fire_at dates from now, so it never ages (documented)", () => {
+    expect(counterSentMs([line({ fire_at: null })], NOW)).toBe(NOW);
+    expect(counterUncollected([line({ fire_at: null })], NOW)).toBe(false);
+  });
+
+  it("the threshold parameter is honoured — the default is only a default", () => {
+    // p2g-uncollected/counter-order/threshold-ignored
+    const tenMin = [line({ fire_at: msAgo(10 * 60_000) })];
+    expect(counterUncollected(tenMin, NOW)).toBe(false);
+    expect(counterUncollected(tenMin, NOW, 10 * 60_000)).toBe(true);
+    expect(counterUncollected(tenMin, NOW, 10 * 60_000 + 1)).toBe(false);
+  });
+
+  it("the lane's bag age IS counterSentMs — grocery and drafts never date a bag", () => {
+    // p2g-uncollected/counter-order/bag-age-own-derivation — the flag and the age read one rule.
+    const lines = [
+      line({ fulfillment: "grocery", state: "served", fire_at: msAgo(6 * 3_600_000) }),
+      line({ state: "draft", fire_at: msAgo(7 * 3_600_000) }),
+      line({ state: "served", fire_at: msAgo(10 * 60_000) }),
+    ];
+    const b = unpaidBag({ cartId: "c1", sessionId: "s1", customerName: "Aye", lines, nowMs: NOW });
+    expect(b?.sentAt).toBe(msAgo(10 * 60_000));
+    expect(b?.sentAt).toBe(new Date(counterSentMs(lines, NOW)!).toISOString());
+    expect(counterUncollected(lines, NOW)).toBe(false);
   });
 });
