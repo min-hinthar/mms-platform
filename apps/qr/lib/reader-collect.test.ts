@@ -315,9 +315,8 @@ describe("nextReaderPoll — the poll's reducer", () => {
     // and the freeze extension never end; red.
     expect(readerPolling("unrecorded")).toBe(false);
     expect(readerLive("unrecorded")).toBe(false);
-    expect(
-      readerStartRefused({ collect: C, live: readerLive("unrecorded"), sessionId: "s-9" }),
-    ).toBe(false);
+    // The reader is free of the POLL — the hold is now the warning's, until it is closed (Codex r2;
+    // see readerStartRefused).
     // Terminal: an order landing after the tab gave up is the server card's to show, never this poll's.
     expect(
       nextReaderPoll(gone.poll, { ...answer, orderId: "o-1" }, T0 + READER_UNRECORDED_MS + 1),
@@ -436,17 +435,33 @@ describe("readerStartRefused — the ONE refusal left (one reader)", () => {
   it("refuses a start on ANOTHER table while a collect is live", () => {
     // MUTATION (p2g-reader/start-admitted-on-another-table): never refused — a second freeze, a
     // second PaymentIntent and a reader command thrown at a reader already taking a card; red.
-    expect(readerStartRefused({ collect: C, live: true, sessionId: "s-9" })).toBe(true);
+    expect(readerStartRefused({ collect: C, phase: "collecting", sessionId: "s-9" })).toBe(true);
+    expect(readerStartRefused({ collect: C, phase: "recording", sessionId: "s-9" })).toBe(true);
   });
 
   it("never on its OWN table, never with no live collect, never with none at all", () => {
     // MUTATION (p2g-reader/start-refused-on-its-own-table): refused whenever any collect is live —
     // the table already collecting is told the reader is busy "for" itself; red.
-    expect(readerStartRefused({ collect: C, live: true, sessionId: "s-7" })).toBe(false);
+    expect(readerStartRefused({ collect: C, phase: "collecting", sessionId: "s-7" })).toBe(false);
     // MUTATION (p2g-reader/start-refused-after-the-collect-ended): ignore `live` — a declined card
     // on Table 7 holds the reader for every other table until someone dismisses it; red.
-    expect(readerStartRefused({ collect: C, live: false, sessionId: "s-9" })).toBe(false);
-    expect(readerStartRefused({ collect: null, live: false, sessionId: "s-9" })).toBe(false);
+    expect(readerStartRefused({ collect: C, phase: "failed", sessionId: "s-9" })).toBe(false);
+    expect(readerStartRefused({ collect: C, phase: "canceled", sessionId: "s-9" })).toBe(false);
+    expect(readerStartRefused({ collect: null, phase: "collecting", sessionId: "s-9" })).toBe(
+      false,
+    );
+  });
+
+  it("a charge given up as unrecorded holds EVERY start — its own table's too — until it is closed (Codex r2 on #309)", () => {
+    // MUTATION (p2g-cx2/unrecorded-start-replaces-the-warning): admitted like a declined card — a
+    // start for another table replaces the tab's one record, and with it the only "don't take payment
+    // again"; the original cart can then be charged twice; red.
+    expect(readerStartRefused({ collect: C, phase: "unrecorded", sessionId: "s-9" })).toBe(true);
+    expect(readerStartRefused({ collect: C, phase: "unrecorded", sessionId: "s-7" })).toBe(true);
+    // Closed (no record): free again.
+    expect(readerStartRefused({ collect: null, phase: "unrecorded", sessionId: "s-9" })).toBe(
+      false,
+    );
   });
 
   it("live = collecting or charged-not-recorded", () => {
@@ -464,7 +479,8 @@ describe("readerStartRefused — the ONE refusal left (one reader)", () => {
     expect(readerBusyKey("recording")).toBe("settle.reader.busyRecording");
     expect(readerBusyKey("failed")).toBeNull();
     expect(readerBusyKey("canceled")).toBeNull();
-    expect(readerBusyKey("unrecorded")).toBeNull();
+    // MUTATION (p2g-cx2/unrecorded-hold-unsaid): held with no reason — a dead button; red.
+    expect(readerBusyKey("unrecorded")).toBe("settle.reader.busyUnrecorded");
   });
 });
 

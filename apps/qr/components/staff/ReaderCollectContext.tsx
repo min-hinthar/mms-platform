@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useEffect, useLayoutEffect, useRef } from "react";
+import { createContext, useContext, useLayoutEffect, useRef } from "react";
 import type { Handoff } from "@/lib/register-ui";
 import type {
   ReaderCancelError,
@@ -105,7 +105,10 @@ export function ReaderShown({
   const reader = useReaderCollectOptional();
   const shownHere = reader?.shownHere;
   const landedRef = useRef(onLanded);
-  useEffect(() => {
+  // A LAYOUT effect declared BEFORE the registration (layout effects run in order): a pane that
+  // switches A → B reuses this instance, and `shownHere(B)` hands B's queued landing over SYNC —
+  // a passive update would still hold A's handler then, filing B's card under A (Codex r2 on #309).
+  useLayoutEffect(() => {
     landedRef.current = onLanded;
   }, [onLanded]);
   // A LAYOUT effect: registered before paint, so the bar's chip never flashes over its own table.

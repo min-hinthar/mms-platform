@@ -1808,6 +1808,15 @@ export const STAFF = {
     en: "The last card payment ({x}) is still being recorded — wait a moment.",
     my: "{x} အတွက် နောက်ဆုံး ကတ်နဲ့ ငွေရှင်းတာကို မှတ်နေတုန်းပါ — ခဏစောင့်ပါ။",
   }, // K15-HIGH — misread, a second payment is taken while the guest's card payment is still being recorded
+  // Codex r2 on #309 — the reader button's hold while a charge GIVEN UP as unrecorded still stands:
+  // the tab keeps one record, so a new start would erase the only "don't take payment again". {x} is
+  // that table's name. It says what happened, what to do, and how the hold lifts (the warning's own
+  // Close). K15 draft. Words: ကတ်နဲ့ ငွေရှင်း (busyRecording), ငွေဖြတ်ပြီး … အော်ဒါ မမှတ်ရ and
+  // မန်နေဂျာကို ပြော (settle.reader.status.unrecorded), ပိတ် (settle.reader.chip.dismiss).
+  "settle.reader.busyUnrecorded": {
+    en: "The last card payment ({x}) was charged but not recorded. Tell a manager, then close that message before the next card payment.",
+    my: "{x} အတွက် နောက်ဆုံး ကတ်နဲ့ ငွေရှင်းတာ ငွေဖြတ်ပြီးပေမဲ့ အော်ဒါ မမှတ်ရပါ။ မန်နေဂျာကို ပြောပြီး နောက်တစ်ခါ ကတ်နဲ့ မယူခင် အဲဒီ စာကို ပိတ်ပါ။",
+  }, // K15-HIGH — misread, a guest already charged is charged again
   // PT-10 — the collect panel's button once a charge is slow to record: it hides the panel, and the
   // screen keeps checking (D4) — "Back to payment" there named a payment that no longer exists. K15
   // draft. Words: ဖျောက်ထား "put out of sight", ဆက်စစ် "keep checking" (grounded: စစ်နေဆဲ in
@@ -3924,6 +3933,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.reader.busyElsewhere",
   // ── Phase 2g · fix-reader ──
   "settle.reader.busyRecording",
+  "settle.reader.busyUnrecorded",
   "settle.reader.chip.blind",
   "settle.reader.status.unrecorded",
   // ── Phase 2g · counter ──

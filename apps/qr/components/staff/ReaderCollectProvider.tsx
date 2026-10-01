@@ -379,7 +379,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     (sessionId: string) =>
       readerStartRefused({
         collect: recordRef.current,
-        live: readerLive(pollRef.current.phase),
+        phase: pollRef.current.phase,
         sessionId,
       }),
     [],

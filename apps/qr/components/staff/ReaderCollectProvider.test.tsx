@@ -27,7 +27,7 @@ vi.mock("@/lib/terminal", () => ({
 }));
 
 const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
-const { useReaderCollect } = await import("./ReaderCollectContext");
+const { useReaderCollect, ReaderShown } = await import("./ReaderCollectContext");
 type Api = ReturnType<typeof useReaderCollect>;
 
 let api!: Api;
@@ -385,7 +385,7 @@ describe("a charge that never records is given up (C1 · P2gb)", () => {
     // panel and the chip never say "don't take payment again"; red.
     expect(api.record?.hidden).toBe(false);
     expect(api.live).toBe(false);
-    expect(api.startRefused("s-9")).toBe(false);
+    expect(api.startRefused("s-9")).toBe(true);
     // Codex r1 on #309 — the stash is the warning's only durable copy on this tab: KEPT, marked.
     // MUTATION (p2g-cx1/unrecorded-stash-dropped): dropped at the bound — a reload erases "don't take
     // payment again" while the cart is still open; red.
@@ -400,8 +400,9 @@ describe("a charge that never records is given up (C1 · P2gb)", () => {
     expect(terminalStatus.mock.calls.length).toBe(n);
     await act(async () => api.dismiss());
     expect(api.record).toBeNull();
-    // Close is the ONE way out — and it takes the stash with it.
+    // Close is the ONE way out — it takes the stash with it, and frees the reader (Codex r2).
     expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
+    expect(api.startRefused("s-9")).toBe(false);
   });
 
   it("a reload after the bound brings the WARNING back — no poll, the reader free, and long past any idle expiry", async () => {
@@ -422,7 +423,7 @@ describe("a charge that never records is given up (C1 · P2gb)", () => {
     expect(api.poll.phase).toBe("unrecorded");
     expect(api.record?.paymentIntentId).toBe(START.paymentIntentId);
     expect(api.status).toEqual({ tone: "warn", msg: { k: "settle.reader.status.unrecorded" } });
-    expect(api.startRefused("s-9")).toBe(false);
+    expect(api.startRefused("s-9")).toBe(true);
     await tick(10_000);
     expect(terminalStatus.mock.calls.length).toBe(n);
     await act(async () => api.dismiss());
@@ -445,6 +446,37 @@ describe("a charge that never records is given up (C1 · P2gb)", () => {
     // "collecting" with no clock; red.
     await tick(READER_UNRECORDED_MS / 2 + 2500);
     expect(api.poll.phase).toBe("unrecorded");
+  });
+});
+
+// Codex r2 on #309 — the pane keeps ONE \`ReaderShown\` across selections, so a switch A → B reuses
+// it, and \`shownHere(B)\` hands B's queued landing over synchronously in the registration's layout
+// effect. The handler it calls must already be B's.
+describe("ReaderShown reused across a switch hands a landing to the NEW table's handler", () => {
+  const landedFor = (orderId: string) =>
+    ({ ok: true, state: "succeeded", orderId, totalCents: 4210 }) as const;
+
+  it("A → B: B's queued card reaches B's handler, never A's", async () => {
+    terminalStatus.mockResolvedValue(landedFor("o-00b2b2b2"));
+    const onA = vi.fn();
+    const onB = vi.fn();
+    const r = mount(<ReaderShown sessionId="s-1" onLanded={onA} />);
+    await act(async () =>
+      api.start({ ...START, sessionId: "s-8", paymentIntentId: "pi_8", cartId: "c-8" }),
+    );
+    await tick(0);
+    expect(api.landed.map((l) => l.sessionId)).toEqual(["s-8"]);
+    r.rerender(
+      <ReaderCollectProvider>
+        <Probe />
+        <ReaderShown sessionId="s-8" onLanded={onB} />
+      </ReaderCollectProvider>,
+    );
+    // MUTATION (p2g-cx2/shown-handler-updated-late): the handler ref is refreshed in a PASSIVE
+    // effect — the registration's layout effect runs first and files B's card under A; red.
+    expect(onA).not.toHaveBeenCalled();
+    expect(onB).toHaveBeenCalledWith(expect.objectContaining({ orderId: "o-00b2b2b2" }));
+    expect(api.landed).toEqual([]);
   });
 });
 

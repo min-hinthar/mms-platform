@@ -176,6 +176,52 @@ describe("the table page — a CLOSED counter order shows its paid card (P2em ·
     expect(document.body.textContent).toContain(ts("en", "floor.pane.closed.refundedFull"));
     expect(document.body.textContent).not.toContain(ts("en", "floor.pane.closed.body"));
   });
+
+  // Codex r2 on #309 — a "Paid · #CODE" the bar's chip queued for this order is CONSUMED here when
+  // the server names it refunded (the page that says "refunded" never sits under a bar that says
+  // Paid); an UNREADABLE order is NOT marked, so the chip keeps the only copy of its code.
+  const withShown = async () => {
+    const shownHere = vi.fn((_sessionId: string, _viewer?: unknown) => () => {});
+    const api = { shownHere } as unknown as NonNullable<
+      Parameters<typeof ReaderCollectContext.Provider>[0]["value"]
+    >;
+    await mount((n) => (
+      <ReaderCollectContext.Provider value={api}>{n}</ReaderCollectContext.Provider>
+    ));
+    return shownHere;
+  };
+  it.each(["partial", "full"] as const)(
+    "refunded (%s): the order is marked shown, so a queued Paid chip is consumed",
+    async (refund) => {
+      h.detail = {
+        kind: "closed",
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff: null,
+        refund,
+        orderId: CARD.orderId,
+      };
+      const shownHere = await withShown();
+      // MUTATION (p2g-cx2/refunded-page-keeps-the-paid-chip): never marked — the bar keeps
+      // "Paid · #A1B2C3" over a page saying the order was refunded, and again on every page after;
+      // red.
+      expect(shownHere).toHaveBeenCalledWith(ID, expect.anything());
+    },
+  );
+  it("unreadable: NOT marked — the chip's card is then the only copy of the code", async () => {
+    h.detail = {
+      kind: "closed",
+      label: "reg-7f3a",
+      tableNumber: null,
+      handoff: null,
+      refund: null,
+      orderId: null,
+    };
+    const shownHere = await withShown();
+    // MUTATION (p2g-cx2/unreadable-page-eats-the-code): marked on any card-less counter order — a
+    // read that failed swallows the one #CODE this tab still holds; red.
+    expect(shownHere).not.toHaveBeenCalled();
+  });
 });
 
 // ── Phase 2g · review (A11Y-4) ── the phone's detail swapped to this card under the person's focus.

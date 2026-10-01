@@ -410,9 +410,17 @@ describe("TerminalSettleButton — the collect is the provider's; one reader", (
     expect(document.getElementById("terminal-busy")!.textContent).toBe(
       tf("en", "settle.reader.busyRecording", { x: tf("en", "floor.table", { id: "7" }) }),
     );
-    // Given up as unrecorded (C1): the hold lifts.
+    // Given up as unrecorded (C1): the POLL stops, but the hold becomes the WARNING's (Codex r2 on
+    // #309) — a start here would replace the tab's one record and the only "don't take payment
+    // again" with it — and it says why and how it lifts.
     await flush(READER_UNRECORDED_MS);
     expect(api.poll.phase).toBe("unrecorded");
+    expect(mine!.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById("terminal-busy")!.textContent).toBe(
+      tf("en", "settle.reader.busyUnrecorded", { x: tf("en", "floor.table", { id: "7" }) }),
+    );
+    // Closed: the hold lifts.
+    await act(async () => api.dismiss());
     expect(mine!.getAttribute("aria-disabled")).toBeNull();
     expect(document.getElementById("terminal-busy")).toBeNull();
   });

@@ -399,14 +399,20 @@ export function handoffCode(orderId: string): string {
  * It holds through `recording` too, although the physical reader is free by then: the tab keeps ONE
  * record, and a new start would displace the recording one — and with it the only poll re-extending
  * its freeze, the guard against a cash settle collecting that bill twice while the webhook lands. The
- * wait is bounded (`READER_UNRECORDED_MS`), and `readerBusyKey` says which wait it is.
+ * wait is bounded (`READER_UNRECORDED_MS`), and `readerBusyKey` says which wait it is. Past the
+ * bound the hold becomes the WARNING's: every start waits for a person to close it (Codex r2).
  */
 export function readerStartRefused(p: {
   collect: Pick<ReaderCollect, "sessionId"> | null;
-  live: boolean;
+  phase: ReaderPhase;
   sessionId: string;
 }): boolean {
-  return p.collect !== null && p.live && p.collect.sessionId !== p.sessionId;
+  if (p.collect === null) return false;
+  // Codex r2 on #309 — a charge given up as unrecorded holds EVERY start, its own table's included,
+  // until a person closes the warning: the tab keeps one record, so a new start would replace the
+  // only "don't take payment again" — and its own table is exactly the one a second charge hurts.
+  if (p.phase === "unrecorded") return true;
+  return readerLive(p.phase) && p.collect.sessionId !== p.sessionId;
 }
 
 /**
@@ -417,9 +423,15 @@ export function readerStartRefused(p: {
  */
 export function readerBusyKey(
   phase: ReaderPhase,
-): "settle.reader.busyElsewhere" | "settle.reader.busyRecording" | null {
+):
+  | "settle.reader.busyElsewhere"
+  | "settle.reader.busyRecording"
+  | "settle.reader.busyUnrecorded"
+  | null {
   if (phase === "collecting") return "settle.reader.busyElsewhere";
   if (phase === "recording") return "settle.reader.busyRecording";
+  // Codex r2 — the given-up charge's warning holds the reader until it is closed, and says so.
+  if (phase === "unrecorded") return "settle.reader.busyUnrecorded";
   return null;
 }
 

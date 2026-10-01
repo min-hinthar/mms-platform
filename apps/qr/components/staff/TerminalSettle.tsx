@@ -136,7 +136,7 @@ export function TerminalSettleButton({
   // server is asked.
   const busyElsewhere = readerStartRefused({
     collect: reader.record,
-    live: reader.live,
+    phase: reader.poll.phase,
     sessionId,
   });
   // PT-2 — and why, truthfully: "taking a payment … finish that one first" only while the reader IS

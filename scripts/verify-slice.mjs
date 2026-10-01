@@ -13840,7 +13840,7 @@ const MUTANTS = [
     file: "apps/qr/lib/reader-collect.ts",
     suite: "lib/reader-collect.test.ts",
     why: "Phase 2g · reader (D1) — one reader: a start on another table while a collect is live is refused before the server; never refused, a second freeze and PaymentIntent are thrown at a busy reader",
-    find: "  return p.collect !== null && p.live && p.collect.sessionId !== p.sessionId;",
+    find: "  return readerLive(p.phase) && p.collect.sessionId !== p.sessionId;",
     replace: "  return false;",
   },
   {
@@ -13848,16 +13848,16 @@ const MUTANTS = [
     file: "apps/qr/lib/reader-collect.ts",
     suite: "lib/reader-collect.test.ts",
     why: "Phase 2g · reader — the table already collecting is never refused as 'busy for itself'",
-    find: "  return p.collect !== null && p.live && p.collect.sessionId !== p.sessionId;",
-    replace: "  return p.collect !== null && p.live;",
+    find: "  return readerLive(p.phase) && p.collect.sessionId !== p.sessionId;",
+    replace: "  return readerLive(p.phase);",
   },
   {
     id: "p2g-reader/start-refused-after-the-collect-ended",
     file: "apps/qr/lib/reader-collect.ts",
     suite: "lib/reader-collect.test.ts",
     why: "Phase 2g · reader — the refusal lasts while the collect is LIVE; ignoring that, a declined card on one table holds the reader for every other until someone dismisses it",
-    find: "  return p.collect !== null && p.live && p.collect.sessionId !== p.sessionId;",
-    replace: "  return p.collect !== null && p.collect.sessionId !== p.sessionId;",
+    find: "  return readerLive(p.phase) && p.collect.sessionId !== p.sessionId;",
+    replace: "  return p.collect.sessionId !== p.sessionId;",
   },
   {
     id: "p2g-reader/recording-never-escalates",
@@ -15569,6 +15569,50 @@ const MUTANTS = [
     why: "Codex r1 on #309 (P2) — the rule is only as good as its one call; the chip that never asks it shows the collect on the signed-out sign-in screen",
     find: "  if (!readerChipShownAt(pathname)) return null;\n",
     replace: "",
+  },
+  // ── Phase 2g · Codex round 2 (p2g-cx2/) — a given-up charge's warning holds every reader start until
+  // it is closed; a refunded closed page consumes the bar's queued Paid card; a reused ReaderShown
+  // hands a landing to the NEW table's handler. Each watched RED before it was recorded.
+  {
+    id: "p2g-cx2/unrecorded-start-replaces-the-warning",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r2 on #309 (P1) — the tab keeps one record; a start admitted while the unrecorded warning stands replaces the only 'don't take payment again', and the original cart can be charged twice",
+    find: '  if (p.phase === "unrecorded") return true;\n',
+    replace: "",
+  },
+  {
+    id: "p2g-cx2/unrecorded-hold-unsaid",
+    file: "apps/qr/lib/reader-collect.ts",
+    suite: "lib/reader-collect.test.ts",
+    why: "Codex r2 on #309 (P1) — the hold says what happened and how it lifts; unsaid, the reader button is dead with no reason",
+    find: '  if (phase === "unrecorded") return "settle.reader.busyUnrecorded";\n',
+    replace: "",
+  },
+  {
+    id: "p2g-cx2/refunded-page-keeps-the-paid-chip",
+    file: "apps/qr/app/staff/table/[id]/page.tsx",
+    suite: "app/staff/table/[id]/page.test.tsx",
+    why: "Codex r2 on #309 (P1) — a refunded counter order's closed page marks it shown, consuming the bar's queued Paid card; unmarked, the bar says Paid over a page that says refunded, and on every page after",
+    find: '          {counterNoCard && (res.refund === "partial" || res.refund === "full") && (\n',
+    replace: "          {false && (\n",
+  },
+  {
+    id: "p2g-cx2/unreadable-page-eats-the-code",
+    file: "apps/qr/app/staff/table/[id]/page.tsx",
+    suite: "app/staff/table/[id]/page.test.tsx",
+    why: "Codex r2 on #309 (P1) — only a NAMED refund consumes the landing; on any card-less counter order, a read that failed swallows the one #CODE this tab still holds",
+    find: '          {counterNoCard && (res.refund === "partial" || res.refund === "full") && (\n',
+    replace: "          {counterNoCard && (\n",
+  },
+  {
+    id: "p2g-cx2/shown-handler-updated-late",
+    file: "apps/qr/components/staff/ReaderCollectContext.tsx",
+    suite: "components/staff/ReaderCollectProvider.test.tsx",
+    why: "Codex r2 on #309 (P2) — the handler ref is refreshed BEFORE the registration; after it, a pane switch A → B hands B's queued card to A's handler and files it under A",
+    find: "  useLayoutEffect(() => {\n    landedRef.current = onLanded;\n  }, [onLanded]);\n  // A LAYOUT effect: registered before paint, so the bar's chip never flashes over its own table.\n  useLayoutEffect(() => {\n    if (!shownHere) return;\n    return shownHere(sessionId, { onLanded: (h) => landedRef.current?.(h) });\n  }, [sessionId, shownHere]);\n",
+    replace:
+      "  useLayoutEffect(() => {\n    if (!shownHere) return;\n    return shownHere(sessionId, { onLanded: (h) => landedRef.current?.(h) });\n  }, [sessionId, shownHere]);\n  useLayoutEffect(() => {\n    landedRef.current = onLanded;\n  }, [onLanded]);\n",
   },
 ];
 

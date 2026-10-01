@@ -121,16 +121,29 @@ Closes **P2em · P2en · P2er · P2es · M250 · P2fz · P2fk**; files P2gb–P2
     reacts to a settle asked after it mounted, and the opener no longer re-focuses the heading over it.
   - _No reader detail on the sign-in screen_ (P2): the chip shows nothing on `/staff/login`, the one
     bar a signed-out person sees; the record is kept for the next signed-in page.
+- **Codex round 2 (`77c3484`, 2×P1 + 1×P2, all verified real):**
+  - _The warning holds the reader until it is closed_ (P1): a start for another table replaced the
+    tab's one record and with it the only "don't take payment again". Every reader start — the
+    warned table's own included — is now refused while the warning stands, and the button says why
+    and how it lifts (`settle.reader.busyUnrecorded`, K15-HIGH).
+  - _A refunded order's page consumes the bar's Paid card_ (P1): the closed page marks a counter
+    order the server names refunded as shown, so a queued "Paid · #CODE" never sits in the bar over
+    a page saying it was refunded. An unreadable order is left alone — the bar's card is then the
+    only copy of its code.
+  - _A pane switch hands a landing to the right table_ (P2): `ReaderShown` refreshes its handler in a
+    layout effect declared before its registration, so a reused instance switching A → B no longer
+    files B's card under A. `ReaderCollectContext.tsx` joins the mutate set.
 - Measured for Phase 2h (`scratchpad` probe, Chromium + Next 16.2.9): a `useTransition` `pending`
   stays true past a `raceTimeout` while its Server Action hangs, and every later action waits behind
   it — the P2cz / P2fc rows carry the numbers.
 
-**Gate:** 1869 `verify:slice` mutants (+191: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
+**Gate:** 1874 `verify:slice` mutants (+196: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
 14 `p2g-m250/`, 64 `p2g-older/` + `p2g-uncollected/`, 7 `p2g-int/`, then the review's 36
-`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`, and Codex round 1's 8 `p2g-cx1/`) over 204 target modules (+5:
+`p2g-fix-reader/`, 26 `p2g-fix-code/` and 4 `p2g-fix/`, Codex round 1's 8 `p2g-cx1/` and round 2's 5 `p2g-cx2/`) over 205 target modules (+6:
 `lib/reader-collect.ts`, `ReaderCollectProvider.tsx`, `ReaderCollectChip.tsx`, `CounterOlderSheet.tsx`
-and the FIRST staff page, `app/staff/table/[id]/page.tsx`) · 5200 qr tests · K15: 22 new staff keys (7 from
-the review, which also re-worded 4 of the build's), 1 re-worded, 1 retired; `STAFF_K15_HIGH` 136 → 145
+the FIRST staff page, `app/staff/table/[id]/page.tsx`, and Codex round 2's `ReaderCollectContext.tsx`) ·
+5205 qr tests · K15: 23 new staff keys (7 from the review, 1 from Codex round 2; the review also
+re-worded 4 of the build's), 1 re-worded, 1 retired; `STAFF_K15_HIGH` 136 → 146
 (OPEN-ITEMS K15).
 
 ### Phase 2f — counter orders cook before they're paid (2026-09-30)

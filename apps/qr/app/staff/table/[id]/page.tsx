@@ -5,6 +5,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { FloorDetailLive } from "@/components/staff/FloorDetailLive";
 import { ClosedHandoffCard } from "@/components/staff/HandoffCard";
+import { ReaderShown } from "@/components/staff/ReaderCollectContext";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
@@ -73,6 +74,13 @@ export default async function TablePage({
           lock={hasPin}
         />
         <div className="staff-col" style={wrap}>
+          {/* Codex r2 on #309 — a counter order the server names REFUNDED is shown here too: a "Paid ·
+              #CODE" this tab's reader queued for it is consumed (vetoed), never left in the bar over
+              a page that says it was refunded. An UNREADABLE one is not marked — the bar's card is
+              then the only copy of the code. */}
+          {counterNoCard && (res.refund === "partial" || res.refund === "full") && (
+            <ReaderShown sessionId={id} />
+          )}
           {handoff ? (
             <ClosedHandoffCard lang={lang} sessionId={id} handoff={handoff} />
           ) : (
