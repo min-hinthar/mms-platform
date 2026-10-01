@@ -1632,12 +1632,24 @@ P2em · P2en · P2er · P2es · M250 · P2fz · P2fk).** The rules as built:
   in-flow row (the offline row's idiom: full width, `order: 10`, before `StaffBarNet`, which measures
   it) — "On the reader · $X · {table}", "Paid · #CODE", "Payment didn't go through" — wherever the
   paying table is NOT on screen, with a View link (the split's own opener on the counter screen; never
-  a link on the lock screen). It is not a live region; a decline or a slow recording is said once by
-  `role="alert"`, and only off-table.
+  a link on the lock screen). The visible row is never live: a decline, a slow recording, a given-up
+  charge and a landing are said ONCE by a separate sr-only `role="alert"` — one script, the table
+  named, never marked said while an open sheet has the page `aria-hidden`, and never re-said for an
+  outcome the table's own region already announced. Off-screen landings queue (five, persisted), so a
+  second never overwrites the first; the ✕ ("Dismiss — Table 7") hands focus to the bar title.
+- **A wait is bounded and says which wait it is.** A charge that never records is given up after the
+  settle freeze's lifetime (`unrecorded`: "The card was charged, but no order was recorded. Don't take
+  payment again — tell a manager." with a Close) — never a refusal that lasts for the life of the tab.
+  The reader refusal names its wait: "finish that one first" only while the reader is really taking a
+  card, "still being recorded — wait a moment" while the order records. A button names its act:
+  "Hide this — we'll keep checking", never "Back to payment" over a payment that has gone through.
 - **The paid card comes from the order row too.** A counter order's "Paid · #CODE" is built from
   `qr_orders` (`serverCounterHandoff` — refund-gated through `summarizeRefund`, figures verbatim, never
   a tender or a "went out unpaid" the row does not store) on the closed verdict and a settled counter
-  detail; the tab's own card (with its change) wins where it exists. The phone's table page stays on a
+  detail; the tab's own card (with its change) wins where it exists — unless the server names that
+  same order refunded (`handoffRefunded`): then "Paid" is vetoed everywhere and the closed state says
+  "This order was refunded.", or for a partial refund names the order and sends it to a manager before
+  hand-over. The phone's table page stays on a
   paid counter order's card instead of bouncing to a counter that no longer lists it, and the closed
   pane no longer hedges ("it may have been paid…") under a card that says Paid.
 - **Same-screen navigation goes through the screen's own opener.** A router push of the pane URL
@@ -1648,8 +1660,9 @@ P2em · P2en · P2er · P2es · M250 · P2fz · P2fk).** The rules as built:
   tagged "No charge" (an unpaid bag that owes nothing keeps its one bag-level badge) — a bag a guest
   takes home is the whole bag.
 - **Old is said, never re-sorted.** A counter order whose earliest dish went to the kitchen 4 hours
-  ago reads "Waiting over 4 hours" on its card and its bag (inside each accessible name), counts in
-  the floor's one status line, and notes itself above No-show / Clear. The floor and the lane keep
+  ago reads "Not collected in over 4 hours" on its card and its bag (inside each accessible name — a
+  subject, never a bare "Waiting" beside guests waiting to pay), counts in the floor's one status line
+  (of the orders listed), and notes itself above No-show / Clear unless a payment is in flight. The floor and the lane keep
   their order. "See the oldest orders" (under the floor's head row, outside its status line) opens a
   sheet of every open counter order, oldest first, 20 a page.
 

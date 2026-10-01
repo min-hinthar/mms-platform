@@ -3217,3 +3217,25 @@ exits that unmounted it (pane switch, starts, then Screens / a card / More / Loc
 and hard navigations can never be held. The layout is the one tree no staff navigation leaves:
 hoisting the poll there (plus a stash for hard loads) closed every exit at once — including ones
 nobody had listed — and let the holds be retired instead of extended (Phase 2g, decision 8a).
+
+## #202
+
+**A phase that only an outside answer can end lends its lifetime to every refusal it powers — so
+bound it.** Phase 2g's reader collect stayed `recording` until the webhook wrote the order; the
+"reader is busy" refusal for other tables read that phase. A charge whose order never recorded
+therefore refused the reader for the life of the tab, survived a reload, and could not be dismissed
+(blind review C1). The fix is a terminal phase at the bound the money already obeys (`unrecorded`
+at `SETTLE_TTL_MS` past the capture — the freeze that keeps cash refused), on a clock stored WITH
+the record so a reload resumes it instead of restarting it — and copy that says the bound was hit
+("charged, nothing recorded — tell a manager"), never a silent stop. Ask of every "wait until X"
+state: what ends it if X never comes, and what does it refuse meanwhile?
+
+## #203
+
+**A tab's own copy of a server fact must lose to the server when the server knows more.** The tab's
+"Paid · #CODE" card (it has the change; the row does not) was made to outrank the server-built,
+refund-gated card — so a refunded counter order still read Paid wherever this tab had collected it
+(blind review M2). "Local wins" is only safe for the fields the server cannot supply; a VERDICT the
+server owns (refunded, partly refunded) vetoes the local copy (`handoffRefunded`), the stash is
+dropped, and the closed state says what happened. Unknown is not "none": a failed read never vetoes
+and never confirms.
