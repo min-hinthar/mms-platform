@@ -29,6 +29,7 @@ import { useZoneFocus } from "./ZoneFocus";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
@@ -586,6 +587,9 @@ function RequestCard({
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? msg;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   return (
     <article
       className="card card-textured"
@@ -740,7 +744,7 @@ function RequestCard({
             style={{ margin: "8px 0 0", minHeight: 16 }}
           >
             {shown && (
-              <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
                 <MsgText lang={lang} msg={shown} />
               </span>
             )}

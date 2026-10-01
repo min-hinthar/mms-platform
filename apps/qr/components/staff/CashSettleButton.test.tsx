@@ -1015,6 +1015,24 @@ describe("CashSettleButton — a refusal's figure is settled by the page's NEXT 
   });
 });
 
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
+
 // ── Phase 2h · p2h-sheets ──
 describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · P2cz, decisions 9a · 9d · 9e)", () => {
   afterEach(() => {
@@ -1276,12 +1294,18 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
       fireEvent.click(settle());
     });
     await advance(STAFF_HANG_MS);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    const said = watchRegion(within(dialog).getByRole("alert"));
     await act(async () => {
       fireEvent.click(settle());
     });
     // Never sent: a second settle queued behind the first would be released whenever the queue
     // moves — after the cashier took the money some other way.
     expect(settleCash).toHaveBeenCalledTimes(1);
+    // Critic F1 — RE-SAID while the alert still stands from the bound: equal text re-rendered in
+    // place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/cash/resay-unkeyed · p2h-int-c/cash/refusal-unsaid): red.
+    expect(said()).toBe(true);
     // MUTATION (p2h-int-c/cash/own-wait-said-as-stalled · p2h-sheets/cash/own-wait-forgotten): its own
     // settle IS the stall, but "this did nothing" speaks only for the tap and drops "Don't take it
     // again" — the one instruction that keeps the guest from paying twice; red.

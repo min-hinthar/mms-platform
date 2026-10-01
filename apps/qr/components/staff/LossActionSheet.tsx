@@ -2,6 +2,7 @@
 import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
@@ -381,6 +382,9 @@ export function LossActionSheet({
   }
 
   const shown = lockCopy ?? msg;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
@@ -563,7 +567,7 @@ export function LossActionSheet({
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {shown && (
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+            <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
               {/* P7·2 — a `pin.*` key renders through <Chrome>; a server sentence passes through
                   <OutageText>, which swaps in the one twin that exists (the rest is P2i). */}
               <MsgText lang={lang} msg={shown} />

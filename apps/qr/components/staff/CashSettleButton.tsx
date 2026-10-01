@@ -21,6 +21,7 @@ import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
@@ -483,6 +484,10 @@ export function CashSettleButton({
     : settleReasons;
   // The alert: a live drift outranks a stored outcome — it is the fact the cashier must act on now.
   const alertMsg: SheetError | null = drift ? { kind: "moved", ...drift } : error;
+  // Critic F1 — every SET of the stored outcome (a re-tap's refusal re-says the standing waiting
+  // line) replaces the alert's content, so it is announced again, not swallowed as no change. Keyed
+  // on the STATE: `alertMsg` is built fresh each render while the figures drift.
+  const said = useResaid(error);
   /** A sheet error's sentence — said in the ONE alert, or (F2) under the trigger while unread. */
   const sayError = (m: SheetError) =>
     m.kind === "server" ? (
@@ -854,7 +859,7 @@ export function CashSettleButton({
                   role="alert"
                   style={{ ...hint, margin: 0, color: "var(--warn)" }}
                 >
-                  {sayError(alertMsg)}
+                  <span key={said}>{sayError(alertMsg)}</span>
                 </p>
               )}
               {/* Phase 2h — both sentences say "reload the page", and the console is installed

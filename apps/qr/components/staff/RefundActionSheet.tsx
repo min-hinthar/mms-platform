@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import { refundLine, type RefundResult, type SettledLine, type SettledOrder } from "@/lib/refunds";
 import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { dollars } from "@/lib/receipt-view";
@@ -213,6 +214,9 @@ export function RefundActionSheet({
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? error;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(error);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
@@ -314,7 +318,7 @@ export function RefundActionSheet({
             color: "var(--warn)",
           }}
         >
-          {shown === null ? null : <MsgText lang={lang} msg={shown} />}
+          {shown === null ? null : <MsgText key={said} lang={lang} msg={shown} />}
         </p>
         {/* Phase 2h — the reload the region's sentence names, beside the region (never inside it). */}
         {reload && (

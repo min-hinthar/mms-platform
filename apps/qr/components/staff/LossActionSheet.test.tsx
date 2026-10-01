@@ -61,6 +61,23 @@ function mount(lang: "en" | "my" = "en") {
   );
 }
 const region = () => document.getElementById("loss-msg")!;
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 // Under `my` the row's name is the pair (Burmese · English echo), so the English is matched as a part.
 const reason = () =>
   screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.mistake"].en) });
@@ -385,12 +402,18 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     mountSpied();
     await tapVoid();
     await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    const said = watchRegion(region());
     await act(async () => {
       fireEvent.submit(submitBtn().closest("form")!);
     });
     // Never sent: a second void queued behind the first spends another PIN attempt whenever the
     // queue moves.
     expect(voidLine).toHaveBeenCalledTimes(1);
+    // Critic F1 — RE-SAID, not left standing: the line already stood in the region, and equal text
+    // re-rendered in place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/loss/resay-unkeyed · p2h-int-c/loss/void-refusal-unsaid): red.
+    expect(said()).toBe(true);
     // MUTATION (p2h-int-c/loss/own-wait-said-as-stalled · p2h-sheets/loss/own-wait-forgotten): its
     // own void IS the stall, but "this did nothing" drops "Don't do it again"; red.
     expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
@@ -612,12 +635,16 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     await advance(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
     vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    const said = watchRegion(region());
     await act(async () => {
       fireEvent.click(request());
     });
     // MUTATION (p2h-sheets/loss/request-own-wait-forgotten): a second request queued behind the
     // first; red.
     expect(requestApproval).toHaveBeenCalledTimes(1);
+    // Critic F1 — the request's refusal re-SAYS its line (a new node in the region), never leaves
+    // the standing one silent. MUTATION (p2h-int-c/loss/request-refusal-unsaid): red.
+    expect(said()).toBe(true);
     // MUTATION (p2h-int-c/loss/request-own-wait-said-as-stalled): "this did nothing" in place of
     // "Don't send it again"; red.
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);

@@ -160,6 +160,22 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     });
   });
   const region = () => document.querySelector('[role="dialog"] [role="status"]')!;
+  /** Critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen reader
+   *  announces) between this call and the returned check; equal text rendered in place records none. */
+  const watchRegion = (node: Element) => {
+    const recs: MutationRecord[] = [];
+    const obs = new MutationObserver((rs) => {
+      recs.push(...rs);
+    });
+    obs.observe(node, { childList: true, subtree: true, characterData: true });
+    return () => {
+      recs.push(...obs.takeRecords());
+      obs.disconnect();
+      return recs.some(
+        (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+      );
+    };
+  };
   const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
   const closeX = () =>
     screen.getByRole("button", {
@@ -316,9 +332,15 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     const { tap } = mountSpied();
     await tap();
     await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
+    const said = watchRegion(region());
     await tap("5678");
     // Never sent: a second refund queued behind the first.
     expect(refundLine).toHaveBeenCalledTimes(1);
+    // Critic F1 — RE-SAID, not left standing: the waiting line was already in the region, and equal
+    // text re-rendered in place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/refund/resay-unkeyed · p2h-int-c/refund/refusal-unsaid): red.
+    expect(said()).toBe(true);
     // MUTATION (p2h-int-c/refund/own-wait-said-as-stalled · p2h-sheets/refund/own-wait-forgotten):
     // its own refund IS the stall, but "this did nothing" drops "Don't refund it again or hand
     // anything back" — the guest is refunded twice, once in cash; red.

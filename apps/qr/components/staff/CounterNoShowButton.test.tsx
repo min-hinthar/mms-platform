@@ -100,6 +100,23 @@ const open = () =>
   fireEvent.click(screen.getByRole("button", { name: STAFF["table.noshow.btn"].en }));
 const dialog = () => document.querySelector('[role="dialog"]')!;
 const region = () => dialog().querySelector('[role="status"]')!;
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 const confirmBtn = () => dialog().querySelector<HTMLButtonElement>('button[type="submit"]')!;
 const submit = () =>
   act(async () => {
@@ -767,10 +784,16 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     await openSheet();
     await submit();
     await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    const said = watchRegion(region());
     await submit();
     // Never sent: a second write-off queued behind the first cancels the order whenever the queue
     // moves.
     expect(record).toHaveBeenCalledTimes(1);
+    // Critic F1 — RE-SAID, not left standing: the line already stood in the region, and equal text
+    // re-rendered in place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/noshow/resay-unkeyed · p2h-int-c/noshow/refusal-unsaid): red.
+    expect(said()).toBe(true);
     // MUTATION (p2h-int-c/noshow/own-wait-said-as-stalled · p2h-sheets/noshow/own-wait-forgotten):
     // its own write-off IS the stall, but "this did nothing" drops "Don't remove it again"; red.
     expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);

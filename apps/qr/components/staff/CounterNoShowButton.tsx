@@ -12,6 +12,7 @@ import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
@@ -409,6 +410,9 @@ function NoShowSheet({
     "k" in msg &&
     (RELOAD_SAYS.has(msg.k) || msg.k === "table.noshow.err.unknown");
   const shown = lockCopy ?? (moved && !unsettled ? CHANGED_COPY : msg);
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
@@ -517,7 +521,7 @@ function NoShowSheet({
         {/* ONE region (QA §A): the lockout countdown outranks a transient message. */}
         <p role="status" style={region}>
           {shown && (
-            <span style={{ color: "var(--warn)" }}>
+            <span key={said} style={{ color: "var(--warn)" }}>
               <MsgText lang={lang} msg={shown} />
             </span>
           )}
