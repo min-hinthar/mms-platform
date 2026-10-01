@@ -43,9 +43,9 @@ export function handoffStillCurrent(
 /**
  * The paid card's data — the CANONICAL shape (plan: register × tablet-split). Set by
  * `FloorDetailLive` from the cash settle's persisted figures (`CashSettleButton.onSettled`) or a
- * counter reader settle (`TerminalCollectPanel.onDone`), and — in 2d — serialized by the pane's
- * sessionStorage stash (whose parser validates every field below). Display-only: nothing here is
- * ever sent back as an amount.
+ * counter reader settle (`landedHandoff`, lib/reader-collect — Phase 2g), and — in 2d — serialized
+ * by the pane's sessionStorage stash (whose parser validates every field below). Display-only:
+ * nothing here is ever sent back as an amount.
  */
 export type Handoff = {
   orderId: string;

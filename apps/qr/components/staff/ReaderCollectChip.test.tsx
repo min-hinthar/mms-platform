@@ -206,6 +206,33 @@ describe("ReaderCollectChip — the outcomes", () => {
     expect(api.record).toBeNull();
   });
 
+  it("a decline over its own table is the detail's to say: no chip, no alert anywhere in the bar", async () => {
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "failed",
+      error: "The card was declined.",
+    });
+    render(page(<Shows id="s-7" />));
+    await act(async () => api.start(TABLE7));
+    await tick(0);
+    await tick(0);
+    expect(chip()).toBeNull();
+    expect(document.querySelector("header")!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("sits in the bar before the offline row (the bar's last child stays the offline row)", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(page());
+    await act(async () => api.start(TABLE7));
+    await tick(0);
+    const kids = [...document.querySelector("header")!.children];
+    const at = kids.indexOf(chip()!);
+    expect(at).toBeGreaterThan(-1);
+    // StaffBarNet's hidden probe is ALWAYS the bar's last child.
+    expect(kids.at(-1)!.hasAttribute("hidden")).toBe(true);
+    expect(at).toBeLessThan(kids.length - 1);
+  });
+
   it("collecting is never said (nor is it dismissible): the title is the news, the panel the controls", async () => {
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
     render(page());

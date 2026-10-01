@@ -14049,6 +14049,14 @@ const MUTANTS = [
     find: "                    if (h) setStashed({ id: cur.id, h });\n",
     replace: "",
   },
+  {
+    id: "p2g-reader/alive-latched-by-strict-mode",
+    file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
+    suite: "components/staff/ReaderCollectProvider.test.tsx",
+    why: "Phase 2g · reader — the 'still here' latch is re-armed at setup; set once and cleared by Strict Mode's mount-time cleanup, every poll answer is dropped as if the provider had gone (the CLAUDE.md cleanup-latch gotcha)",
+    find: "  const alive = useRef(false);\n  useEffect(() => {\n    alive.current = true;\n",
+    replace: "  const alive = useRef(true);\n  useEffect(() => {\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

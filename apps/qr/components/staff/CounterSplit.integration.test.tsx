@@ -546,6 +546,16 @@ describe("mid-collect the counter screen is free — and the poll survives (P2em
     expect(polls()).toBe(n + 2);
   });
 
+  it("a free table on the strip starts mid-collect too — never held, never aria-disabled (P2er)", async () => {
+    await collectingOn4();
+    const free = floorSection().querySelector<HTMLButtonElement>('button[data-tile="1"]')!;
+    expect(free.getAttribute("aria-disabled")).toBeNull();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    openRegisterOrder.mockReturnValueOnce(new Promise(() => {}) as never);
+    await tap(free);
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "table", tableNumber: 1 });
+  });
+
   it("a counter order's charge landing after a switch leaves its #CODE card with its table", async () => {
     await collectingOn4({ label: "reg-7f3a", tableNumber: null, counterOrder: true });
     await tap(card(B));

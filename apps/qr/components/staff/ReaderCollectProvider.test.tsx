@@ -119,14 +119,17 @@ describe("the poll lives above the view that started it (P2em)", () => {
 });
 
 describe("ONE poll in the air", () => {
-  it("Strict Mode's double effects dispatch no second poll", async () => {
-    terminalStatus.mockResolvedValue(collecting);
+  it("Strict Mode's double effects dispatch no second poll — and its answers still land", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: "Declined." });
     mount(null, true);
     await act(async () => api.start(START));
     await tick(0);
     expect(terminalStatus).toHaveBeenCalledTimes(1);
+    // MUTATION (p2g-reader/alive-latched-by-strict-mode): the "still here" latch set once and cleared
+    // by Strict Mode's mount-time cleanup — every answer is dropped as if the provider had gone; red.
+    expect(api.poll.phase).toBe("failed");
     await tick(2500);
-    expect(terminalStatus).toHaveBeenCalledTimes(2);
+    expect(terminalStatus).toHaveBeenCalledTimes(1); // declined: the poll stopped
   });
 
   it("a hung poll is never re-dispatched; its silence costs a miss per span, then the panel says blind", async () => {
