@@ -13,6 +13,8 @@ import {
   PANE_QUERY,
   counterColumnShown,
   dropHandoffStash,
+  focusAfterLostRetract,
+  lostAfterLanded,
   nextLost,
   needsCanonicalSync,
   opensInPane,
@@ -87,6 +89,9 @@ export function CounterSplit({
   const paneRef = useRef<HTMLElement | null>(null);
   const pendingFocus = useRef<{ target: "card" | "floorHeading"; id: string } | null>(null);
   const [closeSeq, setCloseSeq] = useState(0);
+  // Phase 2h · integration — a retraction of the lost line (`lostAfterLanded`) that took the focused
+  // "View" with it: the effect below lands focus once the line has unmounted.
+  const [retractSeq, setRetractSeq] = useState(0);
   const focusSeq = useRef(0);
   const genSeq = useRef(0);
   // Phase 2d · Codex round 1 — a close is a move too: the floor, shown, takes its own `gen` from
@@ -217,6 +222,22 @@ export function CounterSplit({
     (p.target === "card" && card ? card : heading)?.focus({ preventScroll: true });
   }, [closeSeq]);
 
+  // Phase 2h · integration — after a landing retracted the lost line the person was ON (its "View"
+  // button unmounted under them), focus that fell to <body> lands on the heading of what they were
+  // looking at (`focusAfterLostRetract`) — never pulled from wherever they went instead.
+  useEffect(() => {
+    if (retractSeq === 0) return;
+    const active = document.activeElement;
+    const target = focusAfterLostRetract({
+      focusFell: active === null || active === document.body,
+      paneOpen: selRef.current !== null,
+    });
+    if (target === "stay") return;
+    document
+      .getElementById(target === "paneHeading" ? "table-pane-h" : "floor-h")
+      ?.focus({ preventScroll: true });
+  }, [retractSeq]);
+
   // The hash: seeded after mount (scheduled — no synchronous setState in the effect), then followed.
   useEffect(() => {
     const seed = setTimeout(() => {
@@ -334,6 +355,19 @@ export function CounterSplit({
             // say — even when the same table is shown again (A → ✕ → A): that new detail never
             // issued the write. Never filtered by the selection. A payment's outranks a dish's.
             setLostWrite((prev) => nextLost(prev, { sessionId, hint, kind }));
+          }}
+          onLostLanded={(sessionId) => {
+            // Phase 2h · integration — a payment the pane said it did not know about LANDED (a late
+            // ok, reported by the same unmounted detail that reported the unknown). Only THAT
+            // table's "we don't know" goes (`lostAfterLanded`): a refusal, a dish, another table's
+            // line all stand. Read through the updater, never this closure — the detail holds the
+            // handler it was last rendered with, from long before the landing.
+            const onLine =
+              paneRef.current
+                ?.querySelector(".staff-pane-lost")
+                ?.contains(document.activeElement) ?? false;
+            setLostWrite((prev) => lostAfterLanded(prev, sessionId));
+            if (onLine) setRetractSeq((n) => n + 1);
           }}
         />
       </div>

@@ -223,6 +223,61 @@ describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9
     expect(t.reloadBtn()).toBeNull();
   });
 
+  // Phase 2h · integration (doors residual · boards P1) — the late start answers the `unknown`
+  // handed up at the bound: `landed` (the reader IS asking; the provider's chip says it), so a pane
+  // that said "we don't know if the payment went through" off that unknown can retract it.
+  it("a LATE start answers the unknown it handed up: 'landed', exactly once, after 'unknown' — even after unmount", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    t.unmountButton(); // the pane moved on mid-wait
+    await act(async () => h.answer({ ok: true, paymentIntentId: "pi_late", totalCents: 4210 }));
+    expect(api.record).toMatchObject({ sessionId: "s1", paymentIntentId: "pi_late" });
+    // MUTATION (p2h-int-a/reader-landed-unreported): the late start hands nothing up — the pane
+    // keeps "we don't know if the payment went through" while the reader is collecting it; red.
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"], ["landed"]]);
+  });
+
+  it("an ON-TIME start never says 'landed' — nothing was said to be unknown; a late REFUSAL or THROW never does either", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_now", totalCents: 4210 });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(0);
+    expect(t.onStarted).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-int-a/reader-landed-on-time): every start says `landed` — a start the pane
+    // never doubted retracts whatever this table's line says; red.
+    expect(t.onSettleOutcome).not.toHaveBeenCalled();
+    cleanup();
+    sessionStorage.clear(); // the landed start's stash: a fresh provider would restore its collect
+    const refused = hungStart();
+    const u = startTree();
+    await act(async () => {
+      fireEvent.click(u.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    await act(async () => refused.answer({ ok: false, error: "The reader is offline." }));
+    // MUTATION (p2h-int-a/reader-landed-on-refusal): any late answer says `landed` — the refusal's
+    // "didn't go through" is retracted as it is said; red.
+    expect(u.onSettleOutcome.mock.calls).toEqual([["unknown"], ["refused"]]);
+    cleanup();
+    const thrown = hungStart();
+    const w = startTree();
+    await act(async () => {
+      fireEvent.click(w.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    await act(async () => thrown.fail(new Error("fetch failed")));
+    // MUTATION (p2h-int-a/reader-landed-on-throw): a lost late answer says `landed` — "we don't
+    // know" is retracted while the reader may still be asking for the card; red.
+    expect(w.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+  });
+
   it("a LATE refusal is said while the button is here; after it left, the page is told instead", async () => {
     const first = hungStart();
     const t = startTree();

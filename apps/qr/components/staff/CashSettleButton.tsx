@@ -16,6 +16,7 @@ import { centsToField, noteLabel, parseMoneyCents, sanitizeMoneyInput } from "@/
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { haptic } from "@/lib/haptics";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
+import type { SettleOutcome } from "@/lib/floor-pane";
 import { Button, Sheet, type ButtonVariant } from "@mms/ui";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
@@ -145,8 +146,10 @@ export function CashSettleButton({
   onOutcomeUnknown?: (unknown: boolean) => void;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's settle, as it lands. The page says it where this control
-   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
-  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
+   *  Phase 2h · integration — and `landed`: a LATE ok to the attempt this control reported
+   *  `unknown` at the bound, so the page can retract what it said off that unknown. */
+  onSettleOutcome?: (outcome: SettleOutcome) => void;
   /** Phase 2c · gate — the settle gate holds (`staffSettleBlockedByUnsent`, read by the page from
    *  `detail.send`): the trigger stays rendered with its amount but is `aria-disabled`, described by
    *  the page's note, and a tap opens NOTHING — it hands up (`onBlockedTap`). */
@@ -456,6 +459,11 @@ export function CashSettleButton({
         // even after unmount. A late THROW is still no answer: the outcome stays unknown.
         if (late.kind === "answer") land(late.value, at);
         else setError({ kind: "unknown" });
+        // Phase 2h · integration — this attempt was handed up `unknown` at the bound; a late OK is
+        // its answer, so the page may retract what it said off it (the pane's "we don't know if
+        // the payment went through", raised once the detail had unmounted). A refusal hands up
+        // `refused` inside `land`; a throw is still no answer and retracts nothing.
+        if (late.kind === "answer" && late.value.ok) onSettleOutcome?.("landed");
         // F2 — no sheet to read it in: keep it for the trigger's line and the next open.
         if (!sheetOpen.current && (late.kind === "threw" || !late.value.ok)) setLateUnseen(true);
       });

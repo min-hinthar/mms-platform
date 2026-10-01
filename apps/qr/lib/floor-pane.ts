@@ -215,6 +215,44 @@ export function nextLost<T extends { kind: LostKind }>(prev: T | null, next: T):
 }
 
 /**
+ * Phase 2h · integration — what a settle control (cash, the card-on-file close, the reader START)
+ * hands up as each outcome lands: `refused` (nothing recorded), `unknown` (no answer — it may have
+ * gone through), or `landed`: a LATE ok, answering an attempt the control had already reported
+ * `unknown` (a bounded write that went past STAFF_HANG_MS and then succeeded). An on-time ok is
+ * never `landed` — nothing was ever said to be unknown about it.
+ */
+export type SettleOutcome = "refused" | "unknown" | "landed";
+
+/**
+ * The pane's standing lost change once a payment on `sessionId` turns out to have LANDED. It goes
+ * ONLY when it is that table's `settleUnknown` — "we don't know if the payment went through" is the
+ * one sentence a landing answers. Kept: a `settle` refusal (a different answer — "didn't go
+ * through" — that already replaced the unknown, `nextLost`), a `write` (a dish is not a payment),
+ * and ANOTHER table's line (a landing here says nothing about money there).
+ */
+export function lostAfterLanded<T extends { sessionId: string; kind: LostKind }>(
+  prev: T | null,
+  sessionId: string,
+): T | null {
+  if (prev !== null && prev.sessionId === sessionId && prev.kind === "settleUnknown") return null;
+  return prev;
+}
+
+/**
+ * Where focus goes once a retracted lost line took the focused control with it (its "View Table 4"
+ * button). Only when focus FELL to <body> — a person who moved elsewhere is never pulled back, and a
+ * line that stood (another table's) took nothing. The pane's heading while a table is open beside
+ * the floor; the floor's heading otherwise (the line sat above the floor).
+ */
+export function focusAfterLostRetract(i: {
+  focusFell: boolean;
+  paneOpen: boolean;
+}): "paneHeading" | "floorHeading" | "stay" {
+  if (!i.focusFell) return "stay";
+  return i.paneOpen ? "paneHeading" : "floorHeading";
+}
+
+/**
  * What the pane's ONE region says while no detail (which carries its own) is mounted. A lost write
  * outranks (it is about a table the person already left); then the read's own state. Loading is
  * said only when the head does not already carry it: a tapped card names the table at once, so the

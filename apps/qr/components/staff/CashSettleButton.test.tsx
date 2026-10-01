@@ -1143,6 +1143,78 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
   });
 
+  // Phase 2h · integration (sheets residual 3 · boards P1) — a detail that unmounted while this
+  // settle waited said "we don't know if the payment went through" off the `unknown` handed up at
+  // the bound; a late OK is that unknown's answer, handed up as `landed` so the pane can retract it.
+  it("a LATE ok answers the unknown it handed up: 'landed', exactly once, after 'unknown' — even after unmount", async () => {
+    vi.useFakeTimers();
+    const late = deferred<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const onSettleOutcome = vi.fn();
+    const { open, settle } = mount({ onSettleOutcome });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    cleanup(); // the pane moved on: the detail (and this control) unmounted mid-wait
+    await act(async () => {
+      late.resolve(OK);
+    });
+    // MUTATION (p2h-int-a/cash-landed-unreported): a late ok hands nothing up — the pane keeps "we
+    // don't know if the payment went through" over money that was recorded, and the cashier is
+    // told to check before taking payment again on a table that is paid; red.
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["landed"]]);
+  });
+
+  it("an ON-TIME ok never says 'landed' — nothing was said to be unknown; a late REFUSAL or THROW never does either", async () => {
+    vi.useFakeTimers();
+    settleCash.mockResolvedValueOnce(OK);
+    const onSettleOutcome = vi.fn();
+    const first = mount({ onSettleOutcome });
+    first.open();
+    await act(async () => {
+      fireEvent.click(first.settle());
+    });
+    // MUTATION (p2h-int-a/cash-landed-on-time): every ok says `landed` — a payment the pane never
+    // doubted retracts whatever this table's line says; red.
+    expect(onSettleOutcome).not.toHaveBeenCalled();
+    cleanup();
+    // A late refusal answers the unknown as `refused` (the pane's "didn't go through"), never `landed`.
+    const refused = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(refused.promise);
+    const second = mount({ onSettleOutcome });
+    second.open();
+    await act(async () => {
+      fireEvent.click(second.settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      refused.resolve({ ok: false, error: "That table is closed." });
+    });
+    // MUTATION (p2h-int-a/cash-landed-on-refusal): any late answer says `landed` — the refusal's
+    // "didn't go through" is retracted right after it is said; red.
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["refused"]]);
+    cleanup();
+    // A late THROW is still no answer: the unknown stands, nothing is retracted.
+    let fail!: (e: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    const thrown = vi.fn();
+    const third = mount({ onSettleOutcome: thrown });
+    third.open();
+    await act(async () => {
+      fireEvent.click(third.settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fail(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-int-a/cash-landed-on-throw): a lost late answer says `landed` — the pane drops
+    // "we don't know" while the outcome is exactly as unknown as before; red.
+    expect(thrown.mock.calls).toEqual([["unknown"]]);
+  });
+
   it("a LATE refusal is said in the open sheet, handed up as refused, clears the unknown — and the next tap sends again", async () => {
     vi.useFakeTimers();
     const late = deferred<{ ok: false; error: string }>();

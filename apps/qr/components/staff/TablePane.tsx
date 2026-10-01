@@ -104,6 +104,7 @@ export function TablePane({
   onClose,
   onSelect,
   onLostWrite,
+  onLostLanded,
 }: {
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
@@ -118,6 +119,8 @@ export function TablePane({
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
   onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
+  /** Phase 2h · integration — a payment reported unknown by a detail that unmounted LANDED late. */
+  onLostLanded: (sessionId: string) => void;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -468,6 +471,7 @@ export function TablePane({
                     });
                   }}
                   onLostWrite={onLostWrite}
+                  onLostLanded={onLostLanded}
                 />
                 <SettleConsumed when={settleOnce === cur.id} done={onSettleConsumed} />
               </TableNavProvider>

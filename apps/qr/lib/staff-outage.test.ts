@@ -3,9 +3,12 @@ import {
   STAFF_OUTAGE_ESCALATE_MS,
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
+  WRITE_UNCONFIRMED,
+  WRITE_WAITING,
   frozenBoardCopy,
   nextDegraded,
   raceTimeout,
+  writeLineAfterLateAnswer,
 } from "./staff-outage";
 import { STAFF_HANG_MS, outstanding, resetLedgerForTests, stalledSince } from "./bounded-write";
 
@@ -183,5 +186,25 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
     answer(1);
     await vi.advanceTimersByTimeAsync(0);
     expect(outstanding()).toBe(0);
+  });
+});
+
+describe("writeLineAfterLateAnswer — a line edit's late answer and the page's write line (Phase 2h · integration, S2 critic D2)", () => {
+  it("the LAST waiting line answering retracts 'no answer yet — it may still be saved'", () => {
+    // MUTATION (p2h-int-a/write-waiting-never-retracts): the sentence stands over a change that
+    // saved — and it outranks the settle and frozen lines, so it hides them too; red.
+    expect(writeLineAfterLateAnswer(WRITE_WAITING, 0)).toBeNull();
+  });
+  it("while another line's write is still out, the sentence stands — it is still true of that one", () => {
+    // MUTATION (p2h-int-a/write-waiting-retracts-early): the first answer retracts it while a
+    // second row's change is still unanswered; red.
+    expect(writeLineAfterLateAnswer(WRITE_WAITING, 1)).toBe(WRITE_WAITING);
+  });
+  it("any OTHER line stands — a refusal, 'couldn't confirm', a discount's sentence", () => {
+    // MUTATION (p2h-int-a/write-retract-any-line): the late answer wipes whatever the line says —
+    // the refusal the late answer itself just said ("That line just changed.") goes unread; red.
+    expect(writeLineAfterLateAnswer("That line just changed.", 0)).toBe("That line just changed.");
+    expect(writeLineAfterLateAnswer(WRITE_UNCONFIRMED, 0)).toBe(WRITE_UNCONFIRMED);
+    expect(writeLineAfterLateAnswer(null, 0)).toBeNull();
   });
 });

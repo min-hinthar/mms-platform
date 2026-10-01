@@ -23,6 +23,8 @@ import {
   counterColumnShown,
   lostKey,
   nextLost,
+  lostAfterLanded,
+  focusAfterLostRetract,
   type LostKind,
   paneFocusAfterClose,
   paneFreezeSpoken,
@@ -274,6 +276,48 @@ describe("lostKey / nextLost — a change the pane's table never saw land (revie
     // Money outranks a dish: the payment line stands.
     expect(nextLost(pay("a"), w("b"))).toEqual(pay("a"));
     expect(nextLost(unk("a"), w("b"))).toEqual(unk("a"));
+  });
+});
+
+describe("lostAfterLanded — a payment said unknown on a table the pane left turns out to LAND (Phase 2h · integration)", () => {
+  type Lost = { sessionId: string; kind: LostKind };
+  const on = (sessionId: string, kind: LostKind): Lost => ({ sessionId, kind });
+  it("the SAME table's 'we don't know if the payment went through' goes — the landing answers it", () => {
+    // MUTATION (p2h-int-a/landed-never-clears): the line stands over a payment that went
+    // through — the cashier "views it before taking payment again" for nothing, every time; red.
+    expect(lostAfterLanded(on("a", "settleUnknown"), "a")).toBeNull();
+  });
+  it("ANOTHER table's unknown payment stands — a landing on Table 4 says nothing about Table 7's money", () => {
+    // MUTATION (p2h-int-a/landed-clears-another-table): any landing retracts the standing line,
+    // and Table 7's unknown payment — maybe collected twice — goes unsaid; red.
+    const seven = on("b", "settleUnknown");
+    expect(lostAfterLanded(seven, "a")).toBe(seven);
+  });
+  it("a REFUSAL ('didn't go through') and a dish that never saved stand — neither is what a landing answers", () => {
+    // MUTATION (p2h-int-a/landed-clears-a-refusal): the same table's refusal is retracted by a
+    // landing — the cash the cashier took for a settle that was REFUSED is never recorded; red.
+    const refused = on("a", "settle");
+    expect(lostAfterLanded(refused, "a")).toBe(refused);
+    // MUTATION (p2h-int-a/landed-clears-a-dish): the same table's lost dish change is retracted —
+    // a dish that never saved goes unsaid because its table's payment landed; red.
+    const dish = on("a", "write");
+    expect(lostAfterLanded(dish, "a")).toBe(dish);
+    expect(lostAfterLanded(null, "a")).toBeNull();
+  });
+});
+
+describe("focusAfterLostRetract — the retracted line took the focused 'View' with it (Phase 2h · integration)", () => {
+  it("focus that FELL lands on the pane's heading while a table is open, the floor's otherwise", () => {
+    // MUTATION (p2h-int-a/retract-focus-always-floor): the floor's heading even with a table open
+    // beside it — focus jumps out of the pane the person is working in; red.
+    expect(focusAfterLostRetract({ focusFell: true, paneOpen: true })).toBe("paneHeading");
+    expect(focusAfterLostRetract({ focusFell: true, paneOpen: false })).toBe("floorHeading");
+  });
+  it("focus that did not fall stays where the person put it", () => {
+    // MUTATION (p2h-int-a/retract-focus-yanks): a landing pulls focus off whatever control the
+    // person is on, mid-task; red.
+    expect(focusAfterLostRetract({ focusFell: false, paneOpen: true })).toBe("stay");
+    expect(focusAfterLostRetract({ focusFell: false, paneOpen: false })).toBe("stay");
   });
 });
 
