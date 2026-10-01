@@ -1618,6 +1618,41 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   food went to the kitchen before they paid — hand it over from Takeaway bags." — and never claims
   the bag is ready (no auto-advance at settlement, owner decision 7d).
 
+**Phase 2g — the counter screen keeps its promises (2026-10-01; owner decision 8, OPEN-ITEMS
+P2em · P2en · P2er · P2es · M250 · P2fz · P2fk).** The rules as built:
+
+- **A collect outlives the screen it started on.** The card reader's collect is owned ABOVE every
+  staff route (`ReaderCollectProvider` in `app/staff/layout.tsx`, which still renders no chrome): one
+  record per tab, one poll in the action queue at a time, a reload restores it. A view (the table
+  page's panel) only shows it. So nothing holds the cashier on the paying table any more — a lone
+  cashier takes the next walk-up while a guest fumbles a card. The ONE refusal left is a second
+  reader start for another table while a collect is live (one reader): held, with a note naming whose
+  payment it is, and refused at the tap without a server call.
+- **The bar carries what the screen does not show.** `ReaderCollectChip` is the bar's second
+  in-flow row (the offline row's idiom: full width, `order: 10`, before `StaffBarNet`, which measures
+  it) — "On the reader · $X · {table}", "Paid · #CODE", "Payment didn't go through" — wherever the
+  paying table is NOT on screen, with a View link (the split's own opener on the counter screen; never
+  a link on the lock screen). It is not a live region; a decline or a slow recording is said once by
+  `role="alert"`, and only off-table.
+- **The paid card comes from the order row too.** A counter order's "Paid · #CODE" is built from
+  `qr_orders` (`serverCounterHandoff` — refund-gated through `summarizeRefund`, figures verbatim, never
+  a tender or a "went out unpaid" the row does not store) on the closed verdict and a settled counter
+  detail; the tab's own card (with its change) wins where it exists. The phone's table page stays on a
+  paid counter order's card instead of bouncing to a counter that no longer lists it, and the closed
+  pane no longer hedges ("it may have been paid…") under a card that says Paid.
+- **Same-screen navigation goes through the screen's own opener.** A router push of the pane URL
+  from the counter screen changes the address and opens nothing (the split follows `hashchange`,
+  which a router push never fires): the lane's Take payment, the reader chip's View and the oldest-
+  orders sheet's rows all call the split's opener (`openSession(id, hint, { settle })`).
+- **A free dish is on the bag.** A paid bag lists its cart's comped dishes beside the paid ones, each
+  tagged "No charge" (an unpaid bag that owes nothing keeps its one bag-level badge) — a bag a guest
+  takes home is the whole bag.
+- **Old is said, never re-sorted.** A counter order whose earliest dish went to the kitchen 4 hours
+  ago reads "Waiting over 4 hours" on its card and its bag (inside each accessible name), counts in
+  the floor's one status line, and notes itself above No-show / Clear. The floor and the lane keep
+  their order. "See the oldest orders" (under the floor's head row, outside its status line) opens a
+  sheet of every open counter order, oldest first, 20 a page.
+
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
 Min's brief was one line — "dynamic aspect ratios: mobiles, tablets, desktop" — and the app was

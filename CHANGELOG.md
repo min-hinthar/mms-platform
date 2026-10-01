@@ -4,6 +4,83 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2g — the counter screen keeps its promises (2026-10-01)
+
+Planned on `b0c0c90` (main `fcd0786` + the M250 row) from a six-area read of the code (each map
+checked by a critic), then built as four worktree streams — `p2g/reader` (`d59a548` · `3c46d59`),
+`p2g/code` on it (`587ebac`), `p2g/lane` (`32cce72`) and `p2g/counter` on it (`13b0a65` ·
+`1a56abc`) — merged `89de658` (the two append-only conflicts union-resolved; the merged mutant ids
+measured equal to base − 25 retired holds + the four streams' additions), and integrated in
+`73228d0` (fixes found folding them together, below). Owner decision 8 (delegated, 2026-10-01).
+Closes **P2em · P2en · P2er · P2es · M250 · P2fz · P2fk**; files P2gb–P2gt and M251–M256. No SQL.
+
+**What staff see first:**
+
+- **A card payment keeps going when you leave the screen.** Start the reader, then go back to the
+  floor, open another table, lock the tablet, open the kitchen — the payment is still watched. A
+  small line in the staff bar says where it stands — "On the reader · $42.10 · Table 7", then
+  "Paid · #A1B2C3" for a counter order — with a View link back to it, on every screen that is not
+  that table's. A reload picks it up again.
+- **You can take the next order while a guest pays.** The tablet no longer holds you on the paying
+  table: tap another table, start a Walk-up or a Phone order. The one thing it still refuses is a
+  second card payment for another table while one is on the reader ("The card reader is taking a
+  payment for Table 7 — finish that one first.").
+- **The pickup code is never lost.** A counter order paid on the reader — or by a colleague, or on
+  another tablet — shows "Paid · $X · #CODE" on its page and in the pane once it closes, from the
+  order itself. A phone on that order's page now stays on the card instead of jumping back to the
+  counter, where a paid order is no longer listed.
+- **"Back to payment" while a charge is recording no longer forgets it** — the payment keeps being
+  watched and its code still arrives. The slow-recording message no longer sends staff to "Orders"
+  (a manager-only screen): "The guest has paid — don't charge again. The order isn't recorded yet;
+  it will show here once it is."
+- **A free dish stays on the bag after payment.** A dish given on the house used to vanish from a
+  takeaway bag the moment the order was paid (it was never on a paid bag). Every paid bag now lists
+  it, tagged "No charge".
+- **Every open counter order can be found.** "See the oldest orders" (under the floor's heading)
+  lists them oldest first, 20 at a time. An order nobody has collected for 4 hours says "Waiting over
+  4 hours" on its card and its bag, the floor's line counts them, and its page says so above "They
+  didn't come".
+- **On the tablet, Take payment on a takeaway bag opens the order beside the floor.** It used to do
+  nothing at tablet width (the URL changed; the pane never opened) — Phase 2f's lane button, fixed.
+
+**How (the load-bearing parts):**
+
+- `lib/reader-collect.ts` (pure): the record (one sessionStorage key per tab, `pi_`-checked,
+  expired once no live answer for `SETTLE_TTL_MS`, legacy per-table keys adopted once), the poll
+  reducer, THE status binding (panel, page region, chip), `landedHandoff`, `readerStartRefused`.
+  `ReaderCollectProvider` (in `app/staff/layout.tsx`): the poll with ONE in flight (a silent 15 s
+  counts as a miss — Next queues Server Actions one at a time), cancel, dismiss (a put-away
+  recording keeps polling), the landing (stashed; handed to whichever view shows that table),
+  `shownHere`, the split's opener registry. `ReaderCollectChip` in StaffBar (hook-free bar kept).
+- `serverCounterHandoff` (lib/register-ui): the paid card from a `qr_orders` row, null unless
+  `summarizeRefund` says nothing came back (a partial refund leaves `status = 'paid'`). `getTableDetail`
+  carries it on a closed COUNTER verdict (one indexed read; a failed read is null, never an outage)
+  and on a settled counter detail (no new read). The table page's closed branch renders it.
+- M250: `paidBagCompLine` (lib/expo-rules — the fulfil snapshot's filter with its comp clause
+  inverted) behind one OUTAGE read of the paid carts' comped lines, merged by cart, marked
+  `noCharge`. The kitchen read stays advisory; unpaid-before-paid sequencing unchanged.
+- P2fz/P2fk: `counterQueueBase` (one predicate for both counter reads), `readCounterOrdersOldestFirst`
+  (keyset on the raw `(created_at, session_id)`, PAGE + 1 probe), gated `getOldestCounterOrders`,
+  `counterOlderInput`; `counterSentMs` / `counterUncollected` (`COUNTER_UNCOLLECTED_MS` = 4 h, the
+  app's idle horizon) — `unpaidBag`'s age now comes from the same function. Flag only: laneRows and
+  mergeFloorRows unchanged.
+- Integration (`73228d0`): `openSession(id, hint, { settle })` — the lane's split-width tap and the
+  pane's in-place twin of `?settle=1`; the phone page re-renders to a paid counter order's card; the
+  closed pane drops its hedge under a card; a counter order with no card (refunded, unreadable) reads
+  the counter title and the hedged body, never "sat idle".
+- Retired (decision 8a): `paneSelectionHeld`, `paneStartHeld`, CounterSplit's paying hold, the
+  mint's stand-down, `floor.pane.payingHeld` — and their 25 mutants; the tests now assert the
+  opposite (switch / start mid-collect allowed, the poll survives).
+- Measured for Phase 2h (`scratchpad` probe, Chromium + Next 16.2.9): a `useTransition` `pending`
+  stays true past a `raceTimeout` while its Server Action hangs, and every later action waits behind
+  it — the P2cz / P2fc rows carry the numbers.
+
+**Gate:** 1795 `verify:slice` mutants (+117: 33 `p2g-reader/` − 25 retired holds, 24 `p2g-code/`,
+14 `p2g-m250/`, 64 `p2g-older/` + `p2g-uncollected/`, 7 `p2g-int/`) over 204 target modules (+5:
+`lib/reader-collect.ts`, `ReaderCollectProvider.tsx`, `ReaderCollectChip.tsx`, `CounterOlderSheet.tsx`
+and the FIRST staff page, `app/staff/table/[id]/page.tsx`) · 5128 qr tests · K15: 15 new staff keys,
+1 re-worded, 1 retired (OPEN-ITEMS K15).
+
 ### Phase 2f — counter orders cook before they're paid (2026-09-30)
 
 Planned on main `6eccc93`, then built as a contract commit (A0 `7f71124` — the migration, the

@@ -3186,3 +3186,34 @@ write-off the approver signed for, and nothing noticed (Phase 2f review, the cro
 Pass the shown set (`expectedLineIds`), compare it AS A SET under the lock (order and duplicates
 ignored, a NULL never matching), and refuse with a code that writes nothing (`changed`) — a
 compare-and-swap on the approval's subject, the same shape as the register's frozen quote (2c).
+
+## #199
+
+**A same-screen router push of a URL the screen only reads on mount is a dead tap — and a mocked
+router cannot see it.** Phase 2f's lane "Take payment" at tablet width did `router.push(paneUrl(id))`
+from the counter screen; CounterSplit seeds its selection from the URL on MOUNT and then follows
+`hashchange`, which a router push never fires (the Codex #283 lesson, re-learned). The URL changed;
+the pane never opened. Its tests asserted the pushed STRING against a mocked router, so they passed
+for a button that did nothing. Same-screen moves go through the screen's own API (`openSession`),
+and the test asserts the EFFECT (the pane opened, on the payment section), never the URL handed to a
+mock (Phase 2g integration, `p2g-int/`).
+
+## #200
+
+**A transition's `pending` outlives every client timeout while its Server Action hangs — measured.**
+In Chromium against Next 16.2.9, `startTransition(async () => { await raceTimeout(action(), 3000) })`
+committed the catch's state at 3 s but kept `pending` true until the action answered at ~20 s; a
+`useState` busy cleared in `finally` freed at the bound; and a second action (transition or plain)
+waited for the first either way. So `Sheet busy={pending}` is a modal trap no `raceTimeout` can
+open (P2cz), and one hung action holds every later write on the tab (P2fc). `raceTimeout` frees the
+CALLER — not the transition, not the queue (extends #149 / #157; the probe is in the Phase 2g
+CHANGELOG entry).
+
+## #201
+
+**State that must survive navigation belongs above the routes — holding every exit does not
+converge.** The reader collect lived in a page component, so three Codex rounds each found more
+exits that unmounted it (pane switch, starts, then Screens / a card / More / Lock), and browser Back
+and hard navigations can never be held. The layout is the one tree no staff navigation leaves:
+hoisting the poll there (plus a stash for hard loads) closed every exit at once — including ones
+nobody had listed — and let the holds be retired instead of extended (Phase 2g, decision 8a).
