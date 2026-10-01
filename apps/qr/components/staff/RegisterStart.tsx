@@ -9,6 +9,8 @@ import { ts } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { useCounterMint, type MintInput, type MintNotice } from "./CounterMint";
 import { START_ARM, START_GRID } from "./register-stage";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 type Arm = "none" | "phone";
 
@@ -28,6 +30,10 @@ type Arm = "none" | "phone";
  *
  * Walk-up is the zone's ONE primary (the primitive Button at `xl`); while the Phone form is open its
  * Go button is the primary and Walk-up steps down to secondary, so the zone never shows two.
+ *
+ * Phase 2h (S2 critic D1) — a start of THIS zone still unanswered past the bound (`waiting`) says
+ * "no answer yet … reload the page" in the region, and the console is installed standalone (no
+ * browser reload): the reload sits BESIDE the region, never inside it, until the late answer lands.
  */
 export function RegisterStart({
   labelledBy,
@@ -37,7 +43,7 @@ export function RegisterStart({
   labelledBy?: string;
 }) {
   const lang = useStaffLang();
-  const { minting, held, isBusy, run } = useCounterMint();
+  const { minting, held, startHeld, waiting, isBusy, run } = useCounterMint();
   const [notice, setNotice] = useState<MintNotice | null>(null);
   const [phoneName, setPhoneName] = useState("");
   const [arm, setArm] = useState<Arm>("none");
@@ -62,7 +68,13 @@ export function RegisterStart({
   /** The screen's lock alone admits a start; a refused tap changes nothing, a start clears the
    *  zone's last notice (its own refusal, if any, arrives later). */
   function mint(id: "walkup" | "phone", input: MintInput) {
-    run(id, input, { onStart: () => setNotice(null), onRefusal: setNotice });
+    run(id, input, {
+      onStart: () => setNotice(null),
+      onRefusal: setNotice,
+      // A late start that landed: "no answer yet" is no longer true (one start at a time — the
+      // zone's notice can only be that start's).
+      onResolved: () => setNotice(null),
+    });
   }
 
   return (
@@ -76,7 +88,7 @@ export function RegisterStart({
           variant={arm === "none" ? "primary" : "secondary"}
           size="xl"
           block
-          disabled={held}
+          disabled={startHeld}
           busy={minting === "walkup"}
           onClick={() => mint("walkup", { kind: "walkup" })}
         >
@@ -129,7 +141,7 @@ export function RegisterStart({
               type="submit"
               variant="primary"
               size="xl"
-              disabled={held}
+              disabled={startHeld}
               busy={minting === "phone"}
               busyLabel={<Chrome lang={lang} k="reg.going" echo="stack" />}
             >
@@ -145,6 +157,7 @@ export function RegisterStart({
       <p role="status" style={notice ? errText : srOnly}>
         {notice === null ? "" : <MsgText lang={lang} msg={notice} />}
       </p>
+      {(waiting === "walkup" || waiting === "phone") && <ReloadButton lang={lang} />}
     </section>
   );
 }

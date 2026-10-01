@@ -258,6 +258,11 @@ export function TerminalSettleButton({
     }
   }
 
+  // Phase 2h (S2 critic D4) — this start is still unanswered past the bound: the trigger is HELD
+  // (the waiting line says "don't … start it again"), so a re-tap can never reach the stalled
+  // refusal below and replace the money warning with "this did nothing". The late answer frees it.
+  const waiting = error?.kind === "waiting";
+
   return (
     <div>
       {/* Phase 2c — a `@mms/ui` Button: busy is aria-busy + aria-disabled with the label kept as a
@@ -267,6 +272,7 @@ export function TerminalSettleButton({
         size="xl"
         block
         busy={busy}
+        disabled={waiting}
         busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
         // Phase 2c · gate — the attribute (spread only when set) plus `start`'s own guard.
         {...(blocked ? { "aria-disabled": true } : {})}
@@ -275,6 +281,7 @@ export function TerminalSettleButton({
         aria-describedby={[
           blocked && blockedNoteId ? blockedNoteId : null,
           busyElsewhere ? "terminal-busy" : null,
+          waiting ? "terminal-alert" : null,
           "terminal-hint",
         ]
           .filter(Boolean)
@@ -314,7 +321,7 @@ export function TerminalSettleButton({
         </p>
       )}
       {error && error.kind !== "unsent" && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+        <p id="terminal-alert" role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
           ) : error.kind === "unreadable" ? (
@@ -479,6 +486,9 @@ export function TerminalCollectPanel({
           size="lg"
           style={{ alignSelf: "flex-start" }}
           busy={reader.cancelBusy}
+          // Phase 2h (S2 critic D4) — held while this cancel is still unanswered past the bound: the
+          // line beside it says to check the reader, and a re-tap could only say "this did nothing".
+          disabled={cancelError?.kind === "waiting"}
           busyLabel={<Chrome lang={lang} k="settle.reader.canceling" echo={false} />}
           onClick={() => void reader.cancel()}
         >

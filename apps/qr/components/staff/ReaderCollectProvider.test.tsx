@@ -688,6 +688,29 @@ describe("Phase 2h — the reader CANCEL is bounded (9b · 9d · 9e)", () => {
     expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
   });
 
+  it("a re-tap while this cancel still waits changes nothing — the money warning stands, nothing is sent (S2 critic D4)", async () => {
+    const h = hungCancel();
+    await collectingNow();
+    await act(async () => {
+      void api.cancel();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    // MUTATION (p2h-doors/cancel-waiting-retap-overwrites): the re-tap meets its own stuck cancel
+    // in the ledger and the region says "this did nothing — reload", dropping "the reader may still
+    // be taking the card. Check it before you take another payment"; red.
+    await act(async () => api.cancel());
+    expect(api.cancelError).toEqual({ kind: "waiting" });
+    expect(cancelTerminal).toHaveBeenCalledTimes(1);
+    // The late answer lets go of it: a refusal, then a fresh tap is a fresh cancel.
+    await act(async () => h.answer({ ok: false, error: "Too late to cancel." }));
+    cancelTerminal.mockResolvedValueOnce({ ok: true });
+    await act(async () => api.cancel());
+    // MUTATION (p2h-doors/cancel-waiting-never-clears): the latch outlives its answer — every later
+    // cancel of this collect is swallowed; red.
+    expect(cancelTerminal).toHaveBeenCalledTimes(2);
+  });
+
   it("a LATE refusal while the collect is where it was asked is said over the waiting line", async () => {
     const h = hungCancel();
     await collectingNow();

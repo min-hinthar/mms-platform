@@ -20,6 +20,8 @@ import { ReloadButton } from "./ReloadOffer";
  * every control is `aria-disabled` (never native), and the outcome is said honestly: a lost answer
  * "couldn't confirm" (the table may already be cleared), a slow one "no answer yet — don't clear it
  * again" with the reload beside it; the late answer still lands (a late clear leaves the table).
+ * Until it does, "Clear table" is HELD (S2 critic D3): a second clear would only queue behind the
+ * stuck one, so the guard stays spent and the trigger says why, described by the waiting line.
  */
 export function ClearTableButton({
   sessionId,
@@ -54,6 +56,7 @@ export function ClearTableButton({
     };
   }, []);
   const midPaymentId = useId();
+  const alertId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -92,6 +95,8 @@ export function ClearTableButton({
     setSentRefused(false);
     setUnanswered(null);
     let left = false;
+    // Still out at the bound: the guard stays spent until the late answer lands (docblock, D3).
+    let outstanding = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       const out = await boundWrite(clearTable({ sessionId }));
@@ -107,20 +112,26 @@ export function ClearTableButton({
         return;
       }
       setUnanswered("waiting");
+      outstanding = true;
       void out.late.then((late) => {
         // A detail that is gone has nothing to leave or say; a late clear is seen on the floor.
         if (!alive.current) return;
+        // The answer is in: a refusal or a lost answer frees the guard; a clear leaves the table.
+        if (late.kind !== "answer" || !late.value.ok) inFlight.current = false;
         if (late.kind === "answer") land(late.value);
         else setUnanswered("unknown");
       });
     } finally {
-      // Frees AT THE BOUND (fact 3) — unless the table is leaving under this control.
+      // Busy frees AT THE BOUND (fact 3) — unless the table is leaving under this control; the
+      // guard stays spent while the answer is still out (`outstanding`).
       if (!left) {
-        inFlight.current = false;
+        if (!outstanding) inFlight.current = false;
         setBusy(false);
       }
     }
   }
+
+  const waiting = unanswered === "waiting";
 
   if (paymentInFlight) {
     return (
@@ -188,14 +199,26 @@ export function ClearTableButton({
           </div>
         </div>
       ) : (
-        <button ref={triggerRef} type="button" onClick={() => setConfirming(true)} style={clearBtn}>
+        // Held while this clear is still unanswered (aria-disabled + the handler's guard, never
+        // native), and described by the waiting line that says why.
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => {
+            if (inFlight.current) return;
+            setConfirming(true);
+          }}
+          aria-disabled={waiting || undefined}
+          aria-describedby={waiting ? alertId : undefined}
+          style={waiting ? { ...clearBtn, opacity: 0.5, cursor: "not-allowed" } : clearBtn}
+        >
           <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
         </button>
       )}
       {/* Assertive alert (not a polite live region) so the detail view keeps ONE polite region — its
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
       {(error || unanswered) && (
-        <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
+        <p id={alertId} role="alert" style={{ ...hint, color: "var(--warn)" }}>
           {unanswered === "waiting" ? (
             <Chrome lang={lang} k="settle.clear.waiting" echo={false} />
           ) : unanswered === "unknown" ? (
@@ -209,7 +232,7 @@ export function ClearTableButton({
       )}
       {/* Phase 2h — the waiting line says "reload the page", and the console is installed standalone
           (no browser reload): the one way out sits BESIDE the alert, never inside it. */}
-      {unanswered === "waiting" && (
+      {waiting && (
         <div style={{ marginTop: "var(--s2)" }}>
           <ReloadButton lang={lang} />
         </div>

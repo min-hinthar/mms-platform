@@ -119,6 +119,33 @@ describe("OpenTabButton — the open is bounded, never natively disabled", () =>
     await act(async () => h.answer({ ok: true }));
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alert")).toBeNull();
+    // MUTATION (p2h-doors/open-bill-late-open-rearms): a LATE open frees the control — a tap before
+    // the re-read swaps it away asks for a second open; red.
+    const btn = screen.getByRole("button", { name: /Opening/ });
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("an OPENED bill keeps 'Opening…' until the re-read swaps the button away — a second tap opens nothing (S2 critic D8)", async () => {
+    openTab.mockResolvedValueOnce({ ok: true });
+    mount();
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-doors/open-bill-opened-rearms): the busy frees on success — the button reads
+    // "Open a running bill" again over a bill that is open, and a second tap sends a second open;
+    // red.
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    expect(btn.textContent).toBe(ts("en", "table.detail.openBill.opening"));
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
   });
 
   it("a LATE throw says 'couldn't confirm' over the waiting line", async () => {

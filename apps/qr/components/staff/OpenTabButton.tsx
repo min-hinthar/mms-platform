@@ -26,7 +26,9 @@ type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind
  * never "settle", in the device's language), the action is awaited with a BOUND (`boundWrite`, called
  * outside any transition), busy is state cleared in a `finally`, the control is `aria-disabled` (never
  * native — a native disable drops focus to <body> under the tap), and a lost or slow answer is said
- * as one; the late answer still lands (a late open re-reads the detail).
+ * as one; the late answer still lands (a late open re-reads the detail). An OPENED bill keeps
+ * "Opening…" until the re-read swaps this button away (S2 critic D8) — on time or late — so a second
+ * tap in that beat never asks for a second open.
  */
 export function OpenTabButton({
   cartId,
@@ -63,10 +65,13 @@ export function OpenTabButton({
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    // The bill opened: stay busy until the re-read swaps this button away (D8).
+    let opened = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       const out = await boundWrite(openTab({ cartId }));
       if (out.kind === "answer") {
+        opened = out.value.ok;
         land(out.value);
         return;
       }
@@ -79,13 +84,23 @@ export function OpenTabButton({
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
       // the page's re-read is right whenever the bill did open.
       void out.late.then((late) => {
-        if (late.kind === "answer") land(late.value);
-        else setError({ kind: "unknown" });
+        if (late.kind !== "answer") {
+          setError({ kind: "unknown" });
+          return;
+        }
+        if (late.value.ok) {
+          // A LATE open holds exactly like an on-time one, until the re-read swaps it away.
+          inFlight.current = true;
+          setBusy(true);
+        }
+        land(late.value);
       });
     } finally {
-      // Frees AT THE BOUND (fact 3) — never latched on "Opening…" by the raw.
-      inFlight.current = false;
-      setBusy(false);
+      // Frees AT THE BOUND (fact 3) — never latched on "Opening…" by the raw — unless it opened.
+      if (!opened) {
+        inFlight.current = false;
+        setBusy(false);
+      }
     }
   }
 

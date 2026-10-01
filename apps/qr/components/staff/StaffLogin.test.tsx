@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { outstanding } from "@/lib/bounded-write";
+import { outstanding, STAFF_HANG_MS } from "@/lib/bounded-write";
 
 const auth = {
   signInWithOtp: vi.fn(),
@@ -191,6 +191,34 @@ describe("StaffLogin", () => {
     expect(auth.signOut).toHaveBeenCalledTimes(1);
     expect(releaseLock).toHaveBeenCalledTimes(1); // the mount's, never a second awaited one
     expect((out as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("denied: a sign-out whose network call never answers frees 'Sign out' at the bound and says the service is unreachable (S2 critic D11)", async () => {
+    vi.useFakeTimers();
+    try {
+      auth.signOut.mockReturnValue(new Promise(() => {}));
+      render(<StaffLogin lang="en" denied />);
+      const out = screen.getByRole("button", { name: "Sign out" });
+      fireEvent.click(out);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+      });
+      expect(status().textContent).toBe("");
+      // MUTATION (p2h-doors/login-signout-unbounded): the sign-out is awaited raw — with no network
+      // the wrong account's escape is latched for good, refusing every tap in its handler; red.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(status().textContent).toMatch(/couldn’t sign out just now/);
+      expect(assign).not.toHaveBeenCalled();
+      auth.signOut.mockResolvedValue({ error: null });
+      await act(async () => {
+        fireEvent.click(out);
+      });
+      expect(assign).toHaveBeenCalledWith("/staff/login");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the form RELEASES a lock left behind by a sign-out as it mounts — tracked on the ledger, never awaited", async () => {

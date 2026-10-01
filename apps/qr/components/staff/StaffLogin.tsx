@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { isRetryableAuthShape, raceTimeout } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
 import { releaseLockAfterSignOut } from "@/lib/staff-pin-actions";
 import { track } from "@/lib/bounded-write";
@@ -258,7 +258,17 @@ export function StaffLogin({
   async function signOutWrong() {
     if (signingOut) return; // re-entry refused here, never by `disabled`
     setSigningOut(true);
-    const { error: err } = await browserClient().auth.signOut();
+    let err: unknown;
+    try {
+      // Phase 2h (S2 critic D11) — bounded: a dead network never latches "Sign out" for good.
+      ({ error: err } = await raceTimeout(browserClient().auth.signOut()));
+    } catch {
+      // No answer at the bound: the sign-in service is unreachable from here — said so, and the
+      // button is live again for a retry (the session is still there, so no navigation).
+      setSigningOut(false);
+      setError({ k: "entry.err.signOutOutage" });
+      return;
+    }
     if (err && isRetryableAuthShape(err)) {
       setSigningOut(false);
       setError({ k: "entry.err.signOutOutage" });

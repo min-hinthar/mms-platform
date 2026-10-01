@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { unlockConsole, type UnlockResult } from "@/lib/staff-pin-actions";
 import { boundWrite } from "@/lib/bounded-write";
-import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { isRetryableAuthShape, raceTimeout } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -36,6 +36,12 @@ import { ReloadButton } from "./ReloadOffer";
  * "Forgot PIN? Sign out" hard-navigates after the Supabase sign-out and awaits NO Server Action
  * first — the lock's release is the sign-in page's (`StaffLogin`), sent on a fresh document whose
  * action queue nothing can be stuck in.
+ *
+ * S2 critic D3 · D11 — an unlock still unanswered past the bound HOLDS Unlock (the line says "don't
+ * enter it again"): a second try would queue behind the stuck one and spend another PIN attempt,
+ * bringing the lockout nearer. The late answer frees it. And the sign-out's own network call is
+ * bounded too: a dead network answers "couldn't sign out — try again", never a link latched on
+ * "signing out" with no way off the lock screen but a force-quit.
  */
 export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName: string }) {
   const router = useRouter();
@@ -53,7 +59,9 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
 
   const onlyDigits = (s: string) => s.replace(/\D/g, "").slice(0, PIN_MAX_LENGTH);
   const lengthOk = pin.length >= PIN_MIN_LENGTH;
-  const refused = busy || locked || !lengthOk;
+  // Phase 2h (D3) — an unlock still out past the bound: Unlock is held until its late answer lands.
+  const [waiting, setWaiting] = useState(false);
+  const refused = busy || waiting || locked || !lengthOk;
 
   // Phase 2h — whether the region's line offers the reload (both unanswered lines say "reload").
   const [reload, setReload] = useState(false);
@@ -118,9 +126,11 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
         return;
       }
       setMsg({ k: "pin.unlock.waiting" });
+      setWaiting(true);
       // The late answer lands whenever it comes: a late unlock opens the console (the lock cookie
       // is cleared), a late refusal is said; the lock screen's only other exit is a document load.
       void out.late.then((late) => {
+        setWaiting(false);
         if (late.kind === "answer") land(late.value);
         else setMsg({ k: "pin.unlock.unknown" });
       });
@@ -134,7 +144,17 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
     setSigningOut(true);
     setMsg(null);
     setReload(false);
-    const { error } = await browserClient().auth.signOut();
+    let error: unknown;
+    try {
+      // D11 — bounded: a dead network never latches the link on "signing out".
+      ({ error } = await raceTimeout(browserClient().auth.signOut()));
+    } catch {
+      // No answer at the bound: the sign-in service is unreachable from here (the timeout is the
+      // evidence) — said as the outage line, and the link is live again for a retry.
+      setSigningOut(false);
+      setMsg({ k: "entry.err.signOutOutage" });
+      return;
+    }
     if (error) {
       setSigningOut(false);
       // W10b — blame the connection only on a transport shape (the audit found six surfaces

@@ -16,6 +16,7 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+import { ReloadButton } from "./ReloadOffer";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -44,6 +45,14 @@ const LINE_STATE_KEY: Record<"fired" | "in_progress" | "served", StaffKey> = {
  * couldn't confirm that change") or `WRITE_WAITING` ("no answer yet — it may still be saved") —
  * through the plain-string `onError`, which every renderer localizes (`OUTAGE_TWINS`). The late
  * answer still lands: a late refusal rolls the qty back and says the server's sentence.
+ *
+ * S2 critic D1 · D2 — WRITE_WAITING says "reload the page" on a console installed standalone (no
+ * browser reload), and the regions that say it (the table page's line, the pad's Toast) are not
+ * this row's. So the ROW offers the `ReloadButton` for exactly as long as one of its writes is
+ * still unanswered — where the person just tapped — and reports it (`onWaiting`): `true` at the
+ * bound, `false` when the late answer lands, whatever it is. A late refusal or a lost answer says
+ * its own sentence through `onError` first; a late SUCCESS says nothing, so `onWaiting(…, false)`
+ * is the renderer's cue to retract a WRITE_WAITING it still shows.
  */
 export function StaffLineEditor({
   sessionId,
@@ -51,6 +60,7 @@ export function StaffLineEditor({
   disabled,
   onError,
   onEditState,
+  onWaiting,
   onRemove,
   rowProps,
   leaving = false,
@@ -59,6 +69,10 @@ export function StaffLineEditor({
   line: TableLineView;
   disabled: boolean;
   onError: (msg: string) => void;
+  /** Phase 2h (S2 critic D2) — this line has a write still unanswered past the bound (`true`, said
+   *  as WRITE_WAITING through `onError`), or no longer (`false`: its late answer landed). Reported
+   *  from the write itself, so it arrives even after this row unmounted. */
+  onWaiting?: (lineId: string, waiting: boolean) => void;
   /** Phase 2a · send — DRAIN BEFORE FIRE. The line reports what is still unsaved or in flight, so
    *  the table page's Send holds while a sendable dish's note is typed but not saved (`setLineNotes`
    *  is draft-guarded: a note still in the field when its line fires is lost — and the note is
@@ -109,6 +123,20 @@ export function StaffLineEditor({
   // ── Phase 2c · review fixes · pad2 ── the note button, where focus goes when a save closes the
   // editor under the finger (P7): the field and its Save unmount together.
   const noteBtnRef = useRef<HTMLButtonElement>(null);
+  // Phase 2h (S2 critic D1 · D2) — this row's writes still unanswered past the bound (a qty and a
+  // note can both be): the count is the truth, the state draws the reload, `onWaiting` tells the
+  // renderer on every edge (none → some, some → none).
+  const waitingWrites = useRef(0);
+  const [waiting, setWaiting] = useState(false);
+  const lineId = line.id;
+  function markWaiting(on: boolean) {
+    const was = waitingWrites.current > 0;
+    waitingWrites.current = Math.max(0, waitingWrites.current + (on ? 1 : -1));
+    const now = waitingWrites.current > 0;
+    if (was === now) return;
+    setWaiting(now);
+    onWaiting?.(lineId, now);
+  }
 
   /** The note save's answer, whenever it lands — at once, or after the bound (9e). */
   function landNote(res: StaffWriteResult, value: string, late: boolean) {
@@ -143,10 +171,12 @@ export function StaffLineEditor({
         return;
       }
       onError(WRITE_WAITING);
+      markWaiting(true);
       // The late answer is said through the PAGE's region, which outlives this row (9e).
       void out.late.then((late) => {
         if (late.kind === "answer") landNote(late.value, value, true);
         else onError(WRITE_UNCONFIRMED);
+        markWaiting(false);
       });
     } finally {
       noteInFlight.current = false;
@@ -219,12 +249,17 @@ export function StaffLineEditor({
       // Still out at the bound: the new figure stays shown (the person's own change, which may
       // still be saved — rolled back it would invite a second tap that changes it twice).
       onError(WRITE_WAITING);
+      markWaiting(true);
       // The late answer is said through the PAGE's region, which outlives this row (9e).
       void out.late.then((late) => {
-        if (late.kind === "answer" && late.value.ok) return; // the re-fetch shows it, confirmed
-        // A late refusal or a lost answer rolls back — only if no newer write has replaced it.
-        if (qtySeq.current === seq) setOptimisticQty(null);
-        onError(late.kind === "answer" && !late.value.ok ? late.value.error : WRITE_UNCONFIRMED);
+        if (!(late.kind === "answer" && late.value.ok)) {
+          // A late refusal or a lost answer rolls back — only if no newer write has replaced it.
+          if (qtySeq.current === seq) setOptimisticQty(null);
+          onError(late.kind === "answer" && !late.value.ok ? late.value.error : WRITE_UNCONFIRMED);
+        }
+        // A late success says nothing: the re-fetch shows it, confirmed — and the renderer
+        // retracts its "no answer yet" on this edge.
+        markWaiting(false);
       });
     } finally {
       qtyInFlight.current = false;
@@ -493,6 +528,14 @@ export function StaffLineEditor({
           </button>
         </span>
       )}
+      {/* Phase 2h (S2 critic D1) — a write of this row still unanswered: WRITE_WAITING says "reload
+          the page" in the renderer's region, and the installed console has no browser reload. The
+          button alone (no line, no live role), on its own line under the row's controls. */}
+      {waiting && (
+        <div style={reloadRow}>
+          <ReloadButton lang={lang} />
+        </div>
+      )}
     </li>
   );
 }
@@ -542,6 +585,9 @@ function stepperLabels(lang: StaffLang, x: string) {
 function ghostClass(leaving: boolean): string | undefined {
   return leaving ? "mms-remove" : undefined;
 }
+
+// Phase 2h — the row's reload wraps onto a line of its own under the controls (`row` wraps).
+const reloadRow: CSSProperties = { flexBasis: "100%", display: "flex" };
 
 // The name takes the row's free space from a 12rem basis, so in a narrow pane (the order pad's
 // ticket) the controls wrap under the name instead of squeezing it to a sliver.

@@ -181,6 +181,29 @@ describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9
     expect(document.querySelectorAll("[disabled]")).toHaveLength(0);
   });
 
+  it("while its start waits the trigger is HELD: a re-tap never replaces the money warning with 'this did nothing' (S2 critic D4)", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/reader-start-waiting-retap-overwrites): the trigger is live again — the
+    // re-tap meets its own stuck start in the ledger and the alert becomes out.stalled, dropping
+    // "the reader may still start asking for the card. Don't take cash"; red.
+    expect(t.trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(t.trigger().getAttribute("aria-describedby")).toContain("terminal-alert");
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    expect(settleCard).toHaveBeenCalledTimes(1);
+    expect(t.reloadBtn()).not.toBeNull();
+    // The late answer frees it (a refusal: the trigger is the way forward again).
+    await act(async () => h.answer({ ok: false, error: "The reader is offline." }));
+    expect(t.trigger().getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("a LATE start lands: the provider's collect starts with the TAP's facts, and 'no answer yet' goes", async () => {
     const h = hungStart();
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
@@ -393,6 +416,9 @@ describe("TerminalCollectPanel — a view over the provider: shown here, said by
     expect(group()!.contains(reload)).toBe(true);
     // The panel is no live region; the button is none either (the page's region says it).
     expect(group()!.querySelectorAll('[role="alert"],[role="status"],[aria-live]')).toHaveLength(0);
+    // MUTATION (p2h-doors/panel-cancel-waiting-live): the Cancel looks ready while its own cancel
+    // is still out — a tap that can only do nothing (S2 critic D4); red.
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
   });
 
   it("a THROWN cancel says 'couldn't confirm' — in the panel and the region, one binding (Phase 2h · 9e)", async () => {

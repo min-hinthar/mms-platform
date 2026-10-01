@@ -494,6 +494,32 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     expect(onChanged).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(reloadBtn()).toBeNull();
+    // MUTATION (p2h-doors/close-late-charge-not-spent): the guard lets go of a charge that WENT —
+    // until the page's re-read lands the trigger is live and the ledger clear, so a second close
+    // is sent (S2 critic D9); red.
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(closeSecureTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("while its close waits the trigger is HELD: a re-tap never replaces the money warning with 'this did nothing' (S2 critic D4)", async () => {
+    const h = hungClose();
+    view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/close-waiting-retap-overwrites): the trigger is live — it opens the
+    // confirm, Charge meets its own stuck close in the ledger, and the alert becomes out.stalled,
+    // dropping "the card on file may still be charged. Don't take cash or another card"; red.
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(trigger().getAttribute("aria-describedby")).toContain("secure-close-alert");
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.waiting"].en);
+    expect(closeSecureTab).toHaveBeenCalledTimes(1);
+    // A late refusal frees it: the trigger is the way forward again.
+    await act(async () => h.answer({ ok: false, error: "The card on file was declined." }));
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
   });
 
   it("a LATE refusal is said while the control is here; once it left, only the page is told", async () => {

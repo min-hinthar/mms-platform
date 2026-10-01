@@ -287,4 +287,42 @@ describe("PinUnlock — Phase 2h: the unlock is bounded, a locked tablet is neve
     expect(reload()).toBeNull();
     expect(pin().value).toBe("");
   });
+
+  it("while the unlock waits Unlock is HELD: a re-submit never queues a second check that spends another try (S2 critic D3)", async () => {
+    const h = hungUnlock();
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    await submit("1234");
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["pin.unlock.waiting"].en);
+    // MUTATION (p2h-doors/unlock-waiting-resubmits): the PIN is still in the field and Unlock is
+    // live — the re-submit queues behind the stuck check, and each one spends a real attempt; red.
+    expect(submitBtn().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.submit(pin().closest("form")!);
+    });
+    expect(unlockConsole).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["pin.unlock.waiting"].en);
+    // The late answer frees it: a wrong PIN, and the next try is the person's to make.
+    await act(async () => h.answer({ ok: false, reason: "wrong", attemptsRemaining: 2 }));
+    // MUTATION (p2h-doors/unlock-waiting-never-clears): Unlock refuses for good after the answer
+    // came; red.
+    unlockConsole.mockResolvedValueOnce({ ok: true });
+    await submit("5678");
+    expect(unlockConsole).toHaveBeenCalledTimes(2);
+  });
+
+  it("a sign-out whose network call never answers frees the link at the bound and says the service is unreachable (S2 critic D11)", async () => {
+    signOut.mockReturnValueOnce(new Promise(() => {}));
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    const escape = screen.getByRole("button", { name: /Forgot PIN\? Sign out/ });
+    fireEvent.click(escape);
+    await flush(STAFF_HANG_MS - 1);
+    expect(escape.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-doors/pin-signout-unbounded): the sign-out is awaited raw — with no network the
+    // link stays "signing out" for good and the lock screen has no way off but a force-quit; red.
+    await flush(1);
+    expect(escape.getAttribute("aria-disabled")).toBeNull();
+    expect(region().textContent).toBe(STAFF["entry.err.signOutOutage"].en);
+    expect(assign).not.toHaveBeenCalled(); // the session may still be there: nowhere to go
+  });
 });

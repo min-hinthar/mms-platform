@@ -56,7 +56,7 @@ function StartTable7() {
         mint.run(
           "table-7",
           { kind: "table", tableNumber: 7 },
-          { onStart: () => {}, onRefusal: () => {} },
+          { onStart: () => {}, onRefusal: () => {}, onResolved: () => {} },
         )
       }
     >
@@ -259,9 +259,10 @@ describe("CounterMint — a start that lands after the pane moved and came back"
 /**
  * Phase 2h (P2fc · LEARNINGS #158 · #200) — the start is no TRANSITION and is BOUNDED. Under
  * `startTransition(async …)` its lock could only release when the raw action answered, and the
- * landing's `router.push` could not commit while any async transition on the tab hung. Now the lock
- * re-arms at STAFF_HANG_MS with "no answer yet", and the LATE answer still lands — unless the screen
- * moved on to a newer start.
+ * landing's `router.push` could not commit while any async transition on the tab hung. Now the busy
+ * start lets go at STAFF_HANG_MS with "no answer yet", and the LATE answer still lands. Until it
+ * does, no other start goes (S2 critic D3): the copy says "don't start it again", and a second start
+ * would only queue behind the stuck one and land as a duplicate order.
  */
 describe("CounterMint — Phase 2h: the start is bounded, and its late answer lands", () => {
   const settle: Array<() => void> = [];
@@ -273,23 +274,29 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
       for (const s of settle.splice(0)) s();
     });
     vi.useRealTimers();
+    // A case whose queued answer was never asked for (a refused tap) must not hand it to the next.
+    openRegisterOrder.mockReset();
   });
   const flush = (ms = 0) =>
     act(async () => {
       await vi.advanceTimersByTimeAsync(ms);
     });
   const onRefusal = vi.fn();
+  const onResolved = vi.fn();
   function StartWith({ id, table }: { id: "table-7" | "walkup"; table?: number }) {
     const mint = useCounterMint();
     return (
       <button
         type="button"
-        aria-disabled={mint.held || undefined}
+        aria-disabled={mint.startHeld || undefined}
+        aria-busy={mint.minting === id || undefined}
+        data-waiting={mint.waiting ?? undefined}
+        data-held={mint.held ? "" : undefined}
         onClick={() =>
           mint.run(
             id,
             table === undefined ? { kind: "walkup" } : { kind: "table", tableNumber: table },
-            { onStart: () => {}, onRefusal },
+            { onStart: () => {}, onRefusal, onResolved },
           )
         }
       >
@@ -297,23 +304,29 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
       </button>
     );
   }
-  function mount() {
-    onRefusal.mockReset();
+  function Screen({ selectedId }: { selectedId: string | null }) {
     const api: TablePaneApi = {
-      selectedId: null,
+      selectedId,
       selectionGen: 0,
       openFromCard: () => {},
       openSession: () => false,
       publishFloor: () => {},
     };
-    render(
+    return (
       <TablePaneContext.Provider value={api}>
         <CounterMintProvider>
           <StartWith id="walkup" />
           <StartWith id="table-7" table={7} />
         </CounterMintProvider>
-      </TablePaneContext.Provider>,
+      </TablePaneContext.Provider>
     );
+  }
+  /** The counter screen; `move` is the person picking a table in the pane while a start is out. */
+  function mount() {
+    onRefusal.mockReset();
+    onResolved.mockReset();
+    const { rerender } = render(<Screen selectedId={null} />);
+    return { move: (to: string | null) => act(async () => rerender(<Screen selectedId={to} />)) };
   }
   const walkup = () => screen.getByRole("button", { name: "walkup" });
   const table7 = () => screen.getByRole("button", { name: "table-7" });
@@ -331,15 +344,25 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
     expect(walkup().getAttribute("aria-disabled")).toBe("true");
     expect(table7().getAttribute("aria-disabled")).toBe("true");
     await flush(STAFF_HANG_MS - 1);
-    expect(walkup().getAttribute("aria-disabled")).toBe("true");
-    // MUTATION (p2h-doors/mint-unbounded): the bound never fires — every start control on the
-    // counter stays dimmed for as long as the action queue is stuck; red.
+    expect(walkup().getAttribute("aria-busy")).toBe("true");
+    expect(onRefusal).not.toHaveBeenCalled();
+    // MUTATION (p2h-doors/mint-unbounded): the bound never fires — "Starting…" spins and nothing is
+    // said for as long as the action queue is stuck; red.
     await flush(1);
-    expect(walkup().getAttribute("aria-disabled")).toBeNull();
-    expect(table7().getAttribute("aria-disabled")).toBeNull();
+    expect(walkup().getAttribute("aria-busy")).toBeNull();
     // MUTATION (p2h-doors/mint-waiting-unsaid): said as "no answer … it may have started — check"
     // with no reload, while the floor's own read is queued behind the stuck start; red.
     expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
+    // The start is WAITING (the zone that made it offers the reload), and every START stays held —
+    // MUTATION (p2h-doors/mint-waiting-controls-look-ready): the start controls look ready while
+    // every tap is refused; red.
+    expect(walkup().dataset.waiting).toBe("walkup");
+    expect(walkup().getAttribute("aria-disabled")).toBe("true");
+    expect(table7().getAttribute("aria-disabled")).toBe("true");
+    // …but navigation is not (an occupied tile still opens its table): a wait holds starts only.
+    // MUTATION (p2h-doors/mint-waiting-holds-navigation): `held` takes the wait too — every
+    // occupied tile reads dimmed while its tap still navigates; red.
+    expect(walkup().dataset.held).toBeUndefined();
     expect(push).not.toHaveBeenCalled();
   });
 
@@ -352,7 +375,6 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
     });
     await flush(STAFF_HANG_MS);
     expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.waiting" });
-    expect(walkup().getAttribute("aria-disabled")).toBeNull();
     // MUTATION (p2h-doors/mint-late-ok-dropped): the late answer is dropped — the order WAS
     // started and the cashier is left on the counter, told only "no answer yet"; red.
     await act(async () => {
@@ -360,10 +382,12 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
       await d.promise;
     });
     expect(push).toHaveBeenCalledWith("/staff/table/s-late/add");
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    expect(walkup().dataset.waiting).toBeUndefined();
     expect(walkup().getAttribute("aria-disabled")).toBe("true");
   });
 
-  it("a LATE start never lands over a NEWER start — the newer one keeps the screen", async () => {
+  it("while a start WAITS no other start goes: a tap is refused at the tap, never sent, and the late start still lands (S2 critic D3 · D5)", async () => {
     const first = deferred<Landing>();
     openRegisterOrder.mockReturnValueOnce(first.promise);
     mount();
@@ -371,20 +395,51 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
       fireEvent.click(walkup());
     });
     await flush(STAFF_HANG_MS);
+    onRefusal.mockClear();
+    openRegisterOrder.mockReturnValueOnce(deferred<Landing>().promise);
+    // MUTATION (p2h-doors/mint-late-ok-over-a-newer-start): the latch is gone — the Table 7 start
+    // is sent, queues behind the stuck Walk-up, and the late Walk-up lands over it (or both open:
+    // a duplicate order); red.
+    await act(async () => {
+      fireEvent.click(table7());
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(1);
+    expect(onRefusal).toHaveBeenCalledWith({ k: "floor.mint.waiting" });
+    await act(async () => {
+      first.resolve({ ok: true, sessionId: "s-late", created: true });
+      await first.promise;
+    });
+    expect(push).toHaveBeenCalledWith("/staff/table/s-late/add");
+    expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it("a LATE start that finds the pane moved stands down: nothing is pushed, the waiting line is cleared and every start is free again (S2 critic D6)", async () => {
+    const d = deferred<Landing>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { move } = mount();
+    await act(async () => {
+      fireEvent.click(walkup());
+    });
+    await flush(STAFF_HANG_MS);
+    await move("s-B");
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s-late", created: true });
+      await d.promise;
+    });
+    expect(push).not.toHaveBeenCalled();
+    // MUTATION (p2h-doors/mint-late-ok-leaves-waiting-said): the order DID start, and "no answer
+    // yet — don't start it again" stands under the zone with nothing to retract it; red.
+    expect(onResolved).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-doors/mint-late-standdown-holds-lock): the late landing re-holds the lock and
+    // never hands it back — no route swap is coming, so every start control stays dimmed until a
+    // reload; red.
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    expect(table7().getAttribute("aria-disabled")).toBeNull();
     openRegisterOrder.mockReturnValueOnce(deferred<Landing>().promise);
     await act(async () => {
       fireEvent.click(table7());
     });
     expect(openRegisterOrder).toHaveBeenCalledTimes(2);
-    // MUTATION (p2h-doors/mint-late-ok-over-a-newer-start): the late Walk-up pushes its add screen
-    // while the Table 7 start is still out — the cashier is yanked off the start they made last;
-    // red.
-    await act(async () => {
-      first.resolve({ ok: true, sessionId: "s-late", created: true });
-      await first.promise;
-    });
-    expect(push).not.toHaveBeenCalled();
-    expect(table7().getAttribute("aria-disabled")).toBe("true");
   });
 
   it("a LATE throw says the start couldn't be confirmed", async () => {
@@ -399,6 +454,15 @@ describe("CounterMint — Phase 2h: the start is bounded, and its late answer la
     // MUTATION (p2h-doors/mint-late-throw-unsaid): "no answer yet" stands for good; red.
     await act(async () => fail(new Error("fetch failed")));
     expect(onRefusal).toHaveBeenLastCalledWith({ k: "floor.mint.unknown" });
+    expect(onResolved).not.toHaveBeenCalled();
+    // MUTATION (p2h-doors/mint-waiting-never-clears): the latch outlives its answer — every start
+    // stays refused with "no answer yet" after the answer came; red.
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    openRegisterOrder.mockReturnValueOnce(deferred<Landing>().promise);
+    await act(async () => {
+      fireEvent.click(table7());
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(2);
   });
 
   it("a LATE refusal is said in the caller's region", async () => {

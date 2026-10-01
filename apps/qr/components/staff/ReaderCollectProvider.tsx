@@ -89,6 +89,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<ReaderCancelError | null>(null);
   const cancelInFlight = useRef(false);
+  // Phase 2h (S2 critic D4) — the collect (its PaymentIntent) whose cancel is still unanswered past
+  // the bound: a re-tap for it is a no-op (the waiting line stands — it says "check it before you
+  // take another payment"), never the stalled refusal that would replace it with "this did nothing".
+  const cancelWaitingFor = useRef<string | null>(null);
   const [focusOwed, setFocusOwed] = useState<string | null>(null);
   const [alertSaid, setAlertSaid] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -307,6 +311,8 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const cancel = useCallback(async () => {
     const rec = recordRef.current;
     if (rec === null || cancelInFlight.current) return;
+    // Phase 2h (S2 critic D4) — this collect's cancel is still out past the bound: nothing to add.
+    if (cancelWaitingFor.current === rec.paymentIntentId) return;
     // Phase 2h (9d) — refused AT THE TAP, never sent, while an earlier action has been unanswered for
     // the bound: Next runs Server Actions one at a time, so this cancel would only queue behind the
     // stuck one and could reach the reader minutes from now. Read now, never from render state.
@@ -356,7 +362,9 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       // Still out at the bound: no answer yet, and the reader may still take the card. The provider
       // never unmounts mid-service, and the poll keeps reporting the truth meanwhile.
       if (stillAsked()) setCancelError({ kind: "waiting" });
+      cancelWaitingFor.current = rec.paymentIntentId;
       void out.late.then((late) => {
+        if (cancelWaitingFor.current === rec.paymentIntentId) cancelWaitingFor.current = null;
         if (late.kind === "answer") landCancel(late.value);
         else if (stillAsked()) setCancelError({ kind: "local" });
       });

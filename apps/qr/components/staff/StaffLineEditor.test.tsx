@@ -475,6 +475,7 @@ describe("StaffLineEditor — Phase 2h: bounded writes, said honestly, the late 
   function row() {
     const onError = vi.fn();
     const onEditState = vi.fn();
+    const onWaiting = vi.fn();
     render(
       <StaffLangProvider lang="en">
         <ul>
@@ -484,12 +485,15 @@ describe("StaffLineEditor — Phase 2h: bounded writes, said honestly, the late 
             disabled={false}
             onError={onError}
             onEditState={onEditState}
+            onWaiting={onWaiting}
           />
         </ul>
       </StaffLangProvider>,
     );
     return {
       onError,
+      onWaiting,
+      reload: () => screen.queryByRole("button", { name: STAFF["out.reload"].en }),
       writing: () => onEditState.mock.calls.at(-1)?.[1]?.writing as boolean,
       inc: () => screen.getByRole("button", { name: "Increase Mohinga quantity" }),
       digit: () => document.querySelector(".staff-qty")!.textContent,
@@ -523,6 +527,61 @@ describe("StaffLineEditor — Phase 2h: bounded writes, said honestly, the late 
     expect(r.digit()).toBe("3×");
     // MUTATION (p2h-doors/line-qty-waiting-unsaid): said as "couldn't confirm", or not at all; red.
     expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+  });
+
+  it("a write still unanswered offers the reload IN its row and reports it; a LATE success retracts it (S2 critic D1 · D2)", async () => {
+    const h = hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS - 1);
+    expect(r.reload()).toBeNull();
+    expect(r.onWaiting).not.toHaveBeenCalled();
+    await flush(1);
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+    // MUTATION (p2h-doors/line-reload-missing): WRITE_WAITING says "reload the page" on a console
+    // with no browser reload, and nothing on screen does it; red.
+    const reload = r.reload();
+    expect(reload).not.toBeNull();
+    expect(reload!.closest("li")).not.toBeNull(); // the row the person just tapped
+    // MUTATION (p2h-doors/line-waiting-unreported): the renderer is never told a write waits — it
+    // can neither offer its own reload nor know when "no answer yet" stops being true; red.
+    expect(r.onWaiting).toHaveBeenCalledWith("l1", true);
+    await act(async () => h.answer({ ok: true }));
+    // MUTATION (p2h-doors/line-late-ok-never-retracts): a late success says nothing and reports
+    // nothing — "No answer yet — that change may still be saved" stands over a saved change, above
+    // the settle and frozen-board lines, until some other setter happens by; red.
+    expect(r.onWaiting).toHaveBeenLastCalledWith("l1", false);
+    expect(r.reload()).toBeNull();
+    expect(r.onError).toHaveBeenCalledTimes(1); // a success adds no sentence of its own
+  });
+
+  it("two writes waiting on one row are ONE waiting edge each way — told 'no longer' only when the last answers", async () => {
+    const qty = hung(staffSetQty);
+    const note = hung(setLineNotes);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS);
+    await tap(screen.getByRole("button", { name: /note/i }));
+    await act(async () => {
+      fireEvent.change(document.querySelector('[data-note-for="l1"]')!, {
+        target: { value: "no peanuts" },
+      });
+    });
+    await tap(screen.getByRole("button", { name: STAFF["table.line.save"].en }));
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/line-waiting-edge-repeats): every write re-reports the edge — the
+    // renderer counts two "waiting" for one row, or is told "no longer" while a write is still out;
+    // red.
+    expect(r.onWaiting.mock.calls).toEqual([["l1", true]]);
+    await act(async () => qty.answer({ ok: true }));
+    expect(r.onWaiting.mock.calls).toEqual([["l1", true]]);
+    expect(r.reload()).not.toBeNull();
+    await act(async () => note.answer({ ok: true }));
+    expect(r.onWaiting.mock.calls).toEqual([
+      ["l1", true],
+      ["l1", false],
+    ]);
+    expect(r.reload()).toBeNull();
   });
 
   it("a LATE qty refusal rolls the figure back to the server's and says the server's sentence", async () => {

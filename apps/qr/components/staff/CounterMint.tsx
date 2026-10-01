@@ -41,10 +41,18 @@ import { useTablePane } from "./TablePaneContext";
  *   · Phase 2h (P2fc) — and the start is no TRANSITION at all any more (LEARNINGS #158 · #200): a
  *     transition whose action hangs holds every other transition's `pending` and every router
  *     commit on the tab, so the landing's own `router.push` could not commit. The action is awaited
- *     with a BOUND (`boundWrite`); still out at the bound, the lock RE-ARMS and the caller says "no
- *     answer yet — it may still start" with the reload. Its LATE answer still lands: a late start
- *     opens its order exactly as an on-time one would — unless the screen is gone, the pane moved,
- *     or a newer start holds the lock (then the next poll shows it) — and a late refusal is said;
+ *     with a BOUND (`boundWrite`); still out at the bound, the busy start lets go (its spinner, its
+ *     "Starting…") and the caller says "no answer yet — it may still start. Don't start it again"
+ *     with the reload beside the zone that started it (`waiting`). Its LATE answer still lands: a
+ *     late start opens its order exactly as an on-time one would — unless the screen is gone or the
+ *     pane moved (then the next poll shows it) — and a late refusal is said;
+ *   · Phase 2h (S2 critic D3 · D5) — and until that late answer comes, NO start goes: the copy says
+ *     "don't start it again", and a second start would only queue behind the stuck one (Next runs
+ *     Server Actions one at a time per tab) and land as a DUPLICATE order the moment the first
+ *     answered. So the unanswered start is a latch (`waiting`): every start control stays held, a
+ *     tap is refused at the tap (never sent) with the same waiting line, and the reload is the way
+ *     out. One start at a time also means a late answer can never land over, or be said under, a
+ *     newer start — there is none;
  *   · a start that lands after the screen is GONE (the person opened a table from a card while it
  *     was in flight) does not navigate: the router is global, and a push from an unmounted screen
  *     yanks them off the table they chose. The start still landed; the next poll shows it.
@@ -92,8 +100,16 @@ export type MintNotice = { k: StaffKey } | string;
 type CounterMint = {
   /** Which control is minting (or has landed and is waiting on the route swap), or null. */
   minting: MintId | null;
-  /** Every mint control on the screen says `aria-disabled` while this is true. */
+  /** Every mint control on the screen says `aria-disabled` while this is true — a start in flight
+   *  or landed — and navigation off the screen (an occupied tile) is held with it. */
   held: boolean;
+  /** Phase 2h — `held`, or a start still unanswered past the bound (`waiting`): every START control
+   *  says `aria-disabled` (a tap is refused at the tap and said with the waiting line). Navigation
+   *  is NOT held by a wait — a late landing never pushes over a screen that left (`mounted`). */
+  startHeld: boolean;
+  /** Phase 2h — the start still unanswered past STAFF_HANG_MS (its late answer not in yet), or null.
+   *  The zone that started it offers the reload beside its region while this names one of its own. */
+  waiting: MintId | null;
   /** The tap-time guard. Read it in a handler, never in render. */
   isBusy: () => boolean;
   /** Start one order — the ONE place a start is admitted: a no-op while another start is in flight
@@ -107,6 +123,10 @@ export type MintCallbacks = {
   onStart: () => void;
   /** The start was refused, or its answer never came — say this in the caller's region. */
   onRefusal: (n: MintNotice) => void;
+  /** Phase 2h — the start's LATE answer landed as a start: the waiting line is no longer true, so
+   *  the caller clears it (a late refusal or a lost answer arrives through `onRefusal` instead).
+   *  Both zones pass it; optional only for a caller with no region of its own. */
+  onResolved?: () => void;
 };
 
 const Ctx = createContext<CounterMint | null>(null);
@@ -123,6 +143,10 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   // The ref and the state are ONE fact with a synchronous twin: written together, cleared together.
   const inFlight = useRef<MintId | null>(null);
   const [minting, setMinting] = useState<MintId | null>(null);
+  // Phase 2h — the start unanswered past the bound: the same ref + state twin (read at the tap,
+  // rendered by the zones), set at the bound and cleared when its late answer lands.
+  const waitingRef = useRef<MintId | null>(null);
+  const [waiting, setWaiting] = useState<MintId | null>(null);
   // Whether the screen that asked is still here when the answer lands. Re-armed at setup, because
   // Strict Mode runs the cleanup once on mount (a cleanup-only latch would read "gone" forever).
   const mounted = useRef(false);
@@ -142,8 +166,14 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
   });
 
   const run = useCallback(
-    (id: MintId, input: MintInput, { onStart, onRefusal }: MintCallbacks) => {
+    (id: MintId, input: MintInput, { onStart, onRefusal, onResolved }: MintCallbacks) => {
       if (inFlight.current !== null) return;
+      // Phase 2h (D3) — a start still unanswered past the bound holds every other (docblock):
+      // refused AT THE TAP, never sent, and said with the same waiting line.
+      if (waitingRef.current !== null) {
+        onRefusal({ k: "floor.mint.waiting" });
+        return;
+      }
       inFlight.current = id;
       setMinting(id);
       // What the pane showed when the person tapped — the landing's "did they move it" baseline.
@@ -195,11 +225,16 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
             onRefusal({ k: "floor.mint.unknown" });
             return;
           }
-          // Still out at the bound: it may yet start. The lock re-arms below (the `finally`).
+          // Still out at the bound: it may yet start. Its busy lets go below (the `finally`), and
+          // the latch holds every start until the late answer lands (docblock, D3).
+          waitingRef.current = id;
+          setWaiting(id);
           onRefusal({ k: "floor.mint.waiting" });
           void out.late.then((late) => {
             // 9e — the late answer is APPLIED, never dropped. A screen that is gone navigates
             // nowhere (`land` reads `mounted` itself); its caller's own state is a no-op by then.
+            waitingRef.current = null;
+            setWaiting(null);
             if (late.kind === "threw") {
               onRefusal({ k: "floor.mint.unknown" });
               return;
@@ -208,8 +243,8 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
               onRefusal(late.value.error);
               return;
             }
-            // A newer start holds the screen: this one is not pushed over it (the poll shows it).
-            if (isBusy()) return;
+            onResolved?.();
+            // Held exactly like an on-time landing; handed back if it did not leave the screen.
             inFlight.current = id;
             setMinting(id);
             if (!land(late.value)) {
@@ -227,10 +262,17 @@ export function CounterMintProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [router, pane, isBusy],
+    [router, pane],
   );
 
-  const value: CounterMint = { minting, held: minting !== null, isBusy, run };
+  const value: CounterMint = {
+    minting,
+    held: minting !== null,
+    startHeld: minting !== null || waiting !== null,
+    waiting,
+    isBusy,
+    run,
+  };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

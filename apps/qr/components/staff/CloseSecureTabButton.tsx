@@ -100,6 +100,10 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
+  // Phase 2h (S2 critic D9) — a LATE charge went: the guard stays spent (the trigger held) until the
+  // settle section re-renders away, exactly as an on-time charge keeps "Charging…" — between the late
+  // answer and the page's re-read the ledger is clear, so nothing else would refuse a second close.
+  const [charged, setCharged] = useState(false);
   // Phase 2c · gate — render-time adjustment (guarded set-during-render): a raced `unsent` line is
   // DROPPED, not merely hidden, once the page has caught up — the page read the drafts (`blocked`:
   // its note says it now) or its own line retired. Hidden, it came back once the dishes were
@@ -253,8 +257,14 @@ export function CloseSecureTabButton({
       }
       setError({ kind: "waiting" });
       void out.late.then((late) => {
-        if (late.kind === "answer") land(late.value, quoted, basis, true);
-        else setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+        if (late.kind !== "answer") {
+          setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          return;
+        }
+        if (land(late.value, quoted, basis, true)) {
+          inFlight.current = true;
+          setCharged(true);
+        }
       });
     } finally {
       // Frees AT THE BOUND (fact 3) — unless the charge went.
@@ -264,6 +274,12 @@ export function CloseSecureTabButton({
       }
     }
   }
+
+  // Phase 2h (S2 critic D4) — this close is still unanswered past the bound: the trigger is HELD
+  // (the line says "don't take cash or another card"), so a re-tap can never reach the stalled
+  // refusal and replace that warning with "this did nothing". The late answer frees it — or, a
+  // charge, keeps it spent (`charged`).
+  const held = error?.kind === "waiting" || charged;
 
   return (
     <div>
@@ -324,9 +340,14 @@ export function CloseSecureTabButton({
           block
           // Phase 2c · gate — the attribute (spread only when set) plus the handler's guard.
           {...(blocked ? { "aria-disabled": true } : {})}
-          aria-describedby={
-            blocked && blockedNoteId ? `${blockedNoteId} secure-close-hint` : "secure-close-hint"
-          }
+          disabled={held}
+          aria-describedby={[
+            blocked && blockedNoteId ? blockedNoteId : null,
+            error?.kind === "waiting" ? "secure-close-alert" : null,
+            "secure-close-hint",
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onClick={() => {
             if (blocked) {
               // Opens no confirm: the page says why and takes staff to the lines.
@@ -359,7 +380,11 @@ export function CloseSecureTabButton({
         </p>
       )}
       {alertMsg && alertMsg.kind !== "unsent" && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+        <p
+          id="secure-close-alert"
+          role="alert"
+          style={{ ...hint, marginTop: 4, color: "var(--warn)" }}
+        >
           {alertMsg.kind === "server" ? (
             <OutageText lang={lang} error={alertMsg.text} />
           ) : alertMsg.kind === "unreadable" ? (

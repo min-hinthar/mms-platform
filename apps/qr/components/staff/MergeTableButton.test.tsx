@@ -94,6 +94,43 @@ describe("MergeTableButton — the candidate read is bounded", () => {
     expect(screen.queryByText(ts("en", "settle.merge.loading"))).toBeNull();
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.merge.loadFailed"));
   });
+
+  it("a read still out at the bound never claims 'no other open tables', offers the reload, and its LATE list still lands (S2 critic D10)", async () => {
+    const h = hung(getMergeCandidates);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.merge.loadFailed"));
+    // MUTATION (p2h-doors/merge-read-failed-says-empty): an unknown read renders "No other open
+    // tables" beside "Couldn't load tables" — an empty list claimed from a read that never came; red.
+    expect(screen.queryByText(ts("en", "settle.merge.noCandidates"))).toBeNull();
+    // MUTATION (p2h-doors/merge-read-waiting-no-reload): "try again" would queue behind the stuck
+    // action — the reload is the way out; red.
+    expect(reload()).not.toBeNull();
+    // MUTATION (p2h-doors/merge-read-late-dropped): the late list is dropped — the picker stays on
+    // "couldn't load" with the tables in hand; red.
+    await act(async () => h.answer([T9]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
+    expect(reload()).toBeNull();
+  });
+
+  it("only the LATEST read writes: an older read's failure never lands over a newer list (S2 critic D10)", async () => {
+    hung(getMergeCandidates); // read 1 — never answers
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(1);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    getMergeCandidates.mockResolvedValueOnce([T9]); // read 2
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush();
+    expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
+    // MUTATION (p2h-doors/merge-read-older-overwrites): read 1 times out and writes "Couldn't load
+    // tables" (and hides the list) over read 2's answer; red.
+    await flush(STAFF_HANG_MS);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
+  });
 });
 
 describe("MergeTableButton — the merge is bounded, its controls aria-disabled", () => {
@@ -122,6 +159,41 @@ describe("MergeTableButton — the merge is bounded, its controls aria-disabled"
     expect(reload()).not.toBeNull();
     expect(screen.getByRole("alert").contains(reload())).toBe(false);
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("while the merge waits no merge goes: Merge and the trigger are held, and Back / Cancel keep the waiting line (S2 critic D3)", async () => {
+    const h = hung(mergeTables);
+    mount();
+    await toMerge();
+    await flush(STAFF_HANG_MS);
+    const merge = screen.getByRole("button", { name: "Merge into Table 9" });
+    // MUTATION (p2h-doors/merge-waiting-merge-live): Merge looks ready under "don't merge again";
+    // red.
+    expect(merge.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-doors/merge-waiting-retap-dispatches): the guard frees at the bound — a second
+    // merge queues behind the stuck one; red.
+    await act(async () => {
+      fireEvent.click(merge);
+    });
+    expect(mergeTables).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.back") }));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    // MUTATION (p2h-doors/merge-cancel-drops-waiting): Cancel wipes the one true sentence — the
+    // merge may still land, and nothing on screen says so; red.
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.merge.waiting"));
+    const trigger = screen.getByRole("button", { name: ts("en", "settle.merge.btn") });
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.getAttribute("aria-describedby")).toBe(screen.getByRole("alert").id);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("group")).toBeNull();
+    // A late refusal frees it: the trigger is the way forward again.
+    await act(async () => h.answer({ ok: false, error: "That table is mid-payment." }));
+    // MUTATION (p2h-doors/merge-waiting-never-clears): the guard outlives its answer; red.
+    expect(trigger.getAttribute("aria-disabled")).toBeNull();
+    getMergeCandidates.mockResolvedValueOnce([T9]);
+    fireEvent.click(trigger);
+    await flush();
+    expect(screen.getByRole("group")).toBeTruthy();
   });
 
   it("a LATE merge lands: the page goes to the table that received the order", async () => {

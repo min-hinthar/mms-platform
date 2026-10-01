@@ -195,6 +195,34 @@ describe("ClearTableButton — Phase 2h: the clear is bounded, every control ari
     await act(async () => h.fail(new Error("fetch failed")));
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.clear.unknown"));
     expect(reload()).toBeNull();
+    // The answer is in: "Clear table" is the way forward again.
+    // MUTATION (p2h-doors/clear-waiting-never-clears): the guard outlives its answer — the trigger
+    // refuses for good after "couldn't confirm … check the floor before you clear it again"; red.
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(trigger());
+    expect(screen.getByRole("group")).toBeTruthy();
+  });
+
+  it("while the clear waits 'Clear table' is HELD — no second clear is asked into the stuck queue (S2 critic D3)", async () => {
+    const h = hungClear();
+    mount();
+    await confirmClear();
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.clear.waiting"));
+    // MUTATION (p2h-doors/clear-waiting-trigger-live): the trigger says nothing — it looks ready
+    // under "don't clear it again"; red.
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(trigger().getAttribute("aria-describedby")).toBe(screen.getByRole("alert").id);
+    // MUTATION (p2h-doors/clear-waiting-retap-dispatches): the guard frees at the bound — the
+    // confirm opens again and a second clear queues behind the stuck one; red.
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(clearTable).toHaveBeenCalledTimes(1);
+    // A late refusal frees it.
+    await act(async () => h.answer({ ok: false, error: "That table is still paying." }));
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(trigger());
+    expect(screen.getByRole("group")).toBeTruthy();
   });
 
   it("a THROWN clear says 'couldn't confirm' — never the server's 'wasn't saved' — and frees the controls", async () => {
