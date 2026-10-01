@@ -7,9 +7,12 @@ import {
   READER_POLL_START,
   READER_RECORDING_ESCALATE_MS,
   adoptLegacyCollect,
+  dropLanded,
   dropReaderStash,
   landedHandoff,
   nextReaderPoll,
+  queueLanded,
+  readLandedStash,
   readReaderStash,
   readerLive,
   readerPolling,
@@ -17,11 +20,14 @@ import {
   readerSpoken,
   readerStartRefused,
   readerStatus,
+  restoredReaderPoll,
   silentMisses,
   takeLegacyCollect,
+  writeLandedStash,
   writeReaderStash,
   type ReaderCancelError,
   type ReaderCollect,
+  type ReaderLanded,
   type ReaderName,
   type ReaderPoll,
   type ReaderStart,
@@ -29,7 +35,6 @@ import {
 import {
   ReaderCollectContext,
   type ReaderCollectApi,
-  type ReaderLanded,
   type ReaderViewer,
 } from "./ReaderCollectContext";
 
@@ -53,8 +58,13 @@ import {
  *     only queues behind it; a poll silent for `READER_POLL_SILENT_MS` counts as a miss instead;
  *   · CANCEL — its answer lands here even if the panel that asked has gone;
  *   · the LANDING — a counter order's card is stashed for its table (`stashHandoff`, the pane's closed
- *     state reads it) and handed to whoever shows that table (`shownHere`'s `onLanded`), else held as
- *     `landed` for the chip until it is dismissed or its table is shown;
+ *     state reads it) and handed to whoever shows that table (`shownHere`'s `onLanded`), else QUEUED
+ *     in `landed` for the chip — a counter's card or a table's "Paid" (PT-1), one per table, oldest
+ *     first, persisted beside the record (M1: one in-memory slot lost a #CODE to the next landing or
+ *     to any hard navigation) — until it is dismissed or its table is shown;
+ *   · the BOUND — a charge captured with no order for the freeze's lifetime is given up as
+ *     `unrecorded` (C1): the poll stops, the stash goes, the reader is free, and the outcome is shown
+ *     (never left put away) until Close;
  *   · `shownHere` — which tables are on screen now, so the chip never repeats the panel beside it;
  *   · the ONE refusal left: a start on another table while a collect is live (one reader).
  *
@@ -73,13 +83,13 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const recordRef = useRef<ReaderCollect | null>(null);
   const [poll, setPollState] = useState<ReaderPoll>(READER_POLL_START);
   const pollRef = useRef<ReaderPoll>(READER_POLL_START);
-  const [landed, setLanded] = useState<ReaderLanded | null>(null);
-  const landedRef = useRef<ReaderLanded | null>(null);
+  const [landed, setLanded] = useState<readonly ReaderLanded[]>([]);
+  const landedRef = useRef<readonly ReaderLanded[]>([]);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<ReaderCancelError | null>(null);
   const cancelInFlight = useRef(false);
   const [focusOwed, setFocusOwed] = useState<string | null>(null);
-  const [alertSaid, setAlertSaid] = useState<string | null>(null);
+  const [alertSaid, setAlertSaid] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
   const viewers = useRef(new Map<string, ReaderViewer[]>());
   const pane = useRef<((sessionId: string, name: ReaderName) => void) | null>(null);
@@ -107,23 +117,40 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     pollRef.current = next;
     setPollState((prev) => (samePoll(prev, next) ? prev : next));
   }, []);
-  const commitLanded = useCallback((next: ReaderLanded | null) => {
+  /** The landed queue, its ref twin and its stash — written together, always (M1). */
+  const commitLanded = useCallback((next: readonly ReaderLanded[]) => {
     landedRef.current = next;
     setLanded(next);
+    writeLandedStash(next);
   }, []);
 
   // Restore after a hard navigation (scheduled — never a synchronous setState in the effect). A
   // record already standing (a start, a legacy adoption) is newer than the stash and wins.
   useEffect(() => {
     const t = setTimeout(() => {
+      const now = Date.now();
+      // The landed queue first: the stash is OLDER than anything landed since mount. A landing whose
+      // table is already on screen (the hard navigation went straight to it) goes to that view, never
+      // back to the chip.
+      const stored = readLandedStash(now);
+      if (stored.length > 0) {
+        let q: ReaderLanded[] = [];
+        for (const e of stored) {
+          const vs = viewers.current.get(e.sessionId) ?? [];
+          if (vs.length > 0) for (const v of vs) v.onLanded?.(e.handoff);
+          else q = queueLanded(q, e);
+        }
+        for (const e of landedRef.current) q = queueLanded(q, e);
+        commitLanded(q);
+      }
       if (recordRef.current !== null) return;
-      const restored = readReaderStash(Date.now());
+      const restored = readReaderStash(now);
       if (restored === null) return;
       commitRecord(restored);
-      commitPoll(READER_POLL_START);
+      commitPoll(restoredReaderPoll(restored));
     }, 0);
     return () => clearTimeout(t);
-  }, [commitRecord, commitPoll]);
+  }, [commitRecord, commitPoll, commitLanded]);
 
   /** A charge that LANDED: the card (a counter's), the stash, and whoever shows its table. */
   const land = useCallback(
@@ -141,7 +168,18 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         for (const v of vs) v.onLanded?.(h);
         return;
       }
-      if (h) commitLanded({ sessionId: rec.sessionId, name: rec.name, handoff: h });
+      // Off screen: QUEUED for the chip — a counter's card, and a table's landing too (PT-1: the chip
+      // had said the order was being recorded; vanishing when it is reads exactly like "lost").
+      commitLanded(
+        queueLanded(landedRef.current, {
+          sessionId: rec.sessionId,
+          name: rec.name,
+          orderId,
+          totalCents: rec.totalCents,
+          handoff: h,
+          landedAt: Date.now(),
+        }),
+      );
     },
     [commitRecord, commitPoll, commitLanded],
   );
@@ -154,13 +192,21 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (res?.ok && readerPolling(step.poll.phase)) {
-        // A LIVE answer: the freeze was just extended — the stash's expiry clock moves with it.
-        const next = { ...rec, liveAt: nowMs };
+        // A LIVE answer: the freeze was just extended — the stash's expiry clock moves with it, and
+        // so does the recording clock (C1: a reload resumes the bound, never restarts it).
+        const next = { ...rec, liveAt: nowMs, recordingSince: step.poll.recordingSince };
         recordRef.current = next;
         writeReaderStash(next);
       } else if (!readerPolling(step.poll.phase)) {
-        // Declined or cancelled: nothing left to re-attach to after a reload. The outcome stays on
-        // screen (panel or chip) until it is dismissed.
+        // Declined, cancelled or given up as unrecorded: nothing left to re-attach to after a reload.
+        // The outcome stays on screen (panel or chip) until it is dismissed.
+        if (step.poll.phase === "unrecorded" && rec.hidden) {
+          // C1 — a charge put away while it recorded (D4) comes BACK when it is given up: "don't take
+          // payment again — tell a manager" is a line a person must see, never a silent stop.
+          const shown = { ...rec, hidden: false };
+          recordRef.current = shown;
+          setRecordState(shown);
+        }
         dropReaderStash();
       }
       commitPoll(step.poll);
@@ -227,7 +273,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     (s: ReaderStart) => {
       const now = Date.now();
-      commitRecord({ ...s, startedAt: now, liveAt: now, hidden: false });
+      commitRecord({ ...s, startedAt: now, liveAt: now, hidden: false, recordingSince: null });
       commitPoll(READER_POLL_START);
       setCancelError(null);
       // The settle section unmounts under the cashier as the freeze lands: its panel takes focus —
@@ -276,6 +322,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     if (pollRef.current.phase === "recording") {
       // D4 — charged, not yet recorded: put the panel away, keep polling. The order still lands, and
       // its #CODE reaches the stash and the chip; dropping the poll here was how the card got lost.
+      // (Bounded: past `READER_UNRECORDED_MS` it is given up and comes back — C1.)
       commitRecord({ ...rec, hidden: true });
       return;
     }
@@ -284,19 +331,22 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     setCancelError(null);
   }, [commitRecord, commitPoll]);
 
-  const dismissLanded = useCallback(() => commitLanded(null), [commitLanded]);
+  const dismissLanded = useCallback(
+    (sessionId: string) => commitLanded(dropLanded(landedRef.current, sessionId)),
+    [commitLanded],
+  );
 
   const shownHere = useCallback(
     (sessionId: string, viewer: ReaderViewer = {}) => {
       const list = viewers.current.get(sessionId) ?? [];
       viewers.current.set(sessionId, [...list, viewer]);
       setShown((prev) => (prev.has(sessionId) ? prev : new Set([...prev, sessionId])));
-      // A card that landed while its table was off screen: handed to the view that shows it now, and
-      // the chip's job is done.
-      const l = landedRef.current;
-      if (l !== null && l.sessionId === sessionId) {
+      // A charge that landed while its table was off screen: handed to the view that shows it now,
+      // and the chip's job for it is done (the others stay queued).
+      const l = landedRef.current.find((x) => x.sessionId === sessionId);
+      if (l !== undefined) {
         viewer.onLanded?.(l.handoff);
-        commitLanded(null);
+        commitLanded(dropLanded(landedRef.current, sessionId));
       }
       return () => {
         const now = (viewers.current.get(sessionId) ?? []).filter((v) => v !== viewer);
@@ -351,7 +401,12 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
-  const markAlertSaid = useCallback((key: string) => setAlertSaid(key), []);
+  // EVERY outcome said is remembered (a queue of landings and a decline can take turns in the chip —
+  // one slot would say the first landing again once the decline is closed).
+  const markAlertSaid = useCallback(
+    (key: string) => setAlertSaid((prev) => (prev.has(key) ? prev : new Set([...prev, key]))),
+    [],
+  );
 
   const live = record !== null && readerLive(poll.phase);
   const value = useMemo<ReaderCollectApi>(() => {

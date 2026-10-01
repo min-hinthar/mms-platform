@@ -389,6 +389,44 @@ describe("TablePane — closing", () => {
     expect(within(pane()).queryByText(tf("en", "floor.table", { id: "4" }))).toBeNull();
   });
 
+  it("a table opened by openSession (or the chip's View) after a card tap closes onto ITS card — never the card that opened the last one (A11Y-3)", async () => {
+    function OpenSeven() {
+      const api = useTablePane()!;
+      return (
+        <button type="button" onClick={() => api.openSession(B, { counter: false, display: "7" })}>
+          open 7
+        </button>
+      );
+    }
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor />
+              <OpenSeven />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await tap(card(A)); // the opener is Table 4's card
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 7" }));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    // MUTATION (p2g-fix-reader/split-opener-outlives-its-table): the stale opener — focus lands on
+    // Table 4's card after closing Table 7; red.
+    expect(document.activeElement).not.toBe(card(A));
+    expect(document.activeElement).toBe(card(B));
+  });
+
   it("a Clear inside the pane closes it onto the floor heading, never the doomed card", async () => {
     clearTable.mockResolvedValue({ ok: true });
     mount();
@@ -1754,6 +1792,46 @@ describe("TablePane — the pane moves freely mid-collect; the poll survives (P2
     await tick(0);
     expect(chip()).toBeNull();
     expect(readerPanel()).not.toBeNull();
+  });
+
+  it("tapping the paying table takes the bar's chip down in the SAME commit — the pane's loading state counts as shown (A11Y-10)", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <StaffBar lang="en" title="floor.door.counter" />
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady>
+              <Floor />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tick(0);
+    const chip = () => document.querySelector<HTMLElement>(".staff-reader");
+    await tap(card(B));
+    expect(chip()).not.toBeNull();
+    // Table 4 picked again, its read slow: the pane is LOADING (no detail registered yet).
+    answers[A] = () => new Promise(() => {});
+    await act(async () => {
+      fireEvent.click(card(A));
+    });
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2g-fix-reader/pane-shown-only-once-read): only a mounted detail (or the closed
+    // state) registers the table — the chip lingers through the loading state, then the bar row
+    // vanishes under the finger; red.
+    expect(chip()).toBeNull();
   });
 
   it("a counter order's closed pane, shown while its charge is still recording, shows the #CODE the moment it lands", async () => {

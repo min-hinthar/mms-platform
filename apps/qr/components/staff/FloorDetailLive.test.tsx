@@ -407,6 +407,7 @@ const collectFor = (sessionId: string, over: Partial<ReaderCollect> = {}): Reade
   startedAt: Date.now(),
   liveAt: Date.now(),
   hidden: false,
+  recordingSince: null,
   ...over,
 });
 /** The settle section's controls, in DOM order. */

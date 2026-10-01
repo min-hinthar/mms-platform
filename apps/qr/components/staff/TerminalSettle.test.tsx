@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
+import { READER_UNRECORDED_MS } from "@/lib/reader-collect";
 
 /**
  * Phase 2c · register — the card reader's two halves after the register's Button conversion and the
@@ -200,6 +201,56 @@ describe("TerminalCollectPanel — a view over the provider: shown here, said by
     expect(api.record).toBeNull();
   });
 
+  it("charged but slow to record: the button HIDES the panel and says so — never 'Back to payment' (PT-10)", async () => {
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 4210,
+    });
+    await panel();
+    await flush();
+    // Recording, within the bound: no button at all.
+    expect(screen.queryByRole("button")).toBeNull();
+    await flush(20_001);
+    expect(screen.getByText(STAFF["settle.reader.status.recordingLong"].en)).toBeTruthy();
+    // MUTATION (p2g-fix-reader/recording-offers-back-to-payment): "Back to payment" under "don't
+    // charge again" — there is no payment to go back to; red.
+    expect(screen.queryByRole("button", { name: /Back to payment/ })).toBeNull();
+    const hide = screen.getByRole("button", { name: /Hide this/ });
+    const n = terminalStatus.mock.calls.length;
+    await act(async () => {
+      fireEvent.click(hide);
+    });
+    expect(group()).toBeNull();
+    expect(api.record?.hidden).toBe(true);
+    await flush(2500);
+    expect(terminalStatus.mock.calls.length).toBeGreaterThan(n);
+  });
+
+  it("given up as unrecorded: the warning, and a Close — there is no payment to go back to (C1)", async () => {
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 4210,
+    });
+    const { onStatus } = await panel();
+    await flush();
+    await flush(READER_UNRECORDED_MS);
+    expect(lastStatus(onStatus)).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.status.unrecorded" },
+    });
+    expect(screen.getByText(STAFF["settle.reader.status.unrecorded"].en)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Back to payment/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["shell.close"].en }));
+    });
+    expect(group()).toBeNull();
+    expect(api.record).toBeNull();
+  });
+
   it("takes focus on its first mount after a start made in view — never on a re-attach", async () => {
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
     function Shown() {
@@ -324,6 +375,46 @@ describe("TerminalSettleButton — the collect is the provider's; one reader", (
     terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: "Declined." });
     await flush(2500);
     expect(mine!.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("while the other payment is being RECORDED the hold says so — never 'taking a payment … finish that one first' (PT-2)", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_9", totalCents: 1200 });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 1200,
+    });
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton
+            sessionId="s9"
+            totalCents={1200}
+            tap={{ ...TAP, isCounter: false, name: { counter: false, display: "7" } }}
+          />
+          <TerminalSettleButton sessionId="s1" totalCents={4210} tap={TAP} />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    const [seven, mine] = screen.getAllByRole("button", { name: /Card on the reader/ });
+    await act(async () => {
+      fireEvent.click(seven!);
+    });
+    await flush();
+    expect(api.poll.phase).toBe("recording");
+    expect(mine!.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2g-fix-reader/busy-note-ignores-the-phase): the note keeps "taking a payment …
+    // finish that one first" over an idle reader and nothing to finish; red.
+    expect(document.getElementById("terminal-busy")!.textContent).toBe(
+      tf("en", "settle.reader.busyRecording", { x: tf("en", "floor.table", { id: "7" }) }),
+    );
+    // Given up as unrecorded (C1): the hold lifts.
+    await flush(READER_UNRECORDED_MS);
+    expect(api.poll.phase).toBe("unrecorded");
+    expect(mine!.getAttribute("aria-disabled")).toBeNull();
+    expect(document.getElementById("terminal-busy")).toBeNull();
   });
 });
 

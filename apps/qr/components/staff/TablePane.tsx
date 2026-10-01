@@ -281,6 +281,18 @@ export function TablePane({
         </>
       ) : (
         <>
+          {/* Phase 2g · reader — the selected table is ON SCREEN from the tap (A11Y-10): through the
+              loading state too, so the bar's chip for it leaves in the same commit as the tap — not
+              after the read, when the row would vanish under the finger. The mounted detail registers
+              itself as well (its own landing handler); here a counter charge landing on the CLOSED
+              state shows its card at once — the provider stashed it too, so the next visit restores
+              it like any other. */}
+          <ReaderShown
+            sessionId={sel.id}
+            onLanded={(h) => {
+              if (h) setStashed({ id: sel.id, h });
+            }}
+          />
           <div className="staff-pane-head">
             {/* `echo={false}`: the region's aria-labelledby target and a focus target. */}
             <h2 id="table-pane-h" ref={headingRef} tabIndex={-1} className="staff-pane-title">
@@ -366,15 +378,6 @@ export function TablePane({
             )}
             {cur?.kind === "closed" && (
               <>
-                {/* Phase 2g · reader — the closed table is ON SCREEN (the bar's chip stands down for
-                    it), and a counter charge landing for it now shows its card here at once — the
-                    provider stashed it too, so the next visit restores it like any other. */}
-                <ReaderShown
-                  sessionId={cur.id}
-                  onLanded={(h) => {
-                    if (h) setStashed({ id: cur.id, h });
-                  }}
-                />
                 {closedHandoff && (
                   <HandoffCard
                     lang={lang}

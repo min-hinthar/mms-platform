@@ -4,6 +4,7 @@ import type { Handoff } from "@/lib/register-ui";
 import type {
   ReaderCancelError,
   ReaderCollect,
+  ReaderLanded,
   ReaderName,
   ReaderPoll,
   ReaderStart,
@@ -20,7 +21,7 @@ import type {
  *  table, whose paid state is the signal — so it can re-read and adopt it). */
 export type ReaderViewer = { onLanded?: (h: Handoff | null) => void };
 
-export type ReaderLanded = { sessionId: string; name: ReaderName; handoff: Handoff };
+export type { ReaderLanded };
 
 export type ReaderCollectApi = {
   /** The collect, or null. Its phase and status below. */
@@ -35,8 +36,9 @@ export type ReaderCollectApi = {
   recordingLong: boolean;
   cancelBusy: boolean;
   cancelError: ReaderCancelError | null;
-  /** A counter order's card whose table was not on screen when it landed. */
-  landed: ReaderLanded | null;
+  /** Charges that landed while their table was not on screen — a counter's card or a table's "Paid" —
+   *  one per table, oldest first (the chip shows the first whose table is not shown). */
+  landed: readonly ReaderLanded[];
   /** Tables on screen now (registered through `shownHere`). */
   shown: ReadonlySet<string>;
   /** The PI whose panel takes focus on its first mount — set only by a start made in view. */
@@ -44,10 +46,12 @@ export type ReaderCollectApi = {
   focusTaken: (paymentIntentId: string) => void;
   start: (s: ReaderStart) => void;
   cancel: () => Promise<void>;
-  /** "Back to payment": a declined or cancelled collect is cleared; a charged-not-recorded one is put
-   *  away and keeps polling silently until it lands (D4). */
+  /** The panel's "Back to payment" / Close and the chip's ✕: a declined, cancelled or unrecorded
+   *  collect is cleared; a charged-not-recorded one ("Hide this") is put away and keeps polling
+   *  silently until it lands or is given up (D4 · C1). */
   dismiss: () => void;
-  dismissLanded: () => void;
+  /** The chip's ✕ on a landing: that table's landing goes; the rest stay queued. */
+  dismissLanded: (sessionId: string) => void;
   /** Register a table as shown; returns the unregister. A landed card standing for it is handed over. */
   shownHere: (sessionId: string, viewer?: ReaderViewer) => () => void;
   /** The one refusal, read at TAP time (refs, never a render). */
@@ -58,8 +62,9 @@ export type ReaderCollectApi = {
    *  router push of a hash on the same page fires no `hashchange`, so it could never select). */
   registerPane: (open: (sessionId: string, name: ReaderName) => void) => () => void;
   openInPane: (sessionId: string, name: ReaderName) => boolean;
-  /** The chip says a failure once per outcome, not once per page it remounts on. */
-  alertSaid: string | null;
+  /** The outcomes already SAID (the chip's alert, or the table's own region — `readerAlertKey`): said
+   *  once per outcome, not once per page the chip remounts on. */
+  alertSaid: ReadonlySet<string>;
   markAlertSaid: (key: string) => void;
 };
 
@@ -88,7 +93,8 @@ export function useReaderCollectOptional(): ReaderCollectApi | null {
   return useContext(ReaderCollectContext);
 }
 
-/** Marks a table as shown while mounted (a server-rendered closed page, the pane's closed state). */
+/** Marks a table as shown while mounted (the pane's selection from the tap — loading, detail or
+ *  closed — and a server-rendered closed page). */
 export function ReaderShown({
   sessionId,
   onLanded,

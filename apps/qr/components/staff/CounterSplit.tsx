@@ -116,6 +116,11 @@ export function CounterSplit({
   const select = useCallback(
     (id: string, hint: TableHint | null, opts: { write: boolean; focus: boolean }): void => {
       const from = selRef.current?.id ?? null;
+      // A11Y-3 — the opener names the card that opened THIS selection. Any other way in (the reader
+      // chip's View, `openSession` from the lane or the older-orders sheet, a hash) starts with none,
+      // so a later ✕ lands on the new table's own card or the floor heading — never on the card of a
+      // table opened before it. A card tap sets it again right after this (`openFromCard`).
+      if (from !== id) opener.current = null;
       if (opts.write) {
         const currentHash = location.hash;
         const owned = paneOwned({

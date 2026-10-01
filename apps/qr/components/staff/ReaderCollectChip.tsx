@@ -1,16 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@mms/ui";
 import { paneUrl } from "@/lib/floor-pane";
 import {
-  handoffCode,
   readerChip,
   readerChipAlert,
+  readerChipDismissible,
   readerChipLinked,
+  readerChipStatus,
   readerNameText,
   type ReaderChip,
   type ReaderName,
+  type ReaderPhase,
+  type ReaderStatus,
 } from "@/lib/reader-collect";
 import { sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -24,20 +27,28 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 /**
  * Phase 2g · reader — the card reader's collect, in the staff bar of every page that is NOT showing
  * its table (`readerChip`): "On the reader · $42.10 · View Table 7" while it collects, "Paid · $42.10"
- * while the order is recorded, "Payment didn't go through" when it was declined, and a counter
- * order's "Paid · #A1B2C3" when it landed with its table off screen — the card the cashier hands the
- * bag over by, which used to be lost with the detail. Rendered by `StaffBar` just before its offline
- * row; StaffBar stays hook-free (this is the client child).
+ * while the order is recorded (and, given up, the line that says not to take payment again),
+ * "Payment didn't go through" when it was declined, and — once it LANDED with its table off screen —
+ * a counter order's "Paid · #A1B2C3" (the card the cashier hands the bag over by, which used to be
+ * lost with the detail) or a table's "Paid · $42.10". Landings queue; the chip shows the oldest.
+ * Rendered by `StaffBar` just before its offline row; StaffBar stays hook-free (this is the client
+ * child).
  *
- *   · NOT a live region — the bar's `role="status"` is the offline row's, and a view keeps one. The
- *     two outcomes a person must not miss (declined; charged but not recorded for too long) are SAID
- *     once, through `role="alert"` — the bar tail's assertive precedent (the Lock refusal) — and only
- *     here: over its own table the chip is gone and the detail's region speaks.
- *   · "Once" is per outcome, not per mount: the provider remembers what was said
- *     (`alertSaid`), so the chip a navigation remounts on the next page shows the line, quietly.
+ *   · The visible row is NEVER a live region — the bar's `role="status"` is the offline row's, and a
+ *     view keeps one. The outcomes a person must not miss off their table (a decline, a charge slow to
+ *     record or given up, a landing) are SAID once, through a SEPARATE sr-only `role="alert"` node —
+ *     the bar tail's assertive precedent (the Lock refusal) — whose words are echo-free (a bilingual
+ *     announcement says everything twice) and name the table; the visible row is hidden from the
+ *     ear while it stands, so a browse-mode pass never reads it twice.
+ *   · "Once" is per outcome, not per mount: the provider remembers what was said (`alertSaid`, which
+ *     the table's own panel also writes — A11Y-6), so the chip a navigation remounts on the next page
+ *     shows the line, quietly. And only where it can be HEARD: under a modal Sheet the bar is
+ *     `aria-hidden` (Radix's `hideOthers`), so the alert waits for the Sheet to close (A11Y-1).
  *   · The way in is `SplitAwareLink` — the table page on a phone, the counter's pane at split width,
  *     and the split's own opener when the pane is on THIS screen (a same-page hash push fires no
  *     `hashchange`). No link on the lock screen: the PIN comes first.
+ *   · The ✕ is named by its act and subject ("Dismiss — Table 7"), and hands focus to the bar's title
+ *     before the chip leaves (A11Y-2 — never <body>).
  *   · Every control 44px (the bar's units: the Back pill, the circle); tokens only; the entrance is
  *     the kit's `.mms-rise` (RM-gated there).
  *   · check-staff-lang rule 4a: this module reaches no language control — the bar never carries one.
@@ -54,6 +65,19 @@ export function ReaderCollectChip({ lang }: { lang: StaffLang }) {
   return <ChipBody lang={lang} reader={reader} chip={chip} />;
 }
 
+/** True while `el` can be heard: not inside a subtree a modal hid from assistive tech. */
+const exposed = (el: HTMLElement | null) =>
+  el !== null && el.closest('[aria-hidden="true"]') === null;
+
+/** A11Y-2 — the ✕ unmounts with the chip: focus goes to the bar's own title first (StaffBar stays
+ *  hook-free, so the chip reaches its enclosing header's h1, making it programmatically focusable). */
+function focusBarTitle(from: HTMLElement | null) {
+  const h = from?.closest("header")?.querySelector<HTMLElement>("h1") ?? null;
+  if (h === null) return;
+  if (!h.hasAttribute("tabindex")) h.tabIndex = -1;
+  h.focus({ preventScroll: true });
+}
+
 function ChipBody({
   lang,
   reader,
@@ -65,39 +89,64 @@ function ChipBody({
 }) {
   const pathname = usePathname();
   const linked = readerChipLinked(pathname);
+  const rootRef = useRef<HTMLDivElement>(null);
   const phase = reader.poll.phase;
-  const status = chip.kind === "collect" ? reader.status : null;
+  const status =
+    chip.kind === "collect" && reader.status !== null ? readerChipStatus(reader.status) : null;
 
   // Said ONCE per outcome. The provider's `alertSaid` is the memory across pages; `speaking` keeps
-  // THIS chip's alert node standing for its life (its role never flips off under the reader).
+  // THIS chip's alert node standing for its life (it never flips off under the reader).
   const alertKey = readerChipAlert(chip, phase, reader.recordingLong);
   const said = reader.alertSaid;
   const markSaid = reader.markAlertSaid;
   const [speaking, setSpeaking] = useState<string | null>(null);
   useEffect(() => {
-    if (alertKey === null || said === alertKey) return;
+    if (alertKey === null || said.has(alertKey)) return;
+    let t: ReturnType<typeof setTimeout> | undefined;
     // Scheduled — never a synchronous setState in the effect: the next render INSERTS the alert node
-    // with its text (an alert born with its words is the one that is reliably spoken).
-    const t = setTimeout(() => {
-      markSaid(alertKey);
-      setSpeaking(alertKey);
-    }, 0);
-    return () => clearTimeout(t);
+    // with its words (an alert born with its words is the one that is reliably spoken).
+    const say = () => {
+      t = setTimeout(() => {
+        markSaid(alertKey);
+        setSpeaking(alertKey);
+      }, 0);
+    };
+    if (exposed(rootRef.current)) {
+      say();
+      return () => clearTimeout(t);
+    }
+    // A11Y-1 — inside an aria-hidden subtree (a modal Sheet is open) an alert is inserted unheard and
+    // never re-said when the Sheet closes: the key stays PENDING, and is said the moment the bar is
+    // exposed again.
+    const mo = new MutationObserver(() => {
+      if (!exposed(rootRef.current)) return;
+      mo.disconnect();
+      say();
+    });
+    mo.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["aria-hidden"],
+      subtree: true,
+    });
+    return () => {
+      mo.disconnect();
+      clearTimeout(t);
+    };
   }, [alertKey, said, markSaid]);
   const alerting = alertKey !== null && speaking === alertKey;
 
   const warn = status?.tone === "warn" || (chip.kind === "collect" && phase === "failed");
   const paid = chip.kind === "landed" || phase === "recording";
-  const dismissible = chip.kind === "landed" || phase === "failed" || phase === "canceled";
+  const dismissible = readerChipDismissible(chip, phase);
 
   const title =
     chip.kind === "landed" ? (
       <>
         <Chrome lang={lang} k="settle.reader.paid" echo="inline" />
         {" · "}
-        <strong>{handoffCode(chip.orderId)}</strong>
+        <strong>{chip.code ?? fmt(chip.totalCents)}</strong>
       </>
-    ) : phase === "collecting" || phase === "recording" ? (
+    ) : phase === "collecting" || phase === "recording" || phase === "unrecorded" ? (
       <>
         <Chrome
           lang={lang}
@@ -113,37 +162,40 @@ function ChipBody({
       <Chrome lang={lang} k="settle.reader.canceledTitle" echo="inline" />
     );
   // The status line, when it says more than the title: a blind poll, the recording (and its
-  // escalation), the decline's reason, "nothing was charged". Waiting is the title's own news.
+  // escalation), a charge given up, the decline's reason, "nothing was charged". Waiting is the
+  // title's own news.
   const sub = status !== null && !(phase === "collecting" && status.tone === "ok") ? status : null;
-  const text = (
-    <>
-      <span className="staff-reader-title">{title}</span>
-      {sub && (
-        <span className="staff-reader-sub">
-          <MsgText lang={lang} msg={sub.msg} />
-        </span>
-      )}
-    </>
-  );
+
+  const onDismiss = () => {
+    focusBarTitle(rootRef.current);
+    if (chip.kind === "landed") reader.dismissLanded(chip.sessionId);
+    else reader.dismiss();
+  };
 
   return (
     // `role="group"`: a bare <div> is `generic`, which prohibits an author name (rule 3d).
     <div
+      ref={rootRef}
       className="staff-reader mms-rise"
       role="group"
       aria-label={sx(lang, "settle.a11y.readerPanel")}
       data-tone={warn ? "warn" : paid ? "ok" : undefined}
     >
       <Icon name="card" size={18} />
-      {/* Keyed, so the alert is a NEW node inserted with its words — never a role flipped onto the
-          node already on screen (which several readers never speak). */}
-      {alerting ? (
-        <span key="alert" role="alert" className="staff-reader-text">
-          {text}
-        </span>
-      ) : (
-        <span key="quiet" className="staff-reader-text">
-          {text}
+      {/* SHOWN, never live; hidden from the ear only while the alert below says the same thing. */}
+      <span className="staff-reader-text" aria-hidden={alerting || undefined}>
+        <span className="staff-reader-title">{title}</span>
+        {sub && (
+          <span className="staff-reader-sub">
+            <MsgText lang={lang} msg={sub.msg} />
+          </span>
+        )}
+      </span>
+      {/* Keyed by the outcome, so each alert is a NEW node inserted with its words — never a role
+          flipped onto a node already on screen (which several readers never speak). */}
+      {alerting && (
+        <span key={alertKey} role="alert" className="sr-only">
+          <ChipSpoken lang={lang} chip={chip} phase={phase} sub={sub} />
         </span>
       )}
       <span className="staff-reader-acts">
@@ -162,19 +214,57 @@ function ChipBody({
           </span>
         )}
         {dismissible && (
-          <button
-            type="button"
-            className="staff-circ staff-press"
-            onClick={chip.kind === "landed" ? reader.dismissLanded : reader.dismiss}
-          >
+          <button type="button" className="staff-circ staff-press" onClick={onDismiss}>
             <Icon name="close" size={18} />
             <span className="sr-only">
-              <Chrome lang={lang} k="shell.close" />
+              <Chrome
+                lang={lang}
+                k="settle.reader.chip.dismiss"
+                vars={{ x: readerNameText(lang, chip.name) }}
+              />
             </span>
           </button>
         )}
       </span>
     </div>
+  );
+}
+
+/**
+ * The alert's words — echo-free (`<Chrome>` with no echo: the live-region rule) and naming the table,
+ * which sits outside the alert in the visible row: "Payment didn't go through · Table 7 · The card
+ * was declined.", "Paid · #A1B2C3 · Counter order", "Paid · $42.10 · Table 7 · The guest has paid…".
+ */
+function ChipSpoken({
+  lang,
+  chip,
+  phase,
+  sub,
+}: {
+  lang: StaffLang;
+  chip: ReaderChip;
+  phase: ReaderPhase;
+  sub: ReaderStatus | null;
+}) {
+  const failed = chip.kind === "collect" && phase === "failed";
+  return (
+    <>
+      <Chrome lang={lang} k={failed ? "settle.reader.failedTitle" : "settle.reader.paid"} />
+      {!failed && (
+        <>
+          {" · "}
+          {chip.kind === "landed" ? (chip.code ?? fmt(chip.totalCents)) : fmt(chip.totalCents)}
+        </>
+      )}
+      {" · "}
+      <TableName lang={lang} name={chip.name} />
+      {sub && (
+        <>
+          {" · "}
+          <MsgText lang={lang} msg={sub.msg} />
+        </>
+      )}
+    </>
   );
 }
 

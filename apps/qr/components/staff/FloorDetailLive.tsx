@@ -259,7 +259,7 @@ export function FloorDetailLive({
   // after this detail left still polls (P2en). `mine`: the collect is this table's.
   const reader = useReaderCollect();
   const mine = reader.record?.sessionId === sessionId;
-  // The panel is ON SCREEN here (a put-away recording — "Back to payment", D4 — still polls, silently).
+  // The panel is ON SCREEN here (a put-away recording — "Hide this", D4 — still polls, silently).
   const panelUp = mine && reader.record?.hidden !== true;
   // Phase 2d · split — the paid card's stash, restored the same way (a scheduled callback, never a
   // synchronous setState in the effect; `readHandoffStash` swallows every storage failure). The

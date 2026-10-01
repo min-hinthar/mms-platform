@@ -22,6 +22,7 @@
  */
 import type { TerminalPollResult } from "./terminal";
 import type { Handoff } from "./register-ui";
+import { parseHandoffStash } from "./floor-pane";
 import { ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
@@ -48,9 +49,13 @@ export type ReaderCollect = ReaderStart & {
   /** Device ms of the last poll that answered the collect LIVE (collecting or charged-not-recorded)
    *  — the expiry's clock (see `readerCollectExpired`). */
   liveAt: number;
-  /** D4 — "Back to payment" while charged-not-recorded: the panel is put away, the poll goes on
-   *  silently until the order lands (the #CODE then reaches the chip and the stash). */
+  /** D4 — "Hide this" while charged-not-recorded: the panel is put away, the poll goes on silently
+   *  until the order lands (the #CODE then reaches the chip and the stash). */
   hidden: boolean;
+  /** Device ms when the charge was first seen succeeded with no order (the poll's `recordingSince`),
+   *  carried in the RECORD so a reload resumes the bound below instead of restarting it — every
+   *  restore would otherwise buy a charge that never records another full window. */
+  recordingSince: number | null;
 };
 
 /** What a START hands the provider: the server's answer (the handle, the amount) and the tap's facts. */
@@ -133,6 +138,8 @@ export function parseReaderCollect(raw: string | null): ReaderCollect | null {
     startedAt: o.startedAt,
     liveAt: o.liveAt,
     hidden: o.hidden === true,
+    // Anything but a clock is no clock: the bound restarts — later, never sooner.
+    recordingSince: ms(o.recordingSince) ? o.recordingSince : null,
   };
 }
 
@@ -167,12 +174,13 @@ export function adoptLegacyCollect(
     startedAt: nowMs,
     liveAt: nowMs,
     hidden: false,
+    recordingSince: null,
   };
 }
 
 // ── the poll ─────────────────────────────────────────────────────────────────────────────────────
 
-export type ReaderPhase = "collecting" | "recording" | "failed" | "canceled";
+export type ReaderPhase = "collecting" | "recording" | "unrecorded" | "failed" | "canceled";
 
 export const READER_POLL_MS = 2500;
 /** Consecutive failed polls before the panel admits it's blind (Stripe unreachable). */
@@ -183,6 +191,20 @@ export const READER_RECORDING_ESCALATE_MS = 20_000;
  *  Server Actions one at a time, so a second poll is never dispatched over a hung one — it would only
  *  queue behind it — and a hung one must still be able to make the panel admit it is blind. */
 export const READER_POLL_SILENT_MS = 15_000;
+/**
+ * C1 · P2gb — how long a charge may stand captured with NO order before this tab stops watching it.
+ * `recording` is the window the poll matters most: each live answer re-extends the settle freeze
+ * (`terminalStatus` → `extendSettlementFor`), which is what stops a cash settle collecting the bill a
+ * second time while a slow webhook lands the order. But a PaymentIntent the webhook REFUSED to fulfil
+ * (`card_after_settle`, `reconcile_mismatch` — it lands in `qr_refunds_needed`) answers
+ * `succeeded / orderId: null` forever, and an unbounded `recording` held the reader for every other
+ * table, re-armed itself on every reload and promised an order that would never come. So the freeze
+ * is kept alive for the freeze's OWN lifetime past the capture (named once, `SETTLE_TTL_MS` — a
+ * webhook slower than that is not "slow"), and then the collect goes `unrecorded`: the poll stops,
+ * the stash goes, the refusal lifts, and the panel and the chip say what to do. A late landing is
+ * still covered: the server builds the counter's #CODE card from the order row (Phase 2g · D2).
+ */
+export const READER_UNRECORDED_MS = SETTLE_TTL_MS;
 
 export type ReaderPoll = {
   phase: ReaderPhase;
@@ -201,7 +223,8 @@ export const READER_POLL_START: ReaderPoll = {
   failCopy: null,
 };
 
-/** Is this phase still polling? Declined or cancelled is terminal: the poll stops, the freeze went. */
+/** Is this phase still polling? Declined, cancelled or given up as unrecorded is terminal: the poll
+ *  stops (declined and cancelled released the freeze; an unrecorded charge's freeze lapses). */
 export function readerPolling(phase: ReaderPhase): boolean {
   return phase === "collecting" || phase === "recording";
 }
@@ -234,9 +257,13 @@ export function nextReaderPoll(
   if (res.state === "succeeded") {
     if (res.orderId)
       return { poll: seen, landed: { orderId: res.orderId, totalCents: res.totalCents } };
+    const since = prev.recordingSince ?? nowMs;
+    // C1 — captured with no order for the freeze's whole lifetime: give up watching (see above).
+    if (nowMs - since >= READER_UNRECORDED_MS)
+      return { poll: { ...seen, phase: "unrecorded", recordingSince: since }, landed: null };
     // Charged; the webhook is landing the order — keep polling.
     return {
-      poll: { ...seen, phase: "recording", recordingSince: prev.recordingSince ?? nowMs },
+      poll: { ...seen, phase: "recording", recordingSince: since },
       landed: null,
     };
   }
@@ -249,6 +276,13 @@ export function nextReaderPoll(
 /** A poll silent since `sinceMs` is worth this many misses by `nowMs` (one per silent span). */
 export function silentMisses(sinceMs: number, nowMs: number): number {
   return Math.floor((nowMs - sinceMs) / READER_POLL_SILENT_MS);
+}
+
+/** The poll a RESTORED record resumes from: a charge already seen captured resumes `recording` on its
+ *  own clock (never "On the reader" again, and never a fresh unrecorded window). */
+export function restoredReaderPoll(c: Pick<ReaderCollect, "recordingSince">): ReaderPoll {
+  if (c.recordingSince === null) return READER_POLL_START;
+  return { ...READER_POLL_START, phase: "recording", recordingSince: c.recordingSince };
 }
 
 export function readerRecordingLong(poll: ReaderPoll, nowMs: number): boolean {
@@ -273,9 +307,29 @@ export function readerStatus(poll: ReaderPoll, recordingLong: boolean): ReaderSt
     return recordingLong
       ? { tone: "warn", msg: { k: "settle.reader.status.recordingLong" } }
       : { tone: "ok", msg: { k: "settle.reader.status.recording" } };
+  if (poll.phase === "unrecorded")
+    return { tone: "warn", msg: { k: "settle.reader.status.unrecorded" } };
   if (poll.phase === "failed")
     return { tone: "warn", msg: poll.failCopy ?? { k: "settle.reader.status.failed" } };
   return { tone: "ok", msg: { k: "settle.reader.status.canceled" } };
+}
+
+/**
+ * What the collect panel offers under its line (PT-10): Cancel while the reader takes the card;
+ * "Hide this — we'll keep checking" once a charge is slow to record (the panel goes, the poll does
+ * not — D4; "Back to payment" there named a payment that no longer exists); "Back to payment" after
+ * a decline or a cancel (nothing was charged, take it another way); Close once a charge was given up
+ * as unrecorded (there is no payment to go back to — "don't take payment again").
+ */
+export type ReaderPanelAction = "cancel" | "hide" | "back" | "close";
+export function readerPanelAction(
+  phase: ReaderPhase,
+  recordingLong: boolean,
+): ReaderPanelAction | null {
+  if (phase === "collecting") return "cancel";
+  if (phase === "recording") return recordingLong ? "hide" : null;
+  if (phase === "unrecorded") return "close";
+  return "back";
 }
 
 /** A cancel that did not happen: the server's sentence ("too late…"), or the transport's own key. */
@@ -321,6 +375,11 @@ export function handoffCode(orderId: string): string {
  * The ONE refusal left (D1): there is one reader, so a start on a DIFFERENT table while a collect is
  * live is refused before the server is asked. The table already collecting is not refused here — its
  * own panel is up, and a second start there meets the server's in-flight refusal anyway.
+ *
+ * It holds through `recording` too, although the physical reader is free by then: the tab keeps ONE
+ * record, and a new start would displace the recording one — and with it the only poll re-extending
+ * its freeze, the guard against a cash settle collecting that bill twice while the webhook lands. The
+ * wait is bounded (`READER_UNRECORDED_MS`), and `readerBusyKey` says which wait it is.
  */
 export function readerStartRefused(p: {
   collect: Pick<ReaderCollect, "sessionId"> | null;
@@ -330,9 +389,126 @@ export function readerStartRefused(p: {
   return p.collect !== null && p.live && p.collect.sessionId !== p.sessionId;
 }
 
+/**
+ * PT-2 — why the reader button is held, in words that are TRUE for the phase: "taking a payment …
+ * finish that one first" only while the reader really is taking a card; once the charge went through
+ * and the order is being recorded the reader is idle and there is nothing to finish — the sentence
+ * says the payment is being recorded and to wait. Null when nothing holds the reader.
+ */
+export function readerBusyKey(
+  phase: ReaderPhase,
+): "settle.reader.busyElsewhere" | "settle.reader.busyRecording" | null {
+  if (phase === "collecting") return "settle.reader.busyElsewhere";
+  if (phase === "recording") return "settle.reader.busyRecording";
+  return null;
+}
+
+// ── the landed queue ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A charge that LANDED while its table was not on screen (M1 · PT-9 · PT-1). A counter order's carries
+ * its card (`handoff`, the #CODE the bag is handed over by); a TABLE's carries none (its paid state is
+ * the signal) — but the chip had promised "it will show here", so the landing itself is said too:
+ * "Paid · $42.10 · Table 7". `landedAt` is the expiry's clock.
+ */
+export type ReaderLanded = {
+  sessionId: string;
+  name: ReaderName;
+  orderId: string;
+  /** The collect's amount (the start's quote — the card's own figure for a counter order). */
+  totalCents: number;
+  handoff: Handoff | null;
+  landedAt: number;
+};
+
+/** The queue's sessionStorage key — beside the collect record, per tab, surviving a reload. */
+export const READER_LANDED_KEY = "mms-reader-landed";
+/** At most this many held at once: a sixth landing lets the OLDEST go (its card is still stashed for
+ *  its table — `stashHandoff` — and the server builds it from the order row). */
+export const READER_LANDED_CAP = 5;
+
+/**
+ * Hold a landing. A QUEUE, never one slot: a second landing off screen used to overwrite the first
+ * card, and the #CODE a guest was waiting on left the bar with no trace (M1). Newest appended, one
+ * entry per table (a newer landing for the same table replaces its older one), oldest first — the
+ * chip shows the head, so cards are met in the order they landed.
+ */
+export function queueLanded(
+  q: readonly ReaderLanded[],
+  e: ReaderLanded,
+  cap: number = READER_LANDED_CAP,
+): ReaderLanded[] {
+  return [...q.filter((x) => x.sessionId !== e.sessionId), e].slice(-cap);
+}
+
+/** The queue without that table's landing (dismissed, or handed to the view now showing it). */
+export function dropLanded(q: readonly ReaderLanded[], sessionId: string): ReaderLanded[] {
+  return q.filter((x) => x.sessionId !== sessionId);
+}
+
+/** A landing is held as long as a collect record would be (`READER_COLLECT_MAX_IDLE_MS`): past it,
+ *  a reload brings back history, not news. */
+export function landedExpired(e: Pick<ReaderLanded, "landedAt">, nowMs: number): boolean {
+  return nowMs - e.landedAt > READER_COLLECT_MAX_IDLE_MS;
+}
+
+function parseName(v: unknown): ReaderName | null {
+  if (typeof v !== "object" || v === null) return null;
+  const n = v as Record<string, unknown>;
+  if (typeof n.counter !== "boolean" || typeof n.display !== "string") return null;
+  return { counter: n.counter, display: n.display };
+}
+
+function parseLanded(v: unknown): ReaderLanded | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.sessionId !== "string" || o.sessionId === "") return null;
+  const name = parseName(o.name);
+  if (name === null) return null;
+  if (typeof o.orderId !== "string" || o.orderId === "") return null;
+  if (!cents(o.totalCents) || !ms(o.landedAt)) return null;
+  // `null` (a table) or a card — never absent: a missing field is not "no card".
+  if (typeof o.handoff !== "object") return null;
+  let handoff: Handoff | null = null;
+  if (o.handoff !== null) {
+    // The paid card's own field-by-field door (`parseHandoffStash`), and it must be THIS landing's:
+    // a counter card for the same order, never another order's #CODE riding a tampered entry.
+    handoff = parseHandoffStash(JSON.stringify(o.handoff));
+    if (handoff === null || !handoff.isCounter || handoff.orderId !== o.orderId) return null;
+  }
+  return {
+    sessionId: o.sessionId,
+    name,
+    orderId: o.orderId,
+    totalCents: o.totalCents,
+    handoff,
+    landedAt: o.landedAt,
+  };
+}
+
+/** The stashed queue, field by field: a malformed or expired entry is dropped alone (the rest stand),
+ *  and the queue's own rules (one per table, the cap) are re-applied on the way in. */
+export function parseLandedQueue(raw: string | null, nowMs: number): ReaderLanded[] {
+  if (raw === null) return [];
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(v)) return [];
+  let q: ReaderLanded[] = [];
+  for (const x of v) {
+    const e = parseLanded(x);
+    if (e !== null && !landedExpired(e, nowMs)) q = queueLanded(q, e);
+  }
+  return q;
+}
+
 // ── the bar's chip ───────────────────────────────────────────────────────────────────────────────
 
-/** What the bar's chip is about: the collect (any phase), or a counter card that landed off screen. */
+/** What the bar's chip is about: the collect (any phase), or a charge that landed off screen — a
+ *  counter's with its #CODE (`code`), a table's with its amount (`code` null). */
 export type ReaderChip =
   | {
       kind: "collect";
@@ -341,18 +517,26 @@ export type ReaderChip =
       paymentIntentId: string;
       totalCents: number;
     }
-  | { kind: "landed"; sessionId: string; name: ReaderName; orderId: string };
+  | {
+      kind: "landed";
+      sessionId: string;
+      name: ReaderName;
+      orderId: string;
+      totalCents: number;
+      code: string | null;
+    };
 
 /**
  * Whether the bar shows the chip, and for what. NEVER over its own table: where the paying table's
  * detail (or its closed pane) is on screen, the panel or the card there says it, and the view's ONE
  * region speaks it — a second voice for the same money would be the P2r defect again. A collect put
- * away ("Back to payment" while charged-not-recorded, D4) is silent until it lands. The collect
- * outranks a landed card for another order — one line in the bar at a time; the card waits.
+ * away ("Hide this" while charged-not-recorded, D4) is silent until it lands or is given up. The
+ * collect outranks a landing for another table — one line in the bar at a time; the landings wait,
+ * oldest first.
  */
 export function readerChip(p: {
   collect: ReaderCollect | null;
-  landed: { sessionId: string; name: ReaderName; handoff: Pick<Handoff, "orderId"> } | null;
+  landed: readonly ReaderLanded[];
   shown: ReadonlySet<string>;
 }): ReaderChip | null {
   const c = p.collect;
@@ -364,10 +548,16 @@ export function readerChip(p: {
       paymentIntentId: c.paymentIntentId,
       totalCents: c.totalCents,
     };
-  const l = p.landed;
-  if (l !== null && !p.shown.has(l.sessionId))
-    return { kind: "landed", sessionId: l.sessionId, name: l.name, orderId: l.handoff.orderId };
-  return null;
+  const l = p.landed.find((x) => !p.shown.has(x.sessionId));
+  if (l === undefined) return null;
+  return {
+    kind: "landed",
+    sessionId: l.sessionId,
+    name: l.name,
+    orderId: l.orderId,
+    totalCents: l.totalCents,
+    code: l.handoff ? handoffCode(l.handoff.orderId) : null,
+  };
 }
 
 /** The lock screen offers no way into a table — the chip there says what the reader is doing, and
@@ -377,20 +567,54 @@ export function readerChipLinked(pathname: string | null): boolean {
   return pathname !== STAFF_LOCK_PATH;
 }
 
+/** The chip's ✕: every outcome is the cashier's to put away — a landing, a decline, a cancel, a charge
+ *  given up as unrecorded. A collect still polling is not (its panel has the controls). */
+export function readerChipDismissible(chip: ReaderChip, phase: ReaderPhase): boolean {
+  return chip.kind === "landed" || !readerPolling(phase);
+}
+
 /**
- * The two outcomes the chip SAYS (role="alert", once — the bar's assertive tail line, the Lock
- * refusal's precedent): a declined card, and a charge that is taking too long to record. Keyed by the
- * collect, so the chip a navigation remounts on the next page stays quiet about the same fact.
+ * The chip's status line (PT-8): the panel's, except where the panel's words name a control the chip
+ * does not have — the blind line's "Hold on, or cancel" sits beside a View link, never a Cancel, so the
+ * chip says where the Cancel is.
+ */
+export function readerChipStatus(status: ReaderStatus): ReaderStatus {
+  if (typeof status.msg !== "string" && status.msg.k === "settle.reader.status.blind")
+    return { ...status, msg: { k: "settle.reader.chip.blind" } };
+  return status;
+}
+
+/**
+ * THE key of a collect outcome a person must not miss — a declined card, a charge slow to record, a
+ * charge given up as unrecorded — named ONCE: the chip says it (role="alert") and the table's own
+ * panel marks it said when it hands the same status to its page's region (A11Y-6), so leaving the
+ * table never says it again.
+ */
+export function readerAlertKey(
+  paymentIntentId: string,
+  phase: ReaderPhase,
+  recordingLong: boolean,
+): string | null {
+  if (phase === "failed") return `${paymentIntentId}:failed`;
+  if (phase === "unrecorded") return `${paymentIntentId}:unrecorded`;
+  if (phase === "recording" && recordingLong) return `${paymentIntentId}:long`;
+  return null;
+}
+
+/**
+ * What the chip SAYS, once (role="alert" — the bar tail's assertive precedent, the Lock refusal): the
+ * collect outcomes above, and a LANDING off screen ("Paid · #CODE" for a counter order, "Paid · $X ·
+ * Table 7" for a table — A11Y-5: the on-table view announces it; off it, nothing did). Keyed by the
+ * outcome, so the chip a navigation remounts on the next page stays quiet about the same fact.
  */
 export function readerChipAlert(
   chip: ReaderChip | null,
   phase: ReaderPhase,
   recordingLong: boolean,
 ): string | null {
-  if (chip === null || chip.kind !== "collect") return null;
-  if (phase === "failed") return `${chip.paymentIntentId}:failed`;
-  if (phase === "recording" && recordingLong) return `${chip.paymentIntentId}:long`;
-  return null;
+  if (chip === null) return null;
+  if (chip.kind === "landed") return `${chip.orderId}:landed`;
+  return readerAlertKey(chip.paymentIntentId, phase, recordingLong);
 }
 
 // ── storage (display-only; every failure a deliberate swallow) ──────────────────────────────────
@@ -450,4 +674,31 @@ export function takeLegacyCollect(
   } catch {
     return null; // deliberate: unreadable storage adopts nothing
   }
+}
+
+/** Write the landed queue (an empty one leaves no key behind). */
+export function writeLandedStash(
+  q: readonly ReaderLanded[],
+  store: Store | null = session(),
+): void {
+  try {
+    if (q.length === 0) store?.removeItem(READER_LANDED_KEY);
+    else store?.setItem(READER_LANDED_KEY, JSON.stringify(q));
+  } catch {
+    /* deliberate: quota or privacy mode — the in-memory queue still shows */
+  }
+}
+
+/** The stashed landed queue — malformed and expired entries dropped, and the stash rewritten to match. */
+export function readLandedStash(nowMs: number, store: Store | null = session()): ReaderLanded[] {
+  let raw: string | null;
+  try {
+    raw = store?.getItem(READER_LANDED_KEY) ?? null;
+  } catch {
+    return []; // deliberate: unreadable storage is a cold start
+  }
+  if (raw === null) return [];
+  const q = parseLandedQueue(raw, nowMs);
+  writeLandedStash(q, store);
+  return q;
 }

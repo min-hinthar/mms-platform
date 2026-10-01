@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
 import {
   READER_COLLECT_KEY,
+  READER_LANDED_KEY,
   READER_POLL_SILENT_MS,
+  READER_UNRECORDED_MS,
   legacyCollectKey,
   type ReaderStart,
 } from "@/lib/reader-collect";
@@ -221,19 +223,24 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
     // MUTATION (p2g-reader/landed-not-stashed): no stash — the pane's closed state (the webhook
     // closed the counter session) has no card to show; red.
     expect(sessionStorage.getItem(handoffStashKey("s-7"))).toContain("o-00a1b2c3");
-    expect(api.landed).toEqual({
-      sessionId: "s-7",
-      name: START.name,
-      handoff: {
+    expect(api.landed).toEqual([
+      {
+        sessionId: "s-7",
+        name: START.name,
         orderId: "o-00a1b2c3",
         totalCents: 4210,
-        tipCents: null,
-        tenderedCents: null,
-        isCounter: true,
-        cartId: "c-7",
-        sentEarly: true,
+        handoff: {
+          orderId: "o-00a1b2c3",
+          totalCents: 4210,
+          tipCents: null,
+          tenderedCents: null,
+          isCounter: true,
+          cartId: "c-7",
+          sentEarly: true,
+        },
+        landedAt: Date.now(),
       },
-    });
+    ]);
     expect(api.record).toBeNull();
     expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
     // The poll is over.
@@ -249,7 +256,7 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
     await act(async () => api.start(START));
     await tick(0);
     expect(onLanded).toHaveBeenCalledWith(expect.objectContaining({ orderId: "o-00a1b2c3" }));
-    expect(api.landed).toBeNull();
+    expect(api.landed).toEqual([]);
   });
 
   it("a TABLE landing hands the view null (re-read; the paid state is the signal) and holds nothing", async () => {
@@ -262,6 +269,68 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
     await tick(0);
     expect(onLanded).toHaveBeenCalledWith(null);
     expect(sessionStorage.getItem(handoffStashKey("s-7"))).toBeNull();
+    expect(api.landed).toEqual([]);
+  });
+
+  it("a TABLE landing OFF screen is held too — no card, its amount and name (PT-1)", async () => {
+    terminalStatus.mockResolvedValue(landed);
+    mount();
+    await act(async () =>
+      api.start({ ...START, isCounter: false, name: { counter: false, display: "7" } }),
+    );
+    await tick(0);
+    // MUTATION (p2g-fix-reader/table-landing-vanishes): only a counter's card is held — the chip that
+    // told the cashier to wait for the table's order just disappears when it lands; red.
+    expect(api.landed).toEqual([
+      {
+        sessionId: "s-7",
+        name: { counter: false, display: "7" },
+        orderId: "o-00a1b2c3",
+        totalCents: 4210,
+        handoff: null,
+        landedAt: Date.now(),
+      },
+    ]);
+    expect(sessionStorage.getItem(handoffStashKey("s-7"))).toBeNull();
+  });
+
+  it("two landings off screen BOTH stand, oldest first — and a remount (a hard navigation) restores them (M1)", async () => {
+    terminalStatus.mockResolvedValue(landed);
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    terminalStatus.mockResolvedValue({ ...landed, orderId: "o-00b2b2b2" });
+    await act(async () =>
+      api.start({ ...START, sessionId: "s-8", paymentIntentId: "pi_8", cartId: "c-8" }),
+    );
+    await tick(0);
+    expect(api.landed.map((l) => [l.sessionId, l.orderId])).toEqual([
+      ["s-7", "o-00a1b2c3"],
+      ["s-8", "o-00b2b2b2"],
+    ]);
+    const held = api.landed;
+    r.unmount(); // `window.location.assign("/staff/lock")`, a reload: the provider is gone
+    mount();
+    await tick(0);
+    // MUTATION (p2g-fix-reader/landed-never-restored): the queue lives in memory only — the floor
+    // poll's lock bounce erases every #CODE the bar was holding; red.
+    // MUTATION (p2g-fix-reader/landed-never-stashed): the queue is never written — the same; red.
+    expect(api.landed).toEqual(held);
+    expect(JSON.parse(sessionStorage.getItem(READER_LANDED_KEY)!)).toHaveLength(2);
+  });
+
+  it("a restored landing whose table is ALREADY shown goes straight to that view — never held for the chip", async () => {
+    terminalStatus.mockResolvedValue(landed);
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    r.unmount();
+    const onLanded = vi.fn();
+    mount(<Viewer id="s-7" onLanded={onLanded} />);
+    await tick(0);
+    expect(onLanded).toHaveBeenCalledWith(expect.objectContaining({ orderId: "o-00a1b2c3" }));
+    expect(api.landed).toEqual([]);
+    expect(sessionStorage.getItem(READER_LANDED_KEY)).toBeNull();
   });
 
   it("a card that landed off screen goes to the view that shows its table later — once", async () => {
@@ -269,7 +338,7 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
     const r = mount();
     await act(async () => api.start(START));
     await tick(0);
-    expect(api.landed?.sessionId).toBe("s-7");
+    expect(api.landed[0]?.sessionId).toBe("s-7");
     const onLanded = vi.fn();
     r.rerender(
       <ReaderCollectProvider>
@@ -278,7 +347,82 @@ describe("the landing — the card, the stash, and whoever shows its table", () 
       </ReaderCollectProvider>,
     );
     expect(onLanded).toHaveBeenCalledTimes(1);
-    expect(api.landed).toBeNull();
+    // MUTATION (p2g-fix-reader/shown-table-keeps-its-landing): handed over AND still held — the chip
+    // comes back with a card the view already showed, once the table is left; red.
+    expect(api.landed).toEqual([]);
+    expect(sessionStorage.getItem(READER_LANDED_KEY)).toBeNull();
+  });
+
+  it("dismissing one landing leaves the others standing", async () => {
+    terminalStatus.mockResolvedValue(landed);
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    terminalStatus.mockResolvedValue({ ...landed, orderId: "o-00b2b2b2" });
+    await act(async () =>
+      api.start({ ...START, sessionId: "s-8", paymentIntentId: "pi_8", cartId: "c-8" }),
+    );
+    await tick(0);
+    await act(async () => api.dismissLanded("s-7"));
+    expect(api.landed.map((l) => l.sessionId)).toEqual(["s-8"]);
+  });
+});
+
+describe("a charge that never records is given up (C1 · P2gb)", () => {
+  const charged = { ok: true, state: "succeeded", orderId: null, totalCents: 4210 } as const;
+
+  it("put away while recording, it comes BACK as unrecorded: the poll stops, the stash goes, the reader is free, Close clears it", async () => {
+    terminalStatus.mockResolvedValue(charged);
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await act(async () => api.dismiss()); // "Hide this — we'll keep checking"
+    expect(api.record?.hidden).toBe(true);
+    expect(api.startRefused("s-9")).toBe(true);
+    await tick(READER_UNRECORDED_MS);
+    expect(api.poll.phase).toBe("unrecorded");
+    // MUTATION (p2g-fix-reader/unrecorded-stays-hidden): the given-up charge stays put away — the
+    // panel and the chip never say "don't take payment again"; red.
+    expect(api.record?.hidden).toBe(false);
+    expect(api.live).toBe(false);
+    expect(api.startRefused("s-9")).toBe(false);
+    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toBeNull();
+    expect(api.status).toEqual({ tone: "warn", msg: { k: "settle.reader.status.unrecorded" } });
+    const n = terminalStatus.mock.calls.length;
+    await tick(10_000);
+    expect(terminalStatus.mock.calls.length).toBe(n);
+    await act(async () => api.dismiss());
+    expect(api.record).toBeNull();
+  });
+
+  it("a reload mid-recording resumes the SAME clock — never a fresh window, never 'On the reader' again", async () => {
+    terminalStatus.mockResolvedValue(charged);
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await tick(READER_UNRECORDED_MS / 2);
+    r.unmount();
+    mount();
+    await tick(0);
+    expect(api.poll.phase).toBe("recording");
+    // MUTATION (p2g-fix-reader/recording-clock-never-stashed): the clock rides only the poll — the
+    // reload restarts it, and a charge that never records holds the tab another full window; red.
+    // MUTATION (p2g-fix-reader/restore-starts-collecting): the restored record resumes from
+    // "collecting" with no clock; red.
+    await tick(READER_UNRECORDED_MS / 2 + 2500);
+    expect(api.poll.phase).toBe("unrecorded");
+  });
+});
+
+describe("the alert memory", () => {
+  it("remembers EVERY outcome said, not just the last (a queue of landings, then a decline)", async () => {
+    mount();
+    await act(async () => api.markAlertSaid("o-1:landed"));
+    await act(async () => api.markAlertSaid("pi_7:failed"));
+    // MUTATION (p2g-fix-reader/alert-memory-one-slot): one slot — closing the decline brings the
+    // first landing back to the chip and it is said a second time; red.
+    expect(api.alertSaid.has("o-1:landed")).toBe(true);
+    expect(api.alertSaid.has("pi_7:failed")).toBe(true);
   });
 });
 
@@ -308,7 +452,7 @@ describe("Back to payment (D4) and cancel", () => {
       totalCents: 4210,
     });
     await tick(2500);
-    expect(api.landed?.handoff.orderId).toBe("o-00a1b2c3");
+    expect(api.landed[0]?.handoff?.orderId).toBe("o-00a1b2c3");
   });
 
   it("declined: the stash goes at once (nothing to re-attach), the outcome stands until dismissed", async () => {
