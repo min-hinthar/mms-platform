@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
-import { clearTableInput, mergeTablesInput } from "@mms/db/schemas";
+import { clearTableInput, counterOlderInput, mergeTablesInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
@@ -10,10 +10,16 @@ import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
+import { serverCounterHandoff, serverCounterOutcome } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
-import { readRegisterQueue } from "./register-queue";
+import {
+  readCounterOrdersOldestFirst,
+  readRegisterQueue,
+  type CounterQueueLine,
+  type RegisterQueueRow,
+} from "./register-queue";
 import { sendFiresLine, sendRoute, staffSendCounts } from "./staff-send-view";
 // ── Phase 2f · P2v ──
 import {
@@ -22,6 +28,7 @@ import {
   counterKitchenLine,
   counterNoShowDropped,
   counterSentLine,
+  counterUncollected,
   isCounterOrder,
   mergeCounterRefusal,
   mergeCounterRefusalMessage,
@@ -44,6 +51,7 @@ import type {
   FloorTable,
   MergeCandidate,
   MergeResult,
+  OlderCounterPoll,
   TableDetail,
   TableDetailResult,
   TableLineView,
@@ -108,6 +116,36 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 const laterIso = (a: string, b: string | null | undefined): string =>
   b && new Date(b).getTime() > new Date(a).getTime() ? b : a;
+
+/**
+ * Phase 2f · P2v + Phase 2g · P2fk — ONE counter-queue row as the floor draws it, on the DATABASE clock
+ * (`counterNowMs`, `mms_now`): a register row whose food reached the kitchen (past its grace) is
+ * flagged Unpaid, carries the SAME kitchen row the tables fold (mode pickup: a walk-up's drafts are
+ * pay-first, never "owed" — until food reached the kitchen, when the drafts beside it are "not sent"
+ * and the card is never "Kitchen done"; `foldFloorKitchen`), and is UNCOLLECTED once that food has
+ * waited `COUNTER_UNCOLLECTED_MS` (`counterUncollected`). A kiosk row never cooks unpaid, so it is
+ * none of the three. Shared by the floor's snapshot and the oldest-first sheet
+ * (`getOldestCounterOrders`), so one order reads the same on both. Not exported: a "use server"
+ * module exports async functions only.
+ */
+function counterFloorRow(
+  r: RegisterQueueRow,
+  ls: readonly CounterQueueLine[],
+  counterNowMs: number,
+): CounterFloorRow {
+  return {
+    ...r,
+    unpaidSent: r.source === "register" && counterSent(ls, counterNowMs),
+    kitchen:
+      r.source === "register"
+        ? foldFloorKitchen(
+            ls.map((l) => ({ ...l, onOpenCart: true })),
+            { mode: "pickup", hostPresent: false, nowMs: counterNowMs },
+          )
+        : null,
+    uncollected: r.source === "register" && counterUncollected(ls, counterNowMs),
+  };
+}
 
 /**
  * Snapshot of every LIVE table (status='active' AND not past its TTL — a still-'active' but expired
@@ -190,28 +228,14 @@ export async function getFloorView(): Promise<FloorPoll> {
       message: nowRes.error.message,
     });
   const serverNow = typeof nowRes.data === "string" ? nowRes.data : nowIso;
-  // Phase 2f · P2v — a register row whose food reached the kitchen (past its grace, on the DB clock)
-  // is flagged Unpaid, and carries the SAME kitchen row the tables fold (mode pickup: a walk-up's
-  // drafts are pay-first, never "owed" — until food reached the kitchen, when the drafts beside it
-  // are "not sent" and the card is never "Kitchen done"; `foldFloorKitchen`). A kiosk row never
-  // cooks unpaid.
+  // Phase 2f · P2v — each register row's unpaid flag, kitchen row and (Phase 2g · P2fk) uncollected
+  // flag, on the DB clock — `counterFloorRow`, the mapper the oldest-first sheet shares.
   const counterNowMs = Number.isFinite(Date.parse(serverNow))
     ? Date.parse(serverNow)
     : Date.parse(nowIso);
-  const counterRows: CounterFloorRow[] = counter.rows.map((r) => {
-    const ls = counter.lines.get(r.sessionId) ?? [];
-    return {
-      ...r,
-      unpaidSent: r.source === "register" && counterSent(ls, counterNowMs),
-      kitchen:
-        r.source === "register"
-          ? foldFloorKitchen(
-              ls.map((l) => ({ ...l, onOpenCart: true })),
-              { mode: "pickup", hostPresent: false, nowMs: counterNowMs },
-            )
-          : null,
-    };
-  });
+  const counterRows: CounterFloorRow[] = counter.rows.map((r) =>
+    counterFloorRow(r, counter.lines.get(r.sessionId) ?? [], counterNowMs),
+  );
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
@@ -537,6 +561,60 @@ export async function getFloorView(): Promise<FloorPoll> {
 }
 
 /**
+ * Phase 2g · P2fz — the counter's oldest-first sheet: every open counter order, a page at a time
+ * (`readCounterOrdersOldestFirst` — the floor's own predicate, oldest first, keyset-paged), each row
+ * shaped by `counterFloorRow` on the DATABASE clock exactly as the floor shapes it. The floor's read
+ * keeps the newest forty; this is how the orders past it — almost always food nobody came for — are
+ * reached at all.
+ *
+ * Gated like the floor poll it sits beside (a Server Action is a public POST): `getStaffAuth`
+ * (unknowable → `outage`, not staff → `signin`), then the console lock — board parity, so a locked
+ * shared tablet stops listing orders behind its lock screen exactly as the floor does — then the
+ * cursor through `counterOlderInput` (`invalid`), all BEFORE any read. Reads through the service
+ * client (the authorization decision is this function's, not RLS's). Any staff may read it: it is the
+ * floor's own data, and the write-off it leads to is the no-show, gated in SQL.
+ */
+export async function getOldestCounterOrders(raw: unknown): Promise<OlderCounterPoll> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "signin" };
+  // Board parity (K14): a console locked from another tab lists nothing behind its lock screen.
+  const locked = await isConsoleLocked();
+  if (locked) return { ok: false, reason: "locked" };
+  const parsed = counterOlderInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, reason: "invalid" };
+  const db = serviceClient();
+  const nowIso = new Date().toISOString();
+  const [page, nowRes] = await Promise.all([
+    readCounterOrdersOldestFirst(db, parsed.data.after),
+    db.rpc("mms_now"),
+  ]);
+  // An unreadable page is not an empty one: the sheet says it could not load, never "every order".
+  if (!page.ok) return { ok: false, reason: "outage" };
+  if (nowRes.error)
+    console.error("[floor] oldest counter orders: mms_now failed — judged on the app clock", {
+      message: nowRes.error.message,
+    });
+  const dbNow = typeof nowRes.data === "string" ? nowRes.data : null;
+  const serverNow = dbNow ?? nowIso;
+  const counterNowMs = Number.isFinite(Date.parse(serverNow))
+    ? Date.parse(serverNow)
+    : Date.parse(nowIso);
+  const rows = page.rows.map((r) =>
+    counterFloorRow(r, page.lines.get(r.sessionId) ?? [], counterNowMs),
+  );
+  // The cursor is the LAST row shown — the read's own order — and exists only when the probe row did.
+  const last = rows[rows.length - 1];
+  return {
+    ok: true,
+    rows,
+    more: page.more,
+    next: page.more && last ? { startedAt: last.startedAt, sessionId: last.sessionId } : null,
+    serverNow,
+  };
+}
+
+/**
  * Read-only drill-down for ONE table: party, the actual cart lines (what they've ordered, with split
  * attribution), running subtotal, any paid total, and whether a payment is in flight (which gates
  * clear-table). W10b: the result DISCRIMINATES `closed` (session missing/cleared — bounce to the
@@ -561,13 +639,43 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // An unread session is not a cleared table — `closed` on error would bounce staff off a live order.
   if (sessionError) return { kind: "outage" };
   if (!session) return { kind: "closed" };
-  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
-  // its live-namesake button); nothing else is read or returned for a closed session.
-  if (session.status === "closed")
-    return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
-
   // Phase 2f · P2v — THE counter-order predicate, once; its "sent" is measured on the DB clock.
   const counterOrder = isCounterOrder({ mode: session.mode, qrCode: session.qr_code });
+  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
+  // its live-namesake button); nothing else is read or returned for a closed TABLE.
+  if (session.status === "closed") {
+    const closed = {
+      kind: "closed",
+      label: session.qr_code,
+      tableNumber: session.table_number,
+    } as const;
+    if (!counterOrder) return closed;
+    // Phase 2g · P2em (D2) — a counter session closes behind its settle (the webhook's after(), the
+    // cash settle's), so its closed verdict carries the #CODE card, built from the session's latest
+    // order row (`serverCounterOutcome`: figures verbatim, never "Paid" over money that came back).
+    // The card no longer needs the panel that took the charge to be mounted, or this tab's stash.
+    // Phase 2g · review — the row's refund STATE and id ride beside the card: a refunded order says
+    // so (and vetoes a card this tab still holds for it) instead of hedging like an unreadable one.
+    // ADVISORY (the W10b posture): only the session read above is an outage — an unreadable order
+    // costs the card, never the honest closed verdict, and is logged (no row: refund unknown).
+    const { data: order, error: orderError } = await db
+      .from("qr_orders")
+      .select("id,total_cents,tip_cents,status,refunded_cents,cart_id")
+      .eq("session_id", sessionId)
+      .in("status", ["paid", "refunded"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (orderError) {
+      console.error("[floor] getTableDetail closed counter order unreadable — no #CODE card", {
+        sessionId,
+        message: orderError.message,
+      });
+      return { ...closed, ...serverCounterOutcome(null) };
+    }
+    return { ...closed, ...serverCounterOutcome(order) };
+  }
+
   const [membersRes, cartRes, paidRes, tabConfigRes, clockRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
@@ -583,7 +691,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // deriving as "seated". `total_cents` stays the authoritative snapshot either way.
     db
       .from("qr_orders")
-      .select("id,total_cents,created_at,status,refunded_cents")
+      // Phase 2g · P2em (D2) — `tip_cents` and `cart_id` too: a settled counter order's #CODE card is
+      // built from THIS row (`serverHandoff` below), with no second read.
+      .select("id,total_cents,created_at,status,refunded_cents,tip_cents,cart_id")
       .eq("session_id", sessionId)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
@@ -627,6 +737,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   let sentLineIds: string[] = [];
   let droppedLineIds: string[] = [];
   let compedKitchenLineIds: string[] = [];
+  // Phase 2g · P2fk — the order's food has waited in the kitchen past the uncollected horizon.
+  let uncollected = false;
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
   const memberViews: TableMemberView[] = (members ?? []).map((m) => ({
@@ -769,6 +881,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       compedKitchenLineIds = rows
         .filter((r) => counterKitchenLine(r.line, dbNowMs) && r.line.comped)
         .map((r) => r.id);
+      // Phase 2g · P2fk — on the SAME rows and the SAME DB clock: the page's "nobody has collected
+      // this order" fact above the No-show / Clear choice.
+      uncollected = counterUncollected(
+        rows.map((r) => r.line),
+        dbNowMs,
+      );
     }
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
@@ -945,6 +1063,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
      *  surface must say "20+" instead of stating a number it cannot know. */
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,
+    // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
+    // new read): the session the webhook's best-effort, single-shot close left active (its after() is
+    // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on
+    // any device. Only with no open cart — a card never sits over a live basket — and only through
+    // the one refund gate.
+    serverHandoff: counterOrder && !cart ? serverCounterHandoff(paid) : null,
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,
@@ -971,6 +1095,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     compedKitchenLineIds,
     payAtPickup: surfaceOpen("payAtPickup"),
     mergeable: cart != null && !(counterOrder && unpaidSent),
+    // Phase 2g · P2fk — computed above on the same rows and DB clock as the three sets.
+    counterUncollected: uncollected,
   };
   return { kind: "detail", detail };
 }

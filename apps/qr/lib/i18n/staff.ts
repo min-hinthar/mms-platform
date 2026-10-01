@@ -1789,6 +1789,53 @@ export const STAFF = {
     my: "အခု မဖျက်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
   "settle.reader.backToSettle": { en: "Back to payment", my: "ငွေရှင်းဆီ ပြန်" },
+  // ── Phase 2g · reader ──
+  // There is ONE card reader: while it is taking a payment for another table (or another counter
+  // order), the reader button here is held and says whose — {x} is that table's name as the floor
+  // gives it ("Table 7", "Counter order"). K15 draft. Words: ကတ်စက် (settle.reader.*'s), ငွေယူ "take
+  // the money", အရင် … ပြီးအောင် လုပ်ပါ (the retired pane hold's "finish … first").
+  "settle.reader.busyElsewhere": {
+    en: "The card reader is taking a payment for {x} — finish that one first.",
+    my: "ကတ်စက်က {x} အတွက် ငွေယူနေပါတယ် — အဲဒါကို အရင် ပြီးအောင် လုပ်ပါ။",
+  }, // K15-HIGH — misread, a second card payment is started while the reader is still taking one
+  // ── Phase 2g · fix-reader ──
+  // PT-2 — the reader button's hold once the other payment went THROUGH and its order is being
+  // recorded: the reader is idle then and there is nothing to "finish", so the sentence says what is
+  // true (it is being recorded) and what to do (wait). {x} is that table's name, as busyElsewhere's.
+  // K15 draft. Words: ကတ်နဲ့ ငွေရှင်း (settle.a11y.readerPanel's "card payment"), မှတ်နေ
+  // (settle.reader.status.recording's "recording"), ခဏစောင့်ပါ (settle.reader.status.blind's "hold on").
+  "settle.reader.busyRecording": {
+    en: "The last card payment ({x}) is still being recorded — wait a moment.",
+    my: "{x} အတွက် နောက်ဆုံး ကတ်နဲ့ ငွေရှင်းတာကို မှတ်နေတုန်းပါ — ခဏစောင့်ပါ။",
+  }, // K15-HIGH — misread, a second payment is taken while the guest's card payment is still being recorded
+  // Codex r2 on #309 — the reader button's hold while a charge GIVEN UP as unrecorded still stands:
+  // the tab keeps one record, so a new start would erase the only "don't take payment again". {x} is
+  // that table's name. It says what happened, what to do, and how the hold lifts (the warning's own
+  // Close). K15 draft. Words: ကတ်နဲ့ ငွေရှင်း (busyRecording), ငွေဖြတ်ပြီး … အော်ဒါ မမှတ်ရ and
+  // မန်နေဂျာကို ပြော (settle.reader.status.unrecorded), ပိတ် (settle.reader.chip.dismiss).
+  "settle.reader.busyUnrecorded": {
+    en: "The last card payment ({x}) was charged but not recorded. Tell a manager, then close that message before the next card payment.",
+    my: "{x} အတွက် နောက်ဆုံး ကတ်နဲ့ ငွေရှင်းတာ ငွေဖြတ်ပြီးပေမဲ့ အော်ဒါ မမှတ်ရပါ။ မန်နေဂျာကို ပြောပြီး နောက်တစ်ခါ ကတ်နဲ့ မယူခင် အဲဒီ စာကို ပိတ်ပါ။",
+  }, // K15-HIGH — misread, a guest already charged is charged again
+  // PT-10 — the collect panel's button once a charge is slow to record: it hides the panel, and the
+  // screen keeps checking (D4) — "Back to payment" there named a payment that no longer exists. K15
+  // draft. Words: ဖျောက်ထား "put out of sight", ဆက်စစ် "keep checking" (grounded: စစ်နေဆဲ in
+  // pad.err.add.checking).
+  "settle.reader.hideRecording": {
+    en: "Hide this — we’ll keep checking",
+    my: "ဒါကို ဖျောက်ထားပါ — ဆက်စစ်နေပါမယ်",
+  },
+  // PT-8 — the bar chip's line when the processor stops answering: the chip has a View link, never a
+  // Cancel, so it says where the Cancel is instead of "or cancel". The panel keeps
+  // settle.reader.status.blind. K15 draft: status.blind's sentence with its last clause rewritten
+  // (ဖျက်ဖို့ … ကို ဖွင့်ပါ — "open … to cancel", grounded: floor.counter.older.sub).
+  "settle.reader.chip.blind": {
+    en: "Can’t reach the card processor — the reader may still be live. Hold on, or open the order to cancel it.",
+    my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ဖို့ အော်ဒါကို ဖွင့်ပါ။",
+  }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
+  // A11Y-11 — the chip's ✕, named by its act AND its subject (the pane's ✕ beside it is "Close"):
+  // {x} is the table's name. K15 draft; ပိတ် is shell.close's.
+  "settle.reader.chip.dismiss": { en: "Dismiss — {x}", my: "ပိတ်ပါ — {x}" },
 
   // ── clearing a table on turnover ─────────────────────────────────────────
   // {id} is the number off the physical tent card — Latin in both tongues.
@@ -3066,10 +3113,25 @@ export const STAFF = {
     my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ပါ။",
   }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
   "settle.reader.status.recording": { en: "Recording the order…", my: "အော်ဒါ မှတ်နေပါတယ်…" },
+  // Phase 2g · reader (D4) — it no longer points at "Orders" (a manager-only zone the cashier may not
+  // have): the screen keeps checking on its own. Phase 2g · fix-reader (PT-1) — and it no longer
+  // promises "it will show here": the panel can be hidden, a table's landing leaves no card, and a
+  // charge can be given up as unrecorded (settle.reader.status.unrecorded). K15 draft (rewritten
+  // again). Words: ငွေရှင်းပြီးပါပြီ (settle.reader.paid's), ထပ်မဖြတ်ပါနဲ့ (the old line's "don't
+  // charge again"), ဆက်စစ်နေပါမယ် "we'll keep checking" (settle.reader.hideRecording's).
   "settle.reader.status.recordingLong": {
-    en: "The charge went through, but the order isn’t recorded yet. Don’t charge again — note the amount and check Orders in a minute.",
-    my: "ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရသေးပါ။ ထပ်မဖြတ်ပါနဲ့ — ပမာဏကို မှတ်ထားပြီး တစ်မိနစ်အတွင်း အော်ဒါများ ကို စစ်ပါ။",
+    en: "The guest has paid — don’t charge again. The order isn’t recorded yet; we’ll keep checking.",
+    my: "ဧည့်သည် ငွေရှင်းပြီးပါပြီ — ထပ်မဖြတ်ပါနဲ့။ အော်ဒါ မမှတ်ရသေးပါ၊ ဆက်စစ်နေပါမယ်။",
   }, // K15-HIGH — the guest HAS paid; a second charge collects twice
+  // Phase 2g · fix-reader (C1) — a charge captured with no order for the settle freeze's whole
+  // lifetime: the screen stops checking. The guest was charged and nothing recorded it, so the line
+  // says both, forbids a second payment, and sends it to a manager (the refunds-needed strip is
+  // theirs). K15 draft. Words: ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရ (the pre-2g recordingLong's),
+  // ထပ်ငွေမယူ (settle.cash.unknownClosed's), မန်နေဂျာ (table.loss.managerLegend's).
+  "settle.reader.status.unrecorded": {
+    en: "The card was charged, but no order was recorded. Don’t take payment again — tell a manager.",
+    my: "ကတ်က ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရပါ။ ထပ်ငွေမယူပါနဲ့ — မန်နေဂျာကို ပြောပါ။",
+  }, // K15-HIGH — the guest WAS charged; a second payment collects twice
   "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
   "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
   // P2w (critic finding) — a staff settle refused while money is already moving on the table, ONE
@@ -3289,6 +3351,21 @@ export const STAFF = {
     en: "It may have been paid, cleared or merged, or left unused too long.",
     my: "ငွေရှင်းပြီးသွားတာ၊ ရှင်းလိုက်တာ၊ ပေါင်းလိုက်တာ ဒါမှမဟုတ် ကြာကြာ မသုံးဘဲ ထားခဲ့တာ ဖြစ်နိုင်ပါတယ်။",
   },
+  // Phase 2g · review (PT-3 · PT-7) — a closed COUNTER order the server KNOWS was refunded says so,
+  // in place of the hedge above (which stays for an order nobody could read): in full, the plain fact;
+  // in part, the order's #CODE (the guest is still owed the rest of the bag) and the one safe step —
+  // a manager decides what is handed over. Never "Paid" over money that came back. Claude-authored
+  // K15 drafts pending Min's native check. Words: ပြန်အမ်းပြီး (floor.status.refunded),
+  // တစ်စိတ်တစ်ပိုင်း (floor.status.partlyRefunded), လွှဲပေး (expo.verb.handedOver), မန်နေဂျာ
+  // (floor.refund.pin), အော်ဒါ (floor.counter). {id} is the pickup code ("#A1B2C3" — always Latin).
+  "floor.pane.closed.refundedFull": {
+    en: "This order was refunded.",
+    my: "ဒီအော်ဒါကို ပြန်အမ်းပြီးပါပြီ။",
+  }, // K15-HIGH — misread, a refunded order's food is handed over as if it were paid
+  "floor.pane.closed.refundedPart": {
+    en: "Part of this order was refunded — order {id}. Check with a manager before handing it over.",
+    my: "ဒီအော်ဒါ တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီးပါပြီ — အော်ဒါ {id}။ မလွှဲပေးခင် မန်နေဂျာနဲ့ အရင် စစ်ပါ။",
+  }, // K15-HIGH — misread, a partly refunded bag is handed over whole, or a guest owed food is turned away
   // A closed Table 7 beside a NEW party's live Table 7: the one way to the table that is there now.
   "floor.pane.closed.openCurrent": {
     en: "View the current {x}",
@@ -3369,16 +3446,6 @@ export const STAFF = {
     en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",
     my: "မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်က ဟင်းနာမည်တွေကတော့ မပြောင်းပါ။ စခရင် တချို့မှာ မြန်မာလို အပြည့် မရသေးပါ။",
   },
-  // ── Phase 2d · Codex round 1 · pane ──
-  // A card tap, ✕, Escape or Back while the reader is taking a card on the table shown: the pane
-  // stays (its poll keeps the payment's hold and records a counter order's #CODE), and says why in
-  // its one region. Codex round 2 — a START (Walk-up, Phone order, a free table) tapped then is
-  // refused with the same words: the words are already right, so no second key. K15 draft. Words: ကတ်နဲ့ ငွေရှင်းတာ (settle.reader.startFailed's), အရင်
-  // "first" (shell.lock.err.noPin's), ပြီးအောင် "until done".
-  "floor.pane.payingHeld": {
-    en: "Finish the card payment first.",
-    my: "ကတ်နဲ့ ငွေရှင်းတာ အရင် ပြီးအောင် လုပ်ပါ။",
-  }, // K15-HIGH — misread, the cashier leaves a card payment mid-collect and it is never recorded
   // ── Phase 2f · pay at pickup ──
   // A COUNTER order (phone / walk-up, a `reg-` session) may be sent to the kitchen before it is paid
   // (owner decisions 1 and 7, OPEN-ITEMS P2v). Every MY value below is a Claude-authored K15 draft
@@ -3449,7 +3516,9 @@ export const STAFF = {
   // collected, but nothing is owed, so it is never "Unpaid" and offers no payment. Its badge and its
   // card name. K15 drafts; grounded: ငွေ ရှင်း is settle.unpaid's ("pay"), ပါဆယ်ထုပ် is
   // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
-  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid
+  // M250 — the SAME words also tag one comped LINE on a bag (a paid bag, or an unpaid one that still
+  // owes), beside its destination tag; a bag that owes nothing keeps its one badge instead.
+  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid; on a line, a free dish is charged or left out of the bag
   "expo.a11y.cardNoCharge": {
     en: "Bag for {x}",
     my: "{x} အတွက် ပါဆယ်ထုပ်",
@@ -3537,6 +3606,75 @@ export const STAFF = {
     en: "Their food went to the kitchen before they paid — hand it over from Takeaway bags.",
     my: "ငွေမရှင်းခင် ဟင်းတွေ မီးဖိုချောင် ရောက်ပြီးသားပါ — ပါဆယ်ထုပ်များ ကနေ ပေးလိုက်ပါ။",
   },
+  // ── Phase 2g · counter (P2fk · P2fz) ──
+  // A counter order whose food has waited in the kitchen `COUNTER_UNCOLLECTED_MS` (4 hours) or longer
+  // — "uncollected" in the keys, never "stale" (that word already means out-of-date DATA in the
+  // staff keys: expo.err.stale, floor.settled.stale). Every MY value is a Claude-authored K15 draft
+  // pending Min's native check. {n} in the badge and the page's note is the HOURS (a count —
+  // Burmese numerals); in the floor's segment {n} is the ORDERS and {h} the hours, localized at the
+  // call site because only {n}/{total} are count slots. Words: ကျော် "over" (board.card.waitLong
+  // တစ်နာရီကျော်), နာရီ "hour" (kds.age.hm), လာမယူ "not collected" (table.noshow.btn), အဟောင်း
+  // "old" (floor.counter.truncated, table.appr.empty.hint's အဟောင်းက အရင်ပြပါတယ်).
+  // EN singular/plural pair on the HOURS — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "floor.counter.uncollected.badge.one": {
+    en: "Not collected in over {n} hour",
+    my: "{n} နာရီကျော် လာမယူသေး",
+  }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
+  "floor.counter.uncollected.badge.many": {
+    en: "Not collected in over {n} hours",
+    my: "{n} နာရီကျော် လာမယူသေး",
+  }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
+  // A segment of the floor's count line ("12 counter orders · 3 not collected in over 4 hours"). The pair is
+  // on the HOURS ({h}); {n} is how many orders.
+  "floor.counter.uncollected.one": {
+    en: "{n} not collected in over {h} hour",
+    my: "{n} ခု {h} နာရီကျော် လာမယူသေး",
+  },
+  "floor.counter.uncollected.many": {
+    en: "{n} not collected in over {h} hours",
+    my: "{n} ခု {h} နာရီကျော် လာမယူသေး",
+  },
+  // The door under the floor's head row (shown when the counter list is cut short or an order waits
+  // past the horizon), and the sheet it opens: every open counter order, oldest first.
+  "floor.counter.older.open": { en: "See the oldest orders", my: "အဟောင်းဆုံး အော်ဒါတွေ ကြည့်" },
+  "floor.counter.older.title": {
+    en: "Oldest counter orders",
+    my: "အဟောင်းဆုံး ကောင်တာ အော်ဒါများ",
+  },
+  "floor.counter.older.sub": {
+    en: "Oldest first. Open one to take payment — or, if they’re not coming, to remove it.",
+    my: "အဟောင်းက အရင်ပြပါတယ်။ ငွေရှင်းဖို့ ဒါမှမဟုတ် လာမယူတော့ရင် ဖျက်ဖို့ တစ်ခုကို ဖွင့်ပါ။",
+  },
+  "floor.counter.older.a11y.list": {
+    en: "Counter orders, oldest first",
+    my: "ကောင်တာ အော်ဒါများ၊ အဟောင်းက အရင်",
+  },
+  "floor.counter.older.more": { en: "Show more", my: "နောက်ထပ် ပြပါ" },
+  // grounded: pin.manager.loading
+  "floor.counter.older.loading": { en: "Loading…", my: "ဖွင့်နေပါတယ်…" },
+  "floor.counter.older.end": {
+    en: "That’s every open counter order.",
+    my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါ အားလုံး ဒါပါပဲ။",
+  },
+  "floor.counter.older.none": {
+    en: "No counter orders are open.",
+    my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါ မရှိပါ။",
+  },
+  "floor.counter.older.outage": {
+    en: "Couldn’t load the orders — try again.",
+    my: "အော်ဒါတွေ မဖွင့်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  // grounded: pad.menu.retry
+  "floor.counter.older.retry": { en: "Try again", my: "ထပ်စမ်း" },
+  // The table page's fact above the No-show / Clear choice. EN pair on the HOURS — ONE Burmese value.
+  "table.detail.uncollected.one": {
+    en: "Nobody has collected this order in over {n} hour.",
+    my: "ဒီအော်ဒါကို {n} နာရီကျော်ကြာအောင် ဘယ်သူမှ လာမယူသေးပါ။",
+  }, // K15-HIGH — it sits above the write-off: misread, a bag a guest is coming for is removed
+  "table.detail.uncollected.many": {
+    en: "Nobody has collected this order in over {n} hours.",
+    my: "ဒီအော်ဒါကို {n} နာရီကျော်ကြာအောင် ဘယ်သူမှ လာမယူသေးပါ။",
+  }, // K15-HIGH — it sits above the write-off: misread, a bag a guest is coming for is removed
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3584,6 +3722,10 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
   // ── Phase 2f review ──
   ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
+  // ── Phase 2g · counter ──
+  ["floor.counter.uncollected.badge.one", "floor.counter.uncollected.badge.many"],
+  ["floor.counter.uncollected.one", "floor.counter.uncollected.many"],
+  ["table.detail.uncollected.one", "table.detail.uncollected.many"],
 ];
 
 /**
@@ -3763,8 +3905,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── Phase 2d · review fixes ──
   "floor.pane.lostSettle",
   "floor.pane.lostSettleUnknown",
-  // ── Phase 2d · Codex round 1 · pane ──
-  "floor.pane.payingHeld",
   // ── Phase 2f · pay at pickup ──
   "settle.unpaid",
   "table.send.cta.counter.one",
@@ -3789,6 +3929,21 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.body.comped.many",
   "table.noshow.rearm",
   "expo.bag.noCharge",
+  // ── Phase 2g · reader ──
+  "settle.reader.busyElsewhere",
+  // ── Phase 2g · fix-reader ──
+  "settle.reader.busyRecording",
+  "settle.reader.busyUnrecorded",
+  "settle.reader.chip.blind",
+  "settle.reader.status.unrecorded",
+  // ── Phase 2g · counter ──
+  "floor.counter.uncollected.badge.one",
+  "floor.counter.uncollected.badge.many",
+  "table.detail.uncollected.one",
+  "table.detail.uncollected.many",
+  // ── Phase 2g · review (fix-code) ──
+  "floor.pane.closed.refundedFull",
+  "floor.pane.closed.refundedPart",
 ]);
 
 /**

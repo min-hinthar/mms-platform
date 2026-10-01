@@ -2,9 +2,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useTransition } from "react";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FloorSnapshot, FloorTable } from "@/lib/floor-types";
+import type { CounterFloorRow, FloorSnapshot, FloorTable } from "@/lib/floor-types";
 
 /**
  * Phase 2d · floor — THE FLOOR'S WIRING: the strip, the one mint lock across both zones, the one
@@ -30,7 +30,12 @@ vi.mock("@mms/db", () => ({
 }));
 // ── the poll: each case decides what the next answer is (or that it never comes) ──
 let answer: () => Promise<unknown> = () => new Promise(() => {});
-vi.mock("@/lib/floor", () => ({ getFloorView: () => answer() }));
+// Phase 2g · P2fz — the oldest-first sheet's read (each case decides; default: never answers).
+const older = vi.fn((_input: unknown): Promise<unknown> => new Promise(() => {}));
+vi.mock("@/lib/floor", () => ({
+  getFloorView: () => answer(),
+  getOldestCounterOrders: (input: unknown) => older(input),
+}));
 const openRegisterOrder = vi.fn();
 vi.mock("@/lib/register", () => ({
   openRegisterOrder: (...a: unknown[]) => openRegisterOrder(...a),
@@ -63,6 +68,10 @@ const { ts } = await import("@/lib/i18n/staff");
 const { FLOOR_WAIT_TICK_MS } = await import("./FloorWait");
 const { UP_NOTICE_DWELL_MS } = await import("@/lib/floor-kitchen");
 const { ERR_DWELL_MS } = await import("@/lib/kds-errors");
+// ── Phase 2g ──
+const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
+const { tf } = await import("@/lib/i18n/fill");
+const { TablePaneContext } = await import("./TablePaneContext");
 /** The board's poll backstop (`FloorBoard`'s own interval; not exported). */
 const POLL_MS = 5000;
 
@@ -803,5 +812,165 @@ describe("the strip's shape", () => {
     const again = mount(snap([]));
     expect(again.section().querySelector(".floor-strip-none")).toBeNull();
     expect(again.section().textContent).toContain(ts("en", "floor.tables.emptySub"));
+  });
+});
+
+// ── Phase 2g · P2fk · P2fz — the counter orders nobody collected, and the way to every one ──────
+describe("Phase 2g — the floor says what its counter list leaves out, and offers the way to it", () => {
+  const crow = (id: string, uncollected?: boolean): CounterFloorRow => ({
+    sessionId: id,
+    customerName: `Guest ${id}`,
+    itemCount: 1,
+    subtotalCents: 1200,
+    startedAt: ago(5 * 3_600_000),
+    source: "register",
+    unpaidSent: true,
+    kitchen: null,
+    ...(uncollected === undefined ? {} : { uncollected }),
+  });
+  const segment = (n: number) =>
+    tf(
+      "en",
+      COUNTER_UNCOLLECTED_HOURS === 1
+        ? "floor.counter.uncollected.one"
+        : "floor.counter.uncollected.many",
+      { n, h: String(COUNTER_UNCOLLECTED_HOURS) },
+    );
+  const door = () =>
+    [...document.querySelectorAll("button")].find(
+      (b) => b.textContent === ts("en", "floor.counter.older.open"),
+    ) ?? null;
+
+  it("a truncated counter list is SAID in the one region (unpinned before Phase 2g)", async () => {
+    // p2g-older/floor-board/truncated-unsaid
+    const { region } = mount(snap([], { counter: [crow("c1")], counterTruncated: true }));
+    await tick(0);
+    expect(region().textContent).toContain(ts("en", "floor.counter.truncated"));
+    cleanup();
+    const whole = mount(snap([], { counter: [crow("c1")] }));
+    await tick(0);
+    expect(whole.region().textContent).not.toContain(ts("en", "floor.counter.truncated"));
+  });
+
+  it("how many orders waited past the horizon is a segment of the SAME region — absent reads as none", async () => {
+    // p2g-uncollected/floor-board/count-unsaid · absent-counted
+    const { region } = mount(
+      snap([], { counter: [crow("c1", true), crow("c2", false), crow("c3"), crow("c4", true)] }),
+    );
+    await tick(0);
+    expect(region().textContent).toContain(segment(2));
+    cleanup();
+    const none = mount(snap([], { counter: [crow("c2", false), crow("c3")] }));
+    await tick(0);
+    expect(none.region().textContent).not.toContain(segment(0));
+    expect(none.region().textContent).not.toMatch(/not collected in over/);
+  });
+
+  it("the door shows ONLY when the list is cut short or an order waits — and never inside the region", async () => {
+    // p2g-older/floor-board/door-hidden · door-always · door-in-region
+    mount(snap([], { counter: [crow("c1"), crow("c2", false)] }));
+    await tick(0);
+    expect(door()).toBeNull();
+    cleanup();
+    for (const over of [
+      { counter: [crow("c1")], counterTruncated: true },
+      { counter: [crow("c1", true)] },
+    ]) {
+      const { region } = mount(snap([], over));
+      await tick(0);
+      const d = door();
+      expect(d).not.toBeNull();
+      expect(region().contains(d)).toBe(false);
+      expect(d!.closest('[role="status"]')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("the door opens the oldest-first sheet, which asks for page one", async () => {
+    mount(snap([], { counter: [crow("c1", true)] }));
+    await tick(0);
+    await act(async () => void fireEvent.click(door()!));
+    await tick(0);
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      ts("en", "floor.counter.older.title"),
+    );
+    expect(older).toHaveBeenCalledWith({ after: null });
+  });
+
+  it("every OPEN reads page one afresh — a reopened sheet never shows a list from before", async () => {
+    // p2g-older/floor-board/reopen-reuses-the-list
+    mount(snap([], { counter: [crow("c1", true)] }));
+    await tick(0);
+    await act(async () => void fireEvent.click(door()!));
+    await tick(0);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => void fireEvent.keyDown(dialog, { key: "Escape" }));
+    await tick(50);
+    await act(async () => void fireEvent.click(door()!));
+    await tick(0);
+    expect(older).toHaveBeenCalledTimes(2);
+    expect(older.mock.calls.map((c) => c[0])).toEqual([{ after: null }, { after: null }]);
+  });
+
+  it("closing the sheet puts focus back on the door", async () => {
+    mount(snap([], { counter: [crow("c1", true)] }));
+    await tick(0);
+    await act(async () => void fireEvent.click(door()!));
+    await tick(0);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => void fireEvent.keyDown(dialog, { key: "Escape" }));
+    await tick(50);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(door());
+  });
+
+  it("a row opened at split width goes to the PANE in place, unmounts the sheet, and keeps focus off the door", async () => {
+    // p2g-older/floor-board/pane-not-opened · sheet-stays-over-the-pane
+    vi.stubGlobal("matchMedia", (q: string) => ({
+      matches: true,
+      media: q,
+      addListener() {},
+      removeListener() {},
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    older.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        rows: [crow("old-1", true)],
+        more: false,
+        next: null,
+        serverNow: NOW,
+      }),
+    );
+    const openSession = vi.fn(() => true);
+    // Only what the board reads; cast, so the fixture does not pin the rest of the pane's API.
+    const pane = {
+      selectedId: null,
+      selectionGen: 0,
+      openFromCard: () => {},
+      openSession,
+      publishFloor: () => {},
+    } as unknown as NonNullable<React.ContextType<typeof TablePaneContext>>;
+    render(
+      <StaffLangProvider lang="en">
+        <CounterMintProvider>
+          <TablePaneContext.Provider value={pane}>
+            <FloorBoard initial={snap([], { counter: [crow("c1", true)] })} />
+          </TablePaneContext.Provider>
+        </CounterMintProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await act(async () => void fireEvent.click(door()!));
+    await tick(0);
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const row = within(dialog).getByRole("link", { name: /Guest old-1/ });
+    expect(row.getAttribute("href")).toBe("/staff/table/old-1");
+    await act(async () => void fireEvent.click(row));
+    await tick(50);
+    expect(openSession).toHaveBeenCalledWith("old-1", { counter: true, display: "" });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).not.toBe(door());
   });
 });

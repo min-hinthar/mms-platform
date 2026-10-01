@@ -3186,3 +3186,68 @@ write-off the approver signed for, and nothing noticed (Phase 2f review, the cro
 Pass the shown set (`expectedLineIds`), compare it AS A SET under the lock (order and duplicates
 ignored, a NULL never matching), and refuse with a code that writes nothing (`changed`) — a
 compare-and-swap on the approval's subject, the same shape as the register's frozen quote (2c).
+
+## #199
+
+**A same-screen router push of a URL the screen only reads on mount is a dead tap — and a mocked
+router cannot see it.** Phase 2f's lane "Take payment" at tablet width did `router.push(paneUrl(id))`
+from the counter screen; CounterSplit seeds its selection from the URL on MOUNT and then follows
+`hashchange`, which a router push never fires (the Codex #283 lesson, re-learned). The URL changed;
+the pane never opened. Its tests asserted the pushed STRING against a mocked router, so they passed
+for a button that did nothing. Same-screen moves go through the screen's own API (`openSession`),
+and the test asserts the EFFECT (the pane opened, on the payment section), never the URL handed to a
+mock (Phase 2g integration, `p2g-int/`).
+
+## #200
+
+**A transition's `pending` outlives every client timeout while its Server Action hangs — measured.**
+In Chromium against Next 16.2.9, `startTransition(async () => { await raceTimeout(action(), 3000) })`
+committed the catch's state at 3 s but kept `pending` true until the action answered at ~20 s; a
+`useState` busy cleared in `finally` freed at the bound; and a second action (transition or plain)
+waited for the first either way. So `Sheet busy={pending}` is a modal trap no `raceTimeout` can
+open (P2cz), and one hung action holds every later write on the tab (P2fc). `raceTimeout` frees the
+CALLER — not the transition, not the queue (extends #149 / #157; the probe is in the Phase 2g
+CHANGELOG entry).
+
+## #201
+
+**State that must survive navigation belongs above the routes — holding every exit does not
+converge.** The reader collect lived in a page component, so three Codex rounds each found more
+exits that unmounted it (pane switch, starts, then Screens / a card / More / Lock), and browser Back
+and hard navigations can never be held. The layout is the one tree no staff navigation leaves:
+hoisting the poll there (plus a stash for hard loads) closed every exit at once — including ones
+nobody had listed — and let the holds be retired instead of extended (Phase 2g, decision 8a).
+
+## #202
+
+**A phase that only an outside answer can end lends its lifetime to every refusal it powers — so
+bound it.** Phase 2g's reader collect stayed `recording` until the webhook wrote the order; the
+"reader is busy" refusal for other tables read that phase. A charge whose order never recorded
+therefore refused the reader for the life of the tab, survived a reload, and could not be dismissed
+(blind review C1). The fix is a terminal phase at the bound the money already obeys (`unrecorded`
+at `SETTLE_TTL_MS` past the capture — the freeze that keeps cash refused), on a clock stored WITH
+the record so a reload resumes it instead of restarting it — and copy that says the bound was hit
+("charged, nothing recorded — tell a manager"), never a silent stop. Ask of every "wait until X"
+state: what ends it if X never comes, and what does it refuse meanwhile? And the line the bound
+produces must be at least as DURABLE as the state it replaced: the first cut dropped the stash at
+the bound, so a reload erased the one "don't take payment again" on the tab (Codex r1 on #309) —
+the warning now persists, marked, until a person closes it.
+
+## #203
+
+**A tab's own copy of a server fact must lose to the server when the server knows more.** The tab's
+"Paid · #CODE" card (it has the change; the row does not) was made to outrank the server-built,
+refund-gated card — so a refunded counter order still read Paid wherever this tab had collected it
+(blind review M2). "Local wins" is only safe for the fields the server cannot supply; a VERDICT the
+server owns (refunded, partly refunded) vetoes the local copy (`handoffRefunded`), the stash is
+dropped, and the closed state says what happened. Unknown is not "none": a failed read never vetoes
+and never confirms.
+
+## #204
+
+**A mount-time seed cannot hear a prop that changes on a component its key keeps mounted.**
+`FloorDetailLive` read `focusSettle` into a ref at mount; the split pane keys it by session, so the
+lane's Take payment on the order ALREADY in the pane changed the prop and nothing moved — and the
+opener's own heading focus ran after it anyway, because a parent's effect runs after its child's
+(Codex r1 on #309). When a prop is a one-shot REQUEST, handle its false → true edge after mount too,
+and make sure no ancestor's effect in the same commit re-focuses over it.

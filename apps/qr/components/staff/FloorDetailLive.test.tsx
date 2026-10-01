@@ -5,7 +5,8 @@ import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
-import { handoffStashKey } from "@/lib/floor-pane";
+import { handoffFocusKey, handoffStashKey } from "@/lib/floor-pane";
+import { READER_COLLECT_KEY, type ReaderCollect } from "@/lib/reader-collect";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -62,8 +63,12 @@ vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 const replace = vi.fn();
 const refresh = vi.fn();
 const push = vi.fn();
+// ONE router object, as Next's app router hands every render (its context value is stable): a
+// fresh object per call would re-create the page's `refresh` on every render, and its poll effect's
+// cleanup would cancel a debounced re-read the moment any context the page reads changes.
+const router = { replace, refresh, push };
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace, refresh, push }),
+  useRouter: () => router,
   usePathname: () => "/staff/table/s1",
 }));
 // Phase 2a · send — the table page now mounts the console's Send; its server action is inert here.
@@ -81,9 +86,11 @@ vi.mock("@/lib/voids", () => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
+const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -163,7 +170,9 @@ const DETAIL: TableDetail = {
 const mount = () =>
   render(
     <StaffLangProvider lang="en">
-      <FloorDetailLive initial={DETAIL} sessionId="s1" />
+      <ReaderCollectProvider>
+        <FloorDetailLive initial={DETAIL} sessionId="s1" />
+      </ReaderCollectProvider>
     </StaffLangProvider>,
   );
 /** Advance the fake clock and drain the promises it releases (the 5s poll → the read → setState). */
@@ -278,6 +287,116 @@ describe("FloorDetailLive — a closed table", () => {
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
+  it("a counter order the server shows as PAID keeps the page: it re-renders to the #CODE card", async () => {
+    // p2g-int/page-bounces-a-paid-counter-order — a colleague's settle (or another tablet's reader)
+    // closes the order under a phone: bounced to the counter, where a paid order is no longer
+    // listed, the code the guest is waiting on is nowhere; red.
+    answer = () =>
+      Promise.resolve({
+        kind: "closed",
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff: {
+          orderId: "o-00a1b2c3",
+          totalCents: 4210,
+          tipCents: 0,
+          tenderedCents: null,
+          isCounter: true,
+          cartId: "c-9",
+          sentEarly: false,
+        },
+      });
+    mount();
+    await tick(5000);
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  // Phase 2g · review (A11Y-4) — the refresh swaps the whole detail for the closed card; focus that
+  // was INSIDE the detail must land on the card (ClosedHandoffCard takes this one-shot note on mount
+  // — app/staff/table/[id]/page.test.tsx), and an idle phone is never given focus by a poll.
+  const PAID_VERDICT: TableDetailResult = {
+    kind: "closed",
+    label: "reg-7f3a",
+    tableNumber: null,
+    handoff: {
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: null,
+      isCounter: true,
+      cartId: "c-9",
+      sentEarly: false,
+    },
+    refund: "none",
+    orderId: "o-00a1b2c3",
+  };
+
+  it("focus INSIDE the detail when it swaps to the card: a one-shot note for the card, before the refresh", async () => {
+    mount();
+    const btn = document.querySelector<HTMLButtonElement>("main li button")!;
+    act(() => btn.focus());
+    answer = () => Promise.resolve(PAID_VERDICT);
+    let noted: string | null = "unset";
+    refresh.mockImplementation(() => {
+      noted = sessionStorage.getItem(handoffFocusKey("s1"));
+    });
+    await tick(5000);
+    expect(refresh).toHaveBeenCalled();
+    // MUTANT p2g-fix-code/swap-leaves-no-focus-note — the detail unmounts under the person and focus
+    // falls to <body>, unsaid; red.
+    expect(noted).not.toBeNull();
+    expect(Number(noted)).toBeGreaterThan(0);
+  });
+
+  it("an idle phone (focus on <body>) leaves no note: the swapped-in card is never focused by a poll", async () => {
+    mount();
+    expect(document.activeElement).toBe(document.body);
+    answer = () => Promise.resolve(PAID_VERDICT);
+    await tick(5000);
+    expect(refresh).toHaveBeenCalled();
+    // MUTANT p2g-fix-code/swap-note-always — a poll plants focus on an idle phone's card; red.
+    expect(sessionStorage.getItem(handoffFocusKey("s1"))).toBeNull();
+  });
+
+  it("a closed counter order with NO card it can read (unreadable) still returns to the counter", async () => {
+    answer = () =>
+      Promise.resolve({
+        kind: "closed",
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff: null,
+        refund: null,
+        orderId: null,
+      });
+    mount();
+    await tick(5000);
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
+  it("a REFUNDED counter order keeps the page: it re-renders to the refunded sentence", async () => {
+    // p2g-fix/page-bounces-a-refunded-counter-order — bounced to the counter, the phone is never
+    // told the money went back (the order is no longer listed there); red.
+    for (const refund of ["partial", "full"] as const) {
+      replace.mockReset();
+      refresh.mockReset();
+      answer = () =>
+        Promise.resolve({
+          kind: "closed",
+          label: "reg-7f3a",
+          tableNumber: null,
+          handoff: null,
+          refund,
+          orderId: "o-00a1b2c3",
+        });
+      const { unmount } = mount();
+      await tick(5000);
+      expect(replace).not.toHaveBeenCalled();
+      expect(refresh).toHaveBeenCalled();
+      unmount();
+    }
+  });
+
   it("a verdict that lands AFTER the page unmounted drives no navigation", async () => {
     let settle!: (r: TableDetailResult) => void;
     answer = () => new Promise<TableDetailResult>((r) => (settle = r));
@@ -299,7 +418,9 @@ describe("FloorDetailLive — the running-bill nudge (blind review, 2026-09-24)"
   const nudgeText = (over: Partial<TableDetail>) => {
     const r = render(
       <StaffLangProvider lang="en">
-        <FloorDetailLive initial={{ ...DETAIL, ...over }} sessionId="s1" />
+        <ReaderCollectProvider>
+          <FloorDetailLive initial={{ ...DETAIL, ...over }} sessionId="s1" />
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
     return r.container.textContent ?? "";
@@ -346,9 +467,27 @@ const mountWith = (
 ) =>
   render(
     <StaffLangProvider lang="en">
-      <FloorDetailLive initial={initial} sessionId="s1" {...extra} />
+      <ReaderCollectProvider>
+        <FloorDetailLive initial={initial} sessionId="s1" {...extra} />
+      </ReaderCollectProvider>
     </StaffLangProvider>,
   );
+/** A stashed reader collect for `sessionId` (Phase 2g · reader — the provider's record shape). */
+const collectFor = (sessionId: string, over: Partial<ReaderCollect> = {}): ReaderCollect => ({
+  sessionId,
+  paymentIntentId: "pi_1",
+  totalCents: 4210,
+  isCounter: false,
+  name: { counter: false, display: "4" },
+  sentEarly: false,
+  cartId: "c1",
+  startedAt: Date.now(),
+  liveAt: Date.now(),
+  hidden: false,
+  recordingSince: null,
+  unrecordedAt: null,
+  ...over,
+});
 /** The settle section's controls, in DOM order. */
 const settleButtons = () =>
   [...document.getElementById("settle-h")!.closest("section")!.querySelectorAll("button")].filter(
@@ -481,10 +620,8 @@ describe("FloorDetailLive — the paid card and the ONE polite region (P2r)", ()
 
   it("the reader's status is SAID through the page's one region, SHOWN in its panel with no region of its own", async () => {
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
-    sessionStorage.setItem(
-      "mms-terminal-collect:s1",
-      JSON.stringify({ paymentIntentId: "pi_1", totalCents: 4210 }),
-    );
+    // Phase 2g · reader — the provider's ONE record (a reload mid-collect restores it).
+    sessionStorage.setItem(READER_COLLECT_KEY, JSON.stringify(collectFor("s1")));
     mountWith({ ...SETTLEABLE, paymentInFlight: true }, { terminalReady: true });
     await tick(0);
     await tick(0);
@@ -528,6 +665,7 @@ describe("FloorDetailLive — the paying banner names WHO holds the money (P2w, 
 describe("FloorDetailLive — a send line stays SHOWN while the reader's status is SAID (critic finding)", () => {
   it("a standing 'Couldn't send' is still on screen (aria-hidden) while the reader panel speaks", async () => {
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    // Phase 2g · reader — a tab open at deploy: the pre-2g per-table key, adopted by this detail.
     sessionStorage.setItem(
       "mms-terminal-collect:s1",
       JSON.stringify({ paymentIntentId: "pi_1", totalCents: 4210 }),
@@ -1543,5 +1681,355 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
       ts("en", "table.send.cta.many").replace("{n}", "2"),
     );
     expect(document.querySelector(".table-detail-name")).toBeNull();
+  });
+
+  // ── Phase 2g · P2fk — the order nobody collected ──
+  const uncollectedWords = tf(
+    "en",
+    COUNTER_UNCOLLECTED_HOURS === 1
+      ? "table.detail.uncollected.one"
+      : "table.detail.uncollected.many",
+    { n: COUNTER_UNCOLLECTED_HOURS },
+  );
+  it("an uncollected counter order says so ABOVE the No-show choice — a fact, not a live region", () => {
+    // p2g-uncollected/detail/note-dropped
+    mountWith({ ...ALL_SENT, counterUncollected: true });
+    const note = document.querySelector<HTMLElement>("[data-uncollected]")!;
+    expect(note.textContent).toBe(uncollectedWords);
+    expect(note.getAttribute("role")).toBeNull();
+    expect(note.closest('[role="status"], [aria-live]')).toBeNull();
+    const noShow = screen.getByRole("button", { name: ts("en", "table.noshow.btn") });
+    // DOCUMENT_POSITION_FOLLOWING: the button comes after the note it informs
+    expect(note.compareDocumentPosition(noShow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("…and above Clear on a comped-only order (nothing owed, nothing to write off)", () => {
+    mountWith({ ...WALKUP, counterUncollected: true });
+    const note = document.querySelector<HTMLElement>("[data-uncollected]")!;
+    const clear = screen.getByRole("button", { name: ts("en", "settle.clear.btn") });
+    expect(note.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("not while a payment is moving on it — the guest may be at the counter paying right now", () => {
+    // p2g-fix/uncollected-note-while-paying (Phase 2g review, PT-6)
+    mountWith({ ...ALL_SENT, counterUncollected: true, paymentInFlight: true });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+  });
+
+  it("absent or false — and never on a table — reads as not uncollected: no note", () => {
+    mountWith(ALL_SENT);
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    cleanup();
+    mountWith({ ...ALL_SENT, counterUncollected: false });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    cleanup();
+    mountWith({ ...DETAIL, counterUncollected: true });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    expect(document.querySelector("main")!.textContent).not.toContain(uncollectedWords);
+  });
+});
+
+// ── Phase 2g · reader (P2em · P2en) ── the collect outlives the page that started it. Both cases were
+// written FIRST against the pre-2g page (the collect in this component's own state) and watched
+// red there: "← Floor" mid-collect stopped the poll (3 calls expected, 0 made), and a start
+// answering after the page left never polled at all.
+describe("FloorDetailLive — the reader collect outlives the page (P2em · P2en)", () => {
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+    unpaidSent: true,
+  };
+  function Harness({ show, initial = SETTLEABLE }: { show: boolean; initial?: TableDetail }) {
+    return (
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          {show ? <FloorDetailLive initial={initial} sessionId="s1" terminalReady /> : <p>floor</p>}
+        </ReaderCollectProvider>
+      </StaffLangProvider>
+    );
+  }
+
+  it("← Floor mid-collect: the poll keeps answering, and back on the table the panel is there again", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_1", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const r = render(<Harness show />);
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    expect(terminalStatus).toHaveBeenCalled();
+    r.rerender(<Harness show={false} />);
+    const before = terminalStatus.mock.calls.length;
+    await tick(7500);
+    expect(terminalStatus.mock.calls.length).toBe(before + 3);
+    // Back to the table (the cart is frozen now): the panel re-attaches — the settle button does not
+    // come back over a live collect.
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...SETTLEABLE, paymentInFlight: true } });
+    r.rerender(<Harness show initial={{ ...SETTLEABLE, paymentInFlight: true }} />);
+    await tick(0);
+    expect(screen.getByRole("group", { name: ts("en", "settle.a11y.readerPanel") })).toBeTruthy();
+    expect(orderRegion().textContent).toBe(ts("en", "settle.reader.status.waiting"));
+  });
+
+  it("a start answering after the page left still polls (P2en), and a counter landing leaves its card for the table", async () => {
+    let ok!: (v: unknown) => void;
+    settleCard.mockReturnValueOnce(new Promise((res) => (ok = res)));
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const r = render(<Harness show initial={COUNTER} />);
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    r.rerender(<Harness show={false} />);
+    await act(async () => {
+      ok({ ok: true, paymentIntentId: "pi_1", totalCents: 4210 });
+    });
+    await tick(2500);
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_1" });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+    });
+    await tick(2500);
+    // The card the cashier hands the bag over by — with the TAP's "went out unpaid".
+    const stashed = JSON.parse(sessionStorage.getItem(handoffStashKey("s1"))!);
+    expect(stashed).toMatchObject({ orderId: "o-00a1b2c3", isCounter: true, sentEarly: true });
+  });
+
+  it("a TABLE charge landing on screen re-reads the page's own detail — no card, never a router.refresh", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_1", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(<Harness show />);
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: "o-2",
+      totalCents: 4210,
+    });
+    const before = getTableDetail.mock.calls.length;
+    await tick(2500);
+    await tick(400);
+    // MUTATION (p2c-register/reader-landed-no-page-reread, re-anchored): the landing hands the page
+    // nothing to re-read on — it shows its live settle state for up to a poll interval; red.
+    expect(getTableDetail.mock.calls.length).toBeGreaterThan(before);
+    expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("a counter order closing while its reader still collects is HELD on screen (the poll will land its card)", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_1", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(<Harness show initial={COUNTER} />);
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2g-reader/bounce-ignores-the-collect): the bounce held only by a card — the
+    // webhook's close yanks the cashier to the floor before the #CODE ever lands; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("group", { name: ts("en", "settle.a11y.readerPanel") })).toBeTruthy();
+  });
+
+  it("a counter charge landing on screen: the page adopts the card (focused), and the bounce holds", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_1", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(<Harness show initial={COUNTER} />);
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+    });
+    await tick(2500);
+    // MUTATION (p2g-reader/detail-ignores-the-landed-card): the page never adopts the landing — the
+    // counter order closes behind its charge with no #CODE on the screen that took it; red.
+    const card = screen.getByRole("region", { name: /Paid.*#A1B2C3/ });
+    expect(document.activeElement).toBe(card);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    expect(replace).not.toHaveBeenCalled();
+  });
+});
+
+// ── Phase 2g · P2em (D2) ── a SETTLED counter order's #CODE card, built on the server from its paid
+// row: the session the webhook's best-effort close left active shows its card here, with no panel and
+// no stash. This tab's own card (the tender, the change) wins wherever it stands.
+describe("FloorDetailLive — a settled counter order's server-built #CODE card (P2em · D2)", () => {
+  const SERVER_CARD = {
+    orderId: "o-00a1b2c3",
+    totalCents: 4210,
+    tipCents: 0,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: "c1",
+    sentEarly: false,
+  };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
+  const SETTLED: TableDetail = {
+    ...COUNTER,
+    settled: true,
+    cartId: null,
+    settleTotalCents: null,
+    status: "paid",
+    paidTotalCents: 4210,
+    paidOrderId: "o-00a1b2c3",
+    refund: { state: "none", refundedCents: 0, netPaidCents: 4210 },
+    settledOrderCount: 1,
+    serverHandoff: SERVER_CARD,
+  };
+
+  it("with no card of its own, the page shows the server's — named by its facts, and NOT focused", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    mountWith(SETTLED);
+    await tick(0);
+    // MUTANT p2g-code/detail-ignores-server-card — the settled counter order reads "Paid $42.10"
+    // with no #CODE anywhere on the screen the bag is handed over from; red.
+    const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    expect(card.textContent).toContain(ts("en", "table.detail.handoff.callout"));
+    // MUTANT p2g-code/server-card-steals-focus — a card FOUND on arrival is not a settle that just
+    // landed: focus stays where the person put it; red.
+    expect(document.activeElement).not.toBe(card);
+    await tick(5000);
+    expect(document.activeElement).not.toBe(card);
+    // Never a second polite region (P2r).
+    expect(polite()).toHaveLength(1);
+  });
+
+  it("this tab's card WINS over the server's — the cash settle's change stays on screen", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+    });
+    mountWith(COUNTER);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    fireEvent.change(document.getElementById("cash-tendered") as HTMLInputElement, {
+      target: { value: "50" },
+    });
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    // The settle's re-read: the order is paid, and its close was missed — the server's card rides it.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    await tick(400);
+    await tick(5000);
+    // MUTANT p2g-code/detail-server-card-beats-client — the server card (no tender) replaces the
+    // cashier's: "Change $7.90" disappears from under the hand counting it out; red.
+    const card = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ });
+    expect(card).toBeTruthy();
+  });
+
+  it("no server card in the detail (a table, an open cart, money that came back): no card", () => {
+    mountWith({ ...SETTLED, serverHandoff: null });
+    expect(screen.queryByRole("region", { name: /#A1B2C3/ })).toBeNull();
+  });
+
+  // ── Phase 2g · review (M2 · PT-3) ── the server's refund verdict VETOES this tab's card.
+  async function cashCardOnScreen() {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+    });
+    mountWith(COUNTER);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    fireEvent.change(document.getElementById("cash-tendered") as HTMLInputElement, {
+      target: { value: "50" },
+    });
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    await tick(400);
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
+  }
+
+  it.each([
+    [
+      "partly (status still 'paid')",
+      { state: "partial" as const, refundedCents: 1200, netPaidCents: 3010 },
+      () => tf("en", "table.detail.refunded.partial", { m: "$30.10", r: "$12.00" }),
+    ],
+    [
+      "in full",
+      { state: "full" as const, refundedCents: 4210, netPaidCents: 0 },
+      () => tf("en", "table.detail.refunded.full", { m: "$42.10" }),
+    ],
+  ])(
+    "a refund of the card's OWN order, %s: no 'Paid' card over it, the refund said, the stash dropped",
+    async (_, refund, said) => {
+      await cashCardOnScreen();
+      // A manager refunds it; the next read names the SAME order (`paidOrderId`) as refunded.
+      answer = () =>
+        Promise.resolve({
+          kind: "detail",
+          // The floor status stays "paid" (the chip reads the refund); the refund state is the
+          // ONE derivation's (`summarizeRefund` — status 'refunded' or the amount, either way).
+          detail: { ...SETTLED, serverHandoff: null, refund },
+        });
+      await tick(5000);
+      // MUTANT p2g-fix-code/veto-ignored-on-detail — "this tab's card wins" outranks the refund:
+      // "✓ Paid · Change $7.90 · #A1B2C3" stands over money that went back; red.
+      expect(screen.queryByRole("region", { name: /#A1B2C3/ })).toBeNull();
+      expect(document.querySelector("main")!.textContent).toContain(said());
+      // MUTANT p2g-fix-code/detail-stash-kept-after-refund — the card's stash outlives the veto, and
+      // the pane restores "Paid" over the refund on the next visit; red.
+      expect(sessionStorage.getItem(handoffStashKey("s1"))).toBeNull();
+    },
+  );
+
+  it("a refund of ANOTHER order, or an unknown refund state, never takes the card", async () => {
+    await cashCardOnScreen();
+    answer = () =>
+      Promise.resolve({
+        kind: "detail",
+        detail: {
+          ...SETTLED,
+          paidOrderId: "o-0000new2",
+          serverHandoff: null,
+          refund: { state: "full", refundedCents: 4210, netPaidCents: 0 },
+        },
+      });
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...SETTLED, refund: null } });
+    await tick(5000);
+    expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
   });
 });

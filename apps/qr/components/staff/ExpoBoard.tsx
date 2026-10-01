@@ -70,6 +70,9 @@ import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
 import { useCounterAttention } from "./CounterBell";
+import { useTablePane } from "./TablePaneContext";
+import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
+import { uncollectedBadgeWords } from "./CounterOrderCard";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -642,10 +645,8 @@ export function ExpoBoard({
   // free is still a bag (in `bagCount`) but nothing is collected for it.
   const unpaidCount = unpaid.filter((b) => b.owes).length;
   // Phase 2f review (M1) — the unpaid read hit its cap: the paid bags are all here, the unpaid ones
-  // are not. Said beside the count, and the lane never reads as an all-clear over it. The widening
-  // is a no-op once lib's `ExpoQueue.unpaidTruncated` lands (resolves at integration).
-  const unpaidTruncated =
-    (snap as ExpoQueue & { unpaidTruncated?: boolean }).unpaidTruncated === true;
+  // are not. Said beside the count, and the lane never reads as an all-clear over it.
+  const unpaidTruncated = snap.unpaidTruncated === true;
   const empty = count === 0 && !unpaidTruncated;
 
   // What the lane's region ANNOUNCES (Codex round 1 on A4·2): the counts as they change — a bag
@@ -1066,7 +1067,7 @@ function ExpoCard({
           landing on. */}
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
         {ticket.lines.map((l) => (
-          <ExpoLineRow key={l.id} line={l} />
+          <ExpoLineRow key={l.id} line={l} noChargeTag />
         ))}
       </ul>
       {/* P2 — the four (grocery × stage) labels are spelled out as WHOLE al() calls with LITERAL
@@ -1188,14 +1189,20 @@ function UnpaidBagCard({
   const lang = useStaffLang();
   const echoes = useEchoesShown();
   const router = useRouter();
+  // The counter split's own opener (null off the counter screen): a router push of `paneUrl` from
+  // THIS screen changes the address and opens nothing (the split follows `hashchange` only).
+  const pane = useTablePane();
   const who = bag.customerName ?? ts(lang, "reg.row.walkup");
   const age = expoAge({ arrivedAt: null, pickupSlot: null, createdAt: bag.sentAt }, nowMs);
   const owes = bag.owes;
   // The card's NAME carries the visible badge words exactly as the badge draws them (no echo in a
   // badge — the device's `shown` decides nothing there, but the name follows the same call).
+  // Phase 2g · P2fk — the uncollected badge follows the bag's money badge, so its words follow them
+  // in the name (the floor card's words, `uncollectedBadgeWords`).
+  const uncollected = bag.uncollected === true ? `, ${uncollectedBadgeWords(lang, echoes)}` : "";
   const cardName = owes
-    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}`
-    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${noChargeBadgeWords(lang, echoes)}`;
+    ? `${tf(lang, "expo.a11y.cardUnpaid", { x: who })}, ${unpaidBadgeWords(lang, echoes)}${uncollected}`
+    : `${tf(lang, "expo.a11y.cardNoCharge", { x: who })}, ${noChargeBadgeWords(lang, echoes)}${uncollected}`;
   const href = owes ? `/staff/table/${bag.sessionId}?settle=1` : `/staff/table/${bag.sessionId}`;
   return (
     <article className="card card-textured" style={cardStyle} aria-label={cardName} data-unpaid="">
@@ -1232,10 +1239,30 @@ function UnpaidBagCard({
             <Chrome lang={lang} k="expo.bag.noCharge" />
           </Badge>
         )}
+        {/* Phase 2g · P2fk — nobody has come for this food in hours: a fact beside the money badge.
+            Flag only: the lane's order is unchanged. */}
+        {bag.uncollected === true && (
+          <>
+            {" "}
+            <Badge tone="warn" bordered>
+              <Chrome
+                lang={lang}
+                k={plural(
+                  COUNTER_UNCOLLECTED_HOURS,
+                  "floor.counter.uncollected.badge.one",
+                  "floor.counter.uncollected.badge.many",
+                )}
+                vars={{ n: COUNTER_UNCOLLECTED_HOURS }}
+              />
+            </Badge>
+          </>
+        )}
       </p>
       <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
+        {/* M250 — a comp line says "No charge" only beside lines that are charged: on a bag that
+            owes nothing the badge above already says it once for the whole bag. */}
         {bag.lines.map((l) => (
-          <ExpoLineRow key={l.id} line={l} />
+          <ExpoLineRow key={l.id} line={l} noChargeTag={owes} />
         ))}
       </ul>
       {bag.moreUnits > 0 && (
@@ -1291,6 +1318,8 @@ function UnpaidBagCard({
           )
             return;
           e.preventDefault();
+          if (pane?.openSession(bag.sessionId, { counter: true, display: "" }, { settle: owes }))
+            return;
           router.push(paneUrl(bag.sessionId, { settle: owes }));
         }}
       >
@@ -1315,7 +1344,12 @@ function noChargeBadgeWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "expo.bag.noCharge", false, shown);
 }
 
-function ExpoLineRow({ line }: { line: ExpoLine }) {
+/**
+ * One bag line. M250 — a COMPED line (`line.noCharge`) carries a "No charge" tag beside its
+ * destination, so the bagger packs it and the counter never asks for it. `noChargeTag` is the
+ * card's say: false on a bag that owes nothing, whose one bag-level badge already says it.
+ */
+function ExpoLineRow({ line, noChargeTag }: { line: ExpoLine; noChargeTag: boolean }) {
   const lang = useStaffLang();
   return (
     <li style={lineRow}>
@@ -1343,6 +1377,12 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
           />
         )}
       </span>
+      {/* A tag, so no echo (the chip rule); <Chrome> marks its own Burmese span. */}
+      {line.noCharge && noChargeTag && (
+        <span style={destTag}>
+          <Chrome lang={lang} k="expo.bag.noCharge" />
+        </span>
+      )}
       <span style={destTag} lang={lang}>
         {ts(lang, line.fulfillment === "grocery" ? "expo.dest.grocery" : "expo.dest.togo")}
       </span>

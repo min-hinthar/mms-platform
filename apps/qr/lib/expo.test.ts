@@ -17,9 +17,13 @@ vi.mock("./staff", () => ({
     Promise.resolve({ ok: true, caller: { uid: "u-1", staffId: "s-1", role: "server" } }),
 }));
 vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
-vi.mock("./line-names", () => ({
-  loadLineNames: () => Promise.resolve({ nameMyByRef: new Map(), optionNameMy: new Map() }),
+// M250 — records its input, so a case can prove the comps' names load in the ONE call.
+const names = vi.hoisted(() => ({
+  loadLineNames: vi.fn((_db: unknown, _refs: readonly { id?: string }[], _opts: unknown) =>
+    Promise.resolve({ nameMyByRef: new Map(), optionNameMy: new Map() }),
+  ),
 }));
+vi.mock("./line-names", () => ({ loadLineNames: names.loadLineNames }));
 
 // Phase 2f — the lane's unpaid read, answered per case.
 const uq = vi.hoisted(() => ({
@@ -39,8 +43,23 @@ const ORDER_A = "11111111-1111-4111-8111-111111111111";
 const ORDER_B = "22222222-2222-4222-8222-222222222222";
 
 type Row = Record<string, unknown>;
-type Rec = { table: string; ins: [string, unknown[]][] };
+type Rec = {
+  table: string;
+  ins: [string, unknown[]][];
+  eqs: [string, unknown][];
+  neqs: [string, unknown][];
+};
 let recs: Rec[] = [];
+/** M250 — the comp read and the kitchen-state read are BOTH `qr_cart_items`; the comp read is the
+ *  one that filters `comped = true`. Each answers from its own rows, error and count, so the kitchen
+ *  read's ADVISORY posture and the comp read's OUTAGE posture are pinned independently. */
+const isCompRead = (r: Rec) =>
+  r.table === "qr_cart_items" && r.eqs.some(([c, v]) => c === "comped" && v === true);
+const kitchenRead = () => recs.find((r) => r.table === "qr_cart_items" && !isCompRead(r));
+const compRead = () => recs.find(isCompRead);
+let compRows: Row[] = [];
+let compFail = false;
+let compCount: number | null = null;
 let cartLinesFail = false;
 /** The `count: "exact"` the cart-lines read carries — more than the rows means PostgREST truncated. */
 let cartLinesCount: number | null = null;
@@ -48,13 +67,22 @@ let orderRows: Row[] = [];
 /** When set, the orders read takes its snapshot here (the settlement-race fake). */
 let ordersSnapshot: (() => Row[]) | null = null;
 let cartLineRows: Row[] = [];
+/** When set, the snapshot read answers these rows instead of one to-go Mohinga per order. */
+let orderItemRows: Row[] | null = null;
 
 function tableApi(name: string) {
-  const r: Rec = { table: name, ins: [] };
+  const r: Rec = { table: name, ins: [], eqs: [], neqs: [] };
   recs.push(r);
   const api: Record<string, unknown> = {
     select: () => api,
-    eq: () => api,
+    eq(col: string, val: unknown) {
+      r.eqs.push([col, val]);
+      return api;
+    },
+    neq(col: string, val: unknown) {
+      r.neqs.push([col, val]);
+      return api;
+    },
     or: () => api,
     order: () => api,
     limit: () => api,
@@ -70,17 +98,19 @@ function tableApi(name: string) {
         }
         if (name === "qr_order_items")
           return {
-            data: orderRows.map((o) => ({
-              id: `line-${o.id}`,
-              order_id: o.id,
-              name: "Mohinga",
-              qty: 1,
-              modifiers: [],
-              modifier_option_ids: [],
-              fulfillment: "togo",
-              notes: null,
-              menu_item_id: "dish-1",
-            })),
+            data:
+              orderItemRows ??
+              orderRows.map((o) => ({
+                id: `line-${o.id}`,
+                order_id: o.id,
+                name: "Mohinga",
+                qty: 1,
+                modifiers: [],
+                modifier_option_ids: [],
+                fulfillment: "togo",
+                notes: null,
+                menu_item_id: "dish-1",
+              })),
             error: null,
           };
         if (name === "qr_carts")
@@ -91,6 +121,12 @@ function tableApi(name: string) {
             ],
             error: null,
           };
+        // The fake applies NO filter: the comp rows come back as given, so the TS predicate
+        // (`paidBagCompLine`) is what must drop a voided or dine-in one.
+        if (isCompRead(r))
+          return compFail
+            ? { data: null, error: { message: "comps unreadable" }, count: null }
+            : { data: compRows, error: null, count: compCount ?? compRows.length };
         if (name === "qr_cart_items")
           return cartLinesFail
             ? { data: null, error: { message: "lines unreadable" }, count: null }
@@ -110,6 +146,8 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 const { getExpoQueue } = await import("./expo");
+const { isScanGoBasket } = await import("./expo-rules");
+const { laneFacts } = await import("./counter-attention");
 
 const order = (id: string, cartId: string | null, createdAt: string): Row => ({
   id,
@@ -130,6 +168,11 @@ beforeEach(() => {
   ordersSnapshot = null;
   cartLinesFail = false;
   cartLinesCount = null;
+  compRows = [];
+  compFail = false;
+  compCount = null;
+  orderItemRows = null;
+  names.loadLineNames.mockClear();
   // B is due EARLIER than A; only the kitchen state can put A first.
   orderRows = [
     order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"),
@@ -147,8 +190,11 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
   it("reads the tickets' cart lines by cart id and lifts a finished bag above one still cooking", async () => {
     const res = await getExpoQueue();
     if (!res.ok) throw new Error("expected ok");
-    const lines = recs.find((r) => r.table === "qr_cart_items");
+    // The KITCHEN read (no comped filter) — never whichever `qr_cart_items` read runs first: the
+    // M250 comp read now runs before it.
+    const lines = kitchenRead();
     expect(lines?.ins).toEqual([["cart_id", [CART_A, CART_B]]]);
+    expect(lines?.eqs).toEqual([]);
     expect(res.queue.tickets.map((t) => [t.orderId, t.kitchen])).toEqual([
       [ORDER_A, "done"],
       [ORDER_B, "cooking"],
@@ -261,6 +307,8 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
         kitchen: "cooking",
         doneAt: null,
         sentAt: "2026-09-13T17:50:00.000Z",
+        // Phase 2g · P2fk — ten minutes on the DB clock: not uncollected.
+        uncollected: false,
       },
     ]);
   });
@@ -397,6 +445,239 @@ describe("getExpoQueue — an open counter order with food in the kitchen is an 
       [ORDER_B]: CART_B,
     });
   });
+
+  // ── Phase 2g · P2fk — a bag nobody came for, flagged on the DATABASE clock ──
+  // The fake's DB clock (`NOW`, 2026-09-13) is weeks behind the process clock, so a bag sent half an
+  // hour before it is fresh by the DB and four-hours-plus by the app: the two clocks separate.
+  it("a bag whose food has waited past the horizon BY THE DB CLOCK is uncollected; a fresh one is not", async () => {
+    // p2g-uncollected/expo/app-clock · flag-dropped
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        {
+          ...unpaidCart([
+            item({ id: "fresh", state: "served", fire_at: "2026-09-13T17:30:00.000Z" }),
+          ]),
+          id: "cart-fresh",
+          session_id: "sess-fresh",
+        },
+        {
+          ...unpaidCart([
+            item({ id: "old", state: "served", fire_at: "2026-09-13T13:59:00.000Z" }),
+          ]),
+          id: "cart-old",
+          session_id: "sess-old",
+        },
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const by = new Map(res.queue.unpaid.map((b) => [b.cartId, b]));
+    expect(by.get("cart-fresh")?.uncollected).toBe(false);
+    expect(by.get("cart-old")?.uncollected).toBe(true);
+    // The flag and the age are one derivation: the bag's age is the line that aged it.
+    expect(by.get("cart-old")?.sentAt).toBe("2026-09-13T13:59:00.000Z");
+  });
+
+  it("a comped-only bag that waits is uncollected too — it owes nothing, and it is still a bag", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        unpaidCart([
+          item({ id: "c", state: "served", comped: true, fire_at: "2026-09-13T12:00:00.000Z" }),
+        ]),
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.queue.unpaid[0]).toMatchObject({ owes: false, uncollected: true });
+  });
+});
+
+// ── M250 — a comped dish rides its PAID bag ──────────────────────────────────────────────────────
+describe("getExpoQueue — a comped takeaway dish rides its PAID bag, marked no charge (M250)", () => {
+  /** A comp-read row: the fake applies no filter, so each row reaches the TS predicate as given. */
+  const comp = (over: Row): Row => ({
+    id: "c-1",
+    cart_id: CART_B,
+    name: "Shan noodles",
+    qty: 1,
+    modifiers: [],
+    modifier_option_ids: [],
+    fulfillment: "togo",
+    notes: null,
+    menu_item_id: "dish-2",
+    state: "in_progress",
+    comped: true,
+    created_at: "2026-09-13T16:59:00.000Z",
+    ...over,
+  });
+  const linesOf = (q: { tickets: { orderId: string; lines: { id: string }[] }[] }, id: string) =>
+    q.tickets.find((t) => t.orderId === id)?.lines.map((l) => l.id);
+
+  it("the bag's own comp joins it after the snapshot, marked noCharge; the other bag is untouched", async () => {
+    // comps-never-merged · comps-on-every-bag · comp-predicate-skipped · comp-unmarked
+    compRows = [
+      comp({}),
+      comp({ id: "c-v", state: "voided" }), // voided — off the order, off the bag
+      comp({ id: "c-d", fulfillment: "dinein" }), // dine-in — stays on the table
+      comp({ id: "c-u", comped: false }), // uncomped — already in the snapshot, charged
+    ];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(linesOf(res.queue, ORDER_B)).toEqual([`line-${ORDER_B}`, "c-1"]);
+    expect(linesOf(res.queue, ORDER_A)).toEqual([`line-${ORDER_A}`]);
+    const b = res.queue.tickets.find((t) => t.orderId === ORDER_B)!;
+    expect(b.lines.map((l) => l.noCharge)).toEqual([undefined, true]);
+    // An ABSENT field reads as chargeable — the snapshot line carries no key at all.
+    expect(Object.hasOwn(b.lines[0]!, "noCharge")).toBe(false);
+    expect(b.lines[1]).toEqual({
+      id: "c-1",
+      name: "Shan noodles",
+      nameMy: null,
+      qty: 1,
+      modifiers: [],
+      modifiersMy: [],
+      fulfillment: "togo",
+      notes: null,
+      noCharge: true,
+    });
+  });
+
+  it("reads the paid bags' carts, comped and not voided, to-go and grocery — its own read, not the kitchen's", async () => {
+    compRows = [comp({})];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(compRead()?.ins).toEqual([
+      ["cart_id", [CART_A, CART_B]],
+      ["fulfillment", ["togo", "grocery"]],
+    ]);
+    expect(compRead()?.eqs).toEqual([["comped", true]]);
+    expect(compRead()?.neqs).toEqual([["state", "voided"]]);
+    // Two reads of the cart's lines, never one serving both postures.
+    expect(recs.filter((r) => r.table === "qr_cart_items")).toHaveLength(2);
+  });
+
+  it("an unreadable comp read is an OUTAGE — never a bag drawn without its comp", async () => {
+    // comp-read-error-swallowed
+    compRows = [comp({})];
+    compFail = true;
+    expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
+  });
+
+  it("a comp read SHORT of its own count is truncated — an outage, logged", async () => {
+    // comp-read-truncation-ignored — PostgREST's max-rows cap is silent; a bag whose comp fell past
+    // it would be handed over without it.
+    compRows = [comp({})];
+    compCount = 3;
+    expect(await getExpoQueue()).toEqual({ ok: false, reason: "outage" });
+    expect(console.error).toHaveBeenCalledWith(
+      expect.stringContaining("comp read truncated"),
+      expect.anything(),
+    );
+  });
+
+  it("the kitchen-state read stays ADVISORY beside it: failed, the comps still ride and the bags read unknown", async () => {
+    compRows = [comp({})];
+    cartLinesFail = true;
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok — the kitchen badge is advisory");
+    expect(linesOf(res.queue, ORDER_B)).toEqual([`line-${ORDER_B}`, "c-1"]);
+    expect(res.queue.tickets.map((t) => t.kitchen)).toEqual(["unknown", "unknown"]);
+  });
+
+  it("the comps' Burmese names load in the ONE name read", async () => {
+    // comp-names-unloaded — a comp line would render English-only under `my`.
+    compRows = [comp({})];
+    await getExpoQueue();
+    expect(names.loadLineNames).toHaveBeenCalledTimes(1);
+    const refs = names.loadLineNames.mock.calls[0]![1];
+    expect(refs.map((r) => r.id)).toContain("c-1");
+  });
+
+  it("an order with no cart keeps its snapshot only, and the comp read asks for the carts there are", async () => {
+    orderRows = [
+      order(ORDER_A, null, "2026-09-13T17:30:00Z"),
+      order(ORDER_B, CART_B, "2026-09-13T17:00:00Z"),
+    ];
+    compRows = [comp({})];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    expect(compRead()?.ins[0]).toEqual(["cart_id", [CART_B]]);
+    expect(linesOf(res.queue, ORDER_A)).toEqual([`line-${ORDER_A}`]);
+    expect(linesOf(res.queue, ORDER_B)).toEqual([`line-${ORDER_B}`, "c-1"]);
+  });
+
+  it("a grocery-only snapshot with a comped to-go dish is a FOOD bag, not a scan-and-go basket", async () => {
+    // Before M250 the comp was invisible, so the bag read as a basket: "Handed over" verbs, no
+    // Kitchen done, and a bell for a guest at the exit — while the dish was still on the wok.
+    orderRows = [order(ORDER_B, CART_B, "2026-09-13T17:00:00Z")];
+    orderItemRows = [
+      {
+        id: "g-1",
+        order_id: ORDER_B,
+        name: "Jasmine rice 5lb",
+        qty: 1,
+        modifiers: [],
+        modifier_option_ids: [],
+        fulfillment: "grocery",
+        notes: null,
+        menu_item_id: "0123456789012",
+      },
+    ];
+    cartLineRows = [
+      { cart_id: CART_B, state: "served", fulfillment: "togo", bumped_at: "2026-09-13T17:50:00Z" },
+    ];
+    const basket = await getExpoQueue();
+    if (!basket.ok) throw new Error("expected ok");
+    // The control: with no comp, the same order IS a basket — a verify key, no food key.
+    expect(isScanGoBasket(basket.queue.tickets[0]!.lines)).toBe(true);
+    expect([...laneFacts(basket.queue.tickets).guest]).toEqual([`verify:${ORDER_B}`]);
+
+    compRows = [comp({ state: "served" })];
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const t = res.queue.tickets[0]!;
+    expect(t.lines.map((l) => [l.id, l.fulfillment])).toEqual([
+      ["g-1", "grocery"],
+      ["c-1", "togo"],
+    ]);
+    expect(isScanGoBasket(t.lines)).toBe(false);
+    const facts = laneFacts(res.queue.tickets);
+    expect([...facts.guest]).toEqual([]);
+    expect([...facts.food]).toEqual([`food:${ORDER_B}`]);
+  });
+
+  it("an unpaid bag's comp line is marked noCharge from its own row; a chargeable one carries no key", async () => {
+    uq.value = {
+      ok: true,
+      truncated: false,
+      carts: [
+        {
+          id: "cart-u",
+          session_id: "sess-u",
+          customer_name: "Aye",
+          items: [
+            {
+              ...comp({ id: "s", comped: false, state: "served" }),
+              fire_at: "2026-09-13T17:50:00Z",
+            },
+            { ...comp({ id: "c", state: "fired" }), fire_at: "2026-09-13T17:55:00Z" },
+          ],
+        },
+      ],
+    };
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected ok");
+    const lines = res.queue.unpaid[0]!.lines;
+    expect(lines.map((l) => [l.id, l.noCharge])).toEqual([
+      ["s", undefined],
+      ["c", true],
+    ]);
+    expect(Object.hasOwn(lines[0]!, "noCharge")).toBe(false);
+  });
 });
 
 // ── Codex round 1 on #308 — settlement between the two lane reads ────────────────────────────────
@@ -470,5 +751,38 @@ describe("getExpoQueue — a bag settled between the two reads is drawn once, as
       ...res.queue.unpaid.map((b) => `unpaid:${b.cartId}`),
     ];
     expect(where).toEqual([`paid:${CART_U}`]);
+  });
+
+  it("M250 — a comped dish keeps its id across payment: 'k' on the unpaid bag, then 'k' (no charge) on the paid one", async () => {
+    // Before M250 the dish was on the unpaid bag and vanished from the paid one at settle.
+    const k = { ...openCart.items[0]!, id: "k", name: "Shan noodles", comped: true };
+    const cart = { ...openCart, items: [...openCart.items, k] };
+    compRows = [{ ...k, cart_id: CART_U, created_at: "2026-09-13T17:49:00.000Z" }];
+    // Two polls, either side of the payment (no flip mid-poll).
+    ordersSnapshot = () => (settled ? [order(ORDER_U, CART_U, "2026-09-13T17:58:00Z")] : []);
+    uq.impl = () => Promise.resolve({ ok: true, truncated: false, carts: settled ? [] : [cart] });
+    const shape = (ls: { id: string; noCharge?: true }[]) =>
+      ls.map((l) => [l.id, l.noCharge ?? "charged"]);
+
+    const before = await getExpoQueue();
+    if (!before.ok) throw new Error("expected ok");
+    expect(before.queue.tickets).toEqual([]);
+    expect(before.queue.unpaid.map((b) => shape(b.lines))).toEqual([
+      [
+        ["s", "charged"],
+        ["k", true],
+      ],
+    ]);
+
+    settled = true;
+    const after = await getExpoQueue();
+    if (!after.ok) throw new Error("expected ok");
+    expect(after.queue.unpaid).toEqual([]);
+    expect(after.queue.tickets.map((t) => shape(t.lines))).toEqual([
+      [
+        [`line-${ORDER_U}`, "charged"],
+        ["k", true],
+      ],
+    ]);
   });
 });

@@ -404,6 +404,15 @@ the plan state.
         SENT food through the loss gate (never a charge or a refund); the sweeper never closes a sent
         unpaid order. One migration (`20261001000000_p2f_counter_cook_before_paid.sql`) — applied to
         prod one file at the final reviewed head, before merge.
+  - [x] **2g — the counter screen keeps its promises** (2026-10-01, owner decision 8 — P2em · P2en ·
+        P2er · P2es · M250 · P2fz · P2fk): the card reader's collect lives above navigation (a
+        `/staff` layout provider + a chip in the staff bar), so no exit stops its poll or loses the
+        counter order's #CODE — which is also derivable from the order row on any device; the
+        split's pane/start holds are retired; a comped dish rides its paid bag, "No charge"; every
+        open counter order is reachable oldest first, and one nobody collected in 4 hours says so;
+        the lane's Take payment opens the tablet's pane at last. No SQL.
+  - [ ] **2h — a stuck or stale tablet** (P2cz · P2fc · P2bi): a hung Server Action must not trap a
+        sheet or hold every later write; staff tablets activate new builds safely.
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`

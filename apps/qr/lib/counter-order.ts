@@ -112,6 +112,61 @@ export function counterSent(lines: readonly CounterLine[], nowMs: number): boole
   return lines.some((l) => counterSentLine(l, nowMs));
 }
 
+// ── Phase 2g · P2fk — the order nobody collected ─────────────────────────────────────────────────
+
+/**
+ * How long a counter order's food may wait in the kitchen before the counter calls the order
+ * UNCOLLECTED (owner decision D7): four hours — the app's own idle horizon (`SESSION_TTL_MS`,
+ * `lib/session-ttl.ts`: a diner session nobody touched for that long is over) restated under its own
+ * name, because the two answer different questions and must stay free to part. A constant until the
+ * counter has a settings row of its own (the `EXPO_TONE_MIN` precedent, `lib/expo-rules.ts`).
+ *
+ * Why the order needs one at all: the expiry sweep exempts a `reg-` session whose cart holds food the
+ * kitchen has (`mms_sweep_expired_sessions`, 20261001000000), so a bag nobody came for stays open —
+ * and on the counter's capped reads — until someone takes payment or writes it off. This only FLAGS
+ * it; the write-off is the existing no-show, through the SQL loss gate.
+ */
+export const COUNTER_UNCOLLECTED_MS = 4 * 60 * 60 * 1000;
+/** The same threshold in whole hours — the `{n}` the "Not collected in over {n} hours" words carry. */
+export const COUNTER_UNCOLLECTED_HOURS = COUNTER_UNCOLLECTED_MS / 3_600_000;
+
+/**
+ * When the order's food reached the kitchen, in ms: the EARLIEST `lineFireMs` over its kitchen lines
+ * (`counterKitchenLine` — past the grace, not grocery, comps included: a comped dish is collected
+ * like any other), or null when nothing is in the kitchen. THE bag's age, named once: `unpaidBag`'s
+ * `sentAt` is this, and `counterUncollected` reads it, so the lane's age and the flag cannot part.
+ *
+ * ⚠️ A line whose `fire_at` is NULL dates from `nowMs` (`lineFireMs` — fired at or before now), so it
+ * NEVER ages: an order whose only kitchen food carries no stamp is never uncollected. Deliberate —
+ * the same reading the lane's age already gives it, and only a pre-Phase-2f row can carry one (the
+ * KDS bounds those by the line's `created_at`, a column the counter reads do not select).
+ */
+export function counterSentMs(lines: readonly CounterLine[], nowMs: number): number | null {
+  let sentMs: number | null = null;
+  for (const l of lines) {
+    if (!counterKitchenLine(l, nowMs)) continue;
+    const ms = lineFireMs(l.fire_at, nowMs);
+    if (sentMs === null || ms < sentMs) sentMs = ms;
+  }
+  return sentMs;
+}
+
+/**
+ * UNCOLLECTED — the order's food has been in the kitchen for `uncollectedMs` or longer
+ * (`counterSentMs`, at `nowMs`). Drafts, an in-grace send and grocery never count (nothing the
+ * kitchen has); a comped dish does. `nowMs` must be the DATABASE clock, like every counter decision
+ * (the floor's and the lane's reads pass `mms_now`). The threshold is a defaulted parameter so a test
+ * can reach it with a value; every caller takes the default.
+ */
+export function counterUncollected(
+  lines: readonly CounterLine[],
+  nowMs: number,
+  uncollectedMs: number = COUNTER_UNCOLLECTED_MS,
+): boolean {
+  const sentMs = counterSentMs(lines, nowMs);
+  return sentMs !== null && nowMs - sentMs >= uncollectedMs;
+}
+
 // ── the KDS gate ──────────────────────────────────────────────────────────────────────────────────
 
 export type KdsGateInput = {
@@ -311,8 +366,9 @@ export function unpaidBag<L extends CounterLine & { qty: number; bumped_at?: str
   const moreUnits = i.lines
     .filter((l) => l.state === "draft" && l.fulfillment !== "grocery")
     .reduce((a, l) => a + l.qty, 0);
-  let sentMs = Number.POSITIVE_INFINITY;
-  for (const l of inKitchen) sentMs = Math.min(sentMs, lineFireMs(l.fire_at, i.nowMs));
+  // Phase 2g · P2fk — the bag's age is `counterSentMs`, the ONE derivation `counterUncollected` reads
+  // (never null here: `inKitchen` is non-empty, and it is exactly the set `counterSentMs` scans).
+  const sentMs = counterSentMs(i.lines, i.nowMs) ?? i.nowMs;
   const kitchen = kitchenStateOf(inKitchen);
   // Self-review PT-4 — while a draft is unsent the ORDER is not done, whatever its sent lines say
   // (the floor card's rule), so no "Kitchen done" and no bell: the ring comes when the LAST batch

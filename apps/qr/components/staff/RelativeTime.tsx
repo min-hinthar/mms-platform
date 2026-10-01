@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { relativeAge } from "@/lib/relative-time";
+import { relativeAge, type RelativeAge } from "@/lib/relative-time";
+import type { StaffLang } from "@/lib/staff-lang";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 
@@ -18,6 +19,38 @@ import { Chrome } from "./Chrome";
  */
 export function RelativeTime({ iso, serverNow }: { iso: string; serverNow: string }) {
   const lang = useStaffLang();
+  return <RelativeAgeText iso={iso} age={useRelativeAge(iso, serverNow)} lang={lang} />;
+}
+
+/** The `<time>` itself, for an age already read (`useRelativeAge`) — `<RelativeTime>`'s render, and
+ *  a card's that must name the same value it draws. */
+export function RelativeAgeText({
+  iso,
+  age,
+  lang,
+}: {
+  iso: string;
+  age: RelativeAge;
+  lang: StaffLang;
+}) {
+  return (
+    <time dateTime={iso}>
+      {age.n === undefined ? (
+        <Chrome lang={lang} k={age.k} />
+      ) : (
+        <Chrome lang={lang} k={age.k} vars={{ n: age.n }} />
+      )}
+    </time>
+  );
+}
+
+/**
+ * Phase 2g — the age `<RelativeTime>` prints, as the hook it runs on: seeded from `serverNow`
+ * (hydration-safe), then ticked from the device clock with the server skew taken out. Exported so a
+ * card whose accessible name must CONTAIN the visible age (WCAG 2.5.3 — `CounterOrderCard`) reads
+ * the very value the `<time>` beside it draws, on the same tick, never a second clock.
+ */
+export function useRelativeAge(iso: string, serverNow: string): RelativeAge {
   const [nowMs, setNowMs] = useState(() => Date.parse(serverNow));
 
   useEffect(() => {
@@ -29,14 +62,5 @@ export function RelativeTime({ iso, serverNow }: { iso: string; serverNow: strin
     return () => clearInterval(id);
   }, [serverNow]);
 
-  const age = relativeAge(iso, nowMs);
-  return (
-    <time dateTime={iso}>
-      {age.n === undefined ? (
-        <Chrome lang={lang} k={age.k} />
-      ) : (
-        <Chrome lang={lang} k={age.k} vars={{ n: age.n }} />
-      )}
-    </time>
-  );
+  return relativeAge(iso, nowMs);
 }

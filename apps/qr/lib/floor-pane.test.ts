@@ -3,10 +3,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   FLOOR_HASH,
+  HANDOFF_FOCUS_TTL_MS,
   PANE_IDLE_QUERY,
   PANE_QUERY,
   acceptPaneRead,
+  closedCounterNote,
   dropHandoffStash,
+  handoffFocusKey,
+  markHandoffFocus,
+  takeHandoffFocus,
   handoffStashKey,
   handoffSuperseded,
   liveTwinOf,
@@ -26,8 +31,6 @@ import {
   paneHistoryOp,
   paneOwned,
   paneSelectionFromHash,
-  paneSelectionHeld,
-  paneStartHeld,
   paneUrl,
   parseHandoffStash,
   readHandoffStash,
@@ -381,47 +384,10 @@ describe("parseHandoffStash — register's canonical shape, display-only", () =>
   });
 });
 
-// ── Phase 2d · Codex round 1 · pane ──
-describe("paneSelectionHeld — a live reader collection holds the pane on its table (Codex #306)", () => {
-  const held = (over: Partial<Parameters<typeof paneSelectionHeld>[0]>) =>
-    paneSelectionHeld({ paying: A, from: A, to: B, cleared: false, ...over });
-  // MUTANT p2d-cx1/held-never — the hold answers false: a tap switches away mid-collect.
-  it("a switch to another table, a close (to: null) — refused while the table shown is paying", () => {
-    expect(held({})).toBe(true);
-    expect(held({ to: null })).toBe(true);
-  });
-  // MUTANT p2d-cx1/held-retap-refused — the same-table clause dropped: a re-tap is not a change.
-  it("a re-tap of the paying table itself is not a change", () => {
-    expect(held({ to: A })).toBe(false);
-  });
-  // MUTANT p2d-cx1/held-any-paying — the `paying === from` clause dropped: a stale report about
-  // ANOTHER table would hold the pane on one that is not paying.
-  it("only the table SHOWN holds: nothing paying, or another table's report, holds nothing", () => {
-    expect(held({ paying: null })).toBe(false);
-    expect(held({ paying: B })).toBe(false);
-    expect(held({ from: null, to: A })).toBe(false);
-  });
-  // MUTANT p2d-cx1/held-over-a-clear — a CLEARED table (a server fact) is never held.
-  it("a table cleared is never held", () => {
-    expect(held({ to: null, cleared: true })).toBe(false);
-  });
-});
-
-describe("paneStartHeld — a live reader collection holds every START too (Codex #306 round 2)", () => {
-  // MUTANT p2d-cx2/start-held-never — a start is admitted mid-collect: its landing routes the counter
-  // screen away and the collect panel with it.
-  it("held while the table SHOWN is collecting", () => {
-    expect(paneStartHeld({ paying: A, shown: A })).toBe(true);
-  });
-  // MUTANT p2d-cx2/start-held-any-paying — the `paying === shown` clause dropped: a stale report
-  // about a table no longer shown would refuse every start with nothing collecting.
-  it("nothing collecting, another table's report, or nothing shown — never held", () => {
-    expect(paneStartHeld({ paying: null, shown: A })).toBe(false);
-    expect(paneStartHeld({ paying: null, shown: null })).toBe(false);
-    expect(paneStartHeld({ paying: B, shown: A })).toBe(false);
-    expect(paneStartHeld({ paying: A, shown: null })).toBe(false);
-  });
-});
+// ── Phase 2g · reader (D1) ── `paneSelectionHeld` and `paneStartHeld` are retired with the holds
+// they decided (the collect's poll lives above navigation now); their cases are inverted where the
+// behaviour lives — the pane and the split admit a switch and a start mid-collect, and the poll
+// survives (TablePane.test, CounterSplit.integration.test).
 
 describe("handoffSuperseded — a paid card the next round replaced dies for good (Codex #306)", () => {
   const table = { isCounter: false, cartId: "c1", orderId: "o1" };
@@ -438,6 +404,88 @@ describe("handoffSuperseded — a paid card the next round replaced dies for goo
     expect(handoffSuperseded(table, null, "o1")).toBe(false);
     expect(handoffSuperseded(table, null, null)).toBe(false);
     expect(handoffSuperseded({ ...table, isCounter: true }, "c2", "o2")).toBe(false);
+  });
+});
+
+// ── Phase 2g · review (PT-3 · PT-7) ── a closed counter order the server knows was refunded says so.
+describe("closedCounterNote — the refund in words, the hedge only for what the server cannot name", () => {
+  it("in full: the plain fact", () => {
+    // MUTANT p2g-fix-code/note-full-hedged — a fully refunded order reads "it may have been paid,
+    // cleared or merged…"; red.
+    expect(closedCounterNote({ refund: "full", orderId: "o-00a1b2c3" })).toEqual({
+      k: "floor.pane.closed.refundedFull",
+    });
+  });
+  it("in part: which order — its #CODE, derived once (`handoffCode`) — and to check with a manager", () => {
+    // MUTANT p2g-fix-code/note-partial-hedged — the partly refunded order loses its #CODE and reads the
+    // hedge, though the guest is still owed the rest of the bag; red.
+    expect(closedCounterNote({ refund: "partial", orderId: "o-00a1b2c3" })).toEqual({
+      k: "floor.pane.closed.refundedPart",
+      vars: { id: "#A1B2C3" },
+    });
+    expect(STAFF["floor.pane.closed.refundedPart"].en).toContain("{id}");
+  });
+  it("nothing came back, nothing could be read, or a table: the hedge", () => {
+    for (const refund of ["none", null] as const)
+      expect(closedCounterNote({ refund, orderId: refund ? "o1" : null })).toEqual({
+        k: "floor.pane.closed.body",
+      });
+    // A partial with no id cannot name the order — the hedge, never "order #undefined".
+    expect(closedCounterNote({ refund: "partial", orderId: null })).toEqual({
+      k: "floor.pane.closed.body",
+    });
+  });
+});
+
+// ── Phase 2g · review (A11Y-4) ── the phone's swap to the closed card keeps focus, ONCE.
+describe("markHandoffFocus / takeHandoffFocus — a one-shot note, honoured inside its TTL", () => {
+  const store = () => {
+    const m = new Map<string, string>();
+    return {
+      m,
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
+  };
+  it("a note written now is taken ONCE, then gone", () => {
+    const st = store();
+    expect(handoffFocusKey(A)).toBe(`mms-handoff-focus:${A}`);
+    markHandoffFocus(A, 1000, st);
+    expect(takeHandoffFocus(B, 1500, st)).toBe(false);
+    // MUTANT p2g-fix-code/focus-note-never-cleared — the note survives its take: every later visit to
+    // the order (a deep link, Back) pulls focus onto the card; red.
+    expect(takeHandoffFocus(A, 1500, st)).toBe(true);
+    expect(takeHandoffFocus(A, 1600, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+  });
+  it("no note, a stale note, or a note from the future: no focus (and a stale one is still cleared)", () => {
+    const st = store();
+    expect(takeHandoffFocus(A, 1000, st)).toBe(false);
+    markHandoffFocus(A, 1000, st);
+    // MUTANT p2g-fix-code/focus-note-no-ttl — a note a refresh never consumed pulls focus on a later
+    // visit, minutes on; red.
+    expect(takeHandoffFocus(A, 1000 + HANDOFF_FOCUS_TTL_MS + 1, st)).toBe(false);
+    expect(st.m.size).toBe(0);
+    markHandoffFocus(A, 5000, st);
+    expect(takeHandoffFocus(A, 4000, st)).toBe(false);
+    markHandoffFocus(A, 1000, st);
+    expect(takeHandoffFocus(A, 1000 + HANDOFF_FOCUS_TTL_MS, st)).toBe(true);
+  });
+  it("swallows a throwing store (the card renders; only the focus move is lost)", () => {
+    const boom = {
+      getItem: () => {
+        throw new Error("x");
+      },
+      setItem: () => {
+        throw new Error("x");
+      },
+      removeItem: () => {
+        throw new Error("x");
+      },
+    };
+    expect(() => markHandoffFocus(A, 1, boom)).not.toThrow();
+    expect(takeHandoffFocus(A, 1, boom)).toBe(false);
   });
 });
 

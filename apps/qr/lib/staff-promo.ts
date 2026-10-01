@@ -154,12 +154,13 @@ const no = (reason: StaffPromoReason): StaffPromoResult => ({ ok: false, reason 
  * action like a void. Any ACTIVE staff member may do it. (`staffGate`'s role arm is therefore not a
  * refusal this module can produce, which is why `StaffPromoReason` has no `role` member.)
  *
- * ⚠️ WHAT THE SUBSTITUTION GIVES UP, stated because the paragraph above only argued the copy side:
- * `staffGate` also calls `isConsoleLocked()` and redirects to `/staff/lock` (`staff.ts:187`), and
- * this does not. That is PARITY with every other staff Server Action — the lock is a screen guard on
- * the RENDER path, not an authz check on the action path, and it grants no privilege a signed-in
- * staff member does not already have — but it is a real difference and it should not be discovered
- * by reading the two functions side by side.
+ * ⚠️ THE CONSOLE LOCK IS NOT CHECKED HERE — AND NOT IN `staffGate` EITHER. Only `requireStaffPage`
+ * (the RENDER path) reads `isConsoleLocked()` and redirects to `/staff/lock`; `staffGate` is the
+ * auth + role check every staff Server Action shares, and it never reads the lock (Phase 2g · reader
+ * corrected this paragraph, which used to say it did). So the substitution gives up nothing on that
+ * axis: the lock is a screen guard, not an authz check, and it grants no privilege a signed-in staff
+ * member does not already have. It matters elsewhere — the card reader's poll keeps answering behind
+ * the lock screen (`ReaderCollectProvider`), by this same rule.
  */
 async function staffOrReason(): Promise<
   { ok: true; staffId: string; role: string } | { ok: false; reason: StaffPromoReason }

@@ -67,8 +67,10 @@ vi.mock("@/lib/register", () => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
+const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { LiveConnectionProvider, useReportLive } = await import("./LiveConnection");
 const { CounterSplit } = await import("./CounterSplit");
+const { StaffBar } = await import("./StaffBar");
 const { useTablePane } = await import("./TablePaneContext");
 const { CounterMintProvider, useCounterMint } = await import("./CounterMint");
 const { tf } = await import("@/lib/i18n/fill");
@@ -203,11 +205,13 @@ let split = true;
 let terminalReady = false;
 const tree = (props: Parameters<typeof Floor>[0] = {}) => (
   <StaffLangProvider lang="en">
-    <LiveConnectionProvider>
-      <CounterSplit terminalReady={terminalReady}>
-        <Floor {...props} />
-      </CounterSplit>
-    </LiveConnectionProvider>
+    <ReaderCollectProvider>
+      <LiveConnectionProvider>
+        <CounterSplit terminalReady={terminalReady}>
+          <Floor {...props} />
+        </CounterSplit>
+      </LiveConnectionProvider>
+    </ReaderCollectProvider>
   </StaffLangProvider>
 );
 const mount = (props: Parameters<typeof Floor>[0] = {}) => render(tree(props));
@@ -385,6 +389,44 @@ describe("TablePane — closing", () => {
     expect(within(pane()).queryByText(tf("en", "floor.table", { id: "4" }))).toBeNull();
   });
 
+  it("a table opened by openSession (or the chip's View) after a card tap closes onto ITS card — never the card that opened the last one (A11Y-3)", async () => {
+    function OpenSeven() {
+      const api = useTablePane()!;
+      return (
+        <button type="button" onClick={() => api.openSession(B, { counter: false, display: "7" })}>
+          open 7
+        </button>
+      );
+    }
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor />
+              <OpenSeven />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await tap(card(A)); // the opener is Table 4's card
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 7" }));
+    });
+    await tick(0);
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    await act(async () => {
+      fireEvent.click(within(pane()).getByRole("button", { name: ts("en", "shell.close") }));
+    });
+    await tick(0);
+    // MUTATION (p2g-fix-reader/split-opener-outlives-its-table): the stale opener — focus lands on
+    // Table 4's card after closing Table 7; red.
+    expect(document.activeElement).not.toBe(card(A));
+    expect(document.activeElement).toBe(card(B));
+  });
+
   it("a Clear inside the pane closes it onto the floor heading, never the doomed card", async () => {
     clearTable.mockResolvedValue({ ok: true });
     mount();
@@ -441,11 +483,13 @@ describe("TablePane — before and after hydration", () => {
   it("SSR: aria-busy, neither the empty title nor a table heading (the server cannot see the hash)", () => {
     const html = renderToString(
       <StaffLangProvider lang="en">
-        <LiveConnectionProvider>
-          <CounterSplit terminalReady={false}>
-            <p>zones</p>
-          </CounterSplit>
-        </LiveConnectionProvider>
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <p>zones</p>
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
     expect(html).toContain('aria-busy="true"');
@@ -1147,13 +1191,15 @@ describe("TablePane — a start that converged on a seated table", () => {
   const mountMint = () =>
     render(
       <StaffLangProvider lang="en">
-        <LiveConnectionProvider>
-          <CounterSplit terminalReady={false}>
-            <CounterMintProvider>
-              <StartTable4 />
-            </CounterMintProvider>
-          </CounterSplit>
-        </LiveConnectionProvider>
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <CounterMintProvider>
+                <StartTable4 />
+              </CounterMintProvider>
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
   it("opens it in the pane at split width (no route), where a card tap would", async () => {
@@ -1504,13 +1550,15 @@ describe("TablePane — a converged start on a phone", () => {
     openRegisterOrder.mockResolvedValue({ ok: true, sessionId: A, created: false });
     render(
       <StaffLangProvider lang="en">
-        <LiveConnectionProvider>
-          <CounterSplit terminalReady={false}>
-            <CounterMintProvider>
-              <StartTable4Phone />
-            </CounterMintProvider>
-          </CounterSplit>
-        </LiveConnectionProvider>
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <CounterMintProvider>
+                <StartTable4Phone />
+              </CounterMintProvider>
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
     await tick(0);
@@ -1542,11 +1590,12 @@ function StartTable4Phone() {
   );
 }
 
-// ── Phase 2d · Codex round 1 · pane ── a reader collection live in the pane HOLDS the pane on its
-// table. The collect panel's 2.5 s poll is what slides the settlement freeze forward and what turns
-// a counter order's charge into its #CODE card; a switch unmounted it mid-collect, the webhook then
-// closed the counter order behind the charge, and nothing ever recorded the card.
-describe("TablePane — a reader collection holds the pane on its table (Codex #306)", () => {
+// ── Phase 2g · reader (D1) ── the pane no longer HOLDS a table whose reader collects. Codex rounds
+// 1–2 on #306 held it (and refused every start) because a switch unmounted the collect panel — the
+// 2.5 s poll that slides the freeze and records a counter order's #CODE. The poll lives in
+// `ReaderCollectProvider` above every route now, so every case below is the INVERSE of the hold it
+// replaced: the pane moves freely mid-collect, and the poll — and the #CODE it records — survive.
+describe("TablePane — the pane moves freely mid-collect; the poll survives (P2em)", () => {
   const settleable = (id: string, n: number, over: Partial<TableDetail> = {}) =>
     detail(id, n, {
       settleTotalCents: 4210,
@@ -1563,13 +1612,10 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
       },
       ...over,
     });
-  const heldLine = () => ts("en", "floor.pane.payingHeld");
   const table4 = () => tf("en", "floor.table", { id: "4" });
   const table7 = () => tf("en", "floor.table", { id: "7" });
   const readerPanel = () =>
     screen.queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
-  const region = () =>
-    document.getElementById("order-h")!.closest("section")!.querySelector('[role="status"]')!;
   const closeBtn = () => within(pane()).getByRole("button", { name: ts("en", "shell.close") });
   const goBack = async () => {
     await act(async () => {
@@ -1578,6 +1624,7 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
     });
     await tick(0);
   };
+  const polls = () => terminalStatus.mock.calls.length;
   /** Table 4 open in the pane, its reader collecting. */
   async function collectingOn4(over: Partial<TableDetail> = {}) {
     terminalReady = true;
@@ -1597,146 +1644,58 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
     expect(document.activeElement).toBe(readerPanel()); // the panel takes focus as it mounts
   }
 
-  it("a card tap, ✕ and Escape are refused mid-collect: the pane stays, focus stays, ONE line says why, the poll keeps running", async () => {
+  it("a card tap mid-collect switches the pane; the poll keeps running with Table 4's panel gone", async () => {
     await collectingOn4();
-    const polls = terminalStatus.mock.calls.length;
-    const ev = await tap(card(B));
-    // Never the full page either: the link is still prevented.
-    expect(ev.defaultPrevented).toBe(true);
-    // MUTATION: CounterSplit's select admits every tap — the pane switches to Table 7, the panel
-    // unmounts and its poll stops mid-collect; red.
-    expect(location.hash).toBe(`#table-${A}`);
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    expect(document.activeElement).toBe(readerPanel());
-    // Said in the pane's ONE region (the detail's), in plain words.
-    expect(pane().querySelectorAll('[role="status"]')).toHaveLength(1);
-    expect(region().textContent).toBe(heldLine());
-    // ✕ …
-    await act(async () => {
-      fireEvent.click(closeBtn());
-    });
-    await tick(0);
-    // MUTATION: CounterSplit's close admits a user close mid-collect — the pane empties; red.
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    expect(backSpy).not.toHaveBeenCalled();
-    // … and Escape.
-    await act(async () => {
-      fireEvent.keyDown(readerPanel()!, { key: "Escape" });
-    });
-    await tick(0);
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    // The poll never stopped.
-    await tick(2500);
-    expect(terminalStatus.mock.calls.length).toBeGreaterThan(polls);
-    expect(getTableDetail).not.toHaveBeenCalledWith(B);
+    await tap(card(B));
+    expect(location.hash).toBe(`#table-${B}`);
+    expect(paneHeading().textContent).toBe(table7());
+    expect(readerPanel()).toBeNull();
+    const n = polls();
+    await tick(5000);
+    // Watched red against the pre-2g pane (the poll died with the switch): now it never stops.
+    expect(polls()).toBe(n + 2);
+    expect(terminalStatus).toHaveBeenLastCalledWith({ sessionId: A, paymentIntentId: "pi_4" });
   });
 
-  it("Back is refused too: the paying table's entry comes back, owned by the pane (a later ✕ walks back over it)", async () => {
+  it("✕, Escape and Back close the pane mid-collect; the poll keeps running", async () => {
     await collectingOn4();
-    pushSpy.mockClear();
-    await goBack();
-    // MUTATION: the history arm neither refuses nor restores — Back empties the pane mid-collect; red.
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    expect(location.hash).toBe(`#table-${A}`);
-    // MUTATION: refuse without restoring the entry — the URL says the floor while the pane shows
-    // Table 4, and the next Back leaves the counter screen; red.
-    expect(pushSpy).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(heldLine());
-    // The reader declines: the collection is over and selection works again — the restored entry
-    // is the pane's own, so ✕ walks back over it.
-    terminalStatus.mockResolvedValue({
-      ok: true,
-      state: "failed",
-      error: "The card was declined.",
-    });
-    await tick(2500);
     await act(async () => {
       fireEvent.click(closeBtn());
     });
     await tick(0);
-    expect(backSpy).toHaveBeenCalledTimes(1);
     expect(document.getElementById("order-h")).toBeNull();
-  });
-
-  it("a Forward onto another table's entry is refused the same way: the paying table's entry comes back", async () => {
-    await collectingOn4();
-    pushSpy.mockClear();
-    await act(async () => {
-      window.history.replaceState(null, "", `/staff?floor=1#table-${B}`);
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
-    });
-    await tick(0);
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    // MUTATION: a hash-driven pick refused as if it were a tap — nothing puts the entry back, and the
-    // URL names Table 7 while the pane shows Table 4; red.
-    expect(location.hash).toBe(`#table-${A}`);
-    expect(pushSpy).toHaveBeenCalledTimes(1);
-    expect(getTableDetail).not.toHaveBeenCalledWith(B);
-    expect(region().textContent).toBe(heldLine());
-  });
-
-  it("re-tapping the paying table is not a change: no refusal, the heading takes focus", async () => {
-    await collectingOn4();
+    let n = polls();
+    await tick(2500);
+    expect(polls()).toBe(n + 1);
+    // Escape and Back, from Table 4 shown again.
     await tap(card(A));
-    // MUTATION: the same-table clause dropped — a re-tap of the table shown reads as leaving it; red.
-    expect(region().textContent).not.toBe(heldLine());
-    expect(document.activeElement).toBe(paneHeading());
+    await tick(0);
+    await act(async () => {
+      fireEvent.keyDown(paneHeading(), { key: "Escape" });
+    });
+    await tick(0);
+    expect(document.getElementById("order-h")).toBeNull();
+    await tap(card(A));
+    await tick(0);
+    await goBack();
+    expect(document.getElementById("order-h")).toBeNull();
+    n = polls();
+    await tick(2500);
+    expect(polls()).toBe(n + 1);
+  });
+
+  it("back on the paying table the panel is there again — and does not pull focus (a re-attach)", async () => {
+    await collectingOn4();
+    await tap(card(B));
+    await tap(card(A));
+    await tick(0);
     expect(readerPanel()).not.toBeNull();
+    // The tap's own focus rule (the pane heading) stands; the panel never steals it back.
+    expect(document.activeElement).toBe(paneHeading());
   });
 
-  it("a declined card ends the collection: a tap switches again", async () => {
-    await collectingOn4();
-    terminalStatus.mockResolvedValue({
-      ok: true,
-      state: "failed",
-      error: "The card was declined.",
-    });
-    await tick(2500);
-    // MUTATION: hold while the panel is merely MOUNTED (a declined panel stays, with "Back to
-    // payment") — the cashier is stranded on a table whose reader already let go; red.
-    await tap(card(B));
-    await tick(0);
-    expect(paneHeading().textContent).toBe(table7());
-  });
-
-  it("a tap refused mid-collect leaves no trace: the later ✕ lands on the table's OWN card", async () => {
-    await collectingOn4();
-    await tap(card(B)); // refused
-    terminalStatus.mockResolvedValue({
-      ok: true,
-      state: "failed",
-      error: "The card was declined.",
-    });
-    await tick(2500);
-    await act(async () => {
-      fireEvent.click(closeBtn());
-    });
-    await tick(0);
-    // MUTATION: the refused tap still records its card as the pane's opener — the close hands
-    // focus to Table 7's card, a table the pane never showed; red.
-    expect(document.activeElement).toBe(card(A));
-  });
-
-  it("a cancel ends the collection: a tap switches again", async () => {
-    await collectingOn4();
-    cancelTerminal.mockResolvedValueOnce({ ok: true });
-    await act(async () => {
-      fireEvent.click(within(readerPanel()!).getByRole("button", { name: /Cancel the reader/ }));
-    });
-    await tick(0);
-    await tap(card(B));
-    await tick(0);
-    expect(paneHeading().textContent).toBe(table7());
-  });
-
-  it("charged but not yet recorded still holds; the counter's #CODE card lands, and then a tap switches", async () => {
+  it("charged but not yet recorded, then a switch: the counter's #CODE still lands — stashed for its table and shown when it is picked again", async () => {
     await collectingOn4({ label: "reg-7f3a", tableNumber: null, counterOrder: true });
-    // The charge went through; the webhook has not recorded the order yet.
     terminalStatus.mockResolvedValue({
       ok: true,
       state: "succeeded",
@@ -1745,11 +1704,7 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
     });
     await tick(2500);
     await tap(card(B));
-    // MUTATION: hold only while `collecting` — the pane leaves in the window where the poll is the
-    // only thing that will ever record the #CODE; red.
-    expect(readerPanel()).not.toBeNull();
-    expect(region().textContent).toBe(heldLine());
-    // The order lands: the #CODE card, and the hold is over.
+    expect(paneHeading().textContent).toBe(table7());
     terminalStatus.mockResolvedValue({
       ok: true,
       state: "succeeded",
@@ -1757,49 +1712,59 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
       totalCents: 4210,
     });
     await tick(2500);
-    expect(readerPanel()).toBeNull();
-    expect(pane().textContent).toContain("#A1B2C3");
     expect(sessionStorage.getItem(handoffStashKey(A))).toContain("o-00a1b2c3");
-    // MUTATION: the line outlives the hold — "Finish the card payment first" over a paid order; red.
-    expect(region().textContent).not.toContain(heldLine());
+    // The webhook closed the counter session behind its charge: picked again, the pane's closed
+    // state shows the card the poll recorded.
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "reg-7f3a", tableNumber: null });
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain("#A1B2C3");
+    // The poll is over.
+    const n = polls();
+    await tick(5000);
+    expect(polls()).toBe(n);
+  });
+
+  it("a reader start that SUCCEEDS after a switch still polls (P2en) — and the pane it left is not pulled back", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    let resolve!: (v: unknown) => void;
+    settleCard.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
     await tap(card(B));
     await tick(0);
+    await act(async () => {
+      resolve({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // Watched red against the pre-2g pane: the stash was written and nothing ever polled it.
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: A, paymentIntentId: "pi_4" });
     expect(paneHeading().textContent).toBe(table7());
   });
 
-  it("a Start that converged on another seated table neither switches the pane nor routes away", async () => {
-    function StartTable7() {
-      const mint = useCounterMint();
-      return (
-        <button
-          type="button"
-          onClick={() =>
-            mint.run(
-              "table-7",
-              { kind: "table", tableNumber: 7 },
-              { onStart: () => {}, onRefusal: () => {} },
-            )
-          }
-        >
-          start 7
-        </button>
-      );
-    }
+  it("the bar's chip says it while Table 4 is not shown, and its View opens Table 4 in THIS pane", async () => {
     terminalReady = true;
     answers[A] = ok(settleable(A, 4));
     settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
-    openRegisterOrder.mockResolvedValue({ ok: true, sessionId: B, created: false });
     render(
       <StaffLangProvider lang="en">
-        <LiveConnectionProvider>
-          <CounterSplit terminalReady>
-            <CounterMintProvider>
+        <ReaderCollectProvider>
+          <StaffBar lang="en" title="floor.door.counter" />
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady>
               <Floor />
-              <StartTable7 />
-            </CounterMintProvider>
-          </CounterSplit>
-        </LiveConnectionProvider>
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
     await tick(0);
@@ -1810,18 +1775,108 @@ describe("TablePane — a reader collection holds the pane on its table (Codex #
       fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
     });
     await tick(0);
-    openRegisterOrder.mockClear();
+    const chip = () => document.querySelector<HTMLElement>(".staff-reader");
+    // Table 4 shown: the panel says it; the bar does not.
+    expect(chip()).toBeNull();
+    await tap(card(B));
+    expect(chip()).not.toBeNull();
+    const view = within(chip()!).getByRole("link", {
+      name: tf("en", "floor.pane.open", { x: table4() }),
+    });
+    await tap(view);
+    // MUTATION (p2g-reader/split-never-registers-its-pane): the split offers the chip no opener — a
+    // hash push on this same page fires no `hashchange`, and View does nothing; red.
+    expect(paneHeading().textContent).toBe(table4());
+    expect(location.hash).toBe(`#table-${A}`);
+    expect(push).not.toHaveBeenCalled();
+    await tick(0);
+    expect(chip()).toBeNull();
+    expect(readerPanel()).not.toBeNull();
+  });
+
+  it("tapping the paying table takes the bar's chip down in the SAME commit — the pane's loading state counts as shown (A11Y-10)", async () => {
+    terminalReady = true;
+    answers[A] = ok(settleable(A, 4));
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_4", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <StaffBar lang="en" title="floor.door.counter" />
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady>
+              <Floor />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "start 7" }));
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
     });
     await tick(0);
-    // Codex round 2 — the mint now refuses the tap itself, before the server is asked (the pane's
-    // `startHeld`); the pane's own answer to a converged open is pinned on its own below.
-    expect(openRegisterOrder).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
-    expect(paneHeading().textContent).toBe(table4());
-    expect(readerPanel()).not.toBeNull();
-    expect(region().textContent).toBe(heldLine());
+    const chip = () => document.querySelector<HTMLElement>(".staff-reader");
+    await tap(card(B));
+    expect(chip()).not.toBeNull();
+    // Table 4 picked again, its read slow: the pane is LOADING (no detail registered yet).
+    answers[A] = () => new Promise(() => {});
+    await act(async () => {
+      fireEvent.click(card(A));
+    });
+    expect(pane().querySelector(".staff-pane-body")!.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2g-fix-reader/pane-shown-only-once-read): only a mounted detail (or the closed
+    // state) registers the table — the chip lingers through the loading state, then the bar row
+    // vanishes under the finger; red.
+    expect(chip()).toBeNull();
+  });
+
+  it("a counter order's closed pane, shown while its charge is still recording, shows the #CODE the moment it lands", async () => {
+    await collectingOn4({ label: "reg-7f3a", tableNumber: null, counterOrder: true });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 4210,
+    });
+    await tick(2500);
+    await tap(card(B));
+    // The webhook closed the counter session; the order is not recorded on this end yet.
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "reg-7f3a", tableNumber: null });
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).not.toContain("#A1B2C3");
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+    });
+    await tick(2500);
+    // MUTATION (p2g-reader/closed-pane-misses-the-landing): the closed pane reads the stash once —
+    // a card landing while it is shown never appears there; red.
+    expect(pane().textContent).toContain("#A1B2C3");
+  });
+
+  it("Table 7's reader button is held while Table 4's collect is live — one reader", async () => {
+    answers[B] = ok(settleable(B, 7));
+    await collectingOn4();
+    await tap(card(B));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    const reader = within(settleSection).getAllByRole("button").at(-1)!;
+    expect(reader.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById("terminal-busy")!.textContent).toBe(
+      tf("en", "settle.reader.busyElsewhere", { x: table4() }),
+    );
+    settleCard.mockClear();
+    await act(async () => {
+      fireEvent.click(reader);
+    });
+    expect(settleCard).not.toHaveBeenCalled();
   });
 });
 
@@ -1997,12 +2052,11 @@ describe("TablePane — a lost outcome outlives a close of another table (Codex 
   });
 });
 
-// ── Phase 2d · Codex round 2 · pane ── `openSession` is the pane's API, and its answer is a contract:
-// `false` tells the caller to navigate instead (the mint's converged landing does exactly that). The
-// mint no longer reaches it mid-collect — it refuses the tap and stands a late landing down — so the
-// contract is pinned HERE, by a caller that navigates on `false` the way the mint does.
-describe("TablePane — openSession mid-collect answers HANDLED (Codex #306 round 2)", () => {
-  it("refused, the pane stays on the paying table, says why, and the caller is told not to navigate", async () => {
+// ── Phase 2g · reader (D1) ── `openSession` is the pane's API, and its answer is a contract: `false`
+// tells the caller to navigate instead (the mint's converged landing does exactly that). With the
+// hold retired it simply OPENS the table at split width — mid-collect too — and the poll goes on.
+describe("TablePane — openSession mid-collect opens the table (the hold is retired)", () => {
+  it("answers HANDLED, the pane switches, nothing navigates, and the poll keeps running", async () => {
     let answered: boolean | null = null;
     function OpenSeven() {
       const api = useTablePane()!;
@@ -2039,12 +2093,14 @@ describe("TablePane — openSession mid-collect answers HANDLED (Codex #306 roun
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
     render(
       <StaffLangProvider lang="en">
-        <LiveConnectionProvider>
-          <CounterSplit terminalReady>
-            <Floor />
-            <OpenSeven />
-          </CounterSplit>
-        </LiveConnectionProvider>
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady>
+              <Floor />
+              <OpenSeven />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
       </StaffLangProvider>,
     );
     await tick(0);
@@ -2059,17 +2115,360 @@ describe("TablePane — openSession mid-collect answers HANDLED (Codex #306 roun
       fireEvent.click(screen.getByRole("button", { name: "open 7" }));
     });
     await tick(0);
-    // MUTATION: answer `false` when refused — the caller routes to Table 7's page and the counter
-    // screen, the collect panel with it, goes; red.
     expect(answered).toBe(true);
     expect(push).not.toHaveBeenCalled();
-    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "4" }));
+    expect(paneHeading().textContent).toBe(tf("en", "floor.table", { id: "7" }));
+    const n = terminalStatus.mock.calls.length;
+    await tick(2500);
+    expect(terminalStatus.mock.calls.length).toBe(n + 1);
+  });
+});
+
+// ── Phase 2g · P2em (D2) ── a closed counter order's #CODE card from its ORDER ROW: the closed verdict
+// carries it, so the pane shows it with no stash (another tablet, a reload, a panel that never saw the
+// charge land). The tab's stash — with the tender and the change — still wins.
+describe("TablePane — a closed counter order's server-built card (P2em · D2)", () => {
+  const SERVER_CARD = {
+    orderId: "o-00a1b2c3",
+    totalCents: 4210,
+    tipCents: 0,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: "c-4",
+    sentEarly: false,
+  };
+  // The verdict as `getTableDetail` builds it (`serverCounterOutcome`): with a card, the order is
+  // unrefunded ("none"); without one, the refund state is whatever the row said — or unknown.
+  const closedCounter =
+    (
+      handoff: typeof SERVER_CARD | null,
+      refund: "none" | "partial" | "full" | null = handoff ? "none" : null,
+      orderId: string | null = handoff || refund ? SERVER_CARD.orderId : null,
+    ) =>
+    () =>
+      Promise.resolve({
+        kind: "closed" as const,
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff,
+        refund,
+        orderId,
+      });
+  const openDeepLink = async () => {
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+  };
+
+  it("a deep link with NO stash: the verdict's card shows, under the counter title, unfocused", async () => {
+    answers[A] = closedCounter(SERVER_CARD);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    // MUTANT p2g-code/pane-closed-ignores-server-handoff — the pane reads the stash alone, and a
+    // counter order paid on another tablet (or before a reload) closes with no #CODE; red.
+    // MUTANT p2g-code/pane-first-read-drops-server-handoff — the first read keeps the label, drops
+    // the card; red.
+    const card = within(pane()).getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+    expect(document.activeElement).not.toBe(card);
+    // p2g-int/pane-hedges-under-the-card — with "Paid" standing above, "It may have been paid,
+    // cleared or merged…" doubts the fact the card states; red.
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+  });
+
+  it("the tab's STASH wins: its tender and change stay, never swapped for the row's bare total", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(SERVER_CARD);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    // MUTANT p2g-code/pane-server-handoff-beats-stash — while the server says nothing came back
+    // (refund "none"), the server card outranks the cashier's: the change to hand back
+    // ($50.00 − $42.10) disappears; red.
     expect(
-      screen.queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") }),
-    ).not.toBeNull();
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey(A))).not.toBeNull();
+  });
+
+  // ── Phase 2g · review (M2 · PT-3 · PT-7) ── the server's refund verdict VETOES the tab's card.
+  it("the tab's stash over an order the verdict names PARTLY refunded: no Paid card, the refund said with its #CODE, the stash dropped", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(null, "partial");
+    await openDeepLink();
+    // MUTANT p2g-fix-code/veto-ignored-on-pane — "the tab's card wins" outranks the refund:
+    // "✓ Paid · Change $7.90 · #A1B2C3" stands over money that went back; red.
+    // MUTANT p2g-fix-code/pane-first-read-drops-refund — the pane reads the refund as unknown: the
+    // stash stands and the hedge is said; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(pane().textContent).toContain(
+      tf("en", "floor.pane.closed.refundedPart", { id: "#A1B2C3" }),
+    );
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+    // MUTANT p2g-fix-code/pane-stash-kept-after-refund — the vetoed card stays in storage, and the
+    // next visit's detail restores "Paid" over the refund; red.
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+
+  it("the tab's stash over an order the verdict names refunded IN FULL: the plain fact, the stash dropped", async () => {
+    stashHandoff(A, SERVER_CARD);
+    answers[A] = closedCounter(null, "full");
+    await openDeepLink();
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.refundedFull"));
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+
+  it("an UNREADABLE order (refund unknown) vetoes nothing: the tab's card stands; with no card, the hedge", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(null, null);
+    await openDeepLink();
     expect(
-      document.getElementById("order-h")!.closest("section")!.querySelector('[role="status"]')!
-        .textContent,
-    ).toBe(ts("en", "floor.pane.payingHeld"));
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+    expect(sessionStorage.getItem(handoffStashKey(A))).not.toBeNull();
+    cleanup();
+    sessionStorage.clear();
+    answers[A] = closedCounter(null, null);
+    await openDeepLink();
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.body"));
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.refundedFull"));
+  });
+
+  it("no card in the verdict and no refund the server could name (an unreadable order): the notice alone", async () => {
+    answers[A] = closedCounter(null);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(document.getElementById("handoff-title")).toBeNull();
+    // With no card and nothing named, the hedge is the honest line (a refund it CAN name is said —
+    // Phase 2g · review, below).
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.body"));
+  });
+
+  it("a counter order that closes WHILE shown carries the verdict's card into the closed pane", async () => {
+    answers[A] = ok(
+      detail(A, 4, { label: "reg-7f3a", tableNumber: null, mode: "pickup", counterOrder: true }),
+    );
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("handoff-title")).toBeNull();
+    answers[A] = closedCounter(SERVER_CARD);
+    await tick(5000);
+    await tick(0); // the closed state reads the stash first (a scheduled callback)
+    // MUTANT p2g-code/detail-closed-drops-server-handoff — the detail hands the pane no card; and
+    // MUTANT p2g-code/pane-detail-close-drops-server-handoff — the pane drops the one it is handed:
+    // either way the order closes with no #CODE beside the floor; red.
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+  });
+
+  it("an order that closes WHILE shown, refunded in part: the pane is handed the refund and says it", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = ok(
+      detail(A, 4, { label: "reg-7f3a", tableNumber: null, mode: "pickup", counterOrder: true }),
+    );
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    // The restored counter card HOLDS the closed bounce (the #CODE hand-over must not be yanked)…
+    expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+    answers[A] = closedCounter(null, "partial");
+    await tick(5000);
+    // …until a verdict names its order refunded: the card goes from screen and stash at once.
+    // MUTANT p2g-fix-code/closed-veto-ignored — the held card ignores the verdict: "Paid · Change
+    // $7.90" stands over the refund for as long as the pane stays open, the refund never said; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+    // No longer held, the next read hands the verdict to the pane, which says the refund.
+    await tick(5000);
+    await tick(0); // the closed state reads the stash first (a scheduled callback)
+    // MUTANT p2g-fix-code/pane-detail-close-drops-refund — the pane keeps the label and the card but
+    // not the refund: the hedge is said over an order the server named refunded; red.
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(pane().textContent).toContain(
+      tf("en", "floor.pane.closed.refundedPart", { id: "#A1B2C3" }),
+    );
+  });
+
+  it("the pane's live detail drops its RESTORED card once a read names that order refunded", async () => {
+    const settledCounter = (refund: TableDetail["refund"]) =>
+      detail(A, 4, {
+        label: "reg-7f3a",
+        tableNumber: null,
+        mode: "pickup",
+        counterOrder: true,
+        cartId: null,
+        settled: true,
+        status: "paid",
+        paidTotalCents: 4210,
+        paidOrderId: SERVER_CARD.orderId,
+        refund,
+        settledOrderCount: 1,
+        lines: [line("l-4", "Mohinga", false)],
+      });
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = ok(settledCounter({ state: "none", refundedCents: 0, netPaidCents: 4210 }));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+    answers[A] = ok(settledCounter({ state: "partial", refundedCents: 1200, netPaidCents: 3010 }));
+    await tick(5000);
+    // MUTANT p2g-fix-code/veto-ignored-on-detail-restored — the restored stash keeps "Paid · Change
+    // $7.90" over the refund the detail itself now states; red.
+    expect(document.getElementById("handoff-title")).toBeNull();
+    expect(pane().textContent).toContain(
+      tf("en", "table.detail.refunded.partial", { m: "$30.10", r: "$12.00" }),
+    );
+    expect(sessionStorage.getItem(handoffStashKey(A))).toBeNull();
+  });
+});
+
+// ── Phase 2g integration ── the lane's Take payment at split width opens the pane through
+// `openSession(…, { settle: true })` — the in-place twin of `?settle=1`, because a router push of
+// that URL from the counter screen fires no `hashchange` and the split never sees it.
+describe("TablePane — openSession can land on the payment section", () => {
+  function OpenFour({ settle }: { settle?: boolean }) {
+    const api = useTablePane()!;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          api.openSession(A, { counter: true, display: "" }, settle ? { settle } : undefined);
+        }}
+      >
+        open 4
+      </button>
+    );
+  }
+  const settleable = () =>
+    ok(
+      detail(A, 4, {
+        settleTotalCents: 4210,
+        settleTipBaseCents: 4000,
+        lines: [line("l-4", "Mohinga", false)],
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
+      }),
+    );
+  const mountOpener = (settle?: boolean) =>
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor cards={[]} />
+              <OpenFour settle={settle} />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+
+  it("settle: true focuses the settle section's heading — the lane's Take payment", async () => {
+    // p2g-int/split-open-ignores-settle
+    answers[A] = settleable();
+    mountOpener(true);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
+  });
+
+  it("without settle the pane opens on its heading, never the payment section", async () => {
+    answers[A] = settleable();
+    mountOpener(false);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).not.toBe(document.getElementById("settle-h"));
+  });
+
+  // Codex r1 on #309 — the table ALREADY in the pane: its detail stays mounted (keyed by session), so
+  // the mount-time seed never sees the settle, and a fresh heading focus (a parent effect, run after
+  // the detail's) would steal it back.
+  it("settle: true on the table ALREADY shown still lands on the payment section", async () => {
+    answers[A] = settleable();
+    function OpenTwice() {
+      const api = useTablePane()!;
+      return (
+        <>
+          <button type="button" onClick={() => api.openSession(A, { counter: true, display: "" })}>
+            open 4
+          </button>
+          <button
+            type="button"
+            onClick={() => api.openSession(A, { counter: true, display: "" }, { settle: true })}
+          >
+            pay 4
+          </button>
+        </>
+      );
+    }
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor cards={[]} />
+              <OpenTwice />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).not.toBe(document.getElementById("settle-h"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "pay 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    // MUTATION (p2g-cx1/shown-pane-ignores-settle): only the mount seed reads the prop — the detail
+    // never moves; red.
+    // MUTATION (p2g-cx1/shown-pane-heading-steals-settle): the opener still asks for the heading's
+    // focus — the pane's parent effect runs after the detail's and takes it back; red.
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
   });
 });

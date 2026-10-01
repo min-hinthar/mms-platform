@@ -4,11 +4,14 @@ import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { FloorDetailLive } from "@/components/staff/FloorDetailLive";
+import { ClosedHandoffCard } from "@/components/staff/HandoffCard";
+import { ReaderShown } from "@/components/staff/ReaderCollectContext";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
+import { closedCounterNote } from "@/lib/floor-pane";
 
 export const metadata = { title: "Table — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -18,7 +21,11 @@ export const dynamic = "force-dynamic";
  * missing/closed session (a cleared or expired table) renders an honest "this table is closed" with a
  * way back, never a stale order — and ONLY a genuine `closed` says that (W10b): an unreadable table
  * renders the outage shell in place, keeping the URL. The live detail + clear-table live in
- * FloorDetailLive.
+ * FloorDetailLive. Phase 2g · P2em (D2) — a closed COUNTER order whose verdict carries its paid card
+ * (built on the server from the order row) shows that card instead: "Paid · $X · #CODE", the call-out
+ * and the way back to the counter, on any device, with no panel and no stash. Phase 2g · review — one
+ * the server knows was REFUNDED says so instead ("This order was refunded." / which order, partly
+ * refunded, and to check with a manager before handing it over); the hedge is for an unreadable one.
  */
 export default async function TablePage({
   params,
@@ -44,18 +51,48 @@ export default async function TablePage({
     // mounts no language control; its Back pill leads to the counter, whose Help sheet has the
     // Language row (`check-staff-lang` rule 4d holds this arm's leading to that way up).
     const lang = await readStaffLang();
+    // Phase 2g · P2em (D2) — the counter order's paid card from its order row, when the verdict
+    // carries one (null for a table, a refunded order, or an order read that failed).
+    const handoff = res.handoff ?? null;
+    // A counter session's verdict always CARRIES the key (`null` when refunded or unreadable); a
+    // table's never does. A counter order with no card gets the counter title and the hedged body —
+    // "it was cleared or sat idle" would be false for one that was paid and refunded.
+    const counterNoCard = res.handoff === null;
+    // Phase 2g · review (PT-7) — the refund the verdict names, in words; the hedge only when the
+    // server could not name one (no order, an unreadable one).
+    const note = closedCounterNote({ refund: res.refund ?? null, orderId: res.orderId ?? null });
     return (
       <main className="staff-main">
         <StaffBar
           lang={lang}
-          title="table.detail.closed.title"
+          title={
+            handoff || counterNoCard
+              ? "floor.pane.closed.counterTitle"
+              : "table.detail.closed.title"
+          }
           leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
           lock={hasPin}
         />
         <div className="staff-col" style={wrap}>
-          <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
-            <Chrome lang={lang} k="table.detail.closed.body" echo="stack" />
-          </p>
+          {/* Codex r2 on #309 — a counter order the server names REFUNDED is shown here too: a "Paid ·
+              #CODE" this tab's reader queued for it is consumed (vetoed), never left in the bar over
+              a page that says it was refunded. An UNREADABLE one is not marked — the bar's card is
+              then the only copy of the code. */}
+          {counterNoCard && (res.refund === "partial" || res.refund === "full") && (
+            <ReaderShown sessionId={id} />
+          )}
+          {handoff ? (
+            <ClosedHandoffCard lang={lang} sessionId={id} handoff={handoff} />
+          ) : (
+            <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
+              <Chrome
+                lang={lang}
+                k={counterNoCard ? note.k : "table.detail.closed.body"}
+                vars={counterNoCard ? note.vars : undefined}
+                echo="stack"
+              />
+            </p>
+          )}
         </div>
       </main>
     );

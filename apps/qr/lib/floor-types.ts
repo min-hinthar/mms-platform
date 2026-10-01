@@ -11,12 +11,13 @@
 // target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
 // wrong. Re-examine this line if the file ever grows a second function.
 import type { LineState } from "@mms/db";
-import type { RefundSummary } from "./refund-view";
-import type { RegisterQueueRow } from "./register-queue";
+import type { RefundState, RefundSummary } from "./refund-view";
+import type { CounterCursor, RegisterQueueRow } from "./register-queue";
 import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
 import type { KdsThresholds } from "./kitchen-types";
 import type { CounterArm as CounterArmOf } from "./counter-order";
+import type { Handoff } from "./register-ui";
 
 /** Phase 2f — how a counter order was started (re-exported for the client components). */
 export type CounterArm = CounterArmOf;
@@ -104,7 +105,9 @@ export type FloorSnapshot = {
    *  `readRegisterQueue` on the same poll. The floor's `tables` never carry these sessions, so the
    *  one list `mergeFloorRows` builds cannot key a session twice. */
   counter: CounterFloorRow[];
-  /** The counter read hit its cap — the newest orders are not in `counter`, and the board says so. */
+  /** The counter read hit its cap — the OLDEST orders are not in `counter` (the read keeps the newest
+   *  `REGISTER_QUEUE_CAP`, Phase 2f review M1), and the board says so and offers the oldest-first
+   *  sheet (Phase 2g · P2fz). */
   counterTruncated: boolean;
   /** Server clock at snapshot time (ISO) — the client seeds its relative-time ticks from this so a
    *  clock skew between the staff device and the server doesn't show "in 3m" for a fresh table. */
@@ -245,6 +248,14 @@ export type TableDetail = {
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
+  /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
+   *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
+   *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null
+   *  (or absent) off a counter order, over an open cart, and whenever money came back. The surface
+   *  renders it only when it has no card of its own — this tab's card (with the tender and change)
+   *  wins, but only while `refund` above (the same row, `paidOrderId`) says nothing came back: a
+   *  refund of the card's own order VETOES it (Phase 2g · review, `handoffRefunded`). */
+  serverHandoff?: Handoff | null;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
    *  it (OPEN-ITEMS P2e — the merge refusal named that action for months while nothing implemented
@@ -327,6 +338,10 @@ export type TableDetail = {
    *  says so (never as a loss, never with an amount). Disjoint from both sets above. Empty off a
    *  counter order. */
   compedKitchenLineIds: string[];
+  /** Phase 2g · P2fk — a counter order whose food has waited in the kitchen `COUNTER_UNCOLLECTED_MS`
+   *  or longer (`counterUncollected` over the open cart's lines, on the SAME DB clock as the sets
+   *  above): the page says so above the No-show / Clear choice. Absent reads as false. */
+  counterUncollected?: boolean;
   /** `surfaceOpen("payAtPickup")` — the counter Send is DRAWN only while it is true. */
   payAtPickup: boolean;
   /** The merge tool may be offered: an open cart, and not a counter order with food in the kitchen
@@ -340,7 +355,29 @@ export type TableDetail = {
 export type CounterFloorRow = RegisterQueueRow & {
   unpaidSent: boolean;
   kitchen: FloorKitchen | null;
+  /** Phase 2g · P2fk — the order's food has waited in the kitchen `COUNTER_UNCOLLECTED_MS` or longer
+   *  (`counterUncollected`, on the DATABASE clock). Register rows only — a kiosk order pays first,
+   *  so it never waits unpaid. Absent reads as false. */
+  uncollected?: boolean;
 };
+
+/**
+ * Phase 2g · P2fz — one page of the oldest-first counter sheet (`getOldestCounterOrders`): the rows
+ * as the floor draws them (`counterFloorRow`, the one mapper), whether a page follows, and the cursor
+ * that reads it (the LAST row's `(startedAt, sessionId)`, null when there is no more). `serverNow` is
+ * the DB clock the rows were judged on — the cards seed their relative time from it. `signin`/`locked`
+ * are the floor poll's verdicts (the sheet redirects exactly as the board does), `outage` an
+ * unreadable answer (never an empty list), `invalid` a cursor the schema refused.
+ */
+export type OlderCounterPoll =
+  | {
+      ok: true;
+      rows: CounterFloorRow[];
+      more: boolean;
+      next: CounterCursor | null;
+      serverNow: string;
+    }
+  | { ok: false; reason: "signin" | "outage" | "locked" | "invalid" };
 
 /** K2: the human table label for staff surfaces — the registered number (bare, e.g. "7"), or a
  *  flagged fallback to the raw sticker token so an unregistered/legacy sticker stays visible +
@@ -368,9 +405,29 @@ export type TableDetailResult =
   /** Phase 2d · split — the session's own label and number when the row still exists (a table
    *  cleared or merged away), so a pane opened straight onto it can name it and find the live
    *  namesake a new party sat at. Absent for a malformed id or a vanished row. */
-  | { kind: "closed"; label?: string; tableNumber?: number | null }
+  | {
+      kind: "closed";
+      label?: string;
+      tableNumber?: number | null;
+      /** Phase 2g · P2em (D2) — a closed COUNTER order's #CODE card, from its latest order row
+       *  (`serverCounterOutcome`): the counter session closes behind its settle, so this is where a
+       *  card lost with its panel or its tab is found again. Absent off a counter session; null when
+       *  there is no unrefunded paid order, or its read failed (logged — never an outage). */
+      handoff?: Handoff | null;
+      /** Phase 2g · review (M2 · PT-3 · PT-7) — the refund state of that SAME row (one
+       *  `summarizeRefund`, beside the card): "partial"/"full" vetoes a card this tab still holds for
+       *  the order and is said in words; null when there is no row or its read failed (the hedge).
+       *  Absent off a counter session. */
+      refund?: RefundState | null;
+      /** The id of that row — the #CODE a partly refunded order is still handed over under. Null with
+       *  no row; absent off a counter session. */
+      orderId?: string | null;
+    }
   | { kind: "signin" }
   | { kind: "outage" };
+
+/** The `closed` verdict alone — what the drill-down hands its pane when the table closes under it. */
+export type ClosedVerdict = Extract<TableDetailResult, { kind: "closed" }>;
 
 /** A table the current (source) table can be merged INTO (S1.4). Same mode, active, has an open cart, not
  *  mid-payment — the legible candidates a server picks from in the explicit merge tool. */

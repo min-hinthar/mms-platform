@@ -18,16 +18,14 @@ import {
   opensInPane,
   paneFocusAfterClose,
   paneFromHash,
-  paneHash,
   paneHistoryOp,
   paneOwned,
   paneSelectionFromHash,
-  paneSelectionHeld,
-  paneStartHeld,
   type LostKind,
 } from "@/lib/floor-pane";
 import { haptic } from "@/lib/haptics";
 import { useCounterBellCover } from "./CounterBell";
+import { useReaderCollectOptional } from "./ReaderCollectContext";
 import type { TableHint } from "./TableNav";
 import { TablePane } from "./TablePane";
 import {
@@ -94,42 +92,10 @@ export function CounterSplit({
   // Phase 2d · Codex round 1 — a close is a move too: the floor, shown, takes its own `gen` from
   // the same count, so the API's `selectionGen` is new on EVERY move and never comes back.
   const [floorGen, setFloorGen] = useState(0);
-  // ── Phase 2d · Codex round 1 · pane ── the table whose reader collection is LIVE in the pane (its
-  // panel reports it at commit), and how many selection changes that hold refused (the detail says
-  // why in its one region). A ref: `select`/`close` read it at the instant of the tap.
-  const paying = useRef<string | null>(null);
-  const [heldSeq, setHeldSeq] = useState(0);
-  const onReaderLive = useCallback((sessionId: string, live: boolean) => {
-    if (live) paying.current = sessionId;
-    else if (paying.current === sessionId) paying.current = null;
-  }, []);
-  /** A change of selection `to` (null = a close) while the table shown is paying: REFUSED
-   *  (`paneSelectionHeld`) — the pane stays, focus stays, the detail says why. A Back/Forward has
-   *  already moved the URL, so the paying table's entry is put back, owned by this mount (a later ✕
-   *  walks back over it). */
-  const refusedWhilePaying = useCallback(
-    (to: string | null, via: "control" | "history", cleared: boolean): boolean => {
-      const cur = selRef.current;
-      if (!paneSelectionHeld({ paying: paying.current, from: cur?.id ?? null, to, cleared }))
-        return false;
-      if (via === "history" && cur) {
-        const hash = paneHash(cur.id);
-        history.pushState({}, "", urlWith(hash));
-        pushed.current = { hash, len: history.length };
-      }
-      setHeldSeq((n) => n + 1);
-      return true;
-    },
-    [],
-  );
-  // ── Phase 2d · Codex round 2 · pane ── a START (Walk-up, Phone order, a free table) is held by the
-  // same collection (`paneStartHeld`): the mint asks at the instant of its tap, and a refused one is
-  // said by the same count, in the detail's one region. Stable for the mount: read through refs.
-  const startHeld = useCallback(
-    () => paneStartHeld({ paying: paying.current, shown: selRef.current?.id ?? null }),
-    [],
-  );
-  const sayStartHeld = useCallback(() => setHeldSeq((n) => n + 1), []);
+  // ── Phase 2g · reader (D1) ── the pane no longer HOLDS a table whose reader collects, and no start
+  // is refused for one: the collect lives in `ReaderCollectProvider` above every staff route, so a
+  // switch, a close, Back, a mint landing — none of them stops its poll any more (P2em), and a lone
+  // cashier takes the next walk-up while a guest fumbles a card (P2er · P2es retire with the holds).
 
   // Phase 2d · review fixes — below 48em a selected table covers the counter's column, and the
   // bell's visible half with it: the bell asks this at the instant of each ring (never captured —
@@ -146,14 +112,15 @@ export function CounterSplit({
   );
 
   /** Select `id` — the ONE admission point. `write` = apply the history op (a tap, a merge, a
-   *  twin); a hash-driven selection never writes (the URL already names it). False when REFUSED
-   *  (a reader collecting on the table shown — `refusedWhilePaying`), so a caller leaves no trace
-   *  of a tap that did nothing (no opener, no haptic). */
+   *  twin); a hash-driven selection never writes (the URL already names it: Back / Forward). */
   const select = useCallback(
-    (id: string, hint: TableHint | null, opts: { write: boolean; focus: boolean }): boolean => {
-      // A hash-driven selection (no write) is one the URL already made: Back / Forward.
-      if (refusedWhilePaying(id, opts.write ? "control" : "history", false)) return false;
+    (id: string, hint: TableHint | null, opts: { write: boolean; focus: boolean }): void => {
       const from = selRef.current?.id ?? null;
+      // A11Y-3 — the opener names the card that opened THIS selection. Any other way in (the reader
+      // chip's View, `openSession` from the lane or the older-orders sheet, a hash) starts with none,
+      // so a later ✕ lands on the new table's own card or the floor heading — never on the card of a
+      // table opened before it. A card tap sets it again right after this (`openFromCard`).
+      if (from !== id) opener.current = null;
       if (opts.write) {
         const currentHash = location.hash;
         const owned = paneOwned({
@@ -176,59 +143,63 @@ export function CounterSplit({
         focus: opts.focus ? ++focusSeq.current : (selRef.current?.focus ?? 0),
         gen: from === id && selRef.current ? selRef.current.gen : ++genSeq.current,
       };
-      if (from === id && !opts.focus) return true;
+      if (from === id && !opts.focus) return;
       selRef.current = next;
       setSel(next);
       setLostWrite((lw) => (lw?.sessionId === id ? null : lw));
-      return true;
     },
-    [hintFor, refusedWhilePaying],
+    [hintFor],
   );
+
+  // ── Phase 2g · reader ── the bar's reader chip opens its table HERE at split width: a router push
+  // of a hash on this same page fires no `hashchange`, so the chip's link alone could never select.
+  const reader = useReaderCollectOptional();
+  const registerPane = reader?.registerPane;
+  useEffect(() => {
+    if (!registerPane) return;
+    return registerPane((id, name) => select(id, name, { write: true, focus: true }));
+  }, [registerPane, select]);
 
   /** Close — instant: the selection goes null first, then the history walks back (only over an
    *  entry THIS mount pushed) or replaces to the floor heading. Focus lands after the render. */
-  const close = useCallback(
-    (reason: CloseReason, via: "control" | "history") => {
-      const cur = selRef.current;
-      if (!cur) return;
-      if (refusedWhilePaying(null, via, reason === "cleared")) return;
-      const active = document.activeElement;
-      const focusInPane = paneRef.current?.contains(active) ?? false;
-      const openerLive = opener.current?.isConnected ? opener.current : null;
-      const card = document.querySelector(`.floor-card[data-session-id="${cur.id}"]`);
-      const target = paneFocusAfterClose({
-        via,
-        reason,
-        focusInPane,
-        activeIsBody: active === document.body || active === null,
-        cardInDom: openerLive !== null || card !== null,
+  const close = useCallback((reason: CloseReason, via: "control" | "history") => {
+    const cur = selRef.current;
+    if (!cur) return;
+    const active = document.activeElement;
+    const focusInPane = paneRef.current?.contains(active) ?? false;
+    const openerLive = opener.current?.isConnected ? opener.current : null;
+    const card = document.querySelector(`.floor-card[data-session-id="${cur.id}"]`);
+    const target = paneFocusAfterClose({
+      via,
+      reason,
+      focusInPane,
+      activeIsBody: active === document.body || active === null,
+      cardInDom: openerLive !== null || card !== null,
+    });
+    pendingFocus.current = target === "stay" ? null : { target, id: cur.id };
+    selRef.current = null;
+    setSel(null);
+    setFloorGen(++genSeq.current);
+    // ── Phase 2d · Codex round 2 · pane ── a lost outcome STAYS: a close answers nothing about
+    // it — it names a table the person left (a payment that may have to be collected again, a
+    // dish that never saved), and the floor shows it at every width (`data-pane="lost"`). Only
+    // going back to its table clears it (`select`), or a newer loss that outranks it (`nextLost`).
+    // The paid card leaves with its table (✕, Escape, Back, Clear); a SWITCH keeps it.
+    dropHandoffStash(cur.id);
+    if (via === "control") {
+      const currentHash = location.hash;
+      const owned = paneOwned({
+        pushed: pushed.current,
+        currentHash,
+        historyLength: history.length,
       });
-      pendingFocus.current = target === "stay" ? null : { target, id: cur.id };
-      selRef.current = null;
-      setSel(null);
-      setFloorGen(++genSeq.current);
-      // ── Phase 2d · Codex round 2 · pane ── a lost outcome STAYS: a close answers nothing about
-      // it — it names a table the person left (a payment that may have to be collected again, a
-      // dish that never saved), and the floor shows it at every width (`data-pane="lost"`). Only
-      // going back to its table clears it (`select`), or a newer loss that outranks it (`nextLost`).
-      // The paid card leaves with its table (✕, Escape, Back, Clear); a SWITCH keeps it.
-      dropHandoffStash(cur.id);
-      if (via === "control") {
-        const currentHash = location.hash;
-        const owned = paneOwned({
-          pushed: pushed.current,
-          currentHash,
-          historyLength: history.length,
-        });
-        const op = paneHistoryOp({ from: cur.id, to: null, currentHash, owned });
-        pushed.current = null;
-        if (op.op === "back") history.back();
-        else if (op.op === "replace") history.replaceState({}, "", urlWith(op.hash ?? FLOOR_HASH));
-      }
-      setCloseSeq((n) => n + 1);
-    },
-    [refusedWhilePaying],
-  );
+      const op = paneHistoryOp({ from: cur.id, to: null, currentHash, owned });
+      pushed.current = null;
+      if (op.op === "back") history.back();
+      else if (op.op === "replace") history.replaceState({}, "", urlWith(op.hash ?? FLOOR_HASH));
+    }
+    setCloseSeq((n) => n + 1);
+  }, []);
 
   // Focus after a close, once the pane has re-rendered (the card beside it is back in the grid at
   // 48–64em). `preventScroll`: the floor never jumps under the person.
@@ -295,9 +266,7 @@ export function CounterSplit({
       )
         return;
       e.preventDefault();
-      // Refused (the reader is collecting on the table shown): the pane says why; no pick, and no
-      // opener — a later close must land on the table's OWN card, never the one refused here.
-      if (!select(sessionId, hint, { write: true, focus: true })) return;
+      select(sessionId, hint, { write: true, focus: true });
       haptic("pick"); // its visible half: the pane head and the card's cap, in the same frame
       opener.current = e.currentTarget;
     },
@@ -305,11 +274,15 @@ export function CounterSplit({
   );
 
   const openSession = useCallback(
-    (sessionId: string, hint: TableHint) => {
+    (sessionId: string, hint: TableHint, opts?: { settle?: boolean }) => {
       if (!isSplit()) return false;
-      // Refused or not, the pane HANDLED it: `false` would send the caller to the table's own page
-      // (the mint's landing) and take the counter screen — a live reader panel with it — away.
-      select(sessionId, hint, { write: true, focus: true });
+      // The `?settle=1` seed's in-place twin: kept for THIS selection, consumed once by the pane.
+      if (opts?.settle) setSettleOnce(sessionId);
+      // Codex r1 on #309 — the table already shown keeps its detail mounted, so the settle focus is
+      // the detail's own (a prop edge); a heading focus here would run in a PARENT effect, after it,
+      // and land the cashier on the heading instead of the payment.
+      const shownNow = selRef.current?.id === sessionId;
+      select(sessionId, hint, { write: true, focus: !(shownNow && opts?.settle) });
       return true;
     },
     [select],
@@ -331,8 +304,6 @@ export function CounterSplit({
     openFromCard,
     openSession,
     publishFloor,
-    startHeld,
-    sayStartHeld,
   };
 
   return (
@@ -354,10 +325,9 @@ export function CounterSplit({
           terminalReady={terminalReady}
           onClose={(reason) => close(reason, "control")}
           onSelect={(id, hint) => {
-            if (select(id, hint, { write: true, focus: true })) opener.current = null;
+            select(id, hint, { write: true, focus: true });
+            opener.current = null;
           }}
-          onReaderLive={onReaderLive}
-          paneHeld={heldSeq}
           onLostWrite={(sessionId, hint, kind) => {
             // Only an UNMOUNTED detail reports here (FloorDetailLive routes a refusal through this
             // only once it is no longer alive), so the report is always one no mounted region can

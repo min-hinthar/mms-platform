@@ -23,22 +23,33 @@ vi.mock("./posthog-server", () => ({
   getPostHogClient: () => ({ capture() {}, flush: () => Promise.resolve() }),
 }));
 vi.mock("./authz", () => ({ AuthzError: class AuthzError extends Error {} }));
+// Phase 2g · P2fz — the gate's verdict and the console lock, per case (default: staff, unlocked).
+const gate = vi.hoisted(() => ({
+  auth: "staff" as "staff" | "anon" | "unavailable",
+  locked: false,
+}));
 vi.mock("./staff", () => ({
   getStaffAuth: () =>
-    Promise.resolve({
-      kind: "staff",
-      caller: { uid: "u", staffId: "st", role: "server", displayName: "S", email: null },
-    }),
+    Promise.resolve(
+      gate.auth === "staff"
+        ? {
+            kind: "staff",
+            caller: { uid: "u", staffId: "st", role: "server", displayName: "S", email: null },
+          }
+        : { kind: gate.auth },
+    ),
   requireStaff: () => Promise.resolve({}),
   staffGate: () => Promise.resolve({ ok: true, caller: { staffId: "st", role: "server" } }),
   STAFF_WRITE_OUTAGE: "outage",
 }));
-vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(false) }));
+vi.mock("./staff-lock", () => ({ isConsoleLocked: () => Promise.resolve(gate.locked) }));
 vi.mock("./pay-guard", () => ({
   isFresh: () => false,
   paymentInFlightReason: () => Promise.resolve(null),
 }));
-vi.mock("@mms/db/schemas", () => ({
+// Phase 2g — the REAL `counterOlderInput` (the cursor's rail is part of what is pinned here).
+vi.mock("@mms/db/schemas", async (orig) => ({
+  ...(await orig<typeof import("@mms/db/schemas")>()),
   clearTableInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
   mergeTablesInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
 }));
@@ -59,10 +70,19 @@ vi.mock("./totals", () => ({
 vi.mock("./line-names", () => ({
   loadLineNames: () => Promise.resolve({ optionNameMy: new Map() }),
 }));
-const rq = vi.hoisted(() => ({ value: null as unknown }));
+const rq = vi.hoisted(() => ({
+  value: null as unknown,
+  /** Phase 2g · P2fz — the oldest-first page, and every cursor it was asked for. */
+  older: null as unknown,
+  olderAfter: [] as unknown[],
+}));
 vi.mock("./register-queue", async (orig) => ({
   ...(await orig<typeof import("./register-queue")>()),
   readRegisterQueue: () => Promise.resolve(rq.value),
+  readCounterOrdersOldestFirst: (_db: unknown, after: unknown) => {
+    rq.olderAfter.push(after);
+    return Promise.resolve(rq.older);
+  },
 }));
 
 type Row = Record<string, unknown>;
@@ -75,6 +95,8 @@ const TABLE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const KIOSK = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 let sessions: Record<string, Row> = {};
+/** Phase 2g — what `getFloorView`'s sessions LIST read answers ([] → the early, table-less return). */
+let floorSessions: Row[] = [];
 let carts: Record<string, Row | null> = {};
 let items: Record<string, Row[]> = {};
 let itemsError: { message: string } | null = null;
@@ -149,6 +171,8 @@ function tableApi(name: string) {
         updates.push({ table: name, patch });
         return resolve({ data: null, error: null });
       }
+      // Phase 2g — the floor's own sessions read (a list, not `maybeSingle`), per case.
+      if (name === "table_sessions") return resolve({ data: floorSessions, error: null });
       if (name === "qr_cart_items") {
         if (head) return resolve({ count: (items[eqs.cart_id as string] ?? []).length });
         if (itemsError) return resolve({ data: null, error: itemsError });
@@ -183,7 +207,9 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { getTableDetail, clearTable, mergeTables, getFloorView } = await import("./floor");
+const { getTableDetail, clearTable, mergeTables, getFloorView, getOldestCounterOrders } =
+  await import("./floor");
+const { COUNTER_UNCOLLECTED_MS } = await import("./counter-order");
 
 const line = (over: Row): Row => ({
   id: "l",
@@ -253,6 +279,11 @@ beforeEach(() => {
   clearVerdict = { data: "ok", error: null };
   mergeMoved = 1;
   rq.value = null;
+  rq.older = null;
+  rq.olderAfter = [];
+  gate.auth = "staff";
+  gate.locked = false;
+  floorSessions = [];
 });
 
 async function detail(id: string) {
@@ -551,5 +582,174 @@ describe("getFloorView — a register row's unpaid food and kitchen row", () => 
     const r = await getFloorView();
     if (!r.ok) throw new Error("expected a snapshot");
     expect(r.snapshot.counter[0]).toMatchObject({ unpaidSent: false });
+  });
+});
+
+// ── Phase 2g · P2fk · P2fz ──────────────────────────────────────────────────────────────────────
+// The DB clock is an hour AHEAD of the app clock (above), so a line fired four hours and a minute
+// before the DB clock is uncollected there and only three hours old on the app clock.
+const OLD_SEC = COUNTER_UNCOLLECTED_MS / 1000 + 60;
+
+const qrow = (sessionId: string, source: "register" | "kiosk", startedAt: string) => ({
+  sessionId,
+  customerName: "Aye",
+  itemCount: 1,
+  subtotalCents: 1200,
+  startedAt,
+  source,
+});
+const qline = (over: Row) => ({
+  id: "q",
+  qty: 1,
+  state: "fired",
+  fulfillment: "togo",
+  fire_at: dbAgo(OLD_SEC),
+  bumped_at: null,
+  comped: false,
+  by_seat: null,
+  ...over,
+});
+
+describe("getFloorView — uncollected counter orders, and the truncation it reports (Phase 2g)", () => {
+  it("a register row whose food waited past the horizon BY THE DB CLOCK is uncollected; a kiosk row never", async () => {
+    // p2g-uncollected/floor/app-clock · kiosk-uncollected
+    rq.value = {
+      ok: true,
+      rows: [
+        qrow(REG, "register", "2026-10-01T00:00:00.000Z"),
+        qrow(KIOSK, "kiosk", "2026-10-01T00:00:00.000Z"),
+      ],
+      truncated: false,
+      lines: new Map([
+        [REG, [qline({ id: "r1" })]],
+        [KIOSK, [qline({ id: "k1" })]],
+      ]),
+    };
+    const r = await getFloorView();
+    if (!r.ok) throw new Error("expected a snapshot");
+    const [reg, kiosk] = r.snapshot.counter;
+    expect(reg).toMatchObject({ sessionId: REG, unpaidSent: true, uncollected: true });
+    expect(kiosk).toMatchObject({ sessionId: KIOSK, uncollected: false });
+  });
+
+  it("a register row an hour short of the horizon on the DB clock is not uncollected", async () => {
+    rq.value = {
+      ok: true,
+      rows: [qrow(REG, "register", "2026-10-01T00:00:00.000Z")],
+      truncated: false,
+      lines: new Map([[REG, [qline({ id: "r1", fire_at: dbAgo(OLD_SEC - 3600) })]]]),
+    };
+    const r = await getFloorView();
+    if (!r.ok) throw new Error("expected a snapshot");
+    expect(r.snapshot.counter[0]).toMatchObject({ uncollected: false });
+  });
+
+  it("a truncated counter read is SAID — on the table-less return and on the room's", async () => {
+    // p2g-older/floor/truncated-dropped (both returns) — unpinned before Phase 2g.
+    for (const truncated of [true, false]) {
+      rq.value = { ok: true, rows: [], truncated, lines: new Map() };
+      floorSessions = [];
+      const quiet = await getFloorView();
+      if (!quiet.ok) throw new Error("expected a snapshot");
+      expect(quiet.snapshot.counterTruncated).toBe(truncated);
+      floorSessions = [session(TABLE, "t-7", "dinein")];
+      const room = await getFloorView();
+      if (!room.ok) throw new Error("expected a snapshot");
+      expect(room.snapshot.tables.map((t) => t.sessionId)).toEqual([TABLE]);
+      expect(room.snapshot.counterTruncated).toBe(truncated);
+    }
+  });
+});
+
+describe("getOldestCounterOrders — the oldest-first sheet's gated read", () => {
+  const RAW = "2026-09-30T08:00:00.123456+00:00";
+  const page = (more: boolean) => ({
+    ok: true,
+    more,
+    rows: [qrow(REG, "register", "2026-09-30T07:00:00.5+00:00"), qrow(KIOSK, "kiosk", RAW)],
+    lines: new Map([
+      [REG, [qline({ id: "r1" })]],
+      [KIOSK, [qline({ id: "k1" })]],
+    ]),
+  });
+
+  it("refuses before ANY read — unknowable gate, not staff, a locked console, a bad cursor", async () => {
+    // p2g-older/floor/outage-reads · signin-reads · locked-console-reads · cursor-unparsed
+    rq.older = page(false);
+    const cases: [() => void, unknown, string][] = [
+      [() => (gate.auth = "unavailable"), { after: null }, "outage"],
+      [() => (gate.auth = "anon"), { after: null }, "signin"],
+      [() => (gate.locked = true), { after: null }, "locked"],
+      [() => {}, { after: { startedAt: "x,id.gt.0", sessionId: REG } }, "invalid"],
+      [() => {}, { after: { startedAt: RAW, sessionId: "not-a-uuid" } }, "invalid"],
+      [() => {}, { after: { startedAt: "2026-09-30T08:00:00", sessionId: REG } }, "invalid"],
+      [() => {}, {}, "invalid"],
+    ];
+    for (const [arrange, input, reason] of cases) {
+      gate.auth = "staff";
+      gate.locked = false;
+      rpcCalls = [];
+      rq.olderAfter = [];
+      arrange();
+      expect(await getOldestCounterOrders(input)).toEqual({ ok: false, reason });
+      expect(rq.olderAfter).toEqual([]);
+      expect(rpcCalls).toEqual([]);
+    }
+  });
+
+  it("shapes each row as the FLOOR does, on the DB clock — and a kiosk row is none of it", async () => {
+    // p2g-older/floor/app-clock
+    rq.older = page(false);
+    const r = await getOldestCounterOrders({ after: null });
+    if (!r.ok) throw new Error("expected a page");
+    expect(rq.olderAfter).toEqual([null]);
+    expect(r.serverNow).toBe(DB_NOW);
+    const [reg, kiosk] = r.rows;
+    expect(reg).toMatchObject({ sessionId: REG, unpaidSent: true, uncollected: true });
+    expect(reg?.kitchen).toMatchObject({ inKitchen: 1 });
+    expect(kiosk).toMatchObject({
+      sessionId: KIOSK,
+      unpaidSent: false,
+      uncollected: false,
+      kitchen: null,
+    });
+    expect(r.more).toBe(false);
+    expect(r.next).toBeNull();
+  });
+
+  it("more: the next cursor is the LAST row's own (startedAt, sessionId), verbatim", async () => {
+    // p2g-older/floor/next-from-first-row · next-without-more
+    rq.older = page(true);
+    const r = await getOldestCounterOrders({ after: { startedAt: RAW, sessionId: REG } });
+    if (!r.ok) throw new Error("expected a page");
+    // the parsed cursor reaches the read untouched (microseconds and all)
+    expect(rq.olderAfter).toEqual([{ startedAt: RAW, sessionId: REG }]);
+    expect(r.more).toBe(true);
+    expect(r.next).toEqual({ startedAt: RAW, sessionId: KIOSK });
+  });
+
+  it("an unreadable page is an OUTAGE, never an empty list", async () => {
+    rq.older = { ok: false, reason: "outage" };
+    expect(await getOldestCounterOrders({ after: null })).toEqual({
+      ok: false,
+      reason: "outage",
+    });
+  });
+});
+
+describe("getTableDetail — the counter order nobody collected (Phase 2g)", () => {
+  it("food that waited past the horizon BY THE DB CLOCK: counterUncollected; fresh food: not", async () => {
+    // p2g-uncollected/floor/detail-app-clock · detail-unwired
+    items["cart-reg"] = [line({ id: "old", state: "fired", fire_at: dbAgo(OLD_SEC) })];
+    expect((await detail(REG)).counterUncollected).toBe(true);
+    items["cart-reg"] = [line({ id: "new", state: "fired", fire_at: dbAgo(OLD_SEC - 3600) })];
+    expect((await detail(REG)).counterUncollected).toBe(false);
+  });
+
+  it("a table is never an uncollected counter order, however old its food", async () => {
+    items["cart-t"] = [
+      line({ id: "t1", state: "fired", fulfillment: "dinein", fire_at: dbAgo(OLD_SEC) }),
+    ];
+    expect((await detail(TABLE)).counterUncollected).toBe(false);
   });
 });

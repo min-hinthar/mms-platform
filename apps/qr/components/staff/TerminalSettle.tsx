@@ -1,14 +1,25 @@
 "use client";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, type ButtonVariant } from "@mms/ui";
-import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { settleCard } from "@/lib/terminal";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
-import { MsgText, type StaffMsg } from "./StaffMsg";
+import { MsgText } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
+// ── Phase 2g · reader ──
+import {
+  readerAlertKey,
+  readerBusyKey,
+  readerNameText,
+  readerPanelAction,
+  readerStartRefused,
+  type ReaderName,
+  type ReaderStatus,
+} from "@/lib/reader-collect";
+import { useReaderCollect } from "./ReaderCollectContext";
 
 /**
  * P2 — the two error sources on this surface, kept APART.
@@ -33,11 +44,6 @@ type SettleError =
   | { kind: "unreadable" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-const POLL_MS = 2500;
-/** Consecutive failed polls before the panel admits it's blind (Stripe unreachable). */
-const BLIND_AFTER_MISSES = 3;
-/** How long "Recording the order…" may claim progress before escalating honestly. */
-const RECORDING_ESCALATE_MS = 20_000;
 
 /**
  * Card-present settle at the register (W6c). Two halves, split on purpose:
@@ -45,24 +51,35 @@ const RECORDING_ESCALATE_MS = 20_000;
  *  - `TerminalSettleButton` starts the collect. It lives INSIDE the open-cart settle section — and
  *    unmounts seconds after starting (the settlement freeze flips `paymentInFlight`, which unmounts
  *    the whole section on the next detail refresh).
- *  - `TerminalCollectPanel` is the live collect window. Its state lives in the PARENT
- *    (FloorDetailLive) exactly like the cash handoff card — the W6a confirmed-HIGH lesson: any UI
- *    that must outlive the settle section cannot keep its state inside it.
+ *  - `TerminalCollectPanel` is the live collect window — a VIEW since Phase 2g. The collect itself
+ *    (the record, the poll, cancel, the landing) lives in `ReaderCollectProvider`, above every staff
+ *    route: the W6a lesson (UI that must outlive the settle section cannot keep its state inside it)
+ *    taken one level further, because the DETAIL did not outlive "← Floor", Lock, More or a mint
+ *    landing either (P2em), and a start answering after its detail left polled nothing (P2en).
  *
- * The button never sends an amount; the panel's poll (`terminalStatus`) is also what keeps the
+ * The button never sends an amount; the provider's poll (`terminalStatus`) is also what keeps the
  * settlement freeze alive across a slow chip interaction (server-side `extendSettlement`).
  */
 
-export type TerminalCollect = { paymentIntentId: string; totalCents: number };
-
 /** What the collect panel says, handed to the page's ONE polite region (P2r) — the panel shows the
  *  same words visibly but is no live region of its own. `tone` colours nothing here; the page's
- *  region reads it for its precedence and tint. */
-export type ReaderStatus = { tone: "ok" | "warn"; msg: StaffMsg };
+ *  region reads it for its precedence and tint. The ONE binding is `readerStatus` (lib). */
+export type { ReaderStatus };
+
+/** What the TAP knows about the bill the reader is asked to collect (Phase 2g): read from the props
+ *  of the render that was tapped, so a detail that is gone by the answer (P2en) still names it. */
+export type ReaderTap = {
+  isCounter: boolean;
+  name: ReaderName;
+  /** Phase 2f — whether food went to the kitchen unpaid, AT THE TAP (the paid card says so). */
+  sentEarly: boolean;
+  cartId: string | null;
+};
 
 export function TerminalSettleButton({
   sessionId,
   totalCents,
+  tap,
   variant = "secondary",
   onStarted,
   blocked = false,
@@ -75,10 +92,14 @@ export function TerminalSettleButton({
 }: {
   sessionId: string;
   totalCents: number;
+  /** Phase 2g — the bill's facts as of this render; a tap carries them into the collect. */
+  tap: ReaderTap;
   /** Phase 2c — the reader is never the settle section's primary (`settlePrimary`, owner decision
    *  8): it sits BELOW cash as a secondary. The prop exists so that decision stays one line. */
   variant?: Extract<ButtonVariant, "primary" | "secondary">;
-  onStarted: (c: TerminalCollect) => void;
+  /** The page's own work once the reader took the charge (the collect itself is the provider's,
+   *  started before this runs — so it starts whether or not the page is still here). */
+  onStarted?: () => void;
   /** Phase 2c · gate — the settle gate holds (read by the page): `aria-disabled`, described by the
    *  page's note, and a tap starts NO reader — it hands up (`onBlockedTap`). */
   blocked?: boolean;
@@ -105,6 +126,22 @@ export function TerminalSettleButton({
   onSettleOutcome?: (outcome: "refused" | "unknown") => void;
 }) {
   const lang = useStaffLang();
+  // Phase 2g · reader — the collect's owner, above navigation. `reader.start` is the provider's
+  // STABLE function: the resolved promise below calls it whether or not this button (or the detail
+  // around it) is still mounted, so a start that answers after a switch still polls (P2en).
+  const reader = useReaderCollect();
+  const startCollect = reader.start;
+  // The ONE refusal left (D1): another table's collect is live — there is one reader. Shown as a
+  // held control with its reason; refused at the tap (`reader.startRefused`, a ref read) before the
+  // server is asked.
+  const busyElsewhere = readerStartRefused({
+    collect: reader.record,
+    phase: reader.poll.phase,
+    sessionId,
+  });
+  // PT-2 — and why, truthfully: "taking a payment … finish that one first" only while the reader IS
+  // taking one; once the other charge went through and its order is being recorded, it says that.
+  const busyKey = busyElsewhere ? readerBusyKey(reader.poll.phase) : null;
   const [busy, setBusy] = useState(false);
   // The tap-time guard: a REF, read when the finger lands (two taps in one frame both read the
   // render before `busy`).
@@ -124,6 +161,9 @@ export function TerminalSettleButton({
       onBlockedTap?.(null);
       return;
     }
+    // Phase 2g · reader — another table holds the one reader: no freeze, no PaymentIntent, no
+    // reader command. The note under the trigger (its description) says whose and why.
+    if (reader.startRefused(sessionId)) return;
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -149,7 +189,15 @@ export function TerminalSettleButton({
         }
         return;
       }
-      onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
+      // The collect starts in the PROVIDER, with the tap's facts — never through a closure of the
+      // detail, which may have unmounted while this was in the air.
+      startCollect({
+        sessionId,
+        paymentIntentId: res.paymentIntentId,
+        totalCents: res.totalCents,
+        ...tap,
+      });
+      onStarted?.();
     } catch {
       // A rejected action (Next redacts the message in prod) must never latch the button on
       // "Starting…" — the W10c bug class.
@@ -174,13 +222,32 @@ export function TerminalSettleButton({
         busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
         // Phase 2c · gate — the attribute (spread only when set) plus `start`'s own guard.
         {...(blocked ? { "aria-disabled": true } : {})}
-        aria-describedby={
-          blocked && blockedNoteId ? `${blockedNoteId} terminal-hint` : "terminal-hint"
-        }
+        // Phase 2g · reader — held while the one reader collects for another table (its note below).
+        {...(busyElsewhere ? { "aria-disabled": true } : {})}
+        aria-describedby={[
+          blocked && blockedNoteId ? blockedNoteId : null,
+          busyElsewhere ? "terminal-busy" : null,
+          "terminal-hint",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         onClick={start}
       >
         <Chrome lang={lang} k="settle.reader.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
       </Button>
+      {/* Phase 2g · reader — WHY the trigger is held, before anyone taps: whose payment the one
+          reader is taking. The trigger's description reads it first; never a live region (the
+          page has one). */}
+      {busyKey !== null && reader.record && (
+        <p id="terminal-busy" style={{ ...hint, color: "var(--warn)" }}>
+          <Chrome
+            lang={lang}
+            k={busyKey}
+            vars={{ x: readerNameText(lang, reader.record.name) }}
+            echo="stack"
+          />
+        </p>
+      )}
       <p id="terminal-hint" style={hint}>
         <Chrome lang={lang} k="settle.reader.hint" echo="stack" />
       </p>
@@ -220,173 +287,74 @@ export function TerminalSettleButton({
   );
 }
 
-type PanelPhase = "collecting" | "recording" | "failed" | "canceled";
-
 /**
- * The live collect window: polls the PI's truth until it lands somewhere terminal. On success it
- * hands the counter's paid order up (the parent maps it into the canonical paid card — no tip, no
- * tender: the reader records neither) — for a table settle there is no card; the detail's paid state
- * is the quiet signal. `onDone(null)` just dismisses.
+ * The live collect window — a VIEW over `ReaderCollectProvider` (Phase 2g), rendered by the table
+ * detail it belongs to and by nothing else: null unless the collect is THIS table's, and null while a
+ * charged-not-recorded collect was put away ("Hide this — we'll keep checking" — D4: the provider
+ * keeps polling silently until the order lands, or gives it up as unrecorded and brings it back). On a landing the provider hands the counter's paid card to the
+ * detail (`shownHere`'s `onLanded`); for a table settle there is no card — the detail's paid state is
+ * the quiet signal.
  *
  * Phase 2c — the panel's status is SAID through the page's one polite region (`onStatus`, P2r) and
- * SHOWN here as plain text; the settle that lands re-reads the page's own detail (`onChanged`), not a
- * `router.refresh()` that updated nothing the page reads.
+ * SHOWN here as plain text. Focus comes here only on the first mount after a START made in view (the
+ * settle section unmounts under the cashier as the freeze lands) — never on a re-attach, which would
+ * pull focus off the pane heading the person just landed on.
  */
 export function TerminalCollectPanel({
   sessionId,
-  collect,
-  isCounter,
-  onDone,
   onStatus,
-  onChanged,
-  onLive,
 }: {
   sessionId: string;
-  collect: TerminalCollect;
-  isCounter: boolean;
-  onDone: (h: { orderId: string; totalCents: number } | null) => void;
   /** The page's ONE polite region takes the panel's status (and a cancel refusal) from here. */
   onStatus?: (s: ReaderStatus) => void;
-  /** The page's own detail refresh. */
-  onChanged?: () => void;
-  /** Codex round 1 (#306) — whether this panel's poll is LIVE: collecting, or charged and waiting
-   *  for the order (the poll is what slides the freeze forward and records a counter's #CODE). The
-   *  counter's pane holds its selection on this table while it is. Reported at commit (a layout
-   *  effect), so a tap in the next event already meets the hold; `false` on unmount. */
-  onLive?: (live: boolean) => void;
 }) {
   const lang = useStaffLang();
-  const [phase, setPhase] = useState<PanelPhase>("collecting");
+  const reader = useReaderCollect();
+  const collect = reader.record;
+  const mine = collect !== null && collect.sessionId === sessionId && !collect.hidden;
+  const phase = reader.poll.phase;
   // ⚠️ NOT an <OutageText> candidate, and the reason is narrower than "it is a server string".
-  // `failCopy` is set ONLY in the `res.state === "failed"` arm below, whose `error` is
+  // `failCopy` (in `status` below) is set ONLY in the reducer's `failed` arm, whose `error` is
   // `declineCopy(intent.last_payment_error.code)` (lib/terminal.ts) — a card-decline sentence, which
-  // has no Burmese twin. The arm that CAN carry STAFF_WRITE_OUTAGE is `!res.ok`, and this component
-  // swallows that into `pollMisses` without rendering it. So wrapping this would be a behavioural
-  // no-op (OutageText passes every non-twin sentence through verbatim) and would imply a swap that
-  // can never happen. What it actually needs is a twin per decline reason, which is a dictionary
-  // question, not a rendering one.
-  const [failCopy, setFailCopy] = useState<string | null>(null);
-  // Consecutive poll misses — past the threshold the panel admits it can't see Stripe instead of
-  // claiming a live wait it isn't actually watching (review finding: the honest server copy was
-  // dead code and the freeze-extension silently stopped).
-  const [pollMisses, setPollMisses] = useState(0);
-  // When the recording phase started — bounds how long "Recording…" may claim progress.
-  const [recordingSince, setRecordingSince] = useState<number | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const [cancelBusy, setCancelBusy] = useState(false);
-  const [cancelError, setCancelError] = useState<SettleError | null>(null);
+  // has no Burmese twin. The arm that CAN carry STAFF_WRITE_OUTAGE is `!res.ok`, and the reducer
+  // swallows that into `misses` without rendering it. So wrapping this would be a behavioural no-op
+  // (OutageText passes every non-twin sentence through verbatim) and would imply a swap that can
+  // never happen. What it actually needs is a twin per decline reason, a dictionary question.
+  const status = reader.status;
+  const cancelError = reader.cancelError;
   const panelRef = useRef<HTMLDivElement>(null);
+  const owed = mine && reader.focusOwed === collect.paymentIntentId;
+  const focusTaken = reader.focusTaken;
+  const pi = collect?.paymentIntentId ?? null;
   useEffect(() => {
-    // The settle section unmounts under the cashier as the freeze lands — carry focus here.
+    // The settle section unmounts under the cashier as the freeze lands — carry focus here, once.
+    if (!owed || pi === null) return;
     panelRef.current?.focus();
-  }, []);
+    focusTaken(pi);
+  }, [owed, pi, focusTaken]);
 
+  // What the region SPEAKS (`readerSpoken`): a cancel refusal is the newer fact while it stands.
+  const spokenKey = mine && reader.spoken ? JSON.stringify(reader.spoken) : null;
   useEffect(() => {
-    if (phase === "failed" || phase === "canceled") return; // terminal — stop polling
-    let stopped = false;
-    const tick = async () => {
-      setNowMs(Date.now());
-      const res = await terminalStatus({
-        sessionId,
-        paymentIntentId: collect.paymentIntentId,
-      }).catch(() => null);
-      if (stopped) return;
-      if (!res || !res.ok) {
-        // Transient miss (Stripe/staff-session hiccup) — count it so the panel can stop claiming
-        // a live wait; the next interval retries and Cancel stays available.
-        setPollMisses((n) => n + 1);
-        return;
-      }
-      setPollMisses(0);
-      if (res.state === "succeeded") {
-        if (res.orderId) {
-          onDone(isCounter ? { orderId: res.orderId, totalCents: res.totalCents } : null);
-          onChanged?.();
-        } else {
-          setPhase("recording"); // charged; the webhook is landing the order — keep polling
-          setRecordingSince((t) => t ?? Date.now());
-        }
-      } else if (res.state === "failed") {
-        setPhase("failed");
-        setFailCopy(res.error);
-      } else if (res.state === "canceled") {
-        setPhase("canceled");
-      }
-    };
-    const id = setInterval(tick, POLL_MS);
-    void tick();
-    return () => {
-      stopped = true;
-      clearInterval(id);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll keyed on the PI + phase; onDone/onChanged read from the closure per tick
-  }, [collect.paymentIntentId, sessionId, phase]);
-
-  // Codex round 1 (#306) — declined or cancelled ends the collection (the poll above stops, the
-  // freeze is released): the hold goes with it, even while the panel stays up saying so.
-  const live = phase === "collecting" || phase === "recording";
-  useLayoutEffect(() => {
-    onLive?.(live);
-    return () => onLive?.(false);
-  }, [live, onLive]);
-
-  const cancelInFlight = useRef(false);
-  async function cancel() {
-    if (cancelInFlight.current) return;
-    cancelInFlight.current = true;
-    setCancelBusy(true);
-    setCancelError(null);
-    try {
-      const res = await cancelTerminal({ sessionId, paymentIntentId: collect.paymentIntentId });
-      setCancelBusy(false);
-      if (!res.ok) {
-        // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
-        setCancelError({ kind: "server", text: res.error });
-        return;
-      }
-      setPhase("canceled");
-    } catch {
-      setCancelBusy(false);
-      setCancelError({ kind: "local" });
-    } finally {
-      cancelInFlight.current = false;
-    }
-  }
-
-  const blind = pollMisses >= BLIND_AFTER_MISSES;
-  const recordingLong = recordingSince != null && nowMs - recordingSince > RECORDING_ESCALATE_MS;
-
-  // Phase 2c (P2r) — the status is a dictionary KEY per arm now (bilingual for the first time; the
-  // decline copy stays the server's sentence, passed through `<MsgText>`). ONE binding feeds both the
-  // visible line below and the page's region, so the two can never say different things.
-  const status: ReaderStatus =
-    phase === "collecting"
-      ? blind
-        ? { tone: "warn", msg: { k: "settle.reader.status.blind" } }
-        : { tone: "ok", msg: { k: "settle.reader.status.waiting" } }
-      : phase === "recording"
-        ? recordingLong
-          ? { tone: "warn", msg: { k: "settle.reader.status.recordingLong" } }
-          : { tone: "ok", msg: { k: "settle.reader.status.recording" } }
-        : phase === "failed"
-          ? { tone: "warn", msg: failCopy ?? { k: "settle.reader.status.failed" } }
-          : { tone: "ok", msg: { k: "settle.reader.status.canceled" } };
-  // What the region SPEAKS: a cancel refusal is the newer fact while it stands; otherwise the status.
-  const spoken: ReaderStatus =
-    cancelError === null
-      ? status
-      : {
-          tone: "warn",
-          msg:
-            cancelError.kind === "server" ? cancelError.text : { k: "settle.reader.cancelFailed" },
-        };
-  const spokenKey = JSON.stringify(spoken);
-  useEffect(() => {
+    if (spokenKey === null) return;
     // The parent's setter, from an effect (never during render); keyed on the VALUE so a poll tick
     // that changes nothing re-announces nothing.
     onStatus?.(JSON.parse(spokenKey) as ReaderStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the spoken VALUE; onStatus is the parent's stable setter
   }, [spokenKey]);
+  // A11Y-6 — an outcome the page's region just SAID (a decline, a charge slow to record or given up)
+  // is marked said under the chip's own key (`readerAlertKey`, named once): leaving the table without
+  // dismissing it must never say it a second time, assertively, on the next page.
+  const recordingLong = reader.recordingLong;
+  const alertKey = mine ? readerAlertKey(collect.paymentIntentId, phase, recordingLong) : null;
+  const hasRegion = onStatus !== undefined;
+  const markAlertSaid = reader.markAlertSaid;
+  useEffect(() => {
+    if (alertKey !== null && hasRegion) markAlertSaid(alertKey);
+  }, [alertKey, hasRegion, markAlertSaid]);
+
+  if (collect === null || !mine || status === null) return null;
+  const action = readerPanelAction(phase, recordingLong);
 
   return (
     // `role="group"` is load-bearing, not decoration: a bare <div> maps to the `generic` role, which
@@ -402,7 +370,12 @@ export function TerminalCollectPanel({
       className="card"
       style={{ ...panel, outline: "none" }}
     >
-      <p style={{ ...panelTitle, color: phase === "failed" ? "var(--warn)" : "var(--tx)" }}>
+      <p
+        style={{
+          ...panelTitle,
+          color: phase === "failed" || phase === "unrecorded" ? "var(--warn)" : "var(--tx)",
+        }}
+      >
         {/* The amount stays OUTSIDE the dictionary sentence here — it trails the middot in both
             tongues — so it keeps its <strong> and its Latin figure untouched. */}
         {phase === "collecting" && (
@@ -412,7 +385,7 @@ export function TerminalCollectPanel({
             <strong>{fmt(collect.totalCents)}</strong>
           </>
         )}
-        {phase === "recording" && (
+        {(phase === "recording" || phase === "unrecorded") && (
           <>
             <Chrome lang={lang} k="settle.reader.paid" echo="inline" />
             {" · "}
@@ -441,26 +414,40 @@ export function TerminalCollectPanel({
           </>
         )}
       </p>
-      {phase === "collecting" && (
+      {action === "cancel" && (
         <Button
           variant="secondary"
           size="lg"
           style={{ alignSelf: "flex-start" }}
-          busy={cancelBusy}
+          busy={reader.cancelBusy}
           busyLabel={<Chrome lang={lang} k="settle.reader.canceling" echo={false} />}
-          onClick={cancel}
+          onClick={() => void reader.cancel()}
         >
           <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
         </Button>
       )}
-      {(phase === "failed" || phase === "canceled" || recordingLong) && (
+      {(action === "hide" || action === "back" || action === "close") && (
+        // `readerPanelAction` (PT-10): declined or cancelled → "Back to payment", the collect is
+        // cleared; charged-not-recorded (D4) → "Hide this — we'll keep checking", the panel is put
+        // away and the provider keeps polling (the order still lands, and its #CODE with it); given
+        // up as unrecorded (C1) → Close, there is no payment to go back to.
         <Button
           variant="secondary"
           size="lg"
           style={{ alignSelf: "flex-start" }}
-          onClick={() => onDone(null)}
+          onClick={reader.dismiss}
         >
-          <Chrome lang={lang} k="settle.reader.backToSettle" echo="stack" />
+          <Chrome
+            lang={lang}
+            k={
+              action === "hide"
+                ? "settle.reader.hideRecording"
+                : action === "close"
+                  ? "shell.close"
+                  : "settle.reader.backToSettle"
+            }
+            echo="stack"
+          />
         </Button>
       )}
     </div>

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PANE_QUERY } from "@/lib/floor-pane";
+import { PANE_QUERY, handoffStashKey } from "@/lib/floor-pane";
 import type {
   FloorSnapshot,
   FloorTable,
@@ -91,6 +91,7 @@ vi.mock("@/lib/counter-sound", () => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
+const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { LiveConnectionProvider } = await import("./LiveConnection");
 const { CounterBellProvider } = await import("./CounterBell");
 const { CounterSplit } = await import("./CounterSplit");
@@ -198,19 +199,21 @@ let split = true;
 function mountCounter(terminalReady = false) {
   return render(
     <StaffLangProvider lang="en">
-      <LiveConnectionProvider>
-        <CounterBellProvider>
-          <CounterSplit terminalReady={terminalReady}>
-            <CounterMintProvider>
-              <div className="staff-zone">
-                <h2 id="start-h">Start</h2>
-                <RegisterStart labelledBy="start-h" />
-              </div>
-              <FloorBoard initial={snap(ROOM)} />
-            </CounterMintProvider>
-          </CounterSplit>
-        </CounterBellProvider>
-      </LiveConnectionProvider>
+      <ReaderCollectProvider>
+        <LiveConnectionProvider>
+          <CounterBellProvider>
+            <CounterSplit terminalReady={terminalReady}>
+              <CounterMintProvider>
+                <div className="staff-zone">
+                  <h2 id="start-h">Start</h2>
+                  <RegisterStart labelledBy="start-h" />
+                </div>
+                <FloorBoard initial={snap(ROOM)} />
+              </CounterMintProvider>
+            </CounterSplit>
+          </CounterBellProvider>
+        </LiveConnectionProvider>
+      </ReaderCollectProvider>
     </StaffLangProvider>,
   );
 }
@@ -454,68 +457,13 @@ describe("a start that lands after the pane moved and came back", () => {
   });
 });
 
-// ── Phase 2d · Codex round 1 · pane ── the real floor's two ways in (a TableCard, wired by
-// FloorBoard, and an occupied strip tile, wired by TableStrip) are both refused while the reader
-// collects on the table shown: the panel's poll keeps the payment's hold and records its outcome.
-describe("a reader collection holds the pane on its table", () => {
-  afterEach(() => {
-    vi.mocked(terminal.settleCard).mockReset();
-    vi.mocked(terminal.terminalStatus).mockReset();
-  });
-  it("a floor card and a strip tile are both refused mid-collect; the pane says why", async () => {
-    answers[A] = detailOk({
-      ...detail(A, 4),
-      settleTotalCents: 1307,
-      settleTipBaseCents: 1200,
-    });
-    vi.mocked(terminal.settleCard).mockResolvedValueOnce({
-      ok: true,
-      paymentIntentId: "pi_4",
-      totalCents: 1307,
-    });
-    vi.mocked(terminal.terminalStatus).mockResolvedValue({ ok: true, state: "collecting" });
-    mountCounter(true);
-    await tick(0);
-    await act(async () => {
-      fireEvent.click(card(A));
-    });
-    await tick(0);
-    const settleSection = document.getElementById("settle-h")!.closest("section")!;
-    await act(async () => {
-      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
-    });
-    await tick(0);
-    const panel = () =>
-      within(pane()).queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
-    expect(panel()).not.toBeNull();
-    const tile = floorSection().querySelector<HTMLAnchorElement>('[data-tile="7"]')!;
-    await act(async () => {
-      fireEvent.click(tile);
-    });
-    await tick(0);
-    // MUTATION: the pane admits the strip's tap mid-collect — the reader panel unmounts; red.
-    expect(location.hash).toBe(`#table-${A}`);
-    expect(panel()).not.toBeNull();
-    await act(async () => {
-      fireEvent.click(card(B));
-    });
-    await tick(0);
-    expect(location.hash).toBe(`#table-${A}`);
-    expect(document.getElementById("table-pane-h")!.textContent).toBe(
-      tf("en", "floor.table", { id: "4" }),
-    );
-    expect(panel()).not.toBeNull();
-    expect(polite(pane())).toHaveLength(1);
-    expect(polite(pane())[0]!.textContent).toBe(ts("en", "floor.pane.payingHeld"));
-  });
-});
-
-// ── Phase 2d · Codex round 2 · pane ── every START is held while the pane's reader collects. The
-// Start zone and the strip's free tiles stayed live beside the collect panel, and a start does not
-// move the pane's selection — so a NEW order's landing pushed its add screen, the route swap
-// unmounted the whole counter screen, and the panel's poll (the payment's hold, a counter order's
-// #CODE) died with it: round 1's orphaned card payment, through a door that was not a selection.
-describe("every start is held while the pane's reader collects (Codex #306 round 2)", () => {
+// ── Phase 2g · reader (D1 — the holds retired) ── Codex rounds 1–2 on #306 HELD the pane on a
+// paying table and refused every start while its reader collected, because a switch or a landing's
+// route swap unmounted the collect panel and its poll. The poll lives in `ReaderCollectProvider`
+// (the staff layout's, mounted here above the counter tree) now, so both cases INVERT: the cashier
+// switches tables and starts the next walk-up mid-collect, and the poll keeps answering — through
+// the switch, and through the route swap that takes the whole counter screen away.
+describe("mid-collect the counter screen is free — and the poll survives (P2em · P2er · P2es)", () => {
   type Landing = { ok: true; sessionId: string; created: boolean };
   afterEach(() => {
     vi.mocked(terminal.settleCard).mockReset();
@@ -523,138 +471,106 @@ describe("every start is held while the pane's reader collects (Codex #306 round
   });
   const startZone = () => document.getElementById("start-h")!.parentElement!;
   const walkup = () => startZone().querySelector<HTMLButtonElement>("button.ui-btn")!;
-  const phoneArm = () => within(startZone()).getByRole("button", { name: "Phone order" });
-  const freeTile = (n: number) =>
-    floorSection().querySelector<HTMLButtonElement>(`button[data-tile="${n}"]`)!;
   const panel = () =>
     within(pane()).queryByRole("group", { name: ts("en", "settle.a11y.readerPanel") });
-  const heldLine = () => ts("en", "floor.pane.payingHeld");
   const tap = async (el: HTMLElement) => {
     await act(async () => {
       fireEvent.click(el);
     });
     await tick(0);
   };
-  function held() {
-    let resolve!: (v: Landing) => void;
-    const promise = new Promise<Landing>((r) => {
-      resolve = r;
+  /** Table 4 open at split width, its reader collecting. */
+  async function collectingOn4(over: Partial<TableDetail> = {}) {
+    answers[A] = detailOk({
+      ...detail(A, 4),
+      settleTotalCents: 1307,
+      settleTipBaseCents: 1200,
+      ...over,
     });
-    openRegisterOrder.mockReturnValueOnce(promise);
-    return { promise, resolve };
-  }
-  const land = async (d: ReturnType<typeof held>, l: Landing) => {
-    await act(async () => {
-      d.resolve(l);
-      await d.promise;
-    });
-    await tick(0);
-  };
-  /** Table 4 open in the pane at split width, ready to take a card on the reader. */
-  async function table4Open() {
-    answers[A] = detailOk({ ...detail(A, 4), settleTotalCents: 1307, settleTipBaseCents: 1200 });
     vi.mocked(terminal.settleCard).mockResolvedValueOnce({
       ok: true,
       paymentIntentId: "pi_4",
       totalCents: 1307,
     });
     vi.mocked(terminal.terminalStatus).mockResolvedValue({ ok: true, state: "collecting" });
-    mountCounter(true);
+    const r = mountCounter(true);
     await tick(0);
     await tap(card(A));
-  }
-  async function readerStarts() {
     const settleSection = document.getElementById("settle-h")!.closest("section")!;
     await tap(within(settleSection).getAllByRole("button").at(-1)!);
     expect(panel()).not.toBeNull();
+    return r;
   }
-  const declined = async () => {
+  const polls = () => vi.mocked(terminal.terminalStatus).mock.calls.length;
+
+  it("a floor card and a strip tile SWITCH the pane mid-collect, and the poll keeps answering", async () => {
+    await collectingOn4();
+    const tile = floorSection().querySelector<HTMLAnchorElement>('[data-tile="7"]')!;
+    await tap(tile);
+    // Watched red with the retired hold put back by hand (the pane refused the strip's tap).
+    expect(location.hash).toBe(`#table-${B}`);
+    expect(panel()).toBeNull(); // Table 7 shows no collect of its own
+    const n = polls();
+    await tick(5000);
+    expect(polls()).toBe(n + 2);
+    await tap(card(A));
+    expect(location.hash).toBe(`#table-${A}`);
+    await tick(0);
+    // Back on Table 4: the panel is there again, unasked for focus (a re-attach).
+    expect(panel()).not.toBeNull();
+    expect(document.activeElement).not.toBe(panel());
+  });
+
+  it("Walk-up mid-collect starts the order and lands its add screen; the poll outlives the counter screen", async () => {
+    const r = await collectingOn4();
+    let land!: (v: Landing) => void;
+    openRegisterOrder.mockReturnValueOnce(new Promise<Landing>((res) => (land = res)) as never);
+    await tap(walkup());
+    // Watched red with the retired start hold put back by hand (refused before the server).
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    await act(async () => {
+      land({ ok: true, sessionId: "s-new", created: true });
+    });
+    await tick(0);
+    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
+    // The route swap: the whole counter screen goes; the staff layout's provider stays.
+    r.rerender(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <p>the add screen</p>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    const n = polls();
+    await tick(5000);
+    expect(polls()).toBe(n + 2);
+  });
+
+  it("a free table on the strip starts mid-collect too — never held, never aria-disabled (P2er)", async () => {
+    await collectingOn4();
+    const free = floorSection().querySelector<HTMLButtonElement>('button[data-tile="1"]')!;
+    expect(free.getAttribute("aria-disabled")).toBeNull();
+    expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    openRegisterOrder.mockReturnValueOnce(new Promise(() => {}) as never);
+    await tap(free);
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "table", tableNumber: 1 });
+  });
+
+  it("a counter order's charge landing after a switch leaves its #CODE card with its table", async () => {
+    await collectingOn4({ label: "reg-7f3a", tableNumber: null, counterOrder: true });
+    await tap(card(B));
     vi.mocked(terminal.terminalStatus).mockResolvedValue({
       ok: true,
-      state: "failed",
-      error: "The card was declined.",
+      state: "succeeded",
+      orderId: "o-00a1b2c3",
+      totalCents: 1307,
     });
     await tick(2500);
-  };
-
-  it("Walk-up, Phone order and a free table are refused at the tap: no order started, nothing navigates, the pane says why once", async () => {
-    await table4Open();
-    await readerStarts();
-    await tap(walkup());
-    // MUTATION: the mint admits a start mid-collect — the server makes a walk-up order, and its
-    // add screen is pushed over the counter screen, the collect panel with it; red.
-    expect(openRegisterOrder).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
-    expect(panel()).not.toBeNull();
-    // Said in the pane's ONE region (the detail's) — never the Start zone's or the floor's too.
-    expect(polite(pane())).toHaveLength(1);
-    expect(polite(pane())[0]!.textContent).toBe(heldLine());
-    expect(polite(startZone())[0]!.textContent).toBe("");
-    expect(polite(splitRoot())).toHaveLength(3);
-    // The strip's free table … (the floor's own region keeps saying what it said: its count)
-    const floorSaid = polite(floorSection())[0]!.textContent;
-    await tap(freeTile(1));
-    expect(openRegisterOrder).not.toHaveBeenCalled();
-    expect(polite(floorSection())[0]!.textContent).toBe(floorSaid);
-    // … and the Phone order's Start. Opening the arm is a pick, not a start: it still opens.
-    await tap(phoneArm());
-    const go = startZone().querySelector<HTMLButtonElement>('button[type="submit"]')!;
-    await tap(go);
-    expect(openRegisterOrder).not.toHaveBeenCalled();
-    expect(push).not.toHaveBeenCalled();
-    expect(panel()).not.toBeNull();
-    // Nothing was taken: no start control is held, and none is busy.
-    expect(walkup().getAttribute("aria-disabled")).toBeNull();
-    expect(freeTile(1).getAttribute("aria-busy")).toBeNull();
-    expect(polite(pane())[0]!.textContent).toBe(heldLine());
-  });
-
-  // Over-blocking is as bad as under-blocking: the hold is the COLLECTION, never the pane.
-  it("a table open with no reader collecting never holds a start", async () => {
-    await table4Open();
-    const d = held();
-    await tap(walkup());
-    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
-    await land(d, { ok: true, sessionId: "s-new", created: true });
-    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
-  });
-
-  it("the reader declines: the collection is over, and Walk-up starts again", async () => {
-    await table4Open();
-    await readerStarts();
-    await declined();
-    const d = held();
-    await tap(walkup());
-    // MUTATION: hold while the panel is merely mounted — a declined panel strands every start; red.
-    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
-    await land(d, { ok: true, sessionId: "s-new", created: true });
-    expect(push).toHaveBeenCalledWith("/staff/table/s-new/add");
-  });
-
-  it("a start already out when the reader begins never lands its add screen over the collecting pane — and the lock re-arms", async () => {
-    await table4Open();
-    const d = held();
-    await tap(walkup());
-    expect(walkup().getAttribute("aria-disabled")).toBe("true");
-    await readerStarts(); // the pane did not move: same table, same selection
-    await land(d, { ok: true, sessionId: "s-new", created: true });
-    // MUTATION: the landing checks only the selection — the add screen is pushed, the route swap
-    // unmounts the counter screen mid-collect; red.
-    expect(push).not.toHaveBeenCalled();
-    expect(panel()).not.toBeNull();
-    expect(walkup().getAttribute("aria-disabled")).toBeNull();
-  });
-
-  it("a table start out when the reader begins, converging while the window narrows below 48em, never routes away either", async () => {
-    await table4Open();
-    const d = held();
-    await tap(freeTile(1));
-    await readerStarts();
-    split = false; // a rotation (an iPad mini's portrait is under 48em): the pane covers the column
-    await land(d, { ok: true, sessionId: B, created: false });
-    // MUTATION: stand down only for a NEW order — a converged table at phone width is no pane pick
-    // (`openSession` answers false there) and its page is pushed over the collecting pane; red.
-    expect(push).not.toHaveBeenCalled();
-    expect(panel()).not.toBeNull();
+    expect(sessionStorage.getItem(handoffStashKey(A))).toContain("o-00a1b2c3");
+    // The webhook closed the counter session: back on it, the closed pane shows the card.
+    answers[A] = () => Promise.resolve({ kind: "closed", label: "reg-7f3a", tableNumber: null });
+    await tap(card(A));
+    await tick(0);
+    expect(pane().textContent).toContain("#A1B2C3");
   });
 });

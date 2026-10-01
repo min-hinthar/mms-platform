@@ -15,6 +15,8 @@ import { STAFF_DOOR_TARGET } from "./staff-door";
 import type { LiveBoardState } from "./live-connection";
 import { handoffStillCurrent, type Handoff } from "./register-ui";
 import type { StaffKey } from "./i18n/staff";
+import type { RefundState } from "./refund-view";
+import { handoffCode } from "./reader-collect";
 
 /** Side by side from here (JS reads it at CLICK time). Parity-tested against globals.css. */
 export const PANE_QUERY = "(min-width: 48em)";
@@ -153,36 +155,11 @@ export function acceptPaneRead(requested: string, selected: string | null): bool
   return requested === selected;
 }
 
-/**
- * Codex round 1 (#306) — a reader collection live in the pane HOLDS the pane on its table. The
- * collect panel's poll is what slides the settlement freeze forward (`terminalStatus` →
- * `extendSettlementFor`) and what turns a counter order's charge into its #CODE card; a selection
- * change unmounts the panel mid-collect, and the webhook then closes a counter order behind its
- * charge, so there is no card to come back to. While `paying` names the table shown, ANY change of
- * selection — a card or strip tap, ✕, Escape, Back — is refused; a re-tap of that same table is not a
- * change. A table CLEARED is a server fact (and the server refuses a Clear mid-payment), never held.
- */
-export function paneSelectionHeld(p: {
-  paying: string | null;
-  from: string | null;
-  to: string | null;
-  cleared: boolean;
-}): boolean {
-  if (p.cleared) return false;
-  return p.paying !== null && p.paying === p.from && p.to !== p.from;
-}
-
-/**
- * Codex round 2 (#306) — a START (Walk-up, Phone order, a free table) is held by the same live
- * collection. A start moves no selection, but its landing does leave the pane: a new order's add
- * screen (a converged table's page, at phone width) replaces the whole counter screen, and the
- * collect panel unmounts with it exactly as a switch would unmount it. So the mint refuses the tap
- * before the server is asked, and a start already out when the collection began stands down as it
- * lands. Only the table SHOWN can be collecting: a stale report about another table holds nothing.
- */
-export function paneStartHeld(p: { paying: string | null; shown: string | null }): boolean {
-  return p.paying !== null && p.paying === p.shown;
-}
+// Phase 2g · reader (D1) — `paneSelectionHeld` and `paneStartHeld` are RETIRED. Codex rounds 1–2 on
+// #306 held the pane on a table whose reader collected, and refused every start, because a switch or
+// a landing unmounted the collect panel — the poll that slides the freeze and records a counter
+// order's #CODE. The poll lives in `ReaderCollectProvider` (app/staff/layout.tsx) now, above every
+// route, so the failure they guarded no longer exists; kept, they would only strand a lone cashier.
 
 /**
  * Where focus goes after the pane closes. A CLEARED table's card is still in the DOM until the
@@ -252,6 +229,25 @@ export function paneStatusSays(p: {
   if (p.lost) return "lost";
   if (p.read === "loading") return p.headNamed ? "loading" : null;
   return p.read;
+}
+
+/**
+ * Phase 2g · review (PT-3 · PT-7) — the sentence under a CLOSED order's title when no paid card
+ * stands above it (the pane's closed state, the table page's closed branch). A counter order the
+ * server knows was refunded says THAT, from the verdict's refund state: in full, "This order was
+ * refunded."; in part, which order (its #CODE — the guest is still owed the rest of the bag) and
+ * that a manager is checked with before anything is handed over. The hedge ("it may have been paid,
+ * cleared or merged…") stays for everything the server could not name: no order, an unreadable one,
+ * a table. Never "Paid" over money that came back, and never a guess dressed as a fact.
+ */
+export function closedCounterNote(v: { refund: RefundState | null; orderId: string | null }): {
+  k: StaffKey;
+  vars?: { id: string };
+} {
+  if (v.refund === "full") return { k: "floor.pane.closed.refundedFull" };
+  if (v.refund === "partial" && v.orderId !== null)
+    return { k: "floor.pane.closed.refundedPart", vars: { id: handoffCode(v.orderId) } };
+  return { k: "floor.pane.closed.body" };
 }
 
 /** A closed table's LIVE namesake on the floor (a new party at Table 7), for "Open the current
@@ -368,5 +364,53 @@ export function dropHandoffStash(sessionId: string, store: Store | null = sessio
     store?.removeItem(handoffStashKey(sessionId));
   } catch {
     /* deliberate: nothing to remove from storage that cannot be read */
+  }
+}
+
+/**
+ * Phase 2g · review (A11Y-4) — the phone's table page swaps a counter order that closed PAID under it
+ * to the closed branch's card through `router.refresh()`: the whole detail unmounts, and focus that
+ * was inside it would fall to <body> with nothing said (the pathname never changes, so no route cue
+ * fires). The detail leaves a ONE-SHOT note in this tab before the refresh — only when focus was
+ * inside it — and the closed card takes focus once, on mount, when it finds the note. No note (a deep
+ * link, a reload, focus already on <body>) means nothing just landed under anyone: never focused.
+ *
+ * The note is the time it was written, honoured for `HANDOFF_FOCUS_TTL_MS`: a refresh that renders
+ * something else (the verdict changed again) must not leave a note that a LATER visit to the same
+ * order would act on. Every storage failure is a deliberate swallow — the card still renders; only
+ * the focus move is lost.
+ */
+export const HANDOFF_FOCUS_TTL_MS = 10_000;
+
+export function handoffFocusKey(sessionId: string): string {
+  return `mms-handoff-focus:${sessionId}`;
+}
+
+export function markHandoffFocus(
+  sessionId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): void {
+  try {
+    store?.setItem(handoffFocusKey(sessionId), String(nowMs));
+  } catch {
+    /* deliberate: quota or privacy mode — the card renders, unfocused */
+  }
+}
+
+/** Read AND clear the note (one shot); true only for a note written within the TTL. */
+export function takeHandoffFocus(
+  sessionId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): boolean {
+  try {
+    const raw = store?.getItem(handoffFocusKey(sessionId)) ?? null;
+    if (raw === null) return false;
+    store?.removeItem(handoffFocusKey(sessionId));
+    const at = Number(raw);
+    return Number.isFinite(at) && nowMs - at >= 0 && nowMs - at <= HANDOFF_FOCUS_TTL_MS;
+  } catch {
+    return false; // deliberate: unreadable storage is no note
   }
 }

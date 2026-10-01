@@ -1,14 +1,17 @@
 "use client";
-import type { Ref } from "react";
+import { useEffect, useRef, useState, type Ref } from "react";
 import Link from "next/link";
 import { buttonClass } from "@mms/ui";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { laneHref } from "@/lib/staff-more";
 import { handoffRows, type HandoffRow } from "@/lib/register-math";
 import type { Handoff } from "@/lib/register-ui";
+import { handoffCode } from "@/lib/reader-collect";
+import { takeHandoffFocus } from "@/lib/floor-pane";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
+import { ReaderShown } from "./ReaderCollectContext";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -61,7 +64,8 @@ export function HandoffCard({
   // total — the one figure a cashier needs from the card.
   const key =
     rows.find((r) => r.k === "change" || r.k === "collect")?.k ?? ("total" as HandoffRow["k"]);
-  const code = `#${handoff.orderId.slice(-6).toUpperCase()}`;
+  // The #CODE, derived ONCE (`handoffCode`) — the chip, this card and the refunded line agree.
+  const code = handoffCode(handoff.orderId);
   // Phase 2f — a counter order whose food went to the kitchen BEFORE it was paid: the bag is already
   // on the Takeaway bags lane (or cooking toward it), so the card says where to hand it over from.
   // It never says the food is READY (owner 7d — no auto-advance): the lane says that.
@@ -158,5 +162,51 @@ export function HandoffCard({
         </Link>
       )}
     </section>
+  );
+}
+
+/**
+ * Phase 2g · P2em (D2) — the full table page's CLOSED counter order: the server-built #CODE card
+ * (`getTableDetail`'s closed verdict, from the order row), on any device and after any reload. The
+ * page is a Server Component; this is its one client island.
+ *
+ * It marks the table as SHOWN (`ReaderShown`), so the staff bar's reader chip stands down over it, and
+ * a card this tab's reader collect landed for it — the chip's "View" leads here — is handed over and
+ * WINS: it is the same order, plus the tap's "went out unpaid" the row never stored. That is a hand-
+ * over, not a stash restore (the page variant never restores one — FloorDetailLive), and the server
+ * card is not a stash either: it is the order row, read now. Never a live region (HandoffCard is not).
+ *
+ * Focus (Phase 2g · review, A11Y-4): NOT focused when the page was navigated to — a deep link, a
+ * reload, the chip's "View": nothing just landed under anyone. FOCUSED once, on mount, when the
+ * detail this card replaced left the one-shot note (`takeHandoffFocus`): the phone was ON the live
+ * order with focus inside it when a colleague's settle closed it, and the detail's
+ * `router.refresh()` swapped the whole page for this card — without the move, focus would fall to
+ * <body> with nothing said (the pathname never changes, so no route cue fires). Its name carries the
+ * facts (Paid · the figure · #CODE), so the move is also the announcement.
+ */
+export function ClosedHandoffCard({
+  lang,
+  sessionId,
+  handoff,
+}: {
+  lang: StaffLang;
+  sessionId: string;
+  handoff: Handoff;
+}) {
+  const [landed, setLanded] = useState<Handoff | null>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (takeHandoffFocus(sessionId, Date.now())) cardRef.current?.focus();
+  }, [sessionId]);
+  return (
+    <>
+      <ReaderShown
+        sessionId={sessionId}
+        onLanded={(h) => {
+          if (h) setLanded(h);
+        }}
+      />
+      <HandoffCard lang={lang} handoff={landed ?? handoff} headingLevel={2} ref={cardRef} />
+    </>
   );
 }
