@@ -1511,7 +1511,9 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   (the staff own a counter order; a kiosk order is the kiosk's own). And `assertCartMember` refuses
   any member of an active `reg-` session, so a membership that predates the join refusal cannot add
   a draft the counter Send would fire unpaid (defence in depth; prod held none, measured).
-  `SURFACES.payAtPickup` parks NEW sends and never hides food already sent. A future writer minting
+  `SURFACES.payAtPickup` parks NEW sends and never hides food already sent — nor an open Undo: one
+  restored after a reload inside the grace always draws, on the pad as on the table page, so a valid
+  take-back is never stranded behind the switch (Codex r4 on #308). A future writer minting
   `reg-` codes anywhere but `openRegisterOrder` inherits fire-before-pay — the migration header says
   so. There is no freeze guard on the fire or its undo, deliberately: moving a line draft ↔ fired
   changes no amount; the no-show, which does write money state, refuses a fresh freeze and pay lock.
@@ -1534,7 +1536,11 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   surfaces it is a **warn** `Badge` with the receipt glyph (warn also marks money not yet taken at a
   hand-over); on the KDS it is a **neutral** `--tx` line (a cook acts on food, not money). A chip is a
   44px object and never echoes; the KDS line echoes (`echo="stack"`), so it is the one place a
-  Burmese-only kitchen tablet keeps the K15-HIGH English. Every accessible name carrying the flag
+  Burmese-only kitchen tablet keeps the K15-HIGH English. **The KDS flag is the CART's, never a
+  visible line's** (Codex r4 on #308): `kdsLineGate` takes a required `cartOwes`, decided by
+  `counterOwes` over EVERY line of the open counter cart (one capped read; a failed or saturated read
+  is `outage`, never a guessed paid) — so a ticket whose chargeable dish was served while a comp still
+  cooks keeps Unpaid while the order owes, and a comp-only order never shows it. Every accessible name carrying the flag
   composes it with the device's `shown` (`unpaidWords` / `unpaidBadgeWords`). The KDS ticket never
   prints the raw `reg-` token — the guest's name, the `#CODE` once paid, else "Walk-up".
 - **The name lock.** A name is REQUIRED to send (the fire's own conjunct — the name is the only
@@ -1560,8 +1566,8 @@ OPEN-ITEMS P2v).** Pay-first gains exactly ONE exception, and it is staff-only. 
   (`counterNoShowDropped` → `droppedLineIds`, on the DB clock: every draft and every in-grace send,
   comped and grocery included — exactly what the SQL removes; Codex r2 on #308). **The sheet submits
   what the manager read** (self-review): it SNAPSHOTS its sent, dropped and comped sets — and their
-  lines — when it opens, renders and submits from the snapshot, and when the live sets move under it
-  it says "The order changed" in its one region, refuses the write, and offers an explicit **Show the
+  lines — when it opens, renders and submits from the snapshot, and when the live sets — or the
+  unit count on any line they name (`noShowQtyMoved`, Codex r4 on #308) — move under it it says "The order changed" in its one region, refuses the write, and offers an explicit **Show the
   order as it is now** (`table.noshow.rearm`, focus to the new count) — never a silent swap of what
   a PIN approves. A comped dish the kitchen already has is named too — "{n} no-charge items also come
   off the kitchen screen" (`compedKitchenLineIds`, DB clock) — never counted as a loss. A manager roster

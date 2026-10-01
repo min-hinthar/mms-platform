@@ -342,6 +342,35 @@ mode-authority mutants · counter-fire race 13 orders / 14 mutants · 26 SQL tes
 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean (1669 anchors) · `check:staff-lang`
 clean. The full `verify:slice` run with the gate at this head is not recorded here.
 
+**Codex round 4 on #308 (2026-10-01).** Codex's credits returned; round 4 reviewed `c65f074` (the
+head after the self-review and the prod apply) and raised three P2s, each verified against source,
+each fixed in `908f3db` with a mutant. No SQL changed — the prod migration (stamp `20261001002306`)
+stands as applied.
+
+- **A restored counter Undo drew only when the pad could Send.** `OrderPad` rendered an open undo
+  under `sendable`, which needs `SURFACES.payAtPickup` — so a reload inside the 10s grace with that
+  switch parked stranded a valid take-back. The switch now parks NEW sends only; an open undo
+  (restored or not) draws while the cart is open. The table page was already right.
+- **The no-show sheet's snapshot watched ids, not quantities.** Another tablet changing a draft's or
+  a sent line's qty left all three id sets equal, so the sheet kept stale counts while its confirm
+  cancels the whole order. `noShowQtyMoved` treats any qty change on a line in the sent · dropped ·
+  comped sets as a move — the same "the order changed" region, the same refusal, the same re-arm.
+  Server-side, a DRAFT-qty change between the last poll and the RPC is still not refused (drafts
+  carry no loss, only dropped) — filed as **M249**.
+- **The KDS Unpaid badge was per visible line.** Once the chargeable dish was served and only a
+  comped dish still cooked, the ticket lost Unpaid while the cart still owed. `kdsLineGate` now takes
+  a required `cartOwes`, and `getKitchenQueue` makes ONE more read — only when an open counter cart is
+  on the board, capped at 500 lines, a failed or saturated read is `outage` — applying `counterOwes`
+  (the settle section's own rule) over every line of the cart.
+
+Nine new `p2f-cx4/` mutants; four PT4 mutants re-anchored onto the cart-level flag. Filed **M249**.
+
+**Gate at this head (measured):** 1678 `verify:slice` mutants (1669 + 9 new) across 199 target
+modules (150 lib · 3 API routes · 44 components · 1 stylesheet · 1 `packages/db`) · 26 SQL test
+files (mode-authority and the counter-fire race untouched — no SQL change) · 4952 qr + 287 ui tests
+· `check:docs` clean · `check:mutant-anchors` clean (1678 anchors) · `check:staff-lang` clean. The
+full `verify:slice` run with the gate at this head is not recorded here.
+
 ### Phase 2e — the staff language, three ways, per device (2026-09-29)
 
 Built on one worktree branch, `p2e/lang`, off `b8be8f5` (main `2b6a957` + all of Phase 2d), then

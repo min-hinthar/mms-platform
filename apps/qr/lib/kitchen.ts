@@ -87,9 +87,13 @@ const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
 
 /**
  * The live fire queue, grouped into per-CART tickets (the ticket bump needs one unambiguous parent).
- * Bounded reads assembled in TS — a fixed round-trip count regardless of volume:
+ * Bounded reads assembled in TS — a fixed round-trip count regardless of volume (four always, a fifth
+ * only when the board holds an open counter cart; never more):
  *   1) config + stats + DB clock (parallel)   2) fired/in_progress lines
  *   3) their open/paid carts                  4) sessions + orders + menu stations (parallel)
+ *   5) Codex r4 on #308 — ONLY when step 3 found an OPEN counter (`reg-`) cart: every line of those
+ *      carts, once (capped at OWING_LINE_CAP; a failed or saturated read is `outage`), so each such
+ *      ticket's Unpaid is the cart's `counterOwes` — not a flag derived from the lines still cooking.
  *
  * Channel rules (W3a): dine-in tickets require an ACTIVE session (a cleared table drops off) and hide
  * lines still inside the 10s undo grace (fire_at > now — the diner may still pull the send back).
