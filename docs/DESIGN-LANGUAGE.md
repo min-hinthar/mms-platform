@@ -645,9 +645,13 @@ someone's money.
   already has a `role="status"` in its body, and four do. The caller already owns the message
   ("Refunding…", "Working…"); the primitive owns the state.
 - **A lock that cannot clear is a trap.** All four exits blocked, inside a trapped focus scope, is
-  WCAG 2.1.2 if the flag ever strands. Drive it from a transition or a `finally`, never a bare
-  boolean a branch can miss. The primitive cannot enforce this and should say so rather than imply
-  it has.
+  WCAG 2.1.2 if the flag ever strands. Drive it from component state set at the tap and cleared in
+  the `finally` around a BOUNDED await (`boundWrite`, which answers by `STAFF_HANG_MS` at the latest)
+  — never a bare boolean a branch can miss, and never a transition's `pending`, which is held for as
+  long as the Server Action it dispatched is unanswered (LEARNINGS #200): on a hung network that lock
+  holds for as long as the network hangs. The primitive cannot enforce this and should say so rather
+  than imply it has; apps/qr's M82 guard (`lib/sheet-busy-callers.test.ts`) parses every guarded
+  caller for the shape.
 - **Thresholds are rules, not constants.** "A drag closes past 120px or 700px/s" decides whether a
   wandering scroll discards a half-filled form. It belongs next to the policy it serves, with a test
   — including that it is **downward only**, since an upward tug is someone pulling the sheet further

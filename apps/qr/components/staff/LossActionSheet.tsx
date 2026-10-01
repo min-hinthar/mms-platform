@@ -4,7 +4,7 @@ import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
@@ -130,8 +130,10 @@ export function LossActionSheet({
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
   // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first.
-  const ownLate = useRef(false);
+  // mid-hang reads "not stalled" and would let a second write queue behind the first. It holds the
+  // sentence that write SAID at the bound (the void's or the request's — one write is out at a time),
+  // because the refusal re-says it, not the tablet's (`tapRefusal`, owner decision); null: none out.
+  const ownLate = useRef<StaffKey | null>(null);
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
   const cooked = line.state === "in_progress" || line.state === "served";
@@ -267,14 +269,12 @@ export function LossActionSheet({
     if (!canSubmit) return; // §17 — the button says so with `aria-disabled`; the refusal is here
     // Phase 2h (9d) — a loss is refused AT THE TAP, never dispatched, while any action on this tab
     // has gone STAFF_HANG_MS without an answer (Next would only queue it behind that one — and the
-    // void spends a manager's PIN attempt when it finally runs). Read now, never from render state;
-    // it also refuses a re-tap while this sheet's own write is waiting.
-    if (stalledSince() !== null) {
-      setMsg({ k: "out.stalled" });
-      return;
-    }
-    if (ownLate.current) {
-      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+    // void spends a manager's PIN attempt when it finally runs). Read now, never from render state.
+    // Owner decision: while THIS sheet's own write is still out past the bound, the refusal re-says
+    // ITS sentence ("Don't do it again"), never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal(ownLate.current, stalledSince(), "out.stalled");
+    if (refused !== null) {
+      setMsg({ k: refused });
       return;
     }
     inFlight.current = true;
@@ -308,9 +308,9 @@ export function LossActionSheet({
       }
       // 9e — no answer yet: it may still be recorded; the late answer is applied when it arrives.
       setMsg({ k: "table.loss.msg.waiting" });
-      ownLate.current = true;
+      ownLate.current = "table.loss.msg.waiting";
       void out.late.then((late) => {
-        ownLate.current = false;
+        ownLate.current = null;
         if (late.kind === "answer") handleResult(late.value);
         else setMsg({ k: "table.loss.msg.unknown" });
       });
@@ -329,13 +329,11 @@ export function LossActionSheet({
       setMsg({ k: "table.loss.reasonRequired" });
       return;
     }
-    // 9d — the request rides the same queue as the loss it asks for; refused while stalled too.
-    if (stalledSince() !== null) {
-      setMsg({ k: "out.stalled" });
-      return;
-    }
-    if (ownLate.current) {
-      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+    // 9d — the request rides the same queue as the loss it asks for; refused while stalled too —
+    // and while this sheet's own void or request is still out, in THAT write's words (`tapRefusal`).
+    const refused = tapRefusal(ownLate.current, stalledSince(), "out.stalled");
+    if (refused !== null) {
+      setMsg({ k: refused });
       return;
     }
     inFlight.current = true;
@@ -361,9 +359,9 @@ export function LossActionSheet({
         return;
       }
       setMsg({ k: "table.loss.msg.requestWaiting" });
-      ownLate.current = true;
+      ownLate.current = "table.loss.msg.requestWaiting";
       void out.late.then((late) => {
-        ownLate.current = false;
+        ownLate.current = null;
         if (late.kind === "answer") handleRequest(late.value);
         else setMsg({ k: "table.loss.msg.requestUnknown" });
       });

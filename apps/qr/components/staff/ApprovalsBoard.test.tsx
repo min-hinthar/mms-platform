@@ -504,6 +504,31 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
     expect(reload()).not.toBeNull();
   });
+
+  it("its OWN decision still out past the bound: the PIN typed again and the tap refused — never sent — in the card's own words ('don't decide again'), with the Reload (owner decision)", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {});
+    resolveApproval.mockImplementationOnce(() => new Promise<ResolveResult>(() => {}));
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    // The PIN was cleared at the bound; typed again, the form is live and the tap reaches the guard.
+    await act(async () => {
+      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: STAFF["table.appr.verb.confirmApprove"].en }).click();
+    });
+    expect(resolveApproval).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-int-c/approvals/own-wait-said-as-stalled): its own decision IS the stall, but
+    // "this did nothing" drops "Don't decide again" — a dish removed or given away twice; red.
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    expect(reload()).not.toBeNull();
+  });
   it("a LATE ok retires 'no answer yet' — it never stands over a recorded decision without its Reload (critic B2)", async () => {
     vi.useFakeTimers();
     pollAnswer = () => new Promise(() => {}); // the queue's re-read hangs: the card stays up

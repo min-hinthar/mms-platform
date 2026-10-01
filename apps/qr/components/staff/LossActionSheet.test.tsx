@@ -379,7 +379,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(region().textContent).toBe(STAFF["table.loss.msg.unknown"].en);
   });
 
-  it("a re-tap while the void is still out is REFUSED, never sent — the stalled tablet, with the reload", async () => {
+  it("a re-tap while the void is still out is REFUSED, never sent — re-saying the void's OWN waiting sentence ('don't do it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
     mountSpied();
@@ -388,10 +388,49 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     await act(async () => {
       fireEvent.submit(submitBtn().closest("form")!);
     });
-    // MUTATION (p2h-sheets/loss/stalled-tap-dispatches): a second void queued behind the first —
-    // another PIN attempt spent whenever the queue moves; red.
+    // Never sent: a second void queued behind the first spends another PIN attempt whenever the
+    // queue moves.
     expect(voidLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // MUTATION (p2h-int-c/loss/own-wait-said-as-stalled · p2h-sheets/loss/own-wait-forgotten): its
+    // own void IS the stall, but "this did nothing" drops "Don't do it again"; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("the void still out, the person turns to the approval REQUEST instead: refused, never sent — re-saying the VOID's sentence (the write that is out), not the request's nor the tablet's", async () => {
+    vi.useFakeTimers();
+    voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
+    mountSpied();
+    await tapVoid();
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    // Comp — the request shows (nobody on shift: it is the primary). The void's reason does not
+    // apply to a comp, so the first tap asks for one and the region moves off the waiting line.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+    });
+    const request = () =>
+      screen.getByRole("button", {
+        name: (n) => n.includes(STAFF["table.loss.requestApproval.comp"].en),
+      });
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    expect(region().textContent).toBe(STAFF["table.loss.reasonRequired"].en);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    // Never sent: the request would queue behind the hung void.
+    expect(requestApproval).not.toHaveBeenCalled();
+    // MUTATION (p2h-int-c/loss/request-refusal-names-itself): "the request may still reach a
+    // manager" — about a request never sent, while the void that may still land goes unsaid; red.
+    // (p2h-sheets/loss/request-own-wait-forgotten reads the ledger alone: "this did nothing"; red.)
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
   });
 
@@ -535,7 +574,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     });
     // MUTATION (p2h-sheets/loss/own-wait-forgotten): a second void queued behind the first; red.
     expect(voidLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "not_found" });
     });
@@ -579,7 +618,9 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     // MUTATION (p2h-sheets/loss/request-own-wait-forgotten): a second request queued behind the
     // first; red.
     expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // MUTATION (p2h-int-c/loss/request-own-wait-said-as-stalled): "this did nothing" in place of
+    // "Don't send it again"; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "not_found" });
     });

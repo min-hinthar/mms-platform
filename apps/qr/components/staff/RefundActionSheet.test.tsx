@@ -310,17 +310,19 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     expect(refund().getAttribute("aria-busy")).toBeNull();
   });
 
-  it("a re-tap while the refund is still out is REFUSED, never sent — even with a fresh PIN typed", async () => {
+  it("a re-tap while the refund is still out is REFUSED, never sent — even with a fresh PIN typed — in the refund's OWN words ('don't refund it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
     const { tap } = mountSpied();
     await tap();
     await advance(STAFF_HANG_MS);
     await tap("5678");
-    // MUTATION (p2h-sheets/refund/stalled-tap-dispatches): a second refund queued behind the first;
-    // red.
+    // Never sent: a second refund queued behind the first.
     expect(refundLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // MUTATION (p2h-int-c/refund/own-wait-said-as-stalled · p2h-sheets/refund/own-wait-forgotten):
+    // its own refund IS the stall, but "this did nothing" drops "Don't refund it again or hand
+    // anything back" — the guest is refunded twice, once in cash; red.
+    expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
   });
 
@@ -330,6 +332,8 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     await advance(STAFF_HANG_MS);
     const { tap, refund } = mountSpied();
     await tap();
+    // MUTATION (p2h-sheets/refund/stalled-tap-dispatches): the refund queued behind the hung action,
+    // to be released whenever the queue moves; red.
     expect(refundLine).not.toHaveBeenCalled();
     expect(refund().getAttribute("aria-busy")).toBeNull();
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
@@ -348,7 +352,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     // MUTATION (p2h-sheets/refund/own-wait-forgotten): a second refund queued behind the first —
     // money out twice if the stale board's refusal does not catch it; red.
     expect(refundLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "stripe_error" });
     });

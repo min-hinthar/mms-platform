@@ -167,16 +167,14 @@ export function KioskMenu({
           <li key={i.id}>
             {/* Critic F7 — refused by the ATTRIBUTE and the handler, never a native `disabled`: the
                 tile the guest just tapped goes busy while focused, and a disabled control drops
-                focus to <body> for as long as the add is out. The dim and the stilled press ride
-                inline because `.kiosk-door:disabled` no longer matches. */}
+                focus to <body> for as long as the add is out. The dim, the stilled press and the
+                sold-out shade have ONE source, the stylesheet (`.kiosk-door[aria-disabled="true"]`
+                and `.kiosk-door[data-sold-out]` in globals.css) — never a second, inline copy. */}
             <button
               type="button"
               className="kiosk-door"
-              style={{
-                width: "100%",
-                opacity: i.soldOut ? 0.55 : adding ? 0.5 : 1,
-                ...(i.soldOut || adding ? { cursor: "default", transform: "none" } : {}),
-              }}
+              style={{ width: "100%" }}
+              data-sold-out={i.soldOut || undefined}
               aria-disabled={i.soldOut || adding || undefined}
               onClick={() => {
                 if (i.soldOut || adding) return;

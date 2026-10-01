@@ -16,7 +16,7 @@ import {
 } from "@/lib/approvals";
 import { leaveForHome, leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
@@ -529,8 +529,17 @@ function RequestCard({
     // 9d — an approval removes food from a bill or gives it away (a void or a comp). Refused AT THE
     // TAP, never dispatched, while any action on this tab has gone unanswered past the bound: sent,
     // it would only queue behind the stuck one, to land minutes later. Read now, never from render.
-    if (stalledSince() !== null) {
-      setMsg({ k: "out.stalled" });
+    // Owner decision (Phase 2h · A1): KEEP this refusal — an approval authorizes a refund or void.
+    // Owner decision (Phase 2h · integration): while THIS card's own decision is still out past the
+    // bound (its PIN cleared, typed again), the refusal re-says ITS line ("Don't decide again"),
+    // never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal<StaffKey>(
+      lateRef.current ? "table.appr.msg.waiting" : null,
+      stalledSince(),
+      "out.stalled",
+    );
+    if (refused !== null) {
+      setMsg({ k: refused });
       setReload(true);
       return;
     }

@@ -761,17 +761,19 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
   });
 
-  it("a re-tap while the write-off is still out is REFUSED, never sent", async () => {
+  it("a re-tap while the write-off is still out is REFUSED, never sent — in the write-off's OWN words ('don't remove it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     record.mockReturnValueOnce(hang().promise);
     await openSheet();
     await submit();
     await advance(STAFF_HANG_MS);
     await submit();
-    // MUTATION (p2h-sheets/noshow/stalled-tap-dispatches): a second write-off queued behind the
-    // first, cancelling the order whenever the queue moves; red.
+    // Never sent: a second write-off queued behind the first cancels the order whenever the queue
+    // moves.
     expect(record).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // MUTATION (p2h-int-c/noshow/own-wait-said-as-stalled · p2h-sheets/noshow/own-wait-forgotten):
+    // its own write-off IS the stall, but "this did nothing" drops "Don't remove it again"; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
   });
 
@@ -799,6 +801,8 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     await advance(STAFF_HANG_MS);
     await openSheet();
     await submit();
+    // MUTATION (p2h-sheets/noshow/stalled-tap-dispatches): the write-off queued behind the hung
+    // action, cancelling the order whenever the queue moves; red.
     expect(record).not.toHaveBeenCalled();
     expect(confirmBtn().getAttribute("aria-busy")).toBeNull();
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
@@ -816,7 +820,7 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     await submit();
     // MUTATION (p2h-sheets/noshow/own-wait-forgotten): a second write-off queued behind the first; red.
     expect(record).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "not_open" });
     });

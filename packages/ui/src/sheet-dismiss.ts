@@ -88,11 +88,14 @@ export function dragClosed(offsetY: number, velocityY: number): boolean {
  * to be shown. Dismissing then does not cancel the write; it only guarantees nobody sees how it
  * ended, on a tree that has usually unmounted by the time the server answers.
  *
- * ⚠️ **`busy` must be driven by something that SETTLES, including on the failure path** — a
- * `useTransition` flag or a promise's `finally`, never a bare boolean a code path can strand. All
- * four exits are blocked while it is true, and the sheet's focus scope is `trapped`, so a `busy`
- * that never clears is a permanent keyboard trap (WCAG 2.1.2). The primitive cannot enforce that and
- * does not pretend to; it is the one thing a caller owns.
+ * ⚠️ **`busy` must be driven by something that SETTLES, including on the failure path AND on a hung
+ * network** — component state set at the tap and cleared in the `finally` around a BOUNDED await
+ * (apps/qr's `boundWrite`, which answers by STAFF_HANG_MS at the latest), never a bare boolean a code
+ * path can strand, and never a `useTransition` pending: a transition's pending is held for as long as
+ * the Server Action it dispatched is unanswered, whatever bound the callback races (apps/qr LEARNINGS
+ * #200). All four exits are blocked while it is true, and the sheet's focus scope is `trapped`, so a
+ * `busy` that never clears is a permanent keyboard trap (WCAG 2.1.2). The primitive cannot enforce
+ * that and does not pretend to; it is the one thing a caller owns.
  */
 export function mayDismiss(opts: { busy: boolean }): boolean {
   return !opts.busy;
