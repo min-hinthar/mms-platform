@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 5267 qr tests + 287 ui tests · 1922 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 5480 qr tests + 287 ui tests · 2236 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,11 +152,11 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 1922 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 2236 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 209 money/authority modules it mutates IN PLACE
-                                       # (154 under apps/qr/lib, plus the create-share-intent, setup-intent
-                                       # and board routes, plus FORTY-NINE components, four of them hooks
+                                       # ⚠️ rewrites the 220 money/authority modules it mutates IN PLACE
+                                       # (155 under apps/qr/lib, plus the create-share-intent, setup-intent
+                                       # and board routes, plus FIFTY-NINE components, four of them hooks
                                        # — TableCartProvider.tsx, menu/YourUsual.tsx, staff/TicketText.tsx,
                                        # staff/Chrome.tsx, staff/StaffPromoControl.tsx, ReadyBoard.tsx,
                                        # MergeRedeemer.tsx, staff/TableCard.tsx, AccountUpgrade.tsx,
@@ -179,11 +179,16 @@ pnpm verify:slice                      # the MECHANICAL money-path gate: coverag
                                        # staff/LossActionSheet.tsx, staff/ReaderCollectProvider.tsx,
                                        # staff/ReaderCollectChip.tsx, staff/CounterOlderSheet.tsx
                                        # (Phase 2g), staff/ReaderCollectContext.tsx (Codex r2 on
-                                       # #309) and staff/ReloadOffer.tsx (Phase 2h) — plus the first
+                                       # #309), staff/ReloadOffer.tsx, staff/RefundActionSheet.tsx,
+                                       # kiosk/KioskMenu.tsx, staff/MergeTableButton.tsx,
+                                       # staff/OpenTabButton.tsx, staff/StaffLineEditor.tsx,
+                                       # staff/PinUnlock.tsx, staff/StaffLogin.tsx, staff/LockButton.tsx,
+                                       # staff/RegisterStart.tsx and staff/ApprovalsBoard.tsx
+                                       # (Phase 2h) — plus the first
                                        # stylesheet, apps/qr/app/globals.css,
                                        # the first staff PAGE, apps/qr/app/staff/table/[id]/page.tsx
                                        # (Phase 2g), and packages/db/src/schemas.ts:
-                                       # 154+3+49+1+1+1=209) and restores them.
+                                       # 155+3+59+1+1+1=220) and restores them.
                                        # ⚠️ That list is the operator's only record of what may be left
                                        # broken on disk by a killed run, so keep it measured, never
                                        # counted by eye — both parents of the #262 merge miscounted it. It
