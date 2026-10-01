@@ -387,7 +387,13 @@ export function TablePane({
                   titleAs="h3"
                   titleId="table-pane-closed-h"
                   title={<Chrome lang={lang} k={closedKey} />}
-                  subtitle={<Chrome lang={lang} k="floor.pane.closed.body" echo="stack" />}
+                  // Phase 2g integration — with the paid card standing above, the hedge ("it may
+                  // have been paid, cleared or merged…") would doubt a fact the card states.
+                  subtitle={
+                    closedHandoff ? undefined : (
+                      <Chrome lang={lang} k="floor.pane.closed.body" echo="stack" />
+                    )
+                  }
                 />
                 {twinRow && (
                   <div className="staff-pane-actions">

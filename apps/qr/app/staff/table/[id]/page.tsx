@@ -50,11 +50,19 @@ export default async function TablePage({
     // Phase 2g · P2em (D2) — the counter order's paid card from its order row, when the verdict
     // carries one (null for a table, a refunded order, or an order read that failed).
     const handoff = res.handoff ?? null;
+    // A counter session's verdict always CARRIES the key (`null` when refunded or unreadable); a
+    // table's never does. A counter order with no card gets the counter title and the hedged body —
+    // "it was cleared or sat idle" would be false for one that was paid and refunded.
+    const counterNoCard = res.handoff === null;
     return (
       <main className="staff-main">
         <StaffBar
           lang={lang}
-          title={handoff ? "floor.pane.closed.counterTitle" : "table.detail.closed.title"}
+          title={
+            handoff || counterNoCard
+              ? "floor.pane.closed.counterTitle"
+              : "table.detail.closed.title"
+          }
           leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
           lock={hasPin}
         />
@@ -63,7 +71,11 @@ export default async function TablePage({
             <ClosedHandoffCard lang={lang} sessionId={id} handoff={handoff} />
           ) : (
             <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
-              <Chrome lang={lang} k="table.detail.closed.body" echo="stack" />
+              <Chrome
+                lang={lang}
+                k={counterNoCard ? "floor.pane.closed.body" : "table.detail.closed.body"}
+                echo="stack"
+              />
             </p>
           )}
         </div>

@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-libra
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExpoPoll, ExpoQueue, ExpoTicket, ExpoUnpaidBag } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
+import type { TablePaneApi } from "./TablePaneContext";
 
 /**
  * The lane's WIRING, pinned where it lives (the KDS suite's shape — T18). The rules are in `lib/`:
@@ -79,6 +80,7 @@ const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push, refresh: vi.fn() }) }));
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ExpoBoard } = await import("./ExpoBoard");
+const { TablePaneContext } = await import("./TablePaneContext");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
@@ -966,6 +968,88 @@ describe("Phase 2f — an unpaid bag (a counter order sent before it was paid)",
       push.mockClear();
       fireEvent.click(within(unpaidCard(container)).getByRole("link"));
       expect(push).toHaveBeenCalledWith("/staff?floor=1#table-sess-reg");
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  // Phase 2g integration — ON the counter screen the split's own opener takes the tap: a router push
+  // of `paneUrl` from this screen changes the address and opens nothing (the split seeds from the
+  // URL on mount and then follows `hashchange` only, which a router push never fires). The push
+  // above stays the fallback where no split is mounted.
+  const mountInSplit = (initial: ExpoQueue, openSession: TablePaneApi["openSession"]) =>
+    render(
+      <StaffLangProvider lang="en">
+        <TablePaneContext.Provider
+          value={{
+            selectedId: null,
+            selectionGen: 0,
+            openFromCard: () => {},
+            openSession,
+            publishFloor: () => {},
+          }}
+        >
+          <ExpoBoard initial={initial} />
+        </TablePaneContext.Provider>
+      </StaffLangProvider>,
+    );
+
+  it("on the counter screen Take payment opens the pane on the payment section — no URL push", () => {
+    // p2g-int/lane-tap-pushes-the-dead-url · p2g-int/lane-tap-drops-settle
+    const openSession = vi.fn(() => true);
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mountInSplit(withBag(), openSession);
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      push.mockClear();
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(openSession).toHaveBeenCalledTimes(1);
+      expect(openSession).toHaveBeenCalledWith(
+        "sess-reg",
+        { counter: true, display: "" },
+        { settle: true },
+      );
+      expect(push).not.toHaveBeenCalled();
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("on the counter screen a bag that owes nothing opens its pane on the order, not the payment", () => {
+    // p2g-int/free-bag-split-settles
+    const openSession = vi.fn(() => true);
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mountInSplit(withBag(bag({ owes: false })), openSession);
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      push.mockClear();
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(openSession).toHaveBeenCalledWith(
+        "sess-reg",
+        { counter: true, display: "" },
+        { settle: false },
+      );
+      expect(push).not.toHaveBeenCalled();
+    } finally {
+      if (had) window.matchMedia = prev;
+      else delete (window as { matchMedia?: unknown }).matchMedia;
+    }
+  });
+
+  it("below the split's width the opener says no and the plain push still runs", () => {
+    const openSession = vi.fn(() => false);
+    const had = Object.prototype.hasOwnProperty.call(window, "matchMedia");
+    const prev = window.matchMedia;
+    const { container } = mountInSplit(withBag(), openSession);
+    window.matchMedia = ((q: string) => ({ matches: true, media: q })) as typeof window.matchMedia;
+    try {
+      push.mockClear();
+      fireEvent.click(within(unpaidCard(container)).getByRole("link"));
+      expect(push).toHaveBeenCalledWith("/staff?floor=1&settle=1#table-sess-reg");
     } finally {
       if (had) window.matchMedia = prev;
       else delete (window as { matchMedia?: unknown }).matchMedia;

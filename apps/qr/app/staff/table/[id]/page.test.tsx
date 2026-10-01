@@ -91,6 +91,16 @@ describe("the table page — a CLOSED counter order shows its paid card (P2em ·
     expect(screen.queryByRole("region", { name: /Paid/ })).toBeNull();
   });
 
+  it("a counter order with no card (refunded, unreadable) is named as one and hedged — never 'sat idle'", async () => {
+    // p2g-int/page-counter-without-card-says-idle — a paid-then-refunded counter order read "It was
+    // cleared or sat idle too long" under "This table is closed"; red.
+    h.detail = { kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null };
+    await mount();
+    expect(barTitle()).toBe("floor.pane.closed.counterTitle");
+    expect(document.body.textContent).toContain(ts("en", "floor.pane.closed.body"));
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.closed.body"));
+  });
+
   it("marks the order SHOWN, and a card this tab's reader landed for it wins (the tap's 'went out unpaid')", async () => {
     const shownHere = vi.fn((sessionId: string, viewer?: { onLanded?: (x: Handoff) => void }) => {
       // The provider hands a card that landed while this order was off screen to whoever shows it.

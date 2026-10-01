@@ -403,7 +403,13 @@ export function FloorDetailLive({
               // table closed (and keeps its paid card) instead of navigating anywhere.
               // Phase 2g · P2em (D2) — with the verdict's server-built #CODE card (a counter order).
               if (onClosedRef.current) onClosedRef.current(sessionId, res.handoff ?? null);
-              else {
+              else if (res.handoff) {
+                // Phase 2g integration — a counter order the server can show as PAID (a colleague's
+                // settle, another tablet's reader): STAY and let this page render its closed branch,
+                // the order row's #CODE card, instead of bouncing to the counter, where a paid order
+                // is no longer listed and the code the guest is waiting on would be nowhere.
+                router.refresh();
+              } else {
                 router.replace(STAFF_DOOR_TARGET.counter);
                 router.refresh();
               }

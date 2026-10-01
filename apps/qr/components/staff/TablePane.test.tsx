@@ -2077,6 +2077,9 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
     expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
     expect(document.activeElement).not.toBe(card);
+    // p2g-int/pane-hedges-under-the-card — with "Paid" standing above, "It may have been paid,
+    // cleared or merged…" doubts the fact the card states; red.
+    expect(pane().textContent).not.toContain(ts("en", "floor.pane.closed.body"));
   });
 
   it("the tab's STASH wins: its tender and change stay, never swapped for the row's bare total", async () => {
@@ -2103,6 +2106,8 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     await tick(0);
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
     expect(document.getElementById("handoff-title")).toBeNull();
+    // With no card the hedge is the honest line (paid-then-refunded, cleared, merged, idle).
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.body"));
   });
 
   it("a counter order that closes WHILE shown carries the verdict's card into the closed pane", async () => {
@@ -2122,5 +2127,81 @@ describe("TablePane — a closed counter order's server-built card (P2em · D2)"
     // either way the order closes with no #CODE beside the floor; red.
     expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
     expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+  });
+});
+
+// ── Phase 2g integration ── the lane's Take payment at split width opens the pane through
+// `openSession(…, { settle: true })` — the in-place twin of `?settle=1`, because a router push of
+// that URL from the counter screen fires no `hashchange` and the split never sees it.
+describe("TablePane — openSession can land on the payment section", () => {
+  function OpenFour({ settle }: { settle?: boolean }) {
+    const api = useTablePane()!;
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          api.openSession(A, { counter: true, display: "" }, settle ? { settle } : undefined);
+        }}
+      >
+        open 4
+      </button>
+    );
+  }
+  const settleable = () =>
+    ok(
+      detail(A, 4, {
+        settleTotalCents: 4210,
+        settleTipBaseCents: 4000,
+        lines: [line("l-4", "Mohinga", false)],
+        send: {
+          sendable: 0,
+          staffAdded: 0,
+          togoDraft: 0,
+          inKitchen: true,
+          foodDraft: false,
+          counterDraft: 0,
+          counterSentPastGrace: false,
+        },
+      }),
+    );
+  const mountOpener = (settle?: boolean) =>
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <LiveConnectionProvider>
+            <CounterSplit terminalReady={false}>
+              <Floor cards={[]} />
+              <OpenFour settle={settle} />
+            </CounterSplit>
+          </LiveConnectionProvider>
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+
+  it("settle: true focuses the settle section's heading — the lane's Take payment", async () => {
+    // p2g-int/split-open-ignores-settle
+    answers[A] = settleable();
+    mountOpener(true);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
+  });
+
+  it("without settle the pane opens on its heading, never the payment section", async () => {
+    answers[A] = settleable();
+    mountOpener(false);
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "open 4" }));
+    });
+    await tick(0);
+    await tick(0);
+    expect(document.getElementById("settle-h")).not.toBeNull();
+    expect(document.activeElement).not.toBe(document.getElementById("settle-h"));
   });
 });

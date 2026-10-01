@@ -70,6 +70,7 @@ import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
 import { useCounterAttention } from "./CounterBell";
+import { useTablePane } from "./TablePaneContext";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { uncollectedBadgeWords } from "./CounterOrderCard";
 
@@ -1188,6 +1189,9 @@ function UnpaidBagCard({
   const lang = useStaffLang();
   const echoes = useEchoesShown();
   const router = useRouter();
+  // The counter split's own opener (null off the counter screen): a router push of `paneUrl` from
+  // THIS screen changes the address and opens nothing (the split follows `hashchange` only).
+  const pane = useTablePane();
   const who = bag.customerName ?? ts(lang, "reg.row.walkup");
   const age = expoAge({ arrivedAt: null, pickupSlot: null, createdAt: bag.sentAt }, nowMs);
   const owes = bag.owes;
@@ -1314,6 +1318,8 @@ function UnpaidBagCard({
           )
             return;
           e.preventDefault();
+          if (pane?.openSession(bag.sessionId, { counter: true, display: "" }, { settle: owes }))
+            return;
           router.push(paneUrl(bag.sessionId, { settle: owes }));
         }}
       >

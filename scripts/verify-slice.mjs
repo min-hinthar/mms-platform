@@ -14895,6 +14895,66 @@ const MUTANTS = [
     find: '      <Chrome lang={lang} k="floor.counter.older.end" />',
     replace: "      null",
   },
+  // ── Phase 2g · integration (p2g-int) — fixes found while folding the four streams together:
+  // the lane's split-width tap opened nothing (a router push of the pane URL fires no `hashchange`,
+  // the only thing the split follows after mount); the phone page bounced a counter order the server
+  // can show as paid; the closed pane doubted its own card; a refunded counter order read "sat idle".
+  {
+    id: "p2g-int/lane-tap-pushes-the-dead-url",
+    file: "apps/qr/components/staff/ExpoBoard.tsx",
+    suite: "components/staff/ExpoBoard.test.tsx",
+    why: "Phase 2g integration — on the counter screen the lane's Take payment must open the pane through the split's own opener; the URL push alone changes the address and opens nothing",
+    find: '          if (pane?.openSession(bag.sessionId, { counter: true, display: "" }, { settle: owes }))\n            return;\n',
+    replace: "",
+  },
+  {
+    id: "p2g-int/lane-tap-drops-settle",
+    file: "apps/qr/components/staff/ExpoBoard.tsx",
+    suite: "components/staff/ExpoBoard.test.tsx",
+    why: "Phase 2g integration — Take payment lands the pane on the payment section; without the flag the cashier opens the order and hunts for the settle",
+    find: '{ counter: true, display: "" }, { settle: owes }))',
+    replace: '{ counter: true, display: "" }, { settle: false }))',
+  },
+  {
+    id: "p2g-int/free-bag-split-settles",
+    file: "apps/qr/components/staff/ExpoBoard.tsx",
+    suite: "components/staff/ExpoBoard.test.tsx",
+    why: "Phase 2g integration — a bag that owes nothing opens on the order, never on a payment section with nothing to charge",
+    find: '{ counter: true, display: "" }, { settle: owes }))',
+    replace: '{ counter: true, display: "" }, { settle: true }))',
+  },
+  {
+    id: "p2g-int/split-open-ignores-settle",
+    file: "apps/qr/components/staff/CounterSplit.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2g integration — openSession's settle is the in-place twin of ?settle=1; dropped, the pane opens on its heading",
+    find: "      if (opts?.settle) setSettleOnce(sessionId);\n",
+    replace: "",
+  },
+  {
+    id: "p2g-int/page-bounces-a-paid-counter-order",
+    file: "apps/qr/components/staff/FloorDetailLive.tsx",
+    suite: "components/staff/FloorDetailLive.test.tsx",
+    why: "Phase 2g integration — a counter order the server shows as paid keeps the phone on its #CODE card; bounced to the counter, the paid order is listed nowhere",
+    find: "              else if (res.handoff) {\n",
+    replace: "              else if (false) {\n",
+  },
+  {
+    id: "p2g-int/pane-hedges-under-the-card",
+    file: "apps/qr/components/staff/TablePane.tsx",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2g integration — with the paid card standing, the 'may have been paid' hedge doubts the fact the card states",
+    find: "                    closedHandoff ? undefined : (\n",
+    replace: "                    false ? undefined : (\n",
+  },
+  {
+    id: "p2g-int/page-counter-without-card-says-idle",
+    file: "apps/qr/app/staff/table/[id]/page.tsx",
+    suite: "app/staff/table/[id]/page.test.tsx",
+    why: "Phase 2g integration — a counter order with no card (refunded, unreadable) is named as one and hedged; 'It was cleared or sat idle' is false for one paid then refunded",
+    find: "    const counterNoCard = res.handoff === null;\n",
+    replace: "    const counterNoCard = false;\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

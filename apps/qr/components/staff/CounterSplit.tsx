@@ -269,8 +269,10 @@ export function CounterSplit({
   );
 
   const openSession = useCallback(
-    (sessionId: string, hint: TableHint) => {
+    (sessionId: string, hint: TableHint, opts?: { settle?: boolean }) => {
       if (!isSplit()) return false;
+      // The `?settle=1` seed's in-place twin: kept for THIS selection, consumed once by the pane.
+      if (opts?.settle) setSettleOnce(sessionId);
       select(sessionId, hint, { write: true, focus: true });
       return true;
     },

@@ -17,9 +17,13 @@ export type TablePaneApi = {
   selectionGen: number;
   /** A card or occupied tile tap: opens in the pane at split width, else falls through to its link. */
   openFromCard: (e: MouseEvent<HTMLElement>, sessionId: string, hint: TableHint) => void;
-  /** Open a table without a click (a start that converged on a seated table). False below 48em —
-   *  the caller then navigates as before. */
-  openSession: (sessionId: string, hint: TableHint) => boolean;
+  /** Open a table without a click (a start that converged on a seated table, a lane bag, a row of
+   *  the oldest-orders sheet). False below 48em — the caller then navigates as before. `settle` lands
+   *  the pane on the payment section, the in-place twin of `?settle=1` (the lane's Take payment):
+   *  a router push of that URL from this screen changes the address and nothing else — the split
+   *  seeds from the URL on mount and then follows `hashchange` only, which a router push never fires
+   *  (Phase 2g integration; the Codex #283 lesson). */
+  openSession: (sessionId: string, hint: TableHint, opts?: { settle?: boolean }) => boolean;
   /** The floor's live rows, for a hash selection's heading and a closed table's live twin. */
   publishFloor: (rows: readonly PaneRow[]) => void;
 };

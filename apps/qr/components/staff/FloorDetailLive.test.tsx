@@ -287,6 +287,39 @@ describe("FloorDetailLive — a closed table", () => {
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
+  it("a counter order the server shows as PAID keeps the page: it re-renders to the #CODE card", async () => {
+    // p2g-int/page-bounces-a-paid-counter-order — a colleague's settle (or another tablet's reader)
+    // closes the order under a phone: bounced to the counter, where a paid order is no longer
+    // listed, the code the guest is waiting on is nowhere; red.
+    answer = () =>
+      Promise.resolve({
+        kind: "closed",
+        label: "reg-7f3a",
+        tableNumber: null,
+        handoff: {
+          orderId: "o-00a1b2c3",
+          totalCents: 4210,
+          tipCents: 0,
+          tenderedCents: null,
+          isCounter: true,
+          cartId: "c-9",
+          sentEarly: false,
+        },
+      });
+    mount();
+    await tick(5000);
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("a closed counter order with NO card (refunded, unreadable) still returns to the counter", async () => {
+    answer = () =>
+      Promise.resolve({ kind: "closed", label: "reg-7f3a", tableNumber: null, handoff: null });
+    mount();
+    await tick(5000);
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+  });
+
   it("a verdict that lands AFTER the page unmounted drives no navigation", async () => {
     let settle!: (r: TableDetailResult) => void;
     answer = () => new Promise<TableDetailResult>((r) => (settle = r));
