@@ -26,8 +26,6 @@ import {
   paneHistoryOp,
   paneOwned,
   paneSelectionFromHash,
-  paneSelectionHeld,
-  paneStartHeld,
   paneUrl,
   parseHandoffStash,
   readHandoffStash,
@@ -381,47 +379,10 @@ describe("parseHandoffStash — register's canonical shape, display-only", () =>
   });
 });
 
-// ── Phase 2d · Codex round 1 · pane ──
-describe("paneSelectionHeld — a live reader collection holds the pane on its table (Codex #306)", () => {
-  const held = (over: Partial<Parameters<typeof paneSelectionHeld>[0]>) =>
-    paneSelectionHeld({ paying: A, from: A, to: B, cleared: false, ...over });
-  // MUTANT p2d-cx1/held-never — the hold answers false: a tap switches away mid-collect.
-  it("a switch to another table, a close (to: null) — refused while the table shown is paying", () => {
-    expect(held({})).toBe(true);
-    expect(held({ to: null })).toBe(true);
-  });
-  // MUTANT p2d-cx1/held-retap-refused — the same-table clause dropped: a re-tap is not a change.
-  it("a re-tap of the paying table itself is not a change", () => {
-    expect(held({ to: A })).toBe(false);
-  });
-  // MUTANT p2d-cx1/held-any-paying — the `paying === from` clause dropped: a stale report about
-  // ANOTHER table would hold the pane on one that is not paying.
-  it("only the table SHOWN holds: nothing paying, or another table's report, holds nothing", () => {
-    expect(held({ paying: null })).toBe(false);
-    expect(held({ paying: B })).toBe(false);
-    expect(held({ from: null, to: A })).toBe(false);
-  });
-  // MUTANT p2d-cx1/held-over-a-clear — a CLEARED table (a server fact) is never held.
-  it("a table cleared is never held", () => {
-    expect(held({ to: null, cleared: true })).toBe(false);
-  });
-});
-
-describe("paneStartHeld — a live reader collection holds every START too (Codex #306 round 2)", () => {
-  // MUTANT p2d-cx2/start-held-never — a start is admitted mid-collect: its landing routes the counter
-  // screen away and the collect panel with it.
-  it("held while the table SHOWN is collecting", () => {
-    expect(paneStartHeld({ paying: A, shown: A })).toBe(true);
-  });
-  // MUTANT p2d-cx2/start-held-any-paying — the `paying === shown` clause dropped: a stale report
-  // about a table no longer shown would refuse every start with nothing collecting.
-  it("nothing collecting, another table's report, or nothing shown — never held", () => {
-    expect(paneStartHeld({ paying: null, shown: A })).toBe(false);
-    expect(paneStartHeld({ paying: null, shown: null })).toBe(false);
-    expect(paneStartHeld({ paying: B, shown: A })).toBe(false);
-    expect(paneStartHeld({ paying: A, shown: null })).toBe(false);
-  });
-});
+// ── Phase 2g · reader (D1) ── `paneSelectionHeld` and `paneStartHeld` are retired with the holds
+// they decided (the collect's poll lives above navigation now); their cases are inverted where the
+// behaviour lives — the pane and the split admit a switch and a start mid-collect, and the poll
+// survives (TablePane.test, CounterSplit.integration.test).
 
 describe("handoffSuperseded — a paid card the next round replaced dies for good (Codex #306)", () => {
   const table = { isCounter: false, cartId: "c1", orderId: "o1" };

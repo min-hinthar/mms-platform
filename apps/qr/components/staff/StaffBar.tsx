@@ -5,6 +5,7 @@ import { Chrome } from "./Chrome";
 import { LockButton } from "./LockButton";
 import { LiveDot } from "./LiveDot";
 import { StaffBarNet } from "./StaffBarNet";
+import { ReaderCollectChip } from "./ReaderCollectChip";
 import { SplitAwareLink } from "./SplitAwareLink";
 import type { LiveBoardState } from "@/lib/live-connection";
 import { sx } from "@/lib/staff-labels";
@@ -34,7 +35,8 @@ import type { StaffLang } from "@/lib/staff-lang";
  * mounts none, and `check-staff-lang.mjs` rule 4a holds that.
  *
  * This is plain JSX — no `server-only`, no hooks — so a server page and the client KDS board render
- * the SAME component.
+ * the SAME component. Its client children (Lock, the split-aware Back, the offline row, and — Phase
+ * 2g — the card reader's chip) carry their own hooks.
  */
 export type StaffBarLeading =
   /** The Screens circle → `/staff?doors=1`, honoured over any remembered door (the default). */
@@ -160,6 +162,9 @@ export function StaffBar({
         {help}
         {lock && <LockButton lang={lang} />}
       </div>
+      {/* Phase 2g · reader — the card reader's collect, on every page NOT showing its table (renders
+          nothing otherwise): a full-width row like the offline row below, and never a live region. */}
+      <ReaderCollectChip lang={lang} />
       {/* ALWAYS last: the offline row on a feedless page, and the bar's measured height. */}
       <StaffBarNet lang={lang} feed={live !== undefined} />
     </header>

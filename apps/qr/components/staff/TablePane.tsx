@@ -33,6 +33,7 @@ import { TableDetailSkeleton } from "./TableDetailSkeleton";
 import { TableNavProvider, type TableHint } from "./TableNav";
 import type { CloseReason, PaneRow } from "./TablePaneContext";
 import type { Handoff } from "@/lib/register-ui";
+import { ReaderShown } from "./ReaderCollectContext";
 
 /**
  * Phase 2d · split — the selected table, beside the floor. States:
@@ -75,8 +76,6 @@ export function TablePane({
   onClose,
   onSelect,
   onLostWrite,
-  onReaderLive,
-  paneHeld,
 }: {
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
@@ -91,10 +90,6 @@ export function TablePane({
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
   onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
-  /** Codex round 1 (#306) — the detail's reader collection went live / ended (the split holds the
-   *  pane on a paying table), and how many selection changes it refused (said by the detail). */
-  onReaderLive: (sessionId: string, live: boolean) => void;
-  paneHeld: number;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -352,14 +347,21 @@ export function TablePane({
                     });
                   }}
                   onLostWrite={onLostWrite}
-                  onReaderLive={onReaderLive}
-                  paneHeld={paneHeld}
                 />
                 <SettleConsumed when={settleOnce === cur.id} done={onSettleConsumed} />
               </TableNavProvider>
             )}
             {cur?.kind === "closed" && (
               <>
+                {/* Phase 2g · reader — the closed table is ON SCREEN (the bar's chip stands down for
+                    it), and a counter charge landing for it now shows its card here at once — the
+                    provider stashed it too, so the next visit restores it like any other. */}
+                <ReaderShown
+                  sessionId={cur.id}
+                  onLanded={(h) => {
+                    if (h) setStashed({ id: cur.id, h });
+                  }}
+                />
                 {closedHandoff && (
                   <HandoffCard
                     lang={lang}

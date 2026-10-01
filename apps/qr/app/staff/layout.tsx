@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { StaffLangProvider } from "@/components/staff/StaffLangProvider";
+import { ReaderCollectProvider } from "@/components/staff/ReaderCollectProvider";
 import { readStaffLangMode } from "@/lib/staff-lang-server";
 import { echoesShown, scriptOf } from "@/lib/staff-lang";
 
 /**
- * P2 — the first `/staff` layout. It does exactly two things: read the device language once, and
- * provide it.
+ * P2 — the first `/staff` layout. It does exactly three things: read the device language once,
+ * provide it, and (Phase 2g · reader) hold the card reader's collect above every staff route.
  *
  * P2e — what it reads is the device's MODE (Burmese only · Both · English); what it provides is the
  * SCRIPT every staff component has always taken, plus whether the chrome draws English echoes
@@ -31,6 +32,16 @@ import { echoesShown, scriptOf } from "@/lib/staff-lang";
  * (The drained `SWITCH_TODO` ratchet that once named the pages with no control is deleted with P2e's
  * rule-4 rewrite: a page with no control is now a DESIGN — 4d proves its way up — not a TODO.)
  *
+ * Phase 2g · reader (P2em) — `ReaderCollectProvider` is the first STATEFUL thing here, and it is
+ * here because this is the only tree no staff navigation leaves: the reader's collect (its record,
+ * its 2.5 s poll that slides the settle freeze and records a counter order's #CODE, cancel, the
+ * landing) used to live in the table detail, and "← Floor", Lock, More, a counter-order card, a
+ * browser Back or a mint landing all unmounted it mid-collect. It still renders NO chrome — the rule
+ * above stands: the collect panel is the table detail's, and the only thing it adds to a bar is
+ * `StaffBar`'s reader chip, which renders NOTHING unless a collect (or its outcome) stands off the
+ * paying table's screen — so the KDS's measured height is untouched on every tablet that is not
+ * taking a card. Inside the language provider: the chip and the panel speak the device language.
+ *
  * `force-dynamic` because it reads a cookie; every page beneath it already is.
  */
 export const dynamic = "force-dynamic";
@@ -39,7 +50,7 @@ export default async function StaffLayout({ children }: { children: ReactNode })
   const mode = await readStaffLangMode();
   return (
     <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
-      {children}
+      <ReaderCollectProvider>{children}</ReaderCollectProvider>
     </StaffLangProvider>
   );
 }

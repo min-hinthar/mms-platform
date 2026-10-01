@@ -1789,6 +1789,15 @@ export const STAFF = {
     my: "အခု မဖျက်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
   "settle.reader.backToSettle": { en: "Back to payment", my: "ငွေရှင်းဆီ ပြန်" },
+  // ── Phase 2g · reader ──
+  // There is ONE card reader: while it is taking a payment for another table (or another counter
+  // order), the reader button here is held and says whose — {x} is that table's name as the floor
+  // gives it ("Table 7", "Counter order"). K15 draft. Words: ကတ်စက် (settle.reader.*'s), ငွေယူ "take
+  // the money", အရင် … ပြီးအောင် လုပ်ပါ (the retired pane hold's "finish … first").
+  "settle.reader.busyElsewhere": {
+    en: "The card reader is taking a payment for {x} — finish that one first.",
+    my: "ကတ်စက်က {x} အတွက် ငွေယူနေပါတယ် — အဲဒါကို အရင် ပြီးအောင် လုပ်ပါ။",
+  }, // K15-HIGH — misread, a second card payment is started while the reader is still taking one
 
   // ── clearing a table on turnover ─────────────────────────────────────────
   // {id} is the number off the physical tent card — Latin in both tongues.
@@ -3066,9 +3075,13 @@ export const STAFF = {
     my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ပါ။",
   }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
   "settle.reader.status.recording": { en: "Recording the order…", my: "အော်ဒါ မှတ်နေပါတယ်…" },
+  // Phase 2g · reader (D4) — it no longer points at "Orders" (a manager-only zone the cashier may not
+  // have): the screen keeps checking on its own and the paid card shows here once the order is
+  // recorded. K15 draft (rewritten). Words: ငွေရှင်းပြီးပါပြီ (settle.reader.paid's), ထပ်မဖြတ်ပါနဲ့
+  // (the old line's "don't charge again"), ဒီမှာ ပေါ်လာပါမယ် "will show here".
   "settle.reader.status.recordingLong": {
-    en: "The charge went through, but the order isn’t recorded yet. Don’t charge again — note the amount and check Orders in a minute.",
-    my: "ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရသေးပါ။ ထပ်မဖြတ်ပါနဲ့ — ပမာဏကို မှတ်ထားပြီး တစ်မိနစ်အတွင်း အော်ဒါများ ကို စစ်ပါ။",
+    en: "The guest has paid — don’t charge again. The order isn’t recorded yet; it will show here once it is.",
+    my: "ဧည့်သည် ငွေရှင်းပြီးပါပြီ — ထပ်မဖြတ်ပါနဲ့။ အော်ဒါ မမှတ်ရသေးပါ၊ မှတ်ပြီးတာနဲ့ ဒီမှာ ပေါ်လာပါမယ်။",
   }, // K15-HIGH — the guest HAS paid; a second charge collects twice
   "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
   "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
@@ -3369,16 +3382,6 @@ export const STAFF = {
     en: "Dish names on kitchen tickets never change with this. Some screens aren’t fully in Burmese yet.",
     my: "မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်က ဟင်းနာမည်တွေကတော့ မပြောင်းပါ။ စခရင် တချို့မှာ မြန်မာလို အပြည့် မရသေးပါ။",
   },
-  // ── Phase 2d · Codex round 1 · pane ──
-  // A card tap, ✕, Escape or Back while the reader is taking a card on the table shown: the pane
-  // stays (its poll keeps the payment's hold and records a counter order's #CODE), and says why in
-  // its one region. Codex round 2 — a START (Walk-up, Phone order, a free table) tapped then is
-  // refused with the same words: the words are already right, so no second key. K15 draft. Words: ကတ်နဲ့ ငွေရှင်းတာ (settle.reader.startFailed's), အရင်
-  // "first" (shell.lock.err.noPin's), ပြီးအောင် "until done".
-  "floor.pane.payingHeld": {
-    en: "Finish the card payment first.",
-    my: "ကတ်နဲ့ ငွေရှင်းတာ အရင် ပြီးအောင် လုပ်ပါ။",
-  }, // K15-HIGH — misread, the cashier leaves a card payment mid-collect and it is never recorded
   // ── Phase 2f · pay at pickup ──
   // A COUNTER order (phone / walk-up, a `reg-` session) may be sent to the kitchen before it is paid
   // (owner decisions 1 and 7, OPEN-ITEMS P2v). Every MY value below is a Claude-authored K15 draft
@@ -3763,8 +3766,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   // ── Phase 2d · review fixes ──
   "floor.pane.lostSettle",
   "floor.pane.lostSettleUnknown",
-  // ── Phase 2d · Codex round 1 · pane ──
-  "floor.pane.payingHeld",
   // ── Phase 2f · pay at pickup ──
   "settle.unpaid",
   "table.send.cta.counter.one",
@@ -3789,6 +3790,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.noshow.body.comped.many",
   "table.noshow.rearm",
   "expo.bag.noCharge",
+  // ── Phase 2g · reader ──
+  "settle.reader.busyElsewhere",
 ]);
 
 /**

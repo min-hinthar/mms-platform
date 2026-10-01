@@ -1,0 +1,111 @@
+"use client";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef } from "react";
+import type { Handoff } from "@/lib/register-ui";
+import type {
+  ReaderCancelError,
+  ReaderCollect,
+  ReaderName,
+  ReaderPoll,
+  ReaderStart,
+  ReaderStatus,
+} from "@/lib/reader-collect";
+
+/**
+ * Phase 2g · reader — the reader collect's API, in its OWN module (the `TablePaneContext` precedent):
+ * the bar's chip, the split and the pane's closed state read it without importing the provider —
+ * and with it the reader's Server Actions — into every bar's graph (StaffBar renders on fourteen
+ * surfaces, several of them mounted bare by their suites). `ReaderCollectProvider` provides it.
+ */
+/** Who is showing a table, and what it does when that table's charge lands (the card — or null for a
+ *  table, whose paid state is the signal — so it can re-read and adopt it). */
+export type ReaderViewer = { onLanded?: (h: Handoff | null) => void };
+
+export type ReaderLanded = { sessionId: string; name: ReaderName; handoff: Handoff };
+
+export type ReaderCollectApi = {
+  /** The collect, or null. Its phase and status below. */
+  record: ReaderCollect | null;
+  poll: ReaderPoll;
+  /** Collecting, or charged and waiting for its order. */
+  live: boolean;
+  /** THE status binding (`readerStatus`) — the panel's line and the chip's; null with no record. */
+  status: ReaderStatus | null;
+  /** What the page's region says: the status, or a cancel refusal while it stands. */
+  spoken: ReaderStatus | null;
+  recordingLong: boolean;
+  cancelBusy: boolean;
+  cancelError: ReaderCancelError | null;
+  /** A counter order's card whose table was not on screen when it landed. */
+  landed: ReaderLanded | null;
+  /** Tables on screen now (registered through `shownHere`). */
+  shown: ReadonlySet<string>;
+  /** The PI whose panel takes focus on its first mount — set only by a start made in view. */
+  focusOwed: string | null;
+  focusTaken: (paymentIntentId: string) => void;
+  start: (s: ReaderStart) => void;
+  cancel: () => Promise<void>;
+  /** "Back to payment": a declined or cancelled collect is cleared; a charged-not-recorded one is put
+   *  away and keeps polling silently until it lands (D4). */
+  dismiss: () => void;
+  dismissLanded: () => void;
+  /** Register a table as shown; returns the unregister. A landed card standing for it is handed over. */
+  shownHere: (sessionId: string, viewer?: ReaderViewer) => () => void;
+  /** The one refusal, read at TAP time (refs, never a render). */
+  startRefused: (sessionId: string) => boolean;
+  /** A table's detail mounting with a pre-2g per-table stash: adopt it once (never over a record). */
+  adoptLegacy: (at: Omit<ReaderStart, "paymentIntentId" | "totalCents">) => void;
+  /** The counter split, while mounted: opens a table in its pane (the chip's View at split width — a
+   *  router push of a hash on the same page fires no `hashchange`, so it could never select). */
+  registerPane: (open: (sessionId: string, name: ReaderName) => void) => () => void;
+  openInPane: (sessionId: string, name: ReaderName) => boolean;
+  /** The chip says a failure once per outcome, not once per page it remounts on. */
+  alertSaid: string | null;
+  markAlertSaid: (key: string) => void;
+};
+
+export const ReaderCollectContext = createContext<ReaderCollectApi | null>(null);
+
+/**
+ * THROWS outside the provider: a reader control with no provider above it would start a collect
+ * nobody polls — exactly the orphan this module exists to remove. Every staff route has one (the
+ * layout); a test mounts its own.
+ */
+export function useReaderCollect(): ReaderCollectApi {
+  const v = useContext(ReaderCollectContext);
+  if (v === null)
+    throw new Error(
+      "useReaderCollect() outside <ReaderCollectProvider> — the reader's collect lives in app/staff/layout.tsx",
+    );
+  return v;
+}
+
+/**
+ * The tolerant read, for the two consumers that only ever DISPLAY or OFFER (the bar's chip, the
+ * split's pane registration): StaffBar renders on surfaces a test mounts bare, and no collect can
+ * start without the throwing hook above.
+ */
+export function useReaderCollectOptional(): ReaderCollectApi | null {
+  return useContext(ReaderCollectContext);
+}
+
+/** Marks a table as shown while mounted (a server-rendered closed page, the pane's closed state). */
+export function ReaderShown({
+  sessionId,
+  onLanded,
+}: {
+  sessionId: string;
+  onLanded?: (h: Handoff | null) => void;
+}) {
+  const reader = useReaderCollectOptional();
+  const shownHere = reader?.shownHere;
+  const landedRef = useRef(onLanded);
+  useEffect(() => {
+    landedRef.current = onLanded;
+  }, [onLanded]);
+  // A LAYOUT effect: registered before paint, so the bar's chip never flashes over its own table.
+  useLayoutEffect(() => {
+    if (!shownHere) return;
+    return shownHere(sessionId, { onLanded: (h) => landedRef.current?.(h) });
+  }, [sessionId, shownHere]);
+  return null;
+}

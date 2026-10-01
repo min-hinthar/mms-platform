@@ -12842,6 +12842,71 @@ a.aisle-tile {
 .staff-net > svg {
   color: var(--warn);
 }
+/* ── Phase 2g · reader ── THE READER CHIP (`ReaderCollectChip`): the card reader's collect, on every
+   page NOT showing its table. The offline row's idiom — in flow INSIDE the sticky bar, full width,
+   ordered last (before the offline row, by DOM order), so it never covers a control and the bar stays
+   the only sticky element; the bar wraps only while it holds the chip. Tone by data, never colour
+   alone (the words carry it): neutral while collecting, the paid tint once charged, the warn pair on a
+   decline or a charge slow to record. Entrance `.mms-rise` (RM-gated by the kit). */
+.staff-bar:has(> .staff-reader) {
+  flex-wrap: wrap;
+}
+.staff-reader {
+  flex-basis: 100%;
+  order: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.staff-reader[data-tone="ok"] {
+  border-color: var(--ok);
+  background: var(--okb);
+}
+.staff-reader[data-tone="warn"] {
+  border-color: var(--warn);
+  background: var(--warnb);
+}
+.staff-reader > svg {
+  flex: none;
+  color: var(--t2);
+}
+.staff-reader[data-tone="warn"] > svg {
+  color: var(--warn);
+}
+.staff-reader-text {
+  flex: 1 1 14rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.staff-reader-title {
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.staff-reader-sub {
+  color: var(--t2);
+}
+.staff-reader-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-left: auto;
+}
+/* The lock screen names the table instead of linking it (the PIN comes first). */
+.staff-reader-name {
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
 /* WCAG 2.4.11 — a keyboard-focus scroll must never park a control UNDER the sticky bar. StaffBarNet
    publishes the header's measured height as --staff-bar-h (the ONE publisher); the fallbacks cover
    the moment before it hydrates. ⚠️ 76px / 128px are COMPUTED from this sheet (a Burmese title +

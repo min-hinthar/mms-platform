@@ -45,6 +45,7 @@ vi.mock("./TerminalSettle", () => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
+const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
@@ -140,7 +141,9 @@ const flush = (ms = 0) =>
 function mount(initial: TableDetail, arrivedToSend = false) {
   return render(
     <StaffLangProvider lang="en">
-      <FloorDetailLive initial={initial} sessionId={SESSION} arrivedToSend={arrivedToSend} />
+      <ReaderCollectProvider>
+        <FloorDetailLive initial={initial} sessionId={SESSION} arrivedToSend={arrivedToSend} />
+      </ReaderCollectProvider>
     </StaffLangProvider>,
   );
 }
