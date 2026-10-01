@@ -14812,7 +14812,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2g · P2fk — the page states the fact above the write-off it informs; dropped, nobody sees why to remove the order",
-    find: "          {isCounter && detail.counterUncollected === true && (",
+    find: "          {isCounter && detail.counterUncollected === true && !detail.paymentInFlight && (",
     replace: "          {false && (",
   },
   {
@@ -14820,8 +14820,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2g · P2fk — only a counter order can be uncollected; a table never says nobody collected it",
-    find: "          {isCounter && detail.counterUncollected === true && (",
-    replace: "          {detail.counterUncollected === true && (",
+    find: "          {isCounter && detail.counterUncollected === true && !detail.paymentInFlight && (",
+    replace: "          {detail.counterUncollected === true && !detail.paymentInFlight && (",
   },
   {
     id: "p2g-older/older-sheet/more-replaces",
@@ -14884,8 +14884,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CounterOlderSheet.tsx",
     suite: "components/staff/CounterOlderSheet.test.tsx",
     why: "Phase 2g · P2fz — Try again re-asks for the page that failed; from null it throws away the rows already read",
-    find: "onClick={() => load(phase.after)}",
-    replace: "onClick={() => load(null)}",
+    find: "load(phase.after, phase.after === null)",
+    replace: "load(null, phase.after === null)",
   },
   {
     id: "p2g-older/older-sheet/end-unsaid",
