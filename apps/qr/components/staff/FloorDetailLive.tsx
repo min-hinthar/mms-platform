@@ -120,8 +120,10 @@ export function FloorDetailLive({
    *  FloorDetailLive.test). `pane` is the counter's pane beside the floor: no <main>, no bar, h3
    *  sections, and the exits go through the pane (`onClosed`, `TableNav`). */
   variant?: "page" | "pane";
-  /** Pane — the table closed (and no terminal flow holds it): the pane shows its notice. */
-  onClosed?: (sessionId: string) => void;
+  /** Pane — the table closed (and no terminal flow holds it): the pane shows its notice, with the
+   *  closed verdict's server-built #CODE card for a counter order (Phase 2g · P2em, D2; null when the
+   *  verdict carries none). */
+  onClosed?: (sessionId: string, handoff: Handoff | null) => void;
   /** Pane — a line or discount write refused AFTER this detail unmounted (the pane moved on): the
    *  pane says so, naming this table, so the refusal is never dropped silently. Phase 2d · review
    *  fixes — a settle's refusal or unknown outcome too (`settle` / `settleUnknown`). */
@@ -238,6 +240,18 @@ export function FloorDetailLive({
   if (restoredHandoff && handoffSuperseded(restoredHandoff, detail.cartId, detail.paidOrderId))
     setRestoredHandoff(null);
   const shownHandoff = handoff ?? restoredHandoff;
+  // The card on screen. THIS TAB'S card wins — a settle this screen watched land, a reader landing
+  // it adopted, or the pane's restored stash: it carries the tender and the change, and the tap's
+  // "went out unpaid". Phase 2g · P2em (D2) — otherwise a SETTLED counter order shows the server's
+  // card, built from its paid row (`detail.serverHandoff`): the session whose close the webhook
+  // missed reads "Paid · #CODE" on any device, with no panel and no stash. Not a stash — so the
+  // page variant (which never restores one, below) shows it too; and never FOCUSED (the focus
+  // effect is keyed on a NEW settle, `handoff`): it is found, not just landed.
+  const clientCard =
+    shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId, detail.paidOrderId)
+      ? shownHandoff
+      : null;
+  const shownCard = clientCard ?? detail.serverHandoff ?? null;
   // W6c → Phase 2g · reader — the live reader collect is the PROVIDER's (`ReaderCollectProvider`,
   // app/staff/layout.tsx): its record, its poll, its stash and its landing all live above every staff
   // route, so nothing this detail's unmount does — "← Floor", a pane switch, Lock, More — stops the
@@ -387,7 +401,8 @@ export function FloorDetailLive({
             else if (!terminalFlowLive.current) {
               // Phase 2d · split — in the pane the floor is already beside it: the pane says the
               // table closed (and keeps its paid card) instead of navigating anywhere.
-              if (onClosedRef.current) onClosedRef.current(sessionId);
+              // Phase 2g · P2em (D2) — with the verdict's server-built #CODE card (a counter order).
+              if (onClosedRef.current) onClosedRef.current(sessionId, res.handoff ?? null);
               else {
                 router.replace(STAFF_DOOR_TARGET.counter);
                 router.refresh();
@@ -1459,14 +1474,15 @@ export function FloorDetailLive({
             </Link>
           </section>
         )}
-        {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
-            named by its facts; never a status region. A table's card leaves once the next round's
-            cart opens (`handoffStillCurrent`). */}
-        {shownHandoff && handoffStillCurrent(shownHandoff, detail.cartId, detail.paidOrderId) && (
+        {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above
+            on a NEW settle only, named by its facts; never a status region. A table's card leaves
+            once the next round's cart opens (`handoffStillCurrent`). Phase 2g — this tab's card, else
+            a settled counter order's server card (`shownCard`). */}
+        {shownCard && (
           <HandoffCard
             ref={handoffRef}
             lang={lang}
-            handoff={shownHandoff}
+            handoff={shownCard}
             onDone={inPane ? () => nav.toFloor("user") : undefined}
             headingLevel={inPane ? 3 : 2}
           />

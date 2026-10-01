@@ -2045,3 +2045,82 @@ describe("TablePane — openSession mid-collect opens the table (the hold is ret
     expect(terminalStatus.mock.calls.length).toBe(n + 1);
   });
 });
+
+// ── Phase 2g · P2em (D2) ── a closed counter order's #CODE card from its ORDER ROW: the closed verdict
+// carries it, so the pane shows it with no stash (another tablet, a reload, a panel that never saw the
+// charge land). The tab's stash — with the tender and the change — still wins.
+describe("TablePane — a closed counter order's server-built card (P2em · D2)", () => {
+  const SERVER_CARD = {
+    orderId: "o-00a1b2c3",
+    totalCents: 4210,
+    tipCents: 0,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: "c-4",
+    sentEarly: false,
+  };
+  const closedCounter = (handoff: typeof SERVER_CARD | null) => () =>
+    Promise.resolve({ kind: "closed" as const, label: "reg-7f3a", tableNumber: null, handoff });
+
+  it("a deep link with NO stash: the verdict's card shows, under the counter title, unfocused", async () => {
+    answers[A] = closedCounter(SERVER_CARD);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    // MUTANT p2g-code/pane-closed-ignores-server-handoff — the pane reads the stash alone, and a
+    // counter order paid on another tablet (or before a reload) closes with no #CODE; red.
+    // MUTANT p2g-code/pane-first-read-drops-server-handoff — the first read keeps the label, drops
+    // the card; red.
+    const card = within(pane()).getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(document.getElementById("handoff-title")!.tagName).toBe("H3");
+    expect(document.activeElement).not.toBe(card);
+  });
+
+  it("the tab's STASH wins: its tender and change stay, never swapped for the row's bare total", async () => {
+    stashHandoff(A, { ...SERVER_CARD, tenderedCents: 5000 });
+    answers[A] = closedCounter(SERVER_CARD);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    // MUTANT p2g-code/pane-server-handoff-beats-stash — the server card outranks the cashier's: the
+    // change to hand back ($50.00 − $42.10) disappears; red.
+    expect(
+      within(pane()).getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ }),
+    ).toBeTruthy();
+  });
+
+  it("no card in the verdict (a refunded order, an unreadable one): the notice alone", async () => {
+    answers[A] = closedCounter(null);
+    window.history.replaceState(null, "", `/staff?floor=1#table-${A}`);
+    mount({ cards: [] });
+    await tick(0);
+    await tick(0);
+    await tick(0);
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(document.getElementById("handoff-title")).toBeNull();
+  });
+
+  it("a counter order that closes WHILE shown carries the verdict's card into the closed pane", async () => {
+    answers[A] = ok(
+      detail(A, 4, { label: "reg-7f3a", tableNumber: null, mode: "pickup", counterOrder: true }),
+    );
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    expect(document.getElementById("handoff-title")).toBeNull();
+    answers[A] = closedCounter(SERVER_CARD);
+    await tick(5000);
+    await tick(0); // the closed state reads the stash first (a scheduled callback)
+    // MUTANT p2g-code/detail-closed-drops-server-handoff — the detail hands the pane no card; and
+    // MUTANT p2g-code/pane-detail-close-drops-server-handoff — the pane drops the one it is handed:
+    // either way the order closes with no #CODE beside the floor; red.
+    expect(pane().textContent).toContain(ts("en", "floor.pane.closed.counterTitle"));
+    expect(within(pane()).getByRole("region", { name: /Paid.*#A1B2C3/ })).toBeTruthy();
+  });
+});

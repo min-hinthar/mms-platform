@@ -10,6 +10,7 @@ import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { inFlightHolder } from "./inflight-refusal";
 import { deriveFloorStatus } from "./floor-status";
 import { summarizeRefund } from "./refund-view";
+import { serverCounterHandoff } from "./register-ui";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
@@ -561,13 +562,41 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // An unread session is not a cleared table — `closed` on error would bounce staff off a live order.
   if (sessionError) return { kind: "outage" };
   if (!session) return { kind: "closed" };
-  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
-  // its live-namesake button); nothing else is read or returned for a closed session.
-  if (session.status === "closed")
-    return { kind: "closed", label: session.qr_code, tableNumber: session.table_number };
-
   // Phase 2f · P2v — THE counter-order predicate, once; its "sent" is measured on the DB clock.
   const counterOrder = isCounterOrder({ mode: session.mode, qrCode: session.qr_code });
+  // Phase 2d · split — the closed table's own name travels with the verdict (the pane's head and
+  // its live-namesake button); nothing else is read or returned for a closed TABLE.
+  if (session.status === "closed") {
+    const closed = {
+      kind: "closed",
+      label: session.qr_code,
+      tableNumber: session.table_number,
+    } as const;
+    if (!counterOrder) return closed;
+    // Phase 2g · P2em (D2) — a counter session closes behind its settle (the webhook's after(), the
+    // cash settle's), so its closed verdict carries the #CODE card, built from the session's latest
+    // order row (`serverCounterHandoff`: figures verbatim, never "Paid" over money that came back).
+    // The card no longer needs the panel that took the charge to be mounted, or this tab's stash.
+    // ADVISORY (the W10b posture): only the session read above is an outage — an unreadable order
+    // costs the card, never the honest closed verdict, and is logged.
+    const { data: order, error: orderError } = await db
+      .from("qr_orders")
+      .select("id,total_cents,tip_cents,status,refunded_cents,cart_id")
+      .eq("session_id", sessionId)
+      .in("status", ["paid", "refunded"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (orderError) {
+      console.error("[floor] getTableDetail closed counter order unreadable — no #CODE card", {
+        sessionId,
+        message: orderError.message,
+      });
+      return { ...closed, handoff: null };
+    }
+    return { ...closed, handoff: serverCounterHandoff(order) };
+  }
+
   const [membersRes, cartRes, paidRes, tabConfigRes, clockRes] = await Promise.all([
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
@@ -583,7 +612,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // deriving as "seated". `total_cents` stays the authoritative snapshot either way.
     db
       .from("qr_orders")
-      .select("id,total_cents,created_at,status,refunded_cents")
+      // Phase 2g · P2em (D2) — `tip_cents` and `cart_id` too: a settled counter order's #CODE card is
+      // built from THIS row (`serverHandoff` below), with no second read.
+      .select("id,total_cents,created_at,status,refunded_cents,tip_cents,cart_id")
       .eq("session_id", sessionId)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
@@ -945,6 +976,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
      *  surface must say "20+" instead of stating a number it cannot know. */
     settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,
+    // Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, from the paid row read above (no
+    // new read): the session the webhook's best-effort, single-shot close left active (its after() is
+    // never redelivered, and the reconciler re-runs fulfillment, never the close) shows its card on
+    // any device. Only with no open cart — a card never sits over a live basket — and only through
+    // the one refund gate.
+    serverHandoff: counterOrder && !cart ? serverCounterHandoff(paid) : null,
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,

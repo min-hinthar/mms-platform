@@ -1,5 +1,5 @@
 "use client";
-import type { Ref } from "react";
+import { useState, type Ref } from "react";
 import Link from "next/link";
 import { buttonClass } from "@mms/ui";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
@@ -9,6 +9,7 @@ import type { Handoff } from "@/lib/register-ui";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
+import { ReaderShown } from "./ReaderCollectContext";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -158,5 +159,40 @@ export function HandoffCard({
         </Link>
       )}
     </section>
+  );
+}
+
+/**
+ * Phase 2g · P2em (D2) — the full table page's CLOSED counter order: the server-built #CODE card
+ * (`getTableDetail`'s closed verdict, from the order row), on any device and after any reload. The
+ * page is a Server Component; this is its one client island.
+ *
+ * It marks the table as SHOWN (`ReaderShown`), so the staff bar's reader chip stands down over it, and
+ * a card this tab's reader collect landed for it — the chip's "View" leads here — is handed over and
+ * WINS: it is the same order, plus the tap's "went out unpaid" the row never stored. That is a hand-
+ * over, not a stash restore (the page variant never restores one — FloorDetailLive), and the server
+ * card is not a stash either: it is the order row, read now. Never focused — the page was navigated
+ * to, nothing just landed on it — and never a live region (HandoffCard is neither).
+ */
+export function ClosedHandoffCard({
+  lang,
+  sessionId,
+  handoff,
+}: {
+  lang: StaffLang;
+  sessionId: string;
+  handoff: Handoff;
+}) {
+  const [landed, setLanded] = useState<Handoff | null>(null);
+  return (
+    <>
+      <ReaderShown
+        sessionId={sessionId}
+        onLanded={(h) => {
+          if (h) setLanded(h);
+        }}
+      />
+      <HandoffCard lang={lang} handoff={landed ?? handoff} headingLevel={2} />
+    </>
   );
 }

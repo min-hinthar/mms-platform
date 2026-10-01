@@ -17,6 +17,7 @@ import type { StaffSendCounts } from "./staff-send-view";
 import type { InFlightHolder } from "./inflight-refusal";
 import type { KdsThresholds } from "./kitchen-types";
 import type { CounterArm as CounterArmOf } from "./counter-order";
+import type { Handoff } from "./register-ui";
 
 /** Phase 2f — how a counter order was started (re-exported for the client components). */
 export type CounterArm = CounterArmOf;
@@ -245,6 +246,13 @@ export type TableDetail = {
   /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
    *  surface must render it as "N+" rather than as an exact total it cannot know. */
   settledOrderCountCapped: boolean;
+  /** Phase 2g · P2em (D2) — a SETTLED counter order's #CODE card, built on the server from the paid
+   *  row this detail already read (`serverCounterHandoff`, lib/register-ui): the session the webhook's
+   *  best-effort close left active shows its card on any device, with no panel and no tab stash. Null
+   *  (or absent) off a counter order, over an open cart, and whenever money came back. The surface
+   *  renders it only when it has no card of its own — this tab's card (with the tender and change)
+   *  wins. */
+  serverHandoff?: Handoff | null;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
    *  it (OPEN-ITEMS P2e — the merge refusal named that action for months while nothing implemented
@@ -368,7 +376,16 @@ export type TableDetailResult =
   /** Phase 2d · split — the session's own label and number when the row still exists (a table
    *  cleared or merged away), so a pane opened straight onto it can name it and find the live
    *  namesake a new party sat at. Absent for a malformed id or a vanished row. */
-  | { kind: "closed"; label?: string; tableNumber?: number | null }
+  | {
+      kind: "closed";
+      label?: string;
+      tableNumber?: number | null;
+      /** Phase 2g · P2em (D2) — a closed COUNTER order's #CODE card, from its latest order row
+       *  (`serverCounterHandoff`): the counter session closes behind its settle, so this is where a
+       *  card lost with its panel or its tab is found again. Absent off a counter session; null when
+       *  there is no unrefunded paid order, or its read failed (logged — never an outage). */
+      handoff?: Handoff | null;
+    }
   | { kind: "signin" }
   | { kind: "outage" };
 

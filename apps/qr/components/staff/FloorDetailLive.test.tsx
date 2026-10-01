@@ -1707,3 +1707,89 @@ describe("FloorDetailLive — the reader collect outlives the page (P2em · P2en
     expect(replace).not.toHaveBeenCalled();
   });
 });
+
+// ── Phase 2g · P2em (D2) ── a SETTLED counter order's #CODE card, built on the server from its paid
+// row: the session the webhook's best-effort close left active shows its card here, with no panel and
+// no stash. This tab's own card (the tender, the change) wins wherever it stands.
+describe("FloorDetailLive — a settled counter order's server-built #CODE card (P2em · D2)", () => {
+  const SERVER_CARD = {
+    orderId: "o-00a1b2c3",
+    totalCents: 4210,
+    tipCents: 0,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: "c1",
+    sentEarly: false,
+  };
+  const COUNTER: TableDetail = {
+    ...SETTLEABLE,
+    label: "reg-7f3a",
+    tableNumber: null,
+    mode: "pickup",
+    counterOrder: true,
+  };
+  const SETTLED: TableDetail = {
+    ...COUNTER,
+    settled: true,
+    cartId: null,
+    settleTotalCents: null,
+    status: "paid",
+    paidTotalCents: 4210,
+    paidOrderId: "o-00a1b2c3",
+    refund: { state: "none", refundedCents: 0, netPaidCents: 4210 },
+    settledOrderCount: 1,
+    serverHandoff: SERVER_CARD,
+  };
+
+  it("with no card of its own, the page shows the server's — named by its facts, and NOT focused", async () => {
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    mountWith(SETTLED);
+    await tick(0);
+    // MUTANT p2g-code/detail-ignores-server-card — the settled counter order reads "Paid $42.10"
+    // with no #CODE anywhere on the screen the bag is handed over from; red.
+    const card = screen.getByRole("region", { name: /Paid.*\$42\.10.*#A1B2C3/ });
+    expect(card.textContent).toContain(ts("en", "table.detail.handoff.callout"));
+    // MUTANT p2g-code/server-card-steals-focus — a card FOUND on arrival is not a settle that just
+    // landed: focus stays where the person put it; red.
+    expect(document.activeElement).not.toBe(card);
+    await tick(5000);
+    expect(document.activeElement).not.toBe(card);
+    // Never a second polite region (P2r).
+    expect(polite()).toHaveLength(1);
+  });
+
+  it("this tab's card WINS over the server's — the cash settle's change stays on screen", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: true,
+      orderId: "o-00a1b2c3",
+      totalCents: 4210,
+      tipCents: 0,
+    });
+    mountWith(COUNTER);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    fireEvent.change(document.getElementById("cash-tendered") as HTMLInputElement, {
+      target: { value: "50" },
+    });
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    await tick(0);
+    // The settle's re-read: the order is paid, and its close was missed — the server's card rides it.
+    answer = () => Promise.resolve({ kind: "detail", detail: SETTLED });
+    await tick(400);
+    await tick(5000);
+    // MUTANT p2g-code/detail-server-card-beats-client — the server card (no tender) replaces the
+    // cashier's: "Change $7.90" disappears from under the hand counting it out; red.
+    const card = screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ });
+    expect(card).toBeTruthy();
+  });
+
+  it("no server card in the detail (a table, an open cart, money that came back): no card", () => {
+    mountWith({ ...SETTLED, serverHandoff: null });
+    expect(screen.queryByRole("region", { name: /#A1B2C3/ })).toBeNull();
+  });
+});

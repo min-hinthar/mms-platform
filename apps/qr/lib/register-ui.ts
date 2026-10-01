@@ -1,8 +1,12 @@
 /**
  * Phase 2c · register — the settle section's UI decisions, pure and directive-free (it is imported by
- * client components). NOT in the verify:slice mutate set on purpose: nothing here names, derives or
- * gates an amount — what is charged is always the server's. Pinned by `register-ui.test.ts`.
+ * client components AND by `lib/floor.ts` on the server). In the verify:slice mutate set: nothing here
+ * charges anything — what is charged is always the server's — but `handoffStillCurrent` decides which
+ * paid card a screen shows (Phase 2d · Codex round 1) and `serverCounterHandoff` decides whether an
+ * order row may be shown as "Paid" at all (Phase 2g), and a screen stating the wrong money fact is a
+ * product-truth defect the mutants pin. Pinned by `register-ui.test.ts`.
  */
+import { summarizeRefund } from "./refund-view";
 
 /** A table's running-bill kind, as `TableDetail.tab` carries it. */
 export type SettleTab = "none" | "trust" | "secure";
@@ -65,3 +69,47 @@ export type Handoff = {
    *  claim that the food is ready. Absent (or false) on every other handoff. */
   sentEarly?: boolean;
 };
+
+/** The `qr_orders` columns a server-built paid card reads — the persisted figures, nothing derived. */
+export type ServerHandoffRow = {
+  id: string;
+  total_cents: number;
+  tip_cents: number;
+  status: string;
+  refunded_cents: number | null;
+  cart_id: string | null;
+};
+
+/**
+ * Phase 2g · P2em (decision D2) — a COUNTER order's #CODE card, built from its ORDER ROW, so no
+ * mounted panel and no tab's stash is needed to show it: the closed verdict of a counter session (any
+ * device, any tab, after a reload) and the settled detail of one the webhook's best-effort close left
+ * active both carry it (`getTableDetail`). The caller decides it is a counter order (`isCounterOrder`).
+ *
+ * Null unless the ONE refund derivation says nothing came back (`summarizeRefund(...).state ===
+ * "none"`). Never `status === "paid"` alone: a line-level refund leaves the status at 'paid' (a
+ * PARTIAL refund), and the in-app path bumps `refunded_cents` to the whole total a beat before the
+ * webhook flips the status (a FULL refund by amount) — either would print "Paid · $X" over money that
+ * went back, the defect registry M2 closed on the guest receipt and K33 on the detail.
+ *
+ * Every figure is the row's, verbatim — `total_cents` (never the PaymentIntent's amount, which equals
+ * it only through the webhook's reconcile) and `tip_cents`. `tenderedCents` is null: what the cashier
+ * was handed is never persisted, so the card claims no change. `sentEarly` is false: whether the food
+ * went to the kitchen before the tap is not persisted either, and the card must never claim the bag is
+ * on the lane on a guess (the tab's own card, captured at the tap, carries it and wins where it
+ * stands). Display-only, like every `Handoff`.
+ */
+export function serverCounterHandoff(row: ServerHandoffRow | null): Handoff | null {
+  if (row === null) return null;
+  const refund = summarizeRefund(row.total_cents, row.refunded_cents ?? 0, row.status);
+  if (refund.state !== "none") return null;
+  return {
+    orderId: row.id,
+    totalCents: row.total_cents,
+    tipCents: row.tip_cents,
+    tenderedCents: null,
+    isCounter: true,
+    cartId: row.cart_id,
+    sentEarly: false,
+  };
+}

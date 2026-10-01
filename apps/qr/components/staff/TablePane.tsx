@@ -43,7 +43,8 @@ import { ReaderShown } from "./ReaderCollectContext";
  *   loading  the head names the tapped card at once; the body is the table skeleton.
  *   detail   `FloorDetailLive variant="pane"`, keyed per selection.
  *   closed   the head keeps its name and ✕; the notice, the live namesake's "View", and the table's
- *            paid card (if its stash stands) above it.
+ *            paid card above it — this tab's stash, else (Phase 2g · P2em) the closed verdict's
+ *            server-built #CODE card for a counter order.
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
  *            quiet retry 5 s after each failed answer (never over a read still in the air).
  *
@@ -57,7 +58,13 @@ import { ReaderShown } from "./ReaderCollectContext";
 type Read = { id: string; gen: number } & (
   | { kind: "loading" }
   | { kind: "detail"; detail: TableDetail }
-  | { kind: "closed"; label: string | null; hint: TableHint | null }
+  | {
+      kind: "closed";
+      label: string | null;
+      hint: TableHint | null;
+      /** Phase 2g · P2em (D2) — the verdict's server-built #CODE card (a counter order), or null. */
+      handoff: Handoff | null;
+    }
   | { kind: "fail"; cause: "outage" | "unknown" }
 );
 
@@ -128,6 +135,7 @@ export function TablePane({
             kind: "closed",
             label: res.label ?? null,
             hint: res.label === undefined ? null : closedHint(res.label, res.tableNumber ?? null),
+            handoff: res.handoff ?? null,
           });
         else if (res.kind === "signin") window.location.assign("/staff/login");
         else setRead({ id, gen, kind: "fail", cause: "outage" });
@@ -183,6 +191,9 @@ export function TablePane({
   }, [closedNow, paneRef]);
 
   // The closed table's paid card, from this tab's stash (read after mount, never during render).
+  // Phase 2g · P2em (D2) — the stash WINS (it carries the cashier's tender and change, and the tap's
+  // "went out unpaid"); the closed verdict's server-built card (`cur.handoff`) is the fallback, shown
+  // only once the stash has been read, so the server card never flashes before the tab's own.
   const [stashed, setStashed] = useState<{ id: string; h: Handoff | null } | null>(null);
   useEffect(() => {
     if (!closedNow || id === null) return;
@@ -240,7 +251,8 @@ export function TablePane({
       ? liveTwinOf({ sessionId: cur.id, label: cur.label }, rows)
       : null;
   const twinRow = twin ? rows.find((r) => r.sessionId === twin) : undefined;
-  const closedHandoff = cur?.kind === "closed" && stashed?.id === cur.id ? stashed.h : null;
+  const closedHandoff =
+    cur?.kind === "closed" && stashed?.id === cur.id ? (stashed.h ?? cur.handoff) : null;
 
   return (
     <section
@@ -334,7 +346,7 @@ export function TablePane({
                   terminalReady={terminalReady}
                   focusSettle={settleOnce === cur.id}
                   paneNotice={lostLine}
-                  onClosed={(sid) => {
+                  onClosed={(sid, handoff) => {
                     if (!acceptPaneRead(sid, selectedNow())) return;
                     focusWasInPane.current =
                       paneRef.current?.contains(document.activeElement) ?? false;
@@ -344,6 +356,7 @@ export function TablePane({
                       kind: "closed",
                       label: cur.detail.label,
                       hint: closedHint(cur.detail.label, cur.detail.tableNumber),
+                      handoff,
                     });
                   }}
                   onLostWrite={onLostWrite}
