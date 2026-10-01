@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
@@ -31,9 +31,11 @@ import {
   submitStaffReport,
   type StaffReportRow,
 } from "@/lib/staff-report-actions";
+import { boundWrite } from "@/lib/bounded-write";
 import type { StaffLang, StaffLangMode } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
+import { ReloadButton } from "./ReloadOffer";
 import { useLiveConnection } from "./LiveConnection";
 import { useStaffLangMode } from "./StaffLangProvider";
 import { STAFF_LANG_MODE_KEY, StaffLangRows } from "./StaffLangSwitch";
@@ -114,8 +116,12 @@ function safe(read: () => string | undefined): string | undefined {
  * than none.
  *
  * The report is the one IRREVERSIBLE write behind this sheet (a row, an email, an issue), so the
- * sheet is `busy` while it is in flight (§16 — a transition's `pending`, never a hand-rolled
- * boolean); the size is a localStorage preference and the cards are reading. The circle is
+ * sheet is `busy` while it is in flight (§16) — Phase 2h (9a): STATE cleared in the `finally` around
+ * a BOUNDED await, never a transition's `pending` (which holds while the Server Action it dispatched
+ * is unanswered), so a hung report frees the sheet at STAFF_HANG_MS and says "no answer yet — it may
+ * still arrive; sending it again may send it twice" (the report has no idempotency key — 9g). A
+ * thrown send is caught and said ("couldn't confirm"), never left to the error boundary; a late
+ * answer is applied when it comes. The size is a localStorage preference and the cards are reading. The circle is
  * icon-only to the eye and NAMED by sr-only dictionary text through <Chrome> (rule 3), like every
  * circle in the bar.
  *
@@ -163,7 +169,13 @@ export function HelpButton(props: HelpProps) {
   // Bumped to re-read the list (after a send). NOT `mine.state`: an effect keyed on the state it
   // sets cancels its own read — the blind pass found the list stuck on "Loading…" that way.
   const [mineGen, setMineGen] = useState(0);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9a) — the report's lock: state, set at the tap, cleared in the `finally` around the
+  // bounded send (the M82 guard parses for it). `reportLate` — the send went past the bound with no
+  // answer: a second Send would file a second report (no key), so it is refused until the late
+  // answer lands. The REF is the tap-time guard (two taps in one frame read one render).
+  const [reporting, setReporting] = useState(false);
+  const [reportLate, setReportLate] = useState(false);
+  const reportFlight = useRef(false);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const sentRef = useRef<HTMLDivElement>(null);
 
@@ -274,7 +286,7 @@ export function HelpButton(props: HelpProps) {
   }, [sent]);
 
   function show(next: boolean) {
-    if (!next && pending) return; // the sheet is busy — the choke point refuses too; belt and brace
+    if (!next && reporting) return; // the sheet is busy — the choke point refuses too; belt and brace
     // P2e — a language failure the person SAW (the menu or the Language view draw its line) is
     // answered by closing the sheet, and a stale one must never greet the next open. One that
     // landed while they were on How, Text size or Report was never shown (those views have no line
@@ -320,8 +332,42 @@ export function HelpButton(props: HelpProps) {
     };
   }
 
-  function send() {
-    if (pending) return; // one report per tap; the button says so through aria-disabled
+  /**
+   * The report's ANSWER — on time, or late (9e). Words land in state, which React drops once this
+   * door is gone. `sentText` is what was SENT: a late landing clears the field only if it still
+   * holds that — never a new message typed while the first was out.
+   */
+  function landReport(res: Awaited<ReturnType<typeof submitStaffReport>>, sentText: string) {
+    if (!res.ok) {
+      if (res.reason === "off") {
+        // The door is not switched on (no table yet): the form gives way to the one sentence.
+        setMine({ state: "off", rows: [] });
+        return;
+      }
+      setErr(
+        res.reason === "outage"
+          ? "report.err.outage"
+          : res.reason === "auth"
+            ? "report.err.auth"
+            : res.reason === "rate"
+              ? "report.err.rate"
+              : "report.err.save",
+      );
+      return;
+    }
+    setText((t) => (t === sentText ? "" : t));
+    setSent({ shortId: res.shortId });
+    setMineGen((g) => g + 1); // re-read: the new row must appear in the list
+  }
+
+  async function send() {
+    if (reportFlight.current) return; // one report per tap; the button says so through aria-disabled
+    if (reportLate) {
+      // The last report is still out: sent again it would arrive twice (no idempotency key) — the
+      // region keeps saying so, beside the reload.
+      setErr("report.err.waiting");
+      return;
+    }
     if (!text.trim()) {
       setErr("report.empty");
       fieldRef.current?.focus();
@@ -329,29 +375,34 @@ export function HelpButton(props: HelpProps) {
     }
     haptic("commit");
     setErr(null);
-    startTransition(async () => {
-      const res = await submitStaffReport(draft());
-      if (!res.ok) {
-        if (res.reason === "off") {
-          // The door is not switched on (no table yet): the form gives way to the one sentence.
-          setMine({ state: "off", rows: [] });
-          return;
-        }
-        setErr(
-          res.reason === "outage"
-            ? "report.err.outage"
-            : res.reason === "auth"
-              ? "report.err.auth"
-              : res.reason === "rate"
-                ? "report.err.rate"
-                : "report.err.save",
-        );
+    reportFlight.current = true;
+    setReporting(true);
+    const sentText = text;
+    try {
+      // 9b — called OUTSIDE any transition and awaited BOUNDED: never rejects, so a thrown send is
+      // a value read here, not a rejection reaching the error boundary (9g).
+      const out = await boundWrite(submitStaffReport(draft()));
+      if (out.kind === "answer") {
+        landReport(out.value, sentText);
         return;
       }
-      setText("");
-      setSent({ shortId: res.shortId });
-      setMineGen((g) => g + 1); // re-read: the new row must appear in the list
-    });
+      if (out.kind === "threw") {
+        // The send may have reached the server (the response lost after the row): couldn't confirm
+        // — check Your reports before sending again; sent twice, it arrives twice.
+        setErr("report.err.unknown");
+        return;
+      }
+      setReportLate(true);
+      setErr("report.err.waiting");
+      void out.late.then((late) => {
+        setReportLate(false);
+        if (late.kind === "answer") landReport(late.value, sentText);
+        else setErr("report.err.unknown");
+      });
+    } finally {
+      reportFlight.current = false;
+      setReporting(false); // frees AT THE BOUND on every path — the M82 guard parses for it
+    }
   }
 
   const card = helpCardKeys(screen, step);
@@ -401,7 +452,7 @@ export function HelpButton(props: HelpProps) {
         onOpenChange={show}
         // The REPORT only (M82). Never the language write: a preference that reverts to confirmed is
         // not an irreversible write, and a hung one must not trap the board behind this sheet.
-        busy={pending}
+        busy={reporting}
         closeLabel={sheetCloseLabel(lang)}
         title={
           view === "lang" ? (
@@ -677,7 +728,7 @@ export function HelpButton(props: HelpProps) {
                   value={text}
                   maxLength={REPORT_MESSAGE_MAX}
                   rows={4}
-                  readOnly={pending}
+                  readOnly={reporting}
                   onChange={(e) => {
                     setText(e.target.value);
                     if (err === "report.empty") setErr(null);
@@ -720,17 +771,25 @@ export function HelpButton(props: HelpProps) {
                 <p role="status" className="help-report-status">
                   {err ? (
                     <Chrome lang={lang} k={err} />
-                  ) : pending ? (
+                  ) : reporting ? (
                     <Chrome lang={lang} k="report.sending" />
                   ) : null}
                 </p>
+                {/* Phase 2h — "reload the page, then check Your reports": the reload BESIDE the one
+                    region, never inside it (the console is installed standalone). */}
+                {err === "report.err.waiting" && (
+                  // Spacing only: the status line's own bottom rhythm, in tokens.
+                  <div style={{ margin: "0 0 var(--s3)" }}>
+                    <ReloadButton lang={lang} block />
+                  </div>
+                )}
                 <div className="help-report-actions">
                   <button
                     type="button"
                     className="staff-back staff-press"
-                    aria-disabled={pending || undefined}
+                    aria-disabled={reporting || undefined}
                     onClick={() => {
-                      if (pending) return;
+                      if (reporting) return;
                       setErr(null);
                       setView("menu");
                     }}
@@ -740,12 +799,12 @@ export function HelpButton(props: HelpProps) {
                   <button
                     type="button"
                     className="help-next staff-press"
-                    aria-disabled={pending || !text.trim() || undefined}
+                    aria-disabled={reporting || reportLate || !text.trim() || undefined}
                     onClick={send}
                   >
                     <Chrome
                       lang={lang}
-                      k={pending ? "report.sending" : "report.send"}
+                      k={reporting ? "report.sending" : "report.send"}
                       echo="inline"
                     />
                   </button>

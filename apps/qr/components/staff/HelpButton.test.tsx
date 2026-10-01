@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { StrictMode, type ReactElement, type ReactNode } from "react";
+import { StrictMode, startTransition, type ReactElement, type ReactNode } from "react";
 import {
   act,
   cleanup,
@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 import { STAFF } from "@/lib/i18n/staff";
 import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -1066,4 +1067,174 @@ describe("P2e — one language failure line, never a lost one", () => {
       expect(alerts()).toHaveLength(0);
     },
   );
+});
+
+// ── Phase 2h · p2h-sheets ──
+describe("HelpButton — a hung report never traps the sheet (Phase 2h · 9a · 9e · 9g)", () => {
+  type Sent = { ok: true; id: string; shortId: string } | { ok: false; reason: string };
+  const hanging: Array<() => void> = [];
+  function deferred<T>() {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  /** Settled once the tree is gone: a pre-fix transition must never entangle the next case. */
+  function hang() {
+    const d = deferred<Sent>();
+    hanging.push(() => d.resolve({ ok: false, reason: "outage" }));
+    return d;
+  }
+  afterEach(async () => {
+    vi.useRealTimers();
+    cleanup();
+    await act(async () => {
+      for (const end of hanging.splice(0)) end();
+    });
+  });
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const status = () => dialog().querySelector('[role="status"]')!;
+  const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+  const sendBtn = () =>
+    screen.getByRole("button", { name: (n) => n === "Send" || n === STAFF["report.sending"].en });
+  const closeX = () =>
+    screen.getByRole("button", {
+      name: (n) => n === STAFF["shell.close"].en || n === STAFF["shell.closeBusy"].en,
+    });
+  /** The report view under FAKE timers (findBy* polls on timers — it would never resolve here). */
+  async function openReportFake(text = "T4 stuck") {
+    seen("counter");
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    await advance(0);
+    fireEvent.click(screen.getByRole("button", { name: /Something’s wrong/ }));
+    await advance(0);
+    const field = screen.getByRole("textbox", { name: /What happened/ }) as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: text } });
+    return field;
+  }
+  async function tapSend() {
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+  }
+
+  it("no answer at STAFF_HANG_MS: the sheet frees (✕ and Back live), says the report may still arrive — and may arrive twice if sent again — with the reload", async () => {
+    vi.useFakeTimers();
+    submitStaffReport.mockReturnValueOnce(hang().promise);
+    await openReportFake();
+    await tapSend();
+    expect(closeX().getAttribute("aria-disabled")).toBe("true");
+    await advance(STAFF_HANG_MS - 1);
+    expect(closeX().getAttribute("aria-disabled")).toBe("true");
+    await advance(1);
+    // MUTATION (p2h-sheets/help/busy-never-clears): the kitchen board sits behind a sheet whose
+    // every exit is refused, forever; red.
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: STAFF["help.back"].en }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    // MUTATION (p2h-sheets/help/waiting-said-as-unknown): red.
+    expect(status().textContent).toBe(STAFF["report.err.waiting"].en);
+    // MUTATION (p2h-sheets/help/no-reload): "reload the page, then check Your reports" with no
+    // reload on a standalone console; red.
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("the entanglement proxy: an UNRELATED async transition left hanging — the sheet still frees at the bound", async () => {
+    vi.useFakeTimers();
+    const other = deferred<void>();
+    hanging.push(() => other.resolve());
+    act(() => {
+      startTransition(async () => {
+        await other.promise;
+      });
+    });
+    submitStaffReport.mockReturnValueOnce(hang().promise);
+    await openReportFake();
+    await tapSend();
+    await advance(STAFF_HANG_MS);
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a send that THROWS is caught and said ('couldn't confirm'), never thrown to the error boundary", async () => {
+    vi.useFakeTimers();
+    submitStaffReport.mockRejectedValueOnce(new Error("fetch failed"));
+    const field = await openReportFake();
+    await tapSend();
+    // MUTATION (p2h-sheets/help/threw-unsaid): the region stays silent over a report that may have
+    // been filed; red.
+    expect(status().textContent).toBe(STAFF["report.err.unknown"].en);
+    expect(field.value).toBe("T4 stuck");
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a re-tap while the report is still out is REFUSED — no key, so a second send would file it twice", async () => {
+    vi.useFakeTimers();
+    submitStaffReport.mockReturnValueOnce(hang().promise);
+    await openReportFake();
+    await tapSend();
+    await advance(STAFF_HANG_MS);
+    expect(sendBtn().getAttribute("aria-disabled")).toBe("true");
+    await tapSend();
+    // MUTATION (p2h-sheets/help/retap-sends-twice): a second report queued behind the first; red.
+    expect(submitStaffReport).toHaveBeenCalledTimes(1);
+    expect(status().textContent).toBe(STAFF["report.err.waiting"].en);
+  });
+
+  it("a LATE ok lands: the sent card with its id, the list re-read, and a newer draft typed meanwhile is kept", async () => {
+    vi.useFakeTimers();
+    const late = deferred<Sent>();
+    submitStaffReport.mockReturnValueOnce(late.promise);
+    const field = await openReportFake();
+    await tapSend();
+    await advance(STAFF_HANG_MS);
+    fireEvent.change(field, { target: { value: "T4 stuck — and T5 too" } });
+    await act(async () => {
+      late.resolve({ ok: true, id: "x", shortId: "9F1C2A3B" });
+    });
+    // MUTATION (p2h-sheets/help/late-answer-dropped): the report was filed and the person is told
+    // "no answer yet" — and re-sends it; red.
+    expect(screen.getByText(/Report 9F1C2A3B is saved/)).not.toBeNull();
+    // Back, and in again: the words typed while the first report was out are still there.
+    fireEvent.click(screen.getByRole("button", { name: STAFF["help.back"].en }));
+    await advance(0);
+    fireEvent.click(screen.getByRole("button", { name: /Something’s wrong/ }));
+    await advance(0);
+    // MUTATION (p2h-sheets/help/late-ok-wipes-a-new-draft): red.
+    expect(
+      (screen.getByRole("textbox", { name: /What happened/ }) as HTMLTextAreaElement).value,
+    ).toBe("T4 stuck — and T5 too");
+  });
+
+  it("a LATE refusal is said in the region and the send is live again; a late throw is 'couldn't confirm'", async () => {
+    vi.useFakeTimers();
+    const late = deferred<Sent>();
+    submitStaffReport.mockReturnValueOnce(late.promise);
+    await openReportFake();
+    await tapSend();
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "rate" });
+    });
+    expect(status().textContent).toBe(STAFF["report.err.rate"].en);
+    expect(sendBtn().getAttribute("aria-disabled")).toBeNull();
+    expect(reloadBtn()).toBeNull();
+    const late2 = deferred<Sent>();
+    submitStaffReport.mockReturnValueOnce(late2.promise);
+    await tapSend();
+    expect(submitStaffReport).toHaveBeenCalledTimes(2);
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      late2.reject(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-sheets/help/late-throw-unsaid): "no answer yet" stands for good; red.
+    expect(status().textContent).toBe(STAFF["report.err.unknown"].en);
+  });
 });

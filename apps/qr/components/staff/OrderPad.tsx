@@ -294,14 +294,21 @@ export function OrderPad({
   const [sheetItem, setSheetItem] = useState<PadCatalogItem | null>(null);
   const mod = useSheetSubject(sheetItem);
   const [sheetError, setSheetError] = useState<StaffSheetFailure | null>(null);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9a) — the options sheet's `busy`: STATE set at the tap and cleared in the `finally`
+  // around the pad chain's own BOUNDED `done` (it resolves "unconfirmed" STAFF_HANG_MS after the tap
+  // at the latest, even queued behind a hung add) — never a transition's `pending`, which held the
+  // sheet until the add ANSWERED (Next's per-tab action queue; LEARNINGS #149 · #200). The ref is
+  // the tap-time guard: two taps in one frame both read the render before `sheetBusy` flipped.
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const sheetFlight = useRef(false);
   // The key held for a retry of the SAME intent after an unknown outcome (`lib/staff-add-key.ts`).
   const heldKey = useRef<HeldAddKey>(null);
 
-  function addWithChoice(
+  async function addWithChoice(
     item: PadCatalogItem,
     choice: { modifierIds: string[]; qty: number; notes?: string },
   ) {
+    if (sheetFlight.current) return;
     setSheetError(null);
     // ── Phase 2c · review fixes · pad2 ── nothing goes on while Take payment is on its way out (P4).
     const leaving = padSettleBusyKey(phaseRef.current);
@@ -325,7 +332,11 @@ export function OrderPad({
       setSheetError({ kind: "msg", msg: sendHoldMsg(addHold(dishHold, dishName(dishHold))) });
       return;
     }
-    startTransition(async () => {
+    sheetFlight.current = true;
+    setSheetBusy(true);
+    try {
+      // 9b — the add goes through the pad's serialized chain (its own key, its own late answer — the
+      // ghost says it), never inside a transition; `done` is bounded by the chain at the tap's 15s.
       const r = writes.attempt(
         key,
         {
@@ -364,7 +375,10 @@ export function OrderPad({
           },
         );
       }
-    });
+    } finally {
+      sheetFlight.current = false;
+      setSheetBusy(false); // frees by the bound on every path — the M82 guard parses for it
+    }
   }
 
   // ── tile taps (stable callbacks over the latest state, so the memo'd tiles never re-render
@@ -1348,7 +1362,7 @@ export function OrderPad({
           itemNameMy={mod.held.nameMy}
           basePriceCents={mod.held.priceCents}
           groups={mod.held.groups}
-          pending={pending}
+          busy={sheetBusy}
           error={sheetError}
           lang={lang}
           onAdd={(choice) => addWithChoice(mod.held!, choice)}

@@ -1,5 +1,5 @@
 "use client";
-import { useId, useRef, useState, useTransition, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Button, Sheet } from "@mms/ui";
 import { listApprovers, recordCounterNoShow } from "@/lib/voids";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
@@ -8,6 +8,8 @@ import type { TableLineView } from "@/lib/floor-types";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import type { StaffKey } from "@/lib/i18n/staff";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import {
@@ -20,6 +22,7 @@ import {
 } from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+import { ReloadButton } from "./ReloadOffer";
 import { useTableNav } from "./TableNav";
 
 /**
@@ -178,6 +181,12 @@ export function noShowQtyMoved(
 /** The sentence the one region says while the live sets differ from what the sheet shows. */
 const CHANGED_COPY: StaffMsg = { k: "table.noshow.err.changed" };
 
+/** Phase 2h — the sentences that say "reload the page": the reload sits beside the one region. */
+const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
+  "out.stalled",
+  "table.noshow.waiting",
+]);
+
 /** Every refusal → its sentence (null only for a lockout: the countdown IS that sentence). */
 export function noShowRefusalMsg(
   res: NoShowRefusal,
@@ -243,14 +252,26 @@ function NoShowSheet({
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
-  // M82 — the Sheet's `busy` is a transition's `pending`, never a hand-rolled boolean: all four
-  // exits are blocked while it is true, and a `useTransition` flag settles on every path.
-  const [pending, startTransition] = useTransition();
+  // M82 · Phase 2h (9a) — the Sheet's `busy` is STATE, set at the tap and cleared in the `finally`
+  // around a BOUNDED await: all four exits are blocked while it is true, and it frees at
+  // STAFF_HANG_MS at the latest on every path. Never a transition's `pending` — that holds while the
+  // Server Action it dispatched is unanswered (Next's per-tab queue; LEARNINGS #149 · #200).
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
   const bodyRef = useRef<HTMLParagraphElement>(null);
+  // A LATE landing (9e) leaves the detail only while this sheet is still open: once the manager
+  // closed it, the page's own read finds the closed order — the sheet never navigates under them.
+  // Re-armed at setup (Strict Mode runs the cleanup between two setups).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   // PT-3 — the sets (and the lines they name) as they were when the sheet OPENED: what renders and
   // what the write carries. The live props only ever decide whether that snapshot is still true.
@@ -285,41 +306,73 @@ function NoShowSheet({
     bodyRef.current?.focus();
   }
 
-  function submit(e: FormEvent) {
+  /**
+   * The no-show's ANSWER — on time, or late (9e). A landed one drops the paid-card stash and, while
+   * the sheet is still open, leaves the defunct detail; a refusal is said in the one region (state,
+   * which React drops once the sheet is gone — said only while it is open).
+   */
+  function land(res: RecordCounterNoShowResult) {
+    if (res.ok) {
+      // The order is cancelled and its session closed: leave the defunct detail (ClearTableButton's
+      // exit — the page replaces to the counter, the pane closes). No paid card follows it.
+      dropHandoffStash(sessionId);
+      if (alive.current) nav.toFloor("cleared");
+      return;
+    }
+    setPin("");
+    if (res.reason === "needs_pin") setStepUp(true);
+    setMsg(noShowRefusalMsg(res, setLockLeft));
+  }
+
+  async function submit(e: FormEvent) {
     e.preventDefault();
     if (inFlight.current) return;
     if (!canSubmit) return; // §17 — the confirm says so with aria-disabled; the refusal is here
+    // Phase 2h (9d) — the write-off is refused AT THE TAP, never dispatched, while any action on this
+    // tab has gone STAFF_HANG_MS without an answer: queued behind it, it would cancel the order
+    // whenever the queue moves — maybe after the guest came back for it. Read now, never from render
+    // state; it also refuses a re-tap while this sheet's own write is waiting.
+    if (stalledSince() !== null) {
+      setMsg({ k: "out.stalled" });
+      return;
+    }
     inFlight.current = true;
+    setBusy(true);
     setMsg(null);
     haptic("commit");
-    startTransition(async () => {
-      let res: RecordCounterNoShowResult;
-      try {
-        // `expectedLineIds` — the sent set this sheet SHOWS (the snapshot's, the list above), so the
-        // write-off and any manager's approval cover exactly what was on screen; a moved set answers
-        // `changed`.
-        res = await recordCounterNoShow({
+    try {
+      // 9b — called OUTSIDE any transition and awaited BOUNDED, the RAW action promise handed over.
+      // `expectedLineIds` — the sent set this sheet SHOWS (the snapshot's, the list above), so the
+      // write-off and any manager's approval cover exactly what was on screen; a moved set answers
+      // `changed`.
+      const out = await boundWrite(
+        recordCounterNoShow({
           sessionId,
           expectedLineIds: [...snap.sets.sent],
           ...(stepUp ? { approverStaffId, pin } : {}),
-        });
-      } catch {
-        // A rejected transport (offline, a version skew) must read as an outage, never crash the page.
-        res = { ok: false, reason: "outage" };
-      } finally {
-        inFlight.current = false;
-      }
-      if (res.ok) {
-        // The order is cancelled and its session closed: leave the defunct detail (ClearTableButton's
-        // exit — the page replaces to the counter, the pane closes). No paid card follows it.
-        dropHandoffStash(sessionId);
-        nav.toFloor("cleared");
+        }),
+      );
+      if (out.kind === "answer") {
+        land(out.value);
         return;
       }
-      setPin("");
-      if (res.reason === "needs_pin") setStepUp(true);
-      setMsg(noShowRefusalMsg(res, setLockLeft));
-    });
+      setPin(""); // sent either way — the PIN must not stay to be re-sent toward the lockout
+      if (out.kind === "threw") {
+        // 9e — a REJECTED transport (offline, a version skew, a response lost after the RPC) may
+        // have cancelled the order: "couldn't confirm", never the write-outage "wasn't saved" it
+        // used to read as.
+        setMsg({ k: "table.noshow.err.unknown" });
+        return;
+      }
+      setMsg({ k: "table.noshow.waiting" });
+      void out.late.then((late) => {
+        if (late.kind === "answer") land(late.value);
+        else setMsg({ k: "table.noshow.err.unknown" });
+      });
+    } finally {
+      inFlight.current = false;
+      setBusy(false); // frees AT THE BOUND on every path — the M82 guard parses for it
+    }
   }
 
   // Try again on the roster: a second failure is said in the sheet's ONE region; a recovery clears
@@ -333,11 +386,13 @@ function NoShowSheet({
 
   // The lockout countdown outranks everything; a moved order outranks a transient message.
   const shown = lockCopy ?? (moved ? CHANGED_COPY : msg);
+  const reload =
+    typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
     <Sheet
       open
       onOpenChange={onOpenChange}
-      busy={pending}
+      busy={busy}
       closeLabel={sheetCloseLabel(lang)}
       title={
         name ? (
@@ -426,7 +481,7 @@ function NoShowSheet({
             variant="danger"
             size="xl"
             block
-            busy={pending}
+            busy={busy}
             {...(!canSubmit ? { "aria-disabled": true } : {})}
           >
             {stepUp ? (
@@ -444,12 +499,19 @@ function NoShowSheet({
             </span>
           )}
         </p>
+        {/* Phase 2h — the reload the region's sentence names, beside the region (never inside it). */}
+        {reload && (
+          <div style={reloadRow}>
+            <ReloadButton lang={lang} block />
+          </div>
+        )}
       </form>
     </Sheet>
   );
 }
 
 const body: CSSProperties = { margin: 0, fontSize: "var(--fs-body)" };
+const reloadRow: CSSProperties = { marginTop: "var(--s2)" };
 const note: CSSProperties = {
   margin: "var(--s2) 0 0",
   fontSize: "var(--fs-sm)",

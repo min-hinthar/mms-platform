@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { startTransition } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
@@ -510,6 +511,78 @@ describe("a sheet add queued behind a hung add — its origin is never held past
     expect(addItem).toHaveBeenCalledTimes(2);
     expect(ghosts().some((g) => g.textContent?.includes("Beef Curry"))).toBe(false);
     expect(region().textContent).toContain("Beef Curry");
+  });
+});
+
+// ── Phase 2h · p2h-sheets ──
+describe("the options sheet's busy is bounded STATE, never a transition's pending (Phase 2h · 9a)", () => {
+  it("the entanglement proxy: with an UNRELATED async transition left hanging, the sheet still frees 15s after its tap", async () => {
+    // React 19 holds EVERY transition's `pending` while any async action is unanswered — the
+    // browser's stand-in is Next's router update for a hung Server Action. A sheet whose busy is a
+    // transition's pending stays busy past the chain's bound; state cleared in a finally frees.
+    const other = deferred<void>();
+    act(() => {
+      startTransition(async () => {
+        await other.promise;
+      });
+    });
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent?.includes("$14.50") || b.getAttribute("aria-busy") === "true",
+      )!;
+    const closeX = () =>
+      within(dialog).getByRole("button", {
+        name: (n) => n === STAFF["shell.close"].en || n === STAFF["shell.closeBusy"].en,
+      });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    expect(addBtn().getAttribute("aria-busy")).toBe("true");
+    expect(closeX().getAttribute("aria-disabled")).toBe("true");
+    await flush(15_500);
+    // MUTATION (p2h-sheets/pad/sheet-busy-never-clears): the ✕, Escape, the scrim and the drag stay
+    // refused behind a trapped focus scope; red.
+    expect(addBtn().getAttribute("aria-busy")).toBeNull();
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+    expect(dialog.textContent).toContain(STAFF["browse.add.unconfirmed"].en);
+    await act(async () => {
+      add.resolve({ ok: true });
+      other.resolve();
+    });
+  });
+
+  it("two taps on the sheet's Add inside one frame add ONE dish — the tap-time guard is a ref", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("$14.50"),
+    )!;
+    await act(async () => {
+      fireEvent.click(addBtn);
+      fireEvent.click(addBtn); // the same render: neither tap has seen the busy flip
+    });
+    // MUTATION (p2h-sheets/pad/sheet-double-tap-adds-twice): the second tap mints a second key —
+    // two plates of curry; red.
+    expect(ghosts().filter((g) => g.textContent?.includes("Beef Curry"))).toHaveLength(1);
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    expect(addItem).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,8 +1,9 @@
 "use client";
 import { useSheetSubject } from "@mms/ui";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { addItem } from "@/lib/cart";
+import { boundWrite } from "@/lib/bounded-write";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
 import { StaffModSheet } from "@/components/staff/StaffModSheet";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
@@ -13,6 +14,16 @@ import type { KioskItem } from "./types";
  * diner menu reads. Adds ride the DINER `addItem` action (the kiosk uid is a member of its minted
  * session — server-authoritative pricing, cardinality enforced); required-choice items open the
  * staff modifier sheet (pure presentation — its onAdd is ours).
+ *
+ * Phase 2h (P2cz) — an UNATTENDED screen must never trap a guest. The add is called outside any
+ * transition and awaited BOUNDED (`boundWrite`), and the busy that locks the options sheet is state
+ * cleared in a `finally` — never a transition's `pending`, which held the sheet until the add
+ * answered, and on a stuck connection that is never (Next queues actions one per tab). At
+ * STAFF_HANG_MS the sheet frees and says `addWaiting` ("Still adding that — please don't add it
+ * again. When it's in, the number on “View order” goes up…"); the LATE answer is applied when it
+ * comes — a late ok calls `onAdded`, which is what moves that number, so the sentence's promise is
+ * kept. A re-add of a dish still waiting is refused with the same sentence. A thrown add may have
+ * gone on: `addUnknown` sends the guest to the counter before a re-add.
  */
 export function KioskMenu({
   lang,
@@ -38,24 +49,78 @@ export function KioskMenu({
   const mod = useSheetSubject(sheetItem);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9a) — the sheet's busy: state set at the tap, cleared in the finally around the bounded
+  // add (the M82 guard parses for it). The ref is the tap-time guard (two taps in one frame).
+  const [adding, setAdding] = useState(false);
+  const addFlight = useRef(false);
+  // Dishes whose add went past the bound unanswered — a re-add would put a second one on.
+  const waitingIds = useRef(new Set<string>());
+  // The dish whose sheet is showing NOW, for words that land late (a closure would read the tap's).
+  const sheetNow = useRef<KioskItem | null>(null);
+  useEffect(() => {
+    sheetNow.current = sheetItem;
+  }, [sheetItem]);
 
   const shown = useMemo(() => items.filter((i) => (cat ? i.category === cat : true)), [items, cat]);
 
-  function add(item: KioskItem, choice: { modifierIds: string[]; qty: number; notes?: string }) {
+  /** Into ITS sheet while that sheet is open (the page region is behind the scrim), else the page. */
+  function say(item: KioskItem, msg: string) {
+    if (sheetNow.current?.id === item.id) setSheetError(msg);
+    else setStatus(msg);
+  }
+
+  /** The add went on — on time, or LATE (9e): the count moves (`onAdded` is the flow's, so it lands
+   *  even after this screen remounted), and its sheet, if still open, closes. */
+  function landed(item: KioskItem, qty: number) {
+    onAdded(qty);
+    if (sheetNow.current?.id === item.id) {
+      setSheetItem(null);
+      setSheetError(null);
+    }
+    setStatus(`${t(lang, "add")} · ${qty} × ${item.nameEn}`);
+  }
+
+  async function add(
+    item: KioskItem,
+    choice: { modifierIds: string[]; qty: number; notes?: string },
+  ) {
+    if (addFlight.current) return;
+    if (waitingIds.current.has(item.id)) {
+      // Its last add is still out: a second tap would be a second plate when both land.
+      say(item, t(lang, "addWaiting"));
+      return;
+    }
+    addFlight.current = true;
+    setAdding(true);
     setSheetError(null);
-    startTransition(async () => {
-      try {
-        await addItem(cartId, item.id, choice.modifierIds, choice.notes, choice.qty);
-        setSheetItem(null);
-        onAdded(choice.qty);
-        setStatus(`${t(lang, "add")} · ${choice.qty} × ${item.nameEn}`);
-      } catch {
-        // Into the sheet when it's open (the page live region is behind the scrim), else the page.
-        if (sheetItem) setSheetError(t(lang, "somethingWrong"));
-        else setStatus(t(lang, "somethingWrong"));
+    try {
+      // 9b — the RAW action, awaited bounded, outside any transition.
+      const out = await boundWrite(
+        addItem(cartId, item.id, choice.modifierIds, choice.notes, choice.qty),
+      );
+      if (out.kind === "answer") {
+        landed(item, choice.qty);
+        return;
       }
-    });
+      if (out.kind === "threw") {
+        // A refusal and a lost response both arrive as a throw here; either way it may have gone
+        // on (the response lost after the insert), so the counter is asked before a re-add.
+        say(item, t(lang, "addUnknown"));
+        return;
+      }
+      waitingIds.current.add(item.id);
+      say(item, t(lang, "addWaiting"));
+      void out.late.then((late) => {
+        waitingIds.current.delete(item.id);
+        // ⚠️ A late ok MUST reach `onAdded`: `addWaiting` promises the number on “View order” goes
+        // up when the add is in, and only the count can keep that promise.
+        if (late.kind === "answer") landed(item, choice.qty);
+        else say(item, t(lang, "addUnknown"));
+      });
+    } finally {
+      addFlight.current = false;
+      setAdding(false); // frees AT THE BOUND on every path — the M82 guard parses for it
+    }
   }
 
   return (
@@ -95,9 +160,9 @@ export function KioskMenu({
               type="button"
               className="kiosk-door"
               style={{ width: "100%", opacity: i.soldOut ? 0.55 : 1 }}
-              disabled={i.soldOut || pending}
+              disabled={i.soldOut || adding}
               onClick={() =>
-                i.groups.length > 0 ? setSheetItem(i) : add(i, { modifierIds: [], qty: 1 })
+                i.groups.length > 0 ? setSheetItem(i) : void add(i, { modifierIds: [], qty: 1 })
               }
             >
               {/* W16e review — the slot ALWAYS renders (the rule the diner rails follow): gating it
@@ -173,9 +238,9 @@ export function KioskMenu({
           itemName={mod.held.nameEn}
           basePriceCents={mod.held.priceCents}
           groups={mod.held.groups}
-          pending={pending}
+          busy={adding}
           error={sheetError}
-          onAdd={(choice) => add(mod.held!, choice)}
+          onAdd={(choice) => void add(mod.held!, choice)}
         />
       )}
     </div>

@@ -65,7 +65,7 @@ function mount(props: Record<string, unknown> = {}) {
       itemName="Beef Curry"
       basePriceCents={1450}
       groups={GROUPS}
-      pending={false}
+      busy={false}
       error={null}
       onAdd={onAdd}
       {...props}
