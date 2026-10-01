@@ -6,6 +6,7 @@ import {
   isScanGoBasket,
   kitchenStateOf,
   laneRows,
+  paidBagCompLine,
   PICKED_UNDO_ARM_MS,
   PICKED_UNDO_MS,
   pickedUndoArmed,
@@ -180,6 +181,43 @@ describe("isScanGoBasket — the card's scan-and-go predicate, named once", () =
     // over" on a bag of food the counter still has to hand OUT, and no kitchen badge.
     expect(isScanGoBasket([line("togo"), line("grocery")])).toBe(false);
     expect(isScanGoBasket([line("togo")])).toBe(false);
+  });
+});
+
+// ── M250 ──
+describe("paidBagCompLine — a comped line rides its PAID bag (the snapshot's filter, comp clause inverted)", () => {
+  const row = (comped: boolean, state: string, fulfillment: string) => ({
+    comped,
+    state,
+    fulfillment,
+  });
+  it("a comped to-go dish the kitchen has is on the bag", () => {
+    expect(paidBagCompLine(row(true, "in_progress", "togo"))).toBe(true);
+    expect(paidBagCompLine(row(true, "fired", "togo"))).toBe(true);
+    expect(paidBagCompLine(row(true, "served", "togo"))).toBe(true);
+  });
+  it("in ANY state, and grocery too — the bag is the order, not what the kitchen has yet", () => {
+    // MUTATION `comp-kitchen-only` (the row's literal `counterKitchenLine && comped`): a comp still
+    // draft at payment (fire_pending_food has not run) and a comped grocery item read false — a
+    // paid bag missing a dish the guest was promised, the M250 omission in a smaller form.
+    expect(paidBagCompLine(row(true, "draft", "togo"))).toBe(true);
+    expect(paidBagCompLine(row(true, "draft", "grocery"))).toBe(true);
+    expect(paidBagCompLine(row(true, "served", "grocery"))).toBe(true);
+  });
+  it("an UNCOMPED line is never drawn again — it is already in the snapshot, charged", () => {
+    // MUTATION `comp-admits-uncomped`: every chargeable line twice, once tagged "No charge".
+    expect(paidBagCompLine(row(false, "served", "togo"))).toBe(false);
+    expect(paidBagCompLine(row(false, "in_progress", "grocery"))).toBe(false);
+  });
+  it("a VOIDED comp is off the order, and off the bag", () => {
+    // MUTATION `comp-admits-voided`: a dish taken off the order packed anyway.
+    expect(paidBagCompLine(row(true, "voided", "togo"))).toBe(false);
+    expect(paidBagCompLine(row(true, "voided", "grocery"))).toBe(false);
+  });
+  it("a DINE-IN comp stays on the table — the bag is to-go and grocery only", () => {
+    // MUTATION `comp-admits-dinein`: a comped dine-in dish bagged for the counter.
+    expect(paidBagCompLine(row(true, "served", "dinein"))).toBe(false);
+    expect(paidBagCompLine(row(true, "draft", "dinein"))).toBe(false);
   });
 });
 

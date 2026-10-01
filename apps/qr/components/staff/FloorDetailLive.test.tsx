@@ -90,6 +90,7 @@ const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -1568,6 +1569,45 @@ describe("FloorDetailLive — Phase 2f · a counter order paid at pickup", () =>
       ts("en", "table.send.cta.many").replace("{n}", "2"),
     );
     expect(document.querySelector(".table-detail-name")).toBeNull();
+  });
+
+  // ── Phase 2g · P2fk — the order nobody collected ──
+  const uncollectedWords = tf(
+    "en",
+    COUNTER_UNCOLLECTED_HOURS === 1
+      ? "table.detail.uncollected.one"
+      : "table.detail.uncollected.many",
+    { n: COUNTER_UNCOLLECTED_HOURS },
+  );
+  it("an uncollected counter order says so ABOVE the No-show choice — a fact, not a live region", () => {
+    // p2g-uncollected/detail/note-dropped
+    mountWith({ ...ALL_SENT, counterUncollected: true });
+    const note = document.querySelector<HTMLElement>("[data-uncollected]")!;
+    expect(note.textContent).toBe(uncollectedWords);
+    expect(note.getAttribute("role")).toBeNull();
+    expect(note.closest('[role="status"], [aria-live]')).toBeNull();
+    const noShow = screen.getByRole("button", { name: ts("en", "table.noshow.btn") });
+    // DOCUMENT_POSITION_FOLLOWING: the button comes after the note it informs
+    expect(note.compareDocumentPosition(noShow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("…and above Clear on a comped-only order (nothing owed, nothing to write off)", () => {
+    mountWith({ ...WALKUP, counterUncollected: true });
+    const note = document.querySelector<HTMLElement>("[data-uncollected]")!;
+    const clear = screen.getByRole("button", { name: ts("en", "settle.clear.btn") });
+    expect(note.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("absent or false — and never on a table — reads as not uncollected: no note", () => {
+    mountWith(ALL_SENT);
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    cleanup();
+    mountWith({ ...ALL_SENT, counterUncollected: false });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    cleanup();
+    mountWith({ ...DETAIL, counterUncollected: true });
+    expect(document.querySelector("[data-uncollected]")).toBeNull();
+    expect(document.querySelector("main")!.textContent).not.toContain(uncollectedWords);
   });
 });
 

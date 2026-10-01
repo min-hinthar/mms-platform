@@ -51,7 +51,7 @@ import { StaffSendButton } from "./StaffSendButton";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
 // ── Phase 2f · pay at pickup ──
-import { counterSettleVariant } from "@/lib/counter-order";
+import { COUNTER_UNCOLLECTED_HOURS, counterSettleVariant } from "@/lib/counter-order";
 import { CounterNoShowButton } from "./CounterNoShowButton";
 // ── Phase 2c · register ──
 import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
@@ -1530,6 +1530,23 @@ export function FloorDetailLive({
         )}
 
         <section style={{ marginTop: "var(--s5)" }}>
+          {/* Phase 2g · P2fk — the order's food has waited in the kitchen past the horizon: the fact,
+              stated ABOVE the choice it informs (No-show or Clear), never a verdict — taking payment
+              stays open if they do come. Static, not live: it is the order as it is. */}
+          {isCounter && detail.counterUncollected === true && (
+            <p style={uncollectedNote} data-uncollected="">
+              <Chrome
+                lang={lang}
+                k={plural(
+                  COUNTER_UNCOLLECTED_HOURS,
+                  "table.detail.uncollected.one",
+                  "table.detail.uncollected.many",
+                )}
+                vars={{ n: COUNTER_UNCOLLECTED_HOURS }}
+                echo="stack"
+              />
+            </p>
+          )}
           {/* Phase 2f — a counter order whose food reached the kitchen unpaid is never cleared
               (that drops cooked food with no loss recorded): "They didn't come" writes it off. */}
           {isCounter && detail.unpaidSent ? (
@@ -1590,6 +1607,12 @@ const addLink: CSSProperties = {
 };
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
+// Phase 2g · P2fk — the uncollected fact above the No-show / Clear choice.
+const uncollectedNote: CSSProperties = {
+  margin: "0 0 var(--s3)",
+  fontSize: "var(--fs-sm)",
+  color: "var(--t2)",
+};
 // Phase 2c · gate — the settle gate's note; every trigger's `aria-describedby` names it first.
 const SETTLE_UNSENT_NOTE_ID = "settle-unsent-note";
 // Phase 2c · register — the settle section's heading: the page's section-heading voice, and a focus

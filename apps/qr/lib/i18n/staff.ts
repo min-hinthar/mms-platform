@@ -3452,7 +3452,9 @@ export const STAFF = {
   // collected, but nothing is owed, so it is never "Unpaid" and offers no payment. Its badge and its
   // card name. K15 drafts; grounded: ငွေ ရှင်း is settle.unpaid's ("pay"), ပါဆယ်ထုပ် is
   // expo.a11y.cardUnpaid's ("bag"), မရှိ "none" is the lane's own "nothing" (floor.rows.none's မရှိပါ).
-  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid
+  // M250 — the SAME words also tag one comped LINE on a bag (a paid bag, or an unpaid one that still
+  // owes), beside its destination tag; a bag that owes nothing keeps its one badge instead.
+  "expo.bag.noCharge": { en: "No charge", my: "ငွေ ရှင်းစရာ မရှိ" }, // K15-HIGH — misread, a free bag is held for payment or an owing one handed over unpaid; on a line, a free dish is charged or left out of the bag
   "expo.a11y.cardNoCharge": {
     en: "Bag for {x}",
     my: "{x} အတွက် ပါဆယ်ထုပ်",
@@ -3540,6 +3542,75 @@ export const STAFF = {
     en: "Their food went to the kitchen before they paid — hand it over from Takeaway bags.",
     my: "ငွေမရှင်းခင် ဟင်းတွေ မီးဖိုချောင် ရောက်ပြီးသားပါ — ပါဆယ်ထုပ်များ ကနေ ပေးလိုက်ပါ။",
   },
+  // ── Phase 2g · counter (P2fk · P2fz) ──
+  // A counter order whose food has waited in the kitchen `COUNTER_UNCOLLECTED_MS` (4 hours) or longer
+  // — "uncollected" in the keys, never "stale" (that word already means out-of-date DATA in the
+  // staff keys: expo.err.stale, floor.settled.stale). Every MY value is a Claude-authored K15 draft
+  // pending Min's native check. {n} in the badge and the page's note is the HOURS (a count —
+  // Burmese numerals); in the floor's segment {n} is the ORDERS and {h} the hours, localized at the
+  // call site because only {n}/{total} are count slots. Words: ကျော် "over" (board.card.waitLong
+  // တစ်နာရီကျော်), နာရီ "hour" (kds.age.hm), လာမယူ "not collected" (table.noshow.btn), အဟောင်း
+  // "old" (floor.counter.truncated, table.appr.empty.hint's အဟောင်းက အရင်ပြပါတယ်).
+  // EN singular/plural pair on the HOURS — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "floor.counter.uncollected.badge.one": {
+    en: "Waiting over {n} hour",
+    my: "{n} နာရီကျော် စောင့်နေပြီ",
+  }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
+  "floor.counter.uncollected.badge.many": {
+    en: "Waiting over {n} hours",
+    my: "{n} နာရီကျော် စောင့်နေပြီ",
+  }, // K15-HIGH — misread, a bag a guest is coming for is removed, or a dead one is kept
+  // A segment of the floor's count line ("12 counter orders · 3 waiting over 4 hours"). The pair is
+  // on the HOURS ({h}); {n} is how many orders.
+  "floor.counter.uncollected.one": {
+    en: "{n} waiting over {h} hour",
+    my: "{n} ခု {h} နာရီကျော် စောင့်နေပြီ",
+  },
+  "floor.counter.uncollected.many": {
+    en: "{n} waiting over {h} hours",
+    my: "{n} ခု {h} နာရီကျော် စောင့်နေပြီ",
+  },
+  // The door under the floor's head row (shown when the counter list is cut short or an order waits
+  // past the horizon), and the sheet it opens: every open counter order, oldest first.
+  "floor.counter.older.open": { en: "See the oldest orders", my: "အဟောင်းဆုံး အော်ဒါတွေ ကြည့်" },
+  "floor.counter.older.title": {
+    en: "Oldest counter orders",
+    my: "အဟောင်းဆုံး ကောင်တာ အော်ဒါများ",
+  },
+  "floor.counter.older.sub": {
+    en: "Oldest first. Open one to take payment — or, if they’re not coming, to remove it.",
+    my: "အဟောင်းက အရင်ပြပါတယ်။ ငွေရှင်းဖို့ ဒါမှမဟုတ် လာမယူတော့ရင် ဖျက်ဖို့ တစ်ခုကို ဖွင့်ပါ။",
+  },
+  "floor.counter.older.a11y.list": {
+    en: "Counter orders, oldest first",
+    my: "ကောင်တာ အော်ဒါများ၊ အဟောင်းက အရင်",
+  },
+  "floor.counter.older.more": { en: "Show more", my: "နောက်ထပ် ပြပါ" },
+  // grounded: pin.manager.loading
+  "floor.counter.older.loading": { en: "Loading…", my: "ဖွင့်နေပါတယ်…" },
+  "floor.counter.older.end": {
+    en: "That’s every open counter order.",
+    my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါ အားလုံး ဒါပါပဲ။",
+  },
+  "floor.counter.older.none": {
+    en: "No counter orders are open.",
+    my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါ မရှိပါ။",
+  },
+  "floor.counter.older.outage": {
+    en: "Couldn’t load the orders — try again.",
+    my: "အော်ဒါတွေ မဖွင့်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  // grounded: pad.menu.retry
+  "floor.counter.older.retry": { en: "Try again", my: "ထပ်စမ်း" },
+  // The table page's fact above the No-show / Clear choice. EN pair on the HOURS — ONE Burmese value.
+  "table.detail.uncollected.one": {
+    en: "Nobody has collected this order in over {n} hour.",
+    my: "ဒီအော်ဒါကို {n} နာရီကျော်ကြာအောင် ဘယ်သူမှ လာမယူသေးပါ။",
+  }, // K15-HIGH — it sits above the write-off: misread, a bag a guest is coming for is removed
+  "table.detail.uncollected.many": {
+    en: "Nobody has collected this order in over {n} hours.",
+    my: "ဒီအော်ဒါကို {n} နာရီကျော်ကြာအောင် ဘယ်သူမှ လာမယူသေးပါ။",
+  }, // K15-HIGH — it sits above the write-off: misread, a bag a guest is coming for is removed
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3587,6 +3658,10 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.noshow.body.comped.one", "table.noshow.body.comped.many"],
   // ── Phase 2f review ──
   ["table.send.counterSent.partial.one", "table.send.counterSent.partial.many"],
+  // ── Phase 2g · counter ──
+  ["floor.counter.uncollected.badge.one", "floor.counter.uncollected.badge.many"],
+  ["floor.counter.uncollected.one", "floor.counter.uncollected.many"],
+  ["table.detail.uncollected.one", "table.detail.uncollected.many"],
 ];
 
 /**
@@ -3792,6 +3867,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "expo.bag.noCharge",
   // ── Phase 2g · reader ──
   "settle.reader.busyElsewhere",
+  // ── Phase 2g · counter ──
+  "floor.counter.uncollected.badge.one",
+  "floor.counter.uncollected.badge.many",
+  "table.detail.uncollected.one",
+  "table.detail.uncollected.many",
 ]);
 
 /**
