@@ -43,9 +43,9 @@ import { useTableNav } from "./TableNav";
  * WHAT THE MANAGER READ IS WHAT IS SUBMITTED (Phase 2f review, PT-3). The table page keeps polling
  * while the sheet is open, so the three sets — and the lines they name — are SNAPSHOTTED when the
  * sheet opens, rendered from the snapshot, and the write carries the snapshot's sent set. When the
- * live sets stop matching it, the sheet does not adopt them silently: its one region says the order
- * changed, the confirm refuses, and an explicit "Show the order as it is now" adopts the new sets
- * (focus goes to the new count). Nothing is re-snapshotted when the manager step-up opens: a
+ * live sets — or the unit counts on the lines they name (Codex r4) — stop matching it, the sheet
+ * does not adopt them silently: its one region says the order changed, the confirm refuses, and an
+ * explicit "Show the order as it is now" adopts the new sets (focus goes to the new count). Nothing is re-snapshotted when the manager step-up opens: a
  * `needs_pin` answer means the server just matched the snapshot's sent set (`changed` is checked
  * first), so the snapshot IS what the manager is being asked to approve.
  *
@@ -148,6 +148,33 @@ export function noShowSetsMoved(snap: NoShowSets, live: NoShowSets): boolean {
   );
 }
 
+/**
+ * Codex round 4 on #308 (P2) — did a UNIT COUNT move under the sheet while every id stayed put?
+ * Another tablet changing the qty of a draft (the dropped set) or of a sent line leaves all three id
+ * sets equal, so `noShowSetsMoved` alone kept the sheet showing stale counts while the confirm
+ * cancels the whole cart. Compares id → qty for every line the sheet counts (sent, dropped, comped —
+ * the snapshot's ids; the sets themselves are compared first), from the lines it renders against
+ * the live ones. A line missing on either side reads as moved (the conservative direction: the
+ * re-arm adopts the live lines and the two sides agree again).
+ *
+ * What the SERVER refuses is narrower: `mms_counter_no_show` compares the SENT set it derives under
+ * its lock to `expectedLineIds`, so a sent set that changed is refused (`changed`). A DRAFT's qty
+ * changed between the last poll and the RPC is NOT refused server-side — drafts carry no loss (they
+ * are only dropped, never written off), and the sheet's re-arm covers every change a poll saw. That
+ * race is filed as an open item; this guard closes the window the poll can see.
+ */
+export function noShowQtyMoved(
+  snapLines: ReadonlyArray<Pick<TableLineView, "id" | "qty">>,
+  liveLines: ReadonlyArray<Pick<TableLineView, "id" | "qty">>,
+  sets: NoShowSets,
+): boolean {
+  const before = new Map(snapLines.map((l) => [l.id, l.qty]));
+  const now = new Map(liveLines.map((l) => [l.id, l.qty]));
+  return [...sets.sent, ...sets.dropped, ...sets.comped].some(
+    (id) => before.get(id) !== now.get(id),
+  );
+}
+
 /** The sentence the one region says while the live sets differ from what the sheet shows. */
 const CHANGED_COPY: StaffMsg = { k: "table.noshow.err.changed" };
 
@@ -233,7 +260,10 @@ function NoShowSheet({
     comped: compedKitchenLineIds,
   };
   const [snap, setSnap] = useState(() => ({ lines, sets: liveSets }));
-  const moved = noShowSetsMoved(snap.sets, liveSets);
+  // An id set that moved, or (Codex r4) a unit count on a line the sheet counts — either one changes
+  // a number on screen, so either one refuses the confirm until the explicit re-arm.
+  const moved =
+    noShowSetsMoved(snap.sets, liveSets) || noShowQtyMoved(snap.lines, lines, snap.sets);
 
   // The SENT lines, the DROPPED ones and the comped ones the kitchen has — all the server's sets,
   // never re-derived here, and all read from the snapshot.

@@ -29,7 +29,7 @@ import { dayStartIso, resolveServiceTz } from "./day-window";
 import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
 import { shapeKdsThresholds } from "./kds-urgency";
-import { isCounterOrder, kdsLineGate } from "./counter-order";
+import { counterOwes, isCounterOrder, kdsLineGate } from "./counter-order";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -54,6 +54,9 @@ import { isCounterOrder, kdsLineGate } from "./counter-order";
  */
 
 const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound the read regardless.
+/** Codex r4 on #308 — the owing read's bound: every line of the board's OPEN counter carts (a handful
+ *  of carts, tens of lines). Past it the read did not answer, and the board refuses (`outage`). */
+const OWING_LINE_CAP = 500;
 /**
  * M180 — the service window the queue reads, and why an unbounded cap was a lie waiting to happen.
  *
@@ -260,6 +263,42 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     nameMyByItem.set(m.id, m.name_my);
   }
 
+  // ── Codex round 4 on #308 (P2) — an open counter order's Unpaid is the CART's ──
+  // Does taking payment still collect anything (`counterOwes`, the settle section's own rule over ALL
+  // the cart's lines)? The line read above holds only fired / in-progress lines, so a flag derived
+  // from them went quiet once the chargeable dish was SERVED while a comped one still cooked — over
+  // an open cart that still owed. One read, only when an open counter cart is on the board, bounded
+  // by those carts and capped; a failed or saturated read is `outage` like every read that feeds
+  // ticket assembly (never a guessed "paid": a missing Unpaid hands food over unpaid).
+  const openCounterCarts = [...cartById.values()]
+    .filter((c) => {
+      const s = sessById.get(c.session_id);
+      return c.status === "open" && !!s && isCounterOrder({ mode: s.mode, qrCode: s.qr_code });
+    })
+    .map((c) => c.id);
+  const owingCarts = new Set<string>();
+  if (openCounterCarts.length > 0) {
+    const { data: owed, error: owedError } = await db
+      .from("qr_cart_items")
+      .select("cart_id,state,comped,qty")
+      .in("cart_id", openCounterCarts)
+      .limit(OWING_LINE_CAP);
+    if (owedError) return { ok: false, reason: "outage" };
+    if (owed && queueEmptiness(owed.length, OWING_LINE_CAP) === "cannot-say") {
+      console.error("[kitchen] owing read saturated — refusing to guess an order's Unpaid", {
+        cap: OWING_LINE_CAP,
+      });
+      return { ok: false, reason: "outage" };
+    }
+    const linesByCart = new Map<string, { state: string; comped: boolean; qty: number }[]>();
+    for (const r of owed ?? []) {
+      const ls = linesByCart.get(r.cart_id) ?? [];
+      ls.push({ state: r.state, comped: r.comped, qty: r.qty });
+      linesByCart.set(r.cart_id, ls);
+    }
+    for (const [cartId, ls] of linesByCart) if (counterOwes(ls)) owingCarts.add(cartId);
+  }
+
   // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
   const ticketByCart = new Map<string, KitchenTicket>();
   for (const l of lines) {
@@ -270,9 +309,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     const channel: KitchenChannel =
       sess.mode === "dinein" ? "dinein" : sess.mode === "pickup" ? "pickup" : "scango";
     // Dine-in: an active table past the grace. Counter (`reg-`) order: open → past the grace on an
-    // active session, flagged unpaid when the line is SENT unpaid food (`counterSentLine` — a comp is
-    // not); paid → past the grace, or held on a slotted cart. Everything else: a PAID cart only (a
-    // future fire_at there is the slot − prep schedule — held).
+    // active session, flagged unpaid when the CART still owes (`owingCarts` — Codex r4; a comp-only
+    // cart does not); paid → past the grace, or held on a slotted cart. Everything else: a PAID cart
+    // only (a future fire_at there is the slot − prep schedule — held).
     const gate = kdsLineGate({
       mode: sess.mode,
       counterOrder: isCounterOrder({ mode: sess.mode, qrCode: sess.qr_code }),
@@ -280,6 +319,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       cartStatus: cart.status,
       slotted: cart.pickup_slot != null,
       line: { state: l.state, fire_at: l.fire_at, fulfillment: l.fulfillment, comped: l.comped },
+      cartOwes: owingCarts.has(l.cart_id),
       nowMs,
     });
     if (!gate.show) continue;
@@ -306,8 +346,8 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // A ticket is HELD only while EVERY line is future-fired (mms_fire_pending_food stamps one
       // uniform fire_at per settlement, so a mixed ticket only arises from a manual fire-early race).
       if (!gate.held) existing.held = false;
-      // Unpaid when ANY line on it is sent unpaid food — the first line may be a comp.
-      if (gate.unpaid) existing.unpaid = true;
+      // Unpaid is the CART's (`cartOwes`, Codex r4), so every line on the ticket answers the same:
+      // the first line's answer — a comp's included — is the ticket's.
     } else {
       const orderId = orderByCart.get(l.cart_id);
       ticketByCart.set(l.cart_id, {

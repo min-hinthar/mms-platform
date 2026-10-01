@@ -949,43 +949,48 @@ export function OrderPad({
     </div>
   ) : null;
 
+  // Codex round 4 (P2) — `sendable` gates only a NEW Send. An undo already open (this tap's, or one
+  // the controller restored from the device after a reload) renders while the cart stays open, even
+  // when pay at pickup was parked meanwhile: the switch parks new sends, and the server takes a send
+  // in its grace back regardless (`staffUndoFire` — "the session decides the undo's RPC, never the
+  // switch"). Gated on `sendable` too, a reload inside the 10s stranded a valid take-back.
+  const sendLive =
+    (sendable && send.display.kind === "send") || (open && send.display.kind === "undo");
   // The Send slot (dine-in, open): the controller's view while there is something to send or an
   // undo is open; otherwise the way back to the table — "Done · Table N".
-  const sendSlot =
-    sendable && (send.display.kind === "send" || send.display.kind === "undo") ? (
-      <StaffSendButton
-        lang={lang}
-        ctl={{ ...send, onSend: onSendTap }}
-        controlRef={send.controlRef}
-        statusRef={send.statusRef}
-        hold={renderedHold}
-        hostName={detail.members.find((m) => m.isHost)?.name ?? null}
-        bare={padSend.bare}
-      />
-    ) : detail.mode === "dinein" ? (
-      // Nothing to send (or the order is paid): the way back to the table, never an empty slot.
-      <Button
-        variant="primary"
-        size="xl"
-        block
-        onClick={() => router.push(tableDestination(sessionId, { split: splitNow() }))}
-      >
-        <Chrome lang={lang} k="pad.done" vars={{ id: table }} echo="stack" />
-      </Button>
-    ) : null;
+  const sendSlot = sendLive ? (
+    <StaffSendButton
+      lang={lang}
+      ctl={{ ...send, onSend: onSendTap }}
+      controlRef={send.controlRef}
+      statusRef={send.statusRef}
+      hold={renderedHold}
+      hostName={detail.members.find((m) => m.isHost)?.name ?? null}
+      bare={padSend.bare}
+    />
+  ) : detail.mode === "dinein" ? (
+    // Nothing to send (or the order is paid): the way back to the table, never an empty slot.
+    <Button
+      variant="primary"
+      size="xl"
+      block
+      onClick={() => router.push(tableDestination(sessionId, { split: splitNow() }))}
+    >
+      <Chrome lang={lang} k="pad.done" vars={{ id: table }} echo="stack" />
+    </Button>
+  ) : null;
   // Phase 2f — a counter order's Send (pay at pickup) and its way out once everything went unpaid.
-  const counterSendNode =
-    sendable && (send.display.kind === "send" || send.display.kind === "undo") ? (
-      <StaffSendButton
-        lang={lang}
-        ctl={{ ...send, onSend: onSendTap }}
-        controlRef={send.controlRef}
-        statusRef={send.statusRef}
-        hold={renderedHold}
-        hostName={null}
-        bare={padSend.bare}
-      />
-    ) : null;
+  const counterSendNode = sendLive ? (
+    <StaffSendButton
+      lang={lang}
+      ctl={{ ...send, onSend: onSendTap }}
+      controlRef={send.controlRef}
+      statusRef={send.statusRef}
+      hold={renderedHold}
+      hostName={null}
+      bare={padSend.bare}
+    />
+  ) : null;
   const counterDone = (
     <Button
       variant="primary"

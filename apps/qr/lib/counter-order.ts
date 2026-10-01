@@ -80,9 +80,9 @@ export function counterKitchenLine(l: CounterLine, nowMs: number): boolean {
 /**
  * SENT — `counterKitchenLine` and NOT comped: the sent UNPAID food, the loss a no-show writes off (a
  * comp is already an audited loss, never written off twice). The SQL twin is `mms_counter_no_show`'s
- * sent set; `nowMs` must be the DB clock wherever the answer gates a write-off path. The KDS's Unpaid
- * flag reads THIS predicate too (`kdsLineGate`). Never the bag's membership — that is
- * `counterKitchenLine` (a comp is in the bag, it is just not owed).
+ * sent set; `nowMs` must be the DB clock wherever the answer gates a write-off path. Never the
+ * bag's membership — that is `counterKitchenLine` (a comp is in the bag, it is just not owed) — and
+ * never the KDS's Unpaid flag, which is the CART's `counterOwes` (Codex r4 on #308, `kdsLineGate`).
  */
 export function counterSentLine(l: CounterLine, nowMs: number): boolean {
   return counterKitchenLine(l, nowMs) && !l.comped;
@@ -121,14 +121,23 @@ export type KdsGateInput = {
   cartStatus: string;
   /** The cart carries a pickup slot (`qr_carts.pickup_slot`): settlement fires it at slot − prep. */
   slotted: boolean;
-  /** The line itself — its `fire_at` (null = fired at or before now, `lineFireMs`) and what the
-   *  Unpaid flag reads (`counterSentLine`). */
+  /** The line itself — its state and `fire_at` (null = fired at or before now, `lineFireMs`): what
+   *  decides whether, and how, it is shown. */
   line: CounterLine;
+  /**
+   * Codex round 4 on #308 (P2) — does the line's CART still owe (`counterOwes` over ALL its lines,
+   * the settle section's own rule)? Read only for an open counter order. The Unpaid flag is the
+   * cart's, never the line's: the board reads only fired / in-progress lines, so a per-line flag
+   * went quiet the moment the chargeable dish was served while a comped one still cooked — over an
+   * open cart that still owed.
+   */
+  cartOwes: boolean;
   nowMs: number;
 };
 
 /** Whether the kitchen sees a fired line, and how: `held` = a scheduled (future-fired) PAID pickup
- *  line, drawn dimmed; `unpaid` = an open counter order's SENT line (`counterSentLine`). */
+ *  line, drawn dimmed; `unpaid` = a line on an open counter order whose cart still owes
+ *  (`cartOwes` — `counterOwes`, the cart's chargeable state). */
 export type KdsGate = { show: false } | { show: true; held: boolean; unpaid: boolean };
 
 const HIDDEN: KdsGate = { show: false };
@@ -139,9 +148,11 @@ const HIDDEN: KdsGate = { show: false };
  * sent by staff through `mms_fire_counter_cart`:
  *
  *  - dine-in: cooks while open — shown once past the grace on an active session;
- *  - counter, cart open: shown once past the grace on an active session, flagged `unpaid` exactly
- *    when `counterSentLine` says so — ONE definition of sent unpaid food (a comp is cooked, shown, and
- *    not unpaid; Phase 2f review PT4);
+ *  - counter, cart open: shown once past the grace on an active session (comped or not — a comp is
+ *    cooked like any dish), flagged `unpaid` exactly when the CART still owes (`cartOwes`, i.e.
+ *    `counterOwes` — the settle section's rule; Codex r4 on #308). A comp-only cart owes nothing and
+ *    is not unpaid (Phase 2f review PT4); a comp still cooking beside a SERVED dish that is not paid
+ *    for is, because the order is;
  *  - counter, cart paid: shown once past the grace. A future fire_at there is the send's grace —
  *    hidden, never "held" — UNLESS the cart carries a pickup slot, and settlement then fires at
  *    slot − prep, the held schedule the kitchen has always seen (Phase 2f review PT2). A diner can no
@@ -161,7 +172,7 @@ export function kdsLineGate(i: KdsGateInput): KdsGate {
     if (i.cartStatus === "open") {
       if (i.sessionStatus !== "active") return HIDDEN;
       if (inGrace) return HIDDEN;
-      return { show: true, held: false, unpaid: counterSentLine(i.line, i.nowMs) };
+      return { show: true, held: false, unpaid: i.cartOwes };
     }
     if (i.cartStatus === "paid") {
       if (!inGrace) return { show: true, held: false, unpaid: false };

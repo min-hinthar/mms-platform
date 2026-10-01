@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
-import type { StaffFireResult } from "@/lib/staff-send-view";
+import type { StaffFireResult, StaffUndoResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
 
@@ -30,9 +30,10 @@ const setName =
   >();
 vi.mock("@/lib/register", () => ({ setCartCustomerName: (raw: unknown) => setName(raw) }));
 const fire = vi.fn<(raw: unknown) => Promise<StaffFireResult>>();
+const undo = vi.fn<(raw: unknown) => Promise<StaffUndoResult>>();
 vi.mock("@/lib/staff-send", () => ({
   staffFireCart: (raw: unknown) => fire(raw),
-  staffUndoFire: vi.fn(),
+  staffUndoFire: (raw: unknown) => undo(raw),
 }));
 const getTableDetail = vi.fn<(id: string) => Promise<TableDetailResult>>();
 vi.mock("@/lib/floor", () => ({ getTableDetail: (id: string) => getTableDetail(id) }));
@@ -1739,6 +1740,55 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     expect(sendBtn().closest(".pad-dock-settle")).not.toBeNull();
     expect(sendBtn().textContent).toContain(STAFF["table.send.undo"].en);
     expect(filled()).toHaveLength(0);
+  });
+
+  it("Codex r4 — a reload inside the grace with pay at pickup PARKED: the restored Undo still shows and works", async () => {
+    // The send fired before the switch was parked; the page reloaded inside its 10s. The switch
+    // parks NEW sends only — the server takes a send in its grace back regardless.
+    sessionStorage.setItem(
+      `mms-staff-undo:${SESSION}`,
+      JSON.stringify({ batch: "b1", deadlineMs: T + 8_000 }),
+    );
+    const d = counter({
+      payAtPickup: false,
+      unpaidSent: true,
+      sentLineIds: [],
+      lines: [line({ id: "l1", sendable: false, fulfillment: "togo", state: "fired" })],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: false,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
+    });
+    serve(d);
+    undo.mockResolvedValueOnce({ ok: true, unfired: 1 });
+    mount(d, { counter: true, name: "Aye" });
+    // The stash re-arms on a scheduled tick (its relabel commits as the timers drain); then past
+    // the relabel's same-gesture hold before the tap.
+    await flush();
+    await flush(400);
+    // MUTATION (p2f-cx4/pad/restored-undo-hidden-by-switch): gated on `sendable`, no Undo — red.
+    const u = sendBtn();
+    expect(u).not.toBeNull();
+    expect(u.textContent).toContain(STAFF["table.send.undo"].en);
+    await act(async () => {
+      fireEvent.click(u);
+    });
+    await flush();
+    expect(undo).toHaveBeenCalledWith({ sessionId: SESSION, batch: "b1" });
+  });
+
+  it("Codex r4 — pay at pickup PARKED and no undo open: drafts get no new Send", async () => {
+    const d = counter({ payAtPickup: false });
+    serve(d);
+    mount(d, { counter: true, name: "Aye" });
+    await flush(400);
+    expect(document.querySelector(".staff-send")).toBeNull();
+    expect(settleBtn().closest(".pad-dock-primary")).not.toBeNull();
   });
 
   it("everything went unpaid: 'Done · Counter' leads, Take payment second, the foot says so", async () => {

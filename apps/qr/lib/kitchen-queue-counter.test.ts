@@ -32,11 +32,20 @@ const NOW = "2026-10-01T18:00:00.000Z";
 const at = (sec: number) => new Date(Date.parse(NOW) + sec * 1000).toISOString();
 
 let tables: Record<string, Row[]> = {};
+/** Codex r4 — fail the cart-owing read (the line read with the owing columns) to prove it fails closed. */
+let failOwingRead = false;
+/** Codex r4 — every column list `qr_cart_items` was read with, in order. */
+let itemReads: string[] = [];
 
 function query(name: string) {
   const filters: ((r: Row) => boolean)[] = [];
+  let cols = "";
   const api: Record<string, unknown> = {
-    select: () => api,
+    select: (c: string) => {
+      cols = c;
+      if (name === "qr_cart_items") itemReads.push(c);
+      return api;
+    },
     eq(col: string, v: unknown) {
       filters.push((r) => r[col] === v);
       return api;
@@ -70,6 +79,8 @@ function query(name: string) {
     limit: () => api,
     maybeSingle: () => Promise.resolve({ data: null, error: null }),
     then(res: (v: unknown) => unknown) {
+      if (failOwingRead && name === "qr_cart_items" && !cols.includes("modifiers"))
+        return Promise.resolve({ data: null, error: { message: "boom" } }).then(res);
       const rows = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
       return Promise.resolve({ data: rows, error: null }).then(res);
     },
@@ -145,6 +156,8 @@ async function tickets() {
 
 beforeEach(() => {
   tables = {};
+  failOwingRead = false;
+  itemReads = [];
 });
 
 describe("getKitchenQueue — pay-first, with ONE staff-only exception", () => {
@@ -241,5 +254,97 @@ describe("getKitchenQueue — pay-first, with ONE staff-only exception", () => {
     setup({ code: "T7", cartStatus: "paid", order: true, fireAt: at(600) });
     const t = await tickets();
     expect(t[0]).toMatchObject({ held: true, unpaid: false });
+  });
+});
+
+describe("getKitchenQueue — an open counter order's Unpaid is the CART's (Codex r4 on #308)", () => {
+  it("the chargeable dish SERVED, a comped one still cooking: the ticket is still Unpaid", async () => {
+    // p2f-cx4/kitchen/owes-from-board-lines — the board's own read holds only fired / in-progress
+    // lines, so the served dish is off it; the cart still owes for it.
+    setup({
+      code: "reg-ab12",
+      lines: [
+        line({ id: "l1", state: "served", comped: false, fire_at: at(-300) }),
+        line({ id: "l2", state: "in_progress", comped: true, fire_at: at(-120) }),
+      ],
+    });
+    const t = await tickets();
+    expect(t).toHaveLength(1);
+    expect(t[0]!.lines.map((l) => l.id)).toEqual(["l2"]);
+    expect(t[0]).toMatchObject({ unpaid: true });
+  });
+
+  it("a comp shown FIRST beside a chargeable dish: the ticket is Unpaid (its first line is a comp)", async () => {
+    // p2f-rev-lib/kitchen/unpaid-from-first-line-only (re-anchored) — Unpaid is the cart's, never
+    // derived from the line that opened the ticket.
+    setup({
+      code: "reg-ab12",
+      lines: [
+        line({ id: "l1", comped: true, fire_at: at(-90) }),
+        line({ id: "l2", comped: false, fire_at: at(-30) }),
+      ],
+    });
+    expect((await tickets())[0]).toMatchObject({ unpaid: true });
+  });
+
+  it("a FULLY comped open cart — a served comp and a cooking one — owes nothing: not Unpaid", async () => {
+    // p2f-rev-lib/kitchen/comped-unread (re-anchored) — the owing read must read the comp.
+    setup({
+      code: "reg-ab12",
+      lines: [
+        line({ id: "l1", state: "served", comped: true, fire_at: at(-300) }),
+        line({ id: "l2", state: "in_progress", comped: true, fire_at: at(-120) }),
+      ],
+    });
+    const t = await tickets();
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ unpaid: false });
+  });
+
+  it("a voided chargeable dish owes nothing either (`counterChargeableLine`)", async () => {
+    setup({
+      code: "reg-ab12",
+      lines: [
+        line({ id: "l1", state: "voided", comped: false, fire_at: at(-300) }),
+        line({ id: "l2", state: "in_progress", comped: true, fire_at: at(-120) }),
+      ],
+    });
+    expect((await tickets())[0]).toMatchObject({ unpaid: false });
+  });
+
+  it("a PAID counter cart is never Unpaid — and is not read for owing", async () => {
+    setup({
+      code: "reg-ab12",
+      cartStatus: "paid",
+      order: true,
+      lines: [
+        line({ id: "l1", state: "served", comped: false, fire_at: at(-300) }),
+        line({ id: "l2", state: "in_progress", comped: true, fire_at: at(-120) }),
+      ],
+    });
+    const t = await tickets();
+    expect(t[0]).toMatchObject({ unpaid: false });
+    // Only the board's own line read: the owing read runs for OPEN counter carts alone.
+    expect(itemReads).toHaveLength(1);
+  });
+
+  it("a failed owing read is an OUTAGE — never a ticket guessed paid", async () => {
+    // p2f-cx4/kitchen/owes-read-error-swallowed
+    setup({ code: "reg-ab12" });
+    failOwingRead = true;
+    expect(await getKitchenQueue()).toEqual({ ok: false, reason: "outage" });
+  });
+
+  it("a SATURATED owing read is an outage too — past its cap it did not answer", async () => {
+    // p2f-cx4/kitchen/owes-read-saturation-ignored — 500 comped lines served (off the board), one
+    // cooking: an unsaturated read would answer "owes nothing"; the capped one cannot say.
+    const served = Array.from({ length: 499 }, (_, i) =>
+      line({ id: `s${i}`, state: "served", comped: true, fire_at: at(-600) }),
+    );
+    setup({
+      code: "reg-ab12",
+      lines: [...served, line({ id: "l2", state: "in_progress", comped: true, fire_at: at(-120) })],
+    });
+    expect(await getKitchenQueue()).toEqual({ ok: false, reason: "outage" });
   });
 });

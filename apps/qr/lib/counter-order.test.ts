@@ -139,6 +139,7 @@ describe("counterKitchenLine — the kitchen HAS it, comped or not (the bag's me
             cartStatus: "open",
             slotted: false,
             line: l,
+            cartOwes: true,
             nowMs: NOW,
           });
           expect(g.show).toBe(counterKitchenLine(l, NOW));
@@ -215,6 +216,7 @@ describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
       sessionStatus: "active",
       cartStatus: "open",
       slotted: false,
+      cartOwes: true,
       nowMs: NOW,
       ...rest,
       line: {
@@ -246,10 +248,36 @@ describe("kdsLineGate — pay-first with ONE staff-only exception", () => {
     expect(gate()).toEqual({ show: true, held: false, unpaid: true });
   });
 
-  it("a COMPED line is cooked but is not unpaid food — the flag is `counterSentLine`, one definition", () => {
-    // p2f-rev-lib/kds-gate/comped-flagged-unpaid — the floor, the lane and Clear all read
-    // `counterSentLine`, which excludes a comp; the KDS must not call the same line Unpaid.
-    expect(gate({ line: { comped: true } })).toEqual({ show: true, held: false, unpaid: false });
+  it("Unpaid is the CART's (`cartOwes`): a cart that owes nothing is never flagged (review PT4)", () => {
+    // p2f-rev-lib/kds-gate/comped-flagged-unpaid — a comp-only open cart owes nothing (`counterOwes`
+    // false): the KDS must not call its food Unpaid while the floor and the lane do not.
+    expect(gate({ line: { comped: true }, cartOwes: false })).toEqual({
+      show: true,
+      held: false,
+      unpaid: false,
+    });
+    expect(gate({ cartOwes: false })).toEqual({ show: true, held: false, unpaid: false });
+  });
+
+  it("Codex r4 — a COMPED line on a cart that still owes IS flagged: the order is unpaid, not the line", () => {
+    // p2f-cx4/kds-gate/unpaid-per-line — the chargeable dish was served (off the board) while the
+    // comp still cooks: read per line, the ticket lost "Unpaid" over an open cart that still owes.
+    expect(gate({ line: { comped: true }, cartOwes: true })).toEqual({
+      show: true,
+      held: false,
+      unpaid: true,
+    });
+    // …and only on an OPEN counter order: a paid one, a table and a diner's pickup never are.
+    expect(gate({ cartStatus: "paid", cartOwes: true })).toEqual({
+      show: true,
+      held: false,
+      unpaid: false,
+    });
+    expect(gate({ mode: "dinein", counterOrder: false, cartOwes: true })).toEqual({
+      show: true,
+      held: false,
+      unpaid: false,
+    });
   });
 
   it("a fired line with no fire_at is shown now and is unpaid — fired at or before now", () => {

@@ -33,7 +33,7 @@ vi.mock("@/lib/floor-pane", async (orig) => ({
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
-const { CounterNoShowButton, noShowDroppedUnits, noShowSetsMoved, sameIdSet } =
+const { CounterNoShowButton, noShowDroppedUnits, noShowQtyMoved, noShowSetsMoved, sameIdSet } =
   await import("./CounterNoShowButton");
 
 const line = (over: Partial<TableLineView>): TableLineView =>
@@ -415,13 +415,15 @@ describe("CounterNoShowButton — a roster that could not be read (Codex round 2
 });
 
 describe("CounterNoShowButton — what the manager READ is what is submitted (Phase 2f review, PT-3)", () => {
-  function props(over: { sent?: string[]; dropped?: string[]; comped?: string[] } = {}) {
+  function props(
+    over: { sent?: string[]; dropped?: string[]; comped?: string[]; lines?: TableLineView[] } = {},
+  ) {
     return (
       <StaffLangProvider lang="en">
         <CounterNoShowButton
           sessionId="s-1"
           customerName="Aye"
-          lines={LINES}
+          lines={over.lines ?? LINES}
           sentLineIds={over.sent ?? SENT}
           droppedLineIds={over.dropped ?? DROPPED}
           compedKitchenLineIds={over.comped ?? COMPED}
@@ -531,6 +533,69 @@ describe("CounterNoShowButton — what the manager READ is what is submitted (Ph
       approverStaffId: "m1",
       pin: "1234",
     });
+  });
+
+  // Codex round 4 on #308 — the same ids with a different unit count is a move too.
+  const withQty = (id: string, qty: number) => LINES.map((l) => (l.id === id ? { ...l, qty } : l));
+  const draftsSaid = (n: number) =>
+    STAFF["table.noshow.body.drafts.many"].en.replace("{n}", `${n}`);
+
+  it("Codex r4 — another tablet changes a DRAFT's qty (same ids): the counts hold, the write refuses, the region says so", async () => {
+    const view = render(props());
+    open();
+    await act(async () => {});
+    // 4 + 3 + 2 + 5 = 14 units dropped.
+    expect(dialog().textContent).toContain(draftsSaid(14));
+    view.rerender(props({ lines: withQty("d1", 3) }));
+    // MUTATION (p2f-cx4/no-show/qty-move-unseen): ids equal → not moved, the confirm goes — red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
+    expect(confirmBtn().getAttribute("aria-disabled")).toBe("true");
+    expect(dialog().textContent).toContain(draftsSaid(14));
+    await submit();
+    expect(record).not.toHaveBeenCalled();
+    // The re-arm adopts the new counts, and the write goes.
+    await act(async () => {
+      fireEvent.click(rearmBtn()!);
+    });
+    expect(dialog().textContent).toContain(draftsSaid(15));
+    expect(region().textContent).toBe("");
+    await submit();
+    expect(record).toHaveBeenCalledWith({ sessionId: "s-1", expectedLineIds: SENT });
+  });
+
+  it("Codex r4 — a SENT line's qty changes (same ids): the list holds until the re-arm shows the new count", async () => {
+    const view = render(props());
+    open();
+    await act(async () => {});
+    view.rerender(props({ lines: withQty("s1", 3) }));
+    expect(items()).toEqual(["2× Mohinga", "1× Tea leaf salad"]);
+    expect(region().textContent).toBe(STAFF["table.noshow.err.changed"].en);
+    await submit();
+    expect(record).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(rearmBtn()!);
+    });
+    expect(items()).toEqual(["3× Mohinga", "1× Tea leaf salad"]);
+    expect(dialog().textContent).toContain(STAFF["table.noshow.body.many"].en.replace("{n}", "4"));
+  });
+
+  it("noShowQtyMoved — a count on any counted line (sent, dropped, comped) moves; others do not", () => {
+    const sets = { sent: ["s1"], dropped: ["d1"], comped: ["c1"] };
+    const before = [
+      { id: "s1", qty: 1 },
+      { id: "d1", qty: 2 },
+      { id: "c1", qty: 1 },
+      { id: "x", qty: 1 },
+    ];
+    const bump = (id: string) => before.map((l) => (l.id === id ? { ...l, qty: l.qty + 1 } : l));
+    expect(noShowQtyMoved(before, before, sets)).toBe(false);
+    expect(noShowQtyMoved(before, bump("s1"), sets)).toBe(true);
+    expect(noShowQtyMoved(before, bump("d1"), sets)).toBe(true);
+    expect(noShowQtyMoved(before, bump("c1"), sets)).toBe(true);
+    // A line in no set is not on the sheet: its count is nothing the sheet said.
+    expect(noShowQtyMoved(before, bump("x"), sets)).toBe(false);
+    // A counted line gone from the live lines is a move (re-arm adopts what is there).
+    expect(noShowQtyMoved(before, before.slice(1), sets)).toBe(true);
   });
 
   it("sameIdSet / noShowSetsMoved — order-free set equality over all three sets", () => {
