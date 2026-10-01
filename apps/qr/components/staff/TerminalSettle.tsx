@@ -11,7 +11,10 @@ import { useStaffLang } from "./StaffLangProvider";
 import { settleBlockedMsg } from "@/lib/staff-send-view";
 // ── Phase 2g · reader ──
 import {
+  readerAlertKey,
+  readerBusyKey,
   readerNameText,
+  readerPanelAction,
   readerStartRefused,
   type ReaderName,
   type ReaderStatus,
@@ -136,6 +139,9 @@ export function TerminalSettleButton({
     live: reader.live,
     sessionId,
   });
+  // PT-2 — and why, truthfully: "taking a payment … finish that one first" only while the reader IS
+  // taking one; once the other charge went through and its order is being recorded, it says that.
+  const busyKey = busyElsewhere ? readerBusyKey(reader.poll.phase) : null;
   const [busy, setBusy] = useState(false);
   // The tap-time guard: a REF, read when the finger lands (two taps in one frame both read the
   // render before `busy`).
@@ -232,11 +238,11 @@ export function TerminalSettleButton({
       {/* Phase 2g · reader — WHY the trigger is held, before anyone taps: whose payment the one
           reader is taking. The trigger's description reads it first; never a live region (the
           page has one). */}
-      {busyElsewhere && reader.record && (
+      {busyKey !== null && reader.record && (
         <p id="terminal-busy" style={{ ...hint, color: "var(--warn)" }}>
           <Chrome
             lang={lang}
-            k="settle.reader.busyElsewhere"
+            k={busyKey}
             vars={{ x: readerNameText(lang, reader.record.name) }}
             echo="stack"
           />
@@ -284,8 +290,8 @@ export function TerminalSettleButton({
 /**
  * The live collect window — a VIEW over `ReaderCollectProvider` (Phase 2g), rendered by the table
  * detail it belongs to and by nothing else: null unless the collect is THIS table's, and null while a
- * charged-not-recorded collect was put away ("Back to payment" — D4: the provider keeps polling
- * silently until the order lands). On a landing the provider hands the counter's paid card to the
+ * charged-not-recorded collect was put away ("Hide this — we'll keep checking" — D4: the provider
+ * keeps polling silently until the order lands, or gives it up as unrecorded and brings it back). On a landing the provider hands the counter's paid card to the
  * detail (`shownHere`'s `onLanded`); for a table settle there is no card — the detail's paid state is
  * the quiet signal.
  *
@@ -336,9 +342,19 @@ export function TerminalCollectPanel({
     onStatus?.(JSON.parse(spokenKey) as ReaderStatus);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the spoken VALUE; onStatus is the parent's stable setter
   }, [spokenKey]);
+  // A11Y-6 — an outcome the page's region just SAID (a decline, a charge slow to record or given up)
+  // is marked said under the chip's own key (`readerAlertKey`, named once): leaving the table without
+  // dismissing it must never say it a second time, assertively, on the next page.
+  const recordingLong = reader.recordingLong;
+  const alertKey = mine ? readerAlertKey(collect.paymentIntentId, phase, recordingLong) : null;
+  const hasRegion = onStatus !== undefined;
+  const markAlertSaid = reader.markAlertSaid;
+  useEffect(() => {
+    if (alertKey !== null && hasRegion) markAlertSaid(alertKey);
+  }, [alertKey, hasRegion, markAlertSaid]);
 
   if (collect === null || !mine || status === null) return null;
-  const recordingLong = reader.recordingLong;
+  const action = readerPanelAction(phase, recordingLong);
 
   return (
     // `role="group"` is load-bearing, not decoration: a bare <div> maps to the `generic` role, which
@@ -354,7 +370,12 @@ export function TerminalCollectPanel({
       className="card"
       style={{ ...panel, outline: "none" }}
     >
-      <p style={{ ...panelTitle, color: phase === "failed" ? "var(--warn)" : "var(--tx)" }}>
+      <p
+        style={{
+          ...panelTitle,
+          color: phase === "failed" || phase === "unrecorded" ? "var(--warn)" : "var(--tx)",
+        }}
+      >
         {/* The amount stays OUTSIDE the dictionary sentence here — it trails the middot in both
             tongues — so it keeps its <strong> and its Latin figure untouched. */}
         {phase === "collecting" && (
@@ -364,7 +385,7 @@ export function TerminalCollectPanel({
             <strong>{fmt(collect.totalCents)}</strong>
           </>
         )}
-        {phase === "recording" && (
+        {(phase === "recording" || phase === "unrecorded") && (
           <>
             <Chrome lang={lang} k="settle.reader.paid" echo="inline" />
             {" · "}
@@ -393,7 +414,7 @@ export function TerminalCollectPanel({
           </>
         )}
       </p>
-      {phase === "collecting" && (
+      {action === "cancel" && (
         <Button
           variant="secondary"
           size="lg"
@@ -405,16 +426,28 @@ export function TerminalCollectPanel({
           <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
         </Button>
       )}
-      {(phase === "failed" || phase === "canceled" || recordingLong) && (
-        // Declined or cancelled: the collect is cleared. Charged-not-recorded (D4): the panel is put
-        // away and the provider keeps polling — the order still lands, and its #CODE with it.
+      {(action === "hide" || action === "back" || action === "close") && (
+        // `readerPanelAction` (PT-10): declined or cancelled → "Back to payment", the collect is
+        // cleared; charged-not-recorded (D4) → "Hide this — we'll keep checking", the panel is put
+        // away and the provider keeps polling (the order still lands, and its #CODE with it); given
+        // up as unrecorded (C1) → Close, there is no payment to go back to.
         <Button
           variant="secondary"
           size="lg"
           style={{ alignSelf: "flex-start" }}
           onClick={reader.dismiss}
         >
-          <Chrome lang={lang} k="settle.reader.backToSettle" echo="stack" />
+          <Chrome
+            lang={lang}
+            k={
+              action === "hide"
+                ? "settle.reader.hideRecording"
+                : action === "close"
+                  ? "shell.close"
+                  : "settle.reader.backToSettle"
+            }
+            echo="stack"
+          />
         </Button>
       )}
     </div>

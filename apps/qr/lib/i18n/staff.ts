@@ -1798,6 +1798,35 @@ export const STAFF = {
     en: "The card reader is taking a payment for {x} — finish that one first.",
     my: "ကတ်စက်က {x} အတွက် ငွေယူနေပါတယ် — အဲဒါကို အရင် ပြီးအောင် လုပ်ပါ။",
   }, // K15-HIGH — misread, a second card payment is started while the reader is still taking one
+  // ── Phase 2g · fix-reader ──
+  // PT-2 — the reader button's hold once the other payment went THROUGH and its order is being
+  // recorded: the reader is idle then and there is nothing to "finish", so the sentence says what is
+  // true (it is being recorded) and what to do (wait). {x} is that table's name, as busyElsewhere's.
+  // K15 draft. Words: ကတ်နဲ့ ငွေရှင်း (settle.a11y.readerPanel's "card payment"), မှတ်နေ
+  // (settle.reader.status.recording's "recording"), ခဏစောင့်ပါ (settle.reader.status.blind's "hold on").
+  "settle.reader.busyRecording": {
+    en: "The last card payment ({x}) is still being recorded — wait a moment.",
+    my: "{x} အတွက် နောက်ဆုံး ကတ်နဲ့ ငွေရှင်းတာကို မှတ်နေတုန်းပါ — ခဏစောင့်ပါ။",
+  }, // K15-HIGH — misread, a second payment is taken while the guest's card payment is still being recorded
+  // PT-10 — the collect panel's button once a charge is slow to record: it hides the panel, and the
+  // screen keeps checking (D4) — "Back to payment" there named a payment that no longer exists. K15
+  // draft. Words: ဖျောက်ထား "put out of sight", ဆက်စစ် "keep checking" (grounded: စစ်နေဆဲ in
+  // pad.err.add.checking).
+  "settle.reader.hideRecording": {
+    en: "Hide this — we’ll keep checking",
+    my: "ဒါကို ဖျောက်ထားပါ — ဆက်စစ်နေပါမယ်",
+  },
+  // PT-8 — the bar chip's line when the processor stops answering: the chip has a View link, never a
+  // Cancel, so it says where the Cancel is instead of "or cancel". The panel keeps
+  // settle.reader.status.blind. K15 draft: status.blind's sentence with its last clause rewritten
+  // (ဖျက်ဖို့ … ကို ဖွင့်ပါ — "open … to cancel", grounded: floor.counter.older.sub).
+  "settle.reader.chip.blind": {
+    en: "Can’t reach the card processor — the reader may still be live. Hold on, or open the order to cancel it.",
+    my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ဖို့ အော်ဒါကို ဖွင့်ပါ။",
+  }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
+  // A11Y-11 — the chip's ✕, named by its act AND its subject (the pane's ✕ beside it is "Close"):
+  // {x} is the table's name. K15 draft; ပိတ် is shell.close's.
+  "settle.reader.chip.dismiss": { en: "Dismiss — {x}", my: "ပိတ်ပါ — {x}" },
 
   // ── clearing a table on turnover ─────────────────────────────────────────
   // {id} is the number off the physical tent card — Latin in both tongues.
@@ -3076,13 +3105,24 @@ export const STAFF = {
   }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
   "settle.reader.status.recording": { en: "Recording the order…", my: "အော်ဒါ မှတ်နေပါတယ်…" },
   // Phase 2g · reader (D4) — it no longer points at "Orders" (a manager-only zone the cashier may not
-  // have): the screen keeps checking on its own and the paid card shows here once the order is
-  // recorded. K15 draft (rewritten). Words: ငွေရှင်းပြီးပါပြီ (settle.reader.paid's), ထပ်မဖြတ်ပါနဲ့
-  // (the old line's "don't charge again"), ဒီမှာ ပေါ်လာပါမယ် "will show here".
+  // have): the screen keeps checking on its own. Phase 2g · fix-reader (PT-1) — and it no longer
+  // promises "it will show here": the panel can be hidden, a table's landing leaves no card, and a
+  // charge can be given up as unrecorded (settle.reader.status.unrecorded). K15 draft (rewritten
+  // again). Words: ငွေရှင်းပြီးပါပြီ (settle.reader.paid's), ထပ်မဖြတ်ပါနဲ့ (the old line's "don't
+  // charge again"), ဆက်စစ်နေပါမယ် "we'll keep checking" (settle.reader.hideRecording's).
   "settle.reader.status.recordingLong": {
-    en: "The guest has paid — don’t charge again. The order isn’t recorded yet; it will show here once it is.",
-    my: "ဧည့်သည် ငွေရှင်းပြီးပါပြီ — ထပ်မဖြတ်ပါနဲ့။ အော်ဒါ မမှတ်ရသေးပါ၊ မှတ်ပြီးတာနဲ့ ဒီမှာ ပေါ်လာပါမယ်။",
+    en: "The guest has paid — don’t charge again. The order isn’t recorded yet; we’ll keep checking.",
+    my: "ဧည့်သည် ငွေရှင်းပြီးပါပြီ — ထပ်မဖြတ်ပါနဲ့။ အော်ဒါ မမှတ်ရသေးပါ၊ ဆက်စစ်နေပါမယ်။",
   }, // K15-HIGH — the guest HAS paid; a second charge collects twice
+  // Phase 2g · fix-reader (C1) — a charge captured with no order for the settle freeze's whole
+  // lifetime: the screen stops checking. The guest was charged and nothing recorded it, so the line
+  // says both, forbids a second payment, and sends it to a manager (the refunds-needed strip is
+  // theirs). K15 draft. Words: ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရ (the pre-2g recordingLong's),
+  // ထပ်ငွေမယူ (settle.cash.unknownClosed's), မန်နေဂျာ (table.loss.managerLegend's).
+  "settle.reader.status.unrecorded": {
+    en: "The card was charged, but no order was recorded. Don’t take payment again — tell a manager.",
+    my: "ကတ်က ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရပါ။ ထပ်ငွေမယူပါနဲ့ — မန်နေဂျာကို ပြောပါ။",
+  }, // K15-HIGH — the guest WAS charged; a second payment collects twice
   "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
   "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
   // P2w (critic finding) — a staff settle refused while money is already moving on the table, ONE
@@ -3867,6 +3907,10 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "expo.bag.noCharge",
   // ── Phase 2g · reader ──
   "settle.reader.busyElsewhere",
+  // ── Phase 2g · fix-reader ──
+  "settle.reader.busyRecording",
+  "settle.reader.chip.blind",
+  "settle.reader.status.unrecorded",
   // ── Phase 2g · counter ──
   "floor.counter.uncollected.badge.one",
   "floor.counter.uncollected.badge.many",
