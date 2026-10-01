@@ -290,7 +290,9 @@ describe("the real floor opens the pane at split width", () => {
 
 describe("the view's live regions, measured on a real render", () => {
   it("one per zone (Start, the floor) and the pane's ONE — in every pane state", async () => {
-    answers[A] = () => new Promise(() => {}); // the pane's read stays in the air: `loading`
+    // The pane's read stays in the air (`loading`) until the case lets it answer.
+    let releaseA!: (r: TableDetailResult) => void;
+    answers[A] = () => new Promise((r) => (releaseA = r));
     mountCounter();
     await tick(0);
     // Nothing picked: the Start zone's, the floor's, and the pane's standing (empty) one.
@@ -311,9 +313,13 @@ describe("the view's live regions, measured on a real render", () => {
       tf("en", "shell.loading", { what: ts("en", "what.table") }),
     );
     expect(polite(splitRoot())).toHaveLength(3);
-    // A detail: its own region is the pane's one.
+    // A detail: its own region is the pane's one. Phase 2h (9f) — B's read is owed to A's (one
+    // read in the air at a time — Next would queue it behind A's anyway), so A answers first.
     await act(async () => {
       fireEvent.click(card(B));
+    });
+    await act(async () => {
+      releaseA({ kind: "detail", detail: detail(A, 4) });
     });
     await tick(0);
     expect(document.getElementById("order-h")).not.toBeNull();

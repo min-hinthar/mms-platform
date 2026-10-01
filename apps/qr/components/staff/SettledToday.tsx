@@ -1,13 +1,5 @@
 "use client";
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-  type CSSProperties,
-} from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { EmptyState, Icon, useSheetSubject } from "@mms/ui";
 import {
   getSettledToday,
@@ -27,6 +19,7 @@ import {
   tenderKey,
 } from "@/lib/settled-view";
 import { raceTimeout } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { ts } from "@/lib/i18n/staff";
 import { plural } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
@@ -76,37 +69,80 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // the moment a drawer hand-back is recordable. The PATH is captured with the amount, at the moment
   // the sheet reports, rather than re-derived later from a list that has since refreshed.
   const [confirmed, setConfirmed] = useState<{ cents: number; path: RefundPath } | null>(null);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9b) — the read is called OUTSIDE any transition: under `startTransition(async …)` its
+  // `pending` (the Refresh's busy) held until the action ANSWERED, whatever `raceTimeout` did — and
+  // while it hung, every other transition's pending and every router commit on the tab was held with
+  // it (LEARNINGS #149 · #200). `reading` is a state cleared in `finally`, so it frees at the bound.
+  const [reading, setReading] = useState(false);
+  // Phase 2h · critic B8 — a re-read OWED to one still in the air (a Refresh past the race's give-up,
+  // or a refund's re-read): the read is coming, so Refresh stays busy until it starts. Without this a
+  // tap past the give-up looked live, did nothing and said nothing (§17).
+  const [owed, setOwed] = useState(false);
 
-  // Only the NEWEST read may replace the list (Codex round 1 on #283): a manual Refresh does not
-  // disable the line Refund controls, so a refund can complete — and fire its own re-read — while
-  // the manual read is still in flight. Whichever answer landed LAST used to win, and the older,
-  // pre-refund one put the Refund button back over a line the ledger already holds.
-  const readGen = useRef(0);
-  const refresh = useCallback(() => {
-    const mine = ++readGen.current;
-    startTransition(async () => {
-      try {
-        const next = await raceTimeout(getSettledToday());
-        if (mine !== readGen.current) return; // superseded — a newer read owns the list now
-        // `getSettledToday` RETURNS its failures (`{ ok: false }`), it does not throw — so the
-        // first draft installed an outage over a good list, and the manager who had just moved
-        // money saw "can't load right now" where the confirmation was (blind pass on A4·3,
-        // CRITICAL 2). A failed re-read keeps the last good snapshot, confirmation included, and
-        // the count line says when the list is from. Only a good answer replaces the list.
-        if (next.ok) {
-          setSnap(next);
-          setStale(false);
-        } else {
-          setStale(true);
-        }
-      } catch (e) {
-        if (mine !== readGen.current) return;
-        setStale(true);
-        console.error("[SettledToday] refresh failed", e);
-      }
-    });
+  // ── Phase 2h (9f) ── reads never stack (`lib/poll-gate.ts`). A manual Refresh does not disable the
+  // line Refund controls, so a refund can complete — and ask for its own re-read — while the manual
+  // read is in the air (Codex round 1 on #283). Two reads used to fly, and the OLDER, pre-refund
+  // answer landing last put the Refund button back over a line the ledger already holds (a read
+  // generation guarded it). Now a read asked for while one is unanswered is OWED, not sent: it runs
+  // once the raw answers, so the newest read always STARTS after the older one's answer — which makes
+  // the generation guard unreachable, and it is gone (an unreachable guard is decorative — the
+  // Phase 2h contract critic, F11). It also never queues a second call behind a hung one in Next's
+  // one-at-a-time queue. Made ONCE for the zone's life, on first use from a callback; never disposed
+  // from a cleanup (Strict Mode would latch it): the kick is guarded by `alive`, re-armed at setup.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
   }, []);
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  const refresh = useCallback(async () => {
+    const gate = gateOf();
+    const asked = gate.ask();
+    // Owed to the read in the air: it runs once that one answers. No miss is counted here, because
+    // none is needed — this zone has no two-miss banner, and the read in the air already dated the
+    // list ("stale") when its own race gave up, at the same bound `missed` measures; a refused ask
+    // past it would only say that again (an unreachable rule is decorative — the contract critic, F11).
+    if (asked.go === "owed") {
+      if (alive.current) setOwed(true);
+      return;
+    }
+    setOwed(false);
+    setReading(true);
+    try {
+      // The RAW read is watched (the race frees this caller at 15 s, never Next's queue).
+      const next = await raceTimeout(gate.watch(getSettledToday()));
+      // `getSettledToday` RETURNS its failures (`{ ok: false }`), it does not throw — so the
+      // first draft installed an outage over a good list, and the manager who had just moved
+      // money saw "can't load right now" where the confirmation was (blind pass on A4·3,
+      // CRITICAL 2). A failed re-read keeps the last good snapshot, confirmation included, and
+      // the count line says when the list is from. Only a good answer replaces the list.
+      if (next.ok) {
+        setSnap(next);
+        setStale(false);
+      } else {
+        setStale(true);
+      }
+    } catch (e) {
+      setStale(true);
+      console.error("[SettledToday] refresh failed", e);
+    } finally {
+      setReading(false); // frees AT THE BOUND (the race's give-up), whatever the action is doing
+    }
+  }, [gateOf]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // `/staff/orders` redirects onto this zone's fragment; the heading takes focus on arrival and on
   // a same-page jump (`useZoneFocus`, the one copy of the A4·3 rule since A4·5).
@@ -183,12 +219,18 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
       <h2 id="settled-h" tabIndex={-1} className="staff-zone-head">
         <Chrome lang={lang} k="floor.settled.head" />
       </h2>
+      {/* §17 — never native `disabled` (it drops focus to <body> mid-tap): `aria-disabled` states
+          what the handler refuses, and the dim stays. */}
       <button
         type="button"
-        onClick={refresh}
-        disabled={pending}
+        onClick={() => {
+          if (reading || owed) return;
+          void refresh();
+        }}
+        aria-disabled={reading || owed || undefined}
+        aria-busy={reading || owed || undefined}
         className="staff-btn staff-press"
-        style={{ ...refreshBtn, opacity: pending ? 0.6 : 1 }}
+        style={{ ...refreshBtn, opacity: reading || owed ? 0.6 : 1 }}
       >
         <Chrome lang={lang} k="floor.settled.verb.refresh" echo="stack" />
       </button>
@@ -309,7 +351,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
               if (path === "cash") refocusBanner.current = true;
               else refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
             }
-            refresh();
+            void refresh();
           }}
         />
       )}

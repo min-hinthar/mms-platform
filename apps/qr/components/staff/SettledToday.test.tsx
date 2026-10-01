@@ -278,11 +278,12 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     await screen.findByText(/Couldn’t refresh/);
     expect(screen.getByRole("button", { expanded: false })).toBeTruthy(); // the order is still here
     expect(screen.queryByText(STAFF["floor.settled.outage"].en)).toBeNull();
-    // A good answer then replaces the list and clears the line. Wait for the control to re-enable
-    // first: a click on a still-pending (disabled) button is a silent no-op (LEARNINGS #108).
+    // A good answer then replaces the list and clears the line. Wait for the control to re-arm
+    // first: a tap on a still-busy (aria-disabled) button is refused by its handler (LEARNINGS #108).
     refreshAnswer = snapshot([]);
     const refreshBtn = screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement;
-    await waitFor(() => expect(refreshBtn.disabled).toBe(false));
+    await waitFor(() => expect(refreshBtn.getAttribute("aria-disabled")).toBeNull());
+    expect(refreshBtn.disabled).toBe(false); // Phase 2h — never native `disabled` (§17)
     fireEvent.click(refreshBtn);
     await screen.findByText(STAFF["floor.settled.none"].en);
     await waitFor(() => expect(screen.queryByText(/Couldn’t refresh/)).toBeNull());

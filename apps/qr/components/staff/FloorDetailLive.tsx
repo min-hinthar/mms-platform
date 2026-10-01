@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { type ClosedVerdict, type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -385,12 +386,51 @@ export function FloorDetailLive({
     onClosedRef.current = onClosed;
   }, [onClosed]);
 
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts` — the pad's `usePadDetailLive` shape,
+  // whose rerun loop this one shares). A read `raceTimeout` gave up on at 15 s is still IN Next's
+  // one-at-a-time queue: a tick that started a "fresh" read after it only queued another abandoned
+  // call behind the hung one, every 5 s, and the next settle or line edit waited behind all of them.
+  // While the RAW read is unanswered no new read starts; the asks it refused are owed ONE read,
+  // kicked just after it answers. Made ONCE for the detail's life, on first use from a callback
+  // (never during render, never in an effect's setup — a new `refresh` re-runs that setup and would
+  // forget the hung read), never disposed from a cleanup (Strict Mode would latch it): the kick is
+  // guarded by `alive`, re-armed at every setup.
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
+   *  (cause `unknown`: this end failing is not evidence the platform is down). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(Date.now());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+  }, []);
+
   const refresh = useCallback(async () => {
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time IS a
+      // miss: before, the race's give-up was the only miss a hang produced, and the freeze armed only
+      // by stacking a fresh read behind the hung one every tick.
+      if (asked.missed) miss();
+      return;
+    }
     // Phase 2a (blind review) — a refresh asked for while a read is in the air is REMEMBERED, not
     // dropped: the Send's "re-read NOW" after a send or an undo usually lands mid-poll, and the poll
     // already in flight began BEFORE the write — so dropping the ask left the line tags stale for up
     // to 5s. One more read runs after the current one (never more than one queued, and never after
-    // the effect cleaned up: the loop re-checks `alive`).
+    // the effect cleaned up: the loop re-checks `alive`). Phase 2h — the gate is asked FIRST: an ask
+    // while the RAW read is unanswered is owed to the gate (kicked when it answers), so `rerun` is set
+    // only by an ask that found the gate open in the instant between a raw's answer and this loop's
+    // continuation (the pad's F11 note).
     if (inFlight.current) {
       rerun.current = true;
       return;
@@ -406,7 +446,8 @@ export function FloorDetailLive({
         const startedAtMs = Date.now();
         try {
           // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-          const res = await raceTimeout(getTableDetail(sessionId));
+          // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
+          const res = await raceTimeout(gate.watch(getTableDetail(sessionId)));
           if (!alive.current) return;
           if (res.kind === "detail") {
             // Phase 2c · review (R2) — an open cart read after the lost settle could last land.
@@ -475,16 +516,17 @@ export function FloorDetailLive({
         } catch (e) {
           if (!alive.current) return;
           // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-          fails.current += 1;
-          setNowMs(Date.now());
-          if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+          miss();
           console.error("[FloorDetailLive] refresh failed", e);
         }
       } while (rerun.current && alive.current);
     } finally {
       inFlight.current = false;
     }
-  }, [sessionId, router]);
+  }, [sessionId, router, gateOf, miss]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // Slow escalation tick while frozen/stale (the ≥2min paper-flow flip needs a re-render).
   useEffect(() => {

@@ -1,5 +1,6 @@
 "use client";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -11,6 +12,7 @@ import { Button, EmptyState, Icon, Skeleton } from "@mms/ui";
 import { getTableDetail } from "@/lib/floor";
 import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { raceTimeout } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import {
   PANE_QUERY,
   acceptPaneRead,
@@ -52,6 +54,16 @@ import { ReaderShown } from "./ReaderCollectContext";
  *            says the refund under the title instead of the hedge (`closedCounterNote`).
  *   failure  the first read failed, said by CAUSE (`paneFailKeys` — never paper), with a retry and a
  *            quiet retry 5 s after each failed answer (never over a read still in the air).
+ *
+ * Phase 2h (9f) — every read the PANE starts (a pick's first read, a retry, the quiet retry) asks ONE
+ * gate made for the pane's life (`lib/poll-gate.ts`): while one of those is unanswered — this
+ * table's, or the first read the previous pick left in the air — no new one starts; the asks it
+ * refused are owed ONE read of whatever is selected when it answers. Next runs Server Actions one at
+ * a time, so a read sent over a hung one only queues behind it. An ask refused past the bound is a
+ * FAILED read (said as such, with the quiet retry), never a skeleton left standing for as long as the
+ * hang lasts. ⚠️ The mounted detail (`FloorDetailLive`, keyed per pick) polls on its OWN gate, made
+ * per mount and not this one: a pick can still put this pane's first read beside the previous
+ * table's last detail poll — one read each at most, never a stack (critic B7; residual P2).
  *
  * Live regions: while a detail is mounted its ONE polite region speaks (and carries a lost write for
  * another table); otherwise this pane's single sr-only `role=status` does (`paneStatusSays`: a lost
@@ -112,6 +124,30 @@ export function TablePane({
   const [read, setRead] = useState<Read | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  // ── Phase 2h (9f) ── the pane's ONE gate — made on first use from the read effect (never during
+  // render, never per setup: a re-run for a new pick must still see the read the last pick left in
+  // the air), never disposed from a cleanup (Strict Mode would latch it). Its owed kick reads afresh
+  // for the selection THEN (`attempt` + 1 re-runs the read effect), guarded by `alive`.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true; // re-armed at setup (Strict Mode runs cleanup between two setups)
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) setAttempt((n) => n + 1);
+      });
+    }
+    return gateRef.current;
+  }, []);
+  // An ask the gate refused UNDER the bound (a read still young in the air): re-asked on the quiet
+  // retry's cadence, so a read that then hangs turns into the failure at the bound instead of a
+  // skeleton for as long as it lasts.
+  const [heldKey, setHeldKey] = useState<string | null>(null);
   const id = sel?.id ?? null;
   const gen = sel?.gen ?? 0;
   // Phase 2d · review fixes — the read that last ANSWERED, named by (id, gen, attempt). The quiet
@@ -133,7 +169,27 @@ export function TablePane({
     if (id === null) return;
     let live = true;
     const key = `${id}:${gen}:${attempt}`;
-    raceTimeout(getTableDetail(id))
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a read is still in the air: none starts. Settled on a microtask (never a
+      // synchronous setState in the effect), and only for the attempt still current.
+      void Promise.resolve().then(() => {
+        if (!live) return;
+        setRetrying(false);
+        if (asked.missed) {
+          // Past the bound this ask IS a failed read — this end cannot get an answer through.
+          if (acceptPaneRead(id, selectedNow()))
+            setRead({ id, gen, kind: "fail", cause: "unknown" });
+          setAnsweredKey(key);
+        } else setHeldKey(key);
+      });
+      return () => {
+        live = false;
+      };
+    }
+    // The RAW read is watched (the race frees this pane at 15 s, never Next's queue).
+    raceTimeout(gate.watch(getTableDetail(id)))
       .then((res) => {
         if (!live || !acceptPaneRead(id, selectedNow())) return;
         if (res.kind === "detail") setRead({ id, gen, kind: "detail", detail: res.detail });
@@ -165,7 +221,7 @@ export function TablePane({
     return () => {
       live = false;
     };
-  }, [id, gen, attempt, selectedNow]);
+  }, [id, gen, attempt, selectedNow, gateOf]);
 
   // The quiet retry while a first read stands failed — RETRY_MS after the current attempt's read
   // answered (`answeredKey`), never over one still in the air.
@@ -176,6 +232,13 @@ export function TablePane({
     const t = setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
     return () => clearTimeout(t);
   }, [failed, answered, readKey]);
+  // Phase 2h — the re-ask for an attempt the gate held under the bound (see `heldKey`).
+  const held = heldKey === readKey;
+  useEffect(() => {
+    if (!held) return;
+    const t = setTimeout(() => setAttempt((n) => n + 1), RETRY_MS);
+    return () => clearTimeout(t);
+  }, [held, readKey]);
 
   // Focus the heading ONCE per selection that asked for it (a tap, a merge, Forward, a deep link):
   // it renders from the hint, so focus never moves again when the detail arrives. The pane's own
