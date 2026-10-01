@@ -1079,8 +1079,11 @@ describe("Phase 2h · integration b — the strip's waiting line stands while IT
     // its own, and the board keeps "reload the page" standing for a start that is not the strip's —
     // no reload of the strip's beside it, and nothing of the strip's will ever replace it; red.
     // (p2h-doors/strip-reload-for-walkup — the strip's reload JSX alone — is TableStrip.test's.)
+    // `not.toContain`, never `not.toBe`: the floor's reads never answer here, so the board freezes
+    // by now, and a standing line would read "waiting · freeze" — unequal to the bare line, so a
+    // `toBe` check let this mutant SURVIVE once the freeze could join a standing line (critic F1).
     await tick(ERR_DWELL_MS);
-    expect(region().textContent).not.toBe(waiting());
+    expect(region().textContent).not.toContain(waiting());
   });
 
   it("critic F1 — a standing line on a FROZEN floor shares the region with the freeze copy, through its paper escalation", async () => {
