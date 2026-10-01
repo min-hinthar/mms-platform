@@ -15623,6 +15623,15 @@ const MUTANTS = [
     find: "    if (next.phase !== pollRef.current.phase) setCancelError(null);\n",
     replace: "",
   },
+  // ── Phase 2g · Codex round 4 (p2g-cx4/) — a refusal that answers after the collect moved on is dropped.
+  {
+    id: "p2g-cx4/late-refusal-masks-the-outcome",
+    file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
+    suite: "components/staff/ReaderCollectProvider.test.tsx",
+    why: "Codex r4 on #309 — a cancel refusal answering after a poll already moved the collect on (declined, given up) is written over the newer outcome for good, since those phases never poll again",
+    find: '        if (stillAsked()) setCancelError({ kind: "server", text: res.error });\n',
+    replace: '        setCancelError({ kind: "server", text: res.error });\n',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

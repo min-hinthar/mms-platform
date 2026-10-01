@@ -307,6 +307,13 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     cancelInFlight.current = true;
     setCancelBusy(true);
     setCancelError(null);
+    // Codex r4 on #309 — a refusal answers the phase the cancel was ASKED in. A poll already in the
+    // air can move the collect on (declined, given up) before this answers; a refusal landing after
+    // that would mask the newer outcome for good, since those phases never poll (or clear) again.
+    const askedIn = pollRef.current.phase;
+    const stillAsked = () =>
+      recordRef.current?.paymentIntentId === rec.paymentIntentId &&
+      pollRef.current.phase === askedIn;
     try {
       const res = await cancelTerminal({
         sessionId: rec.sessionId,
@@ -314,7 +321,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       });
       if (!res.ok) {
         // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
-        setCancelError({ kind: "server", text: res.error });
+        if (stillAsked()) setCancelError({ kind: "server", text: res.error });
         return;
       }
       if (recordRef.current?.paymentIntentId !== rec.paymentIntentId) return;
@@ -322,7 +329,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       if (readerPolling(p.phase)) commitPoll({ ...p, phase: "canceled" });
       dropReaderStash();
     } catch {
-      setCancelError({ kind: "local" });
+      if (stillAsked()) setCancelError({ kind: "local" });
     } finally {
       cancelInFlight.current = false;
       setCancelBusy(false);

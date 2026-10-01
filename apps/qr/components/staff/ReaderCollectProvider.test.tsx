@@ -575,6 +575,37 @@ describe("Back to payment (D4) and cancel", () => {
     expect(api.cancelError).toBeNull();
     expect(api.spoken).toEqual(api.status);
   });
+
+  // Codex r4 on #309 — the race behind it: the poll moves the collect on while the cancel is still in
+  // the air, and the refusal answers afterwards. Those phases never poll again, so a refusal written
+  // then would mask the newer outcome for good.
+  it("a refusal that answers AFTER a poll moved the collect on is dropped, not written", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    let answerCancel!: (v: { ok: false; error: string }) => void;
+    cancelTerminal.mockReturnValueOnce(new Promise((r) => (answerCancel = r)));
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    let pending!: Promise<void>;
+    await act(async () => {
+      pending = api.cancel();
+    });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "failed",
+      error: "The card was declined.",
+    });
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    await act(async () => {
+      answerCancel({ ok: false, error: "Too late to cancel." });
+      await pending;
+    });
+    // MUTATION (p2g-cx4/late-refusal-masks-the-outcome): written regardless of the phase it was
+    // asked in — "Too late to cancel." stands over the decline for good; red.
+    expect(api.cancelError).toBeNull();
+    expect(api.spoken).toEqual(api.status);
+  });
 });
 
 describe("the one refusal, read at tap time", () => {
