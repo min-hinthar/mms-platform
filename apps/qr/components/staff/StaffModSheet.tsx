@@ -55,7 +55,7 @@ export function StaffModSheet({
   itemName,
   basePriceCents,
   groups,
-  pending,
+  busy,
   error,
   onAdd,
   lang = "en",
@@ -66,7 +66,17 @@ export function StaffModSheet({
   itemName: string;
   basePriceCents: number;
   groups: ModGroup[];
-  pending: boolean;
+  /**
+   * The add is in flight — the sheet's `busy` (M82) and the Add button's busy label.
+   *
+   * ⚠️ Phase 2h (9a) — the PARENT owns it, and it must be STATE the parent sets at the tap and clears
+   * in a `finally` around a BOUNDED await (the pad's `usePadWrites` `done`, the kiosk's `boundWrite`)
+   * — never a `useTransition` pending. A transition's pending does not clear while the Server Action
+   * it dispatched is unanswered (Next's per-tab queue; LEARNINGS #149 · #200), so on a hung add every
+   * exit of this sheet would stay refused. Renamed from `pending` for exactly that reason; the M82
+   * guard (lib/sheet-busy-callers.test.ts) traces it into every parent.
+   */
+  busy: boolean;
   /**
    * Add failure surfaced INSIDE the sheet — a page-level live region is behind the modal scrim.
    *
@@ -113,12 +123,12 @@ export function StaffModSheet({
     // deliberately so: the order pad (`OrderPad`, a `quietRefusal` attempt on `usePadWrites`)
     // routes it here, because the pad's one region sits behind the modal scrim. Dismissing mid-add
     // destroys the one surface that message has, so the
-    // server is told nothing and the item is simply not there. `pending` is the parent's transition
-    // flag, threaded down.
+    // server is told nothing and the item is simply not there. `busy` is the parent's bounded state
+    // (see the prop), threaded down.
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      busy={pending}
+      busy={busy}
       title={
         lang === "my" && catalogNameMy(itemNameMy, itemName) !== null ? (
           // The Burmese leads; the catalog English echoes beneath (the Chrome stack's own classes).
@@ -276,11 +286,11 @@ export function StaffModSheet({
 
         <button
           type="button"
-          style={valid && !pending ? cta : ctaDisabled}
-          aria-disabled={!valid || pending || undefined}
-          aria-busy={pending || undefined}
+          style={valid && !busy ? cta : ctaDisabled}
+          aria-disabled={!valid || busy || undefined}
+          aria-busy={busy || undefined}
           onClick={() => {
-            if (!valid || pending) return; // §17 — the refusal, on the button's own predicate
+            if (!valid || busy) return; // §17 — the refusal, on the button's own predicate
             haptic("commit"); // Phase 2c · pad — at the TAP; the busy "Adding…" is its visible half
             onAdd({
               modifierIds: selectedIds(groups, sel),
@@ -291,7 +301,7 @@ export function StaffModSheet({
         >
           {/* The money slot stays Latin and <Chrome> marks it lang="en" inside the Burmese run.
               Presentation only — `previewCents` is unchanged, and the server re-derives the price. */}
-          {pending ? (
+          {busy ? (
             <Chrome lang={lang} k="browse.mod.adding" echo="stack" />
           ) : (
             <Chrome

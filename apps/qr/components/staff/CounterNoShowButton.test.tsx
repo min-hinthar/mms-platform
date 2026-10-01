@@ -1,11 +1,14 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { startTransition } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableLineView } from "@/lib/floor-types";
 import type { RecordCounterNoShowResult } from "@/lib/voids";
 import type { NoShowRefusal } from "./CounterNoShowButton";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
  * Phase 2f · pay at pickup — "They didn't come". The sheet's WIRING: what it claims is written off
@@ -252,13 +255,16 @@ describe("CounterNoShowButton — the write", () => {
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
-  it("a thrown transport reads as the outage sentence, never a crash", async () => {
+  it("a thrown transport may have cancelled the order: 'couldn't confirm' — never the write-outage 'wasn't saved', never a crash", async () => {
     record.mockRejectedValueOnce(new Error("offline"));
     mount();
     open();
     await act(async () => {});
     await submit();
-    expect(region().textContent?.length).toBeGreaterThan(0);
+    // Phase 2h (9e) — MUTATION (p2h-sheets/noshow/threw-said-as-outage): the old reading, which
+    // claims nothing was written off over a response that may have been lost after the RPC; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
+    expect(region().textContent).not.toContain(STAFF_WRITE_OUTAGE);
     expect(replace).not.toHaveBeenCalled();
   });
 });
@@ -609,5 +615,266 @@ describe("CounterNoShowButton — what the manager READ is what is submitted (Ph
     expect(noShowSetsMoved(base, { ...base, sent: [] })).toBe(true);
     expect(noShowSetsMoved(base, { ...base, dropped: [] })).toBe(true);
     expect(noShowSetsMoved(base, { ...base, comped: [] })).toBe(true);
+  });
+});
+
+// ── Phase 2h · p2h-sheets ──
+type NoShowAnswer = RecordCounterNoShowResult | NoShowRefusal;
+const hanging: Array<() => void> = [];
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+/** Settled in `afterEach` once the tree is gone (a pre-fix transition must not entangle the next). */
+function hang() {
+  const d = deferred<NoShowAnswer>();
+  hanging.push(() => d.resolve({ ok: false, reason: "not_open" }));
+  return d;
+}
+
+describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 2h · 9a · 9d · 9e)", () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    cleanup();
+    await act(async () => {
+      for (const end of hanging.splice(0)) end();
+    });
+  });
+  const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+  const closeX = () =>
+    screen.getByRole("button", {
+      name: (n) => n === STAFF["shell.close"].en || n === STAFF["shell.closeBusy"].en,
+    });
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  async function openSheet() {
+    mount();
+    open();
+    await act(async () => {});
+  }
+
+  it("no answer at STAFF_HANG_MS: the sheet frees (✕ live, confirm not busy), says the order may still be removed, offers the reload", async () => {
+    vi.useFakeTimers();
+    record.mockReturnValueOnce(hang().promise);
+    await openSheet();
+    await submit();
+    expect(confirmBtn().getAttribute("aria-busy")).toBe("true");
+    expect(closeX().getAttribute("aria-disabled")).toBe("true");
+    await advance(STAFF_HANG_MS - 1);
+    expect(confirmBtn().getAttribute("aria-busy")).toBe("true");
+    await advance(1);
+    // MUTATION (p2h-sheets/noshow/busy-never-clears): every exit refused forever; red.
+    expect(confirmBtn().getAttribute("aria-busy")).toBeNull();
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+    // MUTATION (p2h-sheets/noshow/waiting-said-as-unknown): red.
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    // MUTATION (p2h-sheets/noshow/no-reload): red.
+    expect(reloadBtn()).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(closeX());
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("the entanglement proxy: an UNRELATED async transition left hanging — the sheet still frees at the bound", async () => {
+    vi.useFakeTimers();
+    const other = deferred<void>();
+    hanging.push(() => other.resolve());
+    act(() => {
+      startTransition(async () => {
+        await other.promise;
+      });
+    });
+    record.mockReturnValueOnce(hang().promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    expect(confirmBtn().getAttribute("aria-busy")).toBeNull();
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a LATE ok while the sheet is open leaves for the floor; a LATE refusal is said in the region", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    await act(async () => {
+      late.resolve({ ok: true });
+    });
+    // MUTATION (p2h-sheets/noshow/late-answer-dropped): the order was cancelled and the sheet keeps
+    // saying "no answer yet" over a defunct detail; red.
+    expect(drop).toHaveBeenCalledWith("s-1");
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    cleanup();
+    const refused = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(refused.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      refused.resolve({ ok: false, reason: "not_open" });
+    });
+    expect(region().textContent).toBe(STAFF["table.noshow.err.notOpen"].en);
+    expect(reloadBtn()).toBeNull();
+  });
+
+  it("a LATE ok after the sheet was closed drops the stash but never navigates under the manager", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(closeX());
+    });
+    await act(async () => {
+      late.resolve({ ok: true });
+    });
+    expect(drop).toHaveBeenCalledWith("s-1");
+    // MUTATION (p2h-sheets/noshow/late-ok-navigates-a-closed-sheet): the page is replaced under a
+    // manager who has moved on (the page's own read finds the closed order); red.
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("a LATE throw is 'couldn't confirm'", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      late.reject(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-sheets/noshow/late-throw-unsaid): "no answer yet" stands for good; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
+  });
+
+  it("a re-tap while the write-off is still out is REFUSED, never sent", async () => {
+    vi.useFakeTimers();
+    record.mockReturnValueOnce(hang().promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    await submit();
+    // MUTATION (p2h-sheets/noshow/stalled-tap-dispatches): a second write-off queued behind the
+    // first, cancelling the order whenever the queue moves; red.
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("a step-up write-off with no answer keeps no PIN — it was sent, and must not be re-sent toward the lockout", async () => {
+    vi.useFakeTimers();
+    record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    await openSheet();
+    await submit();
+    fireEvent.change(dialog().querySelector("select")!, { target: { value: "m1" } });
+    const pinField = () =>
+      dialog().querySelector<HTMLInputElement>('input[type="password"], input[inputmode]')!;
+    fireEvent.change(pinField(), { target: { value: "1234" } });
+    record.mockReturnValueOnce(hang().promise);
+    await submit();
+    expect(record).toHaveBeenCalledTimes(2);
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    // MUTATION (p2h-sheets/noshow/waiting-keeps-the-pin): the masked digits stay; red.
+    expect(pinField().value).toBe("");
+  });
+
+  it("a tablet stalled on ANOTHER action refuses the write-off at the tap: nothing dispatched", async () => {
+    vi.useFakeTimers();
+    track(new Promise(() => {}));
+    await advance(STAFF_HANG_MS);
+    await openSheet();
+    await submit();
+    expect(record).not.toHaveBeenCalled();
+    expect(confirmBtn().getAttribute("aria-busy")).toBeNull();
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("a re-tap of THIS sheet's own waiting write-off is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    await submit();
+    // MUTATION (p2h-sheets/noshow/own-wait-forgotten): a second write-off queued behind the first; red.
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_open" });
+    });
+    record.mockReturnValueOnce(hang().promise);
+    await submit();
+    // MUTATION (p2h-sheets/noshow/own-wait-never-cleared): an answered write-off still refuses the retry; red.
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
+  it("a write-off that may still land outranks 'the order changed': the waiting sentence and its reload stay when a poll moves the order (critic F11)", async () => {
+    vi.useFakeTimers();
+    const sheet = (sent: string[]) => (
+      <StaffLangProvider lang="en">
+        <CounterNoShowButton
+          sessionId="s-1"
+          customerName="Aye"
+          lines={LINES}
+          sentLineIds={sent}
+          droppedLineIds={DROPPED}
+          compedKitchenLineIds={COMPED}
+          lang="en"
+        />
+      </StaffLangProvider>
+    );
+    const first = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(first.promise);
+    const view = render(sheet(SENT));
+    open();
+    await act(async () => {});
+    await submit();
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    // The page's poll lands mid-wait and the sent set moved — maybe BECAUSE the write-off landed.
+    view.rerender(sheet(["s1"]));
+    // MUTATION (p2h-sheets/noshow/moved-hides-the-waiting): "the order changed — confirm again"
+    // replaces "no answer yet — don't do it again", and the reload goes with it; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    expect(reloadBtn()).not.toBeNull();
+    // The re-arm is still offered (it renders on `moved`, not on the region's sentence).
+    expect(
+      [...dialog().querySelectorAll("button")].some(
+        (b) => b.textContent === STAFF["table.noshow.rearm"].en,
+      ),
+    ).toBe(true);
+    // A THROWN write-off may have cancelled the order too: "couldn't confirm — check the order"
+    // outranks the move the same way.
+    cleanup();
+    await act(async () => {
+      first.resolve({ ok: false, reason: "not_open" }); // answered: the tablet is not stalled
+    });
+    record.mockRejectedValueOnce(new Error("fetch failed"));
+    const again = render(sheet(SENT));
+    open();
+    await act(async () => {});
+    await submit();
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
+    again.rerender(sheet(["s1"]));
+    // MUTATION (p2h-sheets/noshow/moved-hides-the-unknown): red.
+    expect(region().textContent).toBe(STAFF["table.noshow.err.unknown"].en);
   });
 });

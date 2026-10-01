@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { settleCash } from "@/lib/staff-cart";
+import { boundWrite, stalledSince } from "@/lib/bounded-write";
 import {
   cashSettleBlocked,
   changeAsTipCents,
@@ -19,6 +20,7 @@ import { Button, Sheet, type ButtonVariant } from "@mms/ui";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
+import { ReloadButton } from "./ReloadOffer";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
@@ -32,7 +34,9 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  *  is already moving on the table, with WHO holds it (P2w — a dictionary key per holder, never the
  *  server's English); `unknown` is a REJECTED action — the response was lost, so the settle may
  *  have landed (P2ab); `unsent` is the settle gate refusing (Phase 2c · gate — dishes the kitchen
- *  never got), with the server's own count. */
+ *  never got), with the server's own count. Phase 2h: `waiting` is NO ANSWER YET at the bound — the
+ *  settle may still be recorded (9e); `stalled` is a tap refused before anything was sent, because
+ *  this tablet is still waiting on an earlier answer (9d). Both offer the reload (`ReloadButton`). */
 type SheetError =
   | { kind: "server"; text: string }
   | { kind: "moved"; from: number; to: number }
@@ -40,7 +44,13 @@ type SheetError =
   | { kind: "unknown" }
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so nothing was recorded; the same tap retries.
-  | { kind: "unreadable" };
+  | { kind: "unreadable" }
+  | { kind: "waiting" }
+  | { kind: "stalled" };
+
+/** What a settle's answer is read against — every figure captured AT THE TAP, so a late answer
+ *  (9e) lands on the attempt the cashier made, never on whatever the sheet shows when it arrives. */
+type SettleTap = { quoted: number; basis: number; tenderAtTap: number | null };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
 export type CashSettled = {
@@ -160,14 +170,25 @@ export function CashSettleButton({
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
-  // A transition's `pending`, never a hand-rolled boolean — §16's one caller-owned contract. Inside
-  // a modal sheet every exit is refused while `busy` holds, behind a trapped focus scope, so a
-  // flag that any path forgets to clear is a permanent keyboard trap; `pending` settles by
-  // construction, including when the action rejects (caught below so it never escapes the sheet).
-  const [pending, startSettle] = useTransition();
-  // The tap-time guard (a REF, read when the finger lands): `pending` is state, and two taps inside
-  // one frame both read the render before the transition began.
+  // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
+  // BOUNDED await — never a transition's `pending`. Inside a modal sheet every exit is refused while
+  // `busy` holds, behind a trapped focus scope, so a flag that does not clear is a keyboard trap —
+  // and a transition's `pending` does not clear while the Server Action it dispatched is unanswered
+  // (Next queues actions one per tab and the router's update shares the transition's lane; measured
+  // in Chromium, LEARNINGS #149 · #200), whatever bound the callback races. `boundWrite` resolves at
+  // STAFF_HANG_MS at the latest, so this frees at the bound on every path (the M82 guard parses for
+  // exactly this shape). Calling the action OUTSIDE any transition also takes this sheet out of
+  // React's global async-action scope, which would otherwise hold every other transition and every
+  // router commit on the tab while a settle hangs.
+  const [busy, setBusy] = useState(false);
+  // The tap-time guard (a REF, read when the finger lands): `busy` is state, and two taps inside
+  // one frame both read the render before it flipped.
   const inFlight = useRef(false);
+  // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
+  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
+  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
+  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  const ownLate = useRef(false);
   // The settle landed: the sheet is unmounted (see the render) and the trigger goes busy until the
   // paid state re-renders this control away. When a PAID CARD follows, the close-restore must not
   // fight the parent for focus (it focuses the card, `FloorDetailLive`'s own effect); a ref beside
@@ -175,6 +196,16 @@ export function CashSettleButton({
   const [landed, setLanded] = useState(false);
   const handoffLandedRef = useRef(false);
   const [error, setError] = useState<SheetError | null>(null);
+  // Critic F2 — a LATE word (refusal or throw) that landed while the sheet was CLOSED: the waiting
+  // arm freed the exits, so the cashier may have closed it, and the page says nothing while this
+  // detail is mounted (its hand-up speaks for an UNMOUNTED one). Unread, it is said under the
+  // trigger and carried into the next open's alert — never wiped by that reopen. `sheetOpen` is
+  // the sheet's state as of the last commit, for an answer that lands in a later render.
+  const [lateUnseen, setLateUnseen] = useState(false);
+  const sheetOpen = useRef(false);
+  useEffect(() => {
+    sheetOpen.current = confirming;
+  }, [confirming]);
   // The QUOTE (lib/register-math `SettleQuote`) — frozen when the sheet OPENS, so every figure in it
   // (the question, the chips, the readout, Settle's label, the `quotedCents` the tap sends) is the
   // figure the cashier READ, never the prop the page's ~0.4s re-read keeps moving under an open
@@ -248,7 +279,7 @@ export function CashSettleButton({
   // §22 — the ONE binding: Settle's aria-disabled, its aria-describedby and `confirm` read it.
   const blocked = cashSettleBlocked(tipOverlong ? null : tipCents, tender);
   const tipValid = blocked !== "tipCap";
-  const canSettle = !pending && blocked === null;
+  const canSettle = !busy && blocked === null;
   // `.mms-pop` on the change figure only when a CHIP filled the field (typing never pops): the key
   // changes per chip tap, so the dd remounts and plays once.
   const [chipPop, setChipPop] = useState<number | null>(null);
@@ -266,9 +297,91 @@ export function CashSettleButton({
   // to this trigger. A ref, read by the close handler; the server's count rides it.
   const unsentJump = useRef<number | null>(null);
 
-  function confirm() {
+  /**
+   * An ANSWER from `settleCash` — on time, or late (9e: the answer to an attempt whose sheet already
+   * said "no answer yet"). Every branch reads the TAP's figures (`at`), never the render it lands in.
+   * A refusal's words land in the sheet's one alert — state, which React simply drops on an
+   * unmounted control, so they are said only while it is mounted with no flag to forget. The
+   * hand-ups (`onOutcomeUnknown`, `onSettleOutcome`, `onSettled`, `onChanged`) are the page's and run
+   * regardless: a settle that landed after the detail unmounted still hands its card up, since the
+   * parent renders it outside the open-cart conditional this control lives in.
+   */
+  function land(res: Awaited<ReturnType<typeof settleCash>>, at: SettleTap) {
+    // An answer came back: whatever it says, the outcome is KNOWN again — on a late answer too,
+    // and even after unmount (the page's closed-bounce hold must not outlive the question).
+    onOutcomeUnknown?.(false);
+    if (!res.ok) {
+      onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
+      // The sheet stays open with the refusal inside it — the cashier reads why where they
+      // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
+      // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
+      if (res.code === "moved") {
+        // Nothing was recorded. Quote the server's figure at once (not optimistic — it is what the
+        // server just derived) and re-read the detail; the re-tap quotes it and is re-checked.
+        // `raisedAt` — the page's read clock NOW (R1): only a read that starts after this may
+        // settle the server's figure, whatever that read brings back.
+        setQuote({
+          cents: res.totalCents,
+          basis: at.basis,
+          raisedAt: readsStarted?.() ?? readTicket,
+        });
+        // Codex round 3 (P2) — the server's figure came without its tip base: the percentage
+        // chips are withheld until the page's read (the reconcile) supplies the matching base,
+        // never computed off the previous order's.
+        setTipBaseAtOpen(null);
+        setError({ kind: "moved", from: at.quoted, to: res.totalCents });
+        onChanged?.();
+        return;
+      }
+      if (res.code === "inflight") {
+        // P2w — said in the device language, naming who holds the money (the typed code; the
+        // English `error` is for a bundle older than it).
+        setError({ kind: "inflight", holder: res.holder });
+        return;
+      }
+      if (res.code === "unsent") {
+        // Phase 2c · gate — nothing recorded (the freeze released on the server). Said here in
+        // the dictionary's words with the server's count; the close takes the cashier to the
+        // Send, and the page re-reads so its note appears under the triggers.
+        setError({ kind: "unsent", units: res.units });
+        unsentJump.current = res.units;
+        onChanged?.();
+        return;
+      }
+      if (res.code === "unreadable") {
+        // P2dc · P2el — nothing recorded, the freeze released: said in the dictionary's words,
+        // and Take stays armed in the open sheet — the retry is the same tap.
+        setError({ kind: "unreadable" });
+        return;
+      }
+      setError({ kind: "server", text: res.error });
+      return;
+    }
+    // The write is recorded — the sheet goes (unmounted, not closed: an exiting sheet with a
+    // re-armed Settle inside it, or one held busy for a re-fetch this control does not own, is the
+    // trap §16 names) and the trigger reads busy until the paid state lands.
+    setLanded(true);
+    setConfirming(false);
+    if (handoff || at.tenderAtTap != null) {
+      // Set in the SAME branch that hands the card up, so the sheet's close-restore never fights
+      // the parent's card for focus.
+      handoffLandedRef.current = true;
+      // The PERSISTED figures the settle returned (the prop can be a poll interval stale).
+      onSettled?.({
+        orderId: res.orderId,
+        totalCents: res.totalCents,
+        tipCents: res.tipCents,
+        tenderedCents: at.tenderAtTap,
+      });
+    }
+    // No card (a table that paid without a tender): the paid state arrives on the re-read and
+    // unmounts this control; until then the trigger says "Taking payment…" and refuses.
+    onChanged?.();
+  }
+
+  async function confirm() {
     if (inFlight.current) return;
-    if (drift && !pending) {
+    if (drift && !busy) {
       // The total moved while the sheet was open: this tap ADOPTS the new figure explicitly — the
       // label, the chips and the readout re-derive from it in front of the cashier, the sentence
       // naming both stays, and nothing is recorded. The next tap settles the figure now shown.
@@ -279,102 +392,77 @@ export function CashSettleButton({
       return;
     }
     if (!canSettle) return;
+    // Phase 2h (9d) — refused AT THE TAP, never dispatched, while any action on this tab has gone
+    // STAFF_HANG_MS without an answer: Next would only queue this payment behind it, and release it
+    // minutes later — after the cashier took the money another way. Read NOW, never from render
+    // state. This is also what refuses a re-tap while this sheet's own settle is `waiting`: its raw
+    // has been out exactly the bound at that instant, so the ledger already calls the tab stalled.
+    if (stalledSince() !== null) {
+      setError({ kind: "stalled" });
+      return;
+    }
+    if (ownLate.current) {
+      setError({ kind: "stalled" }); // the same refusal, the same words — whatever the clock says
+      return;
+    }
     inFlight.current = true;
+    setBusy(true);
     haptic("commit"); // at the tap — the gesture, not the network — with the busy label beside it
     setError(null);
     unsentJump.current = null; // a new attempt owes no jump until it is refused for this reason
     // The figure the cashier is looking at (the frozen quote), and the prop the page read — both
     // captured at the tap, so a refusal can name the one and keep the other as the quote's basis.
-    const quoted = shownTotal;
-    const basis = totalCents;
-    const tenderAtTap = tenderedCents != null && tenderedCents > 0 ? tenderedCents : null;
-    startSettle(async () => {
-      try {
-        let res: Awaited<ReturnType<typeof settleCash>>;
-        try {
-          res = await settleCash({ sessionId, tipCents, quotedCents: quoted });
-        } catch (e) {
-          // P2ab — a REJECTED action is an UNKNOWN outcome, not a refusal: the response can be lost
-          // AFTER `mms_fulfill_cash_order` committed, so "that change wasn't saved" would be false.
-          // Say we don't know, and re-read the detail: if it landed, the paid state renders this
-          // control away; if not, Settle is live again (a retry cannot record twice — the cart is
-          // no longer open once it has been paid).
-          console.error("[CashSettleButton] settle rejected — outcome unknown", e);
-          setError({ kind: "unknown" });
-          onOutcomeUnknown?.(true);
-          onSettleOutcome?.("unknown");
-          onChanged?.();
-          return;
-        }
-        // An answer came back: whatever it says, the outcome is KNOWN again.
-        onOutcomeUnknown?.(false);
-        if (!res.ok) {
-          onSettleOutcome?.("refused"); // nothing was recorded, whichever refusal it is
-          // The sheet stays open with the refusal inside it — the cashier reads why where they
-          // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
-          // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
-          if (res.code === "moved") {
-            // Nothing was recorded. Quote the server's figure at once (not optimistic — it is what the
-            // server just derived) and re-read the detail; the re-tap quotes it and is re-checked.
-            // `raisedAt` — the page's read clock NOW (R1): only a read that starts after this may
-            // settle the server's figure, whatever that read brings back.
-            setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });
-            // Codex round 3 (P2) — the server's figure came without its tip base: the percentage
-            // chips are withheld until the page's read (the reconcile) supplies the matching base,
-            // never computed off the previous order's.
-            setTipBaseAtOpen(null);
-            setError({ kind: "moved", from: quoted, to: res.totalCents });
-            onChanged?.();
-            return;
-          }
-          if (res.code === "inflight") {
-            // P2w — said in the device language, naming who holds the money (the typed code; the
-            // English `error` is for a bundle older than it).
-            setError({ kind: "inflight", holder: res.holder });
-            return;
-          }
-          if (res.code === "unsent") {
-            // Phase 2c · gate — nothing recorded (the freeze released on the server). Said here in
-            // the dictionary's words with the server's count; the close takes the cashier to the
-            // Send, and the page re-reads so its note appears under the triggers.
-            setError({ kind: "unsent", units: res.units });
-            unsentJump.current = res.units;
-            onChanged?.();
-            return;
-          }
-          if (res.code === "unreadable") {
-            // P2dc · P2el — nothing recorded, the freeze released: said in the dictionary's words,
-            // and Take stays armed in the open sheet — the retry is the same tap.
-            setError({ kind: "unreadable" });
-            return;
-          }
-          setError({ kind: "server", text: res.error });
-          return;
-        }
-        // The write is recorded — the sheet goes (unmounted, not closed: an exiting sheet with a
-        // re-armed Settle inside it, or one held busy for a re-fetch this control does not own, is the
-        // trap §16 names) and the trigger reads busy until the paid state lands.
-        setLanded(true);
-        setConfirming(false);
-        if (handoff || tenderAtTap != null) {
-          // Set in the SAME branch that hands the card up, so the sheet's close-restore never fights
-          // the parent's card for focus.
-          handoffLandedRef.current = true;
-          // The PERSISTED figures the settle returned (the prop can be a poll interval stale).
-          onSettled?.({
-            orderId: res.orderId,
-            totalCents: res.totalCents,
-            tipCents: res.tipCents,
-            tenderedCents: tenderAtTap,
-          });
-        }
-        // No card (a table that paid without a tender): the paid state arrives on the re-read and
-        // unmounts this control; until then the trigger says "Taking payment…" and refuses.
-        onChanged?.();
-      } finally {
-        inFlight.current = false;
+    const at: SettleTap = {
+      quoted: shownTotal,
+      basis: totalCents,
+      tenderAtTap: tenderedCents != null && tenderedCents > 0 ? tenderedCents : null,
+    };
+    try {
+      // 9b — called OUTSIDE any transition, awaited BOUNDED, handed the RAW action promise (a raced
+      // one would read `threw` at 15s and drop the late answer). `quotedCents` is compare-only.
+      const out = await boundWrite(settleCash({ sessionId, tipCents, quotedCents: at.quoted }));
+      if (out.kind === "answer") {
+        land(out.value, at);
+        return;
       }
-    });
+      if (out.kind === "threw") {
+        // P2ab — a REJECTED action is an UNKNOWN outcome, not a refusal: the response can be lost
+        // AFTER `mms_fulfill_cash_order` committed, so "that change wasn't saved" would be false.
+        // Say we don't know, and re-read the detail: if it landed, the paid state renders this
+        // control away; if not, Settle is live again (a retry cannot record twice — the cart is
+        // no longer open once it has been paid).
+        console.error("[CashSettleButton] settle rejected — outcome unknown", out.error);
+        setError({ kind: "unknown" });
+        onOutcomeUnknown?.(true);
+        onSettleOutcome?.("unknown");
+        onChanged?.();
+        return;
+      }
+      // Phase 2h (9e) — NO ANSWER YET at the bound. Not "wasn't saved" and not "couldn't confirm":
+      // the settle may still be recorded, so the sheet says so and offers the reload, and the
+      // outcome is UNKNOWN to the page (its counter closed-bounce holds on it). The re-read queued
+      // here runs only after this settle answers — Next's queue is FIFO per tab — so it shows the
+      // truth; and it is FIFO, not FloorDetailLive's SETTLE_MAY_LAND_MS, that bounds a settle which
+      // was queued unsent behind a hung head (register-math.ts `settleUnknownAfterRead`).
+      ownLate.current = true;
+      setError({ kind: "waiting" });
+      onOutcomeUnknown?.(true);
+      onSettleOutcome?.("unknown");
+      onChanged?.();
+      void out.late.then((late) => {
+        ownLate.current = false; // answered or thrown: this sheet's write is no longer out
+        // `late` never rejects. A late ANSWER (ok or refusal) is applied exactly as an on-time one
+        // — a late ok LANDS (the sheet unmounts and hands its card over) — and clears the unknown
+        // even after unmount. A late THROW is still no answer: the outcome stays unknown.
+        if (late.kind === "answer") land(late.value, at);
+        else setError({ kind: "unknown" });
+        // F2 — no sheet to read it in: keep it for the trigger's line and the next open.
+        if (!sheetOpen.current && (late.kind === "threw" || !late.value.ok)) setLateUnseen(true);
+      });
+    } finally {
+      inFlight.current = false;
+      setBusy(false); // frees AT THE BOUND on every path (fact 3) — the M82 guard parses for it
+    }
   }
 
   const settleReasons =
@@ -391,6 +479,43 @@ export function CashSettleButton({
     : settleReasons;
   // The alert: a live drift outranks a stored outcome — it is the fact the cashier must act on now.
   const alertMsg: SheetError | null = drift ? { kind: "moved", ...drift } : error;
+  /** A sheet error's sentence — said in the ONE alert, or (F2) under the trigger while unread. */
+  const sayError = (m: SheetError) =>
+    m.kind === "server" ? (
+      <OutageText lang={lang} error={m.text} />
+    ) : m.kind === "unreadable" ? (
+      <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+    ) : m.kind === "moved" ? (
+      <Chrome
+        lang={lang}
+        k="settle.cash.moved"
+        vars={{ old: fmt(m.from), m: fmt(m.to) }}
+        echo={false}
+      />
+    ) : m.kind === "inflight" ? (
+      <Chrome
+        lang={lang}
+        k={inFlightMsg(m.holder).k}
+        vars={inFlightMsg(m.holder).vars}
+        echo={false}
+      />
+    ) : m.kind === "unsent" ? (
+      <Chrome
+        lang={lang}
+        k={settleBlockedMsg(m.units, running).k}
+        vars={settleBlockedMsg(m.units, running).vars}
+        echo={false}
+      />
+    ) : m.kind === "waiting" ? (
+      <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
+    ) : m.kind === "stalled" ? (
+      <Chrome lang={lang} k="out.stalled" echo={false} />
+    ) : (
+      <Chrome lang={lang} k="settle.cash.unknown" echo={false} />
+    );
+  // F2 — an unread late word, said under the trigger while the sheet is closed (never at once with
+  // the alert: opening the sheet reads it there, and the trigger's tap clears this).
+  const lateNote = lateUnseen && !confirming ? error : null;
 
   return (
     <div>
@@ -417,7 +542,10 @@ export function CashSettleButton({
             onBlockedTap?.(null);
             return;
           }
-          setError(null); // a refusal read in the last sheet is not this attempt's
+          // A refusal read in the last sheet is not this attempt's — but one that landed while the
+          // sheet was closed was never read: it opens with this sheet, in its one alert (F2).
+          if (!lateUnseen) setError(null);
+          setLateUnseen(false);
           unsentJump.current = null;
           // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
           // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
@@ -442,9 +570,8 @@ export function CashSettleButton({
       {!landed && (
         <Sheet
           open={confirming}
-          // `busy` before the arrow-valued prop, deliberately: the M82 caller guard scans
-          // `<Sheet[^>]*busy=` and cannot cross an `=>`.
-          busy={pending}
+          // M82 — STATE cleared in a bounded `finally` (9a; see `busy` above), parsed by the guard.
+          busy={busy}
           onOpenChange={(next) => {
             if (!next) setConfirming(false);
           }}
@@ -715,42 +842,22 @@ export function CashSettleButton({
             <div className="reg-settle-actions">
               {/* The ONE alert on this control, inside the sheet where the tap was — a second copy
                   under the trigger would mount at the start of the exit, under the sheet's own
-                  `aria-hidden`, unannounced (the blind pass); Cancel and the trigger clear it. */}
+                  `aria-hidden`, unannounced (the blind pass); the trigger clears it — except a late
+                  one that landed with the sheet closed and unread (F2), which this alert says. */}
               {alertMsg && (
                 <p
                   id="cash-alert"
                   role="alert"
                   style={{ ...hint, margin: 0, color: "var(--warn)" }}
                 >
-                  {alertMsg.kind === "server" ? (
-                    <OutageText lang={lang} error={alertMsg.text} />
-                  ) : alertMsg.kind === "unreadable" ? (
-                    <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
-                  ) : alertMsg.kind === "moved" ? (
-                    <Chrome
-                      lang={lang}
-                      k="settle.cash.moved"
-                      vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
-                      echo={false}
-                    />
-                  ) : alertMsg.kind === "inflight" ? (
-                    <Chrome
-                      lang={lang}
-                      k={inFlightMsg(alertMsg.holder).k}
-                      vars={inFlightMsg(alertMsg.holder).vars}
-                      echo={false}
-                    />
-                  ) : alertMsg.kind === "unsent" ? (
-                    <Chrome
-                      lang={lang}
-                      k={settleBlockedMsg(alertMsg.units, running).k}
-                      vars={settleBlockedMsg(alertMsg.units, running).vars}
-                      echo={false}
-                    />
-                  ) : (
-                    <Chrome lang={lang} k="settle.cash.unknown" echo={false} />
-                  )}
+                  {sayError(alertMsg)}
                 </p>
+              )}
+              {/* Phase 2h — both sentences say "reload the page", and the console is installed
+                  standalone (no browser reload button): the reload sits BESIDE the one alert,
+                  never inside it, and carries no live role of its own. */}
+              {(alertMsg?.kind === "waiting" || alertMsg?.kind === "stalled") && (
+                <ReloadButton lang={lang} block />
               )}
               <div style={buttonRow}>
                 {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
@@ -760,9 +867,9 @@ export function CashSettleButton({
                 <Button
                   variant="secondary"
                   size="lg"
-                  {...(pending ? { "aria-disabled": true } : {})}
+                  {...(busy ? { "aria-disabled": true } : {})}
                   onClick={() => {
-                    if (pending) return;
+                    if (busy) return;
                     setConfirming(false);
                   }}
                 >
@@ -775,7 +882,7 @@ export function CashSettleButton({
                   size="xl"
                   style={{ flex: 1 }}
                   {...(blocked !== null ? { "aria-disabled": true } : {})}
-                  busy={pending}
+                  busy={busy}
                   busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
                   aria-describedby={settleDescribedBy}
                   onClick={confirm}
@@ -795,9 +902,12 @@ export function CashSettleButton({
       {/* Static helper text (a description, not a status) — linked to the trigger, never a live
           region. A settle FAILURE is an assertive role="alert" instead, inside the sheet. After
           Phase 2c the table page carries exactly ONE polite region (FloorDetailLive's order card —
-          OPEN-ITEMS P2r); this element is not one. */}
-      <p id="settle-hint" style={hint}>
-        <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
+          OPEN-ITEMS P2r); this element is not one. Critic F2 — a LATE refusal that landed with the
+          sheet closed has no alert to speak in and no page line while this detail is mounted, so
+          it takes this line (still the trigger's description, still no live role) until the
+          trigger is tapped — and the sheet that opens says it in its alert. */}
+      <p id="settle-hint" style={lateNote ? { ...hint, color: "var(--warn)" } : hint}>
+        {lateNote ? sayError(lateNote) : <Chrome lang={lang} k="settle.cash.hint" echo="stack" />}
       </p>
     </div>
   );

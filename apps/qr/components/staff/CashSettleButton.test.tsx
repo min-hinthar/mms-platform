@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { startTransition } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * K29(b) — the cash confirm is the shared sheet. What the move had to keep, and what it changed
@@ -1010,5 +1012,323 @@ describe("CashSettleButton — a refusal's figure is settled by the page's NEXT 
       tipCents: 0,
       quotedCents: 4210,
     });
+  });
+});
+
+// ── Phase 2h · p2h-sheets ──
+describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · P2cz, decisions 9a · 9d · 9e)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+  const alertText = (dialog: HTMLElement) => within(dialog).getByRole("alert").textContent;
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const OK = { ok: true as const, orderId: "o1", totalCents: 4250, tipCents: 0 };
+
+  it("no answer at STAFF_HANG_MS: the sheet frees (Cancel and ✕ live), says 'no answer yet' with a reload beside it, and hands the unknown up", async () => {
+    vi.useFakeTimers();
+    settleCash.mockReturnValueOnce(hang());
+    const onOutcomeUnknown = vi.fn();
+    const onSettleOutcome = vi.fn();
+    const { open, settle, cancel, onChanged } = mount({ onOutcomeUnknown, onSettleOutcome });
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settle().getAttribute("aria-busy")).toBe("true");
+    await advance(STAFF_HANG_MS - 1);
+    // Still in the air one millisecond short of the bound: busy, nothing said.
+    expect(settle().getAttribute("aria-busy")).toBe("true");
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    await advance(1);
+    // MUTATION (p2h-sheets/cash/busy-never-clears): drop `setBusy(false)` from the finally — the
+    // sheet holds every exit forever behind a trapped focus scope; red.
+    expect(settle().getAttribute("aria-busy")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: STAFF["shell.close"].en }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    // MUTATION (p2h-sheets/cash/waiting-said-as-unknown): say "the connection dropped… try again"
+    // over an answer that is merely late — a second settle queued behind the first; red.
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    // MUTATION (p2h-sheets/cash/waiting-no-reload): the sentence says "reload the page" on a
+    // standalone console with no browser reload; red.
+    expect(reloadBtn()).not.toBeNull();
+    // MUTATION (p2h-sheets/cash/waiting-unknown-unhanded): the page's counter closed-bounce never
+    // holds on a settle that may yet land; red.
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    // MUTATION (p2h-sheets/cash/waiting-unsaid-to-the-pane): a detail that unmounts mid-wait loses
+    // the only line that could say it; red.
+    expect(onSettleOutcome).toHaveBeenLastCalledWith("unknown");
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(cancel().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("the entanglement proxy: an UNRELATED async transition left hanging first — the sheet still frees at the bound (a transition's `pending` would not)", async () => {
+    vi.useFakeTimers();
+    // React 19 entangles every transition with ANY async action still pending (the browser's
+    // stand-in: Next's router update for a hung Server Action). A sheet whose `busy` is a
+    // transition's `pending` stays busy past any bound its callback races; state in a finally frees.
+    const other = deferred<void>();
+    hanging.push(() => other.resolve());
+    act(() => {
+      startTransition(async () => {
+        await other.promise;
+      });
+    });
+    settleCash.mockReturnValueOnce(hang());
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(settle().getAttribute("aria-busy")).toBeNull();
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+  });
+
+  it("a LATE ok lands: the sheet unmounts, the card is handed up with the PERSISTED figures, the unknown clears", async () => {
+    vi.useFakeTimers();
+    stubComputedStyle();
+    const late = deferred<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const onOutcomeUnknown = vi.fn();
+    const { open, settle, settling, onSettled, onChanged } = mount({ onOutcomeUnknown });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    await act(async () => {
+      late.resolve(OK);
+    });
+    // MUTATION (p2h-sheets/cash/late-answer-dropped): a late answer is never applied — the money
+    // went through and the sheet keeps saying "no answer yet"; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onSettled).toHaveBeenCalledWith({
+      orderId: "o1",
+      totalCents: 4250,
+      tipCents: 0,
+      tenderedCents: null,
+    });
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+    expect(onChanged).toHaveBeenCalledTimes(2);
+    expect(settling().getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("a LATE ok after the control unmounted still hands its card up and clears the unknown (9e)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const onOutcomeUnknown = vi.fn();
+    const { open, settle, onSettled } = mount({ onOutcomeUnknown });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(true);
+    cleanup(); // the detail re-rendered without this control
+    await act(async () => {
+      late.resolve(OK);
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+  });
+
+  it("a LATE refusal is said in the open sheet, handed up as refused, clears the unknown — and the next tap sends again", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const onOutcomeUnknown = vi.fn();
+    const onSettleOutcome = vi.fn();
+    const { open, settle } = mount({ onOutcomeUnknown, onSettleOutcome });
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    expect(alertText(dialog)).toContain("Card reader offline");
+    expect(onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    // MUTATION (p2c-register/cash-unknown-never-cleared — the first line of `land`, which the late
+    // answer now shares): the page holds a counter's closed-bounce
+    // over a settle the server has since refused; red.
+    expect(onOutcomeUnknown).toHaveBeenLastCalledWith(false);
+    expect(reloadBtn()).toBeNull();
+    // The raw answered — the tablet is no longer stalled, so the cashier's retry is SENT.
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledTimes(2);
+  });
+
+  it("a LATE refusal that lands with the sheet CLOSED is said under the trigger and opens with the next sheet — never wiped by the reopen (critic F2)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const onSettleOutcome = vi.fn();
+    const { open, settle, cancel, trigger } = mount({ onSettleOutcome });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    // The waiting arm freed the exits: the cashier, told "no answer yet", closes the sheet.
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    // While the detail is mounted the PAGE says nothing (its hand-up is for an unmounted detail) —
+    // so this control must, or the cash sits in the drawer with no record and no sentence.
+    expect(onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    const hintEl = document.getElementById("settle-hint")!;
+    // MUTATION (p2h-sheets/cash/late-refusal-unsaid-while-closed): the line under the trigger
+    // keeps its helper text over a payment that was NOT recorded; red.
+    expect(hintEl.textContent).toContain("Card reader offline");
+    expect(trigger().getAttribute("aria-describedby")).toContain("settle-hint");
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    const dialog = screen.getByRole("dialog", { name: STAFF["settle.cash.title"].en });
+    // MUTATION (p2h-sheets/cash/late-refusal-wiped-by-the-reopen): the trigger's "a refusal read in
+    // the last sheet is not this attempt's" wipes one nobody read; red.
+    expect(within(dialog).getByRole("alert").textContent).toContain("Card reader offline");
+    // Read now (in the alert): the line under the trigger is helper text again, and a SEEN refusal
+    // never greets the open after this one.
+    expect(hintEl.textContent).toBe(STAFF["settle.cash.hint"].en);
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+  });
+
+  it("a LATE refusal that lands while the sheet is OPEN is read there — the next open starts clean", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const { open, settle, cancel, trigger } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    expect(within(dialog).getByRole("alert").textContent).toContain("Card reader offline");
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    // MUTATION (p2h-sheets/cash/seen-refusal-kept-for-the-reopen): a refusal already read in the
+    // open sheet is held as "unseen" — it speaks under the trigger and greets the next attempt; red.
+    expect(document.getElementById("settle-hint")!.textContent).toBe(STAFF["settle.cash.hint"].en);
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+  });
+
+  it("a LATE throw is still no answer: the outcome stays unknown and the sheet says it couldn't confirm", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let fail!: (e: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((_, rej) => (fail = rej)));
+    const onOutcomeUnknown = vi.fn();
+    const { open, settle } = mount({ onOutcomeUnknown });
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    await act(async () => {
+      fail(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-sheets/cash/late-throw-reads-as-known): a lost response after a long wait is
+    // treated as an answer — the closed-bounce hold drops while the settle may have landed; red.
+    expect(onOutcomeUnknown).not.toHaveBeenCalledWith(false);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.unknown"].en);
+  });
+
+  it("a re-tap while the settle is still out is REFUSED, never sent — said as the stalled tablet, with the reload", async () => {
+    vi.useFakeTimers();
+    settleCash.mockReturnValueOnce(hang());
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (p2h-sheets/cash/stalled-tap-dispatches): a second settle queued behind the first,
+    // released whenever the queue moves — after the cashier took the money some other way; red.
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("a tablet already stalled on ANOTHER action refuses the settle at the tap: nothing dispatched, the reload offered", async () => {
+    vi.useFakeTimers();
+    track(new Promise(() => {})); // some earlier action on this tab that never answered
+    await advance(STAFF_HANG_MS);
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).not.toHaveBeenCalled();
+    expect(settle().getAttribute("aria-busy")).toBeNull();
+    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("a re-tap of THIS sheet's own waiting settle is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    // The bound fires on a monotonic timer; the ledger ages its entries by the WALL clock. Set back
+    // (a person, a sync), the ledger reads "not stalled" while this settle is still out.
+    vi.setSystemTime(Date.now() - 60_000);
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (p2h-sheets/cash/own-wait-forgotten): the refusal leans on the ledger alone, and a
+    // second settle queues behind the first; red.
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (p2h-sheets/cash/own-wait-never-cleared): an answered settle still refuses the retry; red.
+    expect(settleCash).toHaveBeenCalledTimes(2);
   });
 });
