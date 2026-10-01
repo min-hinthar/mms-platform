@@ -20,7 +20,21 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > required to send (SQL-enforced) and kept once food is in; no auto-advance to Ready at settlement —
 > the HandoffCard only gains "went to the kitchen before they paid".
 >
-> **⚠️ The migration is NOT on prod yet — and must be, before merge.**
+> **✅ APPLIED TO PROD 2026-10-01 — MCP stamp `20261001002306 p2f_counter_cook_before_paid`**, at
+> head `f50c6ab` (the migration is byte-identical from `8786bbe`), after the owner-requested
+> self-review stood in for Codex round 4 (Codex out of credits; the owner's instruction: "review
+> yourself, fix any issues comprehensively, and then merge when ready after migrations applied").
+> Verified: (a) the three result shapes; (b) all ELEVEN service_role-only — anon f · authenticated f
+> · service_role t, no PUBLIC in `proacl`, `search_path=""` — `prosecdef` true on exactly
+> `mms_sweep_expired_sessions`, `mms_bump_ticket`, `mms_merge_table_orders`; (c) `mms_fire_cart`,
+> `mms_undo_fire`, `mms_fire_pending_food`, `mms_resolve_approval`, `mms_fulfill_cash_order` md5
+> identical before and after; (d) `counter_arm text NULL` + `qr_carts_counter_arm_check`; (e) all
+> eleven `md5(prosrc)` equal the extractor on the committed file (validated 11/11 on a local replay
+> first); (f) the stamp above; the `mms-sweep-expired-sessions` cron job unchanged; a rolled-back
+> probe returned not_found / not_open / 0 for unknown ids on every function, the merge raised, and
+> the CHECK refused a bogus arm. The procedure below is kept for a re-apply.
+>
+> **The procedure (kept for any re-apply):**
 > `supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql` is applied ONE FILE through
 > the Supabase MCP `apply_migration` (name `p2f_counter_cook_before_paid`) only at the FINAL head —
 > after CI's supabase job (the p2f SQL test, the mode-authority battery, the counter-fire race and
