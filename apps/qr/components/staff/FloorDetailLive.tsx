@@ -79,6 +79,8 @@ import {
   paneFreezeSpoken,
   readHandoffStash,
   stashHandoff,
+  lostWriteKind,
+  type LateAnswer,
   type LostKind,
   type SettleOutcome,
 } from "@/lib/floor-pane";
@@ -148,10 +150,11 @@ export function FloorDetailLive({
     name: { counter: boolean; display: string },
     kind: LostKind,
   ) => void;
-  /** Pane — Phase 2h · integration: a payment this detail's control had reported UNKNOWN (no
-   *  answer at the bound) LANDED after this detail unmounted — a late ok. The pane retracts its
-   *  "we don't know if the payment went through" for this table (`lostAfterLanded`). */
-  onLostLanded?: (sessionId: string) => void;
+  /** Pane — Phase 2h · integration: a payment (or a line edit) this detail had reported UNKNOWN (no
+   *  answer at the bound) LANDED after this detail unmounted — a late ok. The pane answers its "we
+   *  don't know" / "no answer yet" for this table (`lostAfterLanded`): `paid`, `started` (the reader
+   *  START — the reader is asking for the card), or `saved` (critic F1, a line edit). */
+  onLostLanded?: (sessionId: string, how: LateAnswer) => void;
   /** Pane — the lost-write sentence for ANOTHER table, spoken through this view's one region. */
   paneNotice?: ReactNode;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
@@ -669,9 +672,10 @@ export function FloorDetailLive({
     (e: ReactNode) => {
       // Phase 2d · split — a refusal that lands after this detail UNMOUNTED (the pane moved to
       // another table mid-write) is said by the pane, naming this table — never dropped. A clear
-      // (null) after unmount has nothing to say.
+      // (null) after unmount has nothing to say. Phase 2h · integration (critic F1) — a line edit
+      // still out at the bound is "no answer yet", never "didn't save" (`lostWriteKind`).
       if (!alive.current) {
-        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current, "write");
+        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current, lostWriteKind(e));
         return;
       }
       setWriteError(e);
@@ -690,16 +694,25 @@ export function FloorDetailLive({
   // happened by. The ids still out are a ref (a row can unmount while its write is out — the edge
   // still arrives); the line goes only when the LAST of them answered, and only if it is still
   // WRITE_WAITING (`writeLineAfterLateAnswer`). The reload is the ROW's, never a second one here.
+  //
+  // Critic F1 — the same edge after this detail UNMOUNTED: its WRITE_WAITING went to the pane as
+  // `writeWaiting` (`onWriteError`), and setting this dead detail's state does nothing. So once the
+  // LAST waiting line answered, the pane hears it (`saved`) — and answers only that table's "no
+  // answer yet": a late refusal already replaced it with "didn't save", which stands.
   const waitingLines = useRef(new Set<string>());
-  const onLineWaiting = useCallback((lineId: string, waiting: boolean) => {
-    if (waiting) {
-      waitingLines.current.add(lineId);
-      return;
-    }
-    waitingLines.current.delete(lineId);
-    const stillWaiting = waitingLines.current.size;
-    setWriteError((e) => writeLineAfterLateAnswer(e, stillWaiting));
-  }, []);
+  const onLineWaiting = useCallback(
+    (lineId: string, waiting: boolean) => {
+      if (waiting) {
+        waitingLines.current.add(lineId);
+        return;
+      }
+      waitingLines.current.delete(lineId);
+      const stillWaiting = waitingLines.current.size;
+      setWriteError((e) => writeLineAfterLateAnswer(e, stillWaiting));
+      if (!alive.current && stillWaiting === 0) onLostLandedRef.current?.(sessionId, "saved");
+    },
+    [sessionId],
+  );
   // Phase 2d · review fixes — a settle's refusal or unknown outcome, as it lands. While this detail
   // is mounted the control says it itself (its sheet's alert, its line); once the detail UNMOUNTED
   // (the pane moved on, closed, or went Back mid-settle) that control is gone with it, so the pane
@@ -711,8 +724,9 @@ export function FloorDetailLive({
   // is mounted the pane holds no line about it, and the control's own line already moved on.
   const onSettleOutcome = useCallback(
     (outcome: SettleOutcome) => {
-      if (outcome === "landed") {
-        if (!alive.current) onLostLandedRef.current?.(sessionId);
+      if (outcome === "landed" || outcome === "started") {
+        if (!alive.current)
+          onLostLandedRef.current?.(sessionId, outcome === "landed" ? "paid" : "started");
         return;
       }
       if (alive.current) return;

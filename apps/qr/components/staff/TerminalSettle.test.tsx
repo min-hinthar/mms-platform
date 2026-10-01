@@ -239,7 +239,9 @@ describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9
     expect(api.record).toMatchObject({ sessionId: "s1", paymentIntentId: "pi_late" });
     // MUTATION (p2h-int-a/reader-landed-unreported): the late start hands nothing up — the pane
     // keeps "we don't know if the payment went through" while the reader is collecting it; red.
-    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"], ["landed"]]);
+    // Critic F2 — `started`, never `landed`: the reader is asking for the card, nothing went through
+    // yet. MUTATION (p2h-int-a/f2-reader-start-landed): the pane would say "went through"; red.
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"], ["started"]]);
   });
 
   it("an ON-TIME start never says 'landed' — nothing was said to be unknown; a late REFUSAL or THROW never does either", async () => {

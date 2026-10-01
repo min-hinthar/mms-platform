@@ -14296,6 +14296,17 @@ a.aisle-tile {
   color: var(--warn);
   font-size: var(--fs-sm);
 }
+/* Phase 2h · integration (critic F2) — that line ANSWERED by a late ok ("…went through"): the same
+   place and size, quiet ink and a check, never warn — nothing on it is left to check. */
+.staff-pane-landed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
 .staff-pane-actions {
   margin-top: var(--s4);
 }

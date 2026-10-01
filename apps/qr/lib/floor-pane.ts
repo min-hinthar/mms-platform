@@ -17,6 +17,7 @@ import { handoffStillCurrent, type Handoff } from "./register-ui";
 import type { StaffKey } from "./i18n/staff";
 import type { RefundState } from "./refund-view";
 import { handoffCode } from "./reader-collect";
+import { WRITE_WAITING } from "./staff-outage";
 
 /** Side by side from here (JS reads it at CLICK time). Parity-tested against globals.css. */
 export const PANE_QUERY = "(min-width: 48em)";
@@ -197,45 +198,104 @@ export function paneFailKeys(cause: "outage" | "unknown"): { title: StaffKey; su
  * A change the pane's table never saw land: a line or discount WRITE, a PAYMENT refused (cash not
  * recorded, a card not charged, the reader not started), or a payment whose answer never came
  * (`settleUnknown` — it may have landed). Reported only by a detail that already UNMOUNTED.
+ *
+ * Phase 2h · integration (critic F1) — `writeWaiting`: a line edit still out at the bound ("no answer
+ * yet — it may still be saved"), never "didn't save". (critic F2) — and the two RESOLVED lines a late
+ * ok turns an unknown into (`lostAfterLanded`): `settlePaid` ("the payment went through") and
+ * `writeSaved` ("the change saved"), so the line the person heard is ANSWERED, never silently gone.
  */
-export type LostKind = "write" | "settle" | "settleUnknown";
+export type LostKind =
+  | "write"
+  | "writeWaiting"
+  | "settle"
+  | "settleUnknown"
+  | "settlePaid"
+  | "writeSaved";
 
 /** The pane's sentence per kind — an unknown payment is never "didn't go through" (it may have). */
 export function lostKey(kind: LostKind): StaffKey {
   if (kind === "settleUnknown") return "floor.pane.lostSettleUnknown";
   if (kind === "settle") return "floor.pane.lostSettle";
+  if (kind === "writeWaiting") return "floor.pane.lostWriteWaiting";
+  if (kind === "settlePaid") return "floor.pane.landedSettle";
+  if (kind === "writeSaved") return "floor.pane.landedWrite";
   return "floor.pane.lostWrite";
+}
+
+/** A RESOLVED line (a late ok answered it): said and shown quietly, with nothing left to check — no
+ *  "View", no warn ink — and it outranks nothing. */
+export function lostResolved(kind: LostKind): boolean {
+  return kind === "settlePaid" || kind === "writeSaved";
+}
+
+/** A line about MONEY the cashier may have to collect again (refused, or its answer never came). */
+function lostIsPayment(kind: LostKind): boolean {
+  return kind === "settle" || kind === "settleUnknown";
 }
 
 /** The pane holds ONE lost change. A later one replaces it — except that a line edit's never
  *  replaces a standing PAYMENT's: money the cashier may have to collect again outranks a dish. */
 export function nextLost<T extends { kind: LostKind }>(prev: T | null, next: T): T {
-  if (prev !== null && prev.kind !== "write" && next.kind === "write") return prev;
+  if (prev !== null && lostIsPayment(prev.kind) && !lostIsPayment(next.kind)) return prev;
   return next;
+}
+
+/**
+ * Phase 2h · integration (critic F1) — the kind a line edit's sentence hands the pane once its detail
+ * UNMOUNTED. WRITE_WAITING ("no answer yet — that change may still be saved") is `writeWaiting`: the
+ * change may land, and a late ok retracts it (`lostAfterLanded`, "saved"). Every other sentence — a
+ * refusal, "couldn't confirm" — keeps `write`, which no late answer retracts.
+ */
+export function lostWriteKind(sentence: unknown): "write" | "writeWaiting" {
+  return sentence === WRITE_WAITING ? "writeWaiting" : "write";
+}
+
+/** Where the pane's standing line moves when the table it left clears it by being SELECTED: that
+ *  table's own line goes (the detail says the rest), and a RESOLVED line goes on any selection — it
+ *  was said, and nothing on it is left to check. A loss on another table stands. */
+export function lostOnSelect<T extends { sessionId: string; kind: LostKind }>(
+  prev: T | null,
+  id: string,
+): T | null {
+  if (prev !== null && (prev.sessionId === id || lostResolved(prev.kind))) return null;
+  return prev;
 }
 
 /**
  * Phase 2h · integration — what a settle control (cash, the card-on-file close, the reader START)
  * hands up as each outcome lands: `refused` (nothing recorded), `unknown` (no answer — it may have
- * gone through), or `landed`: a LATE ok, answering an attempt the control had already reported
- * `unknown` (a bounded write that went past STAFF_HANG_MS and then succeeded). An on-time ok is
- * never `landed` — nothing was ever said to be unknown about it.
+ * gone through), `landed`: a LATE ok, answering an attempt the control had already reported
+ * `unknown` (a bounded write that went past STAFF_HANG_MS and then succeeded) — the money is
+ * RECORDED; or `started` (critic F2): the reader START's late ok — the reader is now ASKING for the
+ * card, nothing went through yet. An on-time ok is neither — nothing was ever said to be unknown.
  */
-export type SettleOutcome = "refused" | "unknown" | "landed";
+export type SettleOutcome = "refused" | "unknown" | "landed" | "started";
+
+/** What a late ok answered on a table the pane left: a payment recorded (`paid`), the reader started
+ *  (`started`), or a line edit saved (`saved`). */
+export type LateAnswer = "paid" | "started" | "saved";
 
 /**
- * The pane's standing lost change once a payment on `sessionId` turns out to have LANDED. It goes
- * ONLY when it is that table's `settleUnknown` — "we don't know if the payment went through" is the
- * one sentence a landing answers. Kept: a `settle` refusal (a different answer — "didn't go
- * through" — that already replaced the unknown, `nextLost`), a `write` (a dish is not a payment),
+ * The pane's standing line once a late ok on `sessionId` lands. It is answered ONLY when it is that
+ * table's unknown of the same family — `settleUnknown` for a payment or a reader start,
+ * `writeWaiting` for a line edit. Kept: a `settle` refusal or a `write` (different answers that
+ * already replaced the unknown, `nextLost`), a dish's line for a payment and a payment's for a dish,
  * and ANOTHER table's line (a landing here says nothing about money there).
+ *
+ * Critic F2 — answered, not silently retracted: a recorded payment becomes `settlePaid` ("the payment
+ * on Table 4 went through") and a saved edit `writeSaved`, said through the pane's one region. A
+ * reader START retracts to nothing: nothing went through yet, and the bar's reader chip — on screen
+ * and ALERTING its outcome once it lands — now carries that payment.
  */
 export function lostAfterLanded<T extends { sessionId: string; kind: LostKind }>(
   prev: T | null,
   sessionId: string,
+  how: LateAnswer,
 ): T | null {
-  if (prev !== null && prev.sessionId === sessionId && prev.kind === "settleUnknown") return null;
-  return prev;
+  const answers: LostKind = how === "saved" ? "writeWaiting" : "settleUnknown";
+  if (prev === null || prev.sessionId !== sessionId || prev.kind !== answers) return prev;
+  if (how === "started") return null;
+  return { ...prev, kind: how === "paid" ? "settlePaid" : "writeSaved" };
 }
 
 /**

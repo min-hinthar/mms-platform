@@ -212,8 +212,9 @@ export function TerminalSettleButton({
     if (late) setError(null); // "no answer yet" is no longer true
     onStarted?.();
     // Phase 2h · integration — a LATE start answers the `unknown` this attempt handed up at the
-    // bound (an on-time start never reported one).
-    if (late) onSettleOutcome?.("landed");
+    // bound (an on-time start never reported one). `started`, never `landed` (critic F2): the reader
+    // is ASKING for the card — nothing went through yet, so the pane must not say it did.
+    if (late) onSettleOutcome?.("started");
   }
 
   async function start() {

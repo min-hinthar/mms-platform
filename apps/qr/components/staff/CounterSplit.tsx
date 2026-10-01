@@ -15,6 +15,7 @@ import {
   dropHandoffStash,
   focusAfterLostRetract,
   lostAfterLanded,
+  lostOnSelect,
   nextLost,
   needsCanonicalSync,
   opensInPane,
@@ -151,7 +152,7 @@ export function CounterSplit({
       if (from === id && !opts.focus) return;
       selRef.current = next;
       setSel(next);
-      setLostWrite((lw) => (lw?.sessionId === id ? null : lw));
+      setLostWrite((lw) => lostOnSelect(lw, id));
     },
     [hintFor],
   );
@@ -356,17 +357,18 @@ export function CounterSplit({
             // issued the write. Never filtered by the selection. A payment's outranks a dish's.
             setLostWrite((prev) => nextLost(prev, { sessionId, hint, kind }));
           }}
-          onLostLanded={(sessionId) => {
-            // Phase 2h · integration — a payment the pane said it did not know about LANDED (a late
-            // ok, reported by the same unmounted detail that reported the unknown). Only THAT
-            // table's "we don't know" goes (`lostAfterLanded`): a refusal, a dish, another table's
+          onLostLanded={(sessionId, how) => {
+            // Phase 2h · integration — a payment (or a line edit) the pane said it did not know
+            // about LANDED (a late ok, reported by the same unmounted detail that reported the
+            // unknown). Only THAT table's unknown of the same family is answered (`lostAfterLanded`
+            // — "went through" / "saved", or gone for a reader start): a refusal, another table's
             // line all stand. Read through the updater, never this closure — the detail holds the
             // handler it was last rendered with, from long before the landing.
             const onLine =
               paneRef.current
                 ?.querySelector(".staff-pane-lost")
                 ?.contains(document.activeElement) ?? false;
-            setLostWrite((prev) => lostAfterLanded(prev, sessionId));
+            setLostWrite((prev) => lostAfterLanded(prev, sessionId, how));
             if (onLine) setRetractSeq((n) => n + 1);
           }}
         />

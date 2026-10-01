@@ -2178,7 +2178,7 @@ describe("Phase 2h · integration — a settle answered late, after the detail l
     // "we don't know if the payment went through" stands over a payment that was recorded; red.
     // MUTATION (p2h-int-a/landed-said-as-refused): `landed` falls through to the refusal mapping —
     // the pane is told a payment that WENT THROUGH "didn't go through"; red (here, and below).
-    expect(v.onLostLanded.mock.calls).toEqual([["s1"]]);
+    expect(v.onLostLanded.mock.calls).toEqual([["s1", "paid"]]);
     expect(v.onLostWrite).toHaveBeenCalledTimes(1);
   });
 

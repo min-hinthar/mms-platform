@@ -3942,6 +3942,23 @@ export const STAFF = {
     en: "Reloading forgets a bag you marked picked up in the last few seconds — mark it again after.",
     my: "စာမျက်နှာ ပြန်ဖွင့်ရင် ခုနကမှ ယူသွားပြီလို့ မှတ်ထားတဲ့ ထုပ်ကို မေ့သွားနိုင်ပါတယ် — ပြီးမှ ထပ်မှတ်ပါ။",
   },
+  // Phase 2h · integration (critic F1 · F2) — the pane's line about a table it LEFT. A line edit
+  // still out at the bound when its detail unmounted is "no answer yet", never "didn't save"; and a
+  // late ok ANSWERS the line the person heard instead of silently dropping it. K15 drafts. Words:
+  // အဖြေ မရသေးပါ (out.write.waiting), သိမ်းပြီးသား ဖြစ်နိုင်ပါတယ် (out.write.waiting), ကြည့်ပြီး စစ်ပါ
+  // (floor.pane.lostWrite), ငွေရှင်းတာ (floor.pane.lostSettle), ပြင်လိုက်တာ (floor.pane.lostWrite).
+  "floor.pane.lostWriteWaiting": {
+    en: "No answer yet on a change to {x} — it may still be saved. View it to check.",
+    my: "{x} မှာ ပြင်လိုက်တာ အဖြေ မရသေးပါ — သိမ်းပြီးသား ဖြစ်နိုင်ပါတယ်။ ကြည့်ပြီး စစ်ပါ။",
+  }, // K15-HIGH — misread, a quantity is changed twice on the bill of a table the cashier has left
+  "floor.pane.landedSettle": {
+    en: "The payment on {x} went through.",
+    my: "{x} မှာ ငွေရှင်းတာ အောင်မြင်ပါပြီ။",
+  }, // K15-HIGH — read after "we don't know if the payment went through"; a misread takes the money twice
+  "floor.pane.landedWrite": {
+    en: "The change on {x} saved.",
+    my: "{x} မှာ ပြင်လိုက်တာ သိမ်းပြီးပါပြီ။",
+  }, // K15-HIGH — a dish change on a table the cashier has left; a misread changes it twice
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4243,6 +4260,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "expo.err.waitingFor",
   "expo.err.unknownTable",
   "expo.err.unknownFor",
+  "floor.pane.lostWriteWaiting",
+  "floor.pane.landedSettle",
+  "floor.pane.landedWrite",
 ]);
 
 /**
