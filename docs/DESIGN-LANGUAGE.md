@@ -630,8 +630,9 @@ someone's money.
   own; dressing it as a near-miss is the same overclaim this file forbids elsewhere.
 - **`busy` is for an irreversible write, and nothing else.** Dismissing does not cancel the write. It
   only guarantees nobody sees how it ended — usually on a tree that unmounted while the server was
-  still answering. Of fourteen callers, five qualify (the refund, void/comp and modifier sheets, the
-  report sheet, the cash confirm); the other nine write nothing irreversible, or
+  still answering. Six callers qualify (the refund, void/comp, no-show and modifier sheets, the
+  report sheet, the cash confirm — the M82 guard's GUARDED list, discovered against every caller on
+  disk); the others write nothing irreversible, or
   write into a provider that outlives the sheet and shows the result plainly afterwards. **Do not add
   it "for consistency"** — a lock with no reason is a lock a user cannot predict.
 - **A blocked exit must look blocked.** The local version of this rule swallowed the ✕'s click and
@@ -1669,6 +1670,42 @@ P2em · P2en · P2er · P2es · M250 · P2fz · P2fk).** The rules as built:
   (of the orders listed), and notes itself above No-show / Clear unless a payment is in flight. The floor and the lane keep
   their order. "See the oldest orders" (under the floor's head row, outside its status line) opens a
   sheet of every open counter order, oldest first, 20 a page.
+
+**Phase 2h — a stuck tablet never traps staff (2026-10-02; owner decision 9, OPEN-ITEMS P2cz ·
+P2fc).** The tablet sends one Server Action at a time, and a transition's `pending` — with every
+router commit on the tab — is held while its action hangs (LEARNINGS #200). The rules as built:
+
+- **A wait has a bound, and the bound frees the person, not the write.** Every staff write is called
+  OUTSIDE any async transition and awaited through `boundWrite` (`lib/bounded-write.ts`): it answers,
+  throws, or at `STAFF_HANG_MS` (15 s) reports `waiting` while keeping the late answer. Busy is
+  component state set at the tap and freed at the bound — Cancel, Back and the rest of the screen
+  work again. The late answer is APPLIED when it comes: a late ok lands (the sheet unmounts, the card
+  shows), a late refusal is said where its surface still stands.
+- **Three outcomes, three sentences.** A refusal says what the server said. `waiting` says "No answer
+  yet — it may still be recorded. Don't … again: reload the page to see" and offers a Reload button
+  BESIDE the one region (never inside it, never a second live role) — a document reload is the only
+  escape Next's queue always honours. A lost answer at a site where the server may have acted says
+  "couldn't confirm" — never "nothing was recorded".
+- **A new money write is refused while the tab is stuck — at the tap, never dispatched.** While any
+  tracked action has gone the bound unanswered, a new cash settle, reader start or cancel, close of a
+  bill, refund, loss, no-show or approval would only queue behind it and land minutes later, after the
+  cashier took the money another way. It says "This tablet is still waiting for an earlier answer, so
+  this did nothing. Reload the page to carry on." — except on the sheet whose OWN write waits, which
+  re-says its own "don't … again" line (decision 9i), replacing the region's content so it is heard
+  again. The pad's add chain, the kitchen and the lane are never refused.
+- **A slow subject is held, not the screen.** A bump, a dish marked out, a bag handed over, a
+  door's start: if its answer is late, that ticket / dish / bag / door reads `aria-disabled` and a
+  second tap re-says its waiting line and sends nothing. Every other subject stays live.
+- **Polls never stack.** `lib/poll-gate.ts`: one read in the air, one owed; a tick skipped while the
+  read has been out past the bound counts as a miss, so "Reconnecting…" still arms after two — and a
+  frozen board's escalation speaks past a standing waiting line.
+- **A line about a table you left is answered, not dropped.** The counter pane says a settle or a
+  line edit that was still out when its detail unmounted ("No answer yet on a change to {x} — it may
+  still be saved"); when the late answer lands it says so ("The payment on {x} went through.",
+  "The change on {x} saved.") in the same region, quietly — never a silent disappearance.
+- **A locked or shared tablet is never stranded.** Unlock, lock, approvals and help catch their
+  failures; sign-out hard-navigates and never awaits a queued action; the lock's release happens on
+  the sign-in page's fresh document.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
