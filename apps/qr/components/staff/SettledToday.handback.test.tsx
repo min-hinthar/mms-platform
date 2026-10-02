@@ -150,6 +150,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
 
   it("each instruction names its dish and has its own [Handed back], described by its line; one tap forgets only its own", async () => {
     mount(order());
+    await flush(); // the mount-time peek has run (it finds nothing) — it must not focus anything later
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     refundAndAnswer("Mohinga");
     sheetCents = 250;
@@ -168,6 +169,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     expect(document.getElementById(acks[1]!.getAttribute("aria-describedby")!)?.textContent).toBe(
       cashFor("$2.50", "Laphet"),
     );
+    acks[0]!.focus(); // a real tap focuses the button it removes
     fireEvent.click(acks[0]!);
     // MUTATION (p2i-handback/ack-unwired): the tap does nothing — the instruction stands for a
     // shift after the money left the drawer, and the next manager hands it back again; red.
@@ -176,6 +178,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     await flush();
     // Focus stays on the instruction still owed, never on <body>.
     expect(document.activeElement).toBe(screen.getByRole("status"));
+    screen.getByRole("button", { name: /^Handed back/ }).focus();
     fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
     await flush();
     expect(window.sessionStorage.getItem(HAND_BACK_KEY)).toBeNull();
@@ -199,6 +202,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     // MUTATION (p2i-handback/unkept-unfocused): said above the list, below the fold, to nobody —
     // only a WRITTEN-DOWN entry is announced through the record's own listener; red.
     expect(document.activeElement).toBe(screen.getByRole("status"));
+    screen.getByRole("button", { name: /^Handed back/ }).focus();
     fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
     await flush();
     expect(screen.getByRole("status").textContent).toBe("");

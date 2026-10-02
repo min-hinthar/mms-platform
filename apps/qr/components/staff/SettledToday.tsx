@@ -199,7 +199,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   const refocusHeading = useRef(false);
   const bannerRef = useRef<HTMLParagraphElement | null>(null);
 
-  // ⚠️ THE CASH BANNER'S FOCUS IS KEYED TO `confirmed`, NOT `snap` (Codex round 4 on #286, P1).
+  // ⚠️ THE CASH BANNER'S FOCUS IS KEYED TO WHAT IT SAYS, NOT `snap` (Codex round 4 on #286, P1).
+  // Phase 2i: that is `owedBack` now — every path that asks for the banner's focus (a cash answer,
+  // a mount, a late answer, an acknowledgement) re-peeks it, and `confirmed` carries only the card
+  // report, whose focus goes to its order header instead.
   // It was `[snap]`, and that made the instruction depend on a read succeeding: `refresh()` calls
   // `setSnap` ONLY on a good answer — an outage deliberately keeps the last good list and sets
   // `stale` instead — so a refund that RECORDED, followed by a failed refresh, left `snap`
@@ -225,7 +228,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     // has no layout), and a missing scroll must never throw out of an effect that has just moved
     // focus onto a money instruction. Focus alone already brings it into view in a real browser.
     bannerRef.current?.scrollIntoView?.({ block: "center" });
-  }, [confirmed, owedBack]);
+  }, [owedBack]);
 
   // Phase 2h · review a (A2) · Phase 2i (D5) — a hand-back still owed is said when the zone mounts:
   // after the manager came back from another screen, and after a RELOAD — ours, or Next's own on the
