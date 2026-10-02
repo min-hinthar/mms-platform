@@ -99,7 +99,8 @@ export function OpenTabButton({
   // CX2 — every SET of the line moves this, even to the sentence standing: the alert's content is
   // keyed by it, so a re-said "no answer yet" replaces the node and is announced again.
   const said = useResaid(error);
-  // What the line says: this mount's own word, or — mounted while its cart's open waits — the hold's.
+  // What the line says: this mount's own word (an answer, a lost one, a re-said wait), else the
+  // hold's "no answer yet" while this cart's open is out past the bound (B1: set nowhere else).
   const shown = error ?? (held ? HELD : null);
   // CX2 — this open is still unanswered past the bound: the control is held, described by the line.
   const waiting = shown?.kind === "waiting";
@@ -172,7 +173,8 @@ export function OpenTabButton({
         setError({ kind: "unknown" });
         return;
       }
-      setError({ kind: "waiting" });
+      // "No answer yet" is said by the HOLD (`shown`) — one source for this button and for any
+      // mounted on this cart since, so the line cannot say one thing here and another there.
       heldOut.current = out.late;
       outstanding = true;
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and

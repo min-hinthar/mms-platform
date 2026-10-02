@@ -17171,8 +17171,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/OpenTabButton.tsx",
     suite: "components/staff/OpenTabButton.test.tsx",
     why: "Phase 2h (9e) — an open still out at the bound says 'no answer yet — reload to see'",
-    find: '      setError({ kind: "waiting" });\n',
-    replace: "",
+    find: "  const shown = error ?? (held ? HELD : null);\n",
+    replace: "  const shown = error;\n",
   },
   {
     id: "p2h-doors/open-bill-late-ok-dropped",
@@ -20172,8 +20172,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/OpenTabButton.tsx",
     suite: "components/staff/OpenTabButton.test.tsx",
     why: "Codex r1 follow-up on #310 (V3) — the bound sets the hold the tap reads; never set, the held control's tap is silent again (CX2's dead tap)",
-    find: '      setError({ kind: "waiting" });\n      heldOut.current = out.late;\n',
-    replace: '      setError({ kind: "waiting" });\n',
+    find: "      heldOut.current = out.late;\n",
+    replace: "",
   },
   // ── Phase 2h · Codex r2 b (p2h-cx2b/) — holds outlive a mount (open bill per cart, roster read per tab, refund mark per row), the stall ledger on a monotonic clock, every sign-in a document load ──
   {
