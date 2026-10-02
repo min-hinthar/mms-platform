@@ -7,6 +7,7 @@ import {
   WRITE_WAITING,
   frozenBoardCopy,
   nextDegraded,
+  raceFetch,
   raceTimeout,
   writeLineAfterLateAnswer,
 } from "./staff-outage";
@@ -186,6 +187,25 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
     answer(1);
     await vi.advanceTimersByTimeAsync(0);
     expect(outstanding()).toBe(0);
+  });
+
+  it("raceFetch bounds a NON-action fetch (a Supabase sign-out) the same way and NEVER tracks it (review c, C1)", async () => {
+    // A hung auth fetch is not in Next's action queue: tracked, it would read the whole tab as
+    // stalled and refuse every money tap after the unlock's soft navigation into the console.
+    // MUTATION (p2h-rev-c/race-fetch-tracks): raceFetch registers its promise; red.
+    const got = outcome(raceFetch(new Promise<never>(() => {})));
+    expect(outstanding()).toBe(0);
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+    expect(got()).toBeUndefined();
+    // MUTATION (p2h-rev-c/race-fetch-bound-drifts): the default is not THE constant; red.
+    await vi.advanceTimersByTimeAsync(1);
+    expect((got() as { e: Error } | undefined)?.e.message).toBe("staff-poll-timeout");
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS * 4);
+    expect(outstanding()).toBe(0);
+    expect(stalledSince()).toBeNull();
+    const ok = outcome(raceFetch(Promise.resolve(7)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ok()).toEqual({ ok: true, v: 7 });
   });
 });
 

@@ -3686,8 +3686,8 @@ export const STAFF = {
   // the tap was refused BEFORE dispatch, so unlike every `waiting` line nothing can land later.
   "out.stalled": {
     en: "This tablet is still waiting for an earlier answer, so this did nothing. Reload the page to carry on.",
-    my: "ဒီတက်ဘလက်က အရင်က အဖြေတစ်ခုကို စောင့်နေတုန်းမို့ ဒါက ဘာမှ မလုပ်ရသေးပါ။ ဆက်လုပ်ဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
-  }, // K15-HIGH — misread, the cashier taps again and again, or takes the money another way while the stuck payment may still land
+    my: "ဒီတက်ဘလက်က အရင်က အဖြေတစ်ခုကို စောင့်နေတုန်းမို့ ဒါကို မပို့လိုက်ပါ — ဒီကနေ ဘာမှ ဖြစ်မလာပါဘူး။ ဆက်လုပ်ဖို့ စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — misread, the cashier taps again and again, or takes the money another way while the stuck payment may still land. Review c (C2): the first draft said ဘာမှ မလုပ်ရသေးပါ "hasn't done anything YET" (pending) where the EN says it did nothing (refused before sending, nothing can land later); now မပို့လိုက်ပါ "was not sent" + ဘာမှ ဖြစ်မလာပါဘူး "nothing will come of it" — no ရသေး
   "out.reload": { en: "Reload the page", my: "စာမျက်နှာ ပြန်ဖွင့်" },
   // The non-money writes (StaffLineEditor's qty and kitchen note, and any write without a sentence
   // of its own). They replace that editor's two English literals ("Couldn’t update that — check the

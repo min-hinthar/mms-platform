@@ -57,6 +57,7 @@ export function StaffModSheet({
   groups,
   busy,
   error,
+  errorSaid,
   onAdd,
   lang = "en",
   itemNameMy = null,
@@ -86,6 +87,12 @@ export function StaffModSheet({
    * laundering an authored English literal through `<OutageText>` forever.
    */
   error: StaffSheetFailure | string | null;
+  /**
+   * Phase 2h review c (C5) — a count that moves each time the caller SAYS `error` (its `useResaid`),
+   * keying the region's content so a re-said, equal sentence replaces the node and is announced
+   * again. Omitted, the content is not keyed (the pad's markup is unchanged).
+   */
+  errorSaid?: number;
   onAdd: (choice: { modifierIds: string[]; qty: number; notes?: string }) => void;
   /**
    * ⚠️ A PROP, not `useStaffLang()`, and the default is not laziness. This sheet is ALSO composed
@@ -322,6 +329,9 @@ export function StaffModSheet({
         <p role="status" style={error ? errLine : srOnlyLine}>
           {error === null ? (
             ""
+          ) : typeof error === "string" && errorSaid !== undefined ? (
+            // C5 — the kiosk's re-said line: keyed so an equal sentence is a NEW node (announced).
+            <span key={errorSaid}>{error}</span>
           ) : typeof error === "string" ? (
             // ⚠️ VERBATIM, not through <OutageText>. The only producer of the bare-string arm is the
             // KIOSK (`KioskMenu` passes `t(lang, "somethingWrong")`), which has already localized

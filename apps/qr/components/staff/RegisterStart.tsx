@@ -56,7 +56,10 @@ export function RegisterStart({
   function toggle(e: MouseEvent<HTMLButtonElement>) {
     if (isBusy()) return;
     haptic("pick");
-    setNotice(null);
+    // Phase 2h review c (C3) — never while a start still waits: the zone's notice is then "no
+    // answer yet — the order may still start. Don't start it again", still true, and the one reason
+    // the starts are dimmed beside the reload. Its late answer (or the reload) retires it.
+    if (waiting === null) setNotice(null);
     if (arm === "phone") {
       setArm("none");
       e.currentTarget.focus();

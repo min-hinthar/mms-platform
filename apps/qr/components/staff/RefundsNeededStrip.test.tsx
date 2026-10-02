@@ -172,6 +172,30 @@ describe("Mark refunded — Phase 2h: no transition, a bounded write, honest whe
     expect(line()?.textContent).toContain(STAFF["table.appr.refunds.markUnknown"].en);
   });
 
+  it("review c (C7) — opening ANOTHER row's confirm leaves this row's 'no answer yet' standing, and its late throw is still said", async () => {
+    const h = hungMark();
+    const R2: RefundNeeded = { ...ROW, id: "r2", paymentIntent: "pi_second" };
+    render(
+      <StaffLangProvider lang="en">
+        <RefundsNeededStrip lang="en" refunds={[ROW, R2]} />
+      </StaffLangProvider>,
+    );
+    await commit();
+    await flush(STAFF_HANG_MS);
+    const lineOf = (id: string) =>
+      document.querySelector(`#refund-mark-${id}`)?.closest("li")?.querySelector('[role="status"]');
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    await act(async () => {
+      fireEvent.click(document.querySelector<HTMLButtonElement>("#refund-mark-r2")!);
+    });
+    // MUTATION (p2h-rev-c/refund-open-wipes-other-row): opening row 2 wipes row 1's waiting line
+    // (and its reload) while its mark may still land; red.
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    await act(async () => h.fail(new Error("fetch failed")));
+    // …and its late throw, dropped against the wiped slot before, is said on its own row.
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markUnknown"].en);
+  });
+
   it("a THROWN mark says it may still be done — never 'nothing was recorded' — and offers the reload", async () => {
     const h = hungMark();
     vi.spyOn(console, "error").mockImplementation(() => {});

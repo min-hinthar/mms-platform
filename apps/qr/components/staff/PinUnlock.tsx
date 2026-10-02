@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { unlockConsole, type UnlockResult } from "@/lib/staff-pin-actions";
 import { boundWrite } from "@/lib/bounded-write";
-import { isRetryableAuthShape, raceTimeout } from "@/lib/staff-outage";
+import { isRetryableAuthShape, raceFetch } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -49,6 +49,10 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
   const [busy, setBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
+  // Phase 2h review c (C4) — the sign-out's own failure line. Separate from `msg` so a sign-out
+  // tapped while an unlock still waits says its outage BESIDE "no answer yet — don't enter it
+  // again", never over it (that line is the one reason Unlock is held, and it carries the reload).
+  const [signOutMsg, setSignOutMsg] = useState<StaffMsg | null>(null);
   // Seconds left on a lockout; 0 = not locked. Drives the refused state + the countdown copy.
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -110,6 +114,7 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
     if (refused) return;
     setBusy(true);
     setMsg(null);
+    setSignOutMsg(null);
     setReload(false);
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
@@ -142,24 +147,32 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
   async function signOut() {
     if (signingOut) return; // re-entry refused here, never by `disabled` (a double-tap is two sign-outs)
     setSigningOut(true);
-    setMsg(null);
-    setReload(false);
+    setSignOutMsg(null);
+    // C4 — an unlock still out past the bound keeps its line and its reload: the PIN check may yet
+    // land, Unlock stays held for it, and only that line says why. Otherwise the tap retires the
+    // region's last (answered) line, as it always did.
+    if (!waiting) {
+      setMsg(null);
+      setReload(false);
+    }
     let error: unknown;
     try {
-      // D11 — bounded: a dead network never latches the link on "signing out".
-      ({ error } = await raceTimeout(browserClient().auth.signOut()));
+      // D11 — bounded: a dead network never latches the link on "signing out". `raceFetch`, never
+      // `raceTimeout`: a Supabase fetch is not in Next's action queue, so it must not sit on the
+      // stall ledger and refuse the money taps of the console a PIN opens next (review c, C1).
+      ({ error } = await raceFetch(browserClient().auth.signOut()));
     } catch {
       // No answer at the bound: the sign-in service is unreachable from here (the timeout is the
       // evidence) — said as the outage line, and the link is live again for a retry.
       setSigningOut(false);
-      setMsg({ k: "entry.err.signOutOutage" });
+      setSignOutMsg({ k: "entry.err.signOutOutage" });
       return;
     }
     if (error) {
       setSigningOut(false);
       // W10b — blame the connection only on a transport shape (the audit found six surfaces
       // asserting "check your connection" with zero evidence).
-      setMsg(
+      setSignOutMsg(
         isRetryableAuthShape(error) ? { k: "entry.err.signOutOutage" } : { k: "entry.err.signOut" },
       );
       return;
@@ -228,6 +241,8 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
 
       <p id="unlock-msg" role="status" className="entry-msg entry-msg-warn">
         {shown && <MsgText lang={lang} msg={shown} />}
+        {shown && signOutMsg && " "}
+        {signOutMsg && <MsgText lang={lang} msg={signOutMsg} />}
       </p>
       {/* Phase 2h — both unanswered lines say "reload the page", and the console is installed
           standalone (no browser reload): the one way out sits BESIDE the region, never inside it.
