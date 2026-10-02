@@ -81,6 +81,8 @@ import { useStaffSend } from "./useStaffSend";
 import { usePadDetailLive } from "./usePadDetailLive";
 import { usePadWrites } from "./usePadWrites";
 import { usePadNotices } from "./usePadNotices";
+import { useReloadHold } from "./useReloadHold";
+import { draftHeld } from "@/lib/reload-guard";
 // ── Phase 2d · split ──
 import { PANE_QUERY, paneUrl, tableDestination } from "@/lib/floor-pane";
 
@@ -704,7 +706,10 @@ export function OrderPad({
 
   // ── the counter order's name (its state is declared above the Send) ───────────────────────────
   const [savingName, setSavingName] = useState(false);
-  const nameDirty = name.trim() !== savedName;
+  const nameDirty = draftHeld(name, savedName);
+  // Codex r2 on #311 — a call-out typed and not saved holds a reload for a new version, whether or
+  // not its field still has focus (the cashier taps a dish next).
+  useReloadHold("unsent", "draft", "counterName", counterOrder && nameDirty);
   // ── Phase 2c · review fixes · pad2 ── Save is never a live-looking no-op (P11).
   const nameSave = padNameSave(name, savedName);
   const saveName = useCallback(async (): Promise<boolean> => {

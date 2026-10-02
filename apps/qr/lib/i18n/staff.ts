@@ -4081,6 +4081,13 @@ export const STAFF = {
     en: "A cash hand-back is still on screen — hand it back and tap Handed back first.",
     my: "ငွေသား ပြန်ပေးရမယ့်စာ ပေါ်နေတုန်းပါ — ငွေကို အရင် ပြန်ပေးပြီး “ပြန်ပေးပြီး” ကို နှိပ်ပါ။",
   }, // K15-HIGH — money: a reload here erases the only copy of a drawer instruction
+  // Codex r2 on #311 — a reload (for a new version) refused while something typed is not saved: a
+  // kitchen note, a price, a promo code, a name. Words: သိမ်း (browse.name.save), ရှင်း
+  // (pad.search.clear), မ…ရသေးပါ (shell.version.wait.pick), အရင် … ပါ (shell.version.wait.handBack).
+  "shell.version.wait.draft": {
+    en: "Something you typed isn’t saved yet — save it or clear it first.",
+    my: "ရိုက်ထားတာ မသိမ်းရသေးပါ — အရင် သိမ်းပါ၊ ဒါမှမဟုတ် ရှင်းပါ။",
+  }, // K15-HIGH — a kitchen note or a price: misread as "it saved", the change is lost with the reload
   "expo.reload.remark": {
     en: "The screen reloaded before these bags saved as picked up — mark them again: {x}",
     my: "ဒီထုပ်တွေ ယူသွားပြီလို့ မသိမ်းခင် စခရင် ပြန်ဖွင့်သွားပါတယ် — ထပ်မှတ်ပါ- {x}",
@@ -4405,6 +4412,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.settled.handBack.check",
   "floor.settled.handBack.checkBare",
   "shell.version.wait.handBack",
+  // ── Phase 2i · Codex r2 on #311 ──
+  "shell.version.wait.draft",
 ]);
 
 /**

@@ -9,6 +9,7 @@ import type { StaffFireResult, StaffUndoResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
 import { STAFF_HANG_MS, stalledSince, youngWrite } from "@/lib/bounded-write";
+import { reloadHolds } from "@/lib/reload-guard";
 
 /**
  * Phase 2c · pad — the ORDER PAD's WIRING (DESIGN-LANGUAGE §28). The decisions are pure and pinned
@@ -1859,6 +1860,36 @@ describe("P11 — a counter name's Save with nothing to save refuses, and says w
     await flush();
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "" });
     expect(region().textContent).toBe(STAFF["browse.name.cleared"].en);
+  });
+});
+
+describe("Codex r2 on #311 — a counter name typed and not saved holds the reload for a new version", () => {
+  it("held while it differs from the saved name, focused or not; the save releases it", async () => {
+    // MUTATION (p2i-draft/counter-name-unheld): no hold — the call-out typed for a waiting guest is
+    // erased by the automatic reload once the cashier taps a dish; red.
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(
+      detail({ label: "reg-ab12", mode: "pickup", lines: [line({ id: "l1", sendable: false })] }),
+      { counter: true },
+    );
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    expect(drafts()).toEqual([]);
+    const field = screen.getByLabelText(STAFF["browse.name.label"].en);
+    fireEvent.change(field, { target: { value: "Aye" } });
+    (field as HTMLInputElement).blur();
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "counterName", survives: false }),
+    ]);
+    // Typed back to what is saved (nothing): nothing to lose.
+    fireEvent.change(field, { target: { value: "  " } });
+    expect(drafts()).toEqual([]);
+    fireEvent.change(field, { target: { value: "Aye" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["browse.name.save"].en }));
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
+    expect(drafts()).toEqual([]);
   });
 });
 

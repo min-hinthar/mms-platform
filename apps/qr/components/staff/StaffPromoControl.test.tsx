@@ -24,6 +24,7 @@ vi.mock("@/lib/staff-promo", () => ({
 }));
 
 const { StaffPromoControl } = await import("./StaffPromoControl");
+const { reloadHolds } = await import("@/lib/reload-guard");
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const props = {
@@ -209,6 +210,23 @@ describe("StaffPromoControl", () => {
 });
 
 describe("Phase 2h (9d) — the promo write sits on the stall ledger until it answers", () => {
+  it("Codex r2 on #311 — a code typed and not applied holds the reload for a new version; applying it releases the hold", async () => {
+    // MUTATION (p2i-draft/promo-unheld): no hold — the guest's code, typed and tapped away from,
+    // is erased by the automatic reload; red.
+    render(<StaffPromoControl {...props} />);
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    expect(drafts()).toEqual([]);
+    fireEvent.change(field(), { target: { value: "PILOT15" } });
+    field().blur();
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "promo", survives: false }),
+    ]);
+    await act(async () => {
+      fireEvent.click(submit());
+    });
+    expect(drafts()).toEqual([]);
+  });
+
   it("a hung APPLY is one outstanding action, gone when it answers", async () => {
     // MUTATION (p2h-core/track-promo-apply): the apply is not tracked — hung, it holds the action
     // queue while the ledger calls the tab healthy, and a cash or refund tap is queued behind it; red.

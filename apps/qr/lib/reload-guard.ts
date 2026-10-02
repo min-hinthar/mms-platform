@@ -29,8 +29,10 @@ import type { StaffKey } from "./i18n/staff";
 export type HoldReasonOf = {
   /** The lane's open pick windows (`pick`) · the lane's picks whose window closed and whose write is
    *  out or queued, none still open (`pickSending`, Codex r2 on #311) · the KDS Undo bar
-   *  (`kitchenUndo`). */
-  unsent: "pick" | "pickSending" | "kitchenUndo";
+   *  (`kitchenUndo`) · a value typed into a field and not yet saved — a kitchen note, a price, a
+   *  promo code (`draft`, Codex r2 on #311: the focus check alone missed one the person tapped away
+   *  from). */
+  unsent: "pick" | "pickSending" | "kitchenUndo" | "draft";
   /** The KDS recall rail · the counter pane's lost-payment line · a declined/cancelled reader outcome. */
   unread: "kitchenRecall" | "paneLine" | "readerOutcome" | "handBack";
   sound: "kdsSound" | "bellSound";
@@ -172,7 +174,9 @@ export function refusesManual(h: Hold): boolean {
  * (the reload is their cure), and not by a pick already SENDING (`pickSending`): that write may be the
  * very one that hangs, and on a tab that could not stash it the lane could then never be reloaded at
  * all — the trap Phase 2h exists to remove (the lane says what a reload costs beside its button
- * instead). Nothing else refuses it either: a reader of the screen is the one tapping.
+ * instead) — and not by a `draft`, for the same reason: the note whose save hangs is the draft, and
+ * it is on the screen of the person tapping. Nothing else refuses it either: a reader of the screen
+ * is the one tapping.
  */
 export function stallCureBlock(holds: readonly Hold[]): ApplyBlock | null {
   let oldest: Hold | null = null;
@@ -184,6 +188,16 @@ export function stallCureBlock(holds: readonly Hold[]): ApplyBlock | null {
     if (oldest === null || h.seq < oldest.seq) oldest = h;
   }
   return oldest === null ? null : { kind: "hold", reason: oldest.reason };
+}
+
+/**
+ * Codex r2 on #311 — is a typed value an unsaved DRAFT (a `draft` hold while true)? Only while the
+ * editor is open (`draft` not null) and its text differs from the saved text, surrounding spaces
+ * aside (every save here trims). Held whether or not the field still has focus: the focus check in
+ * `readGuardInput` is the belt, this is the rule.
+ */
+export function draftHeld(draft: string | null, saved: string): boolean {
+  return draft !== null && draft.trim() !== saved.trim();
 }
 
 /** Steps 1-4, shared by both verdicts, in this order: offline, unsent work, a young write, a cash
@@ -256,6 +270,7 @@ export function blockKey(b: ApplyBlock): StaffKey | null {
       if (b.reason === "pick" || b.reason === "pickSending") return "shell.version.wait.pick";
       if (b.reason === "kitchenUndo") return "shell.version.wait.undo";
       if (b.reason === "handBack") return "shell.version.wait.handBack";
+      if (b.reason === "draft") return "shell.version.wait.draft";
       return null;
     case "waiting":
     case "screen":

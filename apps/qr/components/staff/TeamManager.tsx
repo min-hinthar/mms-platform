@@ -3,6 +3,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { provisionStaff, setStaffActive, setStaffRole } from "@/lib/staff-actions";
 import { track } from "@/lib/bounded-write";
+import { draftHeld } from "@/lib/reload-guard";
 import type { StaffRow } from "@/lib/staff";
 // The ladder comes from the PLAIN module: importing a value from "@/lib/staff" would pull the
 // service-role client into this client bundle (it reaches authz → staff-lock → @mms/db/server).
@@ -13,6 +14,7 @@ import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useViewStatus } from "./ViewStatus";
 import { useZoneFocus } from "./ZoneFocus";
+import { useReloadHold } from "./useReloadHold";
 import { al, sx } from "@/lib/staff-labels";
 // A rejected Server Action means the request never completed, which IS the outage sentence — and it
 // is the one string <OutageText> has an authored Burmese twin for, so a hand-written apology here
@@ -82,6 +84,9 @@ export function TeamManager({
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<StaffRole>("server");
+  // Codex r2 on #311 — a name or an address typed for a new member and not added holds a reload for a
+  // new version, whether or not its field still has focus.
+  useReloadHold("unsent", "draft", "teamAdd", draftHeld(name, "") || draftHeld(email, ""));
   // §17 — every in-flight guard is a REF read at TAP time (a render-time flag is stale for a second
   // tap in the same frame); the state beside each exists only to say `aria-disabled` / `aria-busy`
   // on the control it concerns. ONE write of each kind at a time: a role change while another is

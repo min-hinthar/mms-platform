@@ -33,6 +33,7 @@ vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: (v: unknown) => setSt
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 const { HelpButton } = await import("./HelpButton");
+const { reloadHolds } = await import("@/lib/reload-guard");
 const { StaffLangProvider } = await import("./StaffLangProvider");
 
 /**
@@ -407,6 +408,23 @@ describe("HelpButton", () => {
       expect(screen.getByText(/Report 9F1C2A3B is saved/)).not.toBeNull();
       expect(screen.queryByRole("textbox")).toBeNull();
       await waitFor(() => expect(listMyStaffReports).toHaveBeenCalledTimes(2));
+    });
+
+    it("Codex r2 on #311 — words typed and not sent hold the reload for a new version, even with the sheet closed; the send releases them", async () => {
+      // MUTATION (p2i-draft/help-unheld): no hold — a report half-written mid-rush, the sheet closed
+      // to serve a guest, is erased by the automatic reload (the field kept it for when the sheet
+      // reopens); red.
+      submitStaffReport.mockResolvedValue({ ok: true, id: "x", shortId: "9F1C2A3B" });
+      const field = await openReport();
+      const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+      expect(drafts()).toEqual([]);
+      fireEvent.change(field, { target: { value: "T4 stuck" } });
+      expect(drafts()).toEqual([
+        expect.objectContaining({ kind: "unsent", subject: "helpReport", survives: false }),
+      ]);
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByText("Got it — we’re on it.");
+      expect(drafts()).toEqual([]);
     });
 
     it("before the table exists the door says it is not switched on — no form, no 'try again'", async () => {

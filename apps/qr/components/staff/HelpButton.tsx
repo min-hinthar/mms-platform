@@ -41,6 +41,8 @@ import { useStaffLangMode } from "./StaffLangProvider";
 import { STAFF_LANG_MODE_KEY, StaffLangRows } from "./StaffLangSwitch";
 import { useLangModeWrite, type LangModeWrite } from "./useLangModeWrite";
 import { TicketDishTitle } from "./TicketText";
+import { useReloadHold } from "./useReloadHold";
+import { draftHeld } from "@/lib/reload-guard";
 
 type View = "menu" | "how" | "size" | "lang" | "report";
 
@@ -163,6 +165,9 @@ export function HelpButton(props: HelpProps) {
 
   // ── the report ──
   const [text, setText] = useState("");
+  // Codex r2 on #311 — words typed and not sent hold a reload for a new version: the field keeps them
+  // when the sheet closes (it reopens on them), so the hold does not ask for focus or an open sheet.
+  useReloadHold("unsent", "draft", "helpReport", draftHeld(text, ""));
   const [err, setErr] = useState<StaffKey | null>(null);
   const [sent, setSent] = useState<{ shortId: string } | null>(null);
   const [mine, setMine] = useState<MineState>({ state: "idle", rows: [] });

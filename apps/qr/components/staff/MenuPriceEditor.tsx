@@ -13,7 +13,8 @@ import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
 import { setMenuPrice } from "@/lib/menu-price";
 import { track } from "@/lib/bounded-write";
 import { setItemSoldOut } from "@/lib/menu-availability";
-import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { draftCents, priceDraftHeld, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { useReloadHold } from "./useReloadHold";
 import { browseRows } from "@/lib/menu-browse";
 import { soldOutSinceParts } from "@/lib/sold-out-since";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
@@ -267,6 +268,14 @@ export function MenuPriceEditor({
   const verdict = current ? priceDraftVerdict(draft, current.priceCents) : "empty";
   const validDraft = verdict === "ok";
   const cents = draftCents(draft);
+  // Codex r2 on #311 — a price typed and not saved holds a reload for a new version, whether or not
+  // its field still has focus (`priceDraftHeld`).
+  useReloadHold(
+    "unsent",
+    "draft",
+    "price",
+    current !== null && priceDraftHeld(draft, current.priceCents),
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);

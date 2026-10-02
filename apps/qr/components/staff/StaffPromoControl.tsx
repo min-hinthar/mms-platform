@@ -2,10 +2,12 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { applyPromoForTable, clearPromoForTable, type StaffPromoReason } from "@/lib/staff-promo";
 import { track } from "@/lib/bounded-write";
+import { draftHeld } from "@/lib/reload-guard";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { buttonClass } from "@mms/ui";
 import { Chrome } from "./Chrome";
+import { useReloadHold } from "./useReloadHold";
 
 /**
  * P3 — the promo row on the table drill-down: apply a code at the counter, and take one off.
@@ -104,6 +106,9 @@ export function StaffPromoControl({
 }) {
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const [code, setCode] = useState("");
+  // Codex r2 on #311 — a code typed and not applied holds a reload for a new version, whether or not
+  // its field still has focus.
+  useReloadHold("unsent", "draft", "promo", draftHeld(code, ""));
   const [busy, setBusy] = useState<null | "apply" | "clear">(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedRef = useRef<HTMLParagraphElement>(null);

@@ -11,6 +11,8 @@ import { useCounterMint, type MintInput, type MintNotice } from "./CounterMint";
 import { START_ARM, START_GRID } from "./register-stage";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
+import { useReloadHold } from "./useReloadHold";
+import { draftHeld } from "@/lib/reload-guard";
 
 type Arm = "none" | "phone";
 
@@ -47,6 +49,9 @@ export function RegisterStart({
   const [notice, setNotice] = useState<MintNotice | null>(null);
   const [phoneName, setPhoneName] = useState("");
   const [arm, setArm] = useState<Arm>("none");
+  // Codex r2 on #311 — a phone order's name typed and not started holds a reload for a new version
+  // while its form is open, focused or not.
+  useReloadHold("unsent", "draft", "phoneName", arm === "phone" && draftHeld(phoneName, ""));
 
   /** counter-5 — opening the arm is a PICK. A notice leaves with it, and the revealed input takes
    *  focus: the form mounts fresh, so `autoFocus` runs inside the tap's own flush and iOS raises the

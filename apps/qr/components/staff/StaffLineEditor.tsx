@@ -4,6 +4,7 @@ import { flushSync } from "react-dom";
 import { setLineNotes, staffSetQty, type StaffWriteResult } from "@/lib/staff-cart";
 import { boundWrite } from "@/lib/bounded-write";
 import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
+import { draftHeld } from "@/lib/reload-guard";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import { Stepper, useSheetSubject } from "@mms/ui";
@@ -17,6 +18,7 @@ import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import { ReloadButton } from "./ReloadOffer";
+import { useReloadHold } from "./useReloadHold";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -205,7 +207,10 @@ export function StaffLineEditor({
 
   // Phase 2a · send — reported from an effect (never during render), and withdrawn on unmount so a
   // removed line, or a list that went read-only, cannot keep holding the Send.
-  const noteDirty = noteDraft !== null && noteDraft.trim() !== (line.notes ?? "");
+  const noteDirty = draftHeld(noteDraft, line.notes ?? "");
+  // Codex r2 on #311 — the typed note holds a reload for a new version while it is unsaved, whether
+  // or not its field still has focus (the person may have tapped away to the next dish).
+  useReloadHold("unsent", "draft", `note:${line.id}`, noteDirty);
   const writing = pending || notePending;
   useEffect(() => {
     onEditState?.(line.id, {

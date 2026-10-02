@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { MenuPriceEditor } = await import("./MenuPriceEditor");
+const { reloadHolds } = await import("@/lib/reload-guard");
 type PricedItem = import("./MenuPriceEditor").PricedItem;
 
 // 9:00 PM PDT on Sep 15 (04:00Z Sep 16) — the request's clock the page hands the editor.
@@ -363,6 +364,30 @@ describe("menu-5 — the draft says WHY it cannot be saved, and Return does what
     fireEvent.keyDown(field, { key: "Enter" });
     expect(screen.getByRole("group", { name: /Confirm the new price/ })).toBeTruthy();
     expect(field.getAttribute("enterkeyhint")).toBe("done");
+  });
+});
+
+describe("Codex r2 on #311 — a price typed and not saved holds the reload for a new version", () => {
+  it("held while the typed amount differs from the saved price, focused or not; Cancel/Save releases it", async () => {
+    // MUTATION (p2i-draft/price-unheld): no hold — a manager who typed 14.50 and tapped away loses it
+    // to the automatic reload; red.
+    mount([item()]);
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    fireEvent.click(pill("Edit — Mohinga"));
+    // Opened on the saved price: nothing typed yet.
+    expect(drafts()).toEqual([]);
+    const field = screen.getByLabelText("New price for Mohinga, in dollars") as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "14.50" } });
+    field.blur();
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "price", survives: false }),
+    ]);
+    fireEvent.click(pill("Save"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Set \$14\.50/ }));
+    });
+    expect(setMenuPrice).toHaveBeenCalled();
+    expect(drafts()).toEqual([]);
   });
 });
 

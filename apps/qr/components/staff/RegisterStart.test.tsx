@@ -39,6 +39,7 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { CounterMintProvider } = await import("./CounterMint");
 const { RegisterStart } = await import("./RegisterStart");
 const { ts } = await import("@/lib/i18n/staff");
+const { reloadHolds } = await import("@/lib/reload-guard");
 
 afterEach(() => {
   cleanup();
@@ -195,6 +196,30 @@ describe("RegisterStart — the Start zone's wiring", () => {
     expect(container.querySelector("#reg-phone-name")).toBeNull();
     // MUTATION: drop `e.currentTarget.focus()` from the closing branch — focus is <body>.
     expect(document.activeElement).toBe(phone());
+  });
+
+  it("Codex r2 on #311 — a phone order's name typed and not started holds the reload for a new version, while its form is open", async () => {
+    // MUTATION (p2i-draft/phone-name-unheld): no hold — the caller's name, typed while the cashier
+    // writes the order on paper, is erased by the automatic reload; red.
+    const { phone, container } = mount();
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    await act(async () => {
+      fireEvent.click(phone());
+    });
+    expect(drafts()).toEqual([]);
+    const input = container.querySelector<HTMLInputElement>("#reg-phone-name")!;
+    await act(async () => {
+      fireEvent.change(input, { target: { value: "Aye" } });
+      input.blur();
+    });
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "phoneName", survives: false }),
+    ]);
+    // Closing the form puts the name away (nothing on screen says it is kept): the hold goes.
+    await act(async () => {
+      fireEvent.click(phone());
+    });
+    expect(drafts()).toEqual([]);
   });
 
   it("the Go button is §17 too — and `aria-busy` lands on the MINTING control only, never on Walk-up", async () => {

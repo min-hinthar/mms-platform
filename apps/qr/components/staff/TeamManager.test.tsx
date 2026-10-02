@@ -21,6 +21,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refres
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ViewStatusProvider } = await import("./ViewStatus");
 const { TeamManager } = await import("./TeamManager");
+const { reloadHolds } = await import("@/lib/reload-guard");
 
 /**
  * A4·4 — the roster is a ZONE of the sign-in screen, and two things changed with the move: a
@@ -210,6 +211,22 @@ describe("§17 on the roster's three controls", () => {
     await waitFor(() => expect(region().textContent).toBe(STAFF["floor.team.added"].en));
     expect(refresh).toHaveBeenCalledTimes(1);
     expect((document.getElementById("ts-name") as HTMLInputElement).value).toBe("");
+  });
+
+  it("Codex r2 on #311 — a new member's name or address typed and not added holds the reload for a new version; the add releases it", async () => {
+    // MUTATION (p2i-draft/team-unheld): no hold — the half-typed sign-in for a new hire is erased by
+    // the automatic reload once the manager taps away; red.
+    mount([ROW]);
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    expect(drafts()).toEqual([]);
+    fireEvent.change(document.getElementById("ts-email")!, { target: { value: "hla@" } });
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "teamAdd", survives: false }),
+    ]);
+    fill("Daw Hla", "hla@example.com");
+    fireEvent.submit(form());
+    await waitFor(() => expect(region().textContent).toBe(STAFF["floor.team.added"].en));
+    expect(drafts()).toEqual([]);
   });
 
   it("the role select stays focusable and named while its write is held, refuses a second change, and never goes native", async () => {

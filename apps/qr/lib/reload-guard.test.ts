@@ -6,6 +6,7 @@ import {
   RETIRED_QUIET_MS,
   autoBlock,
   blockKey,
+  draftHeld,
   holdReload,
   manualBlock,
   refusesManual,
@@ -58,6 +59,8 @@ const UNDO = () => hold({ kind: "unsent", reason: "kitchenUndo" });
 const RECALL = () => hold({ kind: "unread", reason: "kitchenRecall" });
 const OFFER = () => hold({ kind: "standing", reason: "reloadOffer" });
 const SOUND = () => hold({ kind: "sound", reason: "kdsSound" });
+/** A value typed into a field and not saved (a kitchen note, a price) — Codex r2 on #311. */
+const DRAFT = () => hold({ kind: "unsent", reason: "draft" });
 /** A cash hand-back this document could not write down (storage refused): memory's only copy. */
 const HAND_BACK = () => hold({ kind: "unread", reason: "handBack" });
 const both = (i: Partial<GuardInput>) => [
@@ -355,6 +358,7 @@ describe("blockKey — the refusal sentence, named once", () => {
       [{ kind: "hold", reason: "pickSending" }, "shell.version.wait.pick"],
       [{ kind: "hold", reason: "kitchenUndo" }, "shell.version.wait.undo"],
       [{ kind: "hold", reason: "handBack" }, "shell.version.wait.handBack"],
+      [{ kind: "hold", reason: "draft" }, "shell.version.wait.draft"],
     ];
     for (const [b, k] of visible) expect(blockKey(b)).toBe(k);
     for (const b of [
@@ -374,6 +378,7 @@ describe("blockKey — the refusal sentence, named once", () => {
       { holds: [PICK()] },
       { holds: [PICK_SENDING()] },
       { holds: [UNDO()] },
+      { holds: [DRAFT()] },
       { youngWrite: true },
       { holds: [HAND_BACK()] },
     ];
@@ -394,7 +399,7 @@ describe("a hold's kind fixes its reason (S0 critic F6)", () => {
     // @ts-expect-error — a sound hold cannot carry a standing reason
     const b: HoldInput = { kind: "sound", reason: "reloadOffer", subject: "", survives: false };
     expect([a.kind, b.kind]).toEqual(["unsent", "sound"]);
-    for (const reason of ["pick", "pickSending", "kitchenUndo"] as const) {
+    for (const reason of ["pick", "pickSending", "kitchenUndo", "draft"] as const) {
       const release = holdReload({ kind: "unsent", reason, subject: "k", survives: false });
       expect(blockKey(manualBlock({ ...IDLE, holds: reloadHolds() })!)).not.toBeNull();
       release();
@@ -443,5 +448,40 @@ describe("stallCureBlock — what the stall's Reload refuses", () => {
     const pick = PICK();
     expect(stallCureBlock([pick, undo])).toEqual({ kind: "hold", reason: "kitchenUndo" });
     expect(blockKey(stallCureBlock([pick, undo])!)).toBe("shell.version.wait.undo");
+  });
+});
+
+/**
+ * Codex r2 on #311 — a value typed and not saved is held as long as it differs from what is saved,
+ * not only while its field has focus: a person who typed a note and tapped elsewhere still has it.
+ */
+describe("draft — an unsaved value holds both verdicts; never the stall's Reload", () => {
+  it("refuses a person's tap AND the automatic reload, with its own sentence; no retirement relaxes it", () => {
+    // MUTATION (p2i-guard/draft-key-missing): the draft has no sentence — the row refuses the tap
+    // and says nothing; red.
+    for (const retired of [false, true]) {
+      const [manual, auto] = both({ holds: [DRAFT()], retired });
+      expect(manual).toEqual({ kind: "hold", reason: "draft" });
+      expect(auto).toEqual({ kind: "hold", reason: "draft" });
+    }
+    expect(blockKey({ kind: "hold", reason: "draft" })).toBe("shell.version.wait.draft");
+    expect(refusesManual(DRAFT())).toBe(true);
+  });
+
+  it("…but the stall's Reload is not refused by it: the draft is on the screen the person is reading, and its save may be the very write that hangs", () => {
+    // MUTATION (p2i-guard/cure-refuses-draft): a note whose save hangs keeps the tablet stuck —
+    // the only way out refuses until the save it is waiting on answers; red.
+    expect(stallCureBlock([DRAFT()])).toBeNull();
+  });
+
+  it("draftHeld: held while the typed text differs from the saved text, spaces aside", () => {
+    // MUTATION (p2i-guard/draft-untrimmed): a trailing space holds the reload over a note that is
+    // saved; red.
+    expect(draftHeld("no onions", "")).toBe(true);
+    expect(draftHeld("", "no onions")).toBe(true); // clearing a saved note is a change too
+    expect(draftHeld("no onions ", "no onions")).toBe(false);
+    expect(draftHeld("  ", "")).toBe(false);
+    // MUTATION (p2i-guard/draft-closed-held): a closed editor (null) holds; red.
+    expect(draftHeld(null, "no onions")).toBe(false);
   });
 });
