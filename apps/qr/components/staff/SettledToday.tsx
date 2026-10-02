@@ -25,6 +25,7 @@ import {
   settledStatusKey,
   subscribeHandBacks,
   tabStore,
+  writtenHere,
   tenderKey,
   type HandBack,
 } from "@/lib/settled-view";
@@ -235,25 +236,32 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     bannerRef.current?.scrollIntoView?.({ block: "center" });
   }, [owedBack]);
 
-  // Phase 2h · review a (A2) · Phase 2i (D5) — a hand-back still owed is said when the zone mounts:
+  // Phase 2h · review a (A2) · Phase 2i (D5) — a hand-back still owed is shown when the zone mounts:
   // after the manager came back from another screen, and after a RELOAD — ours, or Next's own on the
-  // refund's answer (a stale build), which is why every cash answer is written down. The banner's
-  // region takes it and takes FOCUS (the effect above), so it is read out and in view. The record is
+  // refund's answer (a stale build), which is why every cash answer is written down. An instruction
+  // this document has not said yet takes the banner's FOCUS (the effect above), so it is read out
+  // and in view. The record is
   // read from a timer, never in render (a server render has no tab storage, and a different first
   // paint would not hydrate) and never as a synchronous setState in the effect body. A peek never
   // forgets, so Strict Mode's double setup costs nothing: only [Handed back] ends an entry.
   //
   // Critic F4 — an entry stands for a shift now, so a mount takes focus only for something THIS
-  // document has not said yet (`announceHandBacks`: a navigation back re-shows it quietly; a reload
-  // is a new document and says it again), and never pulls focus out of where someone already put it
-  // (a pane a hash opened, another zone): only from <body>.
+  // document has not said yet (`announceHandBacks`: a navigation back re-shows it quietly), and never
+  // pulls focus out of where someone already put it (a pane a hash opened, another zone): only from
+  // <body>.
+  //
+  // ⚠️ Blind review (M1 · K1 · C1) — and only for an entry THIS document wrote (`writtenHere`): a late
+  // answer that landed while the zone was away. An entry read back by a reload, by Next's reload on a
+  // stale build or by a duplicated tab is shown as a QUESTION (`handBackKey`) and takes no focus: the
+  // money may already be out of the drawer, and pulling a manager onto "hand back $X" again is how a
+  // guest is paid twice.
   useEffect(() => {
     const t = setTimeout(() => {
       const owed = repeek();
       if (owed.length === 0) return;
       setArmed(true);
       const free = document.activeElement === null || document.activeElement === document.body;
-      if (free && announceHandBacks(owed)) refocusBanner.current = true;
+      if (free && announceHandBacks(owed.filter(writtenHere))) refocusBanner.current = true;
     }, 0);
     return () => clearTimeout(t);
   }, [repeek]);

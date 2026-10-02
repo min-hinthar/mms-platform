@@ -28,6 +28,8 @@ import {
   refundSheetAfterAnswer,
   rememberHandBack,
   resetHandBackDocumentForTests,
+  thisDocumentId,
+  writtenHere,
   settledChipKey,
   settledClock,
   settledDate,
@@ -193,12 +195,15 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     },
   };
   const T0 = 1_800_000_000_000;
+  /** An entry as THIS document writes it (stamped with its id — read at the call, so a case's
+   *  simulated reload is a new writer). */
   const hb = (lineId: string, cents: number, over: Partial<HandBack> = {}): HandBack => ({
     lineId,
     cents,
     name: `dish ${lineId}`,
     code: `R-${lineId}`,
     at: T0,
+    doc: thisDocumentId(),
     ...over,
   });
   /** Nothing but holds can refuse an automatic reload here: quiet, online, nothing in flight. */
@@ -221,9 +226,10 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
       "kept",
     );
     expect(rememberHandBack(store, hb("l2", 250, { name: "Tea", code: "AA0002" }))).toBe("kept");
+    const doc = thisDocumentId();
     const owed = [
-      { lineId: "l1", cents: 1105, name: "Mohinga", code: "AA0001", at: T0 },
-      { lineId: "l2", cents: 250, name: "Tea", code: "AA0002", at: T0 },
+      { lineId: "l1", cents: 1105, name: "Mohinga", code: "AA0001", at: T0, doc },
+      { lineId: "l2", cents: 250, name: "Tea", code: "AA0002", at: T0, doc },
     ];
     // MUTATION (p2i-handback/name-dropped): the entry is written without its dish — the instruction
     // can no longer say which refund it is for, and the record refuses it on the way out; red.
@@ -399,8 +405,10 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     // instruction standing for days in a long-lived tab; red.
     expect(peekHandBacks(store, T0 + HAND_BACK_TTL_MS - 1)).toHaveLength(1);
     expect(peekHandBacks(store, T0 + HAND_BACK_TTL_MS)).toEqual([]);
-    // MUTATION (p2i-handback/legacy-said-for-nobody): "hand back $11.05 for  from the drawer"; red.
-    expect(handBackKey(owed[0]!)).toBe("floor.settled.confirmed.cash");
+    // Blind review — no 2h entry was written by this document, so it ASKS, in its dish-less words.
+    // MUTATION (p2i-handback/legacy-said-for-nobody): "…a cash refund of $11.05 for  was recorded";
+    // red.
+    expect(handBackKey(owed[0]!)).toBe("floor.settled.handBack.checkBare");
     expect(handBackKey(hb("l1", 5))).toBe("floor.settled.confirmed.cashFor");
     ackHandBack(store, "old");
     expect(peekHandBacks(store, T0)).toEqual([]);
@@ -442,6 +450,47 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     expect(announceHandBacks([])).toBe(false);
     resetHandBackDocumentForTests(); // a reload: a new document says everything again
     expect(announceHandBacks([a])).toBe(true);
+  });
+
+  it("blind review (M1 · K1 · C1) — only the document that WROTE an entry gives the order; any other document asks, the dish-less too", () => {
+    const store = memory();
+    rememberHandBack(store, hb("l1", 1105, { doc: "a caller's stale id" }));
+    const here = peekHandBacks(store, T0);
+    // MUTATION (p2i-handback/doc-unstamped): the entry is written with no writer — the very
+    // document that received the answer asks a question instead of giving the drawer order; red.
+    expect(here.map((h) => h.doc)).toEqual([thisDocumentId()]);
+    expect(writtenHere(here[0]!)).toBe(true);
+    expect(handBackKey(here[0]!)).toBe("floor.settled.confirmed.cashFor");
+    // A writer whose dish was never recorded still gives the order, dish-less.
+    // MUTATION (p2i-handback/mine-dishless-said-for-nobody): "…now hand back $0.05 for  from the
+    // drawer"; red.
+    expect(handBackKey(hb("l2", 5, { name: "" }))).toBe("floor.settled.confirmed.cash");
+    const before = thisDocumentId();
+    resetHandBackDocumentForTests(); // a reload: a new document reads the same tab record
+    expect(thisDocumentId()).not.toBe(before);
+    const later = peekHandBacks(store, T0);
+    // MUTATION (p2i-handback/later-doc-imperative): every reload re-orders "now hand back $11.05" —
+    // after the money left the drawer, the next manager hands it back again; red.
+    // MUTATION (p2i-handback/clone-reads-mine): any stamped entry reads as this document's — a
+    // reload or a duplicated tab gives the order again; red.
+    expect(writtenHere(later[0]!)).toBe(false);
+    expect(handBackKey(later[0]!)).toBe("floor.settled.handBack.check");
+    // A duplicated tab's clone of another live document's record: a stranger's entry asks too.
+    expect(handBackKey(hb("l3", 5, { doc: "another tab's document" }))).toBe(
+      "floor.settled.handBack.check",
+    );
+    expect(handBackKey(hb("l4", 5, { name: "", doc: undefined }))).toBe(
+      "floor.settled.handBack.checkBare",
+    );
+    // Its [Handed back] still ends it.
+    ackHandBack(store, "l1");
+    expect(peekHandBacks(store, T0)).toEqual([]);
+  });
+
+  it("a record entry whose writer is not a string is no hand-back", () => {
+    const store = memory();
+    store.setItem(HAND_BACK_KEY, JSON.stringify([{ ...hb("l1", 1105), doc: 7 }]));
+    expect(peekHandBacks(store, T0)).toEqual([]);
   });
 
   it("the banner's list: the record's entries, then the ones this document could not keep — each once", () => {

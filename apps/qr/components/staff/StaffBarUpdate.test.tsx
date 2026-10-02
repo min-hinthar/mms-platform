@@ -19,7 +19,7 @@ import { holdReload, type GuardInput } from "@/lib/reload-guard";
 import { COUNTDOWN_MS, CURRENT, type UpdatePhase } from "@/lib/update-policy";
 import { NET_SHOW_MS } from "@/lib/live-connection";
 import type { ConnectionTruth } from "@/lib/useConnectionTruth";
-import { StaffBarUpdate, refusalStands, resetRetiredSaidForTests } from "./StaffBarUpdate";
+import { StaffBarUpdate, refusalStands } from "./StaffBarUpdate";
 
 /**
  * Phase 2i (P2bi) — the staff bar's new-version row. What only a render can see: that the row is
@@ -57,7 +57,8 @@ function deps(over: Partial<ApplyDeps> = {}): ApplyDeps {
 }
 
 beforeEach(() => {
-  resetRetiredSaidForTests();
+  // No `resetRetiredSaidForTests()` here: `lib/test-setup.ts` resets the retired latch after every
+  // case (blind review, concurrency G) — the two cases at the end of this file prove it.
   // The real freeze marks the document as reloading in the reload's own task (app-update's contract).
   freeze.mockImplementation(() => {
     document.documentElement.dataset.reloading = "";
@@ -191,6 +192,13 @@ describe("the tap — the one executor decides, at the tap", () => {
     expect(btn.getAttribute("aria-busy")).toBe("true");
     expect(btn.textContent).toContain(STAFF["entry.checking"].en);
     expect(btn.textContent).not.toContain(STAFF["shell.version.reloading"].en);
+    // Blind review (product Q3) — the row keeps its sentence through the apply: a busy button alone
+    // says "Checking…" about nothing. It is the SAME standing line (not live), never re-announced.
+    // MUTATION (p2i-row/applying-unsaid): the line vanishes while the button is busy; red.
+    expect(row()?.querySelector(".staff-update-line")?.textContent).toBe(
+      STAFF["shell.version.ready"].en,
+    );
+    expect(live(row()!)).toHaveLength(0);
     await act(async () => {
       answer("unknown");
       for (let i = 0; i < 6; i++) await Promise.resolve();
@@ -491,6 +499,30 @@ describe("refusalStands — what the row re-reads", () => {
   it("the pre-flight's own findings stand until the next tap", () => {
     expect(refusalStands({ kind: "down" }, stalePhase, base)).toBe(true);
   });
+  it("blind review (C1) — a cash hand-back refusal stands while memory still holds it, and clears at its [Handed back]", () => {
+    const handBack = {
+      kind: "unread",
+      reason: "handBack",
+      subject: "handBack",
+      seq: 2,
+      survives: false,
+    } as const;
+    const block = { kind: "hold", reason: "handBack" } as const;
+    // MUTATION (p2i-row/handback-refusal-clears): the re-check reads only unsent holds — the alert
+    // is dropped a second after it is said, while the only copy of the instruction still stands; red.
+    expect(refusalStands(block, stalePhase, { ...base, holds: [handBack] })).toBe(true);
+    expect(refusalStands(block, stalePhase, { ...base, holds: [handBack], retired: true })).toBe(
+      true,
+    );
+    expect(refusalStands(block, stalePhase, base)).toBe(false);
+    // Another unread hold never keeps it (it never refuses a person).
+    expect(
+      refusalStands(block, stalePhase, {
+        ...base,
+        holds: [{ ...handBack, reason: "kitchenRecall" }],
+      }),
+    ).toBe(false);
+  });
 });
 
 /**
@@ -544,5 +576,26 @@ describe("the new-version row's CSS matches the DOM the row renders", () => {
       resetUpdateForTests();
     }
     expect(hits, `${selector} matched no rendered state`).not.toEqual([]);
+  });
+});
+
+/** Blind review (concurrency G) — the module's retired latch never reaches the next case. */
+describe("every case starts with the retirement unsaid (lib/test-setup.ts)", () => {
+  it("a case may say a retirement…", () => {
+    installApplyDeps(deps());
+    stale();
+    render(<StaffBarUpdate lang="en" />);
+    retire();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["shell.version.retired"].en);
+  });
+
+  it("…and the next case's retirement is said again", () => {
+    // MUTATION (p2i-setup/retired-said-unregistered): the latch leaks from the case above (the
+    // update store's reset drops its re-arm listener) — this retirement is never said; red.
+    installApplyDeps(deps());
+    stale();
+    render(<StaffBarUpdate lang="en" />);
+    retire();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["shell.version.retired"].en);
   });
 });

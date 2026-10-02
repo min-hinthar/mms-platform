@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
+import { resetWithEachTest } from "@/lib/test-resets";
 import { activationFailsafe, controllerChange, refreshTap } from "@/lib/sw-activation";
 import { Icon } from "@mms/ui";
 
@@ -43,11 +44,12 @@ let requested = false;
 /** A reload this tab asked for came due while offline: paid on `online`. */
 let owed = false;
 
-/** Test seam: forget the ask and any owed reload. */
-export function resetShellForTests(): void {
+/** Test seam: forget the ask and any owed reload — after every case (`lib/test-resets.ts`). */
+function resetShellForTests(): void {
   requested = false;
   owed = false;
 }
+resetWithEachTest(resetShellForTests);
 
 export function ResilienceShell() {
   const pathname = usePathname();

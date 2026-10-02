@@ -11,6 +11,7 @@ import {
 import { monoNow } from "@/lib/bounded-write";
 import {
   blockKey,
+  refusesManual,
   reloadHolds,
   subscribeReloadHolds,
   type ApplyBlock,
@@ -19,6 +20,7 @@ import {
 } from "@/lib/reload-guard";
 import { COUNTDOWN_MS, CURRENT, type UpdatePhase } from "@/lib/update-policy";
 import { useDeviceOffline } from "@/lib/useConnectionTruth";
+import { resetWithEachTest } from "@/lib/test-resets";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 
@@ -46,9 +48,10 @@ import { Chrome } from "./Chrome";
  *    OUTLIVES the countdown until it is answered: the watcher's input listener cancels a countdown on
  *    `pointerdown`, so a button that left with the countdown would be gone before the click that
  *    pressed it — and the countdown would come back after the quiet window anyway.
- *  - applying — the button busy: "Checking…" while the executor's pre-flight runs (a fetch and a
- *    health probe that often end in a refusal), "Reloading…" only once the page is frozen for the
- *    reload (the executor's `freeze` marks `<html data-reloading>` in the same task as the reload).
+ *  - applying — the standing line stays (the same node, never re-said) and the button is busy:
+ *    "Checking…" while the executor's pre-flight runs (a fetch and a health probe that often end in
+ *    a refusal), "Reloading…" only once the page is frozen for the reload (the executor's `freeze`
+ *    marks `<html data-reloading>` in the same task as the reload).
  *
  * A REFUSED tap replaces the line in the SAME position with `role="alert"` (the LockButton idiom:
  * one element, never said twice). The store keeps a refusal until the next tap, so the row clears it
@@ -74,8 +77,8 @@ const REFUSAL_RECHECK_MS = 1_000;
 /**
  * Does a refusal the row is showing still hold? Only for a STALE screen (a countdown or an apply
  * supersedes what a tap was told). The blocks a re-read can see are re-read: offline, a young write
- * saving, an unsent hold of the same reason (a retired screen skips stashed work, as the verdict
- * does). The pre-flight's own findings — the order system not answering, the new version not
+ * saving, a hold of the same reason that refuses a person (a retired screen skips stashed work, as
+ * the verdict does). The pre-flight's own findings — the order system not answering, the new version not
  * reachable — cannot be re-checked without another fetch, so they stand until the next tap.
  */
 export function refusalStands(block: ApplyBlock, phase: UpdatePhase, i: GuardInput): boolean {
@@ -86,8 +89,10 @@ export function refusalStands(block: ApplyBlock, phase: UpdatePhase, i: GuardInp
     case "saving":
       return i.youngWrite;
     case "hold":
+      // The holds that refuse a person (`refusesManual`): unsent work, and a cash hand-back only
+      // this document's memory holds (blind review C1).
       return i.holds.some(
-        (h) => h.kind === "unsent" && h.reason === block.reason && !(i.retired && h.survives),
+        (h) => refusesManual(h) && h.reason === block.reason && !(i.retired && h.survives),
       );
     default:
       return true;
@@ -103,10 +108,12 @@ let retiredSaid = false;
 function rearmRetired(): void {
   if (updateSnapshot().phase.k === "current") retiredSaid = false;
 }
-/** Test seam: the module latch (vitest isolates files, not cases). */
-export function resetRetiredSaidForTests(): void {
+/** Test seam: the module latch (vitest isolates files, not cases) — reset after every case
+ *  (`lib/test-resets.ts`). */
+function resetRetiredSaidForTests(): void {
   retiredSaid = false;
 }
+resetWithEachTest(resetRetiredSaidForTests);
 
 /** `<html data-reloading>` — set by the executor's `freeze`, in the same task as the reload. */
 function subscribeReloading(cb: () => void): () => void {
@@ -219,7 +226,10 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
         <Chrome lang={lang} k={refusalKey} />
       </p>
     );
-  } else if (phase.k === "stale") {
+  } else if (phase.k === "stale" || phase.k === "applying") {
+    // Blind review (product Q3) — the line stands through the apply too: the busy button's
+    // "Checking…" is about THIS sentence. Same element type and key as the stale line, so React keeps
+    // the node and an alert already said is not said again.
     line = (
       // Keyed on the tone: the flip to retired MOUNTS a new line, which decides its alert at birth.
       <StandingLine key={retired ? "retired" : "ready"} lang={lang} retired={retired}>

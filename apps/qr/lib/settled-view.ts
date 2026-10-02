@@ -168,7 +168,18 @@ export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
  * sets any state, and renders the banner FROM this record — one source, said once per document.
  *
  * An entry is forgotten only by `ackHandBack` (the manager's [Handed back]) or by age
- * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets. Each entry names its dish and its receipt, and
+ * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets.
+ *
+ * ⚠️ THE IMPERATIVE IS SAID BY ONE DOCUMENT ONLY (blind review: money M1 · concurrency K1 · product
+ * C1). Each entry carries `doc`, the id of the document that WROTE it — a random id kept in THIS
+ * MODULE's memory, so it is new on every load and never travels with the tab's storage. The writer
+ * says "Recorded — now hand back $X for {dish · code}" once, with focus. Every other document that
+ * reads the record — a reload, Next's own reload on a stale build, a duplicated tab (the browser
+ * CLONES sessionStorage into it, and an [Handed back] in one never clears the other) — says it as a
+ * question with no focus (`floor.settled.handBack.check`): the money may already have left the
+ * drawer, and a second "now hand back" over a recorded refund pays the guest twice. The tab's load
+ * counter (`tab-load.ts`) cannot bind this — it is cloned with the storage, so a duplicate reads as
+ * the next load of the same tab. Each entry names its dish and its receipt, and
  * `handBackSubjects` tells apart any two that still read alike, so a standing instruction is
  * identifiable and acknowledged on its own — that is what answers the Codex r3 #286 risk of a stale
  * imperative standing over a new attempt, which a blanket clear answered before.
@@ -188,8 +199,21 @@ export type HandBack = {
   code: string;
   /** `Date.now()` when the answer came — the TTL's clock. */
   at: number;
+  /** The document that wrote it (`thisDocumentId()`); absent on a Phase 2h entry. Only that
+   *  document says the imperative (`handBackKey`). */
+  doc?: string;
 };
-/** A shift: an instruction nobody acknowledged by then is not one anybody will act on. */
+/**
+ * A shift: an instruction nobody acknowledged by then is not one anybody will act on.
+ *
+ * ⚠️ On the WALL clock (`Date.now()`), deliberately — the one place in the reload contract that is
+ * not on `monoNow()` (blind review, money Q3). The record lives in sessionStorage, which OUTLIVES the
+ * document: `performance.now()` restarts at zero on every load, so a monotonic stamp written by one
+ * document is meaningless to the next one that reads it, which is exactly the reader this record is
+ * for. A device clock stepped backwards can only LENGTHEN an entry's life (it is said longer, never
+ * dropped early); stepped forwards past a shift, it ends one early — the cost of a bound that must
+ * survive a reload.
+ */
 export const HAND_BACK_TTL_MS = 12 * 60 * 60_000;
 export type TabStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
@@ -211,8 +235,29 @@ function isHandBack(h: unknown): h is HandBack {
     (h as HandBack).cents > 0 &&
     typeof (h as HandBack).name === "string" &&
     typeof (h as HandBack).code === "string" &&
-    Number.isFinite((h as HandBack).at)
+    Number.isFinite((h as HandBack).at) &&
+    ((h as HandBack).doc === undefined || typeof (h as HandBack).doc === "string")
   );
+}
+
+// ── which document wrote an entry (blind review M1 · K1 · C1) ──────────────────────────────────
+function newDocumentId(): string {
+  try {
+    return globalThis.crypto.randomUUID();
+  } catch {
+    // No `randomUUID` outside a secure context (a LAN tablet on plain http): any value unlikely to
+    // repeat will do — the id is compared, never trusted.
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+let documentId = newDocumentId();
+/** This document's id: the stamp `rememberHandBack` puts on what it writes. */
+export function thisDocumentId(): string {
+  return documentId;
+}
+/** Did THIS document write `h`? (Memory entries are always this document's.) */
+export function writtenHere(h: HandBack): boolean {
+  return h.doc === documentId;
 }
 
 /** Still owed at `now`: younger than a shift. */
@@ -250,11 +295,21 @@ function readHandBacks(store: TabStore, now: number): { list: HandBack[]; upgrad
   return { list, upgraded };
 }
 
-/** The banner's sentence for an entry: with its dish, or — a Phase 2h entry that never recorded
- *  one — the dish-less instruction, never "for  from the drawer". */
+/**
+ * The banner's sentence for an entry. The document that wrote it gives the instruction — with its
+ * dish, or dish-less, never "for  from the drawer". Any other document asks whether it was handed
+ * back (module docblock): a Phase 2h entry, which never recorded a writer or a dish, always asks, in
+ * its dish-less form.
+ */
 export function handBackKey(
   h: HandBack,
-): "floor.settled.confirmed.cashFor" | "floor.settled.confirmed.cash" {
+):
+  | "floor.settled.confirmed.cashFor"
+  | "floor.settled.confirmed.cash"
+  | "floor.settled.handBack.check"
+  | "floor.settled.handBack.checkBare" {
+  if (!writtenHere(h))
+    return h.name === "" ? "floor.settled.handBack.checkBare" : "floor.settled.handBack.check";
   return h.name === "" ? "floor.settled.confirmed.cash" : "floor.settled.confirmed.cashFor";
 }
 
@@ -322,7 +377,9 @@ export type Remembered = "kept" | "memory" | "invalid";
 export function rememberHandBack(store: TabStore | null, hb: HandBack): Remembered {
   // A non-positive or fractional figure, or an entry missing its dish, is no hand-back.
   if (!isHandBack(hb)) return "invalid";
-  const entry = { lineId: hb.lineId, cents: hb.cents, name: hb.name, code: hb.code, at: hb.at };
+  const fields = { lineId: hb.lineId, cents: hb.cents, name: hb.name, code: hb.code, at: hb.at };
+  // Stamped with THIS document, whatever the caller passed: only the writer gives the order.
+  const entry: HandBack = { ...fields, doc: documentId };
   let kept = false;
   if (store !== null) {
     try {
@@ -445,12 +502,23 @@ export function announceHandBacks(list: readonly HandBack[]): boolean {
   return unsaid;
 }
 
-/** Test seam: a new document — memory, its hold and timer, and what was announced, all gone. */
+/** Test seam: a new document — a new id, and memory, its hold and timer, and what was announced,
+ *  all gone. (A reload in a case: the zones it unmounted have already left `heard`.) */
 export function resetHandBackDocumentForTests(): void {
+  documentId = newDocumentId();
   memory = [];
   releaseHold?.();
   releaseHold = null;
   if (expiry !== null) clearTimeout(expiry);
   expiry = null;
   announced.clear();
+}
+
+/** Test seam for `lib/test-setup.ts` (blind review, concurrency G): every case starts as a new
+ *  document with nobody listening — vitest isolates modules per FILE, so a case's memory entry, its
+ *  reload hold's release, its expiry timer, what it announced and a listener it never removed would
+ *  otherwise reach the next case. */
+export function resetHandBacksForTests(): void {
+  resetHandBackDocumentForTests();
+  heard.clear();
 }

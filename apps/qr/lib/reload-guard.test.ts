@@ -8,6 +8,7 @@ import {
   blockKey,
   holdReload,
   manualBlock,
+  refusesManual,
   reloadHolds,
   resetHoldsForTests,
   subscribeReloadHolds,
@@ -53,6 +54,8 @@ const UNDO = () => hold({ kind: "unsent", reason: "kitchenUndo" });
 const RECALL = () => hold({ kind: "unread", reason: "kitchenRecall" });
 const OFFER = () => hold({ kind: "standing", reason: "reloadOffer" });
 const SOUND = () => hold({ kind: "sound", reason: "kdsSound" });
+/** A cash hand-back this document could not write down (storage refused): memory's only copy. */
+const HAND_BACK = () => hold({ kind: "unread", reason: "handBack" });
 const both = (i: Partial<GuardInput>) => [
   manualBlock({ ...IDLE, ...i }),
   autoBlock({ ...IDLE, ...i }),
@@ -101,6 +104,20 @@ describe("the register — token-bound holds", () => {
     off();
     holdReload({ kind: "sound", reason: "bellSound", subject: "c", survives: false });
     expect(calls).toBe(2);
+  });
+
+  it("the test seam's reset tells every listener (a mounted reader re-reads an empty register)", () => {
+    holdReload({ kind: "sound", reason: "kdsSound", subject: "kds", survives: false });
+    let told = 0;
+    const off = subscribeReloadHolds(() => {
+      told++;
+    });
+    resetHoldsForTests();
+    // MUTATION (p2i-setup/holds-reset-silent): the register is emptied behind its readers' backs —
+    // a row still shows the sound sentence for a hold that no longer exists; red.
+    expect(told).toBe(1);
+    expect(reloadHolds()).toEqual([]);
+    off();
   });
 
   it("holds come out oldest first, each with its own seq", () => {
@@ -175,6 +192,38 @@ describe("manual — only what a reload would silently lose", () => {
     expect(manualBlock({ ...IDLE, holds: [OFFER()] })).toBeNull();
     expect(manualBlock({ ...IDLE, dialogOpen: true, typing: true })).toBeNull();
     expect(manualBlock({ ...IDLE, msSinceInput: 0, msSinceWriteSettled: 0 })).toBeNull();
+  });
+});
+
+describe("manual — a cash hand-back only memory holds (blind review C1 · K2)", () => {
+  it("refuses a person's tap, and auto, and no retirement relaxes it", () => {
+    // MUTATION (p2i-guard/manual-ignores-handback): the tap reloads over the only copy of "hand back
+    // $11.05 for Mohinga" (storage refused) — the money stays in the till, recorded as handed; red.
+    expect(both({ holds: [HAND_BACK()] })).toEqual([
+      { kind: "hold", reason: "handBack" },
+      { kind: "hold", reason: "handBack" },
+    ]);
+    expect(both({ holds: [HAND_BACK()], retired: true })).toEqual([
+      { kind: "hold", reason: "handBack" },
+      { kind: "hold", reason: "handBack" },
+    ]);
+  });
+
+  it("…and ONLY that unread reason: the recall rail, the pane's line and a reader outcome stay manual-free", () => {
+    // MUTATION (p2i-guard/manual-any-unread): every unread line refuses a person — a kitchen whose
+    // recall rail shows can never take a new version by hand; red.
+    for (const reason of ["kitchenRecall", "paneLine", "readerOutcome"] as const)
+      expect(manualBlock({ ...IDLE, holds: [hold({ kind: "unread", reason })] })).toBeNull();
+    expect(refusesManual(HAND_BACK())).toBe(true);
+    expect(refusesManual(PICK())).toBe(true);
+    expect(refusesManual(RECALL())).toBe(false);
+    expect(refusesManual(SOUND())).toBe(false);
+    expect(refusesManual(OFFER())).toBe(false);
+  });
+
+  it("the refusal has its own sentence, in plain words", () => {
+    // MUTATION (p2i-guard/handback-unsaid): the tap is refused with nothing said; red.
+    expect(blockKey({ kind: "hold", reason: "handBack" })).toBe("shell.version.wait.handBack");
   });
 });
 
@@ -295,6 +344,7 @@ describe("blockKey — the refusal sentence, named once", () => {
       [{ kind: "saving" }, "shell.version.wait.saving"],
       [{ kind: "hold", reason: "pick" }, "shell.version.wait.pick"],
       [{ kind: "hold", reason: "kitchenUndo" }, "shell.version.wait.undo"],
+      [{ kind: "hold", reason: "handBack" }, "shell.version.wait.handBack"],
     ];
     for (const [b, k] of visible) expect(blockKey(b)).toBe(k);
     for (const b of [
@@ -314,6 +364,7 @@ describe("blockKey — the refusal sentence, named once", () => {
       { holds: [PICK()] },
       { holds: [UNDO()] },
       { youngWrite: true },
+      { holds: [HAND_BACK()] },
     ];
     for (const i of inputs) {
       const b = manualBlock({ ...IDLE, ...i });

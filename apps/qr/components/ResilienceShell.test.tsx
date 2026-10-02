@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ResilienceShell, resetShellForTests } from "./ResilienceShell";
+import { ResilienceShell } from "./ResilienceShell";
 
 /**
  * Phase 2i (P2bi) — the resilience shell's FIRST suite: what a service-worker change does to a tab.
@@ -54,7 +54,8 @@ function goOnline() {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("NODE_ENV", "production");
-  resetShellForTests();
+  // No `resetShellForTests()` here: `lib/test-setup.ts` resets the shell's module state after every
+  // case (blind review, concurrency G) — the two cases at the end of this file prove it.
   pathname = "/";
   onLine = true;
   reload.mockReset();
@@ -74,7 +75,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.useRealTimers();
-  resetShellForTests();
 });
 
 /** Mount with an existing controller and a new worker waiting (the strip's Refresh shows). */
@@ -191,5 +191,29 @@ describe("ResilienceShell — controllerchange reloads only the tab that asked",
     const { container } = render(<ResilienceShell />);
     await act(() => vi.advanceTimersByTimeAsync(0));
     expect(container.innerHTML).toBe("");
+  });
+});
+
+/** Blind review (concurrency G) — the module's `requested` and `owed` never reach the next case. */
+describe("every case starts with no ask and nothing owed (lib/test-setup.ts)", () => {
+  it("a case may leave this tab's ask recorded and a reload owed…", async () => {
+    await mountWaiting();
+    await tapRefresh(); // requested = true (SKIP_WAITING posted)
+    onLine = false;
+    act(() => sw.controllerChange()); // due offline: owed = true
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("…and the next case inherits neither: another tab's activation and `online` reload nothing", async () => {
+    // MUTATION (p2i-setup/shell-unregistered) · (p2i-setup/component-resets-unrun): the shell's
+    // module state leaks — this case's mount reads the first case's ask and pays its owed reload,
+    // and passes or fails by its position in the file; red.
+    sw.controller = {};
+    render(<ResilienceShell />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => sw.controllerChange());
+    goOnline();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(reload).not.toHaveBeenCalled();
   });
 });

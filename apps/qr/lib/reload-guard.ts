@@ -6,8 +6,8 @@ import type { StaffKey } from "./i18n/staff";
  *
  * TWO VERDICTS, because two different things decide to reload:
  *  - MANUAL — a person tapped "Reload the page". They are reading the screen, so only what a reload
- *    would SILENTLY lose refuses them: work not yet sent (an open pick window, the KDS Undo bar) and
- *    a write young enough to be saving now. A stall never refuses them — the reload is its cure, and
+ *    would SILENTLY lose refuses them: work not yet sent (an open pick window, the KDS Undo bar), a
+ *    write young enough to be saving now, and a cash hand-back only this document's memory holds. A stall never refuses them — the reload is its cure, and
  *    Phase 2h already offers it — and neither does live sound (refusing it is the 2g deadlock: a
  *    sound-live board could then never reload at all).
  *  - AUTO — nobody asked. Everything that could be lost or unread refuses it, and heuristic inputs
@@ -90,11 +90,13 @@ export function subscribeReloadHolds(listener: () => void): () => void {
   };
 }
 
-/** Test seam: forget every hold (module state, shared by every case in a file). */
+/** Test seam: forget every hold (module state, shared by every case in a file) — and SAY so, like
+ *  any register change: a reader subscribed to the register re-reads it (blind review, concurrency
+ *  G — a silent reset left readers holding a snapshot of holds that no longer exist). */
 export function resetHoldsForTests(): void {
   tokens.clear();
-  snapshot = [];
   nextSeq = 1;
+  changed();
 }
 
 /** AUTO: no pointer, key or touch input for this long (a document load counts as input). */
@@ -142,20 +144,38 @@ function firstHold(holds: readonly Hold[], kind: HoldKind, skipSurviving: boolea
   return oldest;
 }
 
-/** Steps 1-3, shared by both verdicts, in this order: offline, unsent work, a young write. */
+/**
+ * The holds that refuse a PERSON's tap, named once — the verdict below and the bar row's refusal
+ * re-check (`refusalStands`) both read it: unsent work, and the ONE unread reason a reload erases
+ * outright. A cash hand-back is normally written to the tab and outlives the reload; its `handBack`
+ * hold is raised only while this document's MEMORY holds the sole copy (the tab refused storage), and
+ * then a person's Reload tap would wipe "hand back $X from the drawer" exactly as an automatic one
+ * would (blind review C1 · K2). The recall rail, the pane's lost line and a reader outcome stay
+ * manual-free: they are on the screen the person is reading as they tap.
+ */
+export function refusesManual(h: Hold): boolean {
+  return h.kind === "unsent" || (h.kind === "unread" && h.reason === "handBack");
+}
+
+/** Steps 1-4, shared by both verdicts, in this order: offline, unsent work, a young write, a cash
+ *  hand-back only memory holds. */
 function sharedBlock(i: GuardInput): ApplyBlock | null {
   if (!i.online) return { kind: "offline" };
   const unsent = firstHold(i.holds, "unsent", i.retired);
   if (unsent !== null) return { kind: "hold", reason: unsent.reason };
   // A young write refuses even while a read is stalled: the stall's cure would lose it.
   if (i.youngWrite) return { kind: "saving" };
+  // Never relaxed by a retirement: the instruction is not stashed anywhere a reload restores it from.
+  const lost = firstHold(i.holds.filter(refusesManual), "unread", false);
+  if (lost !== null) return { kind: "hold", reason: lost.reason };
   return null;
 }
 
 /**
- * A PERSON tapped reload: refused only for what a reload would silently lose — unsent work and a
- * write saving now. Never for a stall or an own-wait (the reload is their cure), never for sound,
- * unread lines, a standing offer or a dialog (a person tapping is reading).
+ * A PERSON tapped reload: refused only for what a reload would silently lose — unsent work, a write
+ * saving now and a hand-back only memory holds (`refusesManual`). Never for a stall or an own-wait
+ * (the reload is their cure), never for sound, any other unread line, a standing offer or a dialog
+ * (a person tapping is reading).
  */
 export function manualBlock(i: GuardInput): ApplyBlock | null {
   return sharedBlock(i);
@@ -202,6 +222,7 @@ export function blockKey(b: ApplyBlock): StaffKey | null {
     case "hold":
       if (b.reason === "pick") return "shell.version.wait.pick";
       if (b.reason === "kitchenUndo") return "shell.version.wait.undo";
+      if (b.reason === "handBack") return "shell.version.wait.handBack";
       return null;
     case "waiting":
     case "screen":

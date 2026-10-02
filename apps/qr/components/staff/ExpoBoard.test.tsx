@@ -2098,6 +2098,14 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     // MUTATION (p2i-lane/pick-wipes-remark): any pick wipes the line — Table 8, taken, reads "ready"
     // with nothing saying so; red. (p2i-lane/pick-keeps-remark: Table 7 stays named; red.)
     expect(readRemark(sessionStorage).map((b) => b.orderId)).toEqual(["order-2"]);
+    // Blind review (product Q1) — while the region speaks the pick, the remark for Table 8 is still
+    // ON SCREEN (a plain line, not a second live region): the person marking bags must see which
+    // one is left. MUTATION (p2i-lane/remark-hidden-by-region): the remark vanishes while the
+    // region's notice stands; red.
+    expect(q.container.textContent).toContain(remarkOf(8));
+    expect(q.container.querySelectorAll('[role="status"],[role="alert"],[aria-live]')).toHaveLength(
+      1,
+    );
     await flush(4_500);
     expect(region().textContent).toBe(remarkOf(8));
   });

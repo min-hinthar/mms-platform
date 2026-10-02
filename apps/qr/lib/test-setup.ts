@@ -8,6 +8,8 @@ import {
 import { resetHoldsForTests } from "./reload-guard";
 import { resetUpdateForTests } from "./app-update";
 import { resetLoadForTests } from "./tab-load";
+import { resetHandBacksForTests } from "./settled-view";
+import { runTestResets } from "./test-resets";
 
 /**
  * Phase 2h (the contract critic, F7) — vitest's `setupFiles` entry for every suite in apps/qr.
@@ -40,4 +42,12 @@ afterEach(() => {
   // the next case's tap read `busy`, or its row render for a version nobody served it.
   resetUpdateForTests();
   resetLoadForTests();
+  // Blind review (concurrency G) — …and the cash hand-back's document state (a new document id; the
+  // memory entry, its reload hold's release and expiry timer, what was announced, and any listener),
+  // so one case's refund is never told to, said in, or held for the next.
+  resetHandBacksForTests();
+  // …and the module state components keep (the shell's ask and owed reload, the bar row's retired
+  // latch), which register their own resets when loaded — this setup must never import them
+  // (`lib/test-resets.ts` says why).
+  runTestResets();
 });

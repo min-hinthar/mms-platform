@@ -8,10 +8,12 @@ import {
   HAND_BACK_KEY,
   HAND_BACK_TTL_MS,
   peekHandBacks,
+  rememberHandBack,
   resetHandBackDocumentForTests,
   tabStore,
+  thisDocumentId,
 } from "@/lib/settled-view";
-import { reloadHolds, resetHoldsForTests } from "@/lib/reload-guard";
+import { blockKey, manualBlock, reloadHolds, resetHoldsForTests } from "@/lib/reload-guard";
 
 /**
  * Phase 2i (P2bi · D5) — the cash hand-back is written down on EVERY cash answer and said FROM that
@@ -124,6 +126,9 @@ const mount = (o: SettledOrder | SettledOrder[], lang: "en" | "my" = "en") =>
 /** The instruction as the banner says it — `fill`ed; its subject is dish · receipt code. */
 const cashFor = (m: string, dish: string, code = "AA0001") =>
   fill(STAFF["floor.settled.confirmed.cashFor"].en, { m, x: `${dish} · ${code}` }, "en");
+/** The same entry read back by a document that did not write it: a question, never the order. */
+const checkFor = (m: string, dish: string, code = "AA0001") =>
+  fill(STAFF["floor.settled.handBack.check"].en, { m, x: `${dish} · ${code}` }, "en");
 /** Open line `name`'s refund and deliver its answer. */
 function refundAndAnswer(name: string) {
   fireEvent.click(screen.getByRole("button", { name: `Refund — ${name}` }));
@@ -143,15 +148,25 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     // hand-back was written down, so Next's reload on this very answer erases the only copy; red.
     expect(heldAtReturn).not.toBeNull();
     expect(JSON.parse(heldAtReturn!)).toEqual([
-      { lineId: "line-1", cents: 1105, name: "Mohinga", code: "AA0001", at: expect.any(Number) },
+      {
+        lineId: "line-1",
+        cents: 1105,
+        name: "Mohinga",
+        code: "AA0001",
+        at: expect.any(Number),
+        doc: thisDocumentId(),
+      },
     ]);
   });
 
-  it("a reload (a new document) says it again, with focus — the banner reads the record, not the answer", async () => {
+  it("blind review (M1 · C1) — a reload (a new document) shows the record as a QUESTION, with no focus, and its [Handed back] still ends it", async () => {
     mount(order());
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     refundAndAnswer("Mohinga");
     await flush();
+    // The document that received the answer gives the order, once, with focus.
+    expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05", "Mohinga"));
+    expect(document.activeElement).toBe(screen.getByRole("status"));
     cleanup();
     resetHandBackDocumentForTests(); // the reload: this document's memory is gone, the record is not
     mount(order());
@@ -161,8 +176,73 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     // `repeek` as every other path — critic F8 — so THIS assertion kills it, not only the one
     // before the remount.)
     const banner = screen.getByRole("status");
-    expect(banner.textContent).toBe(cashFor("$11.05", "Mohinga"));
-    expect(document.activeElement).toBe(banner);
+    // The money may already have left the drawer: never "now hand back" again.
+    expect(banner.textContent).toBe(checkFor("$11.05", "Mohinga"));
+    expect(banner.textContent).not.toContain(cashFor("$11.05", "Mohinga"));
+    // MUTATION (p2i-handback/later-doc-focus): the reload pulls the manager onto the banner again; red.
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
+    await flush();
+    expect(window.sessionStorage.getItem(HAND_BACK_KEY)).toBeNull();
+  });
+
+  it("blind review (K1) — a duplicated tab's CLONE of the record (another document wrote it) asks, takes no focus, and is ended by its own [Handed back]", async () => {
+    window.sessionStorage.setItem(
+      HAND_BACK_KEY,
+      JSON.stringify([
+        {
+          lineId: "line-1",
+          cents: 1105,
+          name: "Mohinga",
+          code: "AA0001",
+          at: Date.now(),
+          doc: "the original tab's document",
+        },
+      ]),
+    );
+    mount(order());
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(checkFor("$11.05", "Mohinga"));
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
+    await flush();
+    expect(window.sessionStorage.getItem(HAND_BACK_KEY)).toBeNull();
+  });
+
+  it("an answer this document wrote while the zone was away IS said at the next mount, with focus — but never pulled out of a pane", async () => {
+    // A late answer landing while no zone is mounted (the manager is on another screen).
+    rememberHandBack(tabStore(), {
+      lineId: "line-1",
+      cents: 1105,
+      name: "Mohinga",
+      code: "AA0001",
+      at: Date.now(),
+    });
+    const pane = document.createElement("button");
+    document.body.appendChild(pane);
+    pane.focus();
+    try {
+      mount(order());
+      await flush();
+      expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05", "Mohinga"));
+      // MUTATION (p2i-handback/focus-stolen): the mount pulls focus out of the pane; red.
+      expect(document.activeElement).toBe(pane);
+    } finally {
+      pane.remove();
+    }
+    cleanup();
+    resetHandBackDocumentForTests();
+    window.sessionStorage.clear();
+    rememberHandBack(tabStore(), {
+      lineId: "line-1",
+      cents: 1105,
+      name: "Mohinga",
+      code: "AA0001",
+      at: Date.now(),
+    });
+    mount(order());
+    await flush();
+    expect(document.activeElement).toBe(screen.getByRole("status"));
   });
 
   it("critic F4 — a navigation back re-shows what is owed WITHOUT taking focus again; a reload never pulls focus out of where it already is", async () => {
@@ -186,8 +266,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     try {
       mount(order());
       await flush();
-      expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05", "Mohinga"));
-      // MUTATION (p2i-handback/focus-stolen): the mount pulls focus out of the pane; red.
+      expect(screen.getByRole("status").textContent).toBe(checkFor("$11.05", "Mohinga"));
       expect(document.activeElement).toBe(pane);
     } finally {
       pane.remove();
@@ -248,6 +327,21 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     // MUTATION (p2i-handback/memory-unheld): the only copy is in memory, and nothing stops the
     // automatic reload from erasing it; red.
     expect(reloadHolds()).toHaveLength(1);
+    // Blind review (C1 · K2) — and a PERSON's Reload tap is refused for it too, in its own words.
+    const verdict = manualBlock({
+      online: true,
+      holds: reloadHolds(),
+      youngWrite: false,
+      stalledWrite: false,
+      ownWait: false,
+      msSinceWriteSettled: null,
+      msSinceInput: 1e9,
+      dialogOpen: false,
+      typing: false,
+      retired: false,
+    });
+    expect(verdict).toEqual({ kind: "hold", reason: "handBack" });
+    expect(blockKey(verdict!)).toBe("shell.version.wait.handBack");
     await flush();
     // MUTATION (p2i-handback/unkept-unfocused): said above the list, below the fold, to nobody; red.
     expect(document.activeElement).toBe(screen.getByRole("status"));
@@ -337,13 +431,14 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     );
   });
 
-  it("a Phase 2h record (no dish) is said on mount in its dish-less words, and its [Handed back] ends it", async () => {
+  it("a Phase 2h record (no dish, no writer) is asked about on mount in its dish-less words, and its [Handed back] ends it", async () => {
     window.sessionStorage.setItem(HAND_BACK_KEY, JSON.stringify([{ lineId: "old", cents: 1105 }]));
     mount(order());
     await flush();
     expect(screen.getByRole("status").textContent).toBe(
-      STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
+      STAFF["floor.settled.handBack.checkBare"].en.replace("{m}", "$11.05"),
     );
+    expect(document.activeElement).toBe(document.body);
     const ack = screen.getByRole("button", { name: /^Handed back/ });
     // Dish-less, it is called by its figure — the same figure its line says.
     expect(ack.textContent).toBe("Handed back · $11.05");

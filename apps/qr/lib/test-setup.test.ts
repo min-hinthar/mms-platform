@@ -10,6 +10,13 @@ import {
 import { holdReload, reloadHolds } from "./reload-guard";
 import { dispatchUpdate, updateSnapshot } from "./app-update";
 import { thisLoad } from "./tab-load";
+import {
+  announceHandBacks,
+  owedHandBacksNow,
+  rememberHandBack,
+  subscribeHandBacks,
+  thisDocumentId,
+} from "./settled-view";
 
 /**
  * Phase 2h (F7) — the stall ledger is emptied after every case by `lib/test-setup.ts` (vitest's
@@ -101,5 +108,36 @@ describe("every case starts with a current screen and an unclaimed load", () => 
     vi.stubGlobal("location", { pathname: "/staff/kds" });
     expect(thisLoad().initialPath).toBe("/staff/kds");
     vi.unstubAllGlobals();
+  });
+});
+
+/** Blind review (concurrency G) — the cash hand-back's document state is emptied too. */
+describe("every case starts as a new document with no hand-back in memory and nobody listening", () => {
+  const hb = { lineId: "l1", cents: 1105, name: "Mohinga", code: "AA0001", at: Date.now() };
+  const heard: string[] = [];
+  let firstDoc = "";
+  it("a case may leave a hand-back in memory (storage refused), its hold, a listener, and what it said…", () => {
+    firstDoc = thisDocumentId();
+    subscribeHandBacks((what) => {
+      heard.push(what);
+    });
+    expect(rememberHandBack(null, hb)).toBe("memory");
+    expect(announceHandBacks([hb])).toBe(true);
+    expect(reloadHolds()).toHaveLength(1);
+  });
+
+  it("…and the next case inherits none of it — and a new memory entry is held again", () => {
+    // MUTATION (p2i-setup/handbacks-leak): the setup's reset is gone — this case is told about, and
+    // says, the first case's refund; its id is the first case's, and the hold's release dangles; red.
+    expect(thisDocumentId()).not.toBe(firstDoc);
+    expect(owedHandBacksNow(null, Date.now())).toEqual([]);
+    expect(announceHandBacks([hb])).toBe(true);
+    heard.length = 0;
+    expect(rememberHandBack(null, { ...hb, lineId: "l2" })).toBe("memory");
+    // MUTATION (p2i-setup/listeners-leak): the first case's listener hears this case's answer; red.
+    expect(heard).toEqual([]);
+    expect(reloadHolds()).toEqual([
+      expect.objectContaining({ kind: "unread", reason: "handBack" }),
+    ]);
   });
 });

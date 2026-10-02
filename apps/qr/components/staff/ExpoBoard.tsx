@@ -1057,6 +1057,22 @@ export function ExpoBoard({
           .filter(Boolean)
           .join(" · ");
 
+  // The remark's one message, rendered by the region or — while the region speaks something else —
+  // by the plain line beneath it.
+  const remarkMsg: ExpoMsg | null =
+    remark === null
+      ? null
+      : {
+          k: "expo.reload.remark",
+          vars: {
+            x: remark
+              .map(({ subject }) =>
+                subject.kind === "table" ? tf(lang, "floor.table", { id: subject.id }) : subject.x,
+              )
+              .join(", "),
+          },
+        };
+
   return (
     <section
       ref={sectionRef}
@@ -1088,30 +1104,24 @@ export function ExpoBoard({
             <MsgText lang={lang} msg={err} />
           ) : notice !== null ? (
             <MsgText lang={lang} msg={notice} />
-          ) : remark !== null ? (
+          ) : remarkMsg !== null ? (
             // Phase 2i (D3) — the bags a reload interrupted, by their own names or codes (a table by
             // its number), standing until marked again or gone from the lane.
-            <MsgText
-              lang={lang}
-              msg={{
-                k: "expo.reload.remark",
-                vars: {
-                  x: remark
-                    .map(({ subject }) =>
-                      subject.kind === "table"
-                        ? tf(lang, "floor.table", { id: subject.id })
-                        : subject.x,
-                    )
-                    .join(", "),
-                },
-              }}
-            />
+            <MsgText lang={lang} msg={remarkMsg} />
           ) : (
             <span className="sr-only" lang={lang}>
               {announced}
             </span>
           )}
         </p>
+        {/* Blind review (product Q1) — while a refusal or the pick's own line holds the ONE region,
+            the remark stays on screen as a plain line (not a second live region): the bags still to
+            mark again must not vanish for as long as something else is being said. */}
+        {remarkMsg !== null && (err !== null || notice !== null) && (
+          <p className="expo-status">
+            <MsgText lang={lang} msg={remarkMsg} />
+          </p>
+        )}
         <p
           lang={degraded ? lang : undefined}
           className={degraded ? "expo-status expo-status-warn" : "expo-status"}
