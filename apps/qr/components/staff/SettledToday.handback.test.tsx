@@ -204,6 +204,20 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     expect(screen.getByRole("status").textContent).toBe("");
   });
 
+  it("a Phase 2h record (no dish) is said on mount in its dish-less words, and its [Handed back] ends it", async () => {
+    window.sessionStorage.setItem(HAND_BACK_KEY, JSON.stringify([{ lineId: "old", cents: 1105 }]));
+    mount(order());
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
+    );
+    const ack = screen.getByRole("button", { name: /^Handed back/ });
+    expect(ack.textContent).toBe("Handed back");
+    fireEvent.click(ack);
+    await flush();
+    expect(window.sessionStorage.getItem(HAND_BACK_KEY)).toBeNull();
+  });
+
   it("a card refund's answer keeps nothing and offers no [Handed back]", () => {
     mount(order({ tender: "card", refundPath: "app" }));
     fireEvent.click(screen.getByRole("button", { expanded: false }));

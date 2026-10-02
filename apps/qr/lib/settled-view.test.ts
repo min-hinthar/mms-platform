@@ -17,6 +17,7 @@ import {
   RECEIPT_ROW_KEY,
   TENDER_KEY,
   groupKey,
+  handBackKey,
   receiptRowKey,
   ackHandBack,
   owedHandBacks,
@@ -282,6 +283,22 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     expect(rememberHandBack(null, hb("l1", 1105))).toBe(false);
     expect(peekHandBacks(null, T0)).toEqual([]);
     expect(() => ackHandBack(null, "l1")).not.toThrow();
+  });
+
+  it("a Phase 2h entry ({ lineId, cents } only) is still owed after the rollout reload: no dish, dated now, said dish-less", () => {
+    const store = memory();
+    store.setItem(HAND_BACK_KEY, JSON.stringify([{ lineId: "old", cents: 1105 }]));
+    // MUTATION (p2i-handback/legacy-dropped): the 2h tab's owed instruction — written precisely
+    // for the next mount — is dropped by the very reload that brings in this build; red.
+    const owed = peekHandBacks(store, T0);
+    expect(owed).toEqual([{ lineId: "old", cents: 1105, name: "", at: T0 }]);
+    // Dated by each read, so it never ages out on its own: only [Handed back] ends it.
+    expect(peekHandBacks(store, T0 + HAND_BACK_TTL_MS)).toHaveLength(1);
+    // MUTATION (p2i-handback/legacy-said-for-nobody): "hand back $11.05 for  from the drawer"; red.
+    expect(handBackKey(owed[0]!)).toBe("floor.settled.confirmed.cash");
+    expect(handBackKey(hb("l1", 5))).toBe("floor.settled.confirmed.cashFor");
+    ackHandBack(store, "old");
+    expect(peekHandBacks(store, T0)).toEqual([]);
   });
 
   it("the banner's list: the record's entries, then the ones this document could not keep — each once", () => {

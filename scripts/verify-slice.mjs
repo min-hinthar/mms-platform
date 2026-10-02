@@ -22452,16 +22452,16 @@ const MUTANTS = [
     file: "apps/qr/lib/settled-view.ts",
     suite: "lib/settled-view.test.ts",
     why: "Phase 2i (D5) — a peek never forgets: forgetting on show (the Phase 2h take) loses the instruction to the reload Next runs on the refund's own answer",
-    find: "    return readHandBacks(store).filter((h) => fresh(h, now));\n",
+    find: "    return readHandBacks(store, now).filter((h) => fresh(h, now));\n",
     replace:
-      "    const owed = readHandBacks(store).filter((h) => fresh(h, now));\n    store.removeItem(HAND_BACK_KEY);\n    return owed;\n",
+      "    const owed = readHandBacks(store, now).filter((h) => fresh(h, now));\n    store.removeItem(HAND_BACK_KEY);\n    return owed;\n",
   },
   {
     id: "p2i-handback/ack-all",
     file: "apps/qr/lib/settled-view.ts",
     suite: "lib/settled-view.test.ts",
     why: "Phase 2i (D5) — [Handed back] forgets ITS entry; forgetting all silences instructions nobody acted on",
-    find: "    const left = readHandBacks(store).filter((h) => h.lineId !== lineId);\n",
+    find: "    const left = readHandBacks(store, Date.now()).filter((h) => h.lineId !== lineId);\n",
     replace: "    const left: HandBack[] = [];\n",
   },
   {
@@ -22519,6 +22519,22 @@ const MUTANTS = [
     why: "Phase 2i — a line held by both sources is said once",
     find: "  return [...stored, ...unkept.filter((u) => !stored.some((s) => s.lineId === u.lineId))];\n",
     replace: "  return [...stored, ...unkept];\n",
+  },
+  {
+    id: "p2i-handback/legacy-dropped",
+    file: "apps/qr/lib/settled-view.ts",
+    suite: "lib/settled-view.test.ts",
+    why: "Phase 2i — a Phase 2h entry ({lineId, cents}) is still owed after the rollout reload (D9) that brings this build in",
+    find: "  if (o.name !== undefined || o.at !== undefined) return h;\n",
+    replace: "  return h;\n",
+  },
+  {
+    id: "p2i-handback/legacy-said-for-nobody",
+    file: "apps/qr/lib/settled-view.ts",
+    suite: "lib/settled-view.test.ts",
+    why: "Phase 2i — an entry with no dish is said in the dish-less sentence, never 'for  from the drawer'",
+    find: '  return h.name === "" ? "floor.settled.confirmed.cash" : "floor.settled.confirmed.cashFor";\n',
+    replace: '  return "floor.settled.confirmed.cashFor";\n',
   },
   {
     id: "p2i-handback/remember-only-unmounted",

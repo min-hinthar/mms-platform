@@ -15,6 +15,7 @@ import {
   groupKey,
   receiptRowKey,
   ackHandBack,
+  handBackKey,
   owedHandBacks,
   peekHandBacks,
   refundSheetAfterAnswer,
@@ -368,7 +369,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
                 <span id={handBackLineId(h.lineId)} style={bannerLine}>
                   <Chrome
                     lang={lang}
-                    k="floor.settled.confirmed.cashFor"
+                    k={handBackKey(h)}
                     vars={{ m: dollars(h.cents), x: h.name }}
                   />
                 </span>
@@ -398,7 +399,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
                   {/* The dish rides the label: two instructions standing side by side must never
                       offer two identical buttons, to the eye or to speech input. */}
                   <Chrome lang={lang} k="floor.settled.handBack.done" echo="inline" />
-                  <span style={ackSubject}> · {h.name}</span>
+                  {h.name !== "" && <span style={ackSubject}> · {h.name}</span>}
                 </Button>
               ))}
             </div>

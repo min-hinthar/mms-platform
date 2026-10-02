@@ -212,12 +212,32 @@ function fresh(h: HandBack, now: number): boolean {
   return now - h.at < HAND_BACK_TTL_MS;
 }
 
-function readHandBacks(store: TabStore): HandBack[] {
+/**
+ * Phase 2h wrote `{ lineId, cents }` only. A tab holding one is exactly the tab the 2i rollout
+ * reloads (D9), so such an entry is read as owed — with no dish (`name: ""`, said by
+ * `handBackKey`'s dish-less sentence) and dated `now`, so it stands until its [Handed back].
+ */
+function upgradeLegacy(h: unknown, now: number): unknown {
+  if (typeof h !== "object" || h === null) return h;
+  const o = h as Partial<HandBack>;
+  if (o.name !== undefined || o.at !== undefined) return h;
+  return { lineId: o.lineId, cents: o.cents, name: "", at: now };
+}
+
+function readHandBacks(store: TabStore, now: number): HandBack[] {
   const raw = store.getItem(HAND_BACK_KEY);
   if (raw === null) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isHandBack);
+  return parsed.map((h) => upgradeLegacy(h, now)).filter(isHandBack);
+}
+
+/** The banner's sentence for an entry: with its dish, or — a Phase 2h entry that never recorded
+ *  one — the dish-less instruction, never "for  from the drawer". */
+export function handBackKey(
+  h: HandBack,
+): "floor.settled.confirmed.cashFor" | "floor.settled.confirmed.cash" {
+  return h.name === "" ? "floor.settled.confirmed.cash" : "floor.settled.confirmed.cashFor";
 }
 
 /** Keep a hand-back. One line is refunded once, so a line's newer entry replaces its older one
@@ -228,7 +248,7 @@ export function rememberHandBack(store: TabStore | null, hb: HandBack): boolean 
   try {
     let kept: HandBack[] = [];
     try {
-      kept = readHandBacks(store);
+      kept = readHandBacks(store, hb.at);
     } catch {
       kept = []; // an unreadable record is replaced, never allowed to block a new instruction
     }
@@ -267,7 +287,7 @@ export function subscribeHandBacks(fn: () => void): () => void {
 export function peekHandBacks(store: TabStore | null, now: number): HandBack[] {
   if (store === null) return [];
   try {
-    return readHandBacks(store).filter((h) => fresh(h, now));
+    return readHandBacks(store, now).filter((h) => fresh(h, now));
   } catch {
     return [];
   }
@@ -277,7 +297,7 @@ export function peekHandBacks(store: TabStore | null, now: number): HandBack[] {
 export function ackHandBack(store: TabStore | null, lineId: string): void {
   if (store === null) return;
   try {
-    const left = readHandBacks(store).filter((h) => h.lineId !== lineId);
+    const left = readHandBacks(store, Date.now()).filter((h) => h.lineId !== lineId);
     if (left.length === 0) store.removeItem(HAND_BACK_KEY);
     else store.setItem(HAND_BACK_KEY, JSON.stringify(left));
   } catch {
