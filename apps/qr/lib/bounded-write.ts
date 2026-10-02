@@ -138,6 +138,26 @@ export function stalledSince(): number | null {
   return Date.now() - oldest >= STAFF_HANG_MS ? oldest : null;
 }
 
+/**
+ * What a money tap refused BEFORE anything is sent says — the one precedence every guarded sheet and
+ * door reads AT THE TAP (Phase 2h · integration, owner decision). `own` is the surface's OWN waiting
+ * sentence while ITS write is still out past the bound (null while it is not); `stalledAt` is
+ * `stalledSince()`, read now; `stalled` is the 9d sentence (`out.stalled`). Null: send.
+ *
+ * The surface's own wait OUTRANKS the ledger. At the bound its own raw is in the ledger too, so the
+ * tab IS stalled — but `out.stalled` ("…still waiting for an earlier answer, so this did nothing")
+ * speaks only for the refused tap, and drops the one instruction the person needs: don't do it again.
+ * Only the surface's own sentence says that ("No answer yet — this payment may still be recorded.
+ * Don't take it again…"), so a re-tap re-says it. A tap refused for ANOTHER action's stall — this
+ * surface's own write not out — keeps `stalled`. Read first, the own wait also refuses with the wall
+ * clock set back mid-hang, when the ledger (aged by `Date.now()`) reads "not stalled" (the sheets'
+ * critic F12). Nothing is sent on either refusal.
+ */
+export function tapRefusal<M>(own: M | null, stalledAt: number | null, stalled: M): M | null {
+  if (own !== null) return own;
+  return stalledAt === null ? null : stalled;
+}
+
 /** Test seam: how many tracked actions are outstanding. */
 export function outstanding(): number {
   return ledger.size;

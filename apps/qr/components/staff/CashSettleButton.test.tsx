@@ -1015,6 +1015,24 @@ describe("CashSettleButton — a refusal's figure is settled by the page's NEXT 
   });
 });
 
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
+
 // ── Phase 2h · p2h-sheets ──
 describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · P2cz, decisions 9a · 9d · 9e)", () => {
   afterEach(() => {
@@ -1339,23 +1357,72 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     expect(alertText(dialog)).toBe(STAFF["settle.cash.unknown"].en);
   });
 
-  it("a re-tap while the settle is still out is REFUSED, never sent — said as the stalled tablet, with the reload", async () => {
+  it("a re-tap while the settle is still out is REFUSED, never sent — re-saying its OWN waiting sentence ('don't take it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     settleCash.mockReturnValueOnce(hang());
-    const { open, settle } = mount();
-    const dialog = open();
+    const { open, settle, cancel } = mount();
+    let dialog = open();
     await act(async () => {
       fireEvent.click(settle());
     });
     await advance(STAFF_HANG_MS);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    const said = watchRegion(within(dialog).getByRole("alert"));
     await act(async () => {
       fireEvent.click(settle());
     });
-    // MUTATION (p2h-sheets/cash/stalled-tap-dispatches): a second settle queued behind the first,
-    // released whenever the queue moves — after the cashier took the money some other way; red.
+    // Never sent: a second settle queued behind the first would be released whenever the queue
+    // moves — after the cashier took the money some other way.
     expect(settleCash).toHaveBeenCalledTimes(1);
-    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
+    // Critic F1 — RE-SAID while the alert still stands from the bound: equal text re-rendered in
+    // place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/cash/resay-unkeyed · p2h-int-c/cash/refusal-unsaid): red.
+    expect(said()).toBe(true);
+    // MUTATION (p2h-int-c/cash/own-wait-said-as-stalled · p2h-sheets/cash/own-wait-forgotten): its own
+    // settle IS the stall, but "this did nothing" speaks only for the tap and drops "Don't take it
+    // again" — the one instruction that keeps the guest from paying twice; red.
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
+    // Re-SAID, not merely left standing: put away and reopened, the sheet opens with no alert, and
+    // the next tap says it again — still nothing sent.
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    dialog = open();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("its own settle ANSWERED while ANOTHER action still stalls the tablet: the re-tap says the tablet's 'out.stalled', never its old waiting line", async () => {
+    vi.useFakeTimers();
+    track(new Promise(() => {})); // an earlier action on this tab — out, not yet past the bound
+    await advance(1);
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle()); // sent: nothing has been out the bound yet
+    });
+    await advance(STAFF_HANG_MS);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION (p2h-sheets/cash/stalled-tap-dispatches): the earlier action still holds the queue,
+    // and the retry is queued behind it; red.
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-sheets/cash/own-wait-never-cleared): its own answer is in — "this payment may
+    // still be recorded" is no longer true; the tablet's stall is what refuses now; red.
+    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
   });
 
   it("a tablet already stalled on ANOTHER action refuses the settle at the tap: nothing dispatched, the reload offered", async () => {
@@ -1392,7 +1459,7 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     // MUTATION (p2h-sheets/cash/own-wait-forgotten): the refusal leans on the ledger alone, and a
     // second settle queues behind the first; red.
     expect(settleCash).toHaveBeenCalledTimes(1);
-    expect(alertText(dialog)).toBe(STAFF["out.stalled"].en);
+    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
     await act(async () => {
       late.resolve({ ok: false, error: "Card reader offline" });
     });

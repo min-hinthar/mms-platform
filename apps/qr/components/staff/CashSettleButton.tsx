@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { settleCash } from "@/lib/staff-cart";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import {
   cashSettleBlocked,
   changeAsTipCents,
@@ -22,6 +22,7 @@ import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
@@ -190,7 +191,8 @@ export function CashSettleButton({
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
   // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
+  // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `confirm`).
   const ownLate = useRef(false);
   // The settle landed: the sheet is unmounted (see the render) and the trigger goes busy until the
   // paid state re-renders this control away. When a PAID CARD follows, the close-restore must not
@@ -398,14 +400,17 @@ export function CashSettleButton({
     // Phase 2h (9d) — refused AT THE TAP, never dispatched, while any action on this tab has gone
     // STAFF_HANG_MS without an answer: Next would only queue this payment behind it, and release it
     // minutes later — after the cashier took the money another way. Read NOW, never from render
-    // state. This is also what refuses a re-tap while this sheet's own settle is `waiting`: its raw
-    // has been out exactly the bound at that instant, so the ledger already calls the tab stalled.
-    if (stalledSince() !== null) {
-      setError({ kind: "stalled" });
-      return;
-    }
-    if (ownLate.current) {
-      setError({ kind: "stalled" }); // the same refusal, the same words — whatever the clock says
+    // state. Owner decision (Phase 2h · integration): while THIS sheet's own settle is still out
+    // past the bound, the refusal re-says ITS sentence ("No answer yet — this payment may still be
+    // recorded. Don't take it again…"), never the tablet's "this did nothing" — only the own one
+    // says don't take it again. Another action's stall keeps `stalled` (`tapRefusal`).
+    const refused = tapRefusal<"waiting" | "stalled">(
+      ownLate.current ? "waiting" : null,
+      stalledSince(),
+      "stalled",
+    );
+    if (refused !== null) {
+      setError({ kind: refused });
       return;
     }
     inFlight.current = true;
@@ -487,6 +492,10 @@ export function CashSettleButton({
     : settleReasons;
   // The alert: a live drift outranks a stored outcome — it is the fact the cashier must act on now.
   const alertMsg: SheetError | null = drift ? { kind: "moved", ...drift } : error;
+  // Critic F1 — every SET of the stored outcome (a re-tap's refusal re-says the standing waiting
+  // line) replaces the alert's content, so it is announced again, not swallowed as no change. Keyed
+  // on the STATE: `alertMsg` is built fresh each render while the figures drift.
+  const said = useResaid(error);
   /** A sheet error's sentence — said in the ONE alert, or (F2) under the trigger while unread. */
   const sayError = (m: SheetError) =>
     m.kind === "server" ? (
@@ -858,7 +867,7 @@ export function CashSettleButton({
                   role="alert"
                   style={{ ...hint, margin: 0, color: "var(--warn)" }}
                 >
-                  {sayError(alertMsg)}
+                  <span key={said}>{sayError(alertMsg)}</span>
                 </p>
               )}
               {/* Phase 2h — both sentences say "reload the page", and the console is installed

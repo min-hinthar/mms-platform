@@ -150,6 +150,24 @@ describe("ONE poll in the air", () => {
     expect(api.poll.misses).toBe(3);
     expect(api.status).toEqual({ tone: "warn", msg: { k: "settle.reader.status.blind" } });
   });
+
+  it("a hung poll's FIRST miss lands at the very instant the stall ledger calls the tab stalled — one bound, STAFF_HANG_MS (integration c · R1)", async () => {
+    terminalStatus.mockReturnValueOnce(new Promise(() => {}));
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    expect(terminalStatus).toHaveBeenCalledTimes(1);
+    // The poll's interval lands a tick on the bound itself (15 s is six 2.5 s ticks).
+    await tick(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    expect(api.poll.misses).toBe(0);
+    await tick(1);
+    // MUTATION (p2h-int-c/reader/silence-bound-late): a second spelling of the bound a hair long —
+    // the money doors already refuse "this tablet is still waiting" while the reader panel still
+    // reads its silent poll as healthy; red.
+    expect(stalledSince()).not.toBeNull();
+    expect(api.poll.misses).toBe(1);
+  });
 });
 
 describe("the stash — one record per tab, restored after a hard navigation", () => {

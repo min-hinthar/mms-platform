@@ -61,6 +61,23 @@ function mount(lang: "en" | "my" = "en") {
   );
 }
 const region = () => document.getElementById("loss-msg")!;
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 // Under `my` the row's name is the pair (Burmese · English echo), so the English is matched as a part.
 const reason = () =>
   screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.mistake"].en) });
@@ -379,19 +396,64 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(region().textContent).toBe(STAFF["table.loss.msg.unknown"].en);
   });
 
-  it("a re-tap while the void is still out is REFUSED, never sent — the stalled tablet, with the reload", async () => {
+  it("a re-tap while the void is still out is REFUSED, never sent — re-saying the void's OWN waiting sentence ('don't do it again'), with the reload (owner decision)", async () => {
     vi.useFakeTimers();
     voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
     mountSpied();
     await tapVoid();
     await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    const said = watchRegion(region());
     await act(async () => {
       fireEvent.submit(submitBtn().closest("form")!);
     });
-    // MUTATION (p2h-sheets/loss/stalled-tap-dispatches): a second void queued behind the first —
-    // another PIN attempt spent whenever the queue moves; red.
+    // Never sent: a second void queued behind the first spends another PIN attempt whenever the
+    // queue moves.
     expect(voidLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // Critic F1 — RE-SAID, not left standing: the line already stood in the region, and equal text
+    // re-rendered in place is no DOM change — nothing announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/loss/resay-unkeyed · p2h-int-c/loss/void-refusal-unsaid): red.
+    expect(said()).toBe(true);
+    // MUTATION (p2h-int-c/loss/own-wait-said-as-stalled · p2h-sheets/loss/own-wait-forgotten): its
+    // own void IS the stall, but "this did nothing" drops "Don't do it again"; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    expect(reloadBtn()).not.toBeNull();
+  });
+
+  it("the void still out, the person turns to the approval REQUEST instead: refused, never sent — re-saying the VOID's sentence (the write that is out), not the request's nor the tablet's", async () => {
+    vi.useFakeTimers();
+    voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
+    mountSpied();
+    await tapVoid();
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    // Comp — the request shows (nobody on shift: it is the primary). The void's reason does not
+    // apply to a comp, so the first tap asks for one and the region moves off the waiting line.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.loss.seg.comp"].en }));
+    });
+    const request = () =>
+      screen.getByRole("button", {
+        name: (n) => n.includes(STAFF["table.loss.requestApproval.comp"].en),
+      });
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    expect(region().textContent).toBe(STAFF["table.loss.reasonRequired"].en);
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: new RegExp(STAFF["table.loss.reason.quality"].en) }),
+      );
+    });
+    await act(async () => {
+      fireEvent.click(request());
+    });
+    // Never sent: the request would queue behind the hung void.
+    expect(requestApproval).not.toHaveBeenCalled();
+    // MUTATION (p2h-int-c/loss/request-refusal-names-itself): "the request may still reach a
+    // manager" — about a request never sent, while the void that may still land goes unsaid; red.
+    // (p2h-sheets/loss/request-own-wait-forgotten reads the ledger alone: "this did nothing"; red.)
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
   });
 
@@ -535,7 +597,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     });
     // MUTATION (p2h-sheets/loss/own-wait-forgotten): a second void queued behind the first; red.
     expect(voidLine).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "not_found" });
     });
@@ -573,13 +635,19 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     await advance(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
     vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    const said = watchRegion(region());
     await act(async () => {
       fireEvent.click(request());
     });
     // MUTATION (p2h-sheets/loss/request-own-wait-forgotten): a second request queued behind the
     // first; red.
     expect(requestApproval).toHaveBeenCalledTimes(1);
-    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    // Critic F1 — the request's refusal re-SAYS its line (a new node in the region), never leaves
+    // the standing one silent. MUTATION (p2h-int-c/loss/request-refusal-unsaid): red.
+    expect(said()).toBe(true);
+    // MUTATION (p2h-int-c/loss/request-own-wait-said-as-stalled): "this did nothing" in place of
+    // "Don't send it again"; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
     await act(async () => {
       late.resolve({ ok: false, reason: "not_found" });
     });

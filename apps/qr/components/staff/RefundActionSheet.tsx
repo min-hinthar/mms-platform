@@ -2,8 +2,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import { refundLine, type RefundResult, type SettledLine, type SettledOrder } from "@/lib/refunds";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { dollars } from "@/lib/receipt-view";
 import { REFUND_REASONS, REFUND_REASON_KEY, type RefundReason } from "@/lib/settled-view";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
@@ -71,7 +72,8 @@ export function RefundActionSheet({
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
   // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
+  // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `submit`).
   const ownLate = useRef(false);
   // A LATE refusal (9e) moves focus into the PIN field — only while THIS sheet is open: the id is
   // shared with any refund sheet opened since. Re-armed at setup (Strict Mode runs the cleanup
@@ -166,13 +168,16 @@ export function RefundActionSheet({
     // Phase 2h (9d) — money out is refused AT THE TAP, never dispatched, while any action on this tab
     // has gone STAFF_HANG_MS without an answer: Next would queue the refund behind it and release it
     // whenever the queue moves — after the manager may have handed the money back another way. Read
-    // now, never from render state; it also refuses a re-tap while this sheet's refund is waiting.
-    if (stalledSince() !== null) {
-      setError({ k: "out.stalled" });
-      return;
-    }
-    if (ownLate.current) {
-      setError({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+    // now, never from render state. Owner decision: while THIS sheet's own refund is still out past
+    // the bound, the refusal re-says ITS sentence ("Don't refund it again or hand anything back"),
+    // never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal<StaffKey>(
+      ownLate.current ? "floor.refund.waiting" : null,
+      stalledSince(),
+      "out.stalled",
+    );
+    if (refused !== null) {
+      setError({ k: refused });
       return;
     }
     inFlight.current = true;
@@ -209,6 +214,9 @@ export function RefundActionSheet({
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? error;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(error);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
@@ -310,7 +318,7 @@ export function RefundActionSheet({
             color: "var(--warn)",
           }}
         >
-          {shown === null ? null : <MsgText lang={lang} msg={shown} />}
+          {shown === null ? null : <MsgText key={said} lang={lang} msg={shown} />}
         </p>
         {/* Phase 2h — the reload the region's sentence names, beside the region (never inside it). */}
         {reload && (

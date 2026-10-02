@@ -193,8 +193,9 @@ describe("getCartView — an unreadable cart is reported, never answered with an
  *   • `/grocery` rolls its optimistic list back to the pre-tap snapshot, so the basket shows 2 while
  *     the server holds 3 and checkout charges 3 — the exact divergence that file's own comment
  *     forbids, arriving from the opposite direction;
- *   • `KioskMenu` leaves the sheet open with "something went wrong", and the operator re-taps an add
- *     that already committed.
+ *   • `KioskMenu` reads a thrown add as one it cannot confirm — `addUnknown` ("We couldn’t confirm
+ *     that was added — please ask at the counter before you add it again"), in the dish's sheet or
+ *     on the page — and the count on “View order” never moves for a dish that already committed.
  *
  * So the mutation answers `null` — written, unreadable — and the fixtures below pin both directions:
  * a failed trailing read must NOT reject, and a healthy one must still return the view.

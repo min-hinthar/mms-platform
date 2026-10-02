@@ -8,10 +8,11 @@ import type { TableLineView } from "@/lib/floor-types";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
@@ -264,7 +265,8 @@ function NoShowSheet({
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
   // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first.
+  // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
+  // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `submit`).
   const ownLate = useRef(false);
   const bodyRef = useRef<HTMLParagraphElement>(null);
   // A LATE landing (9e) leaves the detail only while this sheet is still open: once the manager
@@ -336,13 +338,16 @@ function NoShowSheet({
     // Phase 2h (9d) — the write-off is refused AT THE TAP, never dispatched, while any action on this
     // tab has gone STAFF_HANG_MS without an answer: queued behind it, it would cancel the order
     // whenever the queue moves — maybe after the guest came back for it. Read now, never from render
-    // state; it also refuses a re-tap while this sheet's own write is waiting.
-    if (stalledSince() !== null) {
-      setMsg({ k: "out.stalled" });
-      return;
-    }
-    if (ownLate.current) {
-      setMsg({ k: "out.stalled" }); // the same refusal, the same words — whatever the clock says
+    // state. Owner decision: while THIS sheet's own write-off is still out past the bound, the
+    // refusal re-says ITS sentence ("Don't remove it again"), never the tablet's "this did nothing"
+    // (`tapRefusal`).
+    const refused = tapRefusal<StaffKey>(
+      ownLate.current ? "table.noshow.waiting" : null,
+      stalledSince(),
+      "out.stalled",
+    );
+    if (refused !== null) {
+      setMsg({ k: refused });
       return;
     }
     inFlight.current = true;
@@ -405,6 +410,9 @@ function NoShowSheet({
     "k" in msg &&
     (RELOAD_SAYS.has(msg.k) || msg.k === "table.noshow.err.unknown");
   const shown = lockCopy ?? (moved && !unsettled ? CHANGED_COPY : msg);
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
@@ -513,7 +521,7 @@ function NoShowSheet({
         {/* ONE region (QA §A): the lockout countdown outranks a transient message. */}
         <p role="status" style={region}>
           {shown && (
-            <span style={{ color: "var(--warn)" }}>
+            <span key={said} style={{ color: "var(--warn)" }}>
               <MsgText lang={lang} msg={shown} />
             </span>
           )}

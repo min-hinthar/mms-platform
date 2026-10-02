@@ -2,7 +2,10 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { startTransition } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { cssDeclarations } from "@/lib/css-declarations";
 import { t } from "@/lib/kiosk/strings";
 import type { KioskItem } from "./types";
 
@@ -269,6 +272,13 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     expect(mohinga.hasAttribute("disabled")).toBe(false);
     expect(mohinga.getAttribute("aria-disabled")).toBe("true");
     expect(document.activeElement).toBe(mohinga);
+    // The dim, the resting cursor and the stilled press come from ONE place — the stylesheet's
+    // `[aria-disabled="true"]` rule (pinned below). MUTATION (p2h-int-c/kiosk/inline-dim-back): a
+    // second, inline copy that the next edit of either drifts from; red.
+    expect(mohinga.style.opacity).toBe("");
+    expect(mohinga.style.cursor).toBe("");
+    expect(mohinga.style.transform).toBe("");
+    expect(mohinga.hasAttribute("data-sold-out")).toBe(false); // busy, not sold out
     // The refusal is the handler's: another dish tapped mid-add is not sent.
     await act(async () => {
       fireEvent.click(tile(/Beef Curry/));
@@ -295,6 +305,10 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     const sold = tile(/Shan noodles/);
     expect(sold.hasAttribute("disabled")).toBe(false);
     expect(sold.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-int-c/kiosk/sold-out-unmarked): the sold-out shade (`[data-sold-out]`) never
+    // applies — a dish that will not come back looks merely busy; red.
+    expect(sold.getAttribute("data-sold-out")).toBe("true");
+    expect(sold.style.opacity).toBe("");
     await act(async () => {
       fireEvent.click(sold);
     });
@@ -340,5 +354,48 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     });
     expect(addItem).toHaveBeenCalledTimes(3);
     void onAdded;
+  });
+});
+
+describe("the dish tile's dim has ONE source — the stylesheet (Phase 2h · integration c)", () => {
+  // The tiles refuse by `aria-disabled` (critic F7), so `.kiosk-door:disabled` alone no longer dims
+  // them; the review's doors still refuse natively. One rule serves both — parsed, never scanned
+  // (comments name these selectors in prose).
+  const decls = cssDeclarations(readFileSync(join(__dirname, "../../app/globals.css"), "utf8"));
+  /** Every top-level `prop` declared by a rule whose selector LIST names `sel` exactly. */
+  const declared = (sel: string, prop: string) =>
+    decls.filter(
+      (d) =>
+        d.media === null &&
+        d.prop === prop &&
+        d.selector
+          .split(",")
+          .map((x) => x.trim())
+          .includes(sel),
+    );
+
+  it("a refused tile (aria-disabled) dims like a disabled door, its cursor rests, and its press is stilled", () => {
+    // MUTATION (p2h-int-c/kiosk/aria-disabled-undimmed): only `:disabled` dims — a busy or sold-out
+    // tile looks tappable, and the guest taps it again; red.
+    for (const sel of ['.kiosk-door[aria-disabled="true"]', ".kiosk-door:disabled"]) {
+      expect(declared(sel, "opacity").map((d) => d.value)).toEqual(["0.5"]);
+      expect(declared(sel, "cursor").map((d) => d.value)).toEqual(["default"]);
+    }
+    // An aria-disabled button still takes `:active`: the stilling must come AFTER the press's
+    // scale, which it beats at equal weight only by order. MUTATION
+    // (p2h-int-c/kiosk/press-not-stilled): a refused tile still sinks under the finger; red.
+    const stilled = declared('.kiosk-door[aria-disabled="true"]', "transform");
+    expect(stilled.map((d) => d.value)).toEqual(["none"]);
+    const press = declared(".kiosk-door:active", "transform");
+    expect(press).toHaveLength(1);
+    expect(stilled[0]!.i).toBeGreaterThan(press[0]!.i);
+  });
+
+  it("a sold-out tile keeps its own, lighter shade — written after the busy dim, so it wins", () => {
+    // MUTATION (p2h-int-c/kiosk/sold-out-shade-lost): sold out reads exactly like busy; red.
+    const shade = declared(".kiosk-door[data-sold-out]", "opacity");
+    expect(shade.map((d) => d.value)).toEqual(["0.55"]);
+    const dim = declared('.kiosk-door[aria-disabled="true"]', "opacity");
+    expect(shade[0]!.i).toBeGreaterThan(dim[0]!.i);
   });
 });

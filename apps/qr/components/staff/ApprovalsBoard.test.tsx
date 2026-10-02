@@ -371,6 +371,24 @@ describe("ApprovalsBoard — the poll and the jump", () => {
 // ── Phase 2h — a hung tablet never traps the approvals zone (P2cz · P2fc) ─────────────────────────
 const { STAFF_HANG_MS, stalledSince } = await import("@/lib/bounded-write");
 
+/** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
+ *  reader announces) between this call and the returned check; equal text rendered in place records
+ *  nothing, which is exactly the silent re-tap this pins. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
+
 function deferred<T>() {
   let resolve!: (v: T) => void;
   let reject!: (e: unknown) => void;
@@ -502,6 +520,38 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     // MUTATION (p2h-boards/approvals/stalled-dispatches): the decision is sent into the stuck queue; red.
     expect(resolveApproval).not.toHaveBeenCalled();
     expect(region().textContent).toBe(STAFF["out.stalled"].en);
+    expect(reload()).not.toBeNull();
+  });
+
+  it("its OWN decision still out past the bound: the PIN typed again and the tap refused — never sent — in the card's own words ('don't decide again'), with the Reload (owner decision)", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => new Promise(() => {});
+    resolveApproval.mockImplementationOnce(() => new Promise<ResolveResult>(() => {}));
+    mount([pending("r1")], [approver]);
+    const confirm = await ready();
+    await act(async () => {
+      confirm.click();
+    });
+    await tick(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    // The PIN was cleared at the bound; typed again, the form is live and the tap reaches the guard.
+    await act(async () => {
+      fireEvent.change(document.getElementById("appr-r1-pin")!, { target: { value: "1234" } });
+    });
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
+    const said = watchRegion(region());
+    await act(async () => {
+      screen.getByRole("button", { name: STAFF["table.appr.verb.confirmApprove"].en }).click();
+    });
+    expect(resolveApproval).toHaveBeenCalledTimes(1);
+    // Critic F1 — RE-SAID, not left standing: the line already stood in the card's region (typing
+    // the PIN does not clear it), and equal text re-rendered in place is no DOM change — nothing
+    // announced, nothing seen, a dead tap.
+    // MUTATION (p2h-int-c/approvals/resay-unkeyed · p2h-int-c/approvals/refusal-unsaid): red.
+    expect(said()).toBe(true);
+    // MUTATION (p2h-int-c/approvals/own-wait-said-as-stalled): its own decision IS the stall, but
+    // "this did nothing" drops "Don't decide again" — a dish removed or given away twice; red.
+    expect(region().textContent).toBe(STAFF["table.appr.msg.waiting"].en);
     expect(reload()).not.toBeNull();
   });
   it("a LATE ok retires 'no answer yet' — it never stands over a recorded decision without its Reload (critic B2)", async () => {

@@ -27,6 +27,7 @@ import { ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
 import { SETTLE_TTL_MS } from "./lock-ttl";
+import { STAFF_HANG_MS } from "./bounded-write";
 
 /** How the floor names the table or guest a collect is for — FloorDetailLive's `paneName`, the
  *  lost-write sentence's shape: a counter order reads "Counter order", a table "Table {display}". */
@@ -204,8 +205,11 @@ export const READER_BLIND_AFTER_MISSES = 3;
 export const READER_RECORDING_ESCALATE_MS = 20_000;
 /** A poll still unanswered this long counts as a miss (and one more per further span): Next runs
  *  Server Actions one at a time, so a second poll is never dispatched over a hung one — it would only
- *  queue behind it — and a hung one must still be able to make the panel admit it is blind. */
-export const READER_POLL_SILENT_MS = 15_000;
+ *  queue behind it — and a hung one must still be able to make the panel admit it is blind.
+ *  It IS the staff hang bound, named once (`STAFF_HANG_MS`): the poll is on the stall ledger, so its
+ *  first miss lands at the instant the ledger calls the tab stalled — a second spelling of 15s could
+ *  only drift from that. */
+export const READER_POLL_SILENT_MS = STAFF_HANG_MS;
 /**
  * C1 · P2gb — how long a charge may stand captured with NO order before this tab stops watching it.
  * `recording` is the window the poll matters most: each live answer re-extends the settle freeze

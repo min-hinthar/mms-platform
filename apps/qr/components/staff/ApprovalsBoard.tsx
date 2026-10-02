@@ -16,7 +16,7 @@ import {
 } from "@/lib/approvals";
 import { leaveForHome, leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
-import { boundWrite, stalledSince } from "@/lib/bounded-write";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
@@ -29,6 +29,7 @@ import { useZoneFocus } from "./ZoneFocus";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
@@ -530,8 +531,16 @@ function RequestCard({
     // TAP, never dispatched, while any action on this tab has gone unanswered past the bound: sent,
     // it would only queue behind the stuck one, to land minutes later. Read now, never from render.
     // Owner decision (Phase 2h · A1): KEEP this refusal — an approval authorizes a refund or void.
-    if (stalledSince() !== null) {
-      setMsg({ k: "out.stalled" });
+    // Owner decision (Phase 2h · integration): while THIS card's own decision is still out past the
+    // bound (its PIN cleared, typed again), the refusal re-says ITS line ("Don't decide again"),
+    // never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal<StaffKey>(
+      lateRef.current ? "table.appr.msg.waiting" : null,
+      stalledSince(),
+      "out.stalled",
+    );
+    if (refused !== null) {
+      setMsg({ k: refused });
       setReload(true);
       return;
     }
@@ -578,6 +587,9 @@ function RequestCard({
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? msg;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   return (
     <article
       className="card card-textured"
@@ -732,7 +744,7 @@ function RequestCard({
             style={{ margin: "8px 0 0", minHeight: 16 }}
           >
             {shown && (
-              <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
                 <MsgText lang={lang} msg={shown} />
               </span>
             )}

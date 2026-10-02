@@ -8926,10 +8926,19 @@ a .chrome-en {
   transform: scale(0.97);
 }
 /* Same dimming the CTA gets — a pending door (mid-write, or a required-choice item the one-tap rail
-   can't add) must not look tappable. */
-.kiosk-door:disabled {
+   can't add) must not look tappable. The ONE source of that dim, for both ways a door refuses:
+   native `disabled` (the review's doors) and `aria-disabled` (the menu's dish tiles, refused by the
+   attribute and the handler so the tile just tapped keeps focus — Phase 2h critic F7). An
+   aria-disabled button still takes `:active`, so the press is stilled here too. */
+.kiosk-door:disabled,
+.kiosk-door[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
+  transform: none;
+}
+/* A sold-out dish keeps its own, lighter shade — written after the rule above, so it wins there. */
+.kiosk-door[data-sold-out] {
+  opacity: 0.55;
 }
 .kiosk-door-label {
   font-size: var(--xfs-tile);

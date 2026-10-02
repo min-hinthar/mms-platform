@@ -6,6 +6,7 @@ import {
   resetLedgerForTests,
   settleLate,
   stalledSince,
+  tapRefusal,
   track,
   type Bounded,
   type Late,
@@ -265,5 +266,36 @@ describe("stalledSince — the OLDEST unanswered action, and only past the bound
     expect(outstanding()).toBe(0);
     vi.setSystemTime(T0 + STAFF_HANG_MS);
     expect(stalledSince()).toBeNull();
+  });
+});
+
+describe("tapRefusal — a surface's OWN wait outranks the tab's stall (Phase 2h · integration, owner decision)", () => {
+  // Every case is the sentence a refused money tap SAYS. `own` stands for the surface's waiting line
+  // ("No answer yet — this payment may still be recorded. Don't take it again…"), `stalled` for
+  // `out.stalled` ("…so this did nothing") — the one a re-tap must NOT be answered with.
+  const OWN = "settle.cash.waiting";
+  const STALLED = "out.stalled";
+
+  it("its own write still out past the bound: the OWN sentence — though the ledger calls the tab stalled", () => {
+    // MUTATION (p2h-int-c/tap-refusal/ledger-outranks-own): the ledger read first — at the bound the
+    // surface's own raw IS the stall, so every re-tap says "this did nothing" and the one line that
+    // says "don't take it again" is gone; red.
+    expect(tapRefusal(OWN, T0, STALLED)).toBe(OWN);
+  });
+
+  it("its own write still out with the wall clock set back (the ledger reads 'not stalled'): still the OWN sentence", () => {
+    // MUTATION (p2h-int-c/tap-refusal/own-ignored): the own wait unread — a clock set back mid-hang
+    // lets a second payment queue behind the first (critic F12); red.
+    expect(tapRefusal(OWN, null, STALLED)).toBe(OWN);
+  });
+
+  it("ANOTHER action's stall, its own write not out: `out.stalled`", () => {
+    // MUTATION (p2h-int-c/tap-refusal/stall-ignored): a stalled tablet dispatches the payment into
+    // the stuck queue, to land minutes later (9d); red.
+    expect(tapRefusal<string>(null, T0, STALLED)).toBe(STALLED);
+  });
+
+  it("neither: nothing refused — the tap is sent", () => {
+    expect(tapRefusal<string>(null, null, STALLED)).toBeNull();
   });
 });

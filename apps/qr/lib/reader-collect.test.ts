@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STAFF_HANG_MS } from "./bounded-write";
 import {
   READER_BLIND_AFTER_MISSES,
   READER_COLLECT_KEY,
@@ -343,6 +344,15 @@ describe("nextReaderPoll — the poll's reducer", () => {
     expect(silentMisses(T0, T0 + READER_POLL_SILENT_MS - 1)).toBe(0);
     expect(silentMisses(T0, T0 + READER_POLL_SILENT_MS)).toBe(1);
     expect(silentMisses(T0, T0 + 3 * READER_POLL_SILENT_MS)).toBe(3);
+  });
+
+  it("the span IS the staff hang bound: silent one millisecond short of STAFF_HANG_MS is no miss, silent for exactly it is one (integration c · R1)", () => {
+    // Pinned by the contract's own bound, never by the derived constant (that would be a
+    // tautology). MUTATION (p2h-int-c/reader/silence-bound-early): a second spelling a hair short —
+    // the panel counts a miss before the ledger calls the tab stalled; red.
+    expect(silentMisses(T0, T0 + STAFF_HANG_MS - 1)).toBe(0);
+    expect(silentMisses(T0, T0 + STAFF_HANG_MS)).toBe(1);
+    expect(silentMisses(T0, T0 + 4 * STAFF_HANG_MS - 1)).toBe(3);
   });
 });
 
