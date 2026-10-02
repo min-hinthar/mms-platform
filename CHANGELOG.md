@@ -123,11 +123,21 @@ row hold from the tap across a remount, each answer clearing only its own hold; 
 monotonic clock; every sign-in is a fresh document, so a stuck lock release never follows staff into the
 console.
 
+**Codex round 3** (`10eb834`: 3×P2, all real, fixed on sight in `1e67e19`): the Lock circle keeps its tap
+guard until the late answer (a re-tap past the bound re-says "no answer yet" and sends nothing — it queued
+a second lock behind the hung one); the merge picker keeps ONE candidate read per table in the tab's read
+register, so a Cancel and reopen or a remount attaches to the read still out instead of queueing another;
+and a reader start now carries its pending record's UUID onto the PaymentIntent (`metadata.startId`) — a
+reloaded tablet's resume requires it, so it adopts only its OWN start and never offers to Cancel the
+charge another tablet is collecting for the same table (the freeze stays keyed by the server's
+`settleAttempt`).
+
 **Gate:** `turbo lint typecheck build` green on `cc949ef` (lint 0 errors); the full qr suite green
 (348 files); all 15 fast-lane steps + `check-money-coverage` green; the full `verify:slice` on `cc949ef`
 caught 2400 / 2400 (0 survived, 0 stale, no orphans); on each Codex round's head every new mutant plus
 every mutant on the files it touched was caught (r1: 31 + 109; r2: 81 + 227 and 43 + 171, then every mutant
-on the files both r2 streams touched, on the merged head); `check:mutant-anchors` 2555 anchors · 224 files;
+on the files both r2 streams touched, on the merged head; r3: 16 + 224 on `1e67e19`, with the full qr suite
+5695 / 5695 and `turbo lint typecheck build` green there); `check:mutant-anchors` 2571 anchors · 224 files;
 CI green.
 
 **Filed:** P2he–P2hj (decision 9h: a compare-only `cartId` on the settle actions, a server guard on

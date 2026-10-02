@@ -13,7 +13,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > through a fresh-context critic, every finding fixed) merged up to `5aec099`. Owner decision 9
 > (delegated) plus 9i (a re-tap on a sheet whose own write waits re-says its own line) and 9j
 > (approvals keep the stall refusal). The CHANGELOG entry is the as-built; DESIGN-LANGUAGE §17 carries
-> the Phase 2h block; LEARNINGS #205–#208. Rows closed: P2cz · P2fc · P2hk. Filed: P2he–P2hu (P2hl · P2hm · P2ho · P2hr · P2hs closed by Codex r2). P2bi → Phase 2i.
+> the Phase 2h block; LEARNINGS #205–#208. Rows closed: P2cz · P2fc · P2hk. Filed: P2he–P2hu (P2hl · P2hm · P2ho · P2hr · P2hs closed by Codex r2; Codex r3's 3×P2 fixed on sight — the lock's guard, the merge read, the resume's start id). P2bi → Phase 2i.
 > **The blind review is DONE** (`2e9c226`, three lenses → REJECT ×3; every finding verified and fixed on `p2h/rev-a/b/c`, merged up to `cc949ef` — see CHANGELOG "Blind review").
 >
 > **Next on the PR:** the full `verify:slice` on `cc949ef` → push → mark ready → ask Codex in its own comment → WAIT, event-driven, for "Codex has
