@@ -17,6 +17,15 @@
  * keeps (a pick, the Undo bar, a cash hand-back only memory holds). Under /staff the staff watcher
  * (`AppUpdateWatch` → `applyUpdate`) owns every reload; the shell pays none of its own. Each rule
  * below takes `staff` = `staffOwnsReload(location.pathname)`, read at the moment it decides.
+ *
+ * ⚠️ And what the staff route takes, it RELEASES (Codex r2 on #311): the ask, the debt and the
+ * Refresh's one-shot are all cleared — never left set. Left set, the diner strip's Refresh returned
+ * at its one-shot guard for the life of the document, a stale ask made ANOTHER tab's later
+ * activation reload this one, and a kept debt was paid by some later `online` on a page nobody had
+ * asked about. Released, the diner page is exactly where it would be had nobody tapped: the strip
+ * still offers the new version (its worker is waiting, or already active — `refreshTap`), and a tap
+ * asks afresh. A debt "paid on leaving staff" was the alternative and is refused: it would reload a
+ * diner page on a soft navigation, under the hands that just navigated.
  */
 
 /** The staff app's pages: /staff and anything under it. */
@@ -26,8 +35,10 @@ export function staffOwnsReload(pathname: string): boolean {
 export type ControllerChangeAction =
   /** The very first install (`clientsClaim` takes a brand-new visitor): adopt it, never reload. */
   | "adopt-first"
-  /** Another tab's activation — or this tab's, now under /staff: keep working. */
+  /** Another tab's activation: keep working. */
   | "ignore"
+  /** This tab's own ask, arriving under /staff: no reload — and the ask is cleared. */
+  | "release"
   /** This tab asked, and the device is online: reload into the new build. */
   | "reload"
   /** This tab asked, but the device is offline: reload once it is back. */
@@ -41,28 +52,29 @@ export function controllerChange(i: {
 }): ControllerChangeAction {
   if (!i.hadController) return "adopt-first";
   if (!i.requested) return "ignore";
-  if (i.staff) return "ignore";
+  if (i.staff) return "release";
   if (!i.online) return "owe";
   return "reload";
 }
 
 /** The failsafe after this tab's SKIP_WAITING (activation stalled): reload — or owe it offline;
- *  dropped under /staff (the staff watcher's). */
+ *  released under /staff (the staff watcher's). */
 export function activationFailsafe(i: {
   online: boolean;
   staff: boolean;
-}): "reload" | "owe" | "ignore" {
-  if (i.staff) return "ignore";
+}): "reload" | "owe" | "release" {
+  if (i.staff) return "release";
   if (!i.online) return "owe";
   return "reload";
 }
 
-/** Back online: pay the owed reload — never under /staff, where it stays owed (unpaid) and the
- *  staff watcher decides. */
-export function payOwed(i: { owed: boolean; staff: boolean }): boolean {
-  if (!i.owed) return false;
-  if (i.staff) return false;
-  return true;
+/** Back online: pay the owed reload — never under /staff, where the debt is RELEASED (the staff
+ *  watcher decides every reload there, and a debt kept would be paid later on a page nobody asked
+ *  about). */
+export function payOwed(i: { owed: boolean; staff: boolean }): "pay" | "release" | "none" {
+  if (!i.owed) return "none";
+  if (i.staff) return "release";
+  return "pay";
 }
 
 /**

@@ -81,30 +81,40 @@ describe("under /staff the shell never reloads", () => {
     expect(staffOwnsReload("/t/abc/menu")).toBe(false);
     expect(staffOwnsReload("/staffing")).toBe(false);
   });
-  it("a change this tab asked for is ignored there, online or not", () => {
+  it("a change this tab asked for is RELEASED there, online or not — never reloaded, never left asked", () => {
     // MUTATION (p2i-shell/change-reloads-staff): the asked-for activation reloads the staff
     // screen the person navigated to, under every reload hold; red.
+    // MUTATION (p2i-shell/change-staff-kept) (Codex r2 on #311): it is only ignored — the ask and
+    // the Refresh's one-shot stay set, so back on a diner page the strip's Refresh does nothing and
+    // another tab's later activation reloads this one; red.
     for (const online of [true, false])
       expect(controllerChange({ hadController: true, requested: true, online, staff: true })).toBe(
-        "ignore",
+        "release",
       );
+    // Another tab's activation there is still plain "ignore": there is no ask to release.
+    expect(
+      controllerChange({ hadController: true, requested: false, online: true, staff: true }),
+    ).toBe("ignore");
     // The first install is still only adopted.
     expect(
       controllerChange({ hadController: false, requested: true, online: true, staff: true }),
     ).toBe("adopt-first");
   });
-  it("the failsafe is dropped there, online or not", () => {
+  it("the failsafe is released there, online or not", () => {
     // MUTATION (p2i-shell/failsafe-reloads-staff): 4s after a diner's Refresh, the staff screen it
     // navigated to is reloaded; red.
-    expect(activationFailsafe({ online: true, staff: true })).toBe("ignore");
-    expect(activationFailsafe({ online: false, staff: true })).toBe("ignore");
+    expect(activationFailsafe({ online: true, staff: true })).toBe("release");
+    expect(activationFailsafe({ online: false, staff: true })).toBe("release");
   });
-  it("an owed reload is paid only off /staff", () => {
+  it("an owed reload is paid only off /staff — there it is released, not kept", () => {
     // MUTATION (p2i-shell/owed-paid-on-staff): coming back online pays a diner page's owed reload
     // on the staff screen the tab is now showing; red.
-    expect(payOwed({ owed: true, staff: false })).toBe(true);
-    expect(payOwed({ owed: true, staff: true })).toBe(false);
+    expect(payOwed({ owed: true, staff: false })).toBe("pay");
+    // MUTATION (p2i-shell/owed-staff-kept) (Codex r2 on #311): kept owed under /staff — the diner
+    // strip's Refresh stays dead until some later `online` reloads a page nobody asked about; red.
+    expect(payOwed({ owed: true, staff: true })).toBe("release");
     // MUTATION (p2i-shell/nothing-owed-paid): nothing owed, nothing paid; red.
-    expect(payOwed({ owed: false, staff: false })).toBe(false);
+    expect(payOwed({ owed: false, staff: false })).toBe("none");
+    expect(payOwed({ owed: false, staff: true })).toBe("none");
   });
 });

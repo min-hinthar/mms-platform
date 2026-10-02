@@ -34,7 +34,8 @@ import { Icon } from "@mms/ui";
  * keeps working). A reload due while the device is offline is OWED (the failsafe's too) and paid on
  * `online`: a reload with no network lands on the worker's offline page, which holds nothing. And
  * none of the three is paid while the tab is under /staff (Codex r1 on #311): the staff watcher owns
- * every reload there.
+ * every reload there — and what it takes it releases (Codex r2 on #311): the ask, the debt and the
+ * Refresh's one-shot are cleared, so the diner strip works again on the way back.
  *
  * The offline pill reads `useConnectionTruth` — never a second bare navigator.onLine listener with
  * its own copy (the W10a single-truth rule). `you-offline` is the only state it renders: `we-down`
@@ -66,6 +67,16 @@ export function ResilienceShell() {
   const waitingRef = useRef<ServiceWorker | null>(null);
   const firedRef = useRef(false);
   const failsafeRef = useRef<number | null>(null);
+  // Codex r2 on #311 — what the staff route takes it RELEASES (`lib/sw-activation.ts`): the ask, the
+  // debt, the pending failsafe and the Refresh's one-shot, so the diner strip answers a tap again
+  // and nothing this tab once asked for is paid later on a page nobody asked about.
+  const releaseToStaff = useCallback(() => {
+    requested = false;
+    owed = false;
+    firedRef.current = false;
+    if (failsafeRef.current !== null) window.clearTimeout(failsafeRef.current);
+    failsafeRef.current = null;
+  }, []);
 
   useEffect(() => {
     if (
@@ -142,6 +153,10 @@ export function ResilienceShell() {
       });
       hadController = true;
       if (action === "adopt-first" || action === "ignore") return;
+      if (action === "release") {
+        releaseToStaff();
+        return;
+      }
       // Cancel the pending failsafe FIRST (review LOW): on a slow connection the normal reload
       // can still be in flight when the 4s timer fires — a second reload() would abort the
       // half-loaded navigation and roughly double time-to-interactive on exactly the network
@@ -158,7 +173,12 @@ export function ResilienceShell() {
     // #311): a soft navigation into the staff app leaves this listener mounted, and the staff
     // watcher owns every reload there. Read where the tab is NOW, never the mount's path.
     const payOwedNow = () => {
-      if (!payOwed({ owed, staff: staffOwnsReload(window.location.pathname) })) return;
+      const pay = payOwed({ owed, staff: staffOwnsReload(window.location.pathname) });
+      if (pay === "none") return;
+      if (pay === "release") {
+        releaseToStaff();
+        return;
+      }
       owed = false;
       window.location.reload();
     };
@@ -173,7 +193,7 @@ export function ResilienceShell() {
       navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
       window.removeEventListener("online", payOwedNow);
     };
-  }, []);
+  }, [releaseToStaff]);
 
   const applyUpdate = useCallback(() => {
     // One-shot: a second SKIP_WAITING is a no-op but stacked failsafe reloads are not. The timer
@@ -202,14 +222,17 @@ export function ResilienceShell() {
         online: navigator.onLine !== false,
         staff: staffOwnsReload(window.location.pathname),
       });
-      if (due === "ignore") return;
+      if (due === "release") {
+        releaseToStaff();
+        return;
+      }
       if (due === "owe") {
         owed = true;
         return;
       }
       window.location.reload();
     }, RELOAD_FAILSAFE_MS);
-  }, []);
+  }, [releaseToStaff]);
 
   if (HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
 

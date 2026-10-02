@@ -215,6 +215,74 @@ describe("ResilienceShell — controllerchange reloads only the tab that asked",
     expect(reload).not.toHaveBeenCalled();
   });
 
+  it("Codex r2 on #311 — the failsafe released under /staff: back on the diner page the strip's Refresh works again", async () => {
+    // MUTATION (p2i-shell/release-skipped): the staff route ignores the failsafe but keeps the
+    // one-shot — every later tap on the diner strip returns at its first line, for the life of the
+    // document; red.
+    const r = await mountWaiting();
+    await tapRefresh();
+    const ask = sw.registration.waiting?.postMessage;
+    expect(ask).toHaveBeenCalledTimes(1);
+    navigate("/staff/kitchen");
+    await act(() => vi.advanceTimersByTimeAsync(10_000)); // the failsafe: released, not paid
+    expect(reload).not.toHaveBeenCalled();
+    navigate("/");
+    r.rerender(<ResilienceShell />);
+    await tapRefresh();
+    expect(ask).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(4_000)); // this ask's own failsafe, on a diner page
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("Codex r2 on #311 — the asked-for change released under /staff: a LATER activation on the diner page is another tab's, never this tab's ask", async () => {
+    // MUTATION (p2i-shell/change-release-skipped): the staff route ignores the change but keeps
+    // `requested` — back on a diner page, another tab's next Refresh reloads this one under the
+    // diner's hands; red.
+    const r = await mountWaiting();
+    await tapRefresh();
+    navigate("/staff/kitchen");
+    act(() => sw.controllerChange());
+    navigate("/");
+    r.rerender(<ResilienceShell />);
+    act(() => sw.controllerChange()); // another tab's later activation
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).not.toHaveBeenCalled();
+    // …and the strip still answers a tap: the worker it offers is active now, so it reloads at once.
+    if (sw.registration.waiting) Object.assign(sw.registration.waiting, { state: "activated" });
+    await tapRefresh();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("Codex r2 on #311 — owed, then `online` under /staff RELEASES the debt: back on the diner page a later `online` reloads nothing, and Refresh works", async () => {
+    // MUTATION (p2i-shell/owed-release-skipped): kept owed — the next `online` on any diner page
+    // reloads it, long after anyone asked, and the strip's Refresh stays dead meanwhile; red.
+    const r = await mountWaiting();
+    await tapRefresh();
+    onLine = false;
+    act(() => sw.controllerChange()); // owed
+    navigate("/staff/kitchen");
+    act(() => goOnline());
+    navigate("/");
+    r.rerender(<ResilienceShell />);
+    act(() => goOnline());
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).not.toHaveBeenCalled();
+    if (sw.registration.waiting) Object.assign(sw.registration.waiting, { state: "activated" });
+    await tapRefresh();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("the other route order — owed on a diner page and STILL there when the device is back: paid, as before", async () => {
+    await mountWaiting();
+    await tapRefresh();
+    onLine = false;
+    act(() => sw.controllerChange()); // owed
+    navigate("/staff/kitchen");
+    navigate("/t/abc/menu"); // back before the network returned: the debt is still the diner's
+    act(() => goOnline());
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it("coming online with nothing owed reloads nothing", async () => {
     sw.controller = {};
     render(<ResilienceShell />);
