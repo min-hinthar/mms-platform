@@ -59,6 +59,22 @@ describe("freshTruth — never the cached answer", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("Codex r1 on #311 (P2it) — an iPadOS older than 16 (no AbortSignal.timeout) still sees the outage, bounded", async () => {
+    // MUTATION (p2i-truth/probe-timeout-unguarded): the probe calls AbortSignal.timeout directly —
+    // on such a tablet it throws into the catch, every probe reads "unknown", and the reload's
+    // "is the order system down?" pre-flight walks a screen into the outage; red.
+    const real = AbortSignal.timeout;
+    Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+    try {
+      answers.push({ db: "down" });
+      const { freshTruth } = await import("./useConnectionTruth");
+      expect(await freshTruth()).toBe("we-down");
+      expect(fetchMock.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: real });
+    }
+  });
+
   it("offline answers at once, with no probe", async () => {
     vi.stubGlobal("navigator", { onLine: false });
     const { freshTruth } = await import("./useConnectionTruth");

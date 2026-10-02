@@ -40,6 +40,7 @@ const IDLE: GuardInput = {
   msSinceInput: QUIET_MS + ANSWER_READ_MS,
   dialogOpen: false,
   typing: false,
+  visible: true,
   retired: false,
 };
 let seq = 0;
@@ -191,6 +192,7 @@ describe("manual — only what a reload would silently lose", () => {
     expect(manualBlock({ ...IDLE, holds: [RECALL()] })).toBeNull();
     expect(manualBlock({ ...IDLE, holds: [OFFER()] })).toBeNull();
     expect(manualBlock({ ...IDLE, dialogOpen: true, typing: true })).toBeNull();
+    expect(manualBlock({ ...IDLE, visible: false })).toBeNull();
     expect(manualBlock({ ...IDLE, msSinceInput: 0, msSinceWriteSettled: 0 })).toBeNull();
   });
 });
@@ -243,6 +245,9 @@ describe("auto — every contributor refuses on its own", () => {
     ["an open dialog", { dialogOpen: true }, { kind: "screen" }],
     // MUTATION (p2i-guard/auto-ignores-typing)
     ["typing", { typing: true }, { kind: "screen" }],
+    // MUTATION (p2i-guard/auto-ignores-hidden) — Codex r1 on #311 (P2iy): a tab hidden while its
+    // automatic apply was in its pre-flight is reloaded where nobody can see it; red.
+    ["a hidden tab", { visible: false }, { kind: "screen" }],
   ];
   it.each(cases)("%s", (_name, input, block) => {
     expect(autoBlock({ ...IDLE, ...input })).toEqual(block);
@@ -286,6 +291,7 @@ describe("retired — relaxes exactly three things (W3)", () => {
     // MUTATION (p2i-guard/retired-relaxes-dialog); red.
     expect(autoBlock({ ...IDLE, ...R, dialogOpen: true })).toEqual({ kind: "screen" });
     expect(autoBlock({ ...IDLE, ...R, typing: true })).toEqual({ kind: "screen" });
+    expect(autoBlock({ ...IDLE, ...R, visible: false })).toEqual({ kind: "screen" });
   });
   it("unsent work that is NOT stashed still refuses both", () => {
     // MUTATION (p2i-guard/retired-relaxes-unsurviving): the KDS Undo bar is reloaded away; red.

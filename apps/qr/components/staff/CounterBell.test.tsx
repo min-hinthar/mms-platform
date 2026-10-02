@@ -99,6 +99,7 @@ const QUIET = {
   msSinceInput: Number.MAX_SAFE_INTEGER,
   dialogOpen: false,
   typing: false,
+  visible: true,
   retired: false,
 };
 

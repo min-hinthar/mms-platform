@@ -86,14 +86,38 @@ describe("retired", () => {
       effect: { check: true },
     });
   });
-  it("is ignored for RETIRED_SNOOZE_MS after an apply came back current (no loop)", () => {
-    // MUTATION (p2i-policy/retired-loops): an anomaly reloads, comes back current, is witnessed
-    // retired again, and reloads forever; red.
-    const applying: UpdatePhase = { k: "applying", served: null, retired: true, mode: "auto" };
+  it("Codex r1 on #311 (P2iu) — a retired screen whose apply comes back `current` STAYS retired, snoozed, never looping", () => {
+    // MUTATION (p2i-policy/retired-current-unretires): `current` un-retires the screen — the row's
+    // warning vanishes while its taps are still being dropped (a version read served stale, a rename
+    // the stamp does not reflect); red.
+    // MUTATION (p2i-policy/retired-current-loops): no snooze — the automatic path counts down,
+    // pre-flights `current` and counts down again every few seconds; red.
+    for (const mode of ["manual", "auto"] as const) {
+      const applying: UpdatePhase = { k: "applying", served: SERVED, retired: true, mode };
+      const back = step(applying, { e: "outcome", o: { kind: "current" }, now: T }).phase;
+      expect(back).toEqual(stale({ retired: true, snoozeUntil: T + RETIRED_SNOOZE_MS }));
+      // A person may still tap at once; the automatic path waits out the snooze.
+      expect(step(back, { e: "tap" }).effect).toEqual({ apply: "manual" });
+      expect(
+        step(back, { e: "tick", now: T + RETIRED_SNOOZE_MS - 1, autoClear: true, tried: false })
+          .phase,
+      ).toBe(back);
+      expect(
+        step(back, { e: "tick", now: T + RETIRED_SNOOZE_MS, autoClear: true, tried: false }).phase
+          .k,
+      ).toBe("countdown");
+    }
+  });
+  it("Codex r1 on #311 (P2iu) — a later retirement witness is NEVER muted, even right after an apply came back current", () => {
+    // Was: `current` set `retiredMuteUntil`, and every `UnrecognizedActionError` inside
+    // RETIRED_SNOOZE_MS was ignored — a screen whose taps really were dropped said nothing.
+    const applying: UpdatePhase = { k: "applying", served: SERVED, retired: false, mode: "manual" };
     const back = step(applying, { e: "outcome", o: { kind: "current" }, now: T }).phase;
-    expect(back.k).toBe("current");
-    expect(step(back, { e: "retired", now: T + RETIRED_SNOOZE_MS - 1 }).phase).toBe(back);
-    expect(step(back, { e: "retired", now: T + RETIRED_SNOOZE_MS }).phase.k).toBe("stale");
+    expect(back).toEqual(CURRENT);
+    expect(step(back, { e: "retired", now: T + 1 })).toEqual({
+      phase: stale({ served: null, retired: true }),
+      effect: { check: true },
+    });
   });
 });
 

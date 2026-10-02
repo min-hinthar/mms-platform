@@ -338,6 +338,7 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
       msSinceInput: 1e9,
       dialogOpen: false,
       typing: false,
+      visible: true,
       retired: false,
     });
     expect(verdict).toEqual({ kind: "hold", reason: "handBack" });

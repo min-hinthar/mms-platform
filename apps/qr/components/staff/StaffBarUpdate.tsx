@@ -100,14 +100,13 @@ export function refusalStands(block: ApplyBlock, phase: UpdatePhase, i: GuardInp
 }
 
 /**
- * The retirement is said ONCE per retirement, whichever bar says it: each staff page renders its own
- * bar (and a pane can hide it), so a mount's own state would re-say it on every remount. Re-armed when
- * the store goes current — the watcher below is (re)added by every mount, a Set keeps it once.
+ * The retirement is said ONCE per document, whichever bar says it: each staff page renders its own
+ * bar (and a pane can hide it), so a mount's own state would re-say it on every remount. Never
+ * re-armed: a retired screen stays retired until it reloads (`stepUpdate` never un-retires — not on a
+ * `current` version read, and since Codex r1 on #311 not on an apply that came back `current`), and a
+ * reload is a new document with a fresh latch.
  */
 let retiredSaid = false;
-function rearmRetired(): void {
-  if (updateSnapshot().phase.k === "current") retiredSaid = false;
-}
 /** Test seam: the module latch (vitest isolates files, not cases) — reset after every case
  *  (`lib/test-resets.ts`). */
 function resetRetiredSaidForTests(): void {
@@ -164,10 +163,6 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
   const offline = useDeviceOffline();
   const reloading = useSyncExternalStore(subscribeReloading, reloadingNow, notReloading);
   const retired = phase.k !== "current" && phase.retired;
-  useEffect(() => {
-    subscribeUpdate(rearmRetired);
-    rearmRetired();
-  }, []);
 
   // The countdown's clock, never read during render: a new countdown starts its seconds at its own
   // start (`endsAt − COUNTDOWN_MS`, the moment the reducer set it), and a timer re-reads the clock

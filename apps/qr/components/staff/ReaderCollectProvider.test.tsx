@@ -1238,6 +1238,7 @@ describe("Phase 2i (P2bi) — a declined or cancelled outcome on screen holds an
     msSinceInput: Number.MAX_SAFE_INTEGER,
     dialogOpen: false,
     typing: false,
+    visible: true,
     retired: false,
   };
   const holds = () =>

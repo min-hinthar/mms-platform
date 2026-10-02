@@ -2300,6 +2300,7 @@ describe("Phase 2i — what a reload for a new build would lose here holds it", 
     msSinceInput: Number.MAX_SAFE_INTEGER,
     dialogOpen: false,
     typing: false,
+    visible: true,
     retired: false,
   });
 

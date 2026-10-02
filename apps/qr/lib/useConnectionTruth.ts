@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { NET_SHOW_MS, offlineSustained } from "./live-connection";
+import { timeoutSignal } from "./timeout-signal";
 
 /**
  * W10a — the three truths behind a failed request, so copy can stop guessing:
@@ -59,7 +60,7 @@ async function runProbe(): Promise<ConnectionTruth> {
     try {
       const res = await fetch("/api/health", {
         cache: "no-store",
-        signal: AbortSignal.timeout(4000),
+        signal: timeoutSignal(4000),
       });
       // "we-down" requires a PARSED verdict from our own probe. A captive portal answers 200 HTML
       // for any URL (restaurant guest wifi) — json() throwing, or a non-ok status, must never be

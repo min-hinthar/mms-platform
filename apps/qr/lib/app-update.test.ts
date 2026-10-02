@@ -11,8 +11,6 @@ import {
   dispatchUpdate,
   installApplyDeps,
   makeFetchServed,
-  timeoutSignal,
-  VERSION_FETCH_MS,
   markAppliedIn,
   noteInput,
   onCheckRequested,
@@ -45,6 +43,7 @@ const IDLE: GuardInput = {
   msSinceInput: QUIET_MS * 10,
   dialogOpen: false,
   typing: false,
+  visible: true,
   retired: false,
 };
 
@@ -61,6 +60,7 @@ function fake(over: Partial<ApplyDeps> = {}): Fake {
     triedTarget: () => false,
     markApplied: (b) => {
       calls.push(`mark:${b}`);
+      return true;
     },
     freeze: () => {
       calls.push("freeze");
@@ -185,6 +185,42 @@ describe("applyUpdate — its own mode's verdict, at the call AND after the last
     });
     expect(await applyUpdate("auto", d)).toEqual({ kind: "refused", block: { kind: "screen" } });
     expect(d.calls).toEqual([]);
+  });
+
+  it("Codex r1 on #311 (P2iy) — AUTO: a tab hidden during the pre-flight refuses `screen`; a person's tap still reloads", async () => {
+    // MUTATION (p2i-guard/auto-ignores-hidden): the re-check never reads visibility — an apply
+    // already awaiting /api/version reloads a tab that went into the background; red.
+    const hideMidway = () =>
+      fake({
+        fetchServed: vi.fn(async () => {
+          d.input = { ...IDLE, visible: false };
+          return changed;
+        }),
+      });
+    let d = hideMidway();
+    expect(await applyUpdate("auto", d)).toEqual({ kind: "refused", block: { kind: "screen" } });
+    expect(d.calls).toEqual([]);
+    d = hideMidway();
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
+  });
+
+  it("Codex r1 on #311 — AUTO refuses when the tried-target record cannot be written; a person's tap still reloads", async () => {
+    // MUTATION (p2i-apply/auto-unmarked-reloads): the failed write is ignored — a reload that does
+    // not land on the target (a CDN still serving the old build) is retried automatically on every
+    // quiet window, for ever, on a tab whose storage refuses; red.
+    const unmarkable = () =>
+      fake({
+        markApplied: (b) => {
+          d.calls.push(`mark:${b}`);
+          return false;
+        },
+      });
+    let d = unmarkable();
+    expect(await applyUpdate("auto", d)).toEqual({ kind: "refused", block: { kind: "check" } });
+    expect(d.calls).toEqual([`mark:${NEW}`]);
+    d = unmarkable();
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
+    expect(d.calls).toEqual([`mark:${NEW}`, "freeze", "reload"]);
   });
 
   it("two concurrent applies: ONE reload; the second is busy", async () => {
@@ -341,10 +377,15 @@ describe("the store — dispatch, effects, the row's refusal", () => {
 });
 
 describe("readGuardInput — the live document, the ledger, the register", () => {
-  const doc = (sel: string | null, active: Partial<HTMLElement> | null) =>
+  const doc = (
+    sel: string | null,
+    active: Partial<HTMLElement> | null,
+    visibilityState: DocumentVisibilityState = "visible",
+  ) =>
     ({
       querySelector: (q: string) => (sel !== null && q.includes(sel) ? {} : null),
       activeElement: active,
+      visibilityState,
     }) as unknown as Document;
   const nav = (onLine: boolean) => ({ onLine }) as Navigator;
   const el = (tagName: string, type?: string, editable = false) =>
@@ -397,6 +438,15 @@ describe("readGuardInput — the live document, the ledger, the register", () =>
       readGuardInput({ doc: doc(null, null), nav: nav(true), retired: false }).stalledWrite,
     ).toBe(true);
     release();
+  });
+
+  it("Codex r1 on #311 (P2iy) — reads the document's visibility NOW", () => {
+    // MUTATION (p2i-apply/visibility-unread): `visible` is always true — the guard never sees a
+    // hidden tab; red.
+    const at = (v: DocumentVisibilityState) =>
+      readGuardInput({ doc: doc(null, null, v), nav: nav(true), retired: false }).visible;
+    expect(at("visible")).toBe(true);
+    expect(at("hidden")).toBe(false);
   });
 
   it("input resets the quiet clock", () => {
@@ -464,28 +514,6 @@ describe("makeFetchServed — strict, uncached, anonymous", () => {
     }
   });
 
-  it("timeoutSignal: the platform's own when it has one; otherwise a timer aborts at the bound", () => {
-    // MUTATION (p2i-apply/timeout-fallback-throws): no fallback — a missing AbortSignal.timeout
-    // throws; red. MUTATION (p2i-apply/timeout-fallback-never-aborts): the fallback's timer is
-    // dropped — a hung version read on an old tablet never ends, and the one-at-a-time latch holds
-    // every later check behind it; red.
-    const own = new AbortController().signal;
-    const timeout = vi.fn(() => own);
-    expect(timeoutSignal(VERSION_FETCH_MS, { timeout })).toBe(own);
-    expect(timeout).toHaveBeenCalledWith(VERSION_FETCH_MS);
-    vi.useFakeTimers();
-    try {
-      const s = timeoutSignal(VERSION_FETCH_MS, {});
-      expect(s.aborted).toBe(false);
-      vi.advanceTimersByTime(VERSION_FETCH_MS - 1);
-      expect(s.aborted).toBe(false);
-      vi.advanceTimersByTime(1);
-      expect(s.aborted).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("the same build is current", async () => {
     expect(
       await makeFetchServed(
@@ -513,7 +541,7 @@ describe("the one-shot record", () => {
 
   it("marked → tried for that build only", () => {
     const s = memStore();
-    markAppliedIn(s, NEW);
+    expect(markAppliedIn(s, NEW)).toBe(true);
     expect(triedTargetIn(s, NEW)).toBe(true);
     expect(triedTargetIn(s, "mfq3k2x1-0a1b2c3d")).toBe(false);
   });
@@ -549,8 +577,19 @@ describe("the one-shot record", () => {
       },
     };
     expect(() => markAppliedIn(broken, NEW)).not.toThrow();
+    // MUTATION (p2i-apply/mark-throw-reads-kept): a write that threw reports success; red.
+    expect(markAppliedIn(broken, NEW)).toBe(false);
+    // MUTATION (p2i-apply/mark-null-reads-kept): no store at all reports success; red.
+    expect(markAppliedIn(null, NEW)).toBe(false);
     expect(triedTargetIn(broken, NEW)).toBe(false);
     expect(() => afterLoad(broken, NEW)).not.toThrow();
     expect(triedTargetIn(null, NEW)).toBe(false);
+  });
+
+  it("Codex r1 on #311 — a store that swallows the write without throwing reports it unkept", () => {
+    // MUTATION (p2i-apply/mark-unverified): success is assumed once setItem returns — a store that
+    // drops writes reads as recorded and the automatic path retries the target for ever; red.
+    const deaf: TabStore = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+    expect(markAppliedIn(deaf, NEW)).toBe(false);
   });
 });

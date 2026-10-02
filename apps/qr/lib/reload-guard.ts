@@ -119,6 +119,8 @@ export type GuardInput = {
   msSinceInput: number;
   dialogOpen: boolean;
   typing: boolean;
+  /** `document.visibilityState === "visible"`, read now (Codex r1 on #311, P2iy). */
+  visible: boolean;
   retired: boolean;
 };
 
@@ -195,6 +197,10 @@ export function autoBlock(i: GuardInput): ApplyBlock | null {
     if (sound !== null) return { kind: "hold", reason: sound.reason };
   }
   if (i.dialogOpen || i.typing) return { kind: "screen" };
+  // A tab nobody is looking at is never reloaded by nobody (Codex r1 on #311, P2iy): the watcher
+  // cancels a hidden COUNTDOWN, but an apply already in its pre-flight re-reads THIS verdict after
+  // its last await — so a tab hidden while /api/version answered is refused here, not reloaded.
+  if (!i.visible) return { kind: "screen" };
   if (i.msSinceInput < (i.retired ? RETIRED_QUIET_MS : QUIET_MS)) return { kind: "input" };
   if (
     i.msSinceWriteSettled !== null &&

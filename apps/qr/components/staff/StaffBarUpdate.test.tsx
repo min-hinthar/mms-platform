@@ -49,7 +49,7 @@ function deps(over: Partial<ApplyDeps> = {}): ApplyDeps {
     fetchServed: () => Promise.resolve({ kind: "changed", served: SERVED, incompatible: false }),
     freshTruth: () => Promise.resolve("unknown"),
     triedTarget: () => false,
-    markApplied: () => {},
+    markApplied: () => true,
     freeze,
     reload,
     ...over,
@@ -346,9 +346,9 @@ describe("retired — this screen's taps may not save", () => {
     act(() => release());
   });
 
-  it("is said once per retirement across a REMOUNT of the bar — and again after it came back current", async () => {
-    // MUTATION (p2i-row/retired-said-per-mount): the latch lives in the mount — a pane toggling the
-    // bar re-announces "this screen is out of date" on every remount; red.
+  it("is said once per retirement across a REMOUNT of the bar — and a Reload that comes back current keeps the warning", async () => {
+    // MUTATION (p2i-row/retired-said-per-mount): the latch is never set — a pane toggling the bar
+    // re-announces "this screen is out of date" on every remount; red.
     stale();
     retire();
     const first = render(<StaffBarUpdate lang="en" />);
@@ -357,18 +357,16 @@ describe("retired — this screen's taps may not save", () => {
     render(<StaffBarUpdate lang="en" />);
     expect(row()?.textContent).toContain(STAFF["shell.version.retired"].en);
     expect(screen.queryByRole("alert")).toBeNull();
-    cleanup();
-    // An apply that came back current re-arms it (with no bar mounted at that moment): a LATER
-    // retirement is news again.
-    render(<StaffBarUpdate lang="en" />);
-    cleanup();
+    // Codex r1 on #311 (P2iu): a person's Reload whose pre-flight answers `current` leaves the
+    // screen retired — its taps were refused by the server whatever one version read says — so the
+    // row keeps its warning (already said, so not said again), and its Reload is still there.
     installApplyDeps(deps({ fetchServed: () => Promise.resolve({ kind: "current" }) }));
     act(() => dispatchUpdate({ e: "tap" }));
     await settle();
-    expect(updateSnapshot().phase.k).toBe("current");
-    act(() => dispatchUpdate({ e: "retired", now: monoNow() + 3 * 60_000 }));
-    render(<StaffBarUpdate lang="en" />);
-    expect(screen.getByRole("alert").textContent).toBe(STAFF["shell.version.retired"].en);
+    expect(updateSnapshot().phase).toMatchObject({ k: "stale", retired: true });
+    expect(row()?.textContent).toContain(STAFF["shell.version.retired"].en);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(reloadButton()).toBeTruthy();
   });
 
   it("a plain new version is not the warn tone and says nothing", () => {
@@ -457,6 +455,7 @@ describe("refusalStands — what the row re-reads", () => {
     msSinceInput: 0,
     dialogOpen: false,
     typing: false,
+    visible: true,
     retired: false,
   };
   const stalePhase: UpdatePhase = { k: "stale", served: SERVED, retired: false, snoozeUntil: null };

@@ -27,6 +27,7 @@ import {
   type UpdateEvent,
   type UpdatePhase,
 } from "./update-policy";
+import { timeoutSignal } from "./timeout-signal";
 import type { ConnectionTruth } from "./useConnectionTruth";
 
 export type { ApplyOutcome } from "./update-policy";
@@ -45,7 +46,8 @@ export type { ApplyOutcome } from "./update-policy";
  *
  * ⚠️ AN ATTEMPT IS RECORDED BEFORE THE RELOAD (`markApplied`), per target build, in this tab. If the
  * next document is still not that build (a CDN still serving the old one), the automatic path never
- * retries that target in this tab — only a person can. `afterLoad` clears the record on success.
+ * retries that target in this tab — only a person can. `afterLoad` clears the record on success. An
+ * automatic attempt whose record cannot be written does not reload at all (Codex r1 on #311).
  */
 
 // ── the store ────────────────────────────────────────────────────────────────────────────────────
@@ -126,7 +128,8 @@ export type ApplyDeps = {
   freshTruth(): Promise<ConnectionTruth>;
   /** The one-shot record: this tab already reloaded INTO `build` without arriving. */
   triedTarget(build: string): boolean;
-  markApplied(build: string): void;
+  /** Record the attempt; true only when the record now holds `build` (Codex r1 on #311). */
+  markApplied(build: string): boolean;
   /** `document.body.inert = true` + `<html data-reloading>`. */
   freeze(): void;
   /** `location.reload()`, plus ONE re-issue after RELOAD_STUCK_MS. */
@@ -204,7 +207,13 @@ async function attempt(
   // ── re-read THIS mode's verdict, synchronously after the last await (W4) ──
   const last = verdict(d.guardInput());
   if (last !== null) return refuse(last);
-  d.markApplied(target);
+  // ⚠️ An AUTOMATIC attempt goes only once its record is written (Codex r1 on #311). The record is
+  // what stops the automatic path retrying a target the reload did not land on; on a tab whose
+  // storage refuses it (or drops it without a word), every later quiet window would count down and
+  // reload again, for ever. So auto refuses here — nothing frozen, nothing reloaded — and the row
+  // keeps offering a PERSON's Reload, which does not need the record (only a person retries).
+  const marked = d.markApplied(target);
+  if (mode === "auto" && !marked) return refuse({ kind: "check" });
   // A freeze that throws part-way may already have made the page inert: the reload still goes out —
   // refusing here would leave an inert page that never reloads. (Inert only keeps taps out of the
   // unload; the verdict was clear a moment ago.) A `reload` that throws is caught by `applyUpdate`.
@@ -256,28 +265,13 @@ export function readGuardInput(env: {
     dialogOpen:
       env.doc.querySelector('[role="dialog"],[role="alertdialog"],[aria-modal="true"]') !== null,
     typing: isTyping(env.doc.activeElement),
+    visible: env.doc.visibilityState === "visible",
     retired: env.retired,
   };
 }
 
 /** How long the version read may take before it is "unknown". */
 export const VERSION_FETCH_MS = 4_000;
-
-/**
- * A signal that aborts after `ms`. `AbortSignal.timeout` exists only from Safari / iPadOS 16: on an
- * older staff tablet calling it THROWS, every version read lands in the catch as "unknown", and the
- * detector is silently dead for the life of the device. So when it is missing, an AbortController
- * plus a timer does the same job. Read at the call (`as` defaults to the global), never at load.
- */
-export function timeoutSignal(
-  ms: number,
-  as: { timeout?: (ms: number) => AbortSignal } | undefined = globalThis.AbortSignal,
-): AbortSignal {
-  if (typeof as?.timeout === "function") return as.timeout(ms);
-  const c = new AbortController();
-  setTimeout(() => c.abort(), ms);
-  return c.signal;
-}
 
 /** `/api/version`, read strictly: never cached, never with credentials, bounded at 4s, and anything
  *  that is not our JSON is "unknown" (no verdict) — never "changed". */
@@ -322,15 +316,18 @@ export function triedTargetIn(store: TabStore | null, build: string): boolean {
   return readApplied(store) === build;
 }
 
-/** `markApplied` for a tab store. Storage that throws keeps nothing (the auto path may retry once
- *  more per load — the safe direction for a screen that needs the new version). */
-export function markAppliedIn(store: TabStore | null, build: string): void {
-  if (store === null) return;
+/** `markApplied` for a tab store: true only when the record READS BACK as `build`. No store, a
+ *  write that throws, or one dropped without a word all answer false — and the executor's AUTOMATIC
+ *  path then refuses (Codex r1 on #311: an unrecorded attempt would be retried on every quiet window,
+ *  for ever). */
+export function markAppliedIn(store: TabStore | null, build: string): boolean {
+  if (store === null) return false;
   try {
     store.setItem(APPLIED_KEY, JSON.stringify({ target: build }));
   } catch {
-    // Deliberate swallow: see above.
+    return false; // Deliberate: reported, never thrown — the caller decides.
   }
+  return readApplied(store) === build;
 }
 
 /** At mount: the record's target IS this build → it arrived, clear it; else keep it (that target

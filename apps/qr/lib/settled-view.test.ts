@@ -217,6 +217,7 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     msSinceInput: 1e9,
     dialogOpen: false,
     typing: false,
+    visible: true,
     retired: false,
   });
 

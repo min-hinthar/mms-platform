@@ -22,9 +22,7 @@ export const SNOOZE_MS = 10 * 60_000;
 export const RETIRED_SNOOZE_MS = 2 * 60_000;
 
 export type UpdatePhase =
-  /** `retiredMuteUntil`: an apply came back current at this moment — a `retired` witness is ignored
-   *  until then, so one anomaly can never loop the screen through reloads. */
-  | { k: "current"; retiredMuteUntil?: number }
+  | { k: "current" }
   | { k: "stale"; served: Served | null; retired: boolean; snoozeUntil: number | null }
   | { k: "countdown"; served: Served | null; retired: boolean; endsAt: number }
   | { k: "applying"; served: Served | null; retired: boolean; mode: "manual" | "auto" };
@@ -75,7 +73,6 @@ export function stepUpdate(
     }
     case "retired": {
       if (p.k === "current") {
-        if (p.retiredMuteUntil !== undefined && ev.now < p.retiredMuteUntil) return same(p);
         return {
           phase: { k: "stale", served: null, retired: true, snoozeUntil: null },
           effect: { check: true },
@@ -135,8 +132,24 @@ export function stepUpdate(
       if (p.k !== "applying") return same(p);
       const o = ev.o;
       if (o.kind === "reloading" || o.kind === "busy") return same(p);
-      if (o.kind === "current")
-        return same({ k: "current", retiredMuteUntil: ev.now + RETIRED_SNOOZE_MS });
+      if (o.kind === "current") {
+        // ⚠️ A RETIRED screen stays retired (Codex r1 on #311, P2iu). Its actions were refused by
+        // the server whatever this one version read says (a read served stale, a rename the stamp
+        // does not reflect), so the row keeps its warning and a person may tap again at once. Only
+        // the AUTOMATIC path waits — RETIRED_SNOOZE_MS, or it would count down, pre-flight `current`
+        // and count down again every few seconds. Nothing is muted: it used to go `current` with
+        // every later retirement witness ignored for two minutes, so a screen whose taps really were
+        // dropped said nothing right after a person asked. (No reload can loop here: `current`
+        // never reloads.)
+        if (p.retired)
+          return same({
+            k: "stale",
+            served: p.served,
+            retired: true,
+            snoozeUntil: ev.now + RETIRED_SNOOZE_MS,
+          });
+        return same(CURRENT);
+      }
       // Refused. A person is told why (the row) and may tap again at once. An AUTOMATIC attempt the
       // executor refused waits one poll before counting down again — otherwise a pre-flight that
       // keeps failing (no answer from /api/version) would count down and refuse every few seconds.

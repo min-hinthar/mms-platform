@@ -241,6 +241,30 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
     expect(reload).toHaveBeenCalledTimes(2);
   });
 
+  it("Codex r1 on #311 — a tab whose storage refuses the tried-target record never auto-reloads; a tap still does", async () => {
+    // MUTATION (p2i-watch/mark-result-dropped): the watcher reports every mark as kept — a reload
+    // that misses its target is retried automatically on every quiet window, for ever; red.
+    await mountStale();
+    const refuse = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    try {
+      await act(() => vi.advanceTimersByTimeAsync(WATCH_TICK_MS));
+      expect(phase().k).toBe("countdown");
+      await act(() => vi.advanceTimersByTimeAsync(COUNTDOWN_MS));
+      expect(reload).not.toHaveBeenCalled();
+      expect(document.body.inert).toBe(false);
+      expect(phase().k).toBe("stale");
+      await act(async () => {
+        dispatchUpdate({ e: "tap" });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(reload).toHaveBeenCalledTimes(1);
+    } finally {
+      refuse.mockRestore();
+    }
+  });
+
   it("retired: the shorter quiet window, and live sound no longer holds the reload", async () => {
     // MUTATION (p2i-watch/retired-not-read): the executor's verdict and the tick read `retired:
     // false` — a sound-live KDS whose actions are gone waits for a person forever; red.
@@ -432,6 +456,33 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("Codex r1 on #311 (P2iy) — an automatic apply already in its pre-flight reloads nothing once the tab is hidden", async () => {
+    // MUTATION (p2i-guard/auto-ignores-hidden): the executor's re-check passes a hidden tab — the
+    // countdown was seen, but the reload lands where nobody is looking; red.
+    await mountStale();
+    await act(() => vi.advanceTimersByTimeAsync(WATCH_TICK_MS));
+    expect(phase().k).toBe("countdown");
+    let answer: (res: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      (input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          versionCalls.push(init ?? {});
+          answer = resolve;
+        }),
+    );
+    await act(() => vi.advanceTimersByTimeAsync(COUNTDOWN_MS));
+    expect(phase()).toMatchObject({ k: "applying", mode: "auto" });
+    act(() => setVisibility("hidden"));
+    await act(async () => {
+      answer(Response.json(served));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(document.body.inert).toBe(false);
+    expect(sessionStorage.getItem(APPLIED_KEY)).toBeNull();
+    expect(phase().k).toBe("stale");
   });
 
   it("unmounted: the executor is uninstalled and nothing is heard", async () => {
