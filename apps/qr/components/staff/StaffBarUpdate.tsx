@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Button } from "@mms/ui";
 import {
   clearRefusal,
@@ -36,11 +36,19 @@ import { Chrome } from "./Chrome";
  *    a reload offline would land on the worker's offline page).
  *  - stale — the plain line, plus the sound sentence while a board's sound is live (the reload
  *    turns it off until someone turns it on again — the cost a person must hear BEFORE tapping).
- *  - retired — this screen's taps may not save: the warn tone, said ONCE as an alert when the phase
- *    flips (never again on a later re-render or after a refusal clears).
+ *  - retired — this screen's taps may not save: the warn tone, said ONCE as an alert per retirement
+ *    (never again on a later re-render, after a refusal clears, or when the bar itself remounts — the
+ *    latch is this module's, not a mount's). Only the retired sentence is the alert: the sound
+ *    sentence beside it comes and goes with the sound holds, and inside an atomic alert every return
+ *    would re-announce the whole line.
  *  - countdown — the automatic reload's visible seconds and [Not now]. The ticking line is
- *    `aria-hidden`; ONE sr-only alert is born with the countdown and says it in words.
- *  - applying — the button busy, "Reloading…".
+ *    `aria-hidden`; ONE sr-only alert is born with the countdown and says it in words. [Not now]
+ *    OUTLIVES the countdown until it is answered: the watcher's input listener cancels a countdown on
+ *    `pointerdown`, so a button that left with the countdown would be gone before the click that
+ *    pressed it — and the countdown would come back after the quiet window anyway.
+ *  - applying — the button busy: "Checking…" while the executor's pre-flight runs (a fetch and a
+ *    health probe that often end in a refusal), "Reloading…" only once the page is frozen for the
+ *    reload (the executor's `freeze` marks `<html data-reloading>` in the same task as the reload).
  *
  * A REFUSED tap replaces the line in the SAME position with `role="alert"` (the LockButton idiom:
  * one element, never said twice). The store keeps a refusal until the next tap, so the row clears it
@@ -86,6 +94,29 @@ export function refusalStands(block: ApplyBlock, phase: UpdatePhase, i: GuardInp
   }
 }
 
+/**
+ * The retirement is said ONCE per retirement, whichever bar says it: each staff page renders its own
+ * bar (and a pane can hide it), so a mount's own state would re-say it on every remount. Re-armed when
+ * the store goes current — the watcher below is (re)added by every mount, a Set keeps it once.
+ */
+let retiredSaid = false;
+function rearmRetired(): void {
+  if (updateSnapshot().phase.k === "current") retiredSaid = false;
+}
+/** Test seam: the module latch (vitest isolates files, not cases). */
+export function resetRetiredSaidForTests(): void {
+  retiredSaid = false;
+}
+
+/** `<html data-reloading>` — set by the executor's `freeze`, in the same task as the reload. */
+function subscribeReloading(cb: () => void): () => void {
+  const mo = new MutationObserver(cb);
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-reloading"] });
+  return () => mo.disconnect();
+}
+const reloadingNow = () => document.documentElement.hasAttribute("data-reloading");
+const notReloading = () => false;
+
 /** Whole seconds left on the countdown, never below 1 while it shows. */
 function secondsLeft(endsAt: number, now: number): number {
   return Math.max(1, Math.ceil((endsAt - now) / 1_000));
@@ -99,23 +130,22 @@ function secondsLeft(endsAt: number, now: number): number {
 function StandingLine({
   lang,
   retired,
-  said,
-  onSaid,
   children,
 }: {
   lang: StaffLang;
   retired: boolean;
-  said: boolean;
-  onSaid: () => void;
   children: ReactNode;
 }) {
-  const [alert] = useState(() => retired && !said);
+  const [alert] = useState(() => retired && !retiredSaid);
   useEffect(() => {
-    if (alert) onSaid();
-  }, [alert, onSaid]);
+    if (alert) retiredSaid = true;
+  }, [alert]);
+  // The alert holds the retired sentence ALONE; the sound sentence (children) is its sibling.
   return (
-    <p className="staff-update-line" role={alert ? "alert" : undefined}>
-      <Chrome lang={lang} k={retired ? "shell.version.retired" : "shell.version.ready"} />
+    <p className="staff-update-line">
+      <span role={alert ? "alert" : undefined}>
+        <Chrome lang={lang} k={retired ? "shell.version.retired" : "shell.version.ready"} />
+      </span>
       {children}
     </p>
   );
@@ -125,7 +155,12 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
   const { phase, refusal } = useSyncExternalStore(subscribeUpdate, updateSnapshot, serverSnapshot);
   const holds = useSyncExternalStore(subscribeReloadHolds, reloadHolds, serverHolds);
   const offline = useDeviceOffline();
+  const reloading = useSyncExternalStore(subscribeReloading, reloadingNow, notReloading);
   const retired = phase.k !== "current" && phase.retired;
+  useEffect(() => {
+    subscribeUpdate(rearmRetired);
+    rearmRetired();
+  }, []);
 
   // The countdown's clock, never read during render: a new countdown starts its seconds at its own
   // start (`endsAt − COUNTDOWN_MS`, the moment the reducer set it), and a timer re-reads the clock
@@ -159,12 +194,12 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
     return () => clearInterval(id);
   }, [refusal, phase, holds, retired]);
 
-  // The retired line is an alert ONCE: the first retired line this screen mounts is born an alert
-  // (and stays one for its life); a later one — after a refusal cleared — is a plain line.
-  const [retiredSaid, setRetiredSaid] = useState(false);
-  const onRetiredSaid = useCallback(() => setRetiredSaid(true), []);
-  // A screen that came back current re-arms it: a LATER retirement is news again.
-  if (phase.k === "current" && retiredSaid) setRetiredSaid(false);
+  // [Not now] outlives the countdown until it is answered (docblock): offered from the countdown's
+  // start until a snooze, a tap or the phase leaving stale. (Adjust-state-while-rendering.)
+  const [waitOffered, setWaitOffered] = useState(false);
+  const offerWait =
+    phase.k === "countdown" || (waitOffered && phase.k === "stale" && phase.snoozeUntil === null);
+  if (offerWait !== waitOffered) setWaitOffered(offerWait);
   const refusalKey = refusal === null ? null : blockKey(refusal);
 
   if (phase.k === "current" || offline) return null;
@@ -187,13 +222,7 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
   } else if (phase.k === "stale") {
     line = (
       // Keyed on the tone: the flip to retired MOUNTS a new line, which decides its alert at birth.
-      <StandingLine
-        key={retired ? "retired" : "ready"}
-        lang={lang}
-        retired={retired}
-        said={retiredSaid}
-        onSaid={onRetiredSaid}
-      >
+      <StandingLine key={retired ? "retired" : "ready"} lang={lang} retired={retired}>
         {sound}
       </StandingLine>
     );
@@ -221,7 +250,7 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
     <div className="staff-update mms-rise" data-tone={retired ? "warn" : undefined}>
       {line}
       <div className="staff-update-acts">
-        {phase.k === "countdown" && (
+        {offerWait && (
           <Button
             variant="quiet"
             size="lg"
@@ -234,7 +263,9 @@ export function StaffBarUpdate({ lang }: { lang: StaffLang }) {
           variant="secondary"
           size="lg"
           busy={phase.k === "applying"}
-          busyLabel={<Chrome lang={lang} k="shell.version.reloading" />}
+          busyLabel={
+            <Chrome lang={lang} k={reloading ? "shell.version.reloading" : "entry.checking"} />
+          }
           onClick={() => dispatchUpdate({ e: "tap" })}
         >
           <Chrome lang={lang} k="out.reload" echo="stack" />

@@ -18,7 +18,8 @@ import { monoNow, track } from "@/lib/bounded-write";
 import { holdReload, type GuardInput } from "@/lib/reload-guard";
 import { COUNTDOWN_MS, CURRENT, type UpdatePhase } from "@/lib/update-policy";
 import { NET_SHOW_MS } from "@/lib/live-connection";
-import { StaffBarUpdate, refusalStands } from "./StaffBarUpdate";
+import type { ConnectionTruth } from "@/lib/useConnectionTruth";
+import { StaffBarUpdate, refusalStands, resetRetiredSaidForTests } from "./StaffBarUpdate";
 
 /**
  * Phase 2i (P2bi) — the staff bar's new-version row. What only a render can see: that the row is
@@ -56,11 +57,17 @@ function deps(over: Partial<ApplyDeps> = {}): ApplyDeps {
 }
 
 beforeEach(() => {
+  resetRetiredSaidForTests();
+  // The real freeze marks the document as reloading in the reload's own task (app-update's contract).
+  freeze.mockImplementation(() => {
+    document.documentElement.dataset.reloading = "";
+  });
   onLine = true;
   Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => onLine });
 });
 afterEach(() => {
   cleanup();
+  delete document.documentElement.dataset.reloading;
   reload.mockReset();
   freeze.mockReset();
   vi.useRealTimers();
@@ -170,6 +177,28 @@ describe("the tap — the one executor decides, at the tap", () => {
     expect(btn.hasAttribute("disabled")).toBe(false);
   });
 
+  it("says Checking… while the pre-flight runs, and Reloading… only once the page is frozen", async () => {
+    // MUTATION (p2i-row/busy-claims-reload): the busy label says "Reloading…" from the tap — through
+    // a fetch and a health probe that often end in a refusal, the screen claims a reload that is not
+    // happening; red.
+    let answer: (t: ConnectionTruth) => void = () => {};
+    installApplyDeps(deps({ freshTruth: () => new Promise((r) => (answer = r)) }));
+    stale();
+    render(<StaffBarUpdate lang="en" />);
+    fireEvent.click(reloadButton());
+    await settle();
+    const btn = screen.getByRole("button");
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    expect(btn.textContent).toContain(STAFF["entry.checking"].en);
+    expect(btn.textContent).not.toContain(STAFF["shell.version.reloading"].en);
+    await act(async () => {
+      answer("unknown");
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button").textContent).toContain(STAFF["shell.version.reloading"].en);
+  });
+
   it("two taps in one frame are ONE apply", async () => {
     installApplyDeps(deps());
     stale();
@@ -275,6 +304,65 @@ describe("retired — this screen's taps may not save", () => {
     expect(live(container)).toHaveLength(0);
   });
 
+  it("the alert holds the retired sentence ALONE — the sound sentence coming back re-says nothing", () => {
+    // MUTATION (p2i-row/retired-alert-holds-sound): the sound sentence sits inside the role=alert —
+    // a slept tablet's bell comes back on, the sentence is re-inserted into an atomic alert, and
+    // "this screen is out of date" is announced again; red.
+    stale();
+    render(<StaffBarUpdate lang="en" />);
+    let release: () => void = () => {};
+    act(() => {
+      release = holdReload({
+        kind: "sound",
+        reason: "bellSound",
+        subject: "counter",
+        survives: false,
+      });
+    });
+    retire();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe(STAFF["shell.version.retired"].en);
+    expect(row()?.textContent).toContain(STAFF["shell.version.sound"].en);
+    act(() => release());
+    act(() => {
+      release = holdReload({
+        kind: "sound",
+        reason: "bellSound",
+        subject: "counter",
+        survives: false,
+      });
+    });
+    expect(row()?.textContent).toContain(STAFF["shell.version.sound"].en);
+    expect(screen.getByRole("alert")).toBe(alert);
+    expect(alert.textContent).toBe(STAFF["shell.version.retired"].en);
+    act(() => release());
+  });
+
+  it("is said once per retirement across a REMOUNT of the bar — and again after it came back current", async () => {
+    // MUTATION (p2i-row/retired-said-per-mount): the latch lives in the mount — a pane toggling the
+    // bar re-announces "this screen is out of date" on every remount; red.
+    stale();
+    retire();
+    const first = render(<StaffBarUpdate lang="en" />);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["shell.version.retired"].en);
+    first.unmount();
+    render(<StaffBarUpdate lang="en" />);
+    expect(row()?.textContent).toContain(STAFF["shell.version.retired"].en);
+    expect(screen.queryByRole("alert")).toBeNull();
+    cleanup();
+    // An apply that came back current re-arms it (with no bar mounted at that moment): a LATER
+    // retirement is news again.
+    render(<StaffBarUpdate lang="en" />);
+    cleanup();
+    installApplyDeps(deps({ fetchServed: () => Promise.resolve({ kind: "current" }) }));
+    act(() => dispatchUpdate({ e: "tap" }));
+    await settle();
+    expect(updateSnapshot().phase.k).toBe("current");
+    act(() => dispatchUpdate({ e: "retired", now: monoNow() + 3 * 60_000 }));
+    render(<StaffBarUpdate lang="en" />);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["shell.version.retired"].en);
+  });
+
   it("a plain new version is not the warn tone and says nothing", () => {
     stale();
     render(<StaffBarUpdate lang="en" />);
@@ -309,6 +397,32 @@ describe("the countdown — the automatic reload, visible, with Not now", () => 
     expect(after.k).toBe("stale");
     expect((after as Extract<UpdatePhase, { k: "stale" }>).snoozeUntil).not.toBeNull();
     expect(screen.queryByRole("button", { name: STAFF["shell.version.notNow"].en })).toBeNull();
+  });
+
+  it("Not now survives the pointerdown that cancels the countdown — a real press snoozes it", () => {
+    // MUTATION (p2i-row/notnow-leaves-on-input): Not now leaves with the countdown — the watcher's
+    // capture listener cancels it on pointerdown, the button unmounts before its click, nothing is
+    // snoozed and the screen reloads after the quiet window under someone who asked it to wait; red.
+    const onInput = () => dispatchUpdate({ e: "input" });
+    window.addEventListener("pointerdown", onInput, { capture: true });
+    try {
+      stale();
+      render(<StaffBarUpdate lang="en" />);
+      countdown();
+      const notNow = screen.getByRole("button", { name: STAFF["shell.version.notNow"].en });
+      const reloadAt = reloadButton();
+      fireEvent.pointerDown(notNow);
+      expect(updateSnapshot().phase.k).toBe("stale");
+      expect(notNow.isConnected).toBe(true);
+      // Reload did not move out from under a finger either: same element, same place.
+      expect(notNow.nextElementSibling).toBe(reloadAt);
+      fireEvent.click(notNow);
+      const after = updateSnapshot().phase as Extract<UpdatePhase, { k: "stale" }>;
+      expect(after.snoozeUntil).not.toBeNull();
+      expect(screen.queryByRole("button", { name: STAFF["shell.version.notNow"].en })).toBeNull();
+    } finally {
+      window.removeEventListener("pointerdown", onInput, { capture: true });
+    }
   });
 
   it("the seconds count down on their own", async () => {
@@ -395,6 +509,16 @@ describe("the new-version row's CSS matches the DOM the row renders", () => {
     .filter((sel) => sel !== "" && !sel.startsWith("@"));
   it("names the bar's wrap, the row, its warn tone, the line and the actions", () => {
     expect(selectors.length).toBeGreaterThanOrEqual(5);
+  });
+  it("no rule lifts the row (or a part of it) out of the bar's flow — absolute/fixed leave the measured box", () => {
+    // The bar's height (`--staff-bar-h`, StaffBarNet's ONE measurement of the header) holds the row
+    // only while the row is IN FLOW inside it: positioned out, the row would cover the board under
+    // the bar while the published height says it is not there.
+    const rules = [...css.matchAll(/([^{}]*\.staff-update[^{}]*)\{([^{}]*)\}/g)];
+    expect(rules.length).toBeGreaterThanOrEqual(5);
+    for (const [, sel, body] of rules) {
+      expect(body, sel!.trim()).not.toMatch(/(^|;|\s)position\s*:\s*(absolute|fixed)\b/);
+    }
   });
   it.each(selectors)("%s matches the row in some state", (selector) => {
     const states: [string, () => void][] = [

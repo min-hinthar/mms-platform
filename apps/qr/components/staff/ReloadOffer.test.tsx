@@ -155,11 +155,21 @@ describe("Phase 2i — the offer holds the automatic reload, and never reloads o
   it("a tap while the device is offline does NOT reload — read at the tap, before any sustain", () => {
     // MUTATION (p2i-offer/offline-reloads): the tap reloads offline — the tablet lands on the
     // worker's offline page and the screen it was working from is gone; red.
+    // MUTATIONS: (p2i-offer/blip-unsaid) the refused tap changes nothing on screen — during a stall
+    // the cure reads as a dead control; (p2i-offer/blip-stuck) the refusal outlives the outage — the
+    // button stays refused after the network is back; red.
     render(<ReloadButton lang="en" />);
     onLine = false; // no event, no render: only the tap can see it
     fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
     expect(reload).not.toHaveBeenCalled();
+    // Said at once, on the button — before the outage is "sustained".
+    const refused = screen.getByRole("button", { name: STAFF["out.reload.offline"].en });
+    expect(refused.getAttribute("aria-disabled")).toBe("true");
+    expect(refused.hasAttribute("disabled")).toBe(false);
     onLine = true;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
     fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
     expect(reload).toHaveBeenCalledTimes(1);
   });

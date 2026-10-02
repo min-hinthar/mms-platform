@@ -2352,22 +2352,54 @@ describe("Phase 2i — what a reload for a new build would lose here holds it", 
     expect(held("kdsSound")).toHaveLength(0);
   });
 
-  it("a new version's row rides the KDS bar — inside the header whose height the board pages under", () => {
-    act(() =>
-      dispatchUpdate({
-        e: "verdict",
-        v: {
-          kind: "changed",
-          served: { build: "kq1x2y3-0a1b2c3d", contract: STAFF_CONTRACT },
-          incompatible: false,
-        },
-        now: monoNow(),
-      }),
+  it("a new version's row rides the KDS bar — inside the header, so the bar's published height holds it", () => {
+    // The bar's ONE height publisher (StaffBarNet) measures the header; jsdom has no layout, so the
+    // header's height here is a function of whether it HOLDS the row — what is pinned is that the row
+    // mounts inside the measured box and the publisher re-measures it (`--staff-bar-h` grows). That
+    // no CSS lifts the row out of that box (absolute/fixed) is StaffBarUpdate.test's CSS guard.
+    // (At this head the KDS itself does not read `--staff-bar-h`; the root's scroll-padding does.)
+    let notify: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: () => void) {
+          notify = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
     );
-    const { container } = mount();
-    const row = container.querySelector(".staff-update");
-    expect(row).not.toBeNull();
-    expect(row!.parentElement?.matches("header.staff-bar")).toBe(true);
-    expect(row!.textContent).toContain(STAFF["shell.version.ready"].en);
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const withRow = this.matches("header.staff-bar") && this.querySelector(".staff-update");
+        return { height: withRow ? 127.4 : 76 } as DOMRect;
+      });
+    const root = document.documentElement;
+    try {
+      const { container } = mount();
+      expect(container.querySelector(".staff-update")).toBeNull();
+      expect(root.style.getPropertyValue("--staff-bar-h")).toBe("76px");
+      act(() =>
+        dispatchUpdate({
+          e: "verdict",
+          v: {
+            kind: "changed",
+            served: { build: "kq1x2y3-0a1b2c3d", contract: STAFF_CONTRACT },
+            incompatible: false,
+          },
+          now: monoNow(),
+        }),
+      );
+      const row = container.querySelector(".staff-update");
+      expect(row).not.toBeNull();
+      expect(row!.parentElement?.matches("header.staff-bar")).toBe(true);
+      expect(row!.textContent).toContain(STAFF["shell.version.ready"].en);
+      act(() => notify());
+      expect(root.style.getPropertyValue("--staff-bar-h")).toBe("128px");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

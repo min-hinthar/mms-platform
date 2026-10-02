@@ -1,5 +1,5 @@
 "use client";
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@mms/ui";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -44,9 +44,12 @@ import { useReloadHold } from "./useReloadHold";
  *  - NEVER OFFLINE. A reload with no network lands on the worker's offline page and empties the
  *    screen. A sustained outage (`useDeviceOffline`) says so on the button and refuses it
  *    (`aria-disabled`); the tap itself re-reads `navigator.onLine`, so the seconds before the outage
- *    is "sustained" are refused too. Online, the reload is the bare `window.location.reload()`.
- * 2i chose a separate guarded row for a new build (`StaffBarUpdate`), so the stall cure here stays
- * unconditional: `ReloadReason` keeps its one member.
+ *    is "sustained" are refused too — and a tap refused that way says so on the button at once (it
+ *    would otherwise read as a dead control during a stall), until the browser is back online.
+ *    Online, the reload is the bare `window.location.reload()`.
+ * 2i chose a separate guarded row for a new build (`StaffBarUpdate`), so the stall cure here is
+ * unconditional except offline (a reload then cures nothing — it empties the screen): `ReloadReason`
+ * keeps its one member.
  */
 
 /** Why the tablet is being offered a reload. One reason: a new build is the staff bar's row
@@ -67,7 +70,18 @@ export function ReloadButton({
 }) {
   // Phase 2i — the offer on screen holds the automatic reload for a new build (its own token).
   useReloadHold("standing", "reloadOffer", useId(), true);
-  const offline = useDeviceOffline();
+  const deviceOffline = useDeviceOffline();
+  // A tap refused offline before the outage counts as sustained: said on the button until `online`.
+  const [refusedOffline, setRefusedOffline] = useState(false);
+  useEffect(() => {
+    if (!refusedOffline) return;
+    const back = () => setRefusedOffline(false);
+    window.addEventListener("online", back);
+    // Back before this effect ran: no event will come.
+    if (navigator.onLine !== false) back();
+    return () => window.removeEventListener("online", back);
+  }, [refusedOffline]);
+  const offline = deviceOffline || refusedOffline;
   return (
     <Button
       variant="secondary"
@@ -77,7 +91,10 @@ export function ReloadButton({
       // A document unload — the one escape a stuck action queue cannot hold (docblock) — and never
       // offline, read at the tap (the render's verdict waits out a sustain).
       onClick={() => {
-        if (navigator.onLine === false) return;
+        if (navigator.onLine === false) {
+          setRefusedOffline(true);
+          return;
+        }
         window.location.reload();
       }}
     >
