@@ -1634,7 +1634,13 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     });
     fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
     await flush(STAFF_HANG_MS);
-    expect(reloadHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: true })]);
+    // The stalled write shows the reload offer, whose button holds as a standing offer (S2): the
+    // lane's own hold is read apart from it.
+    const laneHolds = () => reloadHolds().filter((h) => h.kind !== "standing");
+    expect(reloadHolds()).toContainEqual(
+      expect.objectContaining({ kind: "standing", reason: "reloadOffer" }),
+    );
+    expect(laneHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: true })]);
     expect(document.querySelector(".staff-reload-offer")!.textContent).not.toContain(
       ts("en", "expo.reload.bags"),
     );
@@ -1645,7 +1651,7 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     // MUTATION (p2i-lane/survives-never-lapses): `stashOk` is the write's answer for ever — the hold
     // lets a retired tab reload over a pick the stash will no longer resume, and the caveat stays
     // silent; red.
-    expect(reloadHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: false })]);
+    expect(laneHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: false })]);
     expect(reload()).not.toBeNull();
     expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
       ts("en", "expo.reload.bags"),
