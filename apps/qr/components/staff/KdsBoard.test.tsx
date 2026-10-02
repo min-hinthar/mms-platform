@@ -507,8 +507,7 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(q.queryByRole("dialog")).toBeNull();
     // Phase 2h — the read that follows the landed 86 is its OWN round trip (a Server Action never
     // answers inside the write's microtask burst). Held here, so the landing and that snapshot are two
-    // commits, as on a tablet: answered instantly, the bounded write's extra hops put both in ONE
-    // commit, where the board's focus catch-all (declared first) takes the orphan to the heading.
+    // commits, as on a tablet. Answered instantly, both land in ONE commit — the next case (K1).
     const after = deferred<{ ok: true; queue: KitchenQueue }>();
     getKitchenQueue.mockImplementationOnce(() => after.promise);
     await act(async () => {
@@ -518,6 +517,32 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     await act(async () => {
       after.resolve({ ok: true, queue: currentQueue });
     });
+  });
+
+  it("a landed 86 and a snapshot in ONE commit: the orphaned focus still lands on the dish's line, never the heading (integration b · K1)", async () => {
+    // The post-write read answers at once, so the override and the snapshot commit TOGETHER. Both
+    // effects run in that commit, in declaration order: the landing must run before the board's
+    // focus catch-all, or the catch-all takes the orphan to the heading first and the landing then
+    // sees focus "somewhere real" and leaves it there. MUTATION (p2h-int-b/kds/focus-catch-all-first):
+    // the catch-all declared first again (the K1 order); red.
+    holdClock();
+    const d = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => d.promise);
+    const q = mount();
+    const dialog = await tapEightySix(q);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    const more = document.getElementById("kds-more-line-1")!;
+    await waitFor(() => expect(document.activeElement).toBe(more));
+    // The read that follows answers at once, and it is the truth: the dish IS off the menu.
+    const off = queue();
+    off.tickets[0]!.lines[0]!.soldOut = true;
+    currentQueue = off;
+    await act(async () => {
+      d.resolve({ ok: true, soldOut: true });
+    });
+    await waitFor(() => expect(document.getElementById("kds-more-line-1")).toBeNull());
+    expect(document.activeElement?.id).toBe("kds-line-line-1");
   });
 
   it("focus elsewhere is left alone, and the landing is one-shot — a later orphan is not pulled to the line", async () => {
@@ -2000,6 +2025,43 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     expect(q.queryByRole("dialog")).toBeNull();
     expect(q.container.querySelector(".kds-undo")).not.toBeNull();
     expect(region().textContent).not.toBe(waiting("Mohinga"));
+  });
+  it("the sheet's 86 with no answer yet: the SHEET offers the Reload beside its own region, until the late answer retires the line (integration b · K2)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    const sheetReload = () =>
+      within(dialog).queryByRole("button", { name: ts("en", "out.reload") });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: eightySixName }));
+    });
+    // In flight under the bound: nothing to reload for yet.
+    expect(sheetReload()).toBeNull();
+    await flush(STAFF_HANG_MS);
+    const msg = dialog.querySelector('[role="status"]')!;
+    expect(msg.textContent).toBe(waiting("Mohinga"));
+    // The sheet says "reload the board to see" and the board behind it is aria-hidden: the reload it
+    // promises stands IN the sheet, beside its one region — never inside it (a control in a live
+    // region). MUTATION (p2h-int-b/kds/sheet-reload-missing · sheet-reload-unflagged): the sheet
+    // promises a reload the installed console has no button for; red.
+    expect(sheetReload()).not.toBeNull();
+    expect(msg.contains(sheetReload())).toBe(false);
+    // The late answer is a refusal: the sheet says it, and the reload goes with the waiting line.
+    // MUTATION (p2h-int-b/kds/sheet-reload-outlives-the-line): it stands under a refusal that asks
+    // for no reload; red.
+    await act(async () => {
+      write.resolve({ ok: false, error: "That changed.", code: "stale" });
+    });
+    await flush();
+    expect(msg.textContent).toBe(tf("en", "kds.err.stale", { x: "Mohinga" }));
+    expect(sheetReload()).toBeNull();
   });
   it("a tap on ANOTHER ticket keeps a standing waiting line and its Reload (critic B12)", async () => {
     vi.useFakeTimers();

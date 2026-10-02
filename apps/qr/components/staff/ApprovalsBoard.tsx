@@ -529,6 +529,7 @@ function RequestCard({
     // 9d — an approval removes food from a bill or gives it away (a void or a comp). Refused AT THE
     // TAP, never dispatched, while any action on this tab has gone unanswered past the bound: sent,
     // it would only queue behind the stuck one, to land minutes later. Read now, never from render.
+    // Owner decision (Phase 2h · A1): KEEP this refusal — an approval authorizes a refund or void.
     if (stalledSince() !== null) {
       setMsg({ k: "out.stalled" });
       setReload(true);

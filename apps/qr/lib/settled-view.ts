@@ -126,3 +126,28 @@ export function settledDate(iso: string, tz: string): string {
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? f.format(new Date(ms)) : "";
 }
+
+/**
+ * Phase 2h · integration b — the refund sheet a refund's ANSWER closes: its OWN line's, never another.
+ *
+ * A refund with no answer at STAFF_HANG_MS frees its sheet (9a), and its LATE answer still reaches the
+ * board through that sheet's tap-time `onDone` (9e) — after the manager may have put it away and
+ * opened a refund for another line. Closing whatever sheet was open THEN shut a sheet the answer had
+ * nothing to do with, under the manager's hands. So the answer closes the open sheet only when it is
+ * for the same line (the order item the write refunded): that one is refunded now, and a sheet
+ * reopened for it would only be refused as "already refunded". Every other open sheet is kept —
+ * EXCEPT under a drawer hand-back (`handBack`: a CASH refund that recorded an amount). That answer
+ * carries the only copy of the instruction "hand back $X from the drawer", and the banner that says
+ * it sits under any open sheet: aria-hidden, its focus taken back by the sheet's focus trap, and
+ * overwritten by the next refund's answer before anyone read it. So a hand-back closes whatever sheet
+ * is open, and the banner takes focus (critic S1 on integration b). A sheet kept open can only be
+ * one nobody has sent yet — another refund is refused while this one is out.
+ */
+export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
+  open: T | null,
+  answeredLineId: string,
+  handBack: boolean,
+): T | null {
+  if (open === null || handBack) return null;
+  return open.line.id === answeredLineId ? null : open;
+}

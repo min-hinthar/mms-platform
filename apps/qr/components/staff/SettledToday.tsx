@@ -14,6 +14,7 @@ import {
   SETTLED_CAP,
   groupKey,
   receiptRowKey,
+  refundSheetAfterAnswer,
   settledChipKey,
   settledStatusKey,
   tenderKey,
@@ -338,9 +339,15 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
           line={refund.held.line}
           onClose={() => setRefunding(null)}
           onDone={(refundedCents?: number) => {
-            const orderId = refund.held!.order.id;
-            const path = refund.held!.order.refundPath;
-            setRefunding(null);
+            // Phase 2h · integration b — THIS sheet's subject, as the render that mounted it held it:
+            // a LATE answer arrives through the tap-time closure, after the manager may have opened
+            // another line's sheet, and must close only its own (`refundSheetAfterAnswer`) — unless
+            // it asks for a drawer hand-back, which no open sheet may hide (critic S1).
+            const subject = refund.held!;
+            const orderId = subject.order.id;
+            const path = subject.order.refundPath;
+            const handBack = refundedCents != null && path === "cash";
+            setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id, handBack));
             if (refundedCents == null) {
               // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the
               // previous confirmation standing would re-issue its imperative over an attempt that

@@ -9,6 +9,7 @@ import { al } from "@/lib/staff-labels";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
 import { MsgText } from "./StaffMsg";
+import { ReloadButton } from "./ReloadOffer";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { TicketDishTitle } from "./TicketText";
 
@@ -35,6 +36,12 @@ import { TicketDishTitle } from "./TicketText";
  *
  * `line` is the LIVE line (`lineMenuSubject`), so a dish another console took off while this was
  * open turns the body into the statement "Off the menu" with no action left.
+ *
+ * Phase 2h · integration b (K2) — an 86 with no answer at the bound says "no answer yet … reload the
+ * board to see" in this sheet's region, and the board behind the open sheet is aria-hidden, so its
+ * own Reload is out of reach: while the board says so (`reload`), the sheet offers the Reload BESIDE
+ * its region — never inside it (a control in a live region) — and above the 86, so the button the
+ * finger just pressed never moves.
  */
 export function KdsLineMenu({
   line,
@@ -43,6 +50,7 @@ export function KdsLineMenu({
   pending,
   blocked,
   msg,
+  reload = false,
   on86,
   onOpenChange,
 }: {
@@ -56,6 +64,8 @@ export function KdsLineMenu({
   blocked: boolean;
   /** A refusal for THIS line, in the device language — the sheet's one region. */
   msg: KdsMsg | null;
+  /** Phase 2h — the region says "no answer yet … reload the board to see": offer the Reload. */
+  reload?: boolean;
   on86: (line: KitchenLine) => void;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -106,6 +116,11 @@ export function KdsLineMenu({
         <p role="status" className="kds-menu-msg">
           {msg && <MsgText lang={lang} msg={msg} />}
         </p>
+        {reload && (
+          <div className="mms-rise" style={reloadRow}>
+            <ReloadButton lang={lang} block />
+          </div>
+        )}
         {offer && (
           <Button
             variant="danger"
@@ -137,3 +152,6 @@ export function KdsLineMenu({
     </Sheet>
   );
 }
+
+/** The Reload's row: the region's own bottom rhythm, so the 86 below keeps its place. */
+const reloadRow = { margin: "0 0 var(--s3)" } as const;
