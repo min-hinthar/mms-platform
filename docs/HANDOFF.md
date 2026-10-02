@@ -5,45 +5,221 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-02 · Phase 2i — staff screens take new builds without losing work — on branch `claude/inspiring-cori-4rf37k`, PR to come)
+> ## ⏭️ NEXT SESSION — start here (2026-10-02 · Phase 3 — production signals · Phase 2i MERGED as PR #311 · no branch in flight)
 >
-> **Phase 2i is built on this branch** (no SQL; owner decision 10, delegated — designed for Skew
-> Protection OFF): a contract (`lib/build-stamp.ts` · `lib/reload-guard.ts` · `lib/update-policy.ts` ·
-> `lib/app-update.ts` · `lib/tab-load.ts` · `lib/retired-action.ts` · `useReloadHold`, the ledger's call
-> KIND) and four worktree streams — detect · the row and the boards' holds · the lane · the money
-> lines — each through a fresh-context critic round, merged `9d91041` · `eeb6b9b` · `41d5041` ·
-> `3f357e1`, then the integration fixes `f5203ec` · `b9b9c72` (the streams wired together in one
-> suite, the version read on iPadOS < 16, the reloading page's look, the memory hand-back's own hold
-> reason, the lane's hold read apart from the offer's). The CHANGELOG entry is the as-built;
-> DESIGN-LANGUAGE §17 carries the Phase 2i block. Rows closed: P2bi · P2hq. Filed: P2ia–P2ik,
-> P2im–P2it, C25 · C26.
+> **Where things stand.** The Phase 2 staff program (2a–2i) is on `main`. Phase 2i (#311) was
+> squash-merged on the owner's go on 2026-10-02; the block below this one is its summary and the
+> CHANGELOG entry is the as-built. Nothing is in flight: start Phase 3 on a fresh branch off `main`.
+> The 2h/2i stream worktrees (`/home/user/p2h/*`, `/home/user/p2i/*`) lived in the old container
+> only, and everything in them was pushed before the merge.
 >
-> **The blind review ran** (three lenses, REJECT × 3) and its fix round is `9c86a7c` · `80a8d88`: the
-> cash hand-back is ordered once (by the document that received the answer) and ASKED about by every
-> later or cloned document; a memory-only hand-back refuses a person's Reload; the reader's status
-> poll is a write and the action guard checks each call's kind against a READS allowlist; outage copy,
-> the MY sound line, the row through an apply, the lane's remark, test hygiene. Filed P2iu–P2iz, P2ja.
+> **⚠️ Read first — four things NOT done before #311 merged (the owner gave the go knowing each):**
 >
-> **PR #311 — Codex round 1** (3×P1 + 4×P2, all real) is fixed in `aabc511` · `8b224a7` · `887299e`,
-> mutants `70e1cc8` · `cf112ff`: a record hand-back ends at its shift with the zone up; an automatic apply whose
-> tried-target record cannot be written refuses; the resilience shell pays no reload under `/staff`; a
-> hidden tab is refused at the executor's re-check; a bfcache `pagehide` leaves the pick stash open; a
-> retired screen stays retired after an apply comes back current; the health probe shares
-> `lib/timeout-signal.ts`. Closed P2it · P2iu · P2ix · P2iy · P2iz. Next: push, Codex round 2 on the
-> new head.
+> 1. **Codex never reviewed the last commits**: `03b0dad` (fix), `3893cd8` (docs) and this handoff's
+>    docs-only commit. `03b0dad` holds the Codex round 3 fixes — ExpoBoard's `pagehide` now stamps the
+>    current picks (its ref is synced in the mirror's layout effect), and a cash tip kept after Cancel
+>    holds the reload (`cashTipDraftHeld` in `lib/reload-guard.ts`, read by `CashSettleButton`). Codex
+>    hit its usage limit on `3893cd8` (19:09Z: "You have reached your Codex usage limits"). The code
+>    delta passed every local gate: tsc, `pnpm turbo lint typecheck build`, `check-build-stamp`,
+>    6134/6134 qr and 287/287 ui tests, the 15-step fast lane, `check:mutant-anchors`, and a filtered
+>    `verify:slice` over every mutant on `ExpoBoard.tsx`, `CashSettleButton.tsx` and
+>    `lib/reload-guard.ts` (194/194 caught). CI was green too. Once the limit resets, ask Codex on #311
+>    itself in its own comment. If it won't review a merged PR, read the `03b0dad` diff by hand, and fix
+>    anything real in its own small PR.
+> 2. **The last FULL `verify:slice` ran on `72e2acb`** (2869/2869). Codex rounds 1–3 each ran
+>    filtered (their new mutants plus every mutant on the files they touched, all caught). **First
+>    act of the next session: one full `pnpm verify:slice` on `main`**, one run per checkout, and no
+>    commit while it is live.
+> 3. **Device measurements M2–M9 are not done** (M1 is done: `/api/version` is served static per
+>    deployment). They need a preview plus one real tablet, so a person has to run them. Each one either
+>    confirms a design assumption or sizes a filed row:
 >
-> **Next on the PR:** the full `verify:slice` on the fix-round head (one run, this checkout only) →
-> the PR → Codex on the exact head → merge on the owner's go. **Before the PR
-> closes:** the plan's §7 measurements on a preview + one real tablet (M1 `/api/version` served
-> static, M2 which taps MPA after a deploy, M3 the hand-back across a refund's MPA, M4 the pick stash
-> after our reload and Next's, M5 retired via a preview key change, M6 captive portal, M7 inert, M8
-> requester-only `controllerchange`, M9 edge-request cost). **Rollout (D9):** after the 2i deploy,
-> reload every staff screen once by hand — pre-2i code cannot detect anything. **Then Phase 3 —
-> production signals.**
+>    | #   | Measure                                                                                                                                                                                               | Confirms / sizes                      |
+>    | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+>    | M2  | After a deploy, does a stale tab do a full page load (MPA) on its first KDS Done, lane pick, pad add, cash take-payment, refund and reader success? Does a queued pad add land?                       | P2ia (pad adds), P2ij                 |
+>    | M3  | Does a sessionStorage write in the refund answer handler survive that refund's MPA?                                                                                                                   | the cash hand-back · P2ja             |
+>    | M4  | Does the pick stash resume after our reload AND after Next's MPA? Does lock → sign-in show "mark these again"?                                                                                        | D3 · P2jb                             |
+>    | M5  | On a PREVIEW only, set a different `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, redeploy, keep an old tab open: does "retired" fire from a poll AND a write, and does the countdown run on a sound-live KDS? | the retired classifier · D4           |
+>    | M6  | Captive portal (a proxy answering HTML 200) and offline: no row change, no reload                                                                                                                     | strict parsing of `/api/version`      |
+>    | M7  | Tap Done while an automatic reload is navigating: no POST in devtools                                                                                                                                 | the inert freeze                      |
+>    | M8  | Two tabs, a PREVIEW-only `CACHE_VERSION` bump: only the tab that asked reloads, and a staff tab stays                                                                                                 | the requester-only `controllerchange` |
+>    | M9  | Edge-request usage of the 60 s probe on the project's Vercel plan                                                                                                                                     | cost · P2iq                           |
+>
+> 4. **Rollout duties (owner, by hand):**
+>    - **(D9)** Once the 2i deploy reaches production, reload every staff screen once by hand: the
+>      kitchen tablets, the counter, the floor and the TV board. Code from before 2i cannot detect a new
+>      build.
+>    - **(C25 interim)** Next rotates the Server Action keys every 14 days because the key is left unset
+>      on purpose (C25). After the first production deploy past ≈2026-10-07 07:13Z, reload every staff
+>      screen once more. Screens on 2i code show "A new version of this screen is ready", or retire
+>      themselves.
+>    - **C25:** if `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` is ever set, also add it to `turbo.json`
+>      `globalEnv`, or strict env mode drops it.
+>    - **C26** (optional): Pro + Skew Protection. Never pin staff documents with `__vdpl`.
+>
+> **Phase 3 — production signals** (`ROADMAP.md`: photos, live Stripe keys, RUM). **Nothing is
+> designed yet.** Recommended order, with what each needs:
+>
+> - **(a) Live Stripe keys — the money path, so first.**
+>   - **C18 (high):** the prod webhook answered 400 to every event as of 2026-09-08. Prod ran Stripe
+>     **test** keys while Vercel Production held the **live** endpoint's signing secret. The owner
+>     decided the fix that day: test secret first, live cutover after. The row has the full runbook,
+>     including the five stranded PaymentIntents and the expected +4 orders and +1 refund-needed row.
+>     **Re-measure before acting.** The row is weeks old, and a Stripe retry or an owner change may
+>     have moved it. Check succeeded PaymentIntents against `qr_orders`, and which secret Production
+>     holds.
+>   - **C2:** the live keys and live webhook cutover (`docs/ENV.md` "Wiring Production"), in one step
+>     with C18's second half.
+>   - **M160 (b), code:** nothing reconciles "Stripe says succeeded" with "no order exists". The row
+>     describes the recovery: a `/track` server read of the PaymentIntent that runs the same
+>     idempotent `mms_fulfill_order`, plus a staff-side "check payment".
+>   - **Connectors:** most of this is owner dashboard work (Stripe, Vercel env, a redeploy). The
+>     session's job is the runbook, the before and after measurements, and the code halves. **The
+>     Stripe MCP connector needs re-authorizing** in the claude.ai connector settings (it was
+>     unauthenticated in the 2i session). Vercel MCP and Supabase MCP (QR project
+>     `fasnpdhtvqtzjlvruqcu`) are attached.
+> - **(b) Photos.**
+>   - **C5:** photograph the ~3 dishes with a NULL photo (this gates W2a).
+>   - **C19:** six `fallback.jpg` URLs answer `NoSuchKey`. Upload the files, or null the six rows so
+>     the card shows its glyph.
+>   - The last full count (the 2026-09 menu block below) was **34 items with no photo**: the 3 NULL
+>     dishes plus 31 added later. **Re-measure** with `select image_url` and a `curl` status sweep.
+>   - The shoot is owner work. The code work is the upload path, the image sizes, and keeping the
+>     placeholder honest.
+> - **(c) RUM (real-user monitoring).** No row and no design exists yet.
+>   - **What the QR app has today:** PostHog only (`apps/qr/instrumentation-client.ts`): cookieless
+>     `memory` persistence, replay off in code (the Stripe iframe), exceptions captured, an `/ingest`
+>     proxy.
+>   - **What it lacks:** Sentry (the delivery app has it), `useReportWebVitals`, Speed Insights.
+>   - **This is a vendor choice.** Put it to the owner as recommendation-led options with evidence:
+>     bundle size, cost on the actual plan, privacy (the cookieless consent posture must hold),
+>     staff vs diner coverage.
+>   - Phase 2i's `/api/version` probe could also report how many screens are running an old build.
+>
+> **Open work beside Phase 3.** Take these after Phase 3, or sooner if one bites.
+>
+> - **Phase 2i residuals:**
+>   - med: P2ia (pad adds lost to Next's reload; M2 sizes it) · P2ic (the reload swallow window for
+>     the bell and the KDS) · P2ir (unread holds have no age bound) · P2is and P2iw (a cash refund is
+>     not recorded before it is sent; a Reload over a stalled one drops its late answer) · P2ja (the
+>     MPA vs `onDone` ordering is proved from source only).
+>   - low: P2ib · P2id · P2ie · P2if · P2ig · P2ih · P2ii · P2ij · P2ik · P2im · P2in · P2io · P2ip ·
+>     P2iq · P2jb.
+> - **Phase 2h Codex r4 residuals**, mechanisms UNVERIFIED (read the source before fixing): P2hv
+>   (low) · P2hw · P2hx · P2hy (med).
+> - **Money highs:** M123 is blocked on the live-intent column (a prod migration); M125 reconciles
+>   the divergent prod migration history.
+> - **Owner highs:** C1 (auth hardening); C16 (make `codex-review` a REQUIRED check — #311 merging
+>   past a Codex-unreviewed head is exactly the case it exists for).
+> - **Grocery blocker:** G1.
+>
+> **Owner decisions 9 and 10 — the durable copy.** These were delegated, and their working notes
+> lived in a scratchpad that dies with the container. Decisions 1–8 are recorded in the blocks below.
+>
+> - **9 (Phase 2h, 2026-10-01):**
+>   - 9a: a guarded sheet's busy is state cleared in a bounded `finally`, never a transition's
+>     `pending`.
+>   - 9b: no Server Action is dispatched inside an async transition at a touched site.
+>   - 9c: `lib/bounded-write.ts` names `STAFF_HANG_MS` once, keeps the late answer, and keeps a
+>     per-tab stall ledger.
+>   - 9d: new money writes are refused while the ledger is stalled, with a Reload offer (the pad's
+>     add chain is not gated).
+>   - 9e: honest waiting / couldn't-confirm copy; the late answer is applied when it arrives.
+>   - 9f: polls never stack (`lib/poll-gate.ts`), and a skipped tick past the bound counts as a miss.
+>   - 9g: a locked or shared device is never stranded.
+>   - 9h: residuals filed.
+>   - 9i: a re-tap on a money sheet whose OWN write is waiting re-says that sheet's own sentence
+>     (only it carries "don't take it again").
+>   - 9j: Approvals keeps the stall refusal, because an approval authorizes money.
+> - **10 (Phase 2i, 2026-10-02):**
+>   - D1: design for Skew Protection OFF (measured: no deployment pin on prod or preview); C26 files
+>     it as an optional upgrade.
+>   - D2: leave the action key unset (C25).
+>   - D3: lane picks are stashed and resumed only on the next load that continues this one, else
+>     "mark these again".
+>   - D4: automatic apply after 15 s quiet with the full verdict, behind a visible 5 s countdown with
+>     Not now. Never on a sound-live screen unless retired or contract-incompatible.
+>   - D5: the cash hand-back is kept until [Handed back], per entry, naming the dish.
+>   - D6: pad adds lost to Next's reload are filed (P2ia).
+>   - D7: KDS Undo / recall lost to Next's reload is accepted (P2ib).
+>   - D8: kiosk and `/board` are not in 2i (P2ig).
+>   - D9: hand-reload rollout.
+>   - D10: the 2i copy, native K15 check; the button stays "Reload the page".
+>   - D11: `STAFF_CONTRACT` is bumped with any incompatible staff action or poll shape (guard filed,
+>     P2io).
+>
+> **How this program has run — keep it:**
+>
+> - **The shape of a phase:**
+>   1. An understand/design Workflow (the owner has ultracode on: a Workflow for every substantive
+>      task).
+>   2. A contract commit.
+>   3. Parallel worktree streams, each through a fresh-context critic.
+>   4. Integration, then the full gate.
+>   5. A blind review: `pnpm review:bundle` → `adversarial-auditor`, ≤3 lenses.
+>   6. The PR, then the Codex ritual, then a merge on the owner's per-PR go.
+> - **Delegated owner questions:** decide them with the recommendation and record them as an owner
+>   decision here and in the CHANGELOG.
+> - **Staff copy:** plain words. Never settle / tab / fire / bump / void / comp / 86 / expo / update /
+>   updating in visible copy. Burmese-first bilingual. K15-HIGH strings (food, money) keep their
+>   English in Burmese-only mode.
+> - **Codex:**
+>   - Ask in its own comment, never in a PR body.
+>   - Rounds 1–2 are triaged; from round 3, fix on sight or file it.
+>   - Wait for events only. Never a `send_later` / cron loop on a parked PR.
+> - **`verify:slice`:**
+>   - One run per checkout, and never commit while one is live.
+>   - Filtered runs go through an untracked `scripts/.vs-tmp.mjs`, deleted after.
+> - **Counts:** refresh them on every push by word-boundary replace, then diff the number tokens
+>   against the base. `check:docs` is CI step one.
+> - **QR prod migrations:** one file at a time via the Supabase MCP `apply_migration`, verified;
+>   never `db push` (M125).
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
 > **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
 > · 6134 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+
+> ## ✅ Phase 2i — staff screens take new builds without losing work — MERGED (PR #311, 2026-10-02, on the owner's go)
+>
+> **What shipped** (no SQL; owner decision 10, delegated — designed for Skew Protection OFF):
+>
+> - **The contract:** `lib/build-stamp.ts` · `lib/reload-guard.ts` · `lib/update-policy.ts` ·
+>   `lib/app-update.ts` · `lib/tab-load.ts` · `lib/retired-action.ts` · `useReloadHold`, plus the
+>   ledger's call KIND.
+> - **Four worktree streams**, each through a fresh-context critic round: detect · the row and the
+>   boards' holds · the lane · the money lines. Merged `9d91041` · `eeb6b9b` · `41d5041` · `3f357e1`.
+> - **The integration fixes** `f5203ec` · `b9b9c72`: the streams wired together in one suite; the
+>   version read on iPadOS < 16; the reloading page's look; the memory hand-back's own hold reason; the
+>   lane's hold read apart from the offer's.
+>
+> The CHANGELOG entry is the as-built; DESIGN-LANGUAGE §17 carries the Phase 2i block.
+>
+> **Reviews:**
+>
+> - **The blind review** (three lenses, REJECT × 3), fixed in `9c86a7c` · `80a8d88`:
+>   - The cash hand-back is ordered once (by the document that received the answer) and ASKED about
+>     by every later or cloned document.
+>   - A memory-only hand-back refuses a person's Reload.
+>   - The reader's status poll is a write, and the action guard checks each call's kind against a
+>     READS allowlist.
+>   - Also: outage copy, the MY sound line, the row through an apply, the lane's remark, test hygiene.
+> - **Codex round 1** (3×P1 + 4×P2, all real), fixed in `aabc511` · `8b224a7` · `887299e`, mutants
+>   `70e1cc8` · `cf112ff`.
+> - **Codex round 2** (2×P1 + 3×P2, all real), fixed in `fbefa2e` · `d1336ad` · `915ce8e` ·
+>   `da5a3da` · `8718188` · `5efa6f7`, mutants `31cdbfc`. Highlights:
+>   - A pick resumes only on a load that continues the last one.
+>   - The stall's Reload never erases what only this page holds.
+>   - The watcher asks once at mount.
+>   - The shell releases what `/staff` takes.
+>   - A typed value not yet saved holds the reload.
+> - **Codex round 3** (2×P2, both real), fixed in `03b0dad`: see the Phase 3 block above. Codex never
+>   reviewed that head.
+>
+> **OPEN-ITEMS:**
+>
+> - Closed: P2bi · P2hq · P2it · P2iu · P2iv · P2ix · P2iy · P2iz.
+> - Filed: P2ia–P2ik · P2im–P2is · P2iw · P2ja · P2jb · C25 · C26. P2il was built in the contract's
+>   critic round, never filed.
 
 > ## ⏭️ NEXT SESSION — start here (2026-10-02 · Phase 2h — a stuck tablet never traps staff — on branch `claude/inspiring-cori-4rf37k`, PR #310)
 >
