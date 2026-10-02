@@ -19,6 +19,7 @@ import {
   PICKED_UNDO_MS,
   pickedUndoArmed,
   pickedUndoOpen,
+  reloadForgetsAPick,
   toastPick,
 } from "@/lib/expo-rules";
 import {
@@ -193,11 +194,16 @@ export function ExpoBoard({
     }),
     [clearErr, showErr],
   );
+  // Mounted — re-armed at setup, latched in the cleanup (the bell's effect, below). Read after every
+  // await that can outlive the lane: the poll's answer, the leave flush, a write's late refusal.
+  const alive = useRef(true);
   const onRefused = useCallback(
     (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => {
       const out = expoErrOutcome(res, subject);
       if (out.kind === "leave") {
-        window.location.assign(out.href);
+        // Phase 2h · review b (B1) — a LATE refusal can land after the lane is gone: a dead lane
+        // sends nobody anywhere (the screen now showing reads its own session).
+        if (alive.current) window.location.assign(out.href);
         return;
       }
       showErr(out.msg);
@@ -338,8 +344,7 @@ export function ExpoBoard({
   }, []);
   // A poll that lands after the lane unmounted (getExpoQueue has no AbortController, and the counter
   // home can be left mid-poll) must neither ring nor light a card: re-armed at setup, latched in the
-  // cleanup — FloorBoard's `alive`, for the bell's two steps only.
-  const alive = useRef(true);
+  // cleanup — FloorBoard's `alive` (declared above `onRefused`, which reads it too).
   useEffect(() => {
     alive.current = true;
     const timers = pulseTimers.current;
@@ -425,6 +430,11 @@ export function ExpoBoard({
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
       // gate watches the RAW read — the race frees this caller at 15 s, never Next's queue.
       const res = await raceTimeout(gate.watch(getExpoQueue()));
+      // Phase 2h · review b (B1) — the read can answer AFTER the lane is gone (it queued behind a
+      // lock, a sign-out, another screen's action): `alive` is re-checked after the await, before any
+      // side effect — a dead lane neither re-sends the windows its unmount flush already sent nor
+      // hard-reloads the screen the counter moved to.
+      if (!alive.current) return;
       if (!res.ok) {
         // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
         // counter to login mid-service.
@@ -439,11 +449,17 @@ export function ExpoBoard({
         // was never recorded — the same outcome, minus the silence.
         // Phase 2h — BOUNDED: a flush write that never answers must not hold the lane on a dead
         // session for ever (the leave waits at most STAFF_HANG_MS), and each sits on the stall ledger.
+        // Review b (B1) — each one SENT is marked committing in this same turn, so the unmount flush
+        // (the lane can go while this waits) never sends picked_up for the same bag a second time.
+        const open = [...pickedRef.current]
+          .filter(([id, p]) => !p.committing && !committingRef.current.has(id))
+          .map(([orderId]) => orderId);
+        for (const orderId of open) committingRef.current.add(orderId);
         await Promise.allSettled(
-          [...pickedRef.current]
-            .filter(([id, p]) => !p.committing && !committingRef.current.has(id))
-            .map(([orderId]) => boundWrite(setTogoStatus({ orderId, to: "picked_up" }))),
+          open.map((orderId) => boundWrite(setTogoStatus({ orderId, to: "picked_up" }))),
         );
+        // …and the lane gone while it waited sends nobody anywhere.
+        if (!alive.current) return;
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
       }
@@ -938,12 +954,15 @@ export function ExpoBoard({
             standalone (no browser reload): the button it promises stands BESIDE the region (never in
             it), with what a reload costs on THIS lane — a pick still inside its undo window is only
             in this tab, and a reload forgets it (the P2fc critic, adjustment 8). Plain text: the
-            region already spoke. */}
+            region already spoke. Review b (B3): said only when a pick IS held in this tab
+            (`reloadForgetsAPick`) — over a bag write with no pick anywhere it warned about nothing. */}
         {saysWaiting(err) && (
           <div className="staff-reload-offer mms-rise" style={reloadRow}>
-            <p className="expo-status">
-              <Chrome lang={lang} k="expo.reload.bags" />
-            </p>
+            {reloadForgetsAPick(picked) && (
+              <p className="expo-status">
+                <Chrome lang={lang} k="expo.reload.bags" />
+              </p>
+            )}
             <ReloadButton lang={lang} />
           </div>
         )}

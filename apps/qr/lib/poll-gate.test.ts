@@ -332,6 +332,69 @@ describe("the owed read reaches an owner that coalesces on a bare inFlight (F4)"
   });
 });
 
+/**
+ * Review b (B2) — the MULTI-raw owner, as ApprovalsBoard is written: each tick dispatches three raw
+ * reads (queue · roster · ledger), watches them AS ONE (`gate.watch(Promise.allSettled(raws))`), and
+ * awaits a DIFFERENT promise — `Promise.allSettled` of each raw raced on its own. Two more settle
+ * layers sit between the raws and the owner's `finally` than in the single-raw shape above, so the
+ * deferred kick must still land after them, and the gate must stay shut until the LAST raw answers.
+ */
+function multiRawBoard() {
+  let ticks = 0;
+  let inFlight = false;
+  const raws: Array<Array<ReturnType<typeof deferred<string>>>> = [];
+  const gate = createPollGate(() => void refresh());
+  async function refresh() {
+    const asked = gate.ask();
+    if (asked.go === "owed") return;
+    if (inFlight) return; // ApprovalsBoard: a bare coalesce, no rerun flag
+    inFlight = true;
+    try {
+      ticks += 1;
+      const three = [deferred<string>(), deferred<string>(), deferred<string>()];
+      raws.push(three);
+      const [q, w, l] = three.map((d) => d.promise) as [
+        Promise<string>,
+        Promise<string>,
+        Promise<string>,
+      ];
+      void gate.watch(Promise.allSettled([q, w, l]));
+      await Promise.allSettled([raceTimeout(q), raceTimeout(w), raceTimeout(l)]);
+    } finally {
+      inFlight = false;
+    }
+  }
+  return { refresh, gate, ticks: () => ticks, raws };
+}
+
+describe("the multi-raw owner (ApprovalsBoard's shape) — review b · B2", () => {
+  it("a refused tick, then the LAST raw answering, gives exactly ONE more tick", async () => {
+    // MUTATION (p2h-core/gate/kicks-inside-the-answer · p2h-rev-b/gate/kick-on-a-microtask): the
+    // owed kick reaches the owner before its `await Promise.allSettled(raced)` has resumed —
+    // `inFlight` is still true and the owed tick is coalesced away; red (one tick where two are owed).
+    const board = multiRawBoard();
+    void board.refresh();
+    expect(board.ticks()).toBe(1);
+    at(5_000);
+    void board.refresh(); // refused: owed
+    expect(board.ticks()).toBe(1);
+    const [queue, who, ledger] = board.raws[0]!;
+    queue!.resolve("rows");
+    who!.resolve("roster");
+    await settle();
+    // Two of three answered: the gate is still shut, nothing is kicked.
+    expect(board.gate.pending()).toBe(true);
+    expect(board.ticks()).toBe(1);
+    ledger!.resolve("ledger"); // the LAST raw
+    await settle();
+    expect(board.ticks()).toBe(2);
+    // …and the debt is paid: the owed tick's own answers kick nothing more.
+    for (const d of board.raws[1]!) d.resolve("again");
+    await settle();
+    expect(board.ticks()).toBe(2);
+  });
+});
+
 describe("the stall ledger — a hung READ holds the queue as a hung write does", () => {
   it("a watched raw is tracked, on this device's clock, until it settles", async () => {
     // MUTATION (p2h-core/gate/untracked): a poll hung for minutes is invisible to `stalledSince`,

@@ -150,6 +150,20 @@ export function pickedUndoArmed(
   return nowMs - startedMs >= armMs;
 }
 
+/**
+ * Phase 2h · review b (B3) — does a reload of the lane, RIGHT NOW, risk forgetting a pick? The lane's
+ * Reload caveat ("Reloading forgets a bag you marked picked up…") is said only when it is true: some
+ * pick is still held in this tab and not yet confirmed by a read. That is a pick inside its undo
+ * window (its write has not been sent — a document unload is not a reliable send), AND a committing
+ * one: the Reload is offered only while a write hangs, and Next runs actions one at a time, so a
+ * picked-up write sent behind the hung one may still be waiting in this tab's queue — a reload drops
+ * it, and the bag comes back "ready". A pick leaves the map when a read shows its bag gone (landed)
+ * or its write was refused, so an empty map means there is nothing a reload can forget.
+ */
+export function reloadForgetsAPick(picks: ReadonlyMap<string, unknown>): boolean {
+  return picks.size > 0;
+}
+
 // ── Phase 2b · feedback ──
 /**
  * The lane's thumb-zone Undo pill shows exactly ONE pick: the one that opened it (`toastFor`, the

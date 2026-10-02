@@ -2123,6 +2123,53 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     expect(getKitchenQueue).not.toHaveBeenCalled();
   });
 
+  it("a read already out when the board goes, answering 'locked' after, sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const read = deferred<{ ok: false; reason: "locked" }>();
+    getKitchenQueue.mockImplementationOnce(
+      () => read.promise as unknown as Promise<{ ok: true; queue: KitchenQueue }>,
+    );
+    const q = mount();
+    await flush(5_000); // the poll goes out and waits (in Next's queue, behind e.g. a lock)
+    expect(getKitchenQueue).toHaveBeenCalledTimes(1);
+    // The cook has moved on (the lock screen, typing a PIN); then the old read answers.
+    q.unmount();
+    await act(async () => {
+      read.resolve({ ok: false, reason: "locked" });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-rev-b/kds/read-answer-after-unmount-acts): the dead board's read hard-reloads the
+    // screen the cook moved to, wiping the PIN being typed; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("a write's LATE 'go sign in' on a board that is gone sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector(".kds-bump")!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    q.unmount();
+    await act(async () => {
+      write.resolve({ ok: false, error: "Sign in again.", code: "signin" });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-rev-b/kds/late-leave-after-unmount): the late refusal navigates from a board
+    // that no longer exists; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("the sheet's 86 still out: the dish is HELD — its sheet's 86 and its ⋯ refuse, nothing is sent twice (critic B1 · B5)", async () => {
     vi.useFakeTimers();
     getKitchenQueue.mockImplementation(() => new Promise(() => {}));
