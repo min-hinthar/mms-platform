@@ -468,7 +468,7 @@ export function FloorDetailLive({
         try {
           // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
           // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
-          const res = await raceTimeout(gate.watch(getTableDetail(sessionId)));
+          const res = await raceTimeout(gate.watch(getTableDetail(sessionId)), "read");
           if (!alive.current) return;
           if (res.kind === "detail") {
             // Phase 2c · review (R2) — an open cart read after the lost settle could last land.

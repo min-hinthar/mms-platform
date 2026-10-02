@@ -30,6 +30,8 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
+import { useReloadHold } from "./useReloadHold";
+import { cashTipDraftHeld } from "@/lib/reload-guard";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
@@ -286,6 +288,11 @@ export function CashSettleButton({
     if (confirming) return;
     if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));
   }, [intendedTipCents, confirming]);
+  // Codex r3 on #311 (CX14) — the tip is KEPT when the sheet closes (see the trigger's tap), so a
+  // reload for a new version would erase it: the field re-mounts at the kiosk intent (the PROP, not
+  // the intent frozen under an open sheet) or empty. Held as a `draft` while what the cashier typed
+  // is a different tip from that, until the settle lands (then the tip is recorded).
+  useReloadHold("unsent", "draft", "cashTip", !landed && cashTipDraftHeld(tip, intendedTipCents));
   // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
   // comma, "1,234.56" is US grouping. Phase 2a moved that rule to `lib/money-input`, and moved it
   // OUT OF THE KEYSTROKE: judged per key, "5," had no digits after the comma yet, so the comma was

@@ -4,6 +4,196 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2i — staff screens take new builds without losing work (2026-10-02)
+
+Planned on the Phase 2h head (`17f1b1e`) from three designs, two critics and a Vercel read (owner
+decision 10, delegated, 2026-10-02: design for Skew Protection OFF). Built as a contract branch
+(`p2i/contract`: `b7915b7` · `2fe1a80` · `377ad8d`, its fresh-context critic round `6eb2f9d`) and four
+worktree streams on it — `p2i/s1` detect (`8ea5d20` · critic `ad1c9b4`), `p2i/s2` the row and the
+boards' holds (`1839ebe` · `a3e4fba`), `p2i/s3` the lane (`48e18eb` · `777c052`) and `p2i/s4` the money
+lines (`3d4b046` · `7e1358c` · `e934cbf` · critic `01f2691` · `cd2c3a4`) — merged `9d91041` · `eeb6b9b` ·
+`41d5041` · `3f357e1` (the append-only mutant blocks rebuilt per LEARNINGS #207; the merged ids
+measured equal to the contract's − 3 retired ∪ each stream's additions, no duplicate, every
+re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2bi · P2hq**. No SQL.
+
+**What staff see first:**
+
+- **A new version says so in the staff bar.** Within a minute of a deploy, every staff screen that is
+  seen and online shows a row under its bar: "A new version of this screen is ready." with a **Reload
+  the page** button. Tapping it reloads the screen — unless reloading now would lose something, in
+  which case the row says why in one sentence, in the row's own place, and the sentence goes away by
+  itself the moment it stops being true: "A bag you just marked picked up hasn't saved yet — try
+  again in a few seconds." · "The Undo button is still showing — …" · "Still saving what you just did
+  — …" · "This device is offline — reload when it's back online." · "The order system isn't
+  answering, so the new version can't load yet — try again in a moment." · "A cash hand-back is still
+  on screen — hand it back and tap Handed back first." (only while this screen's memory holds the
+  sole copy — its storage refused).
+- **A quiet screen takes the new version on its own — visibly.** After 15 seconds with nobody touching
+  it and nothing unsaved, unread or open, the row counts down "Reloading for the new version in 5…"
+  with **Not now** (ten minutes); any touch, key, scroll or hiding the screen cancels it. A screen
+  whose kitchen sound or counter bell is on never reloads by itself — it waits for a person, and the
+  row adds "After it reloads, the sound stays off until you turn it on again."
+- **An out-of-date screen says its taps may not save.** When a tap is refused because the server no
+  longer knows this screen's code, the row turns to "This screen is out of date — some taps here won't
+  save. Reload the page." (said once), and the quiet wait shortens — a sound-live board then reloads
+  too, after the same visible countdown.
+- **Picks on the pickup lane survive a reload.** A bag marked picked up whose Undo window was still
+  open when the page reloaded comes back on the very next load of the lane: the window reopens, or the
+  pick is sent if its window had run out. Any other visit within 15 minutes lists them instead: "The screen
+  reloaded before these bags saved as picked up — mark them again: …" — nothing is sent for a bag the
+  lane did not see ready.
+- **A cash hand-back stays until it is done — and is ordered only once.** The screen that received
+  the refund's answer says "Recorded — now hand back $X for {the dish · its receipt code} from the
+  drawer." with focus, and keeps it (also after leaving the page and coming back) until **Handed back**
+  is tapped for that line; each refund has its own button. The record lives in the tab's storage for
+  up to 12 hours, so a reload of that tab — ours, or Next's own on a stale build — and a duplicated
+  tab still show it, but as a question with no focus: "A cash refund of $X for {dish · code} was
+  recorded — was it already handed back from the drawer? Check before you hand it back again." Where
+  the tablet refuses storage, the hand-back lives only in that screen's memory and BOTH reloads wait
+  for its **Handed back** — except the stall cure's own Reload (P2iv).
+- **The Reload offer never reloads offline.** It reads "Offline — reload when this device is back
+  online" while the device is offline; an offer on screen also stops the automatic reload.
+- **While the screen reloads,** it dims under the bar and shows a progress cursor; nothing on it
+  answers a tap.
+
+**How (the load-bearing parts):**
+
+- **Detect:** `NEXT_PUBLIC_BUILD_STAMP` is minted once per `next build` (`apps/qr/scripts/build-stamp.mjs`)
+  and inlined into the client bundle and a force-static `GET /api/version` (`{ build, contract }`).
+  `AppUpdateWatch` (mounted once in `app/staff/layout.tsx`) asks it every 60 s while seen and online —
+  uncached, no credentials, bounded (`lib/timeout-signal.ts`: AbortSignal.timeout, or a controller +
+  timer on iPadOS < 16 — the health probe uses it too), parsed strictly (anything else is "no verdict", never "changed"). CI proves the stamp
+  reached both the route's prerendered body and a client chunk (`scripts/check-build-stamp.mjs`, after
+  the build).
+- **One verdict:** the stall ledger learns a call KIND (`raceTimeout`'s kind is REQUIRED); a hold
+  register (`lib/reload-guard.ts`) carries what no promise represents — unsent picks and the KDS Undo,
+  unread money lines and the recall rail, live sound, a standing reload offer. `manualBlock` refuses
+  only offline, for unsent work, for a young write and for a hand-back only memory holds
+  (`refusesManual`); `autoBlock` refuses for anything that could be lost or
+  unread, and its heuristics (quiet, dialog, typing, answer grace) only ever refuse.
+- **One executor** (`lib/app-update.ts`): a fresh pre-flight (online, `/api/version` still differs, a
+  health probe that bypasses the 15 s cache), the verdict re-read after the last await, `body.inert` +
+  `<html data-reloading>` in the same task as `location.reload()`, and a one-shot per-target record so
+  an automatic reload never loops (an automatic attempt whose record cannot be written does not go;
+  a hidden tab is refused at the re-check).
+- **Retired:** the first `UnrecognizedActionError` on any tracked call marks the tab retired (it relaxes
+  only sound, stashed unsent work and the quiet windows); a bumped `STAFF_CONTRACT` forces the same.
+  Nothing un-retires it short of a reload — not a version read, not an apply that comes back current.
+- **The lane:** `lib/pick-stash.ts` binds the stash to the immediately next LOAD (`lib/tab-load.ts`) of
+  the same page, written by a writer that unloaded — never a TTL; the restore is decided at the first
+  good read, against the bags that read shows ready.
+- **The hand-back:** written synchronously in the refund's answer handler, stamped with the id of the
+  document that wrote it (module memory, so a reload and a cloned tab read as "not mine"), peeked
+  (never taken) by every mount, forgotten per line by its acknowledgement; only the writer says the
+  imperative or takes focus. Storage refused keeps it in the document's memory and holds both the
+  automatic reload and a person's under its own `handBack` reason.
+- **The service worker:** `controllerchange` reloads only the tab that asked for the activation,
+  never offline, and never once the tab is under `/staff` — the staff watcher owns reloads there
+  (`lib/sw-activation.ts`).
+
+**Gate:** `turbo lint typecheck build` green on `b9b9c72` (lint 0 errors) and `node scripts/check-build-stamp.mjs` after it (the stamp in `/api/version`'s prerendered body and a client chunk); the full qr suite 6048 / 6048 (369 files) and `packages/ui` 287 / 287 on the final tree; all 15 fast-lane steps green, `check:docs` clean (2869 mutants · 6048 + 287 tests), `check:mutant-anchors` 2869 anchors · 240 files; a filtered `verify:slice` (`--no-gate`) over every `p2i-*` mutant plus every mutant on every file changed since `17f1b1e` — 876 mutants on 42 files — caught 876 / 876 (0 survived, 0 stale, no orphans). The full unfiltered run is still to come.
+
+**Filed:** P2ia–P2ik and P2im–P2iq (the plan's §8: pad adds and the KDS Undo/recall lost to Next's own
+reload, the reload swallow window, the pane hash, the reader outcome under Next's reload, one
+deliberate worker change, kiosk and `/board`, "not sent" for a retired write, the Help report's build,
+fewer `revalidatePath` triggers, gestureless sound proof, inline drafts, the counter mint, a
+`STAFF_CONTRACT` guard, diner tabs, a deploy push; P2il was built by the contract's critic round, not
+filed), P2ir (unread holds have no age bound) · P2is (a cash refund is not recorded before it is sent) ·
+P2it (the health probe's own `AbortSignal.timeout`), and C25 · C26 (the action-encryption key; Pro +
+Skew Protection, optional).
+
+**Blind review.** A fresh-context, three-lens pass (product truth · money semantics · concurrency) on
+`17f1b1e..72e2acb` returned REJECT × 3. Fixed (`9c86a7c` · `80a8d88`), each red-first with a mutant:
+the cash hand-back was re-ordered, imperative and focused, by every later document — a reload, Next's
+reload, a duplicated tab whose cloned storage an acknowledgement elsewhere never clears — so a guest
+could be paid twice (money M1 · concurrency K1); it is now ordered once, by the writer, and asked about
+everywhere else. A hand-back only memory held was erased by a person's Reload (product C1 ·
+concurrency K2); `refusesManual` now refuses it. The outage refusal claimed a reload "would empty this
+screen" on the outage shell itself (C2). The reader's status poll — which moves the settlement freeze
+and can cancel a payment — was tracked as a READ (money M2), and the action guard could not see it
+(M3) nor a namespace import (M4); the guard now resolves each call's kind against an explicit READS
+allowlist. The bar row went blank while applying (Q3); the lane's remark hid behind a standing notice
+(Q1); the Burmese sound line used one verb for "reload" and "turn on" (Q4); test-setup now resets the
+hand-back's document state and the component latches (`lib/test-resets.ts`), and the hold reset tells
+its readers (G). Filed: P2iu–P2iz, P2ja (a retired tap's two-minute mute, the stall cure over a
+memory hand-back, a reload over a stalled cash refund, the shell's owed reload on `/staff`, an auto
+apply on a hidden tab, the bfcache stash stamp, and Next's MPA-versus-`onDone` order — a real-build
+measurement).
+
+**Codex round 1 on #311** (head `6065379`: 3×P1 + 4×P2 — all seven real, each re-read in source
+first; fixed in `aabc511` · `8b224a7` · `887299e`, mutants `70e1cc8` · `cf112ff`; each red-first). **P1 · a
+hand-back read back from the record never ended while the zone stayed up:** only a memory entry had
+an expiry timer, so an entry a reload, a duplicated tab or an away-zone answer wrote to the tab record
+was said past its one-shift life. `nextHandBackExpiryMs` (lib, also behind the memory timer, clamped to
+[0, a shift]) gives the first entry's end and `SettledToday` re-reads the list then, quietly. **P1 · an
+unrecordable automatic attempt reloaded for ever:** the tried-target record's write failed silently,
+so a reload that missed its target re-ran every quiet window; `markAppliedIn` now reports whether the
+record reads back, and an AUTOMATIC apply refuses without it (a person's Reload still goes). **P1 ·
+the shell's reload under /staff (was P2ix):** a diner page's owed reload, failsafe or asked-for
+activation survived a soft navigation into the staff app and reloaded it under none of its holds;
+`staffOwnsReload` is read where each rule decides, and the shell pays none of them there. **P2 · a
+hidden tab mid-pre-flight (P2iy):** `GuardInput.visible`, refused by `autoBlock` at the executor's
+post-await re-check. **P2 · the bfcache pick stamp (P2iz):** only an unloading `pagehide`
+(`hideClosesStash`) stamps the lane's stash closed. **P2 · a retired tap answered `current` (P2iu):**
+the screen stays retired with its warning and only the automatic path snoozes; the two-minute mute of
+later witnesses is gone (and with it the retirement alert's re-arm, which a retired document can no
+longer reach). **P2 · the probe's timeout (P2it):** `timeoutSignal` moved to `lib/timeout-signal.ts`,
+shared by the version read and the health probe. Mutants 2886 → 2908 (24 added, 9 re-anchored, 2
+retired with the code they guarded); P2it · P2iu · P2ix · P2iy · P2iz closed. Gate: `turbo lint
+typecheck build` green and the build stamp checked after it; the full qr suite 6089 / 6089 (370 files)
+and `packages/ui` 287 / 287; all 15 fast-lane steps and `check:docs` clean; a filtered `verify:slice`
+over every mutant added or re-anchored this round plus every mutant whose file or suite this round
+touched — 460 on 23 files — caught 459 and found ONE survivor, `p2i-watch/tick-while-hidden`: CX4's
+hidden-tab refusal had made the hidden-tick case blind to it, so the case now pins the work itself
+(`cf112ff`, red-first), and a re-run of that suite's 22 mutants caught 22. 0 stale.
+
+**Codex round 2 on #311** (head `3b0eeec`: 2×P1 + 3×P2 — all five real, each re-read in source first;
+fixed in `fbefa2e` · `d1336ad` · `915ce8e` · `da5a3da` · `8718188` · `5efa6f7`, mutants `31cdbfc`;
+each red-first). **P1 · a pick auto-sent after a visit to another site (CX9):** a `pagehide` that
+unloads also covers a navigation away and a tab close, and a page of another origin can never
+advance the tab's load counter, so an operator who left and came back to the lane inside five
+minutes had the old picks sent. A load now also proves by its OWN navigation that it continues the
+last one (`loadContinues`: a `reload`, or a `navigate` from this origin — Next 16.2.9's stale-build
+hard navigation is a same-origin `location.assign`/`replace`, so it still resumes); anything else
+names the bags again. Whether a restored closed tab reports `back_forward` is not measured (P2jb).
+**P1 · the stall's Reload erased what only this page held (CX11, was P2iv):** `ReloadButton` now reads
+`stallCureBlock` at the tap — the KDS Undo bar, a pick still inside its window the tab could not
+stash, and a cash hand-back only memory holds refuse it with their own sentence, in the button's own
+alert beside it, gone when the hold is. A young write, a stall, a draft and a pick already SENDING
+never do: the lane's hold now says `pickSending` once every pick is on the wire, because that write
+may be the very one that hangs. **P2 · the staff watcher's first check waited a minute (CX8):** a
+staff layout reached by a soft navigation from a diner page ran that page's bundle until the first
+poll; the watcher now asks once at mount (one GET). **P2 · the diner strip went dead after /staff
+(CX10):** the shell's three staff guards now RELEASE what they take — the ask, the debt, the pending
+failsafe and the Refresh one-shot — so the strip answers a tap again and another tab's later
+activation reloads nothing here (a debt paid on leaving /staff was refused: it would reload a diner
+page on a soft navigation). **P2 · a typed value was safe only while focused (CX12):** a new unsent
+hold reason, `draft`, is held while a value differs from what is saved — the kitchen note, the
+counter call-out, the menu price, the promo code, the phone order's name, the add-staff form and the
+help report — and refuses both the row's Reload and the automatic one with "Something you typed
+isn't saved yet — save it or clear it first." (`shell.version.wait.draft`, a K15-HIGH Burmese draft);
+the focus check stays as the belt. Mutants 2908 → 2950 (43 added, 16 re-anchored, 1 retired with the
+rule CX8 reverses), 243 target modules (MenuPriceEditor and TeamManager join, 70 components); P2iv
+closed, P2jb filed. Gate: `turbo lint typecheck build` green (0 errors, the 6 standing warnings) and the build stamp checked after it; the full qr
+suite 6129 / 6129 (370 files) and `packages/ui` 287 / 287; all 15 fast-lane steps and `check:docs` clean; a filtered
+`verify:slice` over every mutant added or re-anchored this round plus every mutant whose file or suite this round touched —
+352 on 24 files — caught 352, 0 survived, 0 stale.
+
+**Codex round 3 on #311** (head `6c7ebf0`: 2×P2 — both real, each re-read in source first; fixed in
+`03b0dad`, each red-first). **P2 · an unload between a commit and its passive flush stamped stale
+picks (CX13):** the lane's `pagehide` read a map synced in a passive effect while the stash mirror
+wrote the latest picks in a layout effect, so an unload in between rewrote the stash from the map
+before that commit (a fresh pick erased); the map is now synced in the mirror's own layout effect.
+**P2 · a kept cash tip was lost to a reload (CX14):** the cash sheet keeps a typed tip after it
+closes, and no `draft` hold covered it; `cashTipDraftHeld` (lib/reload-guard) holds while the typed
+tip, read as cents the way the settle reads it, differs from what a reload re-mounts the field with
+(the kiosk intent, or no tip) — a cleared kiosk tip included, the same tip written another way not —
+until the settle lands. Mutants 2950 → 2958 (8 added, none re-anchored). Gate: `turbo lint
+typecheck build` green (0 errors, the 6 standing warnings) and the build stamp checked after it; the
+full qr suite 6134 / 6134 (370 files); all 15 fast-lane steps and `check:docs` clean; a filtered
+`verify:slice` over the 8 new mutants plus every mutant on `ExpoBoard.tsx`, `CashSettleButton.tsx` and
+`lib/reload-guard.ts` or their suites — 194 on 3 files — caught 194, 0 survived, 0 stale.
+
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
 Planned on `c7bffc1` (the Phase 2g head) from a map of every staff Server Action and poll (checked by

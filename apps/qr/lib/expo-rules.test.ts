@@ -11,6 +11,7 @@ import {
   PICKED_UNDO_MS,
   pickedUndoArmed,
   pickedUndoOpen,
+  pickHoldReason,
   reloadForgetsAPick,
   toastPick,
   type ExpoOrderKey,
@@ -288,5 +289,26 @@ describe("reloadForgetsAPick — the lane's Reload caveat is said only when a re
     // MUTATION (p2h-rev-b/expo-rules/reload-never-forgets): the caveat is never said; red.
     expect(reloadForgetsAPick(new Map([["order-1", { committing: false }]]))).toBe(true);
     expect(reloadForgetsAPick(new Map([["order-1", { committing: true }]]))).toBe(true);
+  });
+});
+
+describe("pickHoldReason — the lane's hold says whether a pick is still unsent (Codex r2 on #311)", () => {
+  it("any pick inside its window: pick — even beside one already sending", () => {
+    // MUTATION (p2i-lane/hold-reason-any-sending): one sending pick makes the whole hold
+    // `pickSending` — the stall's Reload then erases a pick whose window is still open; red.
+    expect(pickHoldReason(new Map([["a", { committing: false }]]))).toBe("pick");
+    expect(
+      pickHoldReason(
+        new Map([
+          ["a", { committing: true }],
+          ["b", { committing: false }],
+        ]),
+      ),
+    ).toBe("pick");
+  });
+  it("every pick on the wire: pickSending", () => {
+    // MUTATION (p2i-lane/hold-reason-always-pick): always `pick` — the lane's own hung pick write
+    // refuses the stall's Reload, on a tab that could not stash it, for as long as it hangs; red.
+    expect(pickHoldReason(new Map([["a", { committing: true }]]))).toBe("pickSending");
   });
 });

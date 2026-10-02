@@ -54,6 +54,7 @@ import type { KitchenErrCode } from "@/lib/kitchen-types";
 import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
 import { ReloadButton } from "./ReloadOffer";
+import { useReloadHold } from "./useReloadHold";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock } from "@/lib/staff-clock";
@@ -340,6 +341,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [soundWanted, setSoundWanted] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const chime = useRef<KdsChime | null>(null);
+  // Phase 2i (P2bi) — what a reload for a new build would lose here: the Undo bar (unsent — refuses
+  // a person's tap too), the recall rail (the only "Bring back" — refuses the automatic reload), and
+  // live sound (a reload turns it off — the automatic reload waits for a person).
+  useReloadHold("unsent", "kitchenUndo", "kds", undo !== null);
+  useReloadHold("unread", "kitchenRecall", "kds", recall.length > 0);
+  useReloadHold("sound", "kdsSound", "kds", soundOn);
 
   // Phase 2b · kitchen — the board's CONFIRMED override of a dish's sold-out flag, keyed on the poll
   // sequence (`lib/kds-line.ts`). `fetchSeq` counts every refresh that actually STARTS (a coalesced
@@ -457,7 +464,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // raceTimeout (W10b): a HUNG poll (socket that never settles) would hold inFlight forever and
       // stop all polling with the board still wearing its live face — turn it into the catch path.
       // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
-      const res = await raceTimeout(gate.watch(getKitchenQueue()));
+      const res = await raceTimeout(gate.watch(getKitchenQueue()), "read");
       // Phase 2h · review b (B1) — the read can answer AFTER the board is gone (it queued behind the
       // lock, a sign-out, another screen's action): `alive` is re-checked after the await, before any
       // side effect — a dead board's "locked" must not hard-reload the screen the cook moved to.

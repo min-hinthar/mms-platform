@@ -171,7 +171,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
       // gate watches the RAW read (the race frees this caller at 15 s, never the queue).
-      const res = await raceTimeout(gate.watch(getFloorView()));
+      const res = await raceTimeout(gate.watch(getFloorView()), "read");
       if (!alive.current) return; // unmounted mid-fetch — don't setState / schedule timers
       if (!res.ok) {
         if (res.reason === "outage") {

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, outstanding, youngWrite } from "@/lib/bounded-write";
 import type { MergeCandidate } from "@/lib/floor-types";
 
 /**
@@ -82,6 +82,17 @@ async function toMerge() {
 }
 
 describe("MergeTableButton — the candidate read is bounded", () => {
+  it("the candidate read in flight is a READ — never a young write (Phase 2i)", async () => {
+    hung(getMergeCandidates);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(0);
+    expect(outstanding()).toBe(1);
+    // MUTATION (p2i-kind/merge-candidates): the read is bounded as a write — an open merge picker
+    // refuses a reload for a new build as "still saving"; red.
+    expect(youngWrite()).toBe(false);
+  });
+
   it("a read with no answer says it could not load at the bound — never 'Loading tables…' forever", async () => {
     hung(getMergeCandidates);
     mount();

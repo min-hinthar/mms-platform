@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STAFF_HANG_MS, outstanding, resetLedgerForTests, stalledSince } from "./bounded-write";
+import {
+  STAFF_HANG_MS,
+  outstanding,
+  resetLedgerForTests,
+  stalledSince,
+  stalledWrite,
+  youngWrite,
+} from "./bounded-write";
 import { raceTimeout } from "./staff-outage";
 import { createPollGate } from "./poll-gate";
 
@@ -287,7 +294,7 @@ function bareBoard() {
       reads += 1;
       const raw = deferred<string>();
       raws.push(raw);
-      await raceTimeout(gate.watch(raw.promise));
+      await raceTimeout(gate.watch(raw.promise), "read");
     } catch {
       /* a miss — not this test's subject */
     } finally {
@@ -381,7 +388,11 @@ function multiRawBoard() {
         Promise<string>,
       ];
       void gate.watch(Promise.allSettled([q, w, l]));
-      await Promise.allSettled([raceTimeout(q), raceTimeout(w), raceTimeout(l)]);
+      await Promise.allSettled([
+        raceTimeout(q, "read"),
+        raceTimeout(w, "read"),
+        raceTimeout(l, "read"),
+      ]);
     } finally {
       inFlight = false;
     }
@@ -431,6 +442,19 @@ describe("the stall ledger — a hung READ holds the queue as a hung write does"
     raw.resolve("x");
     await settle();
     expect(outstanding()).toBe(0);
+  });
+
+  it("a watched raw is a READ — never a young or stalled write (Phase 2i)", () => {
+    // MUTATION (p2i-gate/read-as-write): the gate tracks its raw as a write — every board's poll in
+    // flight refuses a reload for a new build as "still saving", and a hung poll blocks the
+    // automatic one as unsaved work; red.
+    const gate = createPollGate(vi.fn());
+    void gate.watch(new Promise(() => {}));
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(false);
+    at(STAFF_HANG_MS);
+    expect(stalledWrite()).toBe(false);
+    expect(stalledSince()).toBe(T0);
   });
 
   it("a board's SERVER-offset clock cannot reach the ledger (F2)", () => {

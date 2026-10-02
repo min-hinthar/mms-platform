@@ -1707,6 +1707,55 @@ router commit on the tab — is held while its action hangs (LEARNINGS #200). Th
   failures; sign-out hard-navigates and never awaits a queued action; the lock's release happens on
   the sign-in page's fresh document.
 
+**Phase 2i — staff screens take new builds without losing work (2026-10-02; owner decision 10,
+OPEN-ITEMS P2bi · P2hq).** Skew Protection is OFF, so a deploy leaves every open staff screen on the
+old code, and Next reloads it unasked on its first revalidating write. The rules as built:
+
+- **The word is "version", never "update".** The row says "A new version of this screen is ready."
+  and its button stays the Phase 2h "Reload the page" (`out.reload`) — one action, one name, wherever
+  a reload is offered. Plain words (F29): "device", not "tablet"; "Turn on", not "enable"; no "sent"
+  for a pad add.
+- **One row, in the bar, in flow.** `StaffBarUpdate` sits inside the sticky staff bar between the
+  reader chip and the offline row (the offline row stays last), full width, IN FLOW — never
+  positioned out of the bar, so `--staff-bar-h` measures it and nothing slides under it. It renders
+  nothing while current or while the device is offline (the offline row speaks then). The standing
+  line is not a live region.
+- **A refused tap says why, in the row's place, once.** A tap is refused only for what a reload would
+  silently lose — offline, unsent work (an open pick window, the KDS Undo bar) and a write saving now
+  — or for what the pre-flight found (the order system down, the version unreachable). The refusal
+  REPLACES the line as one `role="alert"`, names the cause and what to do ("…try again in a few
+  seconds."), and clears itself the moment it stops being true — never a sentence telling a cook to
+  wait for nothing.
+- **Nobody asked → a quiet moment, a visible countdown, and Not now.** The automatic reload waits for
+  15 s with no input, nothing unsent, saving, stalled, unread, open or being typed, and 30 s since any
+  write answered; then "Reloading for the new version in 5…" with Not now (10 min; 2 min when
+  retired). The seconds are `aria-hidden` behind ONE sr-only alert that says it in words; any touch,
+  key, scroll or hiding the screen cancels it. **A sound-live board never reloads itself** unless its
+  taps can no longer save (retired, or a bumped `STAFF_CONTRACT`) — and the row says the sound will
+  be off after.
+- **Holds name what a reload would cost, not the screen.** A surface that owns work no promise
+  represents registers a hold (`useReloadHold(kind, reason, subject, on)`): `unsent` (a pick, the KDS
+  Undo), `unread` (the recall rail, a pane's lost money line, a reader outcome, an unsaved hand-back),
+  `sound` (the KDS sound, the counter bell), `standing` (a Reload offer on screen). Manual reads only
+  `unsent` and the one unread reason a reload erases outright — a hand-back only memory holds
+  (`refusesManual`); automatic reads them all. A hold whose work is stashed for the next load says so
+  (`survives`), and only a retired tab may reload over it.
+- **What a reload must not lose is kept in the tab — bound to the next LOAD, not a clock.** Lane picks
+  resume only on the immediately next load of the same page, written by a writer that unloaded;
+  anything else becomes a "mark these again" list. A cash hand-back stays — through reloads and
+  navigation — until its own **Handed back** (one per line, each naming its dish and receipt). **An
+  order is given once:** only the document that received the answer says "now hand back $X", with
+  focus; a reload, Next's reload or a duplicated tab (storage is CLONED into it) shows the same record
+  as a question with no focus — "was it already handed back? Check before you hand it back again." A
+  money instruction re-said as an order after the money may have moved is a second payout.
+- **Reloading looks like it.** The executor freezes the page in the reload's own task: `body` inert,
+  `<html data-reloading>` → a progress cursor and a click-through `--scrim-glass` dim laid just under
+  the sticky bar (whose button reads "Reloading…" only once frozen — "Checking…" through the
+  pre-flight). Fades on the kit's `fade`; reduced motion gets it at once.
+- **Bump `STAFF_CONTRACT`** in the same PR as an incompatible change to a staff action's or poll's
+  return shape: it makes every older screen reload at its next quiet moment, sound-live boards
+  included.
+
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
 Min's brief was one line — "dynamic aspect ratios: mobiles, tablets, desktop" — and the app was

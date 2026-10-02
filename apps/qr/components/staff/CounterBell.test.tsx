@@ -86,6 +86,22 @@ const { ARM_TIMEOUT_MS, COUNTER_SOUND_KEY, COUNTER_TONES, SOUND_HINT_MS } =
   await import("@/lib/counter-chime");
 const { ERR_DWELL_MS } = await import("@/lib/kds-errors");
 const { ts } = await import("@/lib/i18n/staff");
+const { autoBlock, reloadHolds } = await import("@/lib/reload-guard");
+
+/** Online, quiet, nothing saving: only the holds can refuse the automatic reload. */
+const QUIET = {
+  online: true,
+  holds: [],
+  youngWrite: false,
+  stalledWrite: false,
+  ownWait: false,
+  msSinceWriteSettled: null,
+  msSinceInput: Number.MAX_SAFE_INTEGER,
+  dialogOpen: false,
+  typing: false,
+  visible: true,
+  retired: false,
+};
 
 const GUEST = COUNTER_TONES.guest.map((n) => n.freq);
 const flush = () => act(async () => void (await vi.advanceTimersByTimeAsync(0)));
@@ -377,5 +393,25 @@ describe("the provider rings on the counter home only", () => {
     await tick(10_000); // well past RING_GAP_MS: only the unmount can refuse the next ring
     act(() => void ear.hear!({ guest: new Set(["here:ear-a", "here:ear-b"]), food: new Set() }));
     expect(freqs).toEqual([]);
+  });
+});
+
+// ── Phase 2i (P2bi) ──
+describe("Phase 2i — a live bell holds the automatic reload for a new build", () => {
+  it("held only while the bell is ON — never while off or paused", async () => {
+    // MUTATION (p2i-bell/sound-unheld): no hold — the automatic reload silences the counter bell
+    // and the next guest's ask rings nothing until someone notices; red.
+    const bell = () => reloadHolds().filter((h) => h.reason === "bellSound");
+    mount();
+    expect(bell()).toHaveLength(0);
+    await armViaChip();
+    expect(bell()).toMatchObject([{ kind: "sound", subject: "counter" }]);
+    expect(autoBlock({ ...QUIET, holds: reloadHolds() })).toEqual({
+      kind: "hold",
+      reason: "bellSound",
+    });
+    // Paused (a suspended context): the sound is already off — nothing for a reload to lose.
+    act(() => suspend());
+    expect(bell()).toHaveLength(0);
   });
 });

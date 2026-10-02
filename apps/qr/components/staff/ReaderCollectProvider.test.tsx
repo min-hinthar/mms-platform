@@ -3,7 +3,14 @@ import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
-import { STAFF_HANG_MS, stalledSince, track } from "@/lib/bounded-write";
+import {
+  STAFF_HANG_MS,
+  msSinceWriteSettled,
+  stalledSince,
+  track,
+  youngWrite,
+} from "@/lib/bounded-write";
+import { autoBlock, reloadHolds, type GuardInput } from "@/lib/reload-guard";
 import {
   READER_COLLECT_KEY,
   READER_COLLECT_MAX_IDLE_MS,
@@ -667,6 +674,27 @@ describe("Phase 2h (9d) — the status read sits on the stall ledger until it an
   });
 });
 
+describe("Phase 2i · blind review (money M2) — the status poll is a WRITE on the ledger", () => {
+  it("a status poll in flight reads as a young write, and its answer opens the answer window — it can move the freeze and cancel the payment", async () => {
+    let answer!: (v: unknown) => void;
+    terminalStatus.mockReturnValue(new Promise((r) => (answer = r)));
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    expect(terminalStatus).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/reader-status): the poll is tracked as a READ — `terminalStatus` extends,
+    // re-acquires or releases the settlement freeze and cancels a dead attempt's payment, and a
+    // person's Reload tap lands in the middle of it as "nothing saving"; red.
+    expect(youngWrite()).toBe(true);
+    expect(msSinceWriteSettled()).toBeNull();
+    await act(async () => {
+      answer(collecting);
+    });
+    expect(youngWrite()).toBe(false);
+    expect(msSinceWriteSettled()).not.toBeNull();
+  });
+});
+
 describe("Phase 2h — the reader CANCEL is bounded (9b · 9d · 9e)", () => {
   /** A cancel whose answer the case holds. */
   function hungCancel() {
@@ -919,6 +947,17 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     await act(async () => answer(live));
     // MUTATION (p2h-cx2a/provider/late-resume-dropped): the answer past the bound is dropped; red.
     expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+
+  it("the resume in flight is a READ — never a young write (Phase 2i)", async () => {
+    seed(PENDING);
+    terminalResume.mockReturnValueOnce(new Promise(() => {}));
+    mount();
+    await tick(0);
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/reader-resume): the read-only resume is tracked as a write — a reload for a
+    // new build is refused as "still saving" over a read; red.
+    expect(youngWrite()).toBe(false);
   });
 
   it("a collect that STANDS is the newer fact: the record goes without a read", async () => {
@@ -1184,5 +1223,76 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     // a tablet that cannot write it never resolves its own thrown start; red.
     expect(terminalResume).toHaveBeenCalledTimes(1);
     expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+});
+
+describe("Phase 2i (P2bi) — a declined or cancelled outcome on screen holds an AUTOMATIC reload", () => {
+  /** A moment `autoBlock` would otherwise reload at: nothing but the register can refuse it. */
+  const QUIET: GuardInput = {
+    online: true,
+    holds: [],
+    youngWrite: false,
+    stalledWrite: false,
+    ownWait: false,
+    msSinceWriteSettled: null,
+    msSinceInput: Number.MAX_SAFE_INTEGER,
+    dialogOpen: false,
+    typing: false,
+    visible: true,
+    retired: false,
+  };
+  const holds = () =>
+    reloadHolds()
+      .filter((h) => h.reason === "readerOutcome")
+      .map((h) => ({ kind: h.kind, subject: h.subject, survives: h.survives }));
+  const held = [{ kind: "unread", subject: "s-7", survives: false }];
+
+  it("declined: held while the outcome stands, released by its dismissal — never while the reader collects", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    expect(api.poll.phase).toBe("collecting");
+    expect(holds()).toEqual([]);
+    terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: "Declined." });
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    // MUTATION (p2i-reader/outcome-unheld): a reload for a new version erases "Declined" — the stash
+    // was dropped at that phase, nothing brings it back, and the cashier believes the card paid; red.
+    expect(holds()).toEqual(held);
+    expect(autoBlock({ ...QUIET, holds: reloadHolds() })).toEqual({
+      kind: "hold",
+      reason: "readerOutcome",
+    });
+    await act(async () => api.dismiss());
+    expect(holds()).toEqual([]);
+  });
+
+  it("cancelled is held the same way; a charge given up as UNRECORDED is not (its stash restores it after any load)", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    cancelTerminal.mockResolvedValueOnce({ ok: true });
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await act(async () => api.cancel());
+    expect(api.poll.phase).toBe("canceled");
+    expect(holds()).toEqual(held);
+    await act(async () => api.dismiss());
+    expect(holds()).toEqual([]);
+    r.unmount();
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 4210,
+    });
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await tick(READER_UNRECORDED_MS);
+    expect(api.poll.phase).toBe("unrecorded");
+    // MUTATION (p2i-reader/unrecorded-held): the kept warning holds every automatic reload for as
+    // long as nobody closes it — though a reload brings it straight back; red.
+    expect(holds()).toEqual([]);
   });
 });

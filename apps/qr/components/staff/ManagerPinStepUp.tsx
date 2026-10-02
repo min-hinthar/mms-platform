@@ -174,7 +174,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
 
   useEffect(() => {
     alive.current = true;
-    raceTimeout(read()).then(
+    raceTimeout(read(), "read").then(
       (a) => {
         if (alive.current) setApprovers(a);
       },
@@ -196,7 +196,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
     setRetrying(true);
     try {
       // CX1 — the read still out, if there is one (a fresh bound on it); a new read only when none is.
-      const a = await raceTimeout(read());
+      const a = await raceTimeout(read(), "read");
       if (!alive.current) return false;
       setApprovers(a);
       setFailed(false);

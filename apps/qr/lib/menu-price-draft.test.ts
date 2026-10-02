@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
-import { draftCents, priceDraftVerdict } from "./menu-price-draft";
+import { draftCents, priceDraftHeld, priceDraftVerdict } from "./menu-price-draft";
 
 describe("priceDraftVerdict — every refused draft has a stated reason", () => {
   it("parses dollars strictly to integer cents", () => {
@@ -31,5 +31,25 @@ describe("priceDraftVerdict — every refused draft has a stated reason", () => 
     expect(priceDraftVerdict("12.00", 1200)).toBe("unchanged");
     expect(priceDraftVerdict("12", 1200)).toBe("unchanged");
     expect(priceDraftVerdict("12.01", 1200)).toBe("ok");
+  });
+});
+
+describe("priceDraftHeld — an edited price not yet saved holds a reload (Codex r2 on #311)", () => {
+  it("a typed amount that is not the saved price is held — well-formed or not", () => {
+    // MUTATION (p2i-draft/price-never-held): the draft never holds — a manager who typed 14.50 and
+    // tapped away loses it to the automatic reload; red.
+    expect(priceDraftHeld("14.50", 1295)).toBe(true);
+    expect(priceDraftHeld("14.5x", 1295)).toBe(true);
+  });
+  it("the saved price, however it is typed, or an emptied field, holds nothing — nothing would be lost", () => {
+    // MUTATION (p2i-draft/price-text-compared): compared as TEXT — "12.95" against a field that
+    // reads "12.950" or " 12.95 " holds the reload over a price that is already saved; red.
+    expect(priceDraftHeld("12.95", 1295)).toBe(false);
+    expect(priceDraftHeld(" 12.95 ", 1295)).toBe(false);
+    expect(priceDraftHeld("12.9", 1290)).toBe(false);
+    // MUTATION (p2i-draft/price-empty-held): an emptied field holds — the saved price is untouched
+    // and nothing typed would be lost; red.
+    expect(priceDraftHeld("", 1295)).toBe(false);
+    expect(priceDraftHeld("   ", 1295)).toBe(false);
   });
 });

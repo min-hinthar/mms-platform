@@ -143,7 +143,7 @@ export function useLangModeWrite({
       const call = setStaffLang({ mode: target });
       let res: SetStaffLangResult;
       try {
-        res = await raceTimeout(call);
+        res = await raceTimeout(call, "write");
       } catch (e) {
         // A rejection (offline, a retired action id) or the 15 s hang: nothing was confirmed. Said
         // by the host's failure line — never thrown, which would take the whole board down.

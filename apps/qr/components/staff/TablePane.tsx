@@ -195,7 +195,7 @@ export function TablePane({
       };
     }
     // The RAW read is watched (the race frees this pane at 15 s, never Next's queue).
-    raceTimeout(gate.watch(getTableDetail(id)))
+    raceTimeout(gate.watch(getTableDetail(id)), "read")
       .then((res) => {
         if (!live || !acceptPaneRead(id, selectedNow())) return;
         if (res.kind === "detail") setRead({ id, gen, kind: "detail", detail: res.detail });

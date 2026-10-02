@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { terminalStatus, cancelTerminal, terminalResume } from "@/lib/terminal";
-import { boundWrite, stalledSince, track } from "@/lib/bounded-write";
+import { boundRead, boundWrite, stalledSince, track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
   READER_POLL_MS,
@@ -45,6 +45,7 @@ import {
   type ReaderCollectApi,
   type ReaderViewer,
 } from "./ReaderCollectContext";
+import { useReloadHold } from "./useReloadHold";
 
 /**
  * Phase 2g · reader (P2em · P2en · P2er · P2es) — THE card reader's collect, owned ABOVE navigation.
@@ -218,7 +219,9 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
           setCancelError(null);
           onAdopted?.();
         };
-        const out = await boundWrite(terminalResume({ sessionId: p.sessionId, startId: p.token }));
+        // Phase 2i — the resume is READ-ONLY (`terminalResume` touches no freeze), so it is a READ on
+        // the ledger: in flight it never refuses a reload for a new build as unsaved work.
+        const out = await boundRead(terminalResume({ sessionId: p.sessionId, startId: p.token }));
         if (out.kind === "answer") apply(out.value);
         else if (out.kind === "threw") apply(null);
         else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
@@ -359,7 +362,16 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       flight.current = ticket;
       // Phase 2h (9d) — on the stall ledger until it answers: a hung status read holds the action
       // queue like any action, so a money tap behind it is refused instead of queued.
-      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }))
+      //
+      // ⚠️ A WRITE, not a read (Phase 2i blind review, money M2): `terminalStatus` extends, re-acquires
+      // and releases the settlement freeze and can cancel a dead attempt's PaymentIntent. So while a
+      // card is being collected the answer window (`msSinceWriteSettled`) is re-opened every poll and
+      // NO automatic reload happens — accepted: the collect record survives a reload, but nobody
+      // asked for one mid-collect. A person's Reload tap is refused as "still saving" only while a
+      // poll is IN FLIGHT (`youngWrite`); a poll answers in well under a second of its
+      // READER_POLL_MS cycle, so a re-tap between polls goes through. On a reader that answers slowly
+      // enough to overlap every re-check, the tap waits for the collect to finish — also accepted.
+      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "write")
         .catch(() => null)
         .then((res) => {
           if (flight.current === ticket) flight.current = null;
@@ -611,6 +623,16 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   );
 
   const live = record !== null && readerLive(poll.phase);
+  // Phase 2i (P2bi) — a DECLINED or CANCELLED outcome still on screen (panel or chip) is unread news
+  // a reload would erase: the stash is dropped at that phase (`answer`), so nothing brings it back
+  // (P2ie). An automatic reload waits until it is dismissed. `unrecorded` is NOT held — it is kept in
+  // the stash and comes back after any load (C1).
+  useReloadHold(
+    "unread",
+    "readerOutcome",
+    record?.sessionId ?? "",
+    record !== null && !readerPolling(poll.phase) && poll.phase !== "unrecorded",
+  );
   const value = useMemo<ReaderCollectApi>(() => {
     const status = record === null ? null : readerStatus(poll, recordingLong);
     return {

@@ -41,6 +41,7 @@ vi.mock("./LossActionSheet", async () => {
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { StaffLineEditor } = await import("./StaffLineEditor");
+const { autoBlock, manualBlock, reloadHolds } = await import("@/lib/reload-guard");
 
 afterEach(() => {
   cleanup();
@@ -237,6 +238,45 @@ describe("Phase 2a · send — what the line says about the kitchen, and what it
     });
     expect(setLineNotes).toHaveBeenCalledWith("s1", { cartItemId: "l1", notes: "no peanuts" });
     expect(last()[1]).toMatchObject({ noteDirty: false, writing: false });
+  });
+
+  it("Codex r2 on #311 — a typed note not yet saved holds the reload for a new version, focused or NOT; a save releases it", async () => {
+    // MUTATION (p2i-draft/note-unheld): no draft hold — the cook's "no peanuts", typed and tapped
+    // away from, is erased by the automatic reload (the focus check alone saw it only while the
+    // field had focus); red.
+    renderLine({ ...line, sendable: true } as TableLineView);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /note/i }));
+    });
+    // The editor opened on the saved note (none): nothing typed, nothing held.
+    expect(reloadHolds().filter((h) => h.reason === "draft")).toEqual([]);
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    await act(async () => {
+      fireEvent.change(field, { target: { value: "no peanuts" } });
+      field.blur();
+    });
+    expect(reloadHolds()).toContainEqual(
+      expect.objectContaining({ kind: "unsent", reason: "draft", survives: false }),
+    );
+    const at = {
+      online: true,
+      holds: reloadHolds(),
+      youngWrite: false,
+      stalledWrite: false,
+      ownWait: false,
+      msSinceWriteSettled: null,
+      msSinceInput: Number.MAX_SAFE_INTEGER,
+      dialogOpen: false,
+      typing: false,
+      visible: true,
+      retired: false,
+    };
+    expect(manualBlock(at)).toEqual({ kind: "hold", reason: "draft" });
+    expect(autoBlock(at)).toEqual({ kind: "hold", reason: "draft" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.line.save"].en }));
+    });
+    expect(reloadHolds().filter((h) => h.reason === "draft")).toEqual([]);
   });
 
   it("a line that leaves the list withdraws its report", () => {

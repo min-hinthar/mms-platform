@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "next build && node scripts/build-sw.mjs",
+    "build": "NEXT_PUBLIC_BUILD_STAMP=\"$(node scripts/build-stamp.mjs)\" next build && node scripts/build-sw.mjs",
     "build:sw": "node scripts/build-sw.mjs",
     "start": "next start",
     "lint": "eslint .",

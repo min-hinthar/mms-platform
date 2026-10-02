@@ -11,8 +11,10 @@ import {
 import { useRouter } from "next/navigation";
 import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
 import { setMenuPrice } from "@/lib/menu-price";
+import { track } from "@/lib/bounded-write";
 import { setItemSoldOut } from "@/lib/menu-availability";
-import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { draftCents, priceDraftHeld, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { useReloadHold } from "./useReloadHold";
 import { browseRows } from "@/lib/menu-browse";
 import { soldOutSinceParts } from "@/lib/sold-out-since";
 import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
@@ -200,14 +202,16 @@ export function MenuPriceEditor({
     // and strand the row on "…" forever, which on this control means the cook cannot retry the 86.
     let r: Awaited<ReturnType<typeof setItemSoldOut>>;
     try {
-      r = await setItemSoldOut({
-        menuItemId: i.id,
-        soldOut: !i.soldOut,
-        // The state this row RENDERED with — the server refuses a flip made against a stale screen.
-        // `i.soldOut` is the CONFIRMED value when one is held, so a second flip inside the refresh
-        // window posts what the server itself just answered, not the stale prop (menu-3).
-        expectedSoldOut: i.soldOut,
-      });
+      r = await track(
+        setItemSoldOut({
+          menuItemId: i.id,
+          soldOut: !i.soldOut,
+          // The state this row RENDERED with — the server refuses a flip made against a stale screen.
+          // `i.soldOut` is the CONFIRMED value when one is held, so a second flip inside the refresh
+          // window posts what the server itself just answered, not the stale prop (menu-3).
+          expectedSoldOut: i.soldOut,
+        }),
+      );
       // Recorded BEFORE the pill re-enables (the `finally` below): the row must never be tappable
       // while still wearing the verb the server just answered against.
       if (r.ok) record(i.id, { soldOut: r.soldOut });
@@ -264,6 +268,14 @@ export function MenuPriceEditor({
   const verdict = current ? priceDraftVerdict(draft, current.priceCents) : "empty";
   const validDraft = verdict === "ok";
   const cents = draftCents(draft);
+  // Codex r2 on #311 — a price typed and not saved holds a reload for a new version, whether or not
+  // its field still has focus (`priceDraftHeld`).
+  useReloadHold(
+    "unsent",
+    "draft",
+    "price",
+    current !== null && priceDraftHeld(draft, current.priceCents),
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -321,12 +333,14 @@ export function MenuPriceEditor({
     // landed — the list refresh shows the truth).
     let res: Awaited<ReturnType<typeof setMenuPrice>>;
     try {
-      res = await setMenuPrice({
-        menuItemId: current.id,
-        priceCents: cents,
-        // W21d (Codex P1 on #180) — the price this screen SHOWED; the server refuses if it moved.
-        expectedPriceCents: current.priceCents,
-      });
+      res = await track(
+        setMenuPrice({
+          menuItemId: current.id,
+          priceCents: cents,
+          // W21d (Codex P1 on #180) — the price this screen SHOWED; the server refuses if it moved.
+          expectedPriceCents: current.priceCents,
+        }),
+      );
       // The server's amount is a CONFIRMED value — recorded before the buttons re-enable, so the
       // row rings the new price the instant the answer lands (menu-3).
       if (res.ok) record(current.id, { priceCents: res.priceCents });

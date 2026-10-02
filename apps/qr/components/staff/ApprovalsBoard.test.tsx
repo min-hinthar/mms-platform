@@ -369,7 +369,8 @@ describe("ApprovalsBoard — the poll and the jump", () => {
 });
 
 // ── Phase 2h — a hung tablet never traps the approvals zone (P2cz · P2fc) ─────────────────────────
-const { STAFF_HANG_MS, stalledSince } = await import("@/lib/bounded-write");
+const { STAFF_HANG_MS, outstanding, stalledSince, youngWrite } =
+  await import("@/lib/bounded-write");
 
 /** Integration c critic F1 — whether the region's CONTENT was replaced or rewritten (what a screen
  *  reader announces) between this call and the returned check; equal text rendered in place records
@@ -398,6 +399,24 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
+
+describe("Phase 2i — the zone's three reads are READs on the ledger", () => {
+  it.each(["queue", "who", "ledger"] as const)(
+    "the %s read in flight never reads as a young write — a reload for a new build is not refused for it",
+    async (which) => {
+      vi.useFakeTimers();
+      if (which === "queue") pollAnswer = () => new Promise(() => {});
+      if (which === "who") rosterAnswer = () => new Promise(() => {});
+      if (which === "ledger") refundsAnswer = () => new Promise(() => {});
+      mount([], null);
+      await tick(5_000);
+      expect(outstanding()).toBeGreaterThan(0);
+      // MUTATION (p2i-kind/approvals-queue · approvals-who · approvals-ledger): that read's race
+      // labels it a write — the approvals board refuses a reload as "still saving"; red.
+      expect(youngWrite()).toBe(false);
+    },
+  );
+});
 
 describe("Phase 2h (9f) — the zone's poll never stacks reads behind a hung one", () => {
   it("a queue read hung for 60 s is ONE dispatch; the second miss arms the freeze; the answer kicks exactly one owed tick", async () => {

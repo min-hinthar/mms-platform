@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PANE_QUERY, handoffStashKey, stashHandoff } from "@/lib/floor-pane";
 import { frozenBoardCopy } from "@/lib/staff-outage";
-import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, outstanding, youngWrite } from "@/lib/bounded-write";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -553,6 +553,19 @@ describe("TablePane — the pane is not a page", () => {
 // loading. It is said now through the pane's ONE region — a node that stands from mount (a live
 // region inserted WITH its text is often never spoken), outside the busy body (a busy subtree's
 // announcements may be held until it clears).
+describe("Phase 2i — the pane's read is a READ on the ledger", () => {
+  it("a read in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    answers[A] = () => new Promise(() => {});
+    mount();
+    await tick(0);
+    await tap(card(A));
+    expect(getTableDetail).toHaveBeenCalled();
+    expect(outstanding()).toBeGreaterThan(0);
+    // MUTATION (p2i-kind/pane-poll): the race labels the pane's read a write; red.
+    expect(youngWrite()).toBe(false);
+  });
+});
+
 describe("TablePane — loading is said through the pane's one region", () => {
   const loading = () => tf("en", "shell.loading", { what: ts("en", "what.table") });
   it("a tapped card: the head names it, the SAME region node says loading, outside the busy body", async () => {

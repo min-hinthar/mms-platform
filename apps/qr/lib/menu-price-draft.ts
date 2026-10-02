@@ -32,3 +32,14 @@ export function priceDraftVerdict(draft: string, currentCents: number): PriceDra
   if (cents === currentCents) return "unchanged";
   return "ok";
 }
+
+/**
+ * Codex r2 on #311 — does the price field hold an edit not yet saved (a `draft` reload hold)? A
+ * typed amount whose cents differ from the saved price — a malformed one included (it is still what
+ * the manager typed) — but never the saved price however it is written, and never an emptied field
+ * (nothing typed would be lost; the saved price is untouched).
+ */
+export function priceDraftHeld(draft: string, currentCents: number): boolean {
+  if (draft.trim() === "") return false;
+  return draftCents(draft) !== currentCents;
+}

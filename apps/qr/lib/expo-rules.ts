@@ -164,6 +164,20 @@ export function reloadForgetsAPick(picks: ReadonlyMap<string, unknown>): boolean
   return picks.size > 0;
 }
 
+/**
+ * Codex r2 on #311 — the REASON the lane's reload hold carries: `pick` while any held pick is still
+ * inside its undo window (nothing sent: a reload drops it unless the tab's stash keeps it), else
+ * `pickSending` (every held pick is on the wire, or queued behind one). Both refuse a reload for a
+ * new build alike; the difference is the stall's Reload (`stallCureBlock`), which a sending pick
+ * must never refuse — it may be the very write that hangs.
+ */
+export function pickHoldReason(
+  picks: ReadonlyMap<string, { committing: boolean }>,
+): "pick" | "pickSending" {
+  for (const p of picks.values()) if (!p.committing) return "pick";
+  return "pickSending";
+}
+
 // ── Phase 2b · feedback ──
 /**
  * The lane's thumb-zone Undo pill shows exactly ONE pick: the one that opened it (`toastFor`, the

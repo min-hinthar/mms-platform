@@ -3980,6 +3980,118 @@ export const STAFF = {
     en: "Couldn’t check the card reader for {x} — it may be asking for the card. Check the reader before you take payment.",
     my: "{x} အတွက် ကတ်စက်ကို စစ်လို့ မရပါ — ကတ်စက်က ကတ်ကို တောင်းနေတာ ဖြစ်နိုင်ပါတယ်။ ငွေမယူခင် ကတ်စက်ကို စစ်ပါ။",
   }, // K15-HIGH — misread, cash is taken while the reader may still collect the card
+  // ── Phase 2i · staff screens take new builds without losing work (P2bi) ──
+  // The staff bar's row when this screen's build is older than the one being served, its refusal
+  // sentences (one per block a person can meet at a tap), the countdown before an automatic reload,
+  // and the lane / cash lines a reload must not lose. The visible copy never says "update" or
+  // "updating" — that is the FEED word (`shell.live.stale` "Not updating"); the button reuses
+  // `out.reload` verbatim, the one word for this act. All MY values are K15 drafts. Words: ဗားရှင်း
+  // "version" (report.attached.version), စခရင် "screen" (shell.screens), အဆင်သင့် "ready"
+  // (expo.tag.ready), ပြန်ဖွင့် "reload" (out.reload), မသိမ်းနိုင်ပါ "won't save" (shell.net.offline),
+  // အသံ ပိတ် / ဖွင့် (kds.sound.off · kds.sound.enable), နောက်မှ "later" (cart.ts), ယူသွားပြီ
+  // (expo.verb.pickedUp), ထပ်မှတ်ပါ (expo.reload.bags), ပြန်ဖျက် (kds.undo), အော်ဒါစနစ်နဲ့ ဆက်သွယ်လို့
+  // မရပါ (shell.lock.err.outage), မှတ်တမ်းတင် / အံဆွဲ / ပြန်အမ်း (floor.settled.confirmed.cash).
+  "shell.version.ready": {
+    en: "A new version of this screen is ready.",
+    my: "ဒီစခရင်ရဲ့ ဗားရှင်းအသစ် အဆင်သင့် ဖြစ်ပါပြီ။",
+  },
+  // Blind review (product Q4) — the MY said ပြန်ဖွင့် for both the reload and turning the sound back on,
+  // so "after it reloads, the sound stays off until you RELOAD" was a fair reading. The reload is now
+  // the page's (စာမျက်နှာ ပြန်ဖွင့်, out.reload) and the sound is the board's own button by name
+  // (“အသံ ဖွင့်”, kds.sound.enable), tapped again (ထပ်နှိပ်).
+  "shell.version.sound": {
+    en: "After it reloads, the sound stays off until you turn it on again.",
+    my: "စာမျက်နှာ ပြန်ဖွင့်ပြီးရင် “အသံ ဖွင့်” ကို ထပ်နှိပ်တဲ့အထိ အသံ ပိတ်နေပါမယ်။",
+  }, // K15-HIGH — a silent kitchen misses a ticket
+  "shell.version.retired": {
+    en: "This screen is out of date — some taps here won’t save. Reload the page.",
+    my: "ဒီစခရင် ဗားရှင်းဟောင်း ဖြစ်နေလို့ ဒီမှာ နှိပ်တာ တချို့ မသိမ်းနိုင်ပါ — စာမျက်နှာ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — staff keep tapping Done or Take payment into a screen that drops some of it
+  "shell.version.countdown": {
+    en: "Reloading for the new version in {n}…",
+    my: "ဗားရှင်းအသစ်အတွက် {n} စက္ကန့်နေရင် ပြန်ဖွင့်ပါမယ်…",
+  },
+  "shell.version.countdown.sr": {
+    en: "This screen will reload for the new version in a few seconds. Tap Not now to wait.",
+    my: "ဗားရှင်းအသစ်အတွက် ဒီစခရင် စက္ကန့် အနည်းငယ်အတွင်း ပြန်ဖွင့်ပါမယ် — စောင့်ချင်ရင် “နောက်မှ” ကို နှိပ်ပါ။",
+  },
+  "shell.version.notNow": { en: "Not now", my: "နောက်မှ" },
+  "shell.version.reloading": { en: "Reloading…", my: "ပြန်ဖွင့်နေပါတယ်…" },
+  "shell.version.wait.pick": {
+    en: "A bag you just marked picked up hasn’t saved yet — try again in a few seconds.",
+    my: "ခုနကမှ ယူသွားပြီလို့ မှတ်ထားတဲ့ ထုပ် မသိမ်းရသေးပါ — စက္ကန့် အနည်းငယ်နေမှ ထပ်စမ်းပါ။",
+  },
+  "shell.version.wait.undo": {
+    en: "The Undo button is still showing — try again in a few seconds.",
+    my: "ပြန်ဖျက် ခလုတ် ပေါ်နေတုန်းပါ — စက္ကန့် အနည်းငယ်နေမှ ထပ်စမ်းပါ။",
+  },
+  "shell.version.wait.saving": {
+    en: "Still saving what you just did — try again in a few seconds.",
+    my: "ခုနက လုပ်တာကို သိမ်းနေတုန်းပါ — စက္ကန့် အနည်းငယ်နေမှ ထပ်စမ်းပါ။",
+  },
+  "shell.version.wait.offline": {
+    en: "This device is offline — reload when it’s back online.",
+    my: "ဒီစက် အင်တာနက် မရှိပါ — အင်တာနက် ပြန်ရမှ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — same band as shell.net.offline
+  // Blind review (product C2) — true on EVERY screen that can show it, the outage shell included
+  // (that shell has no tickets to keep, so "would empty this screen · keep working from it" was false
+  // there). It says only what the pre-flight found: the new version cannot load until the order system
+  // answers. Words: ဗားရှင်းအသစ် (shell.version.ready), ခဏနေမှ ထပ်စမ်းပါ (shell.version.wait.check's
+  // ထပ်စမ်းပါ).
+  "shell.version.wait.down": {
+    en: "The order system isn’t answering, so the new version can’t load yet — try again in a moment.",
+    my: "အော်ဒါစနစ်နဲ့ ဆက်သွယ်လို့ မရလို့ ဗားရှင်းအသစ်ကို မဖွင့်နိုင်သေးပါ — ခဏနေမှ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — misread as "reload anyway", the cook reloads into the outage shell and loses the tickets on screen
+  "shell.version.wait.check": {
+    en: "Couldn’t reach the new version just now — keep using this screen and try again in a minute.",
+    my: "ဗားရှင်းအသစ်ကို အခု မစစ်နိုင်ပါ — ဒီစခရင်ကို ဆက်သုံးပြီး တစ်မိနစ်လောက်နေမှ ထပ်စမ်းပါ။",
+  },
+  "out.reload.offline": {
+    en: "Offline — reload when this device is back online",
+    my: "အင်တာနက် မရှိပါ — အင်တာနက် ပြန်ရမှ ပြန်ဖွင့်ပါ",
+  }, // K15-HIGH — sits on the money stall surfaces
+  "floor.settled.confirmed.cashFor": {
+    en: "Recorded — now hand back {m} for {x} from the drawer.",
+    my: "မှတ်တမ်းတင်ပြီးပါပြီ — အခု အံဆွဲကနေ {x} အတွက် {m} ပြန်အမ်းပါ။",
+  }, // K15-HIGH — money: the drawer instruction (closes P2hq)
+  // Deliberately NOT ပြန်အမ်းပြီး, which is `floor.status.refunded` "Refunded" — this acknowledges a
+  // drawer hand-back, it does not record a refund.
+  "floor.settled.handBack.done": { en: "Handed back", my: "ပြန်ပေးပြီး" }, // K15-HIGH — acknowledges a drawer hand-back
+  // Blind review (money M1 · concurrency K1 · product C1) — a cash hand-back read back by a document
+  // that did NOT write it: a reload, Next's own reload on a stale build, or a duplicated tab (which
+  // CLONES the tab's storage). The imperative ("now hand back $X") is said once, by the document that
+  // received the answer; anywhere else it asks, because the money may already have left the drawer and
+  // a second "hand back" pays the guest twice. {m} the figure, {x} the dish · receipt code. Words:
+  // မှတ်တမ်းတင်ပြီးပါပြီ / အံဆွဲကနေ / ပြန်အမ်း (floor.settled.confirmed.cashFor), ငွေသား (floor.settled.path.cash),
+  // ပြန်ပေးပြီး (floor.settled.handBack.done), စစ်ပါ (floor.pane.lostWrite).
+  "floor.settled.handBack.check": {
+    en: "A cash refund of {m} for {x} was recorded — was it already handed back from the drawer? Check before you hand it back again.",
+    my: "{x} အတွက် {m} ငွေသား ပြန်အမ်းတာ မှတ်တမ်းတင်ပြီးပါပြီ — အံဆွဲကနေ ပြန်ပေးပြီးပြီလား။ ထပ်မပြန်ပေးခင် စစ်ပါ။",
+  }, // K15-HIGH — money: misread as an order, a guest is handed the same cash twice
+  // …and the same question for a Phase 2h record, which never kept its dish.
+  "floor.settled.handBack.checkBare": {
+    en: "A cash refund of {m} was recorded — was it already handed back from the drawer? Check before you hand it back again.",
+    my: "{m} ငွေသား ပြန်အမ်းတာ မှတ်တမ်းတင်ပြီးပါပြီ — အံဆွဲကနေ ပြန်ပေးပြီးပြီလား။ ထပ်မပြန်ပေးခင် စစ်ပါ။",
+  }, // K15-HIGH — money: misread as an order, a guest is handed the same cash twice
+  // Blind review (product C1 · concurrency K2) — a person's Reload tap refused while a cash hand-back
+  // lives only in this screen's memory (the tablet refused to store it): the reload would erase the
+  // one copy. "Handed back" is the button's own label (floor.settled.handBack.done). Words: ပေါ်နေတုန်းပါ
+  // (shell.version.wait.undo), ပြန်ပေးပြီး (floor.settled.handBack.done), အရင် … နှိပ်ပါ.
+  "shell.version.wait.handBack": {
+    en: "A cash hand-back is still on screen — hand it back and tap Handed back first.",
+    my: "ငွေသား ပြန်ပေးရမယ့်စာ ပေါ်နေတုန်းပါ — ငွေကို အရင် ပြန်ပေးပြီး “ပြန်ပေးပြီး” ကို နှိပ်ပါ။",
+  }, // K15-HIGH — money: a reload here erases the only copy of a drawer instruction
+  // Codex r2 on #311 — a reload (for a new version) refused while something typed is not saved: a
+  // kitchen note, a price, a promo code, a name. Words: သိမ်း (browse.name.save), ရှင်း
+  // (pad.search.clear), မ…ရသေးပါ (shell.version.wait.pick), အရင် … ပါ (shell.version.wait.handBack).
+  "shell.version.wait.draft": {
+    en: "Something you typed isn’t saved yet — save it or clear it first.",
+    my: "ရိုက်ထားတာ မသိမ်းရသေးပါ — အရင် သိမ်းပါ၊ ဒါမှမဟုတ် ရှင်းပါ။",
+  }, // K15-HIGH — a kitchen note or a price: misread as "it saved", the change is lost with the reload
+  "expo.reload.remark": {
+    en: "The screen reloaded before these bags saved as picked up — mark them again: {x}",
+    my: "ဒီထုပ်တွေ ယူသွားပြီလို့ မသိမ်းခင် စခရင် ပြန်ဖွင့်သွားပါတယ် — ထပ်မှတ်ပါ- {x}",
+  }, // K15-HIGH — a bag the guest took reads "ready"
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4287,6 +4399,21 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.refund.waitingCash",
   "floor.pane.lostWriteUnknown",
   "settle.reader.unchecked",
+  // ── Phase 2i · new builds (P2bi) ──
+  "shell.version.sound",
+  "shell.version.retired",
+  "shell.version.wait.offline",
+  "shell.version.wait.down",
+  "out.reload.offline",
+  "floor.settled.confirmed.cashFor",
+  "floor.settled.handBack.done",
+  "expo.reload.remark",
+  // ── Phase 2i · blind review ──
+  "floor.settled.handBack.check",
+  "floor.settled.handBack.checkBare",
+  "shell.version.wait.handBack",
+  // ── Phase 2i · Codex r2 on #311 ──
+  "shell.version.wait.draft",
 ]);
 
 /**

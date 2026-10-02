@@ -1,9 +1,27 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { MsgText } from "./StaffMsg";
 import { ReloadButton, ReloadOffer } from "./ReloadOffer";
+import { autoBlock, holdReload, reloadHolds, type GuardInput } from "@/lib/reload-guard";
+import { track } from "@/lib/bounded-write";
+import { NET_SHOW_MS } from "@/lib/live-connection";
+
+/** A guard input with nothing but the holds refusing: online, quiet, nothing saving. */
+const QUIET: GuardInput = {
+  online: true,
+  holds: [],
+  youngWrite: false,
+  stalledWrite: false,
+  ownWait: false,
+  msSinceWriteSettled: null,
+  msSinceInput: Number.MAX_SAFE_INTEGER,
+  dialogOpen: false,
+  typing: false,
+  visible: true,
+  retired: false,
+};
 
 /**
  * Phase 2h (decision 9d) — the reload offer and its button. What only a render can see: that the
@@ -94,5 +112,154 @@ describe("ReloadButton — the button ALONE, for a site that already owns its vi
     const btn = screen.getByRole("button");
     expect(btn.classList.contains("ui-btn-block")).toBe(true);
     expect(btn.querySelector('[lang="my"]')?.textContent).toBe(STAFF["out.reload"].my);
+  });
+});
+
+// ── Phase 2i (P2bi) ──
+describe("Phase 2i — the offer holds the automatic reload, and never reloads offline", () => {
+  let onLine = true;
+  beforeEach(() => {
+    onLine = true;
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => onLine });
+  });
+  afterEach(() => {
+    onLine = true;
+  });
+
+  it("registers ONE standing hold while on screen, released when it leaves", () => {
+    // MUTATION (p2i-offer/hold-unregistered): no hold — the automatic reload for a new build reloads
+    // the tablet out from under a "no answer yet — reload" line a person is reading; red.
+    const { unmount } = render(<ReloadButton lang="en" />);
+    expect(reloadHolds()).toHaveLength(1);
+    expect(reloadHolds()[0]).toMatchObject({ kind: "standing", reason: "reloadOffer" });
+    expect(autoBlock({ ...QUIET, holds: reloadHolds() })).toEqual({
+      kind: "hold",
+      reason: "reloadOffer",
+    });
+    unmount();
+    expect(reloadHolds()).toHaveLength(0);
+  });
+
+  it("two offers on one screen hold twice — each its own token", () => {
+    const { unmount } = render(
+      <>
+        <ReloadButton lang="en" />
+        <ReloadOffer lang="en" reason="stalled" />
+      </>,
+    );
+    const subjects = reloadHolds().map((h) => h.subject);
+    expect(subjects).toHaveLength(2);
+    expect(new Set(subjects).size).toBe(2);
+    unmount();
+    expect(reloadHolds()).toHaveLength(0);
+  });
+
+  it("a tap while the device is offline does NOT reload — read at the tap, before any sustain", () => {
+    // MUTATION (p2i-offer/offline-reloads): the tap reloads offline — the tablet lands on the
+    // worker's offline page and the screen it was working from is gone; red.
+    // MUTATIONS: (p2i-offer/blip-unsaid) the refused tap changes nothing on screen — during a stall
+    // the cure reads as a dead control; (p2i-offer/blip-stuck) the refusal outlives the outage — the
+    // button stays refused after the network is back; red.
+    render(<ReloadButton lang="en" />);
+    onLine = false; // no event, no render: only the tap can see it
+    fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
+    expect(reload).not.toHaveBeenCalled();
+    // Said at once, on the button — before the outage is "sustained".
+    const refused = screen.getByRole("button", { name: STAFF["out.reload.offline"].en });
+    expect(refused.getAttribute("aria-disabled")).toBe("true");
+    expect(refused.hasAttribute("disabled")).toBe(false);
+    onLine = true;
+    act(() => {
+      window.dispatchEvent(new Event("online"));
+    });
+    fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("a sustained outage says so ON the button and refuses it (aria-disabled, never native)", async () => {
+    // MUTATION (p2i-offer/offline-unsaid): the button still reads "Reload the page" offline — a
+    // person taps it and nothing happens, with no reason given; red.
+    vi.useFakeTimers();
+    render(<ReloadButton lang="en" />);
+    onLine = false;
+    await act(async () => {
+      window.dispatchEvent(new Event("offline"));
+      await vi.advanceTimersByTimeAsync(NET_SHOW_MS);
+    });
+    const btn = screen.getByRole("button", { name: STAFF["out.reload.offline"].en });
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(btn.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(btn);
+    expect(reload).not.toHaveBeenCalled();
+    onLine = true;
+    await act(async () => {
+      window.dispatchEvent(new Event("online"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("button", { name: STAFF["out.reload"].en })).toBeTruthy();
+    vi.useRealTimers();
+  });
+});
+
+// ── Codex r2 on #311 (P2iv) — the stall's Reload consults what a reload would SILENTLY lose ──
+describe("Codex r2 on #311 — the stall cure never erases what only this document holds", () => {
+  const tap = () => fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
+  const refusalLine = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('p[role="alert"]');
+
+  it("an open KDS Undo bar refuses the tap with ITS sentence, in the button's own alert beside it — and the tap works once the bar closes", () => {
+    // MUTATION (p2i-offer/cure-unguarded): the button reloads past every hold — the bump the cook
+    // can still take back is gone with the page; red.
+    const release = holdReload({
+      kind: "unsent",
+      reason: "kitchenUndo",
+      subject: "kds",
+      survives: false,
+    });
+    const { container } = render(<ReloadButton lang="en" />);
+    expect(live(container)).toHaveLength(0);
+    tap();
+    expect(reload).not.toHaveBeenCalled();
+    const line = refusalLine(container);
+    expect(line?.textContent).toBe(STAFF["shell.version.wait.undo"].en);
+    // Beside the button, never inside it.
+    expect(screen.getByRole("button").contains(line)).toBe(false);
+    expect(live(container)).toHaveLength(1);
+    // MUTATION (p2i-offer/cure-refusal-sticks): the line outlives the hold that caused it; red.
+    act(() => release());
+    expect(refusalLine(container)).toBeNull();
+    tap();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cash hand-back only memory holds refuses it — the drawer instruction is not erased (P2iv)", () => {
+    holdReload({ kind: "unread", reason: "handBack", subject: "handBack", survives: false });
+    const { container } = render(<ReloadButton lang="en" />);
+    tap();
+    expect(reload).not.toHaveBeenCalled();
+    expect(refusalLine(container)?.textContent).toBe(STAFF["shell.version.wait.handBack"].en);
+  });
+
+  it("in Burmese on a Burmese tablet — spoken once, no English echo inside the alert", () => {
+    holdReload({ kind: "unsent", reason: "kitchenUndo", subject: "kds", survives: false });
+    const { container } = render(<ReloadButton lang="my" />);
+    fireEvent.click(screen.getByRole("button"));
+    const line = refusalLine(container)!;
+    expect(line.textContent).toBe(STAFF["shell.version.wait.undo"].my);
+  });
+
+  it("NEVER refused by the stall it cures: a stalled or young write, a pick already sending, a stashed pick, sound, unread lines", () => {
+    // The regression this pins: reading the MANUAL verdict here would let a young write (the stall's
+    // own) refuse the only way out of a stuck tablet. The predicate itself is falsified in lib
+    // (p2i-guard/cure-refuses-sending · p2i-guard/cure-refuses-draft).
+    track(new Promise(() => {})); // a write out now: young, and in time stalled
+    holdReload({ kind: "unsent", reason: "pickSending", subject: "lane", survives: false });
+    holdReload({ kind: "unsent", reason: "pick", subject: "lane2", survives: true });
+    holdReload({ kind: "sound", reason: "kdsSound", subject: "kds", survives: false });
+    holdReload({ kind: "unread", reason: "kitchenRecall", subject: "kds", survives: false });
+    const { container } = render(<ReloadButton lang="en" />);
+    tap();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(refusalLine(container)).toBeNull();
   });
 });

@@ -11,7 +11,13 @@ import {
   raceTimeout,
   writeLineAfterLateAnswer,
 } from "./staff-outage";
-import { STAFF_HANG_MS, outstanding, resetLedgerForTests, stalledSince } from "./bounded-write";
+import {
+  STAFF_HANG_MS,
+  outstanding,
+  resetLedgerForTests,
+  stalledSince,
+  youngWrite,
+} from "./bounded-write";
 
 /**
  * P2 · G13 — the outage voice. **This module had no suite at all before P2**, which is worth saying
@@ -152,7 +158,7 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
   it("rejects `staff-poll-timeout` at EXACTLY STAFF_HANG_MS by default — not a millisecond before", async () => {
     // MUTATION (p2h-core/race/bound-drifts): a default that is not THE constant — the pad's
     // unconfirmed add, the stall ledger and the poll watchdog disagree about one hang; red.
-    const got = outcome(raceTimeout(new Promise<never>(() => {})));
+    const got = outcome(raceTimeout(new Promise<never>(() => {}), "read"));
     await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
     expect(got()).toBeUndefined();
     await vi.advanceTimersByTimeAsync(1);
@@ -162,9 +168,9 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
   });
 
   it("passes an answer and a rejection straight through", async () => {
-    const ok = outcome(raceTimeout(Promise.resolve(7)));
+    const ok = outcome(raceTimeout(Promise.resolve(7), "read"));
     const err = new Error("fetch failed");
-    const bad = outcome(raceTimeout(Promise.reject(err)));
+    const bad = outcome(raceTimeout(Promise.reject(err), "write"));
     await vi.advanceTimersByTimeAsync(0);
     expect(ok()).toEqual({ ok: true, v: 7 });
     expect(bad()).toEqual({ ok: false, e: err });
@@ -177,7 +183,7 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
     const raw = new Promise<number>((r) => {
       answer = r;
     });
-    const got = outcome(raceTimeout(raw));
+    const got = outcome(raceTimeout(raw, "read"));
     expect(outstanding()).toBe(1);
     await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
     // The race freed its CALLER; the raw read is still in Next's queue, and still on the ledger.
@@ -206,6 +212,21 @@ describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tr
     const ok = outcome(raceFetch(Promise.resolve(7)));
     await vi.advanceTimersByTimeAsync(0);
     expect(ok()).toEqual({ ok: true, v: 7 });
+  });
+
+  it("its REQUIRED kind is what the ledger records — a raced READ is never a young write (Phase 2i)", () => {
+    // MUTATION (p2i-outage/race-reads-as-writes): the race tracks every raw as a write — every board
+    // poll in flight refuses a reload for a new build as "still saving"; red.
+    void raceTimeout(new Promise<never>(() => {}), "read").catch(() => {});
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(false);
+  });
+
+  it("…and a raced WRITE stays visible as one (Phase 2i)", () => {
+    // MUTATION (p2i-outage/race-writes-as-reads): the race tracks every raw as a read — the pad's
+    // removal or the language save in flight is reloaded over; red.
+    void raceTimeout(new Promise<never>(() => {}), "write").catch(() => {});
+    expect(youngWrite()).toBe(true);
   });
 });
 
