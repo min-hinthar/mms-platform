@@ -30,7 +30,7 @@ export type HoldReasonOf = {
   /** The lane's open pick windows (`pick`) · the KDS Undo bar (`kitchenUndo`). */
   unsent: "pick" | "kitchenUndo";
   /** The KDS recall rail · the counter pane's lost-payment line · a declined/cancelled reader outcome. */
-  unread: "kitchenRecall" | "paneLine" | "readerOutcome";
+  unread: "kitchenRecall" | "paneLine" | "readerOutcome" | "handBack";
   sound: "kdsSound" | "bellSound";
   /** A Phase 2h "reload the page" offer on screen. */
   standing: "reloadOffer";

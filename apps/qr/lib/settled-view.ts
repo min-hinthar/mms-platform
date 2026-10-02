@@ -293,13 +293,12 @@ function syncMemory(now: number): void {
     return;
   }
   // An unread money line: the ONLY copy of a drawer instruction, which a reload would erase. The
-  // S0 contract names no hand-back reason (its table leaves the hand-back out because it is
-  // persisted — false for exactly this entry), so it rides the nearest unread one: the counter's
-  // lost money line. Filed for integration to name its own.
+  // hand-back is otherwise persisted (the tab record), so only THIS memory entry holds — under its
+  // own reason, never borrowed from the counter's lost line.
   if (releaseHold === null)
     releaseHold = holdReload({
       kind: "unread",
-      reason: "paneLine",
+      reason: "handBack",
       subject: "handBack",
       survives: false,
     });

@@ -12891,6 +12891,30 @@ a.aisle-tile {
   gap: var(--s2);
   margin-left: auto;
 }
+/* ── Phase 2i · integration ── THE RELOADING PAGE. The executor's `freeze` sets `<html data-reloading>`
+   and makes the body inert in the same task as `location.reload()`; until the new document paints,
+   the old page must not read as live. A progress cursor (a counter terminal's mouse) and a dim laid
+   OVER the page — a fixed, click-through scrim just under the sticky staff bar (`--z-toolbar`), so
+   the bar's own "Reloading…" stays at full contrast. Fades in on the kit's `fade`; reduced motion
+   gets the dim at once. */
+html[data-reloading],
+html[data-reloading] body {
+  cursor: progress;
+}
+html[data-reloading] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-toolbar) - 1);
+  background: var(--scrim-glass);
+  pointer-events: none;
+  animation: fade var(--dur-base) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-reloading] body::after {
+    animation: none;
+  }
+}
 /* ── Phase 2g · reader ── THE READER CHIP (`ReaderCollectChip`): the card reader's collect, on every
    page NOT showing its table. The offline row's idiom — in flow INSIDE the sticky bar, full width,
    ordered last (before the offline row, by DOM order), so it never covers a control and the bar stays

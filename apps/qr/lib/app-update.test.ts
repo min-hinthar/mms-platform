@@ -11,6 +11,8 @@ import {
   dispatchUpdate,
   installApplyDeps,
   makeFetchServed,
+  timeoutSignal,
+  VERSION_FETCH_MS,
   markAppliedIn,
   noteInput,
   onCheckRequested,
@@ -445,6 +447,43 @@ describe("makeFetchServed — strict, uncached, anonymous", () => {
     expect(await makeFetchServed(boom as unknown as typeof fetch, OWN)()).toEqual({
       kind: "unknown",
     });
+  });
+
+  it("an iPadOS older than 16 (no AbortSignal.timeout) still reads the version, bounded", async () => {
+    // MUTATION (p2i-apply/fetch-timeout-unguarded): the read calls AbortSignal.timeout directly — on
+    // such a tablet every check throws into the catch, reads "unknown", and the detector is dead; red.
+    const real = AbortSignal.timeout;
+    Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: undefined });
+    try {
+      const f = json({ build: NEW, contract: STAFF_CONTRACT });
+      expect(await makeFetchServed(f as unknown as typeof fetch, OWN)()).toEqual(changed);
+      const init = (f.mock.calls[0] as unknown as [string, RequestInit])[1];
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", { configurable: true, value: real });
+    }
+  });
+
+  it("timeoutSignal: the platform's own when it has one; otherwise a timer aborts at the bound", () => {
+    // MUTATION (p2i-apply/timeout-fallback-throws): no fallback — a missing AbortSignal.timeout
+    // throws; red. MUTATION (p2i-apply/timeout-fallback-never-aborts): the fallback's timer is
+    // dropped — a hung version read on an old tablet never ends, and the one-at-a-time latch holds
+    // every later check behind it; red.
+    const own = new AbortController().signal;
+    const timeout = vi.fn(() => own);
+    expect(timeoutSignal(VERSION_FETCH_MS, { timeout })).toBe(own);
+    expect(timeout).toHaveBeenCalledWith(VERSION_FETCH_MS);
+    vi.useFakeTimers();
+    try {
+      const s = timeoutSignal(VERSION_FETCH_MS, {});
+      expect(s.aborted).toBe(false);
+      vi.advanceTimersByTime(VERSION_FETCH_MS - 1);
+      expect(s.aborted).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(s.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the same build is current", async () => {

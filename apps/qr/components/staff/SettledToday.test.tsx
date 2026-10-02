@@ -717,7 +717,7 @@ describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE
         await vi.advanceTimersByTimeAsync(0);
       });
       // The only copy is in memory: a reload would erase it, so the automatic one waits.
-      expect(reloadHolds().map((h) => [h.kind, h.reason])).toEqual([["unread", "paneLine"]]);
+      expect(reloadHolds().map((h) => [h.kind, h.reason])).toEqual([["unread", "handBack"]]);
       mount(snapshot([cash]));
       await flush();
       // MUTATION (p2i-handback/memory-unsaid): the late answer's instruction lived in the dead

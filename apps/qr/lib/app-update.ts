@@ -260,6 +260,25 @@ export function readGuardInput(env: {
   };
 }
 
+/** How long the version read may take before it is "unknown". */
+export const VERSION_FETCH_MS = 4_000;
+
+/**
+ * A signal that aborts after `ms`. `AbortSignal.timeout` exists only from Safari / iPadOS 16: on an
+ * older staff tablet calling it THROWS, every version read lands in the catch as "unknown", and the
+ * detector is silently dead for the life of the device. So when it is missing, an AbortController
+ * plus a timer does the same job. Read at the call (`as` defaults to the global), never at load.
+ */
+export function timeoutSignal(
+  ms: number,
+  as: { timeout?: (ms: number) => AbortSignal } | undefined = globalThis.AbortSignal,
+): AbortSignal {
+  if (typeof as?.timeout === "function") return as.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 /** `/api/version`, read strictly: never cached, never with credentials, bounded at 4s, and anything
  *  that is not our JSON is "unknown" (no verdict) — never "changed". */
 export function makeFetchServed(
@@ -272,7 +291,7 @@ export function makeFetchServed(
       const res = await f("/api/version", {
         cache: "no-store",
         credentials: "omit",
-        signal: AbortSignal.timeout(4_000),
+        signal: timeoutSignal(VERSION_FETCH_MS),
       });
       if (!res.ok) return { kind: "unknown" };
       return versionVerdict(own, ownContract, parseServed(await res.json()));

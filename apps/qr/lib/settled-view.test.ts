@@ -349,7 +349,7 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     expect(told).toEqual(["remembered"]);
     // MUTATION (p2i-handback/memory-unheld): nothing holds a reload while the only copy of a drawer
     // instruction is in memory — the automatic reload erases it; red.
-    expect(autoBlock(quiet())).toEqual({ kind: "hold", reason: "paneLine" });
+    expect(autoBlock(quiet())).toEqual({ kind: "hold", reason: "handBack" });
     // Written down later (storage came back), the record is the one copy: memory lets it go, and
     // the reload hold with it.
     const store = memory();

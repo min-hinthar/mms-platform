@@ -23681,6 +23681,72 @@ const MUTANTS = [
     find: 'x: subjects[i] ?? "" }}',
     replace: "x: h.name }}",
   },
+  // ── Phase 2i · integration — the version read outlives an old iPadOS (S1 critic O2), the reloading
+  // page has a look (S1 critic L2), and the memory hand-back holds under its own reason (S4 critic F1).
+  {
+    id: "p2i-apply/fetch-timeout-unguarded",
+    file: "apps/qr/lib/app-update.ts",
+    suite: "lib/app-update.test.ts",
+    why: "Phase 2i · integration (O2) — the version read is bounded through timeoutSignal; calling AbortSignal.timeout directly throws on iPadOS < 16, every check reads 'unknown', and the detector is silently dead",
+    find: "        signal: timeoutSignal(VERSION_FETCH_MS),\n",
+    replace: "        signal: AbortSignal.timeout(VERSION_FETCH_MS),\n",
+  },
+  {
+    id: "p2i-apply/timeout-fallback-throws",
+    file: "apps/qr/lib/app-update.ts",
+    suite: "lib/app-update.test.ts",
+    why: "Phase 2i · integration (O2) — with no AbortSignal.timeout the signal falls back to a controller; without the guard the call throws on exactly the tablets it exists for",
+    find: '  if (typeof as?.timeout === "function") return as.timeout(ms);\n',
+    replace: "  return as!.timeout!(ms);\n",
+  },
+  {
+    id: "p2i-apply/timeout-fallback-never-aborts",
+    file: "apps/qr/lib/app-update.ts",
+    suite: "lib/app-update.test.ts",
+    why: "Phase 2i · integration (O2) — the fallback's timer aborts at the bound; dropped, a hung version read on an old tablet never ends and the watcher's one-at-a-time latch holds every later check",
+    find: "  setTimeout(() => c.abort(), ms);\n",
+    replace: "",
+  },
+  {
+    id: "p2i-apply/timeout-fallback-late",
+    file: "apps/qr/lib/app-update.ts",
+    suite: "lib/app-update.test.ts",
+    why: "Phase 2i · integration (O2) — the fallback aborts AT the bound, the same moment the platform's own timeout would",
+    find: "  setTimeout(() => c.abort(), ms);\n",
+    replace: "  setTimeout(() => c.abort(), ms + 1);\n",
+  },
+  {
+    id: "p2i-css/reloading-no-cursor",
+    file: "apps/qr/app/globals.css",
+    suite: "app/reloading-css.test.ts",
+    why: "Phase 2i · integration (L2) — the reloading document shows a progress cursor; gone, a counter terminal's pointer reads as live over a page that ignores it",
+    find: "html[data-reloading] body {\n  cursor: progress;\n}\n",
+    replace: "",
+  },
+  {
+    id: "p2i-css/reloading-dim-over-bar",
+    file: "apps/qr/app/globals.css",
+    suite: "app/reloading-css.test.ts",
+    why: "Phase 2i · integration (L2) — the dim sits just under the sticky staff bar; raised to the scrim layer it dims the bar's own 'Reloading…' with the page it describes",
+    find: "  z-index: calc(var(--z-toolbar) - 1);\n  background: var(--scrim-glass);\n",
+    replace: "  z-index: var(--z-scrim);\n  background: var(--scrim-glass);\n",
+  },
+  {
+    id: "p2i-css/reloading-rm-unescorted",
+    file: "apps/qr/app/globals.css",
+    suite: "app/reloading-css.test.ts",
+    why: "Phase 2i · integration (L2) — reduced motion gets the dim at once; the reset gone, the fade runs for a person who asked for none",
+    find: "  html[data-reloading] body::after {\n    animation: none;\n  }\n",
+    replace: "",
+  },
+  {
+    id: "p2i-handback/memory-hold-borrows-reason",
+    file: "apps/qr/lib/settled-view.ts",
+    suite: "lib/settled-view.test.ts",
+    why: "Phase 2i · integration (S4 critic F1) — the memory hand-back holds under its own `handBack` reason; borrowing the pane's `paneLine` makes the two unreadable apart in the register (and in a refusal's cause)",
+    find: '      reason: "handBack",\n',
+    replace: '      reason: "paneLine",\n',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
