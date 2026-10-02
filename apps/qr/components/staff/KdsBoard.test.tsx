@@ -2280,3 +2280,126 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     expect(region().textContent).toBe(unknown("Mohinga"));
   });
 });
+
+// ── Phase 2i (P2bi) ──
+const { reloadHolds, manualBlock, autoBlock } = await import("@/lib/reload-guard");
+const { dispatchUpdate } = await import("@/lib/app-update");
+const { monoNow } = await import("@/lib/bounded-write");
+const { STAFF_CONTRACT } = await import("@/lib/build-stamp");
+
+describe("Phase 2i — what a reload for a new build would lose here holds it", () => {
+  const held = (reason: string) => reloadHolds().filter((h) => h.reason === reason);
+  /** Online, quiet, nothing saving: only the holds can refuse. */
+  const quiet = () => ({
+    online: true,
+    holds: reloadHolds(),
+    youngWrite: false,
+    stalledWrite: false,
+    ownWait: false,
+    msSinceWriteSettled: null,
+    msSinceInput: Number.MAX_SAFE_INTEGER,
+    dialogOpen: false,
+    typing: false,
+    retired: false,
+  });
+
+  it("the Undo bar is UNSENT work: it refuses a person's reload while it shows", async () => {
+    // MUTATION (p2i-kds/undo-unheld): no hold — "Reload the page" erases the only way back from a
+    // mis-tapped sold-out; red.
+    holdClock();
+    const q = mount();
+    expect(held("kitchenUndo")).toHaveLength(0);
+    await tapEightySix(q);
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    expect(held("kitchenUndo")).toMatchObject([{ kind: "unsent", subject: "kds" }]);
+    expect(manualBlock(quiet())).toEqual({ kind: "hold", reason: "kitchenUndo" });
+    q.unmount();
+    expect(held("kitchenUndo")).toHaveLength(0);
+  });
+
+  it("the recall rail is UNREAD: it holds the automatic reload, never a person's", async () => {
+    // MUTATION (p2i-kds/recall-unheld): no hold — the automatic reload clears the rail, the only
+    // "Bring back" for a ticket bumped by mistake; red.
+    const q = mount();
+    expect(held("kitchenRecall")).toHaveLength(0);
+    fireEvent.click(q.getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    await waitFor(() => expect(q.container.querySelector(".kds-recall-btn")).not.toBeNull());
+    expect(held("kitchenRecall")).toMatchObject([{ kind: "unread", subject: "kds" }]);
+    // The bump's own Undo bar (unsent) is up too; with it set aside, the rail alone decides.
+    const railOnly = { ...quiet(), holds: reloadHolds().filter((h) => h.kind !== "unsent") };
+    expect(autoBlock(railOnly)).toEqual({ kind: "hold", reason: "kitchenRecall" });
+    expect(manualBlock(railOnly)).toBeNull();
+  });
+
+  it("live sound holds the automatic reload, and lets go when the sound stops", async () => {
+    // MUTATION (p2i-kds/sound-unheld): no hold — the automatic reload silences a sounding kitchen
+    // with nobody there to turn it back on; red.
+    armOk = true;
+    const q = mount();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(held("kdsSound")).toHaveLength(0);
+    fireEvent.click(q.getByRole("button", { name: ts("en", "kds.sound.enable") }));
+    await waitFor(() => expect(q.container.querySelector(".kds-vol")).not.toBeNull());
+    expect(held("kdsSound")).toMatchObject([{ kind: "sound", subject: "kds" }]);
+    expect(autoBlock(quiet())).toEqual({ kind: "hold", reason: "kdsSound" });
+    act(() => {
+      ctxRunning = false;
+      notifyChime();
+    });
+    expect(held("kdsSound")).toHaveLength(0);
+  });
+
+  it("a new version's row rides the KDS bar — inside the header, so the bar's published height holds it", () => {
+    // The bar's ONE height publisher (StaffBarNet) measures the header; jsdom has no layout, so the
+    // header's height here is a function of whether it HOLDS the row — what is pinned is that the row
+    // mounts inside the measured box and the publisher re-measures it (`--staff-bar-h` grows). That
+    // no CSS lifts the row out of that box (absolute/fixed) is StaffBarUpdate.test's CSS guard.
+    // (At this head the KDS itself does not read `--staff-bar-h`; the root's scroll-padding does.)
+    let notify: () => void = () => {};
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(cb: () => void) {
+          notify = cb;
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const withRow = this.matches("header.staff-bar") && this.querySelector(".staff-update");
+        return { height: withRow ? 127.4 : 76 } as DOMRect;
+      });
+    const root = document.documentElement;
+    try {
+      const { container } = mount();
+      expect(container.querySelector(".staff-update")).toBeNull();
+      expect(root.style.getPropertyValue("--staff-bar-h")).toBe("76px");
+      act(() =>
+        dispatchUpdate({
+          e: "verdict",
+          v: {
+            kind: "changed",
+            served: { build: "kq1x2y3-0a1b2c3d", contract: STAFF_CONTRACT },
+            incompatible: false,
+          },
+          now: monoNow(),
+        }),
+      );
+      const row = container.querySelector(".staff-update");
+      expect(row).not.toBeNull();
+      expect(row!.parentElement?.matches("header.staff-bar")).toBe(true);
+      expect(row!.textContent).toContain(STAFF["shell.version.ready"].en);
+      act(() => notify());
+      expect(root.style.getPropertyValue("--staff-bar-h")).toBe("128px");
+    } finally {
+      spy.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+});

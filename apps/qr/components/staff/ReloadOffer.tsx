@@ -1,8 +1,11 @@
 "use client";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@mms/ui";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
+import { useDeviceOffline } from "@/lib/useConnectionTruth";
 import { Chrome } from "./Chrome";
+import { useReloadHold } from "./useReloadHold";
 
 /**
  * Phase 2h (decision 9d) — THE one rendering of "this tablet is stuck — reload".
@@ -33,10 +36,24 @@ import { Chrome } from "./Chrome";
  * Tokens only (`.staff-reload-offer` in globals.css); `<Chrome>` for every word; the entrance is the
  * kit's `.mms-rise`, whose reduced-motion off-switch covers it. The button is `@mms/ui`'s (44px floor
  * at every size, aria-disabled never native `disabled`).
+ *
+ * Phase 2i (P2bi) — two additions, both on the BUTTON (so every site that offers a reload gets them):
+ *  - A STANDING HOLD while it is on screen (`reloadOffer`): an offer a person is reading must not be
+ *    reloaded out from under them by the automatic reload for a new build. Harmless: tapping it IS a
+ *    reload, into the new build.
+ *  - NEVER OFFLINE. A reload with no network lands on the worker's offline page and empties the
+ *    screen. A sustained outage (`useDeviceOffline`) says so on the button and refuses it
+ *    (`aria-disabled`); the tap itself re-reads `navigator.onLine`, so the seconds before the outage
+ *    is "sustained" are refused too — and a tap refused that way says so on the button at once (it
+ *    would otherwise read as a dead control during a stall), until the browser is back online.
+ *    Online, the reload is the bare `window.location.reload()`.
+ * 2i chose a separate guarded row for a new build (`StaffBarUpdate`), so the stall cure here is
+ * unconditional except offline (a reload then cures nothing — it empties the screen): `ReloadReason`
+ * keeps its one member.
  */
 
-/** Why the tablet is being offered a reload. One reason today; the stale-build offer (Phase 2i)
- *  joins as a second member, with its own line, through this same component. */
+/** Why the tablet is being offered a reload. One reason: a new build is the staff bar's row
+ *  (`StaffBarUpdate`), never this offer — the stall's cure must stay unconditional. */
 export type ReloadReason = "stalled";
 
 /** The line each reason says, named once. */
@@ -51,15 +68,37 @@ export function ReloadButton({
   /** The button spans its container (a sheet's footer, a narrow pane). */
   block?: boolean;
 }) {
+  // Phase 2i — the offer on screen holds the automatic reload for a new build (its own token).
+  useReloadHold("standing", "reloadOffer", useId(), true);
+  const deviceOffline = useDeviceOffline();
+  // A tap refused offline before the outage counts as sustained: said on the button until `online`.
+  const [refusedOffline, setRefusedOffline] = useState(false);
+  useEffect(() => {
+    if (!refusedOffline) return;
+    const back = () => setRefusedOffline(false);
+    window.addEventListener("online", back);
+    // Back before this effect ran: no event will come.
+    if (navigator.onLine !== false) back();
+    return () => window.removeEventListener("online", back);
+  }, [refusedOffline]);
+  const offline = deviceOffline || refusedOffline;
   return (
     <Button
       variant="secondary"
       size="lg"
       block={block}
-      // A document unload — the one escape a stuck action queue cannot hold (docblock).
-      onClick={() => window.location.reload()}
+      disabled={offline}
+      // A document unload — the one escape a stuck action queue cannot hold (docblock) — and never
+      // offline, read at the tap (the render's verdict waits out a sustain).
+      onClick={() => {
+        if (navigator.onLine === false) {
+          setRefusedOffline(true);
+          return;
+        }
+        window.location.reload();
+      }}
     >
-      <Chrome lang={lang} k="out.reload" echo="stack" />
+      <Chrome lang={lang} k={offline ? "out.reload.offline" : "out.reload"} echo="stack" />
     </Button>
   );
 }
