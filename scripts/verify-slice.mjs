@@ -19037,6 +19037,15 @@ const MUTANTS = [
     find: "                    lostWrite && lostResolved(lostWrite.kind) ? (",
     replace: "                    false ? (",
   },
+  {
+    id: "p2h-int-a/f1-saved-on-any-edge",
+    file: "apps/qr/lib/floor-pane.ts",
+    suite: "components/staff/TablePane.test.tsx",
+    why: "Phase 2h · integration a — critic F1 — a line edit's waiting edge after a late REFUSAL answers the pane's 'didn't save' as 'saved' — a dish change that never saved reads as done",
+    find: '  const answers: LostKind = how === "saved" ? "writeWaiting" : "settleUnknown";',
+    replace:
+      '  const answers: LostKind =\n    how === "saved" ? (prev?.kind === "write" ? "write" : "writeWaiting") : "settleUnknown";',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

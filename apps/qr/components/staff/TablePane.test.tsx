@@ -2789,7 +2789,7 @@ describe("TablePane — a payment the pane said it did not know about LANDS late
     expect(landedLine()?.textContent).toContain(paidOn(4));
     await tap(card(B));
     await tick(0);
-    // MUTATION (p2h-int-a/f2-resolved-lingers, at the wiring): "went through" rides above every
+    // MUTATION (p2h-int-a/f2-select-keeps-resolved): "went through" rides above every
     // table opened after — read as news on each visit; red.
     expect(landedLine()).toBeNull();
     expect(paneSays()).not.toContain(paidOn(4));
@@ -2833,7 +2833,7 @@ describe("TablePane — a line edit still out when the pane left its table (Phas
     expect(paneSays()).toContain(waiting);
     await act(async () => answer({ ok: true }));
     await tick(0);
-    // MUTATION (p2h-int-a/f1-dead-detail-saved-unforwarded · f1-pane-saved-dropped): the late save
+    // MUTATION (p2h-int-a/f1-dead-detail-saved-unforwarded · f2-pane-how-dropped): the late save
     // reaches only the dead detail's state — "no answer yet" stands over a change that saved; red.
     const saved = tf("en", "floor.pane.landedWrite", { x: tableN(4) });
     expect(lostLine()).toBeNull();
