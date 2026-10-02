@@ -163,6 +163,13 @@ export function refusesManual(h: Hold): boolean {
   return h.kind === "unsent" || (h.kind === "unread" && h.reason === "handBack");
 }
 
+/** One hold, read for the stall's Reload (`stallCureBlock`). */
+function refusesStallCure(h: Hold): boolean {
+  if (h.kind === "unread") return h.reason === "handBack";
+  if (h.kind !== "unsent" || h.survives) return false;
+  return h.reason === "pick" || h.reason === "kitchenUndo";
+}
+
 /**
  * Codex r2 on #311 — the stall cure (`<ReloadButton>`, Phase 2h) is a reload a PERSON taps, so it
  * must not silently erase what only this document holds: unsent work the next load cannot restore
@@ -179,15 +186,10 @@ export function refusesManual(h: Hold): boolean {
  * is the one tapping.
  */
 export function stallCureBlock(holds: readonly Hold[]): ApplyBlock | null {
-  let oldest: Hold | null = null;
-  for (const h of holds) {
-    const refuses =
-      (h.kind === "unsent" && !h.survives && (h.reason === "pick" || h.reason === "kitchenUndo")) ||
-      (h.kind === "unread" && h.reason === "handBack");
-    if (!refuses) continue;
-    if (oldest === null || h.seq < oldest.seq) oldest = h;
-  }
-  return oldest === null ? null : { kind: "hold", reason: oldest.reason };
+  const refusing = holds.filter(refusesStallCure);
+  if (refusing.length === 0) return null;
+  const oldest = refusing.reduce((a, b) => (b.seq < a.seq ? b : a));
+  return { kind: "hold", reason: oldest.reason };
 }
 
 /**
