@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { StaffLangProvider } from "@/components/staff/StaffLangProvider";
 import { ReaderCollectProvider } from "@/components/staff/ReaderCollectProvider";
+import { AppUpdateWatch } from "@/components/staff/AppUpdateWatch";
 import { readStaffLangMode } from "@/lib/staff-lang-server";
 import { echoesShown, scriptOf } from "@/lib/staff-lang";
 
@@ -42,6 +43,11 @@ import { echoesShown, scriptOf } from "@/lib/staff-lang";
  * paying table's screen — so the KDS's measured height is untouched on every tablet that is not
  * taking a card. Inside the language provider: the chip and the panel speak the device language.
  *
+ * Phase 2i (P2bi) — `AppUpdateWatch` is the second thing here for the same reason: it asks every
+ * minute whether a new build is served and arms the reload executor, and it must outlive every
+ * staff navigation of the document. It renders NOTHING (`null`) — the rule above still stands; the
+ * one line a new version adds is `StaffBar`'s own row.
+ *
  * `force-dynamic` because it reads a cookie; every page beneath it already is.
  */
 export const dynamic = "force-dynamic";
@@ -50,7 +56,10 @@ export default async function StaffLayout({ children }: { children: ReactNode })
   const mode = await readStaffLangMode();
   return (
     <StaffLangProvider lang={scriptOf(mode)} echoes={echoesShown(mode)}>
-      <ReaderCollectProvider>{children}</ReaderCollectProvider>
+      <ReaderCollectProvider>
+        <AppUpdateWatch />
+        {children}
+      </ReaderCollectProvider>
     </StaffLangProvider>
   );
 }

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
+import { activationFailsafe, controllerChange, refreshTap } from "@/lib/sw-activation";
 import { Icon } from "@mms/ui";
 
 /**
@@ -17,6 +18,15 @@ import { Icon } from "@mms/ui";
  *  - activation is explicit: the strip's Refresh posts SKIP_WAITING, the guarded controllerchange
  *    reloads into the new build, and a 4s failsafe reloads anyway if activation stalls.
  *
+ * Phase 2i (P2bi) — ONLY THE TAB THAT ASKED reloads, and NEVER OFFLINE (`lib/sw-activation.ts`).
+ * A worker activated by one tab fires `controllerchange` in EVERY controlled tab of the origin, and
+ * this effect runs on /staff, /kiosk and /board too (the strip renders nothing there; the effect
+ * does not know the path). It used to reload them all: a diner's Refresh reloaded a KDS mid-service.
+ * Now the module-level `requested` — set by THIS tab's Refresh before its SKIP_WAITING — is the only
+ * way to a reload; another tab's activation is ignored (documents are network-only, so the page
+ * keeps working). A reload due while the device is offline is OWED (the failsafe's too) and paid on
+ * `online`: a reload with no network lands on the worker's offline page, which holds nothing.
+ *
  * The offline pill reads `useConnectionTruth` — never a second bare navigator.onLine listener with
  * its own copy (the W10a single-truth rule). `you-offline` is the only state it renders: `we-down`
  * (backend down, device fine) keeps the per-surface outage states as the voice. role="note", not a
@@ -27,6 +37,17 @@ import { Icon } from "@mms/ui";
 const HEARTBEAT_MS = 10 * 60_000;
 const RELOAD_FAILSAFE_MS = 4000;
 const HIDDEN_PREFIXES = ["/staff", "/kiosk", "/board"];
+
+/** THIS tab posted SKIP_WAITING (module state: one document, one ask). */
+let requested = false;
+/** A reload this tab asked for came due while offline: paid on `online`. */
+let owed = false;
+
+/** Test seam: forget the ask and any owed reload. */
+export function resetShellForTests(): void {
+  requested = false;
+  owed = false;
+}
 
 export function ResilienceShell() {
   const pathname = usePathname();
@@ -99,22 +120,36 @@ export function ResilienceShell() {
     document.addEventListener("visibilitychange", handleWake);
     window.addEventListener("online", handleWake);
 
-    // controllerchange → the new SW took over → reload into the new build. Guarded against the
-    // FIRST install (see the header comment).
+    // controllerchange → the new SW took over → reload into the new build, but only in the tab
+    // that asked, never offline, and never for the FIRST install (see the header comment).
     let hadController = Boolean(navigator.serviceWorker.controller);
     const handleControllerChange = () => {
-      if (!hadController) {
-        hadController = true;
-        return;
-      }
+      const action = controllerChange({
+        hadController,
+        requested,
+        online: navigator.onLine !== false,
+      });
+      hadController = true;
+      if (action === "adopt-first" || action === "ignore") return;
       // Cancel the pending failsafe FIRST (review LOW): on a slow connection the normal reload
       // can still be in flight when the 4s timer fires — a second reload() would abort the
       // half-loaded navigation and roughly double time-to-interactive on exactly the network
       // the failsafe exists for. It backstops a STALLED activation only.
       if (failsafeRef.current !== null) window.clearTimeout(failsafeRef.current);
+      if (action === "owe") {
+        owed = true;
+        return;
+      }
       window.location.reload();
     };
     navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
+    // The owed reload is paid the moment the device is back online.
+    const payOwed = () => {
+      if (!owed) return;
+      owed = false;
+      window.location.reload();
+    };
+    window.addEventListener("online", payOwed);
 
     return () => {
       disposed = true;
@@ -123,6 +158,7 @@ export function ResilienceShell() {
       window.removeEventListener("online", handleWake);
       registration?.removeEventListener("updatefound", handleUpdateFound);
       navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
+      window.removeEventListener("online", payOwed);
     };
   }, []);
 
@@ -131,8 +167,30 @@ export function ResilienceShell() {
     // id is kept so the controllerchange reload can CANCEL it (see the handler).
     if (firedRef.current) return;
     firedRef.current = true;
+    // Another tab's Refresh may already have activated this worker (we ignored that change): no
+    // controllerchange will follow a SKIP_WAITING, so reload now rather than after the failsafe.
+    const tap = refreshTap({
+      workerState: waitingRef.current?.state ?? null,
+      online: navigator.onLine !== false,
+    });
+    if (tap === "owe") {
+      owed = true;
+      return;
+    }
+    if (tap === "reload") {
+      window.location.reload();
+      return;
+    }
+    // Asked BEFORE the message: the activation it triggers may arrive in the same task.
+    requested = true;
     waitingRef.current?.postMessage({ type: "SKIP_WAITING" });
-    failsafeRef.current = window.setTimeout(() => window.location.reload(), RELOAD_FAILSAFE_MS);
+    failsafeRef.current = window.setTimeout(() => {
+      if (activationFailsafe({ online: navigator.onLine !== false }) === "owe") {
+        owed = true;
+        return;
+      }
+      window.location.reload();
+    }, RELOAD_FAILSAFE_MS);
   }, []);
 
   if (HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return null;
