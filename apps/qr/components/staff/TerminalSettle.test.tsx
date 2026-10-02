@@ -445,6 +445,14 @@ describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2
         cartId: "c1",
       }),
     ]);
+    // Codex r3 on #310 — the record's token rides the start as its `startId`, so the PaymentIntent
+    // carries it and a reloaded tablet resumes THIS start and no other tablet's.
+    // MUTATION (p2h-cx3/start/no-start-id): the start sends the session only — no charge carries
+    // this tablet's id, so the resume (which requires it) never adopts the collect it began; red.
+    expect(settleCard).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (seen[0] as { token: string }).token,
+    });
   });
 
   it("any ANSWER ends it — a start or a refusal, on time or late; no answer (waiting, a throw) keeps it", async () => {
@@ -499,7 +507,10 @@ describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2
     // MUTATION (p2h-cx2a/start/pending-never-written · provider/pending-never-resolved): the new
     // document has no handle — the reader asks for the card with nothing here to poll or cancel it;
     // red.
-    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s1" });
+    expect(terminalResume).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (settleCard.mock.calls[0]?.[0] as { startId: string }).startId,
+    });
     expect(api.record?.paymentIntentId).toBe("pi_live");
     expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
     expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();
@@ -560,7 +571,10 @@ describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2
     await flush(readerResumeDelay(0));
     // MUTATION (p2h-cx2a/start/thrown-never-resumed): only a reload resolves it — the reader asks
     // for the card while this page says "couldn't confirm" and nothing polls the charge; red.
-    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s1" });
+    expect(terminalResume).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (settleCard.mock.calls[0]?.[0] as { startId: string }).startId,
+    });
     expect(api.record?.paymentIntentId).toBe("pi_live");
     expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
     expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();

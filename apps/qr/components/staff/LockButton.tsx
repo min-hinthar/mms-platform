@@ -10,6 +10,7 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
 import type { StaffLang } from "@/lib/staff-lang";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 
 /**
  * Lock the shared tablet (S1.1b). Sets the device-local lock (server action, httpOnly cookie) and sends
@@ -35,6 +36,12 @@ import { ReloadButton } from "./ReloadOffer";
  * before you leave it"); a lost answer says "couldn't confirm", never the sign-in service's outage
  * (a throw can lose the response after the lock cookie landed). Both offer the reload beside the
  * line. The late answer still lands: a late lock goes to the lock screen.
+ *
+ * Codex round 3 on #310 — and until it lands, NO second lock goes. The bound frees the circle, never
+ * the action: Next keeps the raw lock in this tab's queue, so a re-tap sent another `lockConsole`
+ * behind it. The guard stays spent while the raw is out (the circle reads `aria-disabled`, as busy
+ * did), and a re-tap re-says the waiting line — a fresh object, so `useResaid` announces it again —
+ * instead of sending. The late answer frees it (or, landing a lock, leaves for the lock screen).
  */
 export function LockButton({ lang }: { lang: StaffLang }) {
   const router = useRouter();
@@ -46,6 +53,12 @@ export function LockButton({ lang }: { lang: StaffLang }) {
   const [err, setErr] = useState<StaffMsg | null>(null);
   // Phase 2h — whether the line offers the reload (both unanswered lines say "reload the page").
   const [reload, setReload] = useState(false);
+  // Codex r3 on #310 — the lock still out past the bound: the guard stays spent until its late
+  // answer (a REF, read at the tap — the state beside it only says `aria-disabled`).
+  const lateOut = useRef(false);
+  const [held, setHeld] = useState(false);
+  // A re-tap re-says the SAME line: keyed content is announced again (useResaid's rule).
+  const said = useResaid(err);
 
   /** The lock's answer, whenever it lands. Returns whether the tablet is leaving for the lock. */
   function land(res: Awaited<ReturnType<typeof lockConsole>>): boolean {
@@ -68,13 +81,20 @@ export function LockButton({ lang }: { lang: StaffLang }) {
   }
 
   async function lock() {
-    if (inFlight.current) return; // re-entry is refused HERE, never by `disabled` (see below)
+    if (inFlight.current) {
+      // Re-entry is refused HERE, never by `disabled` (see below). Past the bound the waiting line
+      // is re-said, so the refused tap is heard; before it, the busy circle already says "locking".
+      if (lateOut.current) setErr({ k: "shell.lock.waiting" });
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setErr(null);
     setReload(false);
     haptic("commit");
     let leaving = false;
+    // Still out at the bound: the guard stays spent until the late answer (Codex r3 on #310).
+    let outstanding = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       const out = await boundWrite(lockConsole());
@@ -91,16 +111,28 @@ export function LockButton({ lang }: { lang: StaffLang }) {
         return;
       }
       setErr({ k: "shell.lock.waiting" });
+      outstanding = true;
+      lateOut.current = true;
+      setHeld(true);
       // A late lock LANDS wherever the person is now: the cookie is set, so the tablet IS locked
       // and the lock screen is the true one (this bar may be another page's by then).
       void out.late.then((late) => {
-        if (late.kind === "answer") land(late.value);
-        else setErr({ k: "shell.lock.unknown" });
+        lateOut.current = false;
+        setHeld(false);
+        // The answer is in: the guard frees — unless the tablet is leaving for the lock screen
+        // (busy again through that navigation, as an answer inside the bound stays).
+        if (late.kind === "answer" && land(late.value)) {
+          setBusy(true);
+          return;
+        }
+        inFlight.current = false;
+        if (late.kind !== "answer") setErr({ k: "shell.lock.unknown" });
       });
     } finally {
-      // Frees AT THE BOUND (fact 3) — the latch must release, or the circle is dead until a reload.
+      // Busy frees AT THE BOUND (fact 3) — the busy name must not claim "locking" for a lock nobody
+      // can see; the GUARD stays spent while the answer is still out (`outstanding`, Codex r3).
       if (!leaving) {
-        inFlight.current = false;
+        if (!outstanding) inFlight.current = false;
         setBusy(false);
       }
     }
@@ -115,7 +147,7 @@ export function LockButton({ lang }: { lang: StaffLang }) {
         type="button"
         className="staff-circ staff-press"
         onClick={lock}
-        aria-disabled={busy || undefined}
+        aria-disabled={busy || held || undefined}
         aria-busy={busy || undefined}
       >
         {/* Decorative lock glyph — the sr-only text carries the meaning. */}
@@ -130,7 +162,7 @@ export function LockButton({ lang }: { lang: StaffLang }) {
           controls never refuse — the latest pick wins. */}
       {err && (
         <span role="alert" className="staff-bar-msg">
-          <MsgText lang={lang} msg={err} />
+          <MsgText key={said} lang={lang} msg={err} />
         </span>
       )}
       {/* Phase 2h — both unanswered lines say "reload the page", and the console is installed

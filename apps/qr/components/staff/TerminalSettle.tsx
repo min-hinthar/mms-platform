@@ -273,7 +273,9 @@ export function TerminalSettleButton({
     setError(null);
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
-      const out = await boundWrite(settleCard({ sessionId }));
+      // Codex r3 on #310 — the pending record's token rides the start as its `startId`: the
+      // PaymentIntent carries it, so a reloaded tablet resumes THIS start and no other tablet's.
+      const out = await boundWrite(settleCard({ sessionId, startId: pending }));
       if (out.kind === "answer") {
         land(out.value, false, pending);
         return;

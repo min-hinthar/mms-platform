@@ -234,5 +234,51 @@ describe("LockButton — Phase 2h: the lock is bounded (9g)", () => {
     await act(async () => fail(new Error("fetch failed")));
     expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.unknown"].en);
     expect(screen.getByRole("button", { name: STAFF["out.reload"].en })).toBeTruthy();
+    // The answer is in (lost): the circle is live again — a tap sends.
+    expect(circle().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(circle());
+    });
+    expect(lockConsole).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Codex round 3 on #310 — the bound frees the circle, never the action: Next keeps the raw lock
+  // in the tab's queue, so until its answer no second lock goes.
+  it("past the bound NO second lock goes: a re-tap re-says the waiting line and sends nothing; the late answer frees the circle", async () => {
+    let settle!: (v: unknown) => void;
+    lockConsole.mockReturnValueOnce(new Promise((r) => (settle = r)));
+    render(<LockButton lang="en" />);
+    await act(async () => {
+      fireEvent.click(circle());
+    });
+    await flush(STAFF_HANG_MS);
+    const b = circle();
+    expect(b.getAttribute("aria-busy")).toBeNull();
+    // MUTATION (p2h-cx3/lock-guard-freed-at-bound): the bound frees the guard with busy — a re-tap
+    // queues a second lock behind the hung one; red.
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(b.hasAttribute("disabled")).toBe(false);
+    const before = screen.getByRole("alert").firstChild;
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    expect(lockConsole).toHaveBeenCalledTimes(1);
+    expect(haptic).toHaveBeenCalledTimes(1); // no commit buzz for a tap that sent nothing
+    // MUTATION (p2h-cx3/lock-held-tap-silent): the refused re-tap says nothing new — equal text into
+    // the same node is no change at all, so the tap reads as dead; red.
+    expect(screen.getByRole("alert").firstChild).not.toBe(before);
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.waiting"].en);
+    // A late refusal: the answer is in, the circle is live again and a tap sends.
+    await act(async () => settle({ ok: false, reason: "no_pin" }));
+    expect(b.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.err.noPin"].en);
+    lockConsole.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    // MUTATION (p2h-cx3/lock-guard-never-freed): the late answer never frees the guard — the circle
+    // is dead until a reload; red.
+    expect(lockConsole).toHaveBeenCalledTimes(2);
+    expect(replace).toHaveBeenCalledWith("/staff/lock");
   });
 });

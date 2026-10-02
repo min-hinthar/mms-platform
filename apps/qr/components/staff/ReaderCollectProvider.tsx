@@ -218,7 +218,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
           setCancelError(null);
           onAdopted?.();
         };
-        const out = await boundWrite(terminalResume({ sessionId: p.sessionId }));
+        const out = await boundWrite(terminalResume({ sessionId: p.sessionId, startId: p.token }));
         if (out.kind === "answer") apply(out.value);
         else if (out.kind === "threw") apply(null);
         else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
@@ -416,12 +416,13 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
 
   // Codex r2 on #310 (A3) — a start about to be sent is written down first (the tap's facts and
   // when), so a reload that aborts its answer leaves this tab a record to resolve; its answer drops
-  // it again, by its own token. A storage failure is a deliberate swallow (`pendStart`).
-  const pendingSeq = useRef(0);
+  // it again, by its own token. A storage failure is a deliberate swallow (`pendStart`). Codex r3 on
+  // #310 — the token is a UUID because the SERVER matches it: it rides the start (`settleCard`'s
+  // `startId`) onto the PaymentIntent, and a resume adopts only the charge carrying this exact token,
+  // never another tablet's for the same table (a per-tab counter could collide across tablets).
   const startPending = useCallback((at: Omit<ReaderPending, "token" | "startedAt">) => {
     const now = Date.now();
-    pendingSeq.current += 1;
-    const token = `${now}-${pendingSeq.current}`;
+    const token = crypto.randomUUID();
     const p = { ...at, token, startedAt: now };
     pendingMem.current.set(token, p);
     pendStart(p, now);

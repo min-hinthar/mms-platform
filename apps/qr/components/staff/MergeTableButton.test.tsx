@@ -115,20 +115,90 @@ describe("MergeTableButton — the candidate read is bounded", () => {
     expect(reload()).toBeNull();
   });
 
-  it("only the LATEST read writes: an older read's failure never lands over a newer list (S2 critic D10)", async () => {
-    hung(getMergeCandidates); // read 1 — never answers
+  it("only the LATEST open writes: a Cancelled open's bound never lands over a newer one (S2 critic D10)", async () => {
+    const h = hung(getMergeCandidates); // read 1 — out until the end
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(5000);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(1);
+    // The first open's bound passes (10s into the second open): it was retired by the Cancel.
+    // MUTATION (p2h-doors/merge-read-older-overwrites): the Cancelled open writes "Couldn't load
+    // tables" (and hides the list) over the open still loading; red.
+    await flush(STAFF_HANG_MS - 5000);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText(ts("en", "settle.merge.loading"))).toBeTruthy();
+    await act(async () => h.answer([T9]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
+  });
+
+  // ── Codex round 3 on #310 — the bound frees the panel, never the action: a hung read stays in the
+  // tab's queue, so it is ONE read per table in the air, whatever is opened, cancelled or remounted.
+  it("a reopen — after a Cancel, or in a REMOUNTED control — attaches to the read still out, never sends another; its answer lands there", async () => {
+    const h = hung(getMergeCandidates);
+    const first = mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.merge.loadFailed"));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(1);
+    // MUTATION (p2h-cx3/merge-read-sent-again): every reopen dispatches a fresh read behind the hung
+    // one — one more per reopen, each ahead of every action tapped after; red.
+    expect(getMergeCandidates).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(ts("en", "settle.merge.loading"))).toBeTruthy();
+    // Staff switch tables and back: a NEW mount, the same table, the read still out.
+    first.unmount();
     mount();
     fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
     await flush(1);
-    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
-    getMergeCandidates.mockResolvedValueOnce([T9]); // read 2
+    expect(getMergeCandidates).toHaveBeenCalledTimes(1);
+    await act(async () => h.answer([T9]));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
+  });
+
+  it("once the read has ANSWERED (or failed) the next open reads afresh — a settled list is never served twice", async () => {
+    getMergeCandidates.mockResolvedValueOnce([T9]);
+    mount();
     fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
     await flush();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    getMergeCandidates.mockRejectedValueOnce(new Error("fetch failed"));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush();
+    // MUTATION (p2h-cx3/merge-read-never-released): the register keeps the answered read — every
+    // later open serves that first list, a table opened since never appears; red.
+    expect(getMergeCandidates).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.merge.loadFailed"));
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.cancel") }));
+    getMergeCandidates.mockResolvedValueOnce([T9]);
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush();
+    // A failed read is released too: the next open asks again and gets the list.
+    expect(getMergeCandidates).toHaveBeenCalledTimes(3);
     expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
-    // MUTATION (p2h-doors/merge-read-older-overwrites): read 1 times out and writes "Couldn't load
-    // tables" (and hides the list) over read 2's answer; red.
-    await flush(STAFF_HANG_MS);
-    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("the register is per TABLE: another table's merge never attaches to this table's read", async () => {
+    hung(getMergeCandidates);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush(1);
+    cleanup();
+    getMergeCandidates.mockResolvedValueOnce([T9]);
+    render(
+      <StaffLangProvider lang="en">
+        <MergeTableButton sourceSessionId="s2" sourceLabel="5" sourceItemCount={1} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: ts("en", "settle.merge.btn") }));
+    await flush();
+    // MUTATION (p2h-cx3/merge-read-one-key): one register entry for every table — table 5's merge
+    // waits on (and would list) table 4's candidates; red.
+    expect(getMergeCandidates).toHaveBeenLastCalledWith("s2");
     expect(screen.getByRole("button", { name: /^Table 9/ })).toBeTruthy();
   });
 });

@@ -808,7 +808,11 @@ export function readLandedStash(nowMs: number, store: Store | null = session()):
  * table (`terminalResume`) and re-adopts the collect or forgets the record (`resumedCollect`).
  */
 export type ReaderPending = {
-  /** One per dispatch: a late answer drops only its own record, never a newer start's. */
+  /**
+   * One per dispatch (a UUID): a late answer drops only its own record, never a newer start's — and
+   * the start carries it to the server as its `startId`, so the resume adopts only THIS start's
+   * charge (Codex r3 on #310).
+   */
   token: string;
   sessionId: string;
   /** Device ms when the start was dispatched — the record's expiry clock. */

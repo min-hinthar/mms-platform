@@ -844,7 +844,9 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     // MUTATION (p2h-cx2a/provider/pending-never-resolved): the restore never asks — the reader takes
     // the card with nothing on the tablet polling it, sliding its freeze or able to cancel it; red.
     expect(terminalResume).toHaveBeenCalledTimes(1);
-    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7" });
+    // MUTATION (p2h-cx3/provider/resume-without-start): the read asks for the table, not THIS start
+    // — the server refuses it (a start id is required), so a reload never re-adopts its collect; red.
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7", startId: "t-1" });
     // MUTATION (p2h-cx2a/provider/adopt-dropped): the read answers, nothing is adopted; red.
     expect(api.record).toMatchObject({
       sessionId: "s-7",
@@ -969,6 +971,12 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     // and forgets the record; a reload then has nothing to resume; red.
     expect(terminalResume).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(READER_PENDING_KEY)).toContain(`"token":"${token}"`);
+    // Codex r3 on #310 — the token is a UUID: the SERVER matches it against the PaymentIntent's
+    // `startId`, so it must be unique across tablets, not one tab's counter.
+    // MUTATION (p2h-cx3/provider/token-not-unique): the token is the old `<ms>-<n>` counter — two
+    // tablets tapping in the same millisecond mint the same id, and the match no longer tells their
+    // charges apart (the server also refuses it as a start id); red.
+    expect(token).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     // Its own answer ends it.
     act(() => api.startAnswered(token));
     expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
@@ -985,7 +993,7 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     mount(null, true);
     await tick(0);
     expect(terminalResume).toHaveBeenCalledTimes(1);
-    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7" });
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7", startId: "t-1" });
   });
   // ── Codex r2 on #310 follow-up (R1) — a start still on its way to the reader at the resume read:
   // `settleCard` takes the freeze before it hands the charge to the reader, so the reader can be idle
@@ -1142,7 +1150,7 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     await tick(1);
     // MUTATION (p2h-cx2a/provider/thrown-never-resumed): only a reload resolves it — the reader asks
     // for the card while this page shows "couldn't confirm" and nothing polls the charge; red.
-    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7" });
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7", startId: token });
     expect(api.record?.paymentIntentId).toBe("pi_live");
     expect(api.focusOwed).toBeNull();
     // MUTATION (p2h-cx2a/provider/adoption-untold): the control that said "couldn't confirm" is

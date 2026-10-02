@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { useTableNav } from "./TableNav";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
-import { boundWrite } from "@/lib/bounded-write";
+import { boundWrite, outReadSlot, releaseOutRead } from "@/lib/bounded-write";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
@@ -29,6 +29,30 @@ type MergeError =
   | { kind: "waiting" }
   // Phase 2h (9e) — the merge THREW: the answer was lost, so it may have landed ("couldn't confirm").
   | { kind: "unknown" };
+
+/**
+ * Codex round 3 on #310 — the candidate read still out for this table, by identity, in the TAB's read
+ * register (`outReadSlot`, keyed by the source table): the raw outlives the open that sent it. The
+ * bound frees the panel, never the action — Next keeps a hung read in this tab's queue — so a Cancel
+ * and reopen, or a remount (staff switch tables and back), dispatched another read behind it, one
+ * more per reopen, ahead of every action tapped after. A reopen now ATTACHES to the read still out (a
+ * fresh bound), and only when none is does it send one. Cleared in the raw's OWN settle, and only
+ * while the register still holds THAT raw (`releaseOutRead`).
+ */
+function candidateRead(sourceSessionId: string): Promise<MergeCandidate[]> {
+  const key = `merge-candidates:${sourceSessionId}`;
+  const out = outReadSlot<MergeCandidate[]>(key);
+  if (out.current !== null) return out.current;
+  const raw = getMergeCandidates(sourceSessionId);
+  out.current = raw;
+  // Both arms clear it (the second also marks a rejection handled — the bounded await that sent it
+  // reads and says it).
+  const settled = () => {
+    releaseOutRead(key, raw);
+  };
+  raw.then(settled, settled);
+  return raw;
+}
 
 /**
  * One-tap merge (S1.4 soft convergence). The recovery for a double-order: fold THIS table's open order
@@ -108,8 +132,9 @@ export function MergeTableButton({
     setLoading(true);
     try {
       // Phase 2h — a READ, bounded (`boundWrite` never rejects): a failure or no answer at the bound
-      // says "Couldn't load tables", never "Loading…" while the action queue is stuck.
-      const out = await boundWrite(getMergeCandidates(sourceSessionId));
+      // says "Couldn't load tables", never "Loading…" while the action queue is stuck. Codex r3 —
+      // the read still out is attached to, never sent again (`candidateRead`).
+      const out = await boundWrite(candidateRead(sourceSessionId));
       if (seq !== readSeq.current) return; // retired by a Cancel or a newer read (D10)
       if (out.kind === "answer") {
         setCandidates(out.value);

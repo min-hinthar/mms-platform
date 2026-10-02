@@ -338,6 +338,29 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
     expect(create.params.metadata.settledByStaffId).toBe("staff-row-id");
     // Per-attempt (uuid) — a STABLE key caches a Stripe decline for 24h (the closeSecureTab lesson).
     expect(create.opts.idempotencyKey).toMatch(/^pi_cart-1_term_[0-9a-f-]{36}$/);
+    // An old bundle sends no start id: none is stamped (the start is simply not resumable).
+    expect(create.params.metadata).not.toHaveProperty("startId");
+  });
+
+  it("the tablet's start id rides the PaymentIntent (Codex r3 on #310) — a handle beside the server's own attempt, never in its place", async () => {
+    await settleCard({ sessionId: SESSION, startId: START });
+    const create = calls.find((c) => c.op === "pi.create")?.args as {
+      params: { metadata: Record<string, string> };
+    };
+    // MUTATION (p2h-cx3/start/no-stamp): the start id is never stamped — every resume reads "nothing
+    // of ours" and a reloaded tablet never re-adopts the collect its own start began; red.
+    expect(create.params.metadata.startId).toBe(START);
+    // The freeze's owner stays the SERVER-minted attempt — a client id never keys the freeze.
+    expect(create.params.metadata.settleAttempt).toMatch(/^[0-9a-f-]{36}$/);
+    expect(create.params.metadata.settleAttempt).not.toBe(START);
+  });
+
+  it("a malformed start id is refused before any money work", async () => {
+    expect(await settleCard({ sessionId: SESSION, startId: "t-1" })).toEqual({
+      ok: false,
+      error: "Invalid request.",
+    });
+    expect(calls.find((c) => c.op === "pi.create")).toBeUndefined();
   });
 
   it("the reader runs TIP-FREE — skip_tipping in the process config", async () => {
@@ -387,6 +410,9 @@ describe("settleCard — the reader gate + attempt-scoped freeze lifecycle", () 
 });
 
 const TERMINAL_META = { kind: "terminal", cartId: "cart-1", settleAttempt: "attempt-1" };
+// Codex r3 on #310 — a register's per-start id (a UUID, as `startPending` mints) and another tablet's.
+const START = "5f0c2a8e-3b1d-4c6e-9a7f-1d2e3f4a5b6c";
+const OTHER_START = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
 
 describe("terminalStatus — the collect-window poll", () => {
   it("mid-collect it EXTENDS the freeze (the >10-min chip interaction can't lose the cart)", async () => {
@@ -889,7 +915,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     id: "pi_live",
     status: "requires_payment_method",
     last_payment_error: null,
-    metadata: TERMINAL_META,
+    metadata: { ...TERMINAL_META, startId: START },
     amount: 4321,
   };
   const asking = (pi: unknown = "pi_live", status = "in_progress") => ({
@@ -908,7 +934,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
   it("the reader asking for THIS table's charge: its handle, the PaymentIntent's amount, this cart", async () => {
     readerAction = asking();
     retrieved = ours;
-    const r = await terminalResume({ sessionId: SESSION });
+    const r = await terminalResume({ sessionId: SESSION, startId: START });
     // MUTATION (p2h-cx2a/resume/never-finds): the read answers nothing — a reload leaves the
     // reader asking for a card with nothing on the tablet to poll or cancel it; red.
     expect(r).toEqual({
@@ -922,17 +948,41 @@ describe("terminalResume — what a reloaded register can learn about a start it
   it("an EXPANDED PaymentIntent on the action reads by its id, and a captured (succeeded) one resumes too", async () => {
     readerAction = asking({ id: "pi_live" }, "succeeded");
     retrieved = { ...ours, status: "succeeded" };
-    const r = await terminalResume({ sessionId: SESSION });
+    const r = await terminalResume({ sessionId: SESSION, startId: START });
     expect(r).toMatchObject({ ok: true, collect: { paymentIntentId: "pi_live" } });
+    readOnly();
+  });
+
+  it("ANOTHER tablet's charge for THIS table (another start's id, or none) is not this start's — never adopted, held by its freeze", async () => {
+    readerAction = asking();
+    // The other tablet's start holds the table's freeze while its reader collects.
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-2" };
+    // A second tablet's start on the same table: same cart, same kind, its own attempt and start id.
+    retrieved = { ...ours, metadata: { ...TERMINAL_META, startId: OTHER_START } };
+    // MUTATION (p2h-cx3/resume/any-start): the start id is never compared — a reloaded tablet adopts
+    // the charge another tablet is collecting for the same table, polls it as its own and offers to
+    // Cancel it; red.
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
+      ok: true,
+      collect: null,
+      held: true,
+    });
+    // A charge from a bundle that sends no start id is nobody's to resume.
+    retrieved = { ...ours, metadata: TERMINAL_META };
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
+      ok: true,
+      collect: null,
+      held: true,
+    });
     readOnly();
   });
 
   it("ANOTHER table's charge on the one reader is not this table's — nothing to resume", async () => {
     readerAction = asking();
-    retrieved = { ...ours, metadata: { ...TERMINAL_META, cartId: "cart-OTHER" } };
+    retrieved = { ...ours, metadata: { ...ours.metadata, cartId: "cart-OTHER" } };
     // MUTATION (p2h-cx2a/resume/any-cart): the cart is never compared — table 4's reload adopts
     // table 7's live charge, polls it as its own and offers to Cancel it; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -942,18 +992,21 @@ describe("terminalResume — what a reloaded register can learn about a start it
 
   it("a PaymentIntent that is not one of OUR reader intents is not resumed (the metadata is the authority)", async () => {
     readerAction = asking();
-    retrieved = { ...ours, metadata: { cartId: "cart-1", settleAttempt: "attempt-1" } };
+    retrieved = {
+      ...ours,
+      metadata: { cartId: "cart-1", settleAttempt: "attempt-1", startId: START },
+    };
     // MUTATION (p2h-cx2a/resume/any-kind): any PaymentIntent naming the cart — a guest's own phone
     // payment — is adopted as a reader collect; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
     });
     // MUTATION (p2h-cx2a/resume/no-attempt): a PaymentIntent with no settle attempt — one the poll
     // refuses as "Invalid request." — is adopted, and the panel goes blind on it; red.
-    retrieved = { ...ours, metadata: { kind: "terminal", cartId: "cart-1" } };
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    retrieved = { ...ours, metadata: { kind: "terminal", cartId: "cart-1", startId: START } };
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -965,7 +1018,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = ours;
     // MUTATION (p2h-cx2a/resume/failed-action-resumed): the reader's last action, a decline, is
     // adopted — the reload says "the card was declined" for an attempt that may be long over; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -975,7 +1028,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
 
   it("an idle reader, or one doing something else, has nothing to resume", async () => {
     readerAction = null;
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -988,7 +1041,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
       process_payment_intent: { payment_intent: "pi_live" },
     };
     retrieved = ours;
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -998,7 +1051,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
 
   it("no reader configured, or no open order on the table: nothing to resume — and Stripe is never asked", async () => {
     vi.stubEnv("STRIPE_TERMINAL_READER_ID", "");
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -1009,7 +1062,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = ours;
     // MUTATION (p2h-cx2a/resume/no-cart-still-reads): a paid or closed table's last charge is
     // resumed off the reader — a reload re-announces a payment already recorded; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -1021,17 +1074,24 @@ describe("terminalResume — what a reloaded register can learn about a start it
     openCart = "unavailable";
     // MUTATION (p2h-cx2a/resume/outage-reads-empty): an outage answers "nothing to resume" — the
     // tablet forgets the start and a later reload cannot ask again; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: false, error: "outage" });
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
+      ok: false,
+      error: "outage",
+    });
     openCart = "open";
     readerAction = asking();
     retrieved = ours;
     readerRetrieveFails = true;
     // MUTATION (p2h-cx2a/resume/reader-miss-is-a-verdict): a failed reader read answers "nothing to
     // resume" — the start is forgotten over an outage; red.
-    expect(await terminalResume({ sessionId: SESSION })).toMatchObject({ ok: false });
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toMatchObject({
+      ok: false,
+    });
     readerRetrieveFails = false;
     piRetrieveFails = true;
-    expect(await terminalResume({ sessionId: SESSION })).toMatchObject({ ok: false });
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toMatchObject({
+      ok: false,
+    });
   });
 
   // ── Codex r2 on #310 follow-up (R1) — a start still on its way to the reader. `settleCard` takes the
@@ -1043,7 +1103,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-9" };
     // MUTATION (p2h-cx2a/resume/held-never-said): the idle reader answers held: false — a reload
     // forgets the start while it is minting the charge it is about to hand the reader; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: true,
@@ -1052,8 +1112,8 @@ describe("terminalResume — what a reloaded register can learn about a start it
     readOnly();
     // Another table's charge on the one reader, while this table's freeze is held: still held.
     readerAction = asking();
-    retrieved = { ...ours, metadata: { ...TERMINAL_META, cartId: "cart-OTHER" } };
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    retrieved = { ...ours, metadata: { ...ours.metadata, cartId: "cart-OTHER" } };
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: true,
@@ -1070,7 +1130,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     // MUTATION (p2h-cx2a/resume/freeze-read-before-the-reader): the freeze is the one read BEFORE
     // the reader — a start that took it in between (idle reader, PaymentIntent being minted) reads
     // as nothing moving, and the record is forgotten; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: true,
@@ -1083,7 +1143,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
     seatOwns = true;
     // MUTATION (p2h-cx2a/resume/seat-read-skipped): the owner is never read — a guest's split reads
     // as a register start, and the tablet keeps asking for the split's whole lifetime; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -1094,7 +1154,7 @@ describe("terminalResume — what a reloaded register can learn about a start it
       settle_at: new Date(Date.now() - 11 * 60_000).toISOString(),
       settle_by: "attempt-9",
     };
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -1109,10 +1169,13 @@ describe("terminalResume — what a reloaded register can learn about a start it
     openCartAfterReader = "unavailable";
     // MUTATION (p2h-cx2a/resume/held-read-outage-reads-free): the re-read's outage answers "not
     // held" — the record is forgotten over an outage; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: false, error: "outage" });
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
+      ok: false,
+      error: "outage",
+    });
     calls = [];
     openCartAfterReader = "none";
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: true,
       collect: null,
       held: false,
@@ -1125,15 +1188,25 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = ours;
     // MUTATION (p2h-cx2a/resume/ungated): the read runs for anyone who can post to the action —
     // which table the reader is charging, and its PaymentIntent and amount, to a signed-out caller; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+    expect(await terminalResume({ sessionId: SESSION, startId: START })).toEqual({
       ok: false,
       error: "Sign in again.",
     });
     expect(calls).toEqual([]);
   });
 
-  it("a malformed request is refused before any read", async () => {
-    expect(await terminalResume({ sessionId: "not-a-uuid" })).toEqual({
+  it("a malformed request is refused before any read — and a start id is REQUIRED", async () => {
+    expect(await terminalResume({ sessionId: "not-a-uuid", startId: START })).toEqual({
+      ok: false,
+      error: "Invalid request.",
+    });
+    // MUTATION (p2h-cx3/resume/start-optional): a resume without a start id is read — and the
+    // match below compares `undefined` with a charge from a bundle that stamps none; red.
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: false,
+      error: "Invalid request.",
+    });
+    expect(await terminalResume({ sessionId: SESSION, startId: "t-1" })).toEqual({
       ok: false,
       error: "Invalid request.",
     });

@@ -2,7 +2,7 @@
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
-import { settleCashInput, terminalPollInput } from "@mms/db/schemas";
+import { terminalPollInput, terminalResumeInput, terminalStartInput } from "@mms/db/schemas";
 import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
@@ -101,9 +101,9 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   const gate = await staffGate();
   if (!gate.ok) return { ok: false, error: gate.error };
   const caller = gate.caller;
-  const parsed = settleCashInput.safeParse(raw);
+  const parsed = terminalStartInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId } = parsed.data;
+  const { sessionId, startId } = parsed.data;
 
   // Feature-off when the reader env is unset (the /board opt-in pattern): refuse before any money
   // work — the UI also hides the Card option, but the action is the gate.
@@ -194,13 +194,16 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
         // The webhook contract: cartId routes fulfillment, tipRate '0' makes the reconcile exact,
         // kind 'terminal' keeps this PI out of split-share routing and drives attribution + the
         // counter-session close; NEVER 'split_share' (share-ledger code with no row to find).
-        // settleAttempt scopes every later freeze release to THIS attempt's era.
+        // settleAttempt scopes every later freeze release to THIS attempt's era. startId (Codex r3
+        // on #310) is the tablet's handle on its OWN start — what a reloaded register's resume
+        // matches, so it adopts this charge and never another tablet's; absent from an old bundle.
         metadata: {
           cartId: cart.id,
           tipRate: "0",
           kind: "terminal",
           settledByStaffId: caller.staffId,
           settleAttempt: attemptId,
+          ...(startId === undefined ? {} : { startId }),
         },
       },
       // Per-ATTEMPT idempotency key (the closeSecureTab lesson): a STABLE key caches a decline for
@@ -499,10 +502,10 @@ export type TerminalResumeResult =
 export async function terminalResume(raw: unknown): Promise<TerminalResumeResult> {
   const gate = await staffGate();
   if (!gate.ok) return { ok: false, error: gate.error };
-  // The session id only, through the settle's own shape (as `settleCard` parses it).
-  const parsed = settleCashInput.safeParse(raw);
+  // The session id and the pending start's own id (Codex r3 on #310 — required: see the match below).
+  const parsed = terminalResumeInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId } = parsed.data;
+  const { sessionId, startId } = parsed.data;
   // Feature-off: no reader, nothing it could be doing.
   const readerId = process.env.STRIPE_TERMINAL_READER_ID;
   if (!readerId) return { ok: true, collect: null, held: false };
@@ -540,11 +543,15 @@ export async function terminalResume(raw: unknown): Promise<TerminalResumeResult
     return { ok: false, error: POLL_MISS_COPY };
   }
   // The metadata is the authority (the poll's rule) — and it must name THIS table's open cart: the
-  // one reader may be asking for another table's charge.
+  // one reader may be asking for another table's charge. Codex round 3 on #310 — and THIS START: a
+  // second tablet's charge for the same table names the same cart, and adopting it put Cancel on a
+  // payment that tablet was collecting. A charge another start made is "nothing of ours" — the
+  // freeze it holds keeps this record asked about until it settles (`nothingOnTheReader`).
   if (
     intent.metadata?.kind !== "terminal" ||
     !intent.metadata?.settleAttempt ||
-    intent.metadata?.cartId !== cart.id
+    intent.metadata?.cartId !== cart.id ||
+    intent.metadata?.startId !== startId
   )
     return await nothingOnTheReader(sessionId);
   return {
