@@ -1640,7 +1640,10 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     expect(reloadHolds()).toContainEqual(
       expect.objectContaining({ kind: "standing", reason: "reloadOffer" }),
     );
-    expect(laneHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: true })]);
+    // Codex r2 on #311 — the pick's window has closed and its write is out: `pickSending`.
+    expect(laneHolds()).toEqual([
+      expect.objectContaining({ reason: "pickSending", survives: true }),
+    ]);
     expect(document.querySelector(".staff-reload-offer")!.textContent).not.toContain(
       ts("en", "expo.reload.bags"),
     );
@@ -1651,7 +1654,9 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     // MUTATION (p2i-lane/survives-never-lapses): `stashOk` is the write's answer for ever — the hold
     // lets a retired tab reload over a pick the stash will no longer resume, and the caveat stays
     // silent; red.
-    expect(laneHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: false })]);
+    expect(laneHolds()).toEqual([
+      expect.objectContaining({ reason: "pickSending", survives: false }),
+    ]);
     expect(reload()).not.toBeNull();
     expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
       ts("en", "expo.reload.bags"),
@@ -1659,6 +1664,76 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     await act(async () => {
       write.resolve({ ok: true });
     });
+  });
+
+  it("Codex r2 on #311 — the lane's Reload refuses a pick still inside its window the tab could not stash, and NEVER the pick's own hung write", async () => {
+    // MUTATION (p2i-lane/hold-reason-always-pick): the lane's hold never says `pickSending` — its own
+    // hung pick write refuses the only way out of the stall, on a tab that could not stash it, for
+    // as long as it hangs (the Phase 2h trap); red.
+    vi.useFakeTimers();
+    const docReload = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload: docReload });
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    refuseStash();
+    currentQueue = queue([ticket({ status: "ready" })]);
+    const write = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => write.promise);
+    const q = mount("en", currentQueue);
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    // The window closes, the pick's write goes out — and hangs.
+    await flush(PICKED_UNDO_MS + STAFF_HANG_MS);
+    expect(reloadHolds().filter((h) => h.kind !== "standing")).toEqual([
+      expect.objectContaining({ reason: "pickSending", survives: false }),
+    ]);
+    expect(reload()).not.toBeNull();
+    // The caveat says what the reload costs, and the tap is the cure: it reloads.
+    expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
+      ts("en", "expo.reload.bags"),
+    );
+    fireEvent.click(reload()!);
+    expect(docReload).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it("Codex r2 on #311 — …while a SECOND pick's window is open beside the hung one, the Reload says so and waits", async () => {
+    vi.useFakeTimers();
+    const docReload = vi.fn();
+    vi.stubGlobal("location", { ...window.location, reload: docReload });
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    refuseStash();
+    currentQueue = queue([
+      ticket({ status: "preparing" }),
+      ticket({ orderId: "order-2", tableNumber: 8, label: "T8", status: "ready" }),
+    ]);
+    const write = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => write.promise);
+    const q = mount("en", currentQueue);
+    await act(async () => {
+      fireEvent.click(bagged(q));
+    });
+    await flush(STAFF_HANG_MS);
+    expect(reload()).not.toBeNull();
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    fireEvent.click(reload()!);
+    expect(docReload).not.toHaveBeenCalled();
+    const offer = document.querySelector(".staff-reload-offer")!;
+    expect(offer.querySelector('[role="alert"]')?.textContent).toBe(
+      ts("en", "shell.version.wait.pick"),
+    );
+    // Never inside the lane's one region.
+    expect(region().querySelector('[role="alert"]')).toBeNull();
+    // The window closes (its write goes out): nothing only this tab holds is left — the tap reloads.
+    await flush(PICKED_UNDO_MS);
+    expect(offer.querySelector('[role="alert"]')).toBeNull();
+    fireEvent.click(reload()!);
+    expect(docReload).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    vi.unstubAllGlobals();
   });
 
   it("a read already out when the lane goes, answering 'go sign in' after, neither navigates nor re-sends the unmount flush's write (review b · B1)", async () => {

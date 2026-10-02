@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { MsgText } from "./StaffMsg";
 import { ReloadButton, ReloadOffer } from "./ReloadOffer";
-import { autoBlock, reloadHolds, type GuardInput } from "@/lib/reload-guard";
+import { autoBlock, holdReload, reloadHolds, type GuardInput } from "@/lib/reload-guard";
+import { track } from "@/lib/bounded-write";
 import { NET_SHOW_MS } from "@/lib/live-connection";
 
 /** A guard input with nothing but the holds refusing: online, quiet, nothing saving. */
@@ -197,5 +198,67 @@ describe("Phase 2i — the offer holds the automatic reload, and never reloads o
     });
     expect(screen.getByRole("button", { name: STAFF["out.reload"].en })).toBeTruthy();
     vi.useRealTimers();
+  });
+});
+
+// ── Codex r2 on #311 (P2iv) — the stall's Reload consults what a reload would SILENTLY lose ──
+describe("Codex r2 on #311 — the stall cure never erases what only this document holds", () => {
+  const tap = () => fireEvent.click(screen.getByRole("button", { name: STAFF["out.reload"].en }));
+  const refusalLine = (container: HTMLElement) =>
+    container.querySelector<HTMLElement>('p[role="alert"]');
+
+  it("an open KDS Undo bar refuses the tap with ITS sentence, in the button's own alert beside it — and the tap works once the bar closes", () => {
+    // MUTATION (p2i-offer/cure-unguarded): the button reloads past every hold — the bump the cook
+    // can still take back is gone with the page; red.
+    const release = holdReload({
+      kind: "unsent",
+      reason: "kitchenUndo",
+      subject: "kds",
+      survives: false,
+    });
+    const { container } = render(<ReloadButton lang="en" />);
+    expect(live(container)).toHaveLength(0);
+    tap();
+    expect(reload).not.toHaveBeenCalled();
+    const line = refusalLine(container);
+    expect(line?.textContent).toBe(STAFF["shell.version.wait.undo"].en);
+    // Beside the button, never inside it.
+    expect(screen.getByRole("button").contains(line)).toBe(false);
+    expect(live(container)).toHaveLength(1);
+    // MUTATION (p2i-offer/cure-refusal-sticks): the line outlives the hold that caused it; red.
+    act(() => release());
+    expect(refusalLine(container)).toBeNull();
+    tap();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("a cash hand-back only memory holds refuses it — the drawer instruction is not erased (P2iv)", () => {
+    holdReload({ kind: "unread", reason: "handBack", subject: "handBack", survives: false });
+    const { container } = render(<ReloadButton lang="en" />);
+    tap();
+    expect(reload).not.toHaveBeenCalled();
+    expect(refusalLine(container)?.textContent).toBe(STAFF["shell.version.wait.handBack"].en);
+  });
+
+  it("in Burmese on a Burmese tablet — spoken once, no English echo inside the alert", () => {
+    holdReload({ kind: "unsent", reason: "kitchenUndo", subject: "kds", survives: false });
+    const { container } = render(<ReloadButton lang="my" />);
+    fireEvent.click(screen.getByRole("button"));
+    const line = refusalLine(container)!;
+    expect(line.textContent).toBe(STAFF["shell.version.wait.undo"].my);
+  });
+
+  it("NEVER refused by the stall it cures: a stalled or young write, a pick already sending, a stashed pick, sound, unread lines", () => {
+    // MUTATION (p2i-offer/cure-reads-manual): the button reads the MANUAL verdict — a young write
+    // (the stall's own) refuses the only way out of a stuck tablet; red.
+    track(new Promise(() => {})); // a write out now: young, and in time stalled
+    holdReload({ kind: "unsent", reason: "pickSending", subject: "lane", survives: false });
+    holdReload({ kind: "unsent", reason: "pick", subject: "lane2", survives: true });
+    holdReload({ kind: "sound", reason: "kdsSound", subject: "kds", survives: false });
+    holdReload({ kind: "unread", reason: "kitchenRecall", subject: "kds", survives: false });
+    const { container } = render(<ReloadButton lang="en" />);
+    tap();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(refusalLine(container)).toBeNull();
   });
 });

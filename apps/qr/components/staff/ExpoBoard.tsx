@@ -20,6 +20,7 @@ import {
   PICKED_UNDO_MS,
   pickedUndoArmed,
   pickedUndoOpen,
+  pickHoldReason,
   reloadForgetsAPick,
   toastPick,
 } from "@/lib/expo-rules";
@@ -531,7 +532,9 @@ export function ExpoBoard({
   }, [writeMirror]);
   // The hold that refuses a reload for a new build while a pick is held in this tab; `survives` lets
   // a RETIRED tab reload over it only while the stash actually holds it.
-  useReloadHold("unsent", "pick", "lane", reloadForgetsAPick(picked), stashOk);
+  // Codex r2 on #311 — its reason says whether a pick is still unsent (`pickHoldReason`): the stall's
+  // Reload refuses an open window the stash cannot restore, never a pick already on the wire.
+  useReloadHold("unsent", pickHoldReason(picked), "lane", reloadForgetsAPick(picked), stashOk);
   /** Apply the decision. A bag picked again on this screen before the read decided is the person's
    *  own pick, and wins. `carried`: the line a previous mount left in the tab (critic F2). */
   const decideRestore = useCallback(

@@ -27,8 +27,10 @@ import type { StaffKey } from "./i18n/staff";
  * reasons — a mismatched hold would refuse a person's tap with nothing to say.
  */
 export type HoldReasonOf = {
-  /** The lane's open pick windows (`pick`) · the KDS Undo bar (`kitchenUndo`). */
-  unsent: "pick" | "kitchenUndo";
+  /** The lane's open pick windows (`pick`) · the lane's picks whose window closed and whose write is
+   *  out or queued, none still open (`pickSending`, Codex r2 on #311) · the KDS Undo bar
+   *  (`kitchenUndo`). */
+  unsent: "pick" | "pickSending" | "kitchenUndo";
   /** The KDS recall rail · the counter pane's lost-payment line · a declined/cancelled reader outcome. */
   unread: "kitchenRecall" | "paneLine" | "readerOutcome" | "handBack";
   sound: "kdsSound" | "bellSound";
@@ -159,6 +161,31 @@ export function refusesManual(h: Hold): boolean {
   return h.kind === "unsent" || (h.kind === "unread" && h.reason === "handBack");
 }
 
+/**
+ * Codex r2 on #311 — the stall cure (`<ReloadButton>`, Phase 2h) is a reload a PERSON taps, so it
+ * must not silently erase what only this document holds: unsent work the next load cannot restore
+ * (the KDS Undo bar; a pick still inside its window that the tab could not stash) and a cash
+ * hand-back only memory holds. Each is bounded by something the person can see and do: the Undo
+ * window closes in seconds, a pick window in seconds, the hand-back ends at "Handed back".
+ *
+ * It must NEVER be refused by the stall it cures — so not by a young write, a stall or an own wait
+ * (the reload is their cure), and not by a pick already SENDING (`pickSending`): that write may be the
+ * very one that hangs, and on a tab that could not stash it the lane could then never be reloaded at
+ * all — the trap Phase 2h exists to remove (the lane says what a reload costs beside its button
+ * instead). Nothing else refuses it either: a reader of the screen is the one tapping.
+ */
+export function stallCureBlock(holds: readonly Hold[]): ApplyBlock | null {
+  let oldest: Hold | null = null;
+  for (const h of holds) {
+    const refuses =
+      (h.kind === "unsent" && !h.survives && (h.reason === "pick" || h.reason === "kitchenUndo")) ||
+      (h.kind === "unread" && h.reason === "handBack");
+    if (!refuses) continue;
+    if (oldest === null || h.seq < oldest.seq) oldest = h;
+  }
+  return oldest === null ? null : { kind: "hold", reason: oldest.reason };
+}
+
 /** Steps 1-4, shared by both verdicts, in this order: offline, unsent work, a young write, a cash
  *  hand-back only memory holds. */
 function sharedBlock(i: GuardInput): ApplyBlock | null {
@@ -226,7 +253,7 @@ export function blockKey(b: ApplyBlock): StaffKey | null {
     case "saving":
       return "shell.version.wait.saving";
     case "hold":
-      if (b.reason === "pick") return "shell.version.wait.pick";
+      if (b.reason === "pick" || b.reason === "pickSending") return "shell.version.wait.pick";
       if (b.reason === "kitchenUndo") return "shell.version.wait.undo";
       if (b.reason === "handBack") return "shell.version.wait.handBack";
       return null;

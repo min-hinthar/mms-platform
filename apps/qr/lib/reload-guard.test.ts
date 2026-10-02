@@ -11,6 +11,7 @@ import {
   refusesManual,
   reloadHolds,
   resetHoldsForTests,
+  stallCureBlock,
   subscribeReloadHolds,
   type ApplyBlock,
   type GuardInput,
@@ -51,6 +52,8 @@ const hold = (h: Partial<Hold> & Pick<Hold, "kind" | "reason">): Hold => ({
   ...h,
 });
 const PICK = () => hold({ kind: "unsent", reason: "pick" });
+/** A lane pick whose window closed: its write is out (or queued behind a stuck action). */
+const PICK_SENDING = () => hold({ kind: "unsent", reason: "pickSending" });
 const UNDO = () => hold({ kind: "unsent", reason: "kitchenUndo" });
 const RECALL = () => hold({ kind: "unread", reason: "kitchenRecall" });
 const OFFER = () => hold({ kind: "standing", reason: "reloadOffer" });
@@ -349,6 +352,7 @@ describe("blockKey — the refusal sentence, named once", () => {
       [{ kind: "check" }, "shell.version.wait.check"],
       [{ kind: "saving" }, "shell.version.wait.saving"],
       [{ kind: "hold", reason: "pick" }, "shell.version.wait.pick"],
+      [{ kind: "hold", reason: "pickSending" }, "shell.version.wait.pick"],
       [{ kind: "hold", reason: "kitchenUndo" }, "shell.version.wait.undo"],
       [{ kind: "hold", reason: "handBack" }, "shell.version.wait.handBack"],
     ];
@@ -368,6 +372,7 @@ describe("blockKey — the refusal sentence, named once", () => {
     const inputs: Array<Partial<GuardInput>> = [
       { online: false },
       { holds: [PICK()] },
+      { holds: [PICK_SENDING()] },
       { holds: [UNDO()] },
       { youngWrite: true },
       { holds: [HAND_BACK()] },
@@ -389,10 +394,54 @@ describe("a hold's kind fixes its reason (S0 critic F6)", () => {
     // @ts-expect-error — a sound hold cannot carry a standing reason
     const b: HoldInput = { kind: "sound", reason: "reloadOffer", subject: "", survives: false };
     expect([a.kind, b.kind]).toEqual(["unsent", "sound"]);
-    for (const reason of ["pick", "kitchenUndo"] as const) {
+    for (const reason of ["pick", "pickSending", "kitchenUndo"] as const) {
       const release = holdReload({ kind: "unsent", reason, subject: "k", survives: false });
       expect(blockKey(manualBlock({ ...IDLE, holds: reloadHolds() })!)).not.toBeNull();
       release();
     }
+  });
+});
+
+/**
+ * Codex r2 on #311 — the stall cure (`<ReloadButton>`) is a reload too. It must not SILENTLY erase
+ * what only this document holds — and it must never be refused by the stall it cures.
+ */
+describe("stallCureBlock — what the stall's Reload refuses", () => {
+  it("unsent work a reload cannot restore refuses it: the KDS Undo bar, a pick still inside its window", () => {
+    // MUTATION (p2i-guard/cure-ignores-unsent): the cure reloads over the open Undo bar — the bump
+    // the cook can still take back is gone with the page; red.
+    expect(stallCureBlock([UNDO()])).toEqual({ kind: "hold", reason: "kitchenUndo" });
+    expect(stallCureBlock([PICK()])).toEqual({ kind: "hold", reason: "pick" });
+  });
+
+  it("a cash hand-back only memory holds refuses it — the reload would erase the only copy", () => {
+    // MUTATION (p2i-guard/cure-ignores-handback): the cure erases "hand back $X from the drawer"
+    // (P2iv); red.
+    expect(stallCureBlock([HAND_BACK()])).toEqual({ kind: "hold", reason: "handBack" });
+  });
+
+  it("a pick the tab's stash will restore does NOT refuse — the next load resumes it", () => {
+    // MUTATION (p2i-guard/cure-ignores-survives): a stashed pick refuses — the lane's stall can
+    // only be cured once the pick it is waiting on has landed; red.
+    expect(stallCureBlock([hold({ kind: "unsent", reason: "pick", survives: true })])).toBeNull();
+  });
+
+  it("a pick already SENDING never refuses — it may be the very write that stalled", () => {
+    // MUTATION (p2i-guard/cure-refuses-sending): a sending pick refuses — a lane whose pick write
+    // hangs, on a tab that could not stash it, could never be reloaded at all (the trap Phase 2h
+    // removed); its own caveat says the cost beside the button instead; red.
+    expect(stallCureBlock([PICK_SENDING()])).toBeNull();
+  });
+
+  it("nothing else refuses it: unread lines, sound, the standing offer — and the stall itself is no input at all", () => {
+    expect(stallCureBlock([RECALL(), SOUND(), OFFER()])).toBeNull();
+    expect(stallCureBlock([])).toBeNull();
+  });
+
+  it("the OLDEST refusing hold names the sentence", () => {
+    const undo = UNDO();
+    const pick = PICK();
+    expect(stallCureBlock([pick, undo])).toEqual({ kind: "hold", reason: "kitchenUndo" });
+    expect(blockKey(stallCureBlock([pick, undo])!)).toBe("shell.version.wait.undo");
   });
 });

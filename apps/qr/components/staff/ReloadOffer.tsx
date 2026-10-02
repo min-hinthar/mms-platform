@@ -2,6 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import { Button } from "@mms/ui";
 import type { StaffKey } from "@/lib/i18n/staff";
+import { blockKey, reloadHolds, stallCureBlock, subscribeReloadHolds } from "@/lib/reload-guard";
 import type { StaffLang } from "@/lib/staff-lang";
 import { useDeviceOffline } from "@/lib/useConnectionTruth";
 import { Chrome } from "./Chrome";
@@ -46,7 +47,12 @@ import { useReloadHold } from "./useReloadHold";
  *    (`aria-disabled`); the tap itself re-reads `navigator.onLine`, so the seconds before the outage
  *    is "sustained" are refused too — and a tap refused that way says so on the button at once (it
  *    would otherwise read as a dead control during a stall), until the browser is back online.
- *    Online, the reload is the bare `window.location.reload()`.
+ *    Online, the reload is the bare `window.location.reload()` — unless (Codex r2 on #311, P2iv) a
+ *    reload would SILENTLY erase what only this document holds (`stallCureBlock`: the KDS Undo bar,
+ *    a pick still inside its window the tab could not stash, a cash hand-back only memory holds).
+ *    Then the tap is refused with that hold's own sentence (`blockKey`), in the button's OWN
+ *    `role="alert"` beside it — never inside the site's region — and the line goes the moment the
+ *    hold does. Never for a young write, a stall or a pick already sending: the reload is their cure.
  * 2i chose a separate guarded row for a new build (`StaffBarUpdate`), so the stall cure here is
  * unconditional except offline (a reload then cures nothing — it empties the screen): `ReloadReason`
  * keeps its one member.
@@ -82,24 +88,50 @@ export function ReloadButton({
     return () => window.removeEventListener("online", back);
   }, [refusedOffline]);
   const offline = deviceOffline || refusedOffline;
+  // Codex r2 on #311 — a tap refused by a hold says why until the hold is gone (re-read on every
+  // register change; a different refusing hold re-names the sentence).
+  const [refusal, setRefusal] = useState<StaffKey | null>(null);
+  useEffect(() => {
+    if (refusal === null) return;
+    const recheck = () => {
+      const held = stallCureBlock(reloadHolds());
+      setRefusal(held === null ? null : blockKey(held));
+    };
+    recheck();
+    return subscribeReloadHolds(recheck);
+  }, [refusal]);
   return (
-    <Button
-      variant="secondary"
-      size="lg"
-      block={block}
-      disabled={offline}
-      // A document unload — the one escape a stuck action queue cannot hold (docblock) — and never
-      // offline, read at the tap (the render's verdict waits out a sustain).
-      onClick={() => {
-        if (navigator.onLine === false) {
-          setRefusedOffline(true);
-          return;
-        }
-        window.location.reload();
-      }}
-    >
-      <Chrome lang={lang} k={offline ? "out.reload.offline" : "out.reload"} echo="stack" />
-    </Button>
+    <>
+      <Button
+        variant="secondary"
+        size="lg"
+        block={block}
+        disabled={offline}
+        // A document unload — the one escape a stuck action queue cannot hold (docblock) — and never
+        // offline, read at the tap (the render's verdict waits out a sustain).
+        onClick={() => {
+          if (navigator.onLine === false) {
+            setRefusedOffline(true);
+            return;
+          }
+          // …and never over what only this document holds (`stallCureBlock`), read at the tap.
+          const held = stallCureBlock(reloadHolds());
+          const key = held === null ? null : blockKey(held);
+          if (key !== null) {
+            setRefusal(key);
+            return;
+          }
+          window.location.reload();
+        }}
+      >
+        <Chrome lang={lang} k={offline ? "out.reload.offline" : "out.reload"} echo="stack" />
+      </Button>
+      {refusal !== null && (
+        <p className="staff-reload-line" role="alert">
+          <Chrome lang={lang} k={refusal} echo={false} />
+        </p>
+      )}
+    </>
   );
 }
 
