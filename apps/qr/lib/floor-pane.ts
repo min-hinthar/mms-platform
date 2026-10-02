@@ -17,7 +17,7 @@ import { handoffStillCurrent, type Handoff } from "./register-ui";
 import type { StaffKey } from "./i18n/staff";
 import type { RefundState } from "./refund-view";
 import { handoffCode } from "./reader-collect";
-import { WRITE_WAITING } from "./staff-outage";
+import { WRITE_UNCONFIRMED, WRITE_WAITING } from "./staff-outage";
 
 /** Side by side from here (JS reads it at CLICK time). Parity-tested against globals.css. */
 export const PANE_QUERY = "(min-width: 48em)";
@@ -203,10 +203,15 @@ export function paneFailKeys(cause: "outage" | "unknown"): { title: StaffKey; su
  * yet — it may still be saved"), never "didn't save". (critic F2) — and the two RESOLVED lines a late
  * ok turns an unknown into (`lostAfterLanded`): `settlePaid` ("the payment went through") and
  * `writeSaved` ("the change saved"), so the line the person heard is ANSWERED, never silently gone.
+ *
+ * Codex r2 on #310 (A2) — `writeUnknown`: a line edit whose answer was LOST (its action threw — "we
+ * couldn't confirm that change"). It may already have saved, so never "didn't save"; and unlike
+ * `writeWaiting` no late answer is coming to settle it, so nothing retracts it — the person checks.
  */
 export type LostKind =
   | "write"
   | "writeWaiting"
+  | "writeUnknown"
   | "settle"
   | "settleUnknown"
   | "settlePaid"
@@ -217,6 +222,7 @@ export function lostKey(kind: LostKind): StaffKey {
   if (kind === "settleUnknown") return "floor.pane.lostSettleUnknown";
   if (kind === "settle") return "floor.pane.lostSettle";
   if (kind === "writeWaiting") return "floor.pane.lostWriteWaiting";
+  if (kind === "writeUnknown") return "floor.pane.lostWriteUnknown";
   if (kind === "settlePaid") return "floor.pane.landedSettle";
   if (kind === "writeSaved") return "floor.pane.landedWrite";
   return "floor.pane.lostWrite";
@@ -243,11 +249,15 @@ export function nextLost<T extends { kind: LostKind }>(prev: T | null, next: T):
 /**
  * Phase 2h · integration (critic F1) — the kind a line edit's sentence hands the pane once its detail
  * UNMOUNTED. WRITE_WAITING ("no answer yet — that change may still be saved") is `writeWaiting`: the
- * change may land, and a late ok retracts it (`lostAfterLanded`, "saved"). Every other sentence — a
- * refusal, "couldn't confirm" — keeps `write`, which no late answer retracts.
+ * change may land, and a late ok retracts it (`lostAfterLanded`, "saved"). Codex r2 on #310 (A2) —
+ * WRITE_UNCONFIRMED ("we couldn't confirm that change": the action threw, the answer was LOST) is
+ * `writeUnknown`: it may have saved, so never "didn't save". Every other sentence — a refusal in the
+ * server's own words — keeps `write`, which no late answer retracts.
  */
-export function lostWriteKind(sentence: unknown): "write" | "writeWaiting" {
-  return sentence === WRITE_WAITING ? "writeWaiting" : "write";
+export function lostWriteKind(sentence: unknown): "write" | "writeWaiting" | "writeUnknown" {
+  if (sentence === WRITE_WAITING) return "writeWaiting";
+  if (sentence === WRITE_UNCONFIRMED) return "writeUnknown";
+  return "write";
 }
 
 /** Where the pane's standing line moves when the table it left clears it by being SELECTED: that

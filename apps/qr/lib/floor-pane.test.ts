@@ -337,8 +337,34 @@ describe("lostWriteKind / lostOnSelect / lostResolved — the pane's line about 
     // MUTATION (p2h-int-a/f1-waiting-said-as-lost): WRITE_WAITING maps to `write` — the pane says
     // "A change on Table 4 didn't save" over a change that may still save; red.
     expect(lostWriteKind(WRITE_WAITING)).toBe("writeWaiting");
-    expect(lostWriteKind(WRITE_UNCONFIRMED)).toBe("write");
+    // Codex r2 on #310 (A2) — a LOST answer (the action threw) is its own kind: the change may
+    // already have saved. MUTATION (p2h-cx2a/pane/unconfirmed-said-as-lost): WRITE_UNCONFIRMED maps
+    // to `write` — "A change on Table 4 didn't save" over a change that may have saved; red.
+    expect(lostWriteKind(WRITE_UNCONFIRMED)).toBe("writeUnknown");
+    // A refusal (the server's own sentence) still said "didn't save" — nothing was saved.
     expect(lostWriteKind("That item is no longer on the order.")).toBe("write");
+  });
+  it("a LOST line-edit answer says 'we couldn't confirm', never 'didn't save' — and no late edge answers it as saved (Codex r2 on #310, A2)", () => {
+    // MUTATION (p2h-cx2a/pane/unknown-key-is-lost): the new kind renders the refusal's sentence; red.
+    expect(lostKey("writeUnknown")).toBe("floor.pane.lostWriteUnknown");
+    // Not resolved (warn ink, the View stays): nothing on it has been checked.
+    expect(lostResolved("writeUnknown")).toBe(false);
+    type L = { sessionId: string; kind: LostKind };
+    const l = (sessionId: string, kind: LostKind): L => ({ sessionId, kind });
+    // The row's waiting edge fires after the throw too (the write is no longer out): it must never
+    // turn "we couldn't confirm" into "saved" — the answer was lost, not received.
+    // MUTATION (p2h-cx2a/pane/saved-answers-a-lost-answer): the edge answers it as "saved"; red.
+    const lost = l("a", "writeUnknown");
+    expect(lostAfterLanded(lost, "a", "saved")).toBe(lost);
+    expect(lostAfterLanded(lost, "a", "paid")).toBe(lost);
+    // A dish's unknown never replaces a payment's line; a later payment line replaces it.
+    expect(nextLost(l("a", "settleUnknown"), l("b", "writeUnknown"))).toEqual(
+      l("a", "settleUnknown"),
+    );
+    expect(nextLost(l("b", "writeUnknown"), l("a", "settle"))).toEqual(l("a", "settle"));
+    // Selecting its table clears it (the detail says the rest); another table's pick does not.
+    expect(lostOnSelect(lost, "a")).toBeNull();
+    expect(lostOnSelect(lost, "b")).toBe(lost);
   });
   it("each new kind says its own sentence", () => {
     expect(lostKey("writeWaiting")).toBe("floor.pane.lostWriteWaiting");

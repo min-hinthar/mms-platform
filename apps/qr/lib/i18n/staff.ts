@@ -3961,6 +3961,15 @@ export const STAFF = {
     en: "No answer yet — this refund may still be recorded. Don’t refund it again. Reload the page: if the line shows refunded, hand back {m} from the drawer.",
     my: "အဖြေ မရသေးပါ — ဒီပြန်အမ်းတာ မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မလုပ်ပါနဲ့။ စာမျက်နှာ ပြန်ဖွင့်ပါ — ဒီပစ္စည်းက ပြန်အမ်းပြီးလို့ ပြရင် အံဆွဲကနေ {m} ပြန်အမ်းပါ။",
   }, // K15-HIGH — misread, a guest is handed cash twice, or a recorded refund is never handed back
+  // Codex r2 on #310 (A2) — the pane's line for a line edit whose answer was LOST (the action threw:
+  // `out.write.unknown`) after the pane left its table. The change may already have saved, so never
+  // "didn't save" (floor.pane.lostWrite), and no late answer will come to settle it — check the
+  // table. K15 draft. Words: အတည်မပြုနိုင်ပါ (out.write.unknown), {x} မှာ ပြင်လိုက်တာ / ကြည့်ပြီး
+  // စစ်ပါ (floor.pane.lostWrite).
+  "floor.pane.lostWriteUnknown": {
+    en: "We couldn’t confirm a change on {x} — view it to check.",
+    my: "{x} မှာ ပြင်လိုက်တာကို အတည်မပြုနိုင်ပါ — ကြည့်ပြီး စစ်ပါ။",
+  }, // K15-HIGH — misread as "didn't save", a quantity is changed twice on the bill of a table the cashier has left
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4266,6 +4275,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.pane.landedSettle",
   "floor.pane.landedWrite",
   "floor.refund.waitingCash",
+  "floor.pane.lostWriteUnknown",
 ]);
 
 /**

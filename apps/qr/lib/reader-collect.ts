@@ -20,7 +20,7 @@
  * the chip import it. It moves no money and authorizes nothing — the server re-verifies every PI
  * handle (`terminalStatus` reads `metadata.kind`), and fulfilment is the signed webhook's.
  */
-import type { TerminalPollResult } from "./terminal";
+import type { TerminalPollResult, TerminalResumeResult } from "./terminal";
 import type { Handoff } from "./register-ui";
 import { parseHandoffStash } from "./floor-pane";
 import { ts, type StaffKey } from "./i18n/staff";
@@ -775,4 +775,165 @@ export function readLandedStash(nowMs: number, store: Store | null = session()):
   const q = parseLandedQueue(raw, nowMs);
   writeLandedStash(q, store);
   return q;
+}
+
+// ── the pending start (Codex r2 on #310, A3) ─────────────────────────────────────────────────────
+
+/**
+ * A reader START dispatched and not yet answered — the collect's record is written only once the
+ * start answers with its PaymentIntent, and a start still out at the bound (`settle.reader.waiting`)
+ * tells the cashier to reload. A reload aborts the client's action queue and with it the start's late
+ * answer: the reader may already be asking for the card, and the new document had no handle to
+ * restore, poll or cancel. So the start is written down BEFORE it is sent (the tap's facts and when),
+ * dropped once it answers (`dropReaderPending`, by its own token — never a newer start's), and a
+ * document that finds one still standing asks the server, read-only, what the reader is doing for that
+ * table (`terminalResume`) and re-adopts the collect or forgets the record (`resumedCollect`).
+ */
+export type ReaderPending = {
+  /** One per dispatch: a late answer drops only its own record, never a newer start's. */
+  token: string;
+  sessionId: string;
+  /** Device ms when the start was dispatched — the record's expiry clock. */
+  startedAt: number;
+  isCounter: boolean;
+  name: ReaderName;
+  sentEarly: boolean;
+  cartId: string | null;
+};
+
+/** The pending starts' sessionStorage key — beside the collect record, per tab, surviving a reload. */
+export const READER_PENDING_KEY = "mms-reader-pending";
+/** At most this many held (one per table — a newer start for a table replaces its older one). */
+export const READER_PENDING_CAP = 5;
+
+/**
+ * A pending start older than the freeze's lifetime is history: the freeze its start took lapses
+ * `SETTLE_TTL_MS` after it unless a poll extends it, and nothing on this tab has polled it (named once
+ * with the collect's own idle bound, `READER_COLLECT_MAX_IDLE_MS`).
+ */
+export function readerPendingExpired(p: Pick<ReaderPending, "startedAt">, nowMs: number): boolean {
+  return nowMs - p.startedAt > READER_COLLECT_MAX_IDLE_MS;
+}
+
+function parsePending(v: unknown): ReaderPending | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.token !== "string" || o.token === "") return null;
+  if (typeof o.sessionId !== "string" || o.sessionId === "") return null;
+  if (!ms(o.startedAt)) return null;
+  if (typeof o.isCounter !== "boolean") return null;
+  const name = parseName(o.name);
+  if (name === null) return null;
+  if (o.cartId !== null && (typeof o.cartId !== "string" || o.cartId === "")) return null;
+  return {
+    token: o.token,
+    sessionId: o.sessionId,
+    startedAt: o.startedAt,
+    isCounter: o.isCounter,
+    name,
+    // Anything but `true` reads false — the card never claims food went out unpaid on a guess.
+    sentEarly: o.sentEarly === true,
+    cartId: o.cartId as string | null,
+  };
+}
+
+/** Hold a pending start: one per table (a newer start replaces its table's older one), newest last. */
+export function queuePending(
+  q: readonly ReaderPending[],
+  p: ReaderPending,
+  cap: number = READER_PENDING_CAP,
+): ReaderPending[] {
+  return [...q.filter((x) => x.sessionId !== p.sessionId), p].slice(-cap);
+}
+
+/** The stashed pending starts, field by field: a malformed or expired entry is dropped alone. */
+export function parsePendingQueue(raw: string | null, nowMs: number): ReaderPending[] {
+  if (raw === null) return [];
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(v)) return [];
+  let q: ReaderPending[] = [];
+  for (const x of v) {
+    const p = parsePending(x);
+    if (p !== null && !readerPendingExpired(p, nowMs)) q = queuePending(q, p);
+  }
+  return q;
+}
+
+/**
+ * What a pending start becomes once the server answered the resume read. `res` null is a read that
+ * THREW (or never answered): like a refused one, an outage is not a verdict — the record is KEPT for
+ * the next document to ask again (until it expires). The server found no action of this table's on
+ * the reader → DROP (nothing to poll; the detail's own freeze read still says a payment is under way
+ * while one is). It found one → ADOPT: a collect exactly as a start would have made, from the tap's
+ * facts and the server's handle, amount and cart — the handle only resumes the poll and Cancel (the
+ * server re-verifies it on every call), and the amount is display, never charged.
+ */
+export function resumedCollect(
+  p: ReaderPending,
+  res: TerminalResumeResult | null,
+  nowMs: number,
+): { kind: "adopt"; record: ReaderCollect } | { kind: "drop" } | { kind: "keep" } {
+  if (res === null || !res.ok) return { kind: "keep" };
+  if (res.collect === null) return { kind: "drop" };
+  return {
+    kind: "adopt",
+    record: {
+      sessionId: p.sessionId,
+      paymentIntentId: res.collect.paymentIntentId,
+      totalCents: res.collect.totalCents,
+      isCounter: p.isCounter,
+      name: p.name,
+      sentEarly: p.sentEarly,
+      cartId: res.collect.cartId,
+      startedAt: nowMs,
+      liveAt: nowMs,
+      hidden: false,
+      recordingSince: null,
+      unrecordedAt: null,
+    },
+  };
+}
+
+/** Write the pending starts (an empty queue leaves no key behind). */
+export function writePendingStash(
+  q: readonly ReaderPending[],
+  store: Store | null = session(),
+): void {
+  try {
+    if (q.length === 0) store?.removeItem(READER_PENDING_KEY);
+    else store?.setItem(READER_PENDING_KEY, JSON.stringify(q));
+  } catch {
+    /* deliberate: quota or privacy mode — the start still runs; only a reload's resume is lost */
+  }
+}
+
+/** The stashed pending starts — malformed and expired entries dropped, the stash rewritten to match. */
+export function readPendingStash(nowMs: number, store: Store | null = session()): ReaderPending[] {
+  let raw: string | null;
+  try {
+    raw = store?.getItem(READER_PENDING_KEY) ?? null;
+  } catch {
+    return []; // deliberate: unreadable storage is a cold start
+  }
+  if (raw === null) return [];
+  const q = parsePendingQueue(raw, nowMs);
+  writePendingStash(q, store);
+  return q;
+}
+
+/** Record a start about to be sent (read-modify-write: one per table, the cap kept). */
+export function pendStart(p: ReaderPending, nowMs: number, store: Store | null = session()): void {
+  writePendingStash(queuePending(readPendingStash(nowMs, store), p), store);
+}
+
+/** Drop ONE start's record — by its token, so an answer never removes a newer start's. */
+export function dropPending(token: string, nowMs: number, store: Store | null = session()): void {
+  const q = readPendingStash(nowMs, store);
+  const next = q.filter((x) => x.token !== token);
+  if (next.length !== q.length) writePendingStash(next, store);
 }

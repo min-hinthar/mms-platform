@@ -6,12 +6,15 @@ import {
   READER_COLLECT_MAX_IDLE_MS,
   READER_LANDED_CAP,
   READER_LANDED_KEY,
+  READER_PENDING_CAP,
+  READER_PENDING_KEY,
   READER_POLL_SILENT_MS,
   READER_POLL_START,
   READER_RECORDING_ESCALATE_MS,
   READER_UNRECORDED_MS,
   adoptLegacyCollect,
   dropLanded,
+  dropPending,
   handoffCode,
   landedExpired,
   landedHandoff,
@@ -19,9 +22,13 @@ import {
   nextReaderPoll,
   parseLandedQueue,
   parseLegacyCollect,
+  parsePendingQueue,
   parseReaderCollect,
+  pendStart,
   queueLanded,
+  queuePending,
   readLandedStash,
+  readPendingStash,
   readReaderStash,
   readerAlertKey,
   readerBusyKey,
@@ -35,12 +42,14 @@ import {
   readerCollectExpired,
   readerLive,
   readerPanelAction,
+  readerPendingExpired,
   readerPolling,
   readerRecordingLong,
   readerSpoken,
   readerStartRefused,
   readerStatus,
   restoredReaderPoll,
+  resumedCollect,
   silentMisses,
   takeLegacyCollect,
   writeLandedStash,
@@ -48,6 +57,7 @@ import {
   type ReaderChip,
   type ReaderCollect,
   type ReaderLanded,
+  type ReaderPending,
   type ReaderPoll,
 } from "./reader-collect";
 import { SETTLE_TTL_MS } from "./lock-ttl";
@@ -758,5 +768,110 @@ describe("what the chip SAYS — keyed once, named once", () => {
       ["collecting", false],
     ] as const)
       expect(readerAlertKey("pi_123", phase, long)).toBe(readerChipAlert(chip, phase, long));
+  });
+});
+
+// ── Codex r2 on #310 (A3) — the pending start: written before the reader start is sent, so a reload
+// that aborts its answer leaves the next document something to resolve ──────────────────────────────
+describe("the pending start — what a reload must not lose (Codex r2 on #310, A3)", () => {
+  const P: ReaderPending = {
+    token: "t-1",
+    sessionId: "s-7",
+    startedAt: T0,
+    isCounter: true,
+    name: { counter: true, display: "reg-7f3a" },
+    sentEarly: true,
+    cartId: "c-7",
+  };
+
+  it("round-trips through the stash, field by field — a malformed entry is dropped alone", () => {
+    const store = memStore();
+    pendStart(P, T0, store);
+    expect(readPendingStash(T0, store)).toEqual([P]);
+    const bad = [{ ...P, sessionId: "" }, { ...P, token: "" }, { ...P, startedAt: "now" }, 7];
+    const raw = JSON.stringify([...bad, { ...P, sessionId: "s-8", token: "t-8" }]);
+    expect(parsePendingQueue(raw, T0)).toEqual([{ ...P, sessionId: "s-8", token: "t-8" }]);
+    expect(parsePendingQueue("{nope", T0)).toEqual([]);
+    expect(parsePendingQueue(JSON.stringify({ a: 1 }), T0)).toEqual([]);
+    // Anything but `true` reads false — the card never claims food went out unpaid on a guess.
+    expect(parsePendingQueue(JSON.stringify([{ ...P, sentEarly: "yes" }]), T0)).toEqual([
+      { ...P, sentEarly: false },
+    ]);
+  });
+
+  it("a record older than the freeze's lifetime is history — dropped as it is read", () => {
+    expect(readerPendingExpired(P, T0 + READER_COLLECT_MAX_IDLE_MS)).toBe(false);
+    // MUTATION (p2h-cx2a/pending/never-expires): a start from hours ago is resolved on a reload —
+    // a reader asking for this cart's card now is adopted under a start nobody made; red.
+    expect(readerPendingExpired(P, T0 + READER_COLLECT_MAX_IDLE_MS + 1)).toBe(true);
+    const store = memStore({ [READER_PENDING_KEY]: JSON.stringify([P]) });
+    expect(readPendingStash(T0 + READER_COLLECT_MAX_IDLE_MS + 1, store)).toEqual([]);
+    expect(store.m.has(READER_PENDING_KEY)).toBe(false);
+  });
+
+  it("one per table: a newer start replaces its table's older one; other tables' stand (capped)", () => {
+    const seven2 = { ...P, token: "t-2", startedAt: T0 + 5 };
+    const eight = { ...P, token: "t-8", sessionId: "s-8" };
+    // MUTATION (p2h-cx2a/pending/one-per-table): the older start for Table 7 stays beside the newer
+    // one — a reload resolves both, and the cap evicts other tables' starts; red.
+    expect(queuePending(queuePending([P], eight), seven2)).toEqual([eight, seven2]);
+    let q: ReaderPending[] = [];
+    for (let i = 0; i < READER_PENDING_CAP + 2; i++)
+      q = queuePending(q, { ...P, token: `t${i}`, sessionId: `s${i}` });
+    expect(q).toHaveLength(READER_PENDING_CAP);
+    expect(q[0]!.sessionId).toBe("s2");
+  });
+
+  it("an answer drops ONLY its own record — never a newer start's (the token)", () => {
+    const store = memStore();
+    pendStart(P, T0, store);
+    pendStart({ ...P, token: "t-8", sessionId: "s-8" }, T0, store);
+    // MUTATION (p2h-cx2a/pending/drop-ignores-token): the first answer clears every record — the
+    // other table's start, still out, is lost to the next reload; red.
+    dropPending("t-1", T0, store);
+    expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8"]);
+    // A stale token (a start whose table's record a newer start replaced) removes nothing.
+    pendStart({ ...P, token: "t-9" }, T0, store);
+    dropPending("t-1", T0, store);
+    expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8", "t-9"]);
+    dropPending("t-8", T0, store);
+    dropPending("t-9", T0, store);
+    expect(store.m.has(READER_PENDING_KEY)).toBe(false);
+  });
+
+  it("the resume read decides: ADOPT the reader's charge, DROP when it has none, KEEP when it could not be read", () => {
+    const res = {
+      ok: true as const,
+      collect: { paymentIntentId: "pi_live", totalCents: 4321, cartId: "c-7b" },
+    };
+    // MUTATION (p2h-cx2a/resume/adopt-dropped): the reader's live charge for this table is never
+    // adopted — nothing polls it, slides its freeze, records its #CODE or can cancel it; red.
+    expect(resumedCollect(P, res, T0 + 20_000)).toEqual({
+      kind: "adopt",
+      record: {
+        sessionId: "s-7",
+        // The server's handle, amount and cart — the tap's are a reload old.
+        // MUTATION (p2h-cx2a/resume/tap-cart-over-server): the tap's cart rides the record; red.
+        paymentIntentId: "pi_live",
+        totalCents: 4321,
+        cartId: "c-7b",
+        // The tap's facts: how the chip names it, whether its food went out unpaid.
+        isCounter: true,
+        name: { counter: true, display: "reg-7f3a" },
+        sentEarly: true,
+        startedAt: T0 + 20_000,
+        liveAt: T0 + 20_000,
+        hidden: false,
+        recordingSince: null,
+        unrecordedAt: null,
+      },
+    });
+    // MUTATION (p2h-cx2a/resume/none-kept): a reader with nothing of this table's keeps the record —
+    // every reload asks again, and a LATER charge on this cart is adopted as this start's; red.
+    expect(resumedCollect(P, { ok: true, collect: null }, T0)).toEqual({ kind: "drop" });
+    // MUTATION (p2h-cx2a/resume/outage-is-a-verdict): a read that failed (or threw — null) drops the
+    // record — an outage read as "the reader has nothing", and the next reload cannot ask; red.
+    expect(resumedCollect(P, { ok: false, error: "x" }, T0)).toEqual({ kind: "keep" });
+    expect(resumedCollect(P, null, T0)).toEqual({ kind: "keep" });
   });
 });

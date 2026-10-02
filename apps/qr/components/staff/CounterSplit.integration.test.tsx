@@ -52,6 +52,9 @@ vi.mock("@/lib/terminal", () => ({
   settleCard: vi.fn(),
   terminalStatus: vi.fn(),
   cancelTerminal: vi.fn(),
+  // Codex r2 on #310 (A3) — a reader start left pending in this tab's stash by an earlier case is
+  // resolved by the next provider's restore: no action of that table's on the reader.
+  terminalResume: () => Promise.resolve({ ok: true, collect: null }),
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 vi.mock("@/lib/staff-promo", () => ({ applyPromoForTable: vi.fn(), clearPromoForTable: vi.fn() }));

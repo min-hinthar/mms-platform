@@ -263,6 +263,9 @@ export function CloseSecureTabButton({
       void out.late.then((late) => {
         if (late.kind !== "answer") {
           setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          // Codex r2 on #310 (A1) — handed UP again: the bound's `unknown` may have reached a detail
+          // still mounted (ignored there), and a switch since leaves this throw as the pane's only cue.
+          onSettleOutcome?.("unknown");
           return;
         }
         if (land(late.value, quoted, basis, true)) {

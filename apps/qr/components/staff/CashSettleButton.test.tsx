@@ -1229,8 +1229,38 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
       fail(new Error("fetch failed"));
     });
     // MUTATION (p2h-int-a/cash-landed-on-throw): a lost late answer says `landed` — the pane drops
-    // "we don't know" while the outcome is exactly as unknown as before; red.
-    expect(thrown.mock.calls).toEqual([["unknown"]]);
+    // "we don't know" while the outcome is exactly as unknown as before; red. Codex r2 on #310 (A1)
+    // — the throw hands `unknown` up AGAIN (it is still no answer), never `landed`.
+    expect(thrown.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  // Codex r2 on #310 (A1) — the bound's `unknown` lands while the detail is MOUNTED, and the pane
+  // ignores it there (the control's own line says it). If the cashier then switches tables and the
+  // raw action THROWS, that throw is the only thing left to tell the pane — the warning must not
+  // disappear exactly when the response is lost. FloorDetailLive forwards it only once unmounted.
+  it("a LATE throw after the control unmounted hands the unknown up AGAIN, for the pane to say (Codex r2 on #310, A1)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let fail!: (e: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    const onSettleOutcome = vi.fn();
+    const onOutcomeUnknown = vi.fn();
+    const { open, settle } = mount({ onSettleOutcome, onOutcomeUnknown });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    cleanup(); // the cashier switched tables: the detail (and this control) unmounted
+    await act(async () => {
+      fail(new Error("fetch failed"));
+    });
+    // MUTATION (p2h-cx2a/cash/late-throw-unreported): the late throw only sets state on the
+    // unmounted control — the pane never says "we don't know if the payment went through"; red.
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+    // Still no answer: the outcome stays unknown (never handed up as known).
+    expect(onOutcomeUnknown).not.toHaveBeenCalledWith(false);
   });
 
   it("a LATE refusal is said in the open sheet, handed up as refused, clears the unknown — and the next tap sends again", async () => {

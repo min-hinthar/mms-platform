@@ -462,6 +462,86 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
 const POLL_MISS_COPY = "Couldn’t check the reader just now — still trying.";
 
 /**
+ * Codex r2 on #310 (A3) — what a RELOADED register can learn about a reader start whose answer it
+ * lost. The start's PaymentIntent reached the tablet only in `settleCard`'s answer, and a reload
+ * aborts the client's action queue with that answer still in it (the reload `settle.reader.waiting`
+ * itself asks for): the reader may already be asking for the card, with nothing on the tablet left to
+ * poll it, slide its freeze, record a counter order's #CODE, or cancel it.
+ *
+ * `collect` is the reader's current action IF it is this table's charge: a `process_payment_intent`
+ * that has not failed (the reader is asking, or the tap went through), whose PaymentIntent is one of
+ * OUR reader intents (`metadata.kind`, the poll's authority rule) on THIS session's open cart. Every
+ * other state is null — no reader configured, the table closed or paid, the reader idle, its last
+ * action failed (a decline or a cancel: nothing to resume — and possibly an older attempt's), or
+ * another table's charge. The handle only lets the tablet resume the poll and Cancel, which re-verify
+ * it on every call; the amount is the PaymentIntent's own, for display — nothing is charged here.
+ *
+ * READ-ONLY: no freeze is touched, nothing is extended, cancelled or revalidated. A read that cannot
+ * be made (an outage, Stripe unreachable) is `ok: false` — never a verdict, so the tablet keeps the
+ * pending start and a later document asks again.
+ */
+export type TerminalResumeResult =
+  | { ok: true; collect: { paymentIntentId: string; totalCents: number; cartId: string } | null }
+  | { ok: false; error: string };
+
+export async function terminalResume(raw: unknown): Promise<TerminalResumeResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  // The session id only, through the settle's own shape (as `settleCard` parses it).
+  const parsed = settleCashInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { sessionId } = parsed.data;
+  // Feature-off: no reader, nothing it could be doing.
+  const readerId = process.env.STRIPE_TERMINAL_READER_ID;
+  if (!readerId) return { ok: true, collect: null };
+  const { cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  // Closed, or no open order (paid — a charge that went through has been recorded): nothing to resume.
+  if (!cart) return { ok: true, collect: null };
+  let piId: string | null;
+  let stripe;
+  try {
+    stripe = getStripe();
+    const reader = await stripe.terminal.readers.retrieve(readerId);
+    const action = "deleted" in reader ? null : reader.action;
+    // Only a live or captured charge: a FAILED action is a decline or a cancel — nothing to poll, and
+    // it may be an older attempt's (the reader keeps its most recent action after it ends).
+    const live = action?.type === "process_payment_intent" && action.status !== "failed";
+    const actionPi = live ? (action.process_payment_intent?.payment_intent ?? null) : null;
+    piId = typeof actionPi === "string" ? actionPi : (actionPi?.id ?? null);
+  } catch (e) {
+    console.error("[terminal] resume reader read failed", {
+      sessionId,
+      code: (e as { code?: string }).code,
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  if (piId === null) return { ok: true, collect: null };
+  let intent;
+  try {
+    intent = await stripe.paymentIntents.retrieve(piId);
+  } catch (e) {
+    console.error("[terminal] resume intent read failed", {
+      paymentIntent: piId,
+      code: (e as { code?: string }).code,
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  // The metadata is the authority (the poll's rule) — and it must name THIS table's open cart: the
+  // one reader may be asking for another table's charge.
+  if (
+    intent.metadata?.kind !== "terminal" ||
+    !intent.metadata?.settleAttempt ||
+    intent.metadata?.cartId !== cart.id
+  )
+    return { ok: true, collect: null };
+  return {
+    ok: true,
+    collect: { paymentIntentId: intent.id, totalCents: intent.amount, cartId: cart.id },
+  };
+}
+
+/**
  * The poll's copy for a lost mutex. Not a decline (`declineCopy`) — the card was never refused —
  * and not a reader fault (`readerFailCopy`): the table's settlement hold went to someone else while
  * the reader was still prompting. English only, like the two families beside it (K15 owns the

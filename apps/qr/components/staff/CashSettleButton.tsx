@@ -488,7 +488,14 @@ export function CashSettleButton({
         // — a late ok LANDS (the sheet unmounts and hands its card over) — and clears the unknown
         // even after unmount. A late THROW is still no answer: the outcome stays unknown.
         if (late.kind === "answer") land(late.value, at);
-        else setError({ kind: "unknown" });
+        else {
+          setError({ kind: "unknown" });
+          // Codex r2 on #310 (A1) — and handed UP again: the bound's `unknown` reached a detail that
+          // was still MOUNTED (it ignores one then — this control's own line said it), so if the
+          // cashier switched tables since, this throw is the only thing left to tell the pane. The
+          // state above lands on an unmounted control; FloorDetailLive forwards this only once gone.
+          onSettleOutcome?.("unknown");
+        }
         // Phase 2h · integration — this attempt was handed up `unknown` at the bound; a late OK is
         // its answer, so the page may retract what it said off it (the pane's "we don't know if
         // the payment went through", raised once the detail had unmounted). A refusal hands up

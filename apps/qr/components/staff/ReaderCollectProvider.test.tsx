@@ -6,7 +6,9 @@ import { handoffStashKey } from "@/lib/floor-pane";
 import { STAFF_HANG_MS, stalledSince, track } from "@/lib/bounded-write";
 import {
   READER_COLLECT_KEY,
+  READER_COLLECT_MAX_IDLE_MS,
   READER_LANDED_KEY,
+  READER_PENDING_KEY,
   READER_POLL_SILENT_MS,
   READER_UNRECORDED_MS,
   legacyCollectKey,
@@ -21,10 +23,13 @@ import {
  */
 const terminalStatus = vi.fn();
 const cancelTerminal = vi.fn();
+/** Codex r2 on #310 (A3) — the read-only resume of a start a reload stranded. */
+const terminalResume = vi.fn();
 vi.mock("@/lib/terminal", () => ({
   settleCard: vi.fn(),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: (...a: unknown[]) => cancelTerminal(...(a as [])),
+  terminalResume: (...a: unknown[]) => terminalResume(...(a as [])),
 }));
 
 const { ReaderCollectProvider } = await import("./ReaderCollectProvider");
@@ -72,12 +77,14 @@ const mount = (children: React.ReactNode = null, strict = false) => {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_800_000_000_000);
+  terminalResume.mockResolvedValue({ ok: true, collect: null });
 });
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   terminalStatus.mockReset();
   cancelTerminal.mockReset();
+  terminalResume.mockReset();
   sessionStorage.clear();
 });
 
@@ -803,5 +810,180 @@ describe("Phase 2h — the reader CANCEL is bounded (9b · 9d · 9e)", () => {
     expect(api.cancelBusy).toBe(false);
     expect(api.cancelError).toEqual({ kind: "stalled" });
     expect(api.spoken).toEqual({ tone: "warn", msg: { k: "out.stalled" } });
+  });
+});
+
+// ── Codex r2 on #310 (A3) — a reader START whose answer a reload aborted. The start was written down
+// before it was sent; the next document asks the server, read-only, what the reader is doing for that
+// table, and re-adopts the collect (poll, Cancel, landing) or forgets the record.
+describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3)", () => {
+  const T = 1_800_000_000_000;
+  /** What the tap wrote before the start was sent (TerminalSettleButton → `startPending`). */
+  const PENDING = {
+    token: "t-1",
+    sessionId: "s-7",
+    startedAt: T - STAFF_HANG_MS - 2000,
+    isCounter: true,
+    name: { counter: true, display: "reg-7f3a" },
+    sentEarly: true,
+    cartId: "c-7",
+  };
+  const seed = (...ps: object[]) => sessionStorage.setItem(READER_PENDING_KEY, JSON.stringify(ps));
+  const live = {
+    ok: true,
+    collect: { paymentIntentId: "pi_live", totalCents: 4321, cartId: "c-7" },
+  } as const;
+
+  it("the reader is asking for that table's card: the collect is ADOPTED — polled, cancellable, owing no focus — and the record goes", async () => {
+    seed(PENDING);
+    terminalResume.mockResolvedValue(live);
+    terminalStatus.mockResolvedValue(collecting);
+    mount(<Viewer id="s-7" />);
+    await tick(0);
+    // MUTATION (p2h-cx2a/provider/pending-never-resolved): the restore never asks — the reader takes
+    // the card with nothing on the tablet polling it, sliding its freeze or able to cancel it; red.
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7" });
+    // MUTATION (p2h-cx2a/provider/adopt-dropped): the read answers, nothing is adopted; red.
+    expect(api.record).toMatchObject({
+      sessionId: "s-7",
+      paymentIntentId: "pi_live",
+      totalCents: 4321,
+      isCounter: true,
+      name: { counter: true, display: "reg-7f3a" },
+      sentEarly: true,
+      cartId: "c-7",
+    });
+    expect(api.poll.phase).toBe("collecting");
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s-7", paymentIntentId: "pi_live" });
+    // A re-attach, never a start made in view: the panel does not pull focus off where the person is.
+    // MUTATION (p2h-cx2a/provider/adopt-owes-focus): the adoption goes through `start` — focus is
+    // pulled onto the panel the moment the page loads; red.
+    expect(api.focusOwed).toBeNull();
+    // The collect's own record now carries the handle (a further reload restores THAT).
+    expect(sessionStorage.getItem(READER_COLLECT_KEY)).toContain('"paymentIntentId":"pi_live"');
+    // MUTATION (p2h-cx2a/provider/answered-record-kept): the pending record outlives the adoption; red.
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
+  });
+
+  it("the reader has nothing of that table's: no collect, and the record is forgotten", async () => {
+    seed(PENDING);
+    terminalResume.mockResolvedValue({ ok: true, collect: null });
+    mount();
+    await tick(0);
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    expect(api.record).toBeNull();
+    expect(terminalStatus).not.toHaveBeenCalled();
+    // MUTATION (p2h-cx2a/provider/answered-record-kept): the record stands — every reload asks
+    // again, and a later charge on that cart is adopted as this start's; red.
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
+  });
+
+  it("a read that could not be made (refused, or thrown) KEEPS the record for the next document", async () => {
+    seed(PENDING);
+    terminalResume.mockResolvedValueOnce({ ok: false, error: "Couldn’t reach Stripe." });
+    const r = mount();
+    await tick(0);
+    expect(api.record).toBeNull();
+    // MUTATION (p2h-cx2a/provider/outage-drops-record): an outage forgets the start — the next
+    // reload has nothing left to ask about; red.
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toContain('"token":"t-1"');
+    r.unmount();
+    terminalResume.mockRejectedValueOnce(new Error("fetch failed"));
+    const r2 = mount();
+    await tick(0);
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toContain('"token":"t-1"');
+    r2.unmount();
+    terminalResume.mockResolvedValue(live);
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await tick(0);
+    expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+
+  it("a LATE resume answer (past the bound) is still applied — and the read sits on the stall ledger meanwhile", async () => {
+    seed(PENDING);
+    let answer!: (v: unknown) => void;
+    terminalResume.mockReturnValueOnce(new Promise((res) => (answer = res)));
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    // MUTATION (p2h-cx2a/provider/resume-untracked): the read is off the ledger — a money tap made
+    // while it hangs is queued behind it instead of refused; red.
+    expect(stalledSince()).not.toBeNull();
+    expect(api.record).toBeNull();
+    await act(async () => answer(live));
+    // MUTATION (p2h-cx2a/provider/late-resume-dropped): the answer past the bound is dropped; red.
+    expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+
+  it("a collect that STANDS is the newer fact: the record goes without a read", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    r.unmount();
+    seed(PENDING);
+    mount();
+    await tick(0);
+    expect(api.record?.paymentIntentId).toBe("pi_7");
+    // MUTATION (p2h-cx2a/provider/resolves-over-a-record): the reader is asked about a start whose
+    // collect is already standing — a second table's charge could replace it; red.
+    expect(terminalResume).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
+  });
+
+  it("a collect started while the read was out is never replaced by its answer", async () => {
+    seed(PENDING);
+    let answer!: (v: unknown) => void;
+    terminalResume.mockReturnValueOnce(new Promise((res) => (answer = res)));
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await tick(0);
+    await act(async () => api.start({ ...START, sessionId: "s-9", paymentIntentId: "pi_9" }));
+    await act(async () => answer(live));
+    // MUTATION (p2h-cx2a/provider/adopt-over-a-record): the late answer replaces the collect that
+    // started meanwhile — its poll stops, and its charge goes unrecorded; red.
+    expect(api.record?.paymentIntentId).toBe("pi_9");
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
+  });
+
+  it("a start THIS document sends before the restore's tick is never resolved by it (only a previous document's)", async () => {
+    mount();
+    // A tap in the instant after mount: its record is written before the start is sent.
+    let token = "";
+    act(() => {
+      token = api.startPending({
+        sessionId: "s-7",
+        isCounter: true,
+        name: PENDING.name,
+        sentEarly: true,
+        cartId: "c-7",
+      });
+    });
+    await tick(0);
+    // MUTATION (p2h-cx2a/provider/resolves-its-own-start): the restore reads the stash in its tick —
+    // it asks the reader about this document's own start before the start reached it, finds nothing
+    // and forgets the record; a reload then has nothing to resume; red.
+    expect(terminalResume).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toContain(`"token":"${token}"`);
+    // Its own answer ends it.
+    act(() => api.startAnswered(token));
+    expect(sessionStorage.getItem(READER_PENDING_KEY)).toBeNull();
+  });
+
+  it("Strict Mode's double effects ask ONCE; an expired record is never asked about", async () => {
+    seed(PENDING, {
+      ...PENDING,
+      token: "t-old",
+      sessionId: "s-8",
+      startedAt: T - READER_COLLECT_MAX_IDLE_MS - 1,
+    });
+    terminalResume.mockResolvedValue({ ok: true, collect: null });
+    mount(null, true);
+    await tick(0);
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s-7" });
   });
 });

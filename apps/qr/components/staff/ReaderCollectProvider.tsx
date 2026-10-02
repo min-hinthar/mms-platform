@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { terminalStatus, cancelTerminal, terminalResume } from "@/lib/terminal";
 import { boundWrite, stalledSince, track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
@@ -9,11 +9,14 @@ import {
   READER_RECORDING_ESCALATE_MS,
   adoptLegacyCollect,
   dropLanded,
+  dropPending,
   dropReaderStash,
   landedHandoff,
   nextReaderPoll,
+  pendStart,
   queueLanded,
   readLandedStash,
+  readPendingStash,
   readReaderStash,
   readerLive,
   readerPolling,
@@ -22,6 +25,7 @@ import {
   readerStartRefused,
   readerStatus,
   restoredReaderPoll,
+  resumedCollect,
   silentMisses,
   takeLegacyCollect,
   writeLandedStash,
@@ -30,6 +34,7 @@ import {
   type ReaderCollect,
   type ReaderLanded,
   type ReaderName,
+  type ReaderPending,
   type ReaderPoll,
   type ReaderStart,
 } from "@/lib/reader-collect";
@@ -67,7 +72,9 @@ import {
  *     `unrecorded` (C1): the poll stops, the reader is free, and the outcome is shown (never left put
  *     away) until Close — kept in the stash, marked, so a reload restores the warning (Codex r1);
  *   · `shownHere` — which tables are on screen now, so the chip never repeats the panel beside it;
- *   · the ONE refusal left: a start on another table while a collect is live (one reader).
+ *   · the ONE refusal left: a start on another table while a collect is live (one reader);
+ *   · the PENDING starts (Codex r2 on #310, A3) — a start is written down before it is sent and
+ *     forgotten once it answers; one a reload stranded is resolved here, read-only (`terminalResume`).
  *
  * Strict Mode: `alive` is re-armed at setup, the poll effect is idempotent (the in-flight guard
  * means a re-run never dispatches a second poll over the first), and a viewer registers by count.
@@ -133,9 +140,42 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     writeLandedStash(next);
   }, []);
 
+  /**
+   * Codex r2 on #310 (A3) — ask the server, READ-ONLY, what the reader is doing for a start this tab
+   * lost the answer to, and act on it (`resumedCollect`): re-adopt the collect — the poll, Cancel and
+   * the landing exactly as a start would have — or forget the record, or keep it when the read could
+   * not be made. Bounded and on the stall ledger like every action (`boundWrite`); a late answer is
+   * applied when it lands. No focus is owed: this is a re-attach, not a start made in view.
+   */
+  const resume = useCallback(
+    async (p: ReaderPending) => {
+      const apply = (res: Awaited<ReturnType<typeof terminalResume>> | null) => {
+        const now = Date.now();
+        const step = resumedCollect(p, res, now);
+        if (step.kind === "keep") return;
+        dropPending(p.token, now);
+        // A collect that stands by now (a start made meanwhile, another pending start adopted) is
+        // the newer fact — there is one reader, and one record.
+        if (step.kind === "drop" || recordRef.current !== null) return;
+        commitRecord(step.record);
+        commitPoll(READER_POLL_START);
+        setCancelError(null);
+      };
+      const out = await boundWrite(terminalResume({ sessionId: p.sessionId }));
+      if (out.kind === "answer") apply(out.value);
+      else if (out.kind === "threw") apply(null);
+      else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
+    },
+    [commitRecord, commitPoll],
+  );
+
   // Restore after a hard navigation (scheduled — never a synchronous setState in the effect). A
   // record already standing (a start, a legacy adoption) is newer than the stash and wins.
   useEffect(() => {
+    // Codex r2 on #310 (A3) — the pending starts a PREVIOUS document left, read at mount (never in
+    // the scheduled tick below): a start THIS document sends writes its own record, and resolving it
+    // here would ask the reader before the start reached it — and forget the start's record.
+    const stranded = readPendingStash(Date.now());
     const t = setTimeout(() => {
       const now = Date.now();
       // The landed queue first: the stash is OLDER than anything landed since mount. A landing whose
@@ -152,14 +192,23 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         for (const e of landedRef.current) q = queueLanded(q, e);
         commitLanded(q);
       }
-      if (recordRef.current !== null) return;
-      const restored = readReaderStash(now);
-      if (restored === null) return;
-      commitRecord(restored);
-      commitPoll(restoredReaderPoll(restored));
+      if (recordRef.current === null) {
+        const restored = readReaderStash(now);
+        if (restored !== null) {
+          commitRecord(restored);
+          commitPoll(restoredReaderPoll(restored));
+        }
+      }
+      // Codex r2 on #310 (A3) — a start this tab sent and never heard back from (the reload that
+      // `settle.reader.waiting` asks for aborted its answer). A collect that stands is the newer fact
+      // (its start answered, or a newer one did): the pending records go. Otherwise each is resolved.
+      for (const p of stranded) {
+        if (recordRef.current !== null) dropPending(p.token, now);
+        else void resume(p);
+      }
     }, 0);
     return () => clearTimeout(t);
-  }, [commitRecord, commitPoll, commitLanded]);
+  }, [commitRecord, commitPoll, commitLanded, resume]);
 
   /** A charge that LANDED: the card (a counter's), the stash, and whoever shows its table. */
   const land = useCallback(
@@ -307,6 +356,19 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const focusTaken = useCallback((paymentIntentId: string) => {
     setFocusOwed((cur) => (cur === paymentIntentId ? null : cur));
   }, []);
+
+  // Codex r2 on #310 (A3) — a start about to be sent is written down first (the tap's facts and
+  // when), so a reload that aborts its answer leaves this tab a record to resolve; its answer drops
+  // it again, by its own token. A storage failure is a deliberate swallow (`pendStart`).
+  const pendingSeq = useRef(0);
+  const startPending = useCallback((at: Omit<ReaderPending, "token" | "startedAt">) => {
+    const now = Date.now();
+    pendingSeq.current += 1;
+    const token = `${now}-${pendingSeq.current}`;
+    pendStart({ ...at, token, startedAt: now }, now);
+    return token;
+  }, []);
+  const startAnswered = useCallback((token: string) => dropPending(token, Date.now()), []);
 
   const cancel = useCallback(async () => {
     const rec = recordRef.current;
@@ -483,6 +545,8 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       focusOwed,
       focusTaken,
       start,
+      startPending,
+      startAnswered,
       cancel,
       dismiss,
       dismissLanded,
@@ -506,6 +570,8 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     focusOwed,
     focusTaken,
     start,
+    startPending,
+    startAnswered,
     cancel,
     dismiss,
     dismissLanded,

@@ -6,6 +6,7 @@ import type {
   ReaderCollect,
   ReaderLanded,
   ReaderName,
+  ReaderPending,
   ReaderPoll,
   ReaderStart,
   ReaderStatus,
@@ -45,6 +46,11 @@ export type ReaderCollectApi = {
   focusOwed: string | null;
   focusTaken: (paymentIntentId: string) => void;
   start: (s: ReaderStart) => void;
+  /** Codex r2 on #310 (A3) — write a start down BEFORE it is sent (returns its token), so a reload
+   *  that aborts its answer leaves a record this provider resolves on the next document. */
+  startPending: (at: Omit<ReaderPending, "token" | "startedAt">) => string;
+  /** The start answered (any answer: a start, a refusal) — its record goes, by its own token. */
+  startAnswered: (token: string) => void;
   cancel: () => Promise<void>;
   /** The panel's "Back to payment" / Close and the chip's ✕: a declined, cancelled or unrecorded
    *  collect is cleared; a charged-not-recorded one ("Hide this") is put away and keeps polling

@@ -603,8 +603,24 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     await flush(STAFF_HANG_MS);
     await act(async () => thrown.fail(new Error("fetch failed")));
     // MUTATION (p2h-int-a/close-landed-on-throw): a lost late answer says `landed` — "we don't know"
-    // is retracted while the charge is exactly as unknown as before; red.
-    expect(x.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    // is retracted while the charge is exactly as unknown as before; red. Codex r2 on #310 (A1) —
+    // the throw hands `unknown` up AGAIN (it is still no answer), never `landed`.
+    expect(x.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  // Codex r2 on #310 (A1) — the bound's `unknown` lands while the detail is mounted (the pane ignores
+  // it there); a throw after the cashier switched tables is the only thing left to tell the pane.
+  it("a LATE throw after the control unmounted hands the unknown up AGAIN, for the pane to say (Codex r2 on #310, A1)", async () => {
+    const h = hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    v.unmount(); // the cashier switched tables mid-wait
+    await act(async () => h.fail(new Error("fetch failed")));
+    // MUTATION (p2h-cx2a/close/late-throw-unreported): the late throw only sets state on the
+    // unmounted control — the pane never says "we don't know if the payment went through"; red.
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
   });
 
   it("a LATE throw says the charge's outcome is unknown, over the waiting line", async () => {

@@ -145,6 +145,10 @@ export function TerminalSettleButton({
   // around it) is still mounted, so a start that answers after a switch still polls (P2en).
   const reader = useReaderCollect();
   const startCollect = reader.start;
+  // Codex r2 on #310 (A3) — the provider's pending-start record: written before the start is sent,
+  // dropped by its token when the start answers (the provider's stable functions, like `start`).
+  const startPending = reader.startPending;
+  const startAnswered = reader.startAnswered;
   // The ONE refusal left (D1): another table's collect is live — there is one reader. Shown as a
   // held control with its reason; refused at the tap (`reader.startRefused`, a ref read) before the
   // server is asked.
@@ -177,10 +181,13 @@ export function TerminalSettleButton({
     };
   }, []);
 
-  /** The start's answer, whenever it lands — at once, or after the bound (`late`). */
-  function land(res: Awaited<ReturnType<typeof settleCard>>, late: boolean) {
+  /** The start's answer, whenever it lands — at once, or after the bound (`late`). `pending` is
+   *  the token of the record written before it was sent: an answer — a start or a refusal — ends it. */
+  function land(res: Awaited<ReturnType<typeof settleCard>>, late: boolean, pending: string) {
     if (!res.ok) {
       onSettleOutcome?.("refused"); // the reader was never asked for the money
+      // Nothing was asked of the reader: a reload has nothing of this start's to resume.
+      startAnswered(pending);
       // 9e — a late refusal is said only while this button is here to say it; the page says it
       // where the button cannot (`onSettleOutcome`, above).
       if (late && !alive.current) return;
@@ -210,6 +217,8 @@ export function TerminalSettleButton({
       totalCents: res.totalCents,
       ...tap,
     });
+    // The collect's own record now carries the handle: the pending record has done its job.
+    startAnswered(pending);
     if (late) setError(null); // "no answer yet" is no longer true
     onStarted?.();
     // Phase 2h · integration — a LATE start answers the `unknown` this attempt handed up at the
@@ -236,6 +245,13 @@ export function TerminalSettleButton({
       setError({ kind: "stalled" });
       return;
     }
+    // Codex r2 on #310 (A3) — written down BEFORE it is sent: a start still out at the bound tells
+    // the cashier to reload, and a reload aborts this answer — the only thing that would hand the
+    // tablet the PaymentIntent the reader may already be asking for. The next document finds this
+    // record and asks the server what the reader is doing for this table (the provider's resume).
+    // A thrown or still-unanswered start keeps it; any answer drops it (`land`). Before the busy
+    // raise, so nothing sits between that raise and the `try` whose `finally` lowers it.
+    const pending = startPending({ sessionId, ...tap });
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -243,7 +259,7 @@ export function TerminalSettleButton({
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       const out = await boundWrite(settleCard({ sessionId }));
       if (out.kind === "answer") {
-        land(out.value, false);
+        land(out.value, false, pending);
         return;
       }
       // The start's answer never came, or has not come yet: the reader may be asking for the money
@@ -257,8 +273,13 @@ export function TerminalSettleButton({
       }
       setError({ kind: "waiting" });
       void out.late.then((late) => {
-        if (late.kind === "answer") land(late.value, true);
-        else setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+        if (late.kind === "answer") land(late.value, true, pending);
+        else {
+          setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          // Codex r2 on #310 (A1) — handed UP again: the bound's `unknown` may have reached a detail
+          // still mounted (ignored there), and a switch since leaves this throw as the pane's only cue.
+          onSettleOutcome?.("unknown");
+        }
       });
     } finally {
       // Frees AT THE BOUND (fact 3) — never latched on "Starting…" by the raw (the W10c bug class).

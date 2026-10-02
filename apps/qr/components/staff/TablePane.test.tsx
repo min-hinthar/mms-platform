@@ -48,6 +48,9 @@ vi.mock("@/lib/terminal", () => ({
   settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: (...a: unknown[]) => cancelTerminal(...(a as [])),
+  // Codex r2 on #310 (A3) — a reader start left pending in this tab's stash by an earlier case is
+  // resolved by the next provider's restore: no action of that table's on the reader.
+  terminalResume: () => Promise.resolve({ ok: true, collect: null }),
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 vi.mock("@/lib/staff-promo", () => ({ applyPromoForTable: vi.fn(), clearPromoForTable: vi.fn() }));
@@ -2687,6 +2690,36 @@ describe("TablePane — a payment the pane said it did not know about LANDS late
     expect(document.activeElement).toBe(paneHeading());
   });
 
+  // Codex r2 on #310 (A1) — the settle reached the bound with Table 4's detail still MOUNTED (its own
+  // line said "no answer yet"; the pane ignores an `unknown` from a mounted detail). The cashier then
+  // switched to Table 7 and the raw action THREW: before, that throw set state on the gone control
+  // only, so the payment warning disappeared exactly when the response was lost.
+  it("cash on Table 4 out past the bound while SHOWN, then a switch, then a late THROW: the pane says 'we don't know' (Codex r2 on #310, A1)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    answers[A] = ok(settleable(A, 4));
+    answers[B] = ok(settleable(B, 7));
+    let fail!: (e: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCashOnShown();
+    await tick(STAFF_HANG_MS); // the bound passes with Table 4 on screen
+    expect(lostLine()).toBeNull(); // its own sheet says it; the pane holds no line about it
+    // Put the waiting sheet away (its exits are free at the bound), then switch to Table 7.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await tap(card(B));
+    await tick(0);
+    expect(lostLine()).toBeNull();
+    await act(async () => fail(new Error("fetch failed")));
+    await tick(0);
+    // MUTATION (p2h-cx2a/cash/late-throw-unreported-at-pane): the throw is said only on the unmounted
+    // control — nothing on screen says the payment on Table 4 may have gone through; red.
+    expect(lostLine()?.textContent).toContain(unknownOn(4));
+    expect(paneSays()).toContain(unknownOn(4));
+  });
+
   it("a reader START still out at the bound after a switch: 'we don't know' — its LATE start retracts it (the reader is collecting)", async () => {
     terminalReady = true;
     terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
@@ -2877,6 +2910,41 @@ describe("TablePane — a line edit still out when the pane left its table (Phas
     expect(landedLine()?.textContent).toContain(
       tf("en", "floor.pane.landedWrite", { x: tableN(4) }),
     );
+  });
+
+  // Codex r2 on #310 (A2) — the LOST answer (the action threw after the bound): StaffLineEditor says
+  // WRITE_UNCONFIRMED ("we couldn't confirm that change" — it may have saved), and the pane mapped it
+  // to `write`: "A change on Table 4 didn't save". Its own kind now, and the waiting edge that follows
+  // the throw never answers it as saved.
+  it("a LATE throw says 'we couldn't confirm a change on Table 4' — never 'didn't save', never 'saved' (Codex r2 on #310, A2)", async () => {
+    let fail!: (e: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!);
+    });
+    await tap(card(B)); // Table 4's detail and its rows unmount with the write out
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    expect(lostLine()?.textContent).toContain(
+      tf("en", "floor.pane.lostWriteWaiting", { x: tableN(4) }),
+    );
+    await act(async () => fail(new Error("fetch failed")));
+    await tick(0);
+    const unknown = tf("en", "floor.pane.lostWriteUnknown", { x: tableN(4) });
+    // MUTATION (p2h-cx2a/pane/unconfirmed-said-as-lost-at-pane): the lost
+    // answer reads "A change on Table 4 didn't save" — the cashier taps + again on a change that
+    // may already be on the bill; red.
+    expect(lostLine()?.textContent).toContain(unknown);
+    expect(lostLine()?.textContent).not.toContain(
+      tf("en", "floor.pane.lostWrite", { x: tableN(4) }),
+    );
+    expect(paneSays()).toContain(unknown);
+    // The row's waiting edge after the throw is not an answer: never "The change on Table 4 saved".
+    expect(landedLine()).toBeNull();
   });
 
   it("a LATE refusal says 'didn't save' — and its waiting edge never answers that as saved", async () => {
