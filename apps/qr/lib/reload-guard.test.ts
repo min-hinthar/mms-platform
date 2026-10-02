@@ -7,6 +7,7 @@ import {
   autoBlock,
   blockKey,
   draftHeld,
+  cashTipDraftHeld,
   holdReload,
   manualBlock,
   refusesManual,
@@ -483,5 +484,31 @@ describe("draft — an unsaved value holds both verdicts; never the stall's Relo
     expect(draftHeld("  ", "")).toBe(false);
     // MUTATION (p2i-guard/draft-closed-held): a closed editor (null) holds; red.
     expect(draftHeld(null, "no onions")).toBe(false);
+  });
+});
+
+/**
+ * Codex r3 on #311 (CX14) — the cash sheet KEEPS a typed tip after it closes; a reload re-mounts the
+ * field at the kiosk intent (or empty). Held while what a reload would put back is a different tip.
+ */
+describe("cashTipDraftHeld — a kept tip a reload would change", () => {
+  it("held when the typed cents differ from the field's reload value; never for the same tip however it is written", () => {
+    // MUTATION (p2i-guard/cash-tip-untyped): only a non-empty field holds — a kiosk tip the cashier
+    // CLEARED (the guest left none) comes back at $5.00 after a reload and is recorded; red.
+    expect(cashTipDraftHeld("", 500)).toBe(true);
+    expect(cashTipDraftHeld("2", null)).toBe(true);
+    expect(cashTipDraftHeld("2", 500)).toBe(true);
+    // MUTATION (p2i-guard/cash-tip-text): compared as TEXT — "5" against the reload's "5.00" holds a
+    // reload over a tip it would restore exactly; red.
+    expect(cashTipDraftHeld("5", 500)).toBe(false);
+    expect(cashTipDraftHeld("5,00", 500)).toBe(false);
+    // MUTATION (p2i-guard/cash-tip-null-intent): no intent compared as null — an empty field holds a
+    // reload that would re-mount it empty; red.
+    expect(cashTipDraftHeld("", null)).toBe(false);
+    expect(cashTipDraftHeld("0", null)).toBe(false);
+    expect(cashTipDraftHeld(".", null)).toBe(false);
+    // MUTATION (p2i-guard/cash-tip-overlong-free): text too long to read is still what was typed —
+    // read as no tip, it is erased by the reload; red.
+    expect(cashTipDraftHeld("123456789", null)).toBe(true);
   });
 });

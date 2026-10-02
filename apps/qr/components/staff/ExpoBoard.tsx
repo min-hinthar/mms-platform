@@ -281,12 +281,11 @@ export function ExpoBoard({
   const [picked, setPicked] = useState<
     ReadonlyMap<string, { at: number; subject: ExpoSubject; committing: boolean }>
   >(() => new Map());
-  // A mirror for the two readers that run outside render and outside the tick's closure: the
-  // poll's redirect and the unmount flush. Written in an effect, never during render.
+  // A mirror for the readers that run outside render and outside the tick's closure: the poll's
+  // redirect, the unmount flush and the stash's pagehide. Written in the stash mirror's LAYOUT effect
+  // (below), never during render — Codex r3 on #311: synced in a passive effect, an unload between a
+  // commit and its passive flush rewrote the stash from the map BEFORE that commit.
   const pickedRef = useRef(picked);
-  useEffect(() => {
-    pickedRef.current = picked;
-  }, [picked]);
   // ── Phase 2b · feedback ── the thumb-zone Undo (see the Toast below).
   // The HOLDS on each window (lib/undo-hold): a keyboard user sitting on an Undo stops the window
   // running (WCAG 2.2.1). A REF, because the tick reads it and a focus change must never re-arm the
@@ -508,6 +507,7 @@ export function ExpoBoard({
     pendingRemark.current = carried.length > 0 ? carried : null;
   }, []);
   useLayoutEffect(() => {
+    pickedRef.current = picked;
     writeMirror(picked);
   }, [picked, writeMirror]);
   // Critic F5 — the stash may resume only once ITS WRITER HAS UNLOADED: `pagehide` stamps it

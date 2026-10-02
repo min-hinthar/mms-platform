@@ -2178,6 +2178,34 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     expect(readPickStash(sessionStorage)?.closed).toBe(true);
   });
 
+  it("Codex r3 on #311 (CX13) — an unload landing after the pick's commit, before passive effects flush, stamps the CURRENT picks", async () => {
+    // MUTATION (p2i-lane/ref-synced-late): the handler's map is synced in a PASSIVE effect while the
+    // mirror writes in a layout effect — the unload rewrites the stash from the map before the pick
+    // (here: empty, so the pick's record is erased); red.
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    const q = mount();
+    // The pagehide is dispatched from inside the mirror's own write of the new pick — after the
+    // layout commit, before React flushes the passive effects of that same commit.
+    const setItem = Storage.prototype.setItem;
+    let fired = false;
+    stashRefusal = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      k: string,
+      v: string,
+    ) {
+      setItem.call(this, k, v);
+      if (k === PICK_STASH_KEY && !fired && v.includes("order-1")) {
+        fired = true;
+        window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+      }
+    });
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    expect(fired).toBe(true);
+    expect(readPickStash(sessionStorage)?.closed).toBe(true);
+    expect(readPickStash(sessionStorage)?.picks.map((p) => p.orderId)).toEqual(["order-1"]);
+  });
+
   it("critic F1 · F4 — a pick made under an UNDECIDED stash does not survive a reload: survives:false", async () => {
     vi.useFakeTimers();
     getExpoQueue.mockImplementation(() => new Promise(() => {}));

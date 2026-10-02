@@ -80,6 +80,7 @@ function hang() {
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { CashSettleButton } = await import("./CashSettleButton");
+const { reloadHolds } = await import("@/lib/reload-guard");
 
 afterEach(async () => {
   cleanup();
@@ -519,6 +520,57 @@ describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LAN
     open();
     expect(field("cash-tendered").value).toBe("");
     expect(field("cash-tip").value).toBe("2");
+  });
+
+  it("Codex r3 on #311 (CX14) — the KEPT tip holds the reload for a new version until it is what a reload would put back", async () => {
+    // MUTATION (p2i-draft/cash-tip-unheld): no hold — the tip the cashier typed, kept after Cancel,
+    // is erased by the automatic reload and the reopened sheet settles without it; red.
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    const { open, cancel, type } = mount();
+    expect(drafts()).toEqual([]);
+    open();
+    type("cash-tip", "2");
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    expect(drafts()).toEqual([
+      expect.objectContaining({ kind: "unsent", subject: "cashTip", survives: false }),
+    ]);
+    const dialog = open();
+    fireEvent.click(within(dialog).getByRole("button", { name: STAFF["settle.cash.tipNone"].en }));
+    expect(drafts()).toEqual([]);
+  });
+
+  it("…a kiosk tip the cashier CLEARED is held too (a reload brings the guest's choice back); the intent itself is not", async () => {
+    // MUTATION (p2i-draft/cash-tip-prop-unread): the hold reads the shown intent, not the prop a
+    // reload re-mounts with — an intent frozen under the open sheet reads as the reload's value; red.
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    const { open, field, rerender } = mount({ intendedTipCents: 500 });
+    expect(drafts()).toEqual([]);
+    const dialog = open();
+    expect(field("cash-tip").value).toBe("5.00");
+    fireEvent.click(within(dialog).getByRole("button", { name: STAFF["settle.cash.tipNone"].en }));
+    expect(drafts()).toHaveLength(1);
+    // The guest's intent moves to $0 under the open sheet: a reload would re-mount at no tip.
+    rerender({ intendedTipCents: 0 });
+    expect(drafts()).toEqual([]);
+  });
+
+  it("…and a LANDED settle releases it: the tip is recorded, and the trigger waits for the paid re-render", async () => {
+    // MUTATION (p2i-draft/cash-tip-held-landed): held past the landing — a reload is refused over a
+    // tip already written, until the paid read happens to unmount this control; red.
+    stubComputedStyle();
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o3", totalCents: 4210, tipCents: 200 });
+    const drafts = () => reloadHolds().filter((h) => h.reason === "draft");
+    const { open, settle, settling, type } = mount();
+    open();
+    type("cash-tip", "2");
+    expect(drafts()).toHaveLength(1);
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settling()).toBeTruthy();
+    expect(drafts()).toEqual([]);
   });
 
   it("no money input is focused on open — the pad never rises over Settle", () => {

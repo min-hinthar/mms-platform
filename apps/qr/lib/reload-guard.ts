@@ -1,4 +1,5 @@
 import type { StaffKey } from "./i18n/staff";
+import { parseMoneyCents } from "./money-input";
 
 /**
  * Phase 2i (P2bi) — what must not be lost to a reload for a new build, and the two verdicts that
@@ -200,6 +201,19 @@ export function stallCureBlock(holds: readonly Hold[]): ApplyBlock | null {
  */
 export function draftHeld(draft: string | null, saved: string): boolean {
   return draft !== null && draft.trim() !== saved.trim();
+}
+
+/**
+ * Codex r3 on #311 (CX14) — does the cash sheet's KEPT tip hold a reload (`draft`)? The sheet keeps
+ * the tip after it closes, and a reload re-mounts the field at the kiosk intent (`intendedTipCents`)
+ * or empty — so held while the typed tip, read as cents the way the settle reads it, differs from
+ * that. A cleared kiosk tip is a change too (the reload would bring the intent back); text too long to
+ * read is still what was typed. Never held for the same tip written another way ("5" for 5.00).
+ */
+export function cashTipDraftHeld(tip: string, intendedTipCents: number | null): boolean {
+  const cents = parseMoneyCents(tip);
+  if (cents === null && /\d/.test(tip)) return true;
+  return (cents ?? 0) !== (intendedTipCents ?? 0);
 }
 
 /** Steps 1-4, shared by both verdicts, in this order: offline, unsent work, a young write, a cash
