@@ -61,8 +61,8 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
 - **Detect:** `NEXT_PUBLIC_BUILD_STAMP` is minted once per `next build` (`apps/qr/scripts/build-stamp.mjs`)
   and inlined into the client bundle and a force-static `GET /api/version` (`{ build, contract }`).
   `AppUpdateWatch` (mounted once in `app/staff/layout.tsx`) asks it every 60 s while seen and online —
-  uncached, no credentials, bounded (`timeoutSignal`: AbortSignal.timeout, or a controller + timer on
-  iPadOS < 16), parsed strictly (anything else is "no verdict", never "changed"). CI proves the stamp
+  uncached, no credentials, bounded (`lib/timeout-signal.ts`: AbortSignal.timeout, or a controller +
+  timer on iPadOS < 16 — the health probe uses it too), parsed strictly (anything else is "no verdict", never "changed"). CI proves the stamp
   reached both the route's prerendered body and a client chunk (`scripts/check-build-stamp.mjs`, after
   the build).
 - **One verdict:** the stall ledger learns a call KIND (`raceTimeout`'s kind is REQUIRED); a hold
@@ -74,9 +74,11 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
 - **One executor** (`lib/app-update.ts`): a fresh pre-flight (online, `/api/version` still differs, a
   health probe that bypasses the 15 s cache), the verdict re-read after the last await, `body.inert` +
   `<html data-reloading>` in the same task as `location.reload()`, and a one-shot per-target record so
-  an automatic reload never loops.
+  an automatic reload never loops (an automatic attempt whose record cannot be written does not go;
+  a hidden tab is refused at the re-check).
 - **Retired:** the first `UnrecognizedActionError` on any tracked call marks the tab retired (it relaxes
   only sound, stashed unsent work and the quiet windows); a bumped `STAFF_CONTRACT` forces the same.
+  Nothing un-retires it short of a reload — not a version read, not an apply that comes back current.
 - **The lane:** `lib/pick-stash.ts` binds the stash to the immediately next LOAD (`lib/tab-load.ts`) of
   the same page, written by a writer that unloaded — never a TTL; the restore is decided at the first
   good read, against the bags that read shows ready.
@@ -85,8 +87,9 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
   (never taken) by every mount, forgotten per line by its acknowledgement; only the writer says the
   imperative or takes focus. Storage refused keeps it in the document's memory and holds both the
   automatic reload and a person's under its own `handBack` reason.
-- **The service worker:** `controllerchange` reloads only the tab that asked for the activation, and
-  never offline (`lib/sw-activation.ts`).
+- **The service worker:** `controllerchange` reloads only the tab that asked for the activation,
+  never offline, and never once the tab is under `/staff` — the staff watcher owns reloads there
+  (`lib/sw-activation.ts`).
 
 **Gate:** `turbo lint typecheck build` green on `b9b9c72` (lint 0 errors) and `node scripts/check-build-stamp.mjs` after it (the stamp in `/api/version`'s prerendered body and a client chunk); the full qr suite 6048 / 6048 (369 files) and `packages/ui` 287 / 287 on the final tree; all 15 fast-lane steps green, `check:docs` clean (2869 mutants · 6048 + 287 tests), `check:mutant-anchors` 2869 anchors · 240 files; a filtered `verify:slice` (`--no-gate`) over every `p2i-*` mutant plus every mutant on every file changed since `17f1b1e` — 876 mutants on 42 files — caught 876 / 876 (0 survived, 0 stale, no orphans). The full unfiltered run is still to come.
 
@@ -116,6 +119,33 @@ its readers (G). Filed: P2iu–P2iz, P2ja (a retired tap's two-minute mute, the 
 memory hand-back, a reload over a stalled cash refund, the shell's owed reload on `/staff`, an auto
 apply on a hidden tab, the bfcache stash stamp, and Next's MPA-versus-`onDone` order — a real-build
 measurement).
+
+**Codex round 1 on #311** (head `6065379`: 3×P1 + 4×P2 — all seven real, each re-read in source
+first; fixed in `aabc511` · `8b224a7` · `887299e`, mutants `70e1cc8` · `cf112ff`; each red-first). **P1 · a
+hand-back read back from the record never ended while the zone stayed up:** only a memory entry had
+an expiry timer, so an entry a reload, a duplicated tab or an away-zone answer wrote to the tab record
+was said past its one-shift life. `nextHandBackExpiryMs` (lib, also behind the memory timer, clamped to
+[0, a shift]) gives the first entry's end and `SettledToday` re-reads the list then, quietly. **P1 · an
+unrecordable automatic attempt reloaded for ever:** the tried-target record's write failed silently,
+so a reload that missed its target re-ran every quiet window; `markAppliedIn` now reports whether the
+record reads back, and an AUTOMATIC apply refuses without it (a person's Reload still goes). **P1 ·
+the shell's reload under /staff (was P2ix):** a diner page's owed reload, failsafe or asked-for
+activation survived a soft navigation into the staff app and reloaded it under none of its holds;
+`staffOwnsReload` is read where each rule decides, and the shell pays none of them there. **P2 · a
+hidden tab mid-pre-flight (P2iy):** `GuardInput.visible`, refused by `autoBlock` at the executor's
+post-await re-check. **P2 · the bfcache pick stamp (P2iz):** only an unloading `pagehide`
+(`hideClosesStash`) stamps the lane's stash closed. **P2 · a retired tap answered `current` (P2iu):**
+the screen stays retired with its warning and only the automatic path snoozes; the two-minute mute of
+later witnesses is gone (and with it the retirement alert's re-arm, which a retired document can no
+longer reach). **P2 · the probe's timeout (P2it):** `timeoutSignal` moved to `lib/timeout-signal.ts`,
+shared by the version read and the health probe. Mutants 2886 → 2908 (24 added, 9 re-anchored, 2
+retired with the code they guarded); P2it · P2iu · P2ix · P2iy · P2iz closed. Gate: `turbo lint
+typecheck build` green and the build stamp checked after it; the full qr suite 6089 / 6089 (370 files)
+and `packages/ui` 287 / 287; all 15 fast-lane steps and `check:docs` clean; a filtered `verify:slice`
+over every mutant added or re-anchored this round plus every mutant whose file or suite this round
+touched — 460 on 23 files — caught 459 and found ONE survivor, `p2i-watch/tick-while-hidden`: CX4's
+hidden-tab refusal had made the hidden-tick case blind to it, so the case now pins the work itself
+(`cf112ff`, red-first), and a re-run of that suite's 22 mutants caught 22. 0 stale.
 
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
