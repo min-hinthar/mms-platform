@@ -318,11 +318,16 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
   });
 
   it("nothing ticks while the screen is unseen — no countdown runs where nobody can see it", async () => {
-    // MUTATION (p2i-watch/tick-while-hidden): the tick runs hidden — a backgrounded screen counts
-    // down and reloads with nobody there to say Not now; red.
+    // MUTATION (p2i-watch/tick-while-hidden): the tick runs hidden — a backgrounded tablet reads the
+    // document every second for a countdown nobody can see; red. (Since Codex r1 on #311 a hidden tab
+    // is also refused by the automatic verdict itself, so the reload never happens either way: the
+    // assertion that kills this mutant is that the hidden tick does no work at all.)
     await mountStale();
     act(() => setVisibility("hidden"));
+    const reads = vi.spyOn(document, "querySelector");
     await act(() => vi.advanceTimersByTimeAsync(WATCH_TICK_MS * 30));
+    expect(reads).not.toHaveBeenCalled();
+    reads.mockRestore();
     expect(phase().k).toBe("stale");
     expect(reload).not.toHaveBeenCalled();
   });

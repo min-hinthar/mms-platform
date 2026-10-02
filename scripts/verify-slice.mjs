@@ -22534,7 +22534,7 @@ const MUTANTS = [
     id: "p2i-watch/tick-while-hidden",
     file: "apps/qr/components/staff/AppUpdateWatch.tsx",
     suite: "components/staff/AppUpdateWatch.test.tsx",
-    why: "Phase 2i (P2bi) — the tick runs only while the screen is seen. Ticking hidden, a backgrounded screen counts down and reloads with nobody there to say Not now",
+    why: "Phase 2i (P2bi) — the tick runs only while the screen is seen. Ticking hidden, a backgrounded tablet reads the document every second for a countdown nobody can see (since Codex r1 on #311 the automatic verdict also refuses a hidden tab, so the suite pins the work, not only the reload)",
     find: '      const want = (k === "stale" || k === "countdown") && document.visibilityState === "visible";',
     replace: '      const want = k === "stale" || k === "countdown";',
   },
