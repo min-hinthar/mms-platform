@@ -505,8 +505,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
               // An owed hand-back stays: it names its own dish and waits for its own [Handed back].
               setConfirmed(null);
             } else if (handBack) {
-              repeek();
-              refocusBanner.current = true;
+              // Said, with focus, by this zone's own hand-back listener (`subscribeHandBacks`), which
+              // `rememberHandBack` told synchronously above — ONE path for an on-time answer, a late
+              // one, and one heard by a newer mount (it also closes any open sheet: critic F5).
             } else {
               setConfirmed({ cents: refundedCents, path });
               refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands

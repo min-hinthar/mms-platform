@@ -22603,14 +22603,6 @@ const MUTANTS = [
       "                setConfirmed(null);\n                for (const h of owedHandBacksNow(tabStore(), Date.now())) ackHandBack(tabStore(), h.lineId);\n                setOwedBack([]);\n                setRefunding({ order: o, line });",
   },
   {
-    id: "p2i-handback/unkept-unfocused",
-    file: "apps/qr/components/staff/SettledToday.tsx",
-    suite: "components/staff/SettledToday.handback.test.tsx",
-    why: "Phase 2i — a cash answer's instruction takes focus even when only memory holds it",
-    find: "              repeek();\n              refocusBanner.current = true;\n",
-    replace: "              repeek();\n",
-  },
-  {
     id: "p2i-handback/late-unsaid",
     file: "apps/qr/components/staff/SettledToday.tsx",
     suite: "components/staff/SettledToday.test.tsx",
