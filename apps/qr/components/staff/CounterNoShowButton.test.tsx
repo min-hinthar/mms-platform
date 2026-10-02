@@ -853,6 +853,32 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     expect(record).toHaveBeenCalledTimes(2);
   });
 
+  it("a sheet RE-OPENED while its write-off is still out remembers it: the re-tap says the write-off's OWN line, never 'this did nothing' (review a, A4 · decision 9i)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<NoShowAnswer>();
+    record.mockReturnValueOnce(late.promise);
+    await openSheet();
+    await submit();
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(closeX());
+    });
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    open(); // a fresh mount of the sheet
+    await act(async () => {});
+    await submit();
+    expect(record).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-a/noshow/subject-unkeyed): the remount forgot the wait and says the tablet's
+    // "this did nothing" — dropping "don't remove it again"; red.
+    expect(region().textContent).toBe(STAFF["table.noshow.waiting"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_open" });
+    });
+    record.mockReturnValueOnce(hang().promise);
+    await submit();
+    expect(record).toHaveBeenCalledTimes(2);
+  });
+
   it("a write-off that may still land outranks 'the order changed': the waiting sentence and its reload stay when a poll moves the order (critic F11)", async () => {
     vi.useFakeTimers();
     const sheet = (sent: string[]) => (

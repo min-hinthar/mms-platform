@@ -5,7 +5,7 @@ import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
 import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
-import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import { boundWrite, ownWaitSlot, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
@@ -134,7 +134,9 @@ export function LossActionSheet({
   // mid-hang reads "not stalled" and would let a second write queue behind the first. It holds the
   // sentence that write SAID at the bound (the void's or the request's — one write is out at a time),
   // because the refusal re-says it, not the tablet's (`tapRefusal`, owner decision); null: none out.
-  const ownLate = useRef<StaffKey | null>(null);
+  // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount (the line editor
+  // keys every open as a fresh sheet; a re-opened one must still say the write that is out).
+  const ownLate = ownWaitSlot<StaffKey | null>(`loss:${line.id}`, null);
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
   const cooked = line.state === "in_progress" || line.state === "served";

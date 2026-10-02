@@ -52,6 +52,23 @@ function mount() {
   return { trigger, charge, rerender };
 }
 
+/** Review a (A5) — whether the region's CONTENT was replaced or rewritten (what a screen reader
+ *  announces) between this call and the returned check; equal text rendered in place records none. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
+
 describe("CloseSecureTabButton — a rejected close never latches", () => {
   it("a REJECTING closeSecureTab clears busy, closes the confirm, returns focus to the trigger and says the outcome is unknown", async () => {
     closeSecureTab.mockRejectedValueOnce(new Error("fetch failed"));
@@ -614,5 +631,13 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
     expect(reloadBtn()).not.toBeNull();
     expect(trigger()).toBeTruthy();
+    // Review a (A5) — a SECOND refused charge puts the same sentence in the same alert: it must be
+    // RE-SAID (the content replaced), or the screen reader hears nothing and the tap reads as dead.
+    const said = watchRegion(screen.getByRole("alert"));
+    await openAndCharge();
+    expect(closeSecureTab).not.toHaveBeenCalled();
+    // MUTATION (p2h-rev-a/close/resay-unkeyed): equal text rendered in place — no DOM change; red.
+    expect(said()).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
   });
 });

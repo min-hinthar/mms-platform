@@ -151,3 +151,85 @@ export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
   if (open === null || handBack) return null;
   return open.line.id === answeredLineId ? null : open;
 }
+
+/**
+ * Phase 2h · review a (A2) — a CASH refund's hand-back that nobody has been told to make yet.
+ *
+ * A cash refund with no answer at STAFF_HANG_MS frees its sheet, and its LATE answer is the ONLY
+ * place the server-clamped figure and the instruction "hand back $X from the drawer" exist (record
+ * first, then the drawer — `floor.settled.path.cash`). It reaches the zone through the sheet's
+ * tap-time `onDone`; if the zone has unmounted by then (the manager moved to another screen), its
+ * banner state is gone with it and the instruction would be dropped on the floor — money recorded
+ * as handed back that never left the till. So a late hand-back that finds the zone gone is kept
+ * HERE, per tab (sessionStorage survives a reload of the same tab), keyed by the refunded line, and
+ * the zone says it — and forgets it — the next time it mounts.
+ *
+ * Only a hand-back the zone could NOT say is kept: one said by a mounted zone, kept as well, would
+ * be said a second time on the next mount, and a manager following it pays the guest twice.
+ * Storage that throws or is absent (private mode, a server render) keeps nothing and never throws.
+ */
+export const HAND_BACK_KEY = "mms.staff.refund.handBack";
+export type HandBack = { lineId: string; cents: number };
+export type TabStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/** This tab's sessionStorage, or null where there is none (a server render) or it throws. */
+export function tabStore(): TabStore | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function readHandBacks(store: TabStore): HandBack[] {
+  const raw = store.getItem(HAND_BACK_KEY);
+  if (raw === null) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(
+    (h): h is HandBack =>
+      typeof h === "object" &&
+      h !== null &&
+      typeof (h as HandBack).lineId === "string" &&
+      Number.isInteger((h as HandBack).cents) &&
+      (h as HandBack).cents > 0,
+  );
+}
+
+/** Keep a hand-back the zone could not say. One line is refunded once, so a line's newer entry
+ *  replaces its older one (never two instructions for one refund). */
+export function rememberHandBack(store: TabStore | null, lineId: string, cents: number): void {
+  // A non-positive or fractional figure is no hand-back; `readHandBacks` drops it on the way out.
+  if (store === null) return;
+  try {
+    let kept: HandBack[] = [];
+    try {
+      kept = readHandBacks(store);
+    } catch {
+      kept = []; // an unreadable record is replaced, never allowed to block a new instruction
+    }
+    const next = [...kept.filter((h) => h.lineId !== lineId), { lineId, cents }];
+    store.setItem(HAND_BACK_KEY, JSON.stringify(next));
+  } catch {
+    // Storage refused (quota, private mode): nothing can be kept. The cash refund's waiting line
+    // already told the manager to reload and hand back the figure if the line shows refunded.
+  }
+}
+
+/** Every kept hand-back, and forget them: the caller is about to say them. */
+export function takeHandBacks(store: TabStore | null): HandBack[] {
+  if (store === null) return [];
+  let owed: HandBack[] = [];
+  try {
+    owed = readHandBacks(store);
+  } catch {
+    owed = [];
+  }
+  try {
+    store.removeItem(HAND_BACK_KEY);
+  } catch {
+    // Nothing to do: the next take reads the same entries again, which only repeats an instruction
+    // that was never acted on twice — the refund itself recorded once.
+  }
+  return owed;
+}

@@ -1,7 +1,14 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { settleCash } from "@/lib/staff-cart";
-import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import {
+  boundWrite,
+  hasOwnWait,
+  ownWaitSlot,
+  stalledSince,
+  subscribeOwnWait,
+  tapRefusal,
+} from "@/lib/bounded-write";
 import {
   cashSettleBlocked,
   changeAsTipCents,
@@ -193,7 +200,20 @@ export function CashSettleButton({
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
   // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
   // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `confirm`).
-  const ownLate = useRef(false);
+  // Review a (A4) — kept per CART in the tab's own-wait register, never per mount: the detail this
+  // control lives in can unmount and come back while the settle is still in Next's queue.
+  const ownWaitKey = `cash:${sessionId}`;
+  const ownLate = ownWaitSlot(ownWaitKey, false);
+  // Review a (A1) — the same wait, READ BY RENDER: while this cart's own settle is out past the bound
+  // the trigger is HELD and the waiting sentence stands under it (its siblings' shape —
+  // CloseSecureTabButton's `held`, TerminalSettle's `waiting`). Without it, closing the waiting sheet
+  // put the neutral hint back and a reopen offered a clean "Take $X" over a payment that may already
+  // be recorded. Subscribed, so a remount holds too and the late answer frees it wherever it lands.
+  const ownWaiting = useSyncExternalStore(
+    subscribeOwnWait,
+    () => hasOwnWait(ownWaitKey),
+    () => false,
+  );
   // The settle landed: the sheet is unmounted (see the render) and the trigger goes busy until the
   // paid state re-renders this control away. When a PAID CARD follows, the close-restore must not
   // fight the parent for focus (it focuses the card, `FloorDetailLive`'s own effect); a ref beside
@@ -533,6 +553,9 @@ export function CashSettleButton({
   // F2 — an unread late word, said under the trigger while the sheet is closed (never at once with
   // the alert: opening the sheet reads it there, and the trigger's tap clears this).
   const lateNote = lateUnseen && !confirming ? error : null;
+  // Review a (A1) — the trigger is held on this cart's own wait: its line says the waiting sentence
+  // (never the neutral hint) while the sheet is closed. A late word outranks it (it ended the wait).
+  const waitNote = !lateNote && ownWaiting && !confirming;
 
   return (
     <div>
@@ -550,10 +573,17 @@ export function CashSettleButton({
         // so the primitive's own busy state is never erased) plus the handler's guard below, never
         // native `disabled`; the page's note is read first.
         {...(gateBlocked ? { "aria-disabled": true } : {})}
+        // Review a (A1) — held while this cart's own settle is still out past the bound: the
+        // attribute plus the handler's own guard (read at the tap), never native `disabled`.
+        {...(ownWaiting ? { "aria-disabled": true } : {})}
         aria-describedby={
           gateBlocked && blockedNoteId ? `${blockedNoteId} settle-hint` : "settle-hint"
         }
         onClick={() => {
+          // Review a (A1) — this cart's own settle may still be recorded: no sheet opens over it
+          // (the line under the trigger says why, with the reload). It outranks the gate's jump —
+          // a payment that may have gone through is the fact the cashier must act on first.
+          if (ownLate.current) return;
           if (gateBlocked) {
             // Opens no sheet: the page says why and takes the cashier to the Send.
             onBlockedTap?.(null);
@@ -923,9 +953,18 @@ export function CashSettleButton({
           sheet closed has no alert to speak in and no page line while this detail is mounted, so
           it takes this line (still the trigger's description, still no live role) until the
           trigger is tapped — and the sheet that opens says it in its alert. */}
-      <p id="settle-hint" style={lateNote ? { ...hint, color: "var(--warn)" } : hint}>
-        {lateNote ? sayError(lateNote) : <Chrome lang={lang} k="settle.cash.hint" echo="stack" />}
+      <p id="settle-hint" style={lateNote || waitNote ? { ...hint, color: "var(--warn)" } : hint}>
+        {lateNote ? (
+          sayError(lateNote)
+        ) : waitNote ? (
+          <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
+        ) : (
+          <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
+        )}
       </p>
+      {/* Review a (A1) — the waiting line says "reload the page" and the console is installed
+          standalone: the reload sits beside it, never inside it (no live role of its own). */}
+      {waitNote && <ReloadButton lang={lang} block />}
     </div>
   );
 }

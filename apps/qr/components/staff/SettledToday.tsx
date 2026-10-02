@@ -15,9 +15,13 @@ import {
   groupKey,
   receiptRowKey,
   refundSheetAfterAnswer,
+  rememberHandBack,
   settledChipKey,
   settledStatusKey,
+  tabStore,
+  takeHandBacks,
   tenderKey,
+  type HandBack,
 } from "@/lib/settled-view";
 import { raceTimeout } from "@/lib/staff-outage";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
@@ -70,6 +74,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // the moment a drawer hand-back is recordable. The PATH is captured with the amount, at the moment
   // the sheet reports, rather than re-derived later from a list that has since refreshed.
   const [confirmed, setConfirmed] = useState<{ cents: number; path: RefundPath } | null>(null);
+  // Phase 2h · review a (A2) — CASH hand-backs a refund's LATE answer brought while this zone was
+  // gone (`rememberHandBack`, below): said in the banner when the zone comes back, then forgotten.
+  const [owedBack, setOwedBack] = useState<HandBack[]>([]);
   // Phase 2h (9b) — the read is called OUTSIDE any transition: under `startTransition(async …)` its
   // `pending` (the Refresh's busy) held until the action ANSWERED, whatever `raceTimeout` did — and
   // while it hung, every other transition's pending and every router commit on the tab was held with
@@ -108,6 +115,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     return gateRef.current;
   }, []);
   const refresh = useCallback(async () => {
+    // Review a (A3) — a refund's LATE answer reaches this through the sheet's tap-time `onDone`,
+    // possibly after the zone unmounted: a read from a dead zone shows nothing and only puts one
+    // more action into the tab's one-at-a-time queue. The kick is guarded the same way (above).
+    if (!alive.current) return;
     const gate = gateOf();
     const asked = gate.ask();
     // Owed to the read in the air: it runs once that one answers. No miss is counted here, because
@@ -191,7 +202,24 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     // has no layout), and a missing scroll must never throw out of an effect that has just moved
     // focus onto a money instruction. Focus alone already brings it into view in a real browser.
     bannerRef.current?.scrollIntoView?.({ block: "center" });
-  }, [confirmed]);
+  }, [confirmed, owedBack]);
+
+  // Phase 2h · review a (A2) — a hand-back kept while this zone was gone is said when it mounts: the
+  // banner's region takes it and takes FOCUS (the effect above), so it is read out and in view. The
+  // record is read from a timer, never in render (a server render has no tab storage, and a
+  // different first paint would not hydrate) and never as a synchronous setState in the effect
+  // body; Strict Mode's first setup is cleared before its timer fires, so the take — which forgets
+  // the record — runs exactly once per mount.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const owed = takeHandBacks(tabStore());
+      if (owed.length === 0) return;
+      refocusBanner.current = true;
+      setArmed(true);
+      setOwedBack(owed);
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // The CARD path's handoff still waits for the list, and correctly: the refreshed list is what
   // swaps the Refund button for the refunded mark and drops focus to <body>, so there is nothing
@@ -285,6 +313,13 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
       </p>
       {armed && (
         <p role="status" ref={bannerRef} tabIndex={-1} style={confirmBanner}>
+          {owedBack.map((h, i) => (
+            <Fragment key={h.lineId}>
+              {i > 0 && " "}
+              <Chrome lang={lang} k="floor.settled.confirmed.cash" vars={{ m: dollars(h.cents) }} />
+            </Fragment>
+          ))}
+          {owedBack.length > 0 && confirmed !== null && " "}
           {confirmed !== null && (
             <Chrome
               lang={lang}
@@ -321,6 +356,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
                 // imperative carrying an amount; a stale one standing over a new attempt is an
                 // instruction to pay a figure this tap has nothing to do with.
                 setConfirmed(null);
+                setOwedBack([]); // review a (A2) — a recovered hand-back is that same imperative
                 setRefunding({ order: o, line });
               }}
             />
@@ -347,6 +383,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
             const orderId = subject.order.id;
             const path = subject.order.refundPath;
             const handBack = refundedCents != null && path === "cash";
+            // Review a (A2) — the zone is GONE (this is a late answer through the tap-time
+            // closure): nothing below can say the hand-back, so keep it for the zone's next mount.
+            // Only then — a hand-back this zone says now, kept as well, would be said twice.
+            if (handBack && !alive.current)
+              rememberHandBack(tabStore(), subject.line.id, refundedCents);
             setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id, handBack));
             if (refundedCents == null) {
               // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the

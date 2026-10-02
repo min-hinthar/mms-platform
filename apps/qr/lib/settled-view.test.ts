@@ -10,6 +10,7 @@ import {
 } from "./refund-view";
 import {
   GROUP_KEY,
+  HAND_BACK_KEY,
   REFUND_REASONS,
   REFUND_REASON_KEY,
   RECEIPT_ROW_KEY,
@@ -17,10 +18,12 @@ import {
   groupKey,
   receiptRowKey,
   refundSheetAfterAnswer,
+  rememberHandBack,
   settledChipKey,
   settledClock,
   settledDate,
   settledStatusKey,
+  takeHandBacks,
   tenderKey,
 } from "./settled-view";
 import { refundLineInput } from "@mms/db/schemas";
@@ -143,5 +146,88 @@ describe("refundSheetAfterAnswer — Phase 2h · integration b: a refund's answe
     expect(refundSheetAfterAnswer(sheet("l2"), "l1", true)).toBeNull();
     expect(refundSheetAfterAnswer(sheet("l1"), "l1", true)).toBeNull();
     expect(refundSheetAfterAnswer(null, "l1", true)).toBeNull();
+  });
+});
+
+describe("rememberHandBack / takeHandBacks — Phase 2h · review a (A2): a cash hand-back the zone could not say is kept for its next mount", () => {
+  function memory(): Storage & { data: Map<string, string> } {
+    const data = new Map<string, string>();
+    return {
+      data,
+      get length() {
+        return data.size;
+      },
+      clear: () => data.clear(),
+      key: (i: number) => [...data.keys()][i] ?? null,
+      getItem: (k: string) => data.get(k) ?? null,
+      setItem: (k: string, v: string) => void data.set(k, v),
+      removeItem: (k: string) => void data.delete(k),
+    };
+  }
+
+  it("keeps what it is handed, by line, and the take says it ONCE", () => {
+    const store = memory();
+    rememberHandBack(store, "l1", 1105);
+    rememberHandBack(store, "l2", 250);
+    expect(takeHandBacks(store)).toEqual([
+      { lineId: "l1", cents: 1105 },
+      { lineId: "l2", cents: 250 },
+    ]);
+    // MUTATION (p2h-rev-a/handback/take-keeps): the next mount says "hand back $11.05" again, and
+    // the guest is paid twice; red.
+    expect(takeHandBacks(store)).toEqual([]);
+    expect(store.data.has(HAND_BACK_KEY)).toBe(false);
+  });
+
+  it("one line is refunded once: a newer entry for it replaces the older one", () => {
+    const store = memory();
+    rememberHandBack(store, "l1", 1105);
+    rememberHandBack(store, "l1", 900);
+    // MUTATION (p2h-rev-a/handback/line-appended): two instructions for one refund; red.
+    expect(takeHandBacks(store)).toEqual([{ lineId: "l1", cents: 900 }]);
+  });
+
+  it("never keeps a figure that is not a hand-back (zero, negative, fractional)", () => {
+    const store = memory();
+    rememberHandBack(store, "l1", 0);
+    rememberHandBack(store, "l2", -5);
+    rememberHandBack(store, "l3", 1.5);
+    // MUTATION (p2h-rev-a/handback/non-positive-read): "hand back $0.00" or a negative figure; red.
+    expect(takeHandBacks(store)).toEqual([]);
+  });
+
+  it("garbage in the slot is replaced by the next real hand-back and never read as one", () => {
+    const store = memory();
+    store.setItem(HAND_BACK_KEY, "{not json");
+    expect(takeHandBacks(store)).toEqual([]);
+    store.setItem(HAND_BACK_KEY, "{not json");
+    rememberHandBack(store, "l1", 1105);
+    expect(takeHandBacks(store)).toEqual([{ lineId: "l1", cents: 1105 }]);
+    store.setItem(
+      HAND_BACK_KEY,
+      JSON.stringify([
+        { lineId: 3, cents: 5 },
+        { lineId: "x", cents: "5" },
+      ]),
+    );
+    expect(takeHandBacks(store)).toEqual([]);
+  });
+
+  it("storage that throws or is absent keeps nothing and never throws", () => {
+    const broken = {
+      getItem: () => {
+        throw new Error("denied");
+      },
+      setItem: () => {
+        throw new Error("quota");
+      },
+      removeItem: () => {
+        throw new Error("denied");
+      },
+    };
+    expect(() => rememberHandBack(broken, "l1", 1105)).not.toThrow();
+    expect(takeHandBacks(broken)).toEqual([]);
+    expect(() => rememberHandBack(null, "l1", 1105)).not.toThrow();
+    expect(takeHandBacks(null)).toEqual([]);
   });
 });
