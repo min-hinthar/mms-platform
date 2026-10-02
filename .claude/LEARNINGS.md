@@ -3335,3 +3335,25 @@ resumes a stranger's pick after a sign-in or a page in between, and sessionStora
 duplicated tab, counter and all, so the clone would resume the original's work too. A clock may
 still bound the resume (a pick older than its window becomes a remark), but it is the load binding
 that makes a send exact; anything that fails it degrades to saying what was lost.
+
+## #213
+
+**A money instruction persisted for "the next document" must say WHICH document may give the order.**
+Phase 2i kept the cash hand-back ("Recorded — now hand back $X") in sessionStorage so Next's reload
+on a stale build could not erase it — and then every later document said it again, imperative and
+focused, until [Handed back]: a reload after the money left the drawer, and a duplicated tab (the
+browser CLONES sessionStorage, so an acknowledgement in one never clears the other), each ordered a
+second payout. Persisting survival is half the rule; the other half is authorship. Stamp the entry
+with an id that lives in MODULE MEMORY (new per load, never cloned — a per-tab counter in storage is
+cloned with it), give the order only where the stamp matches, and everywhere else show the record as
+a question with no focus. Blind review M1 · K1.
+
+## #214
+
+**A test setup file must never import a module a suite mocks the dependencies of.** `setupFiles`
+modules are evaluated before a suite's hoisted `vi.mock` applies, so the suite then gets the cached,
+unmocked copy (S1 measured it with `app-update`). To reset a COMPONENT's module state per case
+(`ResilienceShell`'s owed reload, the bar row's retired latch), let the component register its own
+reset at load (`lib/test-resets.ts`) and have the setup run the registry — a module no case imported
+has nothing to reset. Prove each with an ordered pair of cases and delete the suite's own manual reset,
+or the suite hides the leak the setup is meant to stop.

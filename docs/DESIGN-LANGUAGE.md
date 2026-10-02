@@ -1737,13 +1737,17 @@ old code, and Next reloads it unasked on its first revalidating write. The rules
   represents registers a hold (`useReloadHold(kind, reason, subject, on)`): `unsent` (a pick, the KDS
   Undo), `unread` (the recall rail, a pane's lost money line, a reader outcome, an unsaved hand-back),
   `sound` (the KDS sound, the counter bell), `standing` (a Reload offer on screen). Manual reads only
-  `unsent`; automatic reads them all. A hold whose work is stashed for the next load says so
+  `unsent` and the one unread reason a reload erases outright — a hand-back only memory holds
+  (`refusesManual`); automatic reads them all. A hold whose work is stashed for the next load says so
   (`survives`), and only a retired tab may reload over it.
 - **What a reload must not lose is kept in the tab — bound to the next LOAD, not a clock.** Lane picks
   resume only on the immediately next load of the same page, written by a writer that unloaded;
   anything else becomes a "mark these again" list. A cash hand-back stays — through reloads and
-  navigation — until its own **Handed back** (one per line, each naming its dish and receipt), and is
-  announced once per document.
+  navigation — until its own **Handed back** (one per line, each naming its dish and receipt). **An
+  order is given once:** only the document that received the answer says "now hand back $X", with
+  focus; a reload, Next's reload or a duplicated tab (storage is CLONED into it) shows the same record
+  as a question with no focus — "was it already handed back? Check before you hand it back again." A
+  money instruction re-said as an order after the money may have moved is a second payout.
 - **Reloading looks like it.** The executor freezes the page in the reload's own task: `body` inert,
   `<html data-reloading>` → a progress cursor and a click-through `--scrim-glass` dim laid just under
   the sticky bar (whose button reads "Reloading…" only once frozen — "Checking…" through the

@@ -24,8 +24,10 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
   which case the row says why in one sentence, in the row's own place, and the sentence goes away by
   itself the moment it stops being true: "A bag you just marked picked up hasn't saved yet — try
   again in a few seconds." · "The Undo button is still showing — …" · "Still saving what you just did
-  — …" · "This device is offline — reload when it's back online." · "The order system isn't answering
-  — reloading now would empty this screen. Keep working from it."
+  — …" · "This device is offline — reload when it's back online." · "The order system isn't
+  answering, so the new version can't load yet — try again in a moment." · "A cash hand-back is still
+  on screen — hand it back and tap Handed back first." (only while this screen's memory holds the
+  sole copy — its storage refused).
 - **A quiet screen takes the new version on its own — visibly.** After 15 seconds with nobody touching
   it and nothing unsaved, unread or open, the row counts down "Reloading for the new version in 5…"
   with **Not now** (ten minutes); any touch, key, scroll or hiding the screen cancels it. A screen
@@ -40,9 +42,15 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
   pick is sent if its window had run out. Any other visit within 15 minutes lists them instead: "The screen
   reloaded before these bags saved as picked up — mark them again: …" — nothing is sent for a bag the
   lane did not see ready.
-- **A cash hand-back stays until it is done.** "Recorded — now hand back $X for {the dish · its
-  receipt code} from the drawer." stands — through a reload, through leaving the page, for up to 12
-  hours — until **Handed back** is tapped for that line; each refund has its own button.
+- **A cash hand-back stays until it is done — and is ordered only once.** The screen that received
+  the refund's answer says "Recorded — now hand back $X for {the dish · its receipt code} from the
+  drawer." with focus, and keeps it (also after leaving the page and coming back) until **Handed back**
+  is tapped for that line; each refund has its own button. The record lives in the tab's storage for
+  up to 12 hours, so a reload of that tab — ours, or Next's own on a stale build — and a duplicated
+  tab still show it, but as a question with no focus: "A cash refund of $X for {dish · code} was
+  recorded — was it already handed back from the drawer? Check before you hand it back again." Where
+  the tablet refuses storage, the hand-back lives only in that screen's memory and BOTH reloads wait
+  for its **Handed back** — except the stall cure's own Reload (P2iv).
 - **The Reload offer never reloads offline.** It reads "Offline — reload when this device is back
   online" while the device is offline; an offer on screen also stops the automatic reload.
 - **While the screen reloads,** it dims under the bar and shows a progress cursor; nothing on it
@@ -60,7 +68,8 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
 - **One verdict:** the stall ledger learns a call KIND (`raceTimeout`'s kind is REQUIRED); a hold
   register (`lib/reload-guard.ts`) carries what no promise represents — unsent picks and the KDS Undo,
   unread money lines and the recall rail, live sound, a standing reload offer. `manualBlock` refuses
-  only offline, for unsent work and for a young write; `autoBlock` refuses for anything that could be lost or
+  only offline, for unsent work, for a young write and for a hand-back only memory holds
+  (`refusesManual`); `autoBlock` refuses for anything that could be lost or
   unread, and its heuristics (quiet, dialog, typing, answer grace) only ever refuse.
 - **One executor** (`lib/app-update.ts`): a fresh pre-flight (online, `/api/version` still differs, a
   health probe that bypasses the 15 s cache), the verdict re-read after the last await, `body.inert` +
@@ -71,9 +80,11 @@ re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2b
 - **The lane:** `lib/pick-stash.ts` binds the stash to the immediately next LOAD (`lib/tab-load.ts`) of
   the same page, written by a writer that unloaded — never a TTL; the restore is decided at the first
   good read, against the bags that read shows ready.
-- **The hand-back:** written synchronously in the refund's answer handler, peeked (never taken) by every
-  mount, forgotten per line by its acknowledgement; storage refused keeps it in the document's memory
-  and holds the automatic reload under its own `handBack` reason.
+- **The hand-back:** written synchronously in the refund's answer handler, stamped with the id of the
+  document that wrote it (module memory, so a reload and a cloned tab read as "not mine"), peeked
+  (never taken) by every mount, forgotten per line by its acknowledgement; only the writer says the
+  imperative or takes focus. Storage refused keeps it in the document's memory and holds both the
+  automatic reload and a person's under its own `handBack` reason.
 - **The service worker:** `controllerchange` reloads only the tab that asked for the activation, and
   never offline (`lib/sw-activation.ts`).
 
@@ -87,6 +98,24 @@ fewer `revalidatePath` triggers, gestureless sound proof, inline drafts, the cou
 filed), P2ir (unread holds have no age bound) · P2is (a cash refund is not recorded before it is sent) ·
 P2it (the health probe's own `AbortSignal.timeout`), and C25 · C26 (the action-encryption key; Pro +
 Skew Protection, optional).
+
+**Blind review.** A fresh-context, three-lens pass (product truth · money semantics · concurrency) on
+`17f1b1e..72e2acb` returned REJECT × 3. Fixed (`9c86a7c` · `80a8d88`), each red-first with a mutant:
+the cash hand-back was re-ordered, imperative and focused, by every later document — a reload, Next's
+reload, a duplicated tab whose cloned storage an acknowledgement elsewhere never clears — so a guest
+could be paid twice (money M1 · concurrency K1); it is now ordered once, by the writer, and asked about
+everywhere else. A hand-back only memory held was erased by a person's Reload (product C1 ·
+concurrency K2); `refusesManual` now refuses it. The outage refusal claimed a reload "would empty this
+screen" on the outage shell itself (C2). The reader's status poll — which moves the settlement freeze
+and can cancel a payment — was tracked as a READ (money M2), and the action guard could not see it
+(M3) nor a namespace import (M4); the guard now resolves each call's kind against an explicit READS
+allowlist. The bar row went blank while applying (Q3); the lane's remark hid behind a standing notice
+(Q1); the Burmese sound line used one verb for "reload" and "turn on" (Q4); test-setup now resets the
+hand-back's document state and the component latches (`lib/test-resets.ts`), and the hold reset tells
+its readers (G). Filed: P2iu–P2iz, P2ja (a retired tap's two-minute mute, the stall cure over a
+memory hand-back, a reload over a stalled cash refund, the shell's owed reload on `/staff`, an auto
+apply on a hidden tab, the bfcache stash stamp, and Next's MPA-versus-`onDone` order — a real-build
+measurement).
 
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
