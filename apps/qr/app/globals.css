@@ -12851,6 +12851,46 @@ a.aisle-tile {
 .staff-net > svg {
   color: var(--warn);
 }
+/* ── Phase 2i ── THE NEW-VERSION ROW (`StaffBarUpdate`): "a new version of this screen is ready",
+   in the offline row's idiom — in flow INSIDE the sticky bar, full width, ordered last (before the
+   offline row, by DOM order), so it never covers a control and the bar's measured height
+   (`--staff-bar-h`) holds it. The bar wraps only while it holds the row. Neutral card ground; the
+   warn pair when this screen's taps may not save (retired) — the words carry the tone, never colour
+   alone. Entrance `.mms-rise` (RM-gated by the kit); nothing here animates. */
+.staff-bar:has(> .staff-update) {
+  flex-wrap: wrap;
+}
+.staff-update {
+  flex-basis: 100%;
+  order: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.staff-update[data-tone="warn"] {
+  border-color: var(--warn);
+  background: var(--warnb);
+}
+.staff-update-line {
+  flex: 1 1 14rem;
+  min-width: 0;
+  margin: 0;
+}
+.staff-update-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-left: auto;
+}
 /* ── Phase 2g · reader ── THE READER CHIP (`ReaderCollectChip`): the card reader's collect, on every
    page NOT showing its table. The offline row's idiom — in flow INSIDE the sticky bar, full width,
    ordered last (before the offline row, by DOM order), so it never covers a control and the bar stays

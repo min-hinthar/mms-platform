@@ -54,6 +54,7 @@ import type { KitchenErrCode } from "@/lib/kitchen-types";
 import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
 import { ReloadButton } from "./ReloadOffer";
+import { useReloadHold } from "./useReloadHold";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { staffClock } from "@/lib/staff-clock";
@@ -340,6 +341,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [soundWanted, setSoundWanted] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const chime = useRef<KdsChime | null>(null);
+  // Phase 2i (P2bi) — what a reload for a new build would lose here: the Undo bar (unsent — refuses
+  // a person's tap too), the recall rail (the only "Bring back" — refuses the automatic reload), and
+  // live sound (a reload turns it off — the automatic reload waits for a person).
+  useReloadHold("unsent", "kitchenUndo", "kds", undo !== null);
+  useReloadHold("unread", "kitchenRecall", "kds", recall.length > 0);
+  useReloadHold("sound", "kdsSound", "kds", soundOn);
 
   // Phase 2b · kitchen — the board's CONFIRMED override of a dish's sold-out flag, keyed on the poll
   // sequence (`lib/kds-line.ts`). `fetchSeq` counts every refresh that actually STARTS (a coalesced

@@ -13,6 +13,10 @@ const { StaffBar } = await import("./StaffBar");
 const { StaffLangSwitch } = await import("./StaffLangSwitch");
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { NET_SHOW_MS } = await import("@/lib/live-connection");
+const { dispatchUpdate } = await import("@/lib/app-update");
+const { monoNow } = await import("@/lib/bounded-write");
+const { STAFF_CONTRACT } = await import("@/lib/build-stamp");
+const { STAFF } = await import("@/lib/i18n/staff");
 
 /**
  * P7·1b — the one chrome. What is worth pinning: the leading slot is a REAL link to the doors that
@@ -292,5 +296,44 @@ describe("the status-slot and offline-row CSS match the DOM the bar renders", ()
       vi.useRealTimers();
     }
     expect(hits, `${selector} matched no rendered state`).not.toEqual([]);
+  });
+});
+
+// ── Phase 2i (P2bi) ──
+describe("Phase 2i — the new-version row rides the bar, BEFORE the offline row", () => {
+  it("renders inside the header, after the tail and the reader chip, with StaffBarNet's probe still LAST", () => {
+    // MUTATION (p2i-bar/net-not-last): the row mounts after StaffBarNet — the offline row (and the
+    // bar's height probe) is no longer the bar's last child, so the row sits BELOW the offline row
+    // on a feedless page and the one-publisher contract's "always last" is broken; red.
+    act(() =>
+      dispatchUpdate({
+        e: "verdict",
+        v: {
+          kind: "changed",
+          served: { build: "kq1x2y3-0a1b2c3d", contract: STAFF_CONTRACT },
+          incompatible: false,
+        },
+        now: monoNow(),
+      }),
+    );
+    const { container } = render(<StaffBar lang="en" title="kds.title" />);
+    const header = container.querySelector("header.staff-bar")!;
+    const row = header.querySelector(":scope > .staff-update");
+    expect(row, "the row is a direct child of the bar").not.toBeNull();
+    expect(row!.textContent).toContain(STAFF["shell.version.ready"].en);
+    const kids = [...header.children];
+    const net = header.querySelector(":scope > .sr-only[role='status']")!;
+    const probe = header.lastElementChild!;
+    expect(probe.tagName).toBe("SPAN");
+    expect(probe.hasAttribute("hidden")).toBe(true);
+    expect(kids.indexOf(row!)).toBeLessThan(kids.indexOf(net));
+    expect(kids.indexOf(header.querySelector(":scope > .staff-bar-tail")!)).toBeLessThan(
+      kids.indexOf(row!),
+    );
+  });
+
+  it("a current screen's bar carries no row — today's DOM", () => {
+    const { container } = render(<StaffBar lang="en" title="kds.title" />);
+    expect(container.querySelector(".staff-update")).toBeNull();
   });
 });

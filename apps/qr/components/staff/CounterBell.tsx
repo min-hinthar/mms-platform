@@ -39,6 +39,7 @@ import { ERR_DWELL_MS } from "@/lib/kds-errors";
 import { haptic } from "@/lib/haptics";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
+import { useReloadHold } from "./useReloadHold";
 
 /**
  * Phase 2d · bell — the counter bell (owner decision 5c, 2026-09-29): on the counter HOME only,
@@ -96,6 +97,9 @@ function useSoundPosture(): SoundPosture {
 
 export function CounterBellProvider({ children }: { children: ReactNode }) {
   const posture = useSoundPosture();
+  // Phase 2i (P2bi) — a live bell holds the automatic reload for a new build: the reload turns the
+  // sound off, and nobody would hear the next guest until a person turns it on again.
+  useReloadHold("sound", "bellSound", "counter", posture === "on");
   // The last ring the provider PLAYED (a refused or silent ring records nothing). Monotonic clock:
   // a gap is a duration, and the device's wall clock can jump.
   const last = useRef<{ ring: CounterRingKind; at: number } | null>(null);
