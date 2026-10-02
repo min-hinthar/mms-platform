@@ -1513,4 +1513,100 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     // MUTATION (p2h-sheets/cash/own-wait-never-cleared): an answered settle still refuses the retry; red.
     expect(settleCash).toHaveBeenCalledTimes(2);
   });
+
+  /**
+   * Codex round 1 on #310 (CX3) — a tap on the HELD trigger is never a dead tap. The waiting line
+   * under it is the trigger's DESCRIPTION (#settle-hint, no live role), so a tap the handler refuses
+   * used to announce nothing at all; and @mms/ui's Button forwards a caller-held click (its inert
+   * guard covers only its own `disabled` / `busy`), so the refusal is the handler's to say.
+   */
+  it("a tap on the HELD trigger re-says the waiting line in a live region — nothing opens, nothing is sent, and every tap is announced again (Codex r1 on #310, CX3)", async () => {
+    vi.useFakeTimers();
+    settleCash.mockReturnValueOnce(hang());
+    const { open, settle, cancel, trigger } = mount();
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    await advance(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Nothing is SAID before a tap: the description says it (and the sheet's alert already did).
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    // MUTATION (p2h-cx1/cash/held-tap-silent · p2h-cx1/cash/held-alert-not-live): the held tap says
+    // nothing — the cashier taps again, or takes the money another way; red.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.cash.waiting"].en);
+    // MUTATION (p2h-rev-a/cash/held-tap-opens): red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(settleCash).toHaveBeenCalledTimes(1);
+    // ONE sentence on screen: the alert only SPEAKS (the description already draws it).
+    expect(screen.getByRole("alert").className).toContain("sr-only");
+    for (let tap = 0; tap < 2; tap += 1) {
+      const said = watchRegion(screen.getByRole("alert"));
+      await act(async () => {
+        fireEvent.click(trigger());
+      });
+      // MUTATION (p2h-cx1/cash/held-resay-unkeyed): the second tap re-renders the same sentence in
+      // place — no DOM change, nothing announced, a dead tap; red.
+      expect(said()).toBe(true);
+      expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.cash.waiting"].en);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(settleCash).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("the held tap's line leaves with the hold, and a LATER hold starts silent — said only by a tap of its own (CX3)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const { open, settle, cancel, trigger } = mount();
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    await advance(0);
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.cash.waiting"].en);
+    // The late refusal ends the wait: the hold lets go, and the line it said goes with it.
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // A second attempt that also waits: put away, its hold is said by the description alone until
+    // a tap of its own — never an alert that fires as the sheet closes over it.
+    open();
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    await advance(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    await advance(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-cx1/cash/held-say-outlives-hold): the earlier tap's line is still armed, so the
+    // new hold "speaks" with no tap at all, on top of the description read as focus returns; red.
+    expect(screen.queryByRole("alert")).toBeNull();
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.cash.waiting"].en);
+    expect(settleCash).toHaveBeenCalledTimes(2);
+  });
 });

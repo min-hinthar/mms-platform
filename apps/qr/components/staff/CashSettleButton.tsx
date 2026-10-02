@@ -228,6 +228,11 @@ export function CashSettleButton({
   // the sheet's state as of the last commit, for an answer that lands in a later render.
   const [lateUnseen, setLateUnseen] = useState(false);
   const sheetOpen = useRef(false);
+  // Codex round 1 on #310 (CX3) — a tap on the HELD trigger (its own settle still out past the
+  // bound). A fresh object per tap: `useResaid` keys the held-tap alert's content with it, so every
+  // refused tap is announced again — never a dead tap under a line that is only a description.
+  const [heldTap, setHeldTap] = useState<object | null>(null);
+  const heldSaid = useResaid(heldTap);
   useEffect(() => {
     sheetOpen.current = confirming;
   }, [confirming]);
@@ -556,6 +561,10 @@ export function CashSettleButton({
   // Review a (A1) — the trigger is held on this cart's own wait: its line says the waiting sentence
   // (never the neutral hint) while the sheet is closed. A late word outranks it (it ended the wait).
   const waitNote = !lateNote && ownWaiting && !confirming;
+  // CX3 — the held tap's line lives only as long as the hold it answered: a LATER hold starts
+  // silent (said by the description) until a tap of its own. A render-time adjustment (the sanctioned
+  // set-during-render, as `quote` above), so no commit ever pairs a new hold with an old tap.
+  if (!waitNote && heldTap !== null) setHeldTap(null);
 
   return (
     <div>
@@ -583,7 +592,13 @@ export function CashSettleButton({
           // Review a (A1) — this cart's own settle may still be recorded: no sheet opens over it
           // (the line under the trigger says why, with the reload). It outranks the gate's jump —
           // a payment that may have gone through is the fact the cashier must act on first.
-          if (ownLate.current) return;
+          if (ownLate.current) {
+            // CX3 — said, not silent: the line under the trigger is its DESCRIPTION, never a live
+            // region, and @mms/ui's Button forwards a caller-held click (its inert guard is only
+            // its own `disabled` / `busy`) — so the refusal is this handler's to say.
+            setHeldTap({});
+            return;
+          }
           if (gateBlocked) {
             // Opens no sheet: the page says why and takes the cashier to the Send.
             onBlockedTap?.(null);
@@ -965,6 +980,17 @@ export function CashSettleButton({
       {/* Review a (A1) — the waiting line says "reload the page" and the console is installed
           standalone: the reload sits beside it, never inside it (no live role of its own). */}
       {waitNote && <ReloadButton lang={lang} block />}
+      {/* CX3 — the held tap's ONE alert. It only SPEAKS (`.sr-only`): the sentence is already drawn
+          by the line above, and drawing it twice would show one fact as two. Mounted with its words
+          by the tap (an inserted alert is announced), and its content keyed by `heldSaid`, so a
+          second tap replaces the node and is announced again. */}
+      {waitNote && heldTap !== null && (
+        <p role="alert" className="sr-only">
+          <span key={heldSaid}>
+            <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
+          </span>
+        </p>
+      )}
     </div>
   );
 }

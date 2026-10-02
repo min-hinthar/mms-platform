@@ -102,6 +102,16 @@ export function pinFailureCopy(
  * on "Trying again…" forever, with nothing saying why. A read with no answer at the bound is a
  * FAILURE like any other (`pin.manager.loadFailed`, whose Try again is the way forward) — never an
  * empty roster, never a spinner that cannot end.
+ *
+ * Codex round 1 on #310 (CX1) — ONE roster read in the queue. The bound frees the CALLER, never the
+ * action: at STAFF_HANG_MS the race rejects while the raw read is still queued, so a Try again that
+ * called `load()` again put a SECOND read behind the hung one — and every press another, all of them
+ * draining later, ahead of every staff action tapped after. So the raw still out is kept by identity
+ * (`outRaw`: set at dispatch, cleared in its OWN settle — never at a bound), and `read()` hands it
+ * back instead of dispatching while it is out: a Try again then ATTACHES to it with a fresh bound
+ * (`retrying` still ends at that bound). A bound that passed with the raw still out does not drop its
+ * answer (`landLate`): whenever it comes, the roster loads and the failure clears. Only a raw that
+ * has settled — answered or failed — lets the next ask read again.
  */
 export function useApproverRoster(load: () => Promise<Approver[]>) {
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
@@ -110,22 +120,55 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
   const alive = useRef(false);
   // The tap-time guard: two taps in one frame see the same render, so only a ref refuses the second.
   const retryInFlight = useRef(false);
+  // CX1 — the raw roster read still unanswered, by identity (see the docblock). A ref, so it outlives
+  // the Strict-Mode setup → cleanup → setup: the second setup attaches instead of reading twice.
+  const outRaw = useRef<Promise<Approver[]> | null>(null);
+
+  /** The raw read to await: the one still out, or — only when none is — a fresh one. */
+  const read = useCallback((): Promise<Approver[]> => {
+    if (outRaw.current !== null) return outRaw.current;
+    const raw = load();
+    outRaw.current = raw;
+    // Cleared in the raw's OWN settle, whichever way it went (the second handler also marks a
+    // rejection handled — the bounded await that dispatched it reads and says it).
+    const settled = () => {
+      outRaw.current = null;
+    };
+    raw.then(settled, settled);
+    return raw;
+  }, [load]);
+
+  /** A bound passed: the raw still out (if it is) lands its answer whenever it comes (CX1). */
+  const landLate = useCallback(() => {
+    const raw = outRaw.current;
+    if (raw === null) return; // it settled — a failure, already said
+    raw.then(
+      (a) => {
+        if (!alive.current) return;
+        setApprovers(a);
+        setFailed(false);
+      },
+      // Deliberate swallow: a late failure changes nothing — the roster already reads `failed`.
+      () => {},
+    );
+  }, []);
 
   useEffect(() => {
     alive.current = true;
-    raceTimeout(load()).then(
+    raceTimeout(read()).then(
       (a) => {
         if (alive.current) setApprovers(a);
       },
       () => {
         // Deliberate: an unreadable roster is an OUTAGE — never an empty roster.
         if (alive.current) setFailed(true);
+        landLate();
       },
     );
     return () => {
       alive.current = false;
     };
-  }, [load]);
+  }, [read, landLate]);
 
   /** Re-read after a failure. Resolves `true` when the roster loaded, `false` when it failed again. */
   const retry = useCallback(async (): Promise<boolean> => {
@@ -133,18 +176,20 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
     retryInFlight.current = true;
     setRetrying(true);
     try {
-      const a = await raceTimeout(load());
+      // CX1 — the read still out, if there is one (a fresh bound on it); a new read only when none is.
+      const a = await raceTimeout(read());
       if (!alive.current) return false;
       setApprovers(a);
       setFailed(false);
       return true;
     } catch {
+      landLate();
       return false; // still `failed` — the caller says so in its one region
     } finally {
       retryInFlight.current = false;
       if (alive.current) setRetrying(false);
     }
-  }, [load]);
+  }, [read, landLate]);
 
   return { approvers, failed, retrying, retry };
 }

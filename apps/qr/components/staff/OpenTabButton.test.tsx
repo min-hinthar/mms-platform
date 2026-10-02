@@ -55,6 +55,23 @@ function hungOpen() {
   return { answer: (v: unknown) => answer(v), fail: (e: Error) => fail(e) };
 }
 const MYANMAR = /[က-႟]/;
+
+/** Whether the region's CONTENT was replaced or rewritten (what a screen reader announces) between
+ *  this call and the returned check; equal text rendered in place records nothing — the dead tap. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 const reload = () => screen.queryByRole("button", { name: ts("en", "out.reload") });
 
 describe("OpenTabButton — the dictionary's words, in the device's tongue", () => {
@@ -78,7 +95,7 @@ describe("OpenTabButton — the dictionary's words, in the device's tongue", () 
 });
 
 describe("OpenTabButton — the open is bounded, never natively disabled", () => {
-  it("while it opens it is aria-busy + aria-disabled (never native); at the bound it frees and says 'no answer yet' with the reload", async () => {
+  it("while it opens it is aria-busy + aria-disabled (never native); at the bound 'Opening…' goes, the control stays HELD, and it says 'no answer yet' with the reload", async () => {
     hungOpen();
     mount();
     const btn = screen.getByRole("button", { name: /Open a running bill/ });
@@ -99,11 +116,56 @@ describe("OpenTabButton — the open is bounded, never natively disabled", () =>
     // long as the queue is stuck; red.
     await flush(1);
     expect(btn.getAttribute("aria-busy")).toBeNull();
-    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(btn.textContent).toBe(ts("en", "table.detail.openBill.btn"));
+    // Codex r1 on #310 (CX2) — this case used to assert the control FREE here (aria-disabled null):
+    // that pinned the defect. Its own open is still in the queue, so the control is HELD — the
+    // attribute, never native — and described by the line that says why.
+    // MUTATION (p2h-cx1/open-bill/held-looks-live): it reads as a live "Open a running bill" over an
+    // open that may still land; red.
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
     // MUTATION (p2h-doors/open-bill-waiting-unsaid): the bound passes in silence; red.
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.waiting"));
+    expect(btn.getAttribute("aria-describedby")).toContain(screen.getByRole("alert").id);
     expect(reload()).not.toBeNull();
     expect(screen.getByRole("alert").contains(reload())).toBe(false);
+  });
+
+  it("a tap on the HELD control re-says 'no answer yet' as a new node — every tap announced, nothing sent; a late refusal frees it with its sentence (Codex r1 on #310, CX2)", async () => {
+    const h = hungOpen();
+    mount();
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await flush(STAFF_HANG_MS);
+    for (let tap = 0; tap < 2; tap += 1) {
+      const said = watchRegion(screen.getByRole("alert"));
+      await act(async () => {
+        fireEvent.click(btn);
+      });
+      // MUTATION (p2h-cx1/open-bill/waiting-frees-guard): the guard let go at the bound — the tap
+      // sends a second open behind the stuck one; red.
+      expect(openTab).toHaveBeenCalledTimes(1);
+      // MUTATION (p2h-cx1/open-bill/held-tap-silent · p2h-cx1/open-bill/resay-unkeyed): the held tap
+      // is dead — equal text re-rendered in place is no DOM change, nothing announced; red.
+      expect(said()).toBe(true);
+      expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.waiting"));
+      expect(btn.getAttribute("aria-disabled")).toBe("true");
+    }
+    // The late REFUSAL ends the wait: said, and the control is free — a tap asks again.
+    await act(async () => h.answer({ ok: false, error: "Tabs aren’t available right now." }));
+    expect(screen.getByRole("alert").textContent).toBe("Tabs aren’t available right now.");
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(reload()).toBeNull();
+    openTab.mockResolvedValueOnce({ ok: true });
+    // MUTATION (p2h-cx1/open-bill/late-refusal-stays-held): the guard stays spent after the answer
+    // came — a live-looking control that silently refuses; red.
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(2);
+    expect(onChanged).toHaveBeenCalledTimes(1);
   });
 
   it("a LATE open lands: the detail re-reads, and 'no answer yet' goes", async () => {
@@ -159,6 +221,16 @@ describe("OpenTabButton — the open is bounded, never natively disabled", () =>
     // MUTATION (p2h-doors/open-bill-late-throw-unsaid): "no answer yet" stands for good; red.
     await act(async () => h.fail(new Error("fetch failed")));
     expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.unknown"));
+    // CX2 — the lost answer ends the hold: the control is free, and a tap asks again.
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    openTab.mockResolvedValueOnce({ ok: true });
+    // MUTATION (p2h-cx1/open-bill/late-throw-stays-held): the guard stays spent after the lost
+    // answer — the tap does nothing, and nothing says why; red.
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(2);
   });
 
   it("a THROWN open says 'couldn't confirm' and frees the control; a refusal says the server's sentence", async () => {

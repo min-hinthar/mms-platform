@@ -159,3 +159,145 @@ describe("useApproverRoster — Phase 2h: both reads end at the bound", () => {
     expect(result.current.failed).toBe(true);
   });
 });
+
+/**
+ * Codex round 1 on #310 (CX1) — a Try again never queues a SECOND roster read behind a hung one.
+ * Next runs Server Actions one at a time per tab, and the bound frees the CALLER, never the action:
+ * at STAFF_HANG_MS the race rejected while the raw read was still queued, and every Try again then
+ * dispatched another read behind it — all of them draining later, ahead of every staff action the
+ * manager tapped next. So a Try again while the raw is still out ATTACHES to it (a fresh bound, no
+ * new read), and the raw's answer lands whenever it comes; a new read goes only once it settled.
+ */
+describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, its late answer lands", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const AYE: Approver[] = [{ staffId: "m1", displayName: "Aye", role: "manager" }];
+  /** A roster read that answers only when told to — the hung raw at the head of the queue. */
+  function hungLoad() {
+    const answers: Array<(a: Approver[]) => void> = [];
+    const load = vi.fn(
+      (): Promise<Approver[]> => new Promise<Approver[]>((res) => answers.push(res)),
+    );
+    return { load, answer: (a: Approver[]) => answers[0]!(a) };
+  }
+
+  it("a hung read + three Try agains: ONE read in the queue, each Try again ends at its own bound, and the late answer loads the roster", async () => {
+    vi.useFakeTimers();
+    const { load, answer } = hungLoad();
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush(STAFF_HANG_MS);
+    expect(result.current.failed).toBe(true);
+    for (let i = 0; i < 3; i += 1) {
+      let ok: boolean | undefined;
+      await act(async () => {
+        void result.current.retry().then((v) => (ok = v));
+      });
+      expect(result.current.retrying).toBe(true);
+      // A FRESH bound for each Try again: never "Trying again…" for good, never a dead button.
+      await flush(STAFF_HANG_MS);
+      expect(result.current.retrying).toBe(false);
+      expect(ok).toBe(false);
+    }
+    // MUTATION (p2h-cx1/roster/retry-dispatches-behind-hung): every Try again sends another read
+    // behind the hung one — four in the queue, each delaying every staff action after it; red.
+    expect(load).toHaveBeenCalledTimes(1);
+    // The answer that finally came lands: the list loads and the failure goes (the cases below pin
+    // each bound's late landing on its own).
+    await act(async () => answer(AYE));
+    expect(result.current.approvers).toEqual(AYE);
+    expect(result.current.failed).toBe(false);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("the MOUNT read's late answer loads the roster and clears the failure — no Try again needed", async () => {
+    vi.useFakeTimers();
+    const { load, answer } = hungLoad();
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush(STAFF_HANG_MS);
+    expect(result.current.failed).toBe(true);
+    await flush(STAFF_HANG_MS * 3);
+    // MUTATION (p2h-cx1/roster/mount-late-dropped): the answer that finally came is dropped — the
+    // picker reads "couldn't load" over a list that is here, and the manager's Try again queues a
+    // read for it; red.
+    await act(async () => answer(AYE));
+    expect(result.current.approvers).toEqual(AYE);
+    // MUTATION (p2h-cx1/roster/late-keeps-failure): the failure stands over the list it brought —
+    // "couldn't load" with Try again under a picker that is full; red.
+    expect(result.current.failed).toBe(false);
+  });
+
+  it("a Try again's OWN read, answering after its bound, still loads the roster", async () => {
+    vi.useFakeTimers();
+    const answers: Array<(a: Approver[]) => void> = [];
+    const load = vi
+      .fn<() => Promise<Approver[]>>()
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockImplementation(() => new Promise<Approver[]>((res) => answers.push(res)));
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush();
+    expect(result.current.failed).toBe(true);
+    let ok: boolean | undefined;
+    await act(async () => {
+      void result.current.retry().then((v) => (ok = v));
+    });
+    await flush(STAFF_HANG_MS);
+    expect(ok).toBe(false);
+    expect(load).toHaveBeenCalledTimes(2);
+    // MUTATION (p2h-cx1/roster/retry-late-dropped): the Try again's late answer is dropped; red.
+    await act(async () => answers[0]!(AYE));
+    expect(result.current.approvers).toEqual(AYE);
+    expect(result.current.failed).toBe(false);
+  });
+
+  it("a Try again attached to the hung read resolves true the moment that read answers inside the fresh bound", async () => {
+    vi.useFakeTimers();
+    const { load, answer } = hungLoad();
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush(STAFF_HANG_MS);
+    let ok: boolean | undefined;
+    await act(async () => {
+      void result.current.retry().then((v) => (ok = v));
+    });
+    await flush(STAFF_HANG_MS - 1);
+    await act(async () => answer(AYE));
+    expect(ok).toBe(true);
+    expect(result.current.retrying).toBe(false);
+    expect(result.current.failed).toBe(false);
+    expect(result.current.approvers).toEqual(AYE);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it("a Try again after the read FAILED reads afresh — and so does one after it ANSWERED", async () => {
+    vi.useFakeTimers();
+    const load = vi
+      .fn<() => Promise<Approver[]>>()
+      .mockRejectedValueOnce(new Error("unavailable"))
+      .mockResolvedValue(AYE);
+    const { result } = renderHook(() => useApproverRoster(load));
+    await flush();
+    expect(result.current.failed).toBe(true);
+    let ok: boolean | undefined;
+    await act(async () => {
+      void result.current.retry().then((v) => (ok = v));
+    });
+    await flush();
+    // MUTATION (p2h-cx1/roster/failed-never-clears): the failed read is still "the one out", so
+    // the Try again re-awaits a settled rejection and never reads again — a dead button; red.
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(ok).toBe(true);
+    expect(result.current.approvers).toEqual(AYE);
+    // A read that ANSWERED is no longer out either: the next ask reads again (fresh), never the old
+    // answer handed back.
+    await act(async () => {
+      void result.current.retry();
+    });
+    await flush();
+    // MUTATION (p2h-cx1/roster/answered-never-clears): red.
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+});

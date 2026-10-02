@@ -6,6 +6,7 @@ import { boundWrite } from "@/lib/bounded-write";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 
 /**
  * What the opener says after a tap that did not open the bill, kept APART by who authored it (the
@@ -29,6 +30,14 @@ type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind
  * as one; the late answer still lands (a late open re-reads the detail). An OPENED bill keeps
  * "Opening…" until the re-read swaps this button away (S2 critic D8) — on time or late — so a second
  * tap in that beat never asks for a second open.
+ *
+ * Codex round 1 on #310 (CX2) — "Opening…" frees at the bound, but the GUARD does not: while this
+ * open is still unanswered the control is HELD (aria-disabled, never native; the handler refuses at
+ * the tap), as the clear and merge controls hold — a second open would only queue behind the stuck
+ * one. A tap on the held control RE-SAYS "no answer yet" as a new node (`useResaid` keys the alert's
+ * content), so it is announced again instead of reading as a dead tap. The hold lets go when the late
+ * answer lands: a late open stays held as an on-time one does; a late refusal or a lost answer frees
+ * it, with its sentence.
  */
 export function OpenTabButton({
   cartId,
@@ -48,6 +57,12 @@ export function OpenTabButton({
   // render), beside the `busy` the button says.
   const inFlight = useRef(false);
   const hintId = useId();
+  const alertId = useId();
+  // CX2 — every SET of the line moves this, even to the sentence standing: the alert's content is
+  // keyed by it, so a re-said "no answer yet" replaces the node and is announced again.
+  const said = useResaid(error);
+  // CX2 — this open is still unanswered past the bound: the control is held, described by the line.
+  const waiting = error?.kind === "waiting";
 
   /** The open's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
   function land(res: Awaited<ReturnType<typeof openTab>>) {
@@ -61,12 +76,18 @@ export function OpenTabButton({
   }
 
   async function onOpen() {
-    if (inFlight.current) return;
+    if (inFlight.current) {
+      // CX2 — its own open still waits past the bound: re-say "no answer yet", send nothing.
+      if (waiting) setError({ kind: "waiting" });
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setError(null);
     // The bill opened: stay busy until the re-read swaps this button away (D8).
     let opened = false;
+    // Still out at the bound: the guard stays spent until the late answer lands (CX2).
+    let outstanding = false;
     try {
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       const out = await boundWrite(openTab({ cartId }));
@@ -81,24 +102,27 @@ export function OpenTabButton({
         return;
       }
       setError({ kind: "waiting" });
+      outstanding = true;
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
       // the page's re-read is right whenever the bill did open.
       void out.late.then((late) => {
         if (late.kind !== "answer") {
+          // A lost answer ends the hold: said, and the open may be asked again.
+          inFlight.current = false;
           setError({ kind: "unknown" });
           return;
         }
-        if (late.value.ok) {
-          // A LATE open holds exactly like an on-time one, until the re-read swaps it away.
-          inFlight.current = true;
-          setBusy(true);
-        }
+        // A LATE open holds exactly like an on-time one, until the re-read swaps it away; a late
+        // refusal ends the hold, with its sentence.
+        if (late.value.ok) setBusy(true);
+        else inFlight.current = false;
         land(late.value);
       });
     } finally {
-      // Frees AT THE BOUND (fact 3) — never latched on "Opening…" by the raw — unless it opened.
+      // "Opening…" frees AT THE BOUND (fact 3) — never latched by the raw — unless it opened; the
+      // guard stays spent while the answer is still out (`outstanding`, CX2).
       if (!opened) {
-        inFlight.current = false;
+        if (!outstanding) inFlight.current = false;
         setBusy(false);
       }
     }
@@ -109,10 +133,11 @@ export function OpenTabButton({
       <button
         type="button"
         onClick={() => void onOpen()}
-        aria-disabled={busy || undefined}
+        // Held while it opens AND while its own open is still out past the bound (CX2).
+        aria-disabled={busy || waiting || undefined}
         aria-busy={busy || undefined}
-        aria-describedby={hintId}
-        style={btn}
+        aria-describedby={waiting ? `${alertId} ${hintId}` : hintId}
+        style={waiting ? { ...btn, ...heldLook } : btn}
       >
         {/* A stated word while it opens, never a bare ellipsis: the content IS the name. */}
         {busy ? (
@@ -125,14 +150,17 @@ export function OpenTabButton({
         <Chrome lang={lang} k="table.detail.openBill.hint" echo="stack" />
       </p>
       {error && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error.kind === "server" ? (
-            <OutageText lang={lang} error={error.text} />
-          ) : error.kind === "waiting" ? (
-            <Chrome lang={lang} k="table.detail.openBill.waiting" echo={false} />
-          ) : (
-            <Chrome lang={lang} k="table.detail.openBill.unknown" echo={false} />
-          )}
+        <p id={alertId} role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+          {/* Keyed by `said` (CX2): a re-said sentence replaces the node, so it is announced again. */}
+          <span key={said}>
+            {error.kind === "server" ? (
+              <OutageText lang={lang} error={error.text} />
+            ) : error.kind === "waiting" ? (
+              <Chrome lang={lang} k="table.detail.openBill.waiting" echo={false} />
+            ) : (
+              <Chrome lang={lang} k="table.detail.openBill.unknown" echo={false} />
+            )}
+          </span>
         </p>
       )}
       {/* The waiting line says "reload the page", and the console is installed standalone (no
@@ -146,6 +174,8 @@ export function OpenTabButton({
   );
 }
 
+// A held control's dim (the clear and merge controls'), never a native disable.
+const heldLook: CSSProperties = { opacity: 0.5, cursor: "not-allowed" };
 const btn: CSSProperties = {
   width: "100%",
   minHeight: 48,
