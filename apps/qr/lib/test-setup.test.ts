@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   msSinceWriteSettled,
   onTrackedRejection,
@@ -7,6 +7,9 @@ import {
   stalledSince,
   track,
 } from "./bounded-write";
+import { holdReload, reloadHolds } from "./reload-guard";
+import { dispatchUpdate, updateSnapshot } from "./app-update";
+import { thisLoad } from "./tab-load";
 
 /**
  * Phase 2h (F7) — the stall ledger is emptied after every case by `lib/test-setup.ts` (vitest's
@@ -61,5 +64,42 @@ describe("every case starts with no write answered and no witness listening", ()
     expect(msSinceWriteSettled()).toBeNull();
     await track(Promise.reject(new Error("x"))).catch(() => {});
     expect(heard).toEqual([]);
+  });
+});
+
+/** Phase 2i (P2bi) — the reload hold register is emptied too. */
+describe("every case starts with no reload hold", () => {
+  it("a case may leave a hold registered…", () => {
+    holdReload({ kind: "sound", reason: "kdsSound", subject: "kds", survives: false });
+    expect(reloadHolds()).toHaveLength(1);
+  });
+
+  it("…and the next case does not inherit it", () => {
+    // MUTATION (p2i-setup/holds-leak): the setup's reset is gone — this case's automatic reload is
+    // refused for a sound the first case turned on; red.
+    expect(reloadHolds()).toEqual([]);
+  });
+});
+
+/** Phase 2i (P2bi) — the update store and this document's claimed load are emptied too. */
+describe("every case starts with a current screen and an unclaimed load", () => {
+  it("a case may leave the screen stale and a load claimed…", () => {
+    dispatchUpdate({ e: "retired", now: 0 });
+    expect(updateSnapshot().phase.k).toBe("stale");
+    vi.stubGlobal("window", { sessionStorage: null });
+    vi.stubGlobal("location", { pathname: "/staff/expo" });
+    expect(thisLoad().initialPath).toBe("/staff/expo");
+    vi.unstubAllGlobals();
+  });
+
+  it("…and the next case inherits neither", () => {
+    // MUTATION (p2i-setup/update-leaks): this case's row would render for a version nobody served
+    // it, and its tap would meet another case's latch; red.
+    expect(updateSnapshot().phase.k).toBe("current");
+    // MUTATION (p2i-setup/load-leaks): this case's lane would resume against another case's load; red.
+    vi.stubGlobal("window", { sessionStorage: null });
+    vi.stubGlobal("location", { pathname: "/staff/kds" });
+    expect(thisLoad().initialPath).toBe("/staff/kds");
+    vi.unstubAllGlobals();
   });
 });

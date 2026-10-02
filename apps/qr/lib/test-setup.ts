@@ -5,6 +5,9 @@ import {
   resetOwnWaitsForTests,
   resetWriteSignalsForTests,
 } from "./bounded-write";
+import { resetHoldsForTests } from "./reload-guard";
+import { resetUpdateForTests } from "./app-update";
+import { resetLoadForTests } from "./tab-load";
 
 /**
  * Phase 2h (the contract critic, F7) — vitest's `setupFiles` entry for every suite in apps/qr.
@@ -29,4 +32,12 @@ afterEach(() => {
   // write settled would shorten the next case's quiet moment, and a witness a case installed (the
   // staff layout's) would hear the next case's rejections and mark its tab retired.
   resetWriteSignalsForTests();
+  // …and the reload hold register: a case that mounts a KDS with its sound on and never unmounts it
+  // (or a hold registered by hand) would refuse the next case's automatic reload for it.
+  resetHoldsForTests();
+  // …and the update store (phase, the executor's latch, the installed deps, the input clock) and
+  // this document's claimed load: a case that leaves an apply latched or a phase stale would make
+  // the next case's tap read `busy`, or its row render for a version nobody served it.
+  resetUpdateForTests();
+  resetLoadForTests();
 });

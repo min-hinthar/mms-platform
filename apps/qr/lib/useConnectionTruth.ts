@@ -35,6 +35,23 @@ let epoch = 0;
 async function probe(): Promise<ConnectionTruth> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) return "you-offline";
   if (Date.now() - cachedAt < PROBE_TTL_MS) return cachedTruth;
+  return runProbe();
+}
+
+/**
+ * Phase 2i (P2bi) — the truth NOW, for a decision that must not ride a cached answer: the reload
+ * for a new build asks it after every other check, and a 15s-old "unknown" would let the screen
+ * reload into an outage (and come back as the outage shell with nothing on it). Awaits any probe
+ * already in flight (it may have started before whatever this caller just saw), then runs a NEW one
+ * regardless of PROBE_TTL_MS; the result updates the cache like any probe.
+ */
+export async function freshTruth(): Promise<ConnectionTruth> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return "you-offline";
+  if (inFlight) await inFlight;
+  return runProbe();
+}
+
+async function runProbe(): Promise<ConnectionTruth> {
   if (inFlight) return inFlight;
   const startedEpoch = epoch;
   inFlight = (async () => {
