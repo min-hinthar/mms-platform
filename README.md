@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 5535 qr tests + 287 ui tests · 2344 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 5575 qr tests + 287 ui tests · 2400 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,11 +152,11 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 2344 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 2400 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 223 money/authority modules it mutates IN PLACE
+                                       # ⚠️ rewrites the 224 money/authority modules it mutates IN PLACE
                                        # (156 under apps/qr/lib, plus the create-share-intent, setup-intent
-                                       # and board routes, plus SIXTY-ONE components, five of them hooks
+                                       # and board routes, plus SIXTY-TWO components, five of them hooks
                                        # — TableCartProvider.tsx, menu/YourUsual.tsx, staff/TicketText.tsx,
                                        # staff/Chrome.tsx, staff/StaffPromoControl.tsx, ReadyBoard.tsx,
                                        # MergeRedeemer.tsx, staff/TableCard.tsx, AccountUpgrade.tsx,
@@ -184,12 +184,12 @@ pnpm verify:slice                      # the MECHANICAL money-path gate: coverag
                                        # staff/OpenTabButton.tsx, staff/StaffLineEditor.tsx,
                                        # staff/PinUnlock.tsx, staff/StaffLogin.tsx, staff/LockButton.tsx,
                                        # staff/RegisterStart.tsx, staff/ApprovalsBoard.tsx,
-                                       # staff/KdsLineMenu.tsx and a fifth hook, staff/useResaid.ts
+                                       # staff/KdsLineMenu.tsx, staff/StaffModSheet.tsx and a fifth hook, staff/useResaid.ts
                                        # (Phase 2h) — plus the first
                                        # stylesheet, apps/qr/app/globals.css,
                                        # the first staff PAGE, apps/qr/app/staff/table/[id]/page.tsx
                                        # (Phase 2g), and packages/db/src/schemas.ts:
-                                       # 156+3+61+1+1+1=223) and restores them.
+                                       # 156+3+62+1+1+1=224) and restores them.
                                        # ⚠️ That list is the operator's only record of what may be left
                                        # broken on disk by a killed run, so keep it measured, never
                                        # counted by eye — both parents of the #262 merge miscounted it. It

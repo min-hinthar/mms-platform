@@ -14,7 +14,7 @@ a critic) and a Chromium measurement of a hung action (LEARNINGS #200). Built as
 `1c78c1e` · `7918de5` (the append-only mutant blocks rebuilt as a 3-way merge of the shared head and
 tail plus each stream's block; the merged mutant ids measured equal to the contract's plus each
 stream's additions, nothing lost), then the fixes the streams owed each other — built in three more worktrees (`p2h/int-a` · `int-b` · `int-c`), each through a fresh-context critic (APPROVE_WITH_FIXES · REJECT · APPROVE_WITH_FIXES; every finding fixed) and merged `5aec099`. Owner decision 9
-(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hp. No SQL.
+(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hr (P2hk closed by the review round). No SQL.
 
 **What staff see first:**
 
@@ -74,7 +74,36 @@ stream's additions, nothing lost), then the fixes the streams owed each other �
   waits — and gives way to the frozen board's escalation; a late refund answer closes only its own
   line's sheet, and a cash hand-back instruction is never left behind another open sheet; the KDS
   dish menu carries its own Reload; two dead KDS keys are gone.
-- 48 staff keys (34 K15-HIGH), 2 retired, and the kiosk's `addWaiting` / `addUnknown`.
+- 49 staff keys (35 K15-HIGH), 2 retired, and the kiosk's `addWaiting` / `addUnknown`.
+
+**Blind review** (three lenses on `2e9c226`, `pnpm review:bundle` only: concurrency · money semantics ·
+product truth + a11y → REJECT · REJECT · REJECT; every finding verified on disk, fixed red-first on
+`p2h/rev-a` · `rev-b` · `rev-c` — `59f1691` · `7caeb49` · `2b40c82` — merged up to `cc949ef`; two
+sub-points declined as unfalsifiable guards, recorded in the verdict comment):
+
+- **A cash settle still out keeps saying so.** While its own settle waits past the bound, the
+  trigger is held and "No answer yet — this payment may still be recorded. Don't take it again" stays
+  under it with Reload; a reopened sheet never shows a clean "Take $X" (the test that pinned the
+  clean reopen is rewritten).
+- **A cash refund never loses "hand back $X".** Its waiting line now carries the instruction a reload
+  could lose ("…reload the page: if the line shows refunded, hand back $X from the drawer"), and a late
+  ok that lands after the zone unmounted is kept for the tab and said — focused — when today's
+  payments next mounts.
+- **Own waits outlive the mount.** A per-tab register keyed by subject (`ownWaitSlot`,
+  lib/bounded-write) means a refund, loss, no-show or cash sheet reopened for the same subject re-says
+  its own "don't … again" line (decision 9i), and the reader and the card-on-file close re-announce a
+  refused re-tap (`useResaid`).
+- **A board that is gone acts on nothing.** KDS, lane and approvals re-check after every await before
+  navigating, writing or setting state; the lane's leave flush marks what it sends so the unmount
+  never sends a pick twice; today's payments no longer reads from a dead zone.
+- **Only Server Actions stall the tab.** `raceTimeout` no longer tracks a plain fetch (the sign-outs,
+  `/api/board`), so a hung sign-out can never refuse a payment on the next screen.
+- **The Burmese stall line says what the English says** — the tap "was not sent, nothing will come of
+  it", never "hasn't done anything yet".
+- **Lines that stood on, now do:** the walk-up start's waiting line survives the Phone toggle; a
+  waiting unlock keeps its line and Reload through a sign-out attempt; the kiosk moves a waiting add's
+  line to the page when its sheet closes and re-says it on a re-tap; clearing a table is refused while
+  the tab is stuck; the refunds strip clears only the row it opens.
 
 **Gate:** **GATE**
 
