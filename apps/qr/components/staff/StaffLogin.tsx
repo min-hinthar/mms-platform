@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape, raceFetch } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
@@ -37,6 +36,16 @@ const GOOGLE = "Google";
  * whose queue is stuck never answered, and the escape stranded the person it existed for. The form
  * sends `releaseLockAfterSignOut` once it mounts — on a fresh document, whose queue nothing can be
  * stuck in — and the server still releases only when it sees NO session (a live one keeps its lock).
+ *
+ * Codex round 2 on #310 (B5) — and every SIGN-IN leaves this page by a DOCUMENT load, never a soft
+ * navigation. That release is detached and tracked: on a tablet where it never answers, the form
+ * still works (the code check is a Supabase fetch, not a queued action), and the typed-code path's
+ * old `router.replace(next)` carried the unresolved release — and its ledger entry — into the
+ * console, where every Server Action queued behind it and the money controls refused taps as
+ * "still waiting". `location.replace(next)` unloads this document, which aborts Next's queue and
+ * starts the console on a fresh one with an empty ledger. The other two paths already load a
+ * document: Google leaves for the provider (`signInWithOAuth` assigns the location) and the magic
+ * link opens the callback route, whose redirect lands on a fresh page.
  */
 export function StaffLogin({
   lang,
@@ -53,7 +62,6 @@ export function StaffLogin({
    */
   next?: string;
 }) {
-  const router = useRouter();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -248,8 +256,11 @@ export function StaffLogin({
     // authorizeDevice for /kiosk and /board). The typed-code path never leaves the browser, so it
     // does the routing the callback route does for the link path.
     clearParkedNext(); // single-use, exactly like the callback route's clear on the link path
-    router.replace(next);
-    router.refresh();
+    // B5 — a DOCUMENT load (the docblock): the mount's release may still be out, and a soft
+    // navigation would carry it, and its ledger entry, into the console. `replace`, as the router's
+    // was: Back never returns to a sign-in form that has done its job. Busy stays on ("Checking…")
+    // until the document goes, so a second submit verifies nothing.
+    window.location.replace(next);
   }
 
   // Recovery for the "signed in but not staff" case: clear the wrong session so a different email

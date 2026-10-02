@@ -876,7 +876,7 @@ describe("CounterNoShowButton — a hung write-off never traps the sheet (Phase 
     await openSheet();
     await submit();
     await advance(STAFF_HANG_MS);
-    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    vi.setSystemTime(Date.now() - 60_000); // a wall clock set back: the own wait refuses regardless
     await submit();
     // MUTATION (p2h-sheets/noshow/own-wait-forgotten): a second write-off queued behind the first; red.
     expect(record).toHaveBeenCalledTimes(1);

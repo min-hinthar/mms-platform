@@ -129,9 +129,10 @@ export function LossActionSheet({
   // The tap-time guard: two taps in one frame both read the render before `busy` flipped.
   const inFlight = useRef(false);
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
-  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
-  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first. It holds the
+  // is refused on it directly, not only through the 9d ledger check: it is this sheet's OWN fact,
+  // whatever the ledger reads (F12 caught the ledger reading "not stalled" with the wall clock set
+  // back mid-hang; it ages on a monotonic clock since Codex r2 B4), so a second write never queues
+  // behind the first. It holds the
   // sentence that write SAID at the bound (the void's or the request's — one write is out at a time),
   // because the refusal re-says it, not the tablet's (`tapRefusal`, owner decision); null: none out.
   // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount (the line editor

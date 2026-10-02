@@ -9,7 +9,10 @@ import { createPollGate } from "./poll-gate";
  * the raw's answer, and — only once the raw has been out a hang's worth of time — counts as a miss,
  * so the board's degraded banner arms instead of wearing a live face over a frozen feed.
  *
- * Every clock here is THIS device's (`vi.setSystemTime`): the gate takes no time of its own (F2).
+ * Every clock here is THIS device's: the gate takes no time of its own (F2). `at` moves the fake
+ * clock FORWARD (`advanceTimersByTime`), which moves the monotonic clock the gate and the ledger read
+ * (`monoNow`, Codex r2 B4) and the wall clock together; a wall-clock CORRECTION alone
+ * (`vi.setSystemTime`) moves neither measurement.
  */
 const T0 = Date.parse("2026-10-01T18:00:00.000Z");
 
@@ -24,7 +27,11 @@ function deferred<T>() {
 }
 /** Drain every microtask, then run whatever timer is due NOW (the deferred kick is one). */
 const settle = () => vi.advanceTimersByTimeAsync(0);
-const at = (ms: number) => vi.setSystemTime(T0 + ms);
+const at = (ms: number) => {
+  const step = T0 + ms - Date.now();
+  if (step < 0) throw new Error(`at(${ms}) would move the clock back by ${-step}ms`);
+  vi.advanceTimersByTime(step);
+};
 
 beforeEach(() => {
   vi.useFakeTimers({ now: T0 });
@@ -107,9 +114,24 @@ describe("missed — only once the raw has been out a hang's worth of time", () 
     expect(gate.ask()).toEqual({ go: "owed", missed: true });
   });
 
+  it("a wall clock set BACK mid-hang still counts the miss at the bound (Codex r2 on #310, B4)", () => {
+    // MUTATION (p2h-cx2b/gate/miss-on-wall-clock): `missed` ages on `Date.now()` again — an hour set
+    // back keeps the board's live face over a frozen feed for an hour while the money taps (on the
+    // ledger's monotonic clock) already refuse as stuck; red.
+    const gate = createPollGate(vi.fn());
+    void gate.watch(new Promise(() => {}));
+    at(10_000);
+    vi.setSystemTime(Date.now() - 3_600_000);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 10_000 - 1);
+    expect(gate.ask()).toEqual({ go: "owed", missed: false });
+    vi.advanceTimersByTime(1);
+    expect(gate.ask()).toEqual({ go: "owed", missed: true });
+    expect(stalledSince()).toBe(T0);
+  });
+
   it("the miss and the ledger's stall are ONE measurement, on this device's clock", () => {
     // The tick that first counts a miss is the instant the ledger refuses the next money tap — and
-    // not a millisecond either side, because both read `Date.now()` against the same start.
+    // not a millisecond either side, because both read `monoNow()` against the same start.
     const gate = createPollGate(vi.fn());
     at(2_000);
     void gate.watch(new Promise(() => {}));

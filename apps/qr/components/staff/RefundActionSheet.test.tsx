@@ -369,7 +369,7 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     const { tap } = mountSpied();
     await tap();
     await advance(STAFF_HANG_MS);
-    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    vi.setSystemTime(Date.now() - 60_000); // a wall clock set back: the own wait refuses regardless
     await tap("5678");
     // MUTATION (p2h-sheets/refund/own-wait-forgotten): a second refund queued behind the first —
     // money out twice if the stale board's refusal does not catch it; red.

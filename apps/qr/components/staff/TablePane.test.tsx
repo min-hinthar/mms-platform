@@ -2571,10 +2571,12 @@ describe("Phase 2h (9f) — every read the pane starts goes through ONE gate", (
     await tap(card(A));
     // One millisecond short of A's bound on the timers, and AT it on the clock: the race's own timer
     // is overdue but has not run yet — a busy tablet runs a tap before an overdue timer. (The poll
-    // gate measures `missed` on `Date.now()`; `setSystemTime` moves it and keeps every timer's
-    // distance.)
+    // gate measures `missed` on the MONOTONIC clock since Codex r2 B4 — `performance.now()`, which
+    // `setSystemTime` no longer moves — so the one millisecond is added there, every timer's distance
+    // kept.)
     await tick(15_000 - 1);
-    vi.setSystemTime(Date.now() + 1);
+    const mono = performance.now.bind(performance);
+    vi.spyOn(performance, "now").mockImplementation(() => mono() + 1);
     await tap(card(B)); // owed to A's read, and past the bound: B's pick is a failed read, said
     expect(pane().textContent).toContain(ts("en", "floor.pane.fail.title"));
     expect(getTableDetail).toHaveBeenCalledTimes(1);

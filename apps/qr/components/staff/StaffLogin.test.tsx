@@ -29,13 +29,16 @@ const { StaffLogin } = await import("./StaffLogin");
 // Phase 2h — a sign-out is a DOCUMENT navigation; jsdom's `location.assign` cannot be spied, so
 // the whole object is stubbed for every case.
 const assign = vi.fn();
+// Codex r2 on #310 (B5) — a sign-in is a DOCUMENT navigation too (`location.replace`).
+const locReplace = vi.fn();
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 beforeEach(() => {
   assign.mockReset();
-  vi.stubGlobal("location", { ...window.location, assign });
+  locReplace.mockReset();
+  vi.stubGlobal("location", { ...window.location, assign, replace: locReplace });
   for (const fn of Object.values(auth)) fn.mockReset();
   replace.mockReset();
   refresh.mockReset();
@@ -136,10 +139,36 @@ describe("StaffLogin", () => {
     auth.verifyOtp.mockResolvedValueOnce({ error: RETRYABLE });
     submitOf(code);
     await waitFor(() => expect(status().textContent).toMatch(/your code may still be good/));
-    expect(replace).not.toHaveBeenCalled();
+    expect(locReplace).not.toHaveBeenCalled();
     auth.verifyOtp.mockResolvedValueOnce({ error: null });
     submitOf(code);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff"));
+    // Codex r2 on #310 (B5) — the console is reached by a document load, never a soft navigation.
+    await waitFor(() => expect(locReplace).toHaveBeenCalledWith("/staff"));
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("a typed code signs in by a HARD navigation to where the sign-in was for — though the mount's lock release never answered (Codex r2 on #310, B5)", async () => {
+    // The release this form sends on mount is detached and TRACKED. Hung, it stays in Next's
+    // one-at-a-time queue and on the stall ledger while the form works on (a Supabase fetch is not
+    // a queued action) — and a soft `router.replace(next)` carried both into the console: every
+    // action there queued behind it and the money controls refused taps as "still waiting".
+    releaseLock.mockReturnValue(new Promise(() => {}));
+    render(<StaffLogin lang="en" next="/kiosk" />);
+    expect(outstanding()).toBe(1);
+    fireEvent.change(email(), { target: { value: "min@example.com" } });
+    submitOf(email());
+    const code = await screen.findByLabelText(/Sign-in code/);
+    fireEvent.change(code, { target: { value: "123456" } });
+    submitOf(code);
+    // MUTATION (p2h-cx2b/login-verify-soft-nav): a soft navigation again — the hung release and its
+    // ledger entry ride into the console; red.
+    await waitFor(() => expect(locReplace).toHaveBeenCalledWith("/kiosk"));
+    expect(locReplace).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    // "Checking…" holds until the document goes: a second submit verifies nothing.
+    submitOf(code);
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
   });
 
   it("the resend countdown speaks the device's numerals", async () => {

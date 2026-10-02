@@ -716,7 +716,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     mountSpied();
     await tapVoid();
     await advance(STAFF_HANG_MS);
-    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    vi.setSystemTime(Date.now() - 60_000); // a wall clock set back: the own wait refuses regardless
     await act(async () => {
       fireEvent.submit(submitBtn().closest("form")!);
     });
@@ -759,7 +759,7 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     });
     await advance(STAFF_HANG_MS);
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestWaiting"].en);
-    vi.setSystemTime(Date.now() - 60_000); // the ledger's wall-clock age now reads "not stalled"
+    vi.setSystemTime(Date.now() - 60_000); // a wall clock set back: the own wait refuses regardless
     const said = watchRegion(region());
     await act(async () => {
       fireEvent.click(request());

@@ -27,13 +27,16 @@ const { PinUnlock } = await import("./PinUnlock");
 // Phase 2h — the sign-out is a DOCUMENT navigation; jsdom's `location.assign` cannot be spied
 // (non-configurable), so the whole object is stubbed for every case.
 const assign = vi.fn();
+// Codex r2 on #310 (B5) — the unlock is a DOCUMENT navigation too (`location.replace`).
+const locReplace = vi.fn();
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 beforeEach(() => {
   assign.mockReset();
-  vi.stubGlobal("location", { ...window.location, assign });
+  locReplace.mockReset();
+  vi.stubGlobal("location", { ...window.location, assign, replace: locReplace });
   unlockConsole.mockReset();
   releaseLock.mockReset();
   releaseLock.mockResolvedValue({ released: true });
@@ -143,12 +146,19 @@ describe("PinUnlock", () => {
     await waitFor(() => expect(region().textContent).toMatch(/Couldn’t check that PIN/));
   });
 
-  it("success leaves for the console and refreshes", async () => {
+  it("success leaves for the console by a HARD navigation — with another action still out on the tab, the console starts on a fresh queue and an empty ledger (Codex r2 on #310, B5)", async () => {
+    // A language write tapped on this screen after Unlock queues BEHIND the unlock: it is still out
+    // when the unlock answers. A soft navigation carried it — and its ledger entry — into the
+    // console, where every action queues behind it and the money taps refuse as "still waiting".
+    track(new Promise(() => {}));
     unlockConsole.mockResolvedValueOnce({ ok: true });
     render(<PinUnlock lang="en" displayName="Daw Aye" />);
     enter("1234");
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff"));
-    expect(refresh).toHaveBeenCalled();
+    // MUTATION (p2h-cx2b/unlock-soft-nav): the console is reached by a soft navigation again; red.
+    await waitFor(() => expect(locReplace).toHaveBeenCalledWith("/staff"));
+    expect(locReplace).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("the forgotten-PIN escape is the LAST control; a sign-out that fails mid-outage says so", async () => {
@@ -260,7 +270,9 @@ describe("PinUnlock — Phase 2h: the unlock is bounded, a locked tablet is neve
     // MUTATION (p2h-doors/unlock-late-ok-dropped): the late answer is dropped — the tablet WAS
     // unlocked and the person stays on the lock screen; red.
     await act(async () => h.answer({ ok: true }));
-    expect(replace).toHaveBeenCalledWith("/staff");
+    // B5 — a late unlock leaves by a document load, as an on-time one does.
+    expect(locReplace).toHaveBeenCalledWith("/staff");
+    expect(replace).not.toHaveBeenCalled();
     expect(reload()).toBeNull();
   });
 

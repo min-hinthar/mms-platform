@@ -3,8 +3,13 @@ import {
   STAFF_HANG_MS,
   boundWrite,
   hasOwnWait,
+  monoNow,
+  moveOwnOut,
+  outReadSlot,
   outstanding,
   ownWaitSlot,
+  releaseOutRead,
+  resetOutReadsForTests,
   resetOwnWaitsForTests,
   subscribeOwnWait,
   resetLedgerForTests,
@@ -14,6 +19,7 @@ import {
   track,
   type Bounded,
   type Late,
+  type OwnOut,
 } from "./bounded-write";
 
 /**
@@ -155,7 +161,7 @@ describe("boundWrite — three outcomes, never a rejection", () => {
     const raw = deferred<string>();
     void boundWrite(raw.promise);
     expect(outstanding()).toBe(1);
-    vi.setSystemTime(T0 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(STAFF_HANG_MS);
     expect(stalledSince()).toBe(T0);
     raw.resolve("late");
     await settle();
@@ -173,7 +179,7 @@ describe("the ledger — every entry leaves on settle, resolved OR rejected", ()
     raw.resolve(1);
     await settle();
     expect(outstanding()).toBe(0);
-    vi.setSystemTime(T0 + 10 * STAFF_HANG_MS);
+    vi.advanceTimersByTime(10 * STAFF_HANG_MS);
     expect(stalledSince()).toBeNull();
   });
 
@@ -193,10 +199,10 @@ describe("the ledger — every entry leaves on settle, resolved OR rejected", ()
     // poll gate already watches would restart the hang clock, so a read hung for 14s reads fresh; red.
     const raw = deferred<number>();
     track(raw.promise);
-    vi.setSystemTime(T0 + 14_000);
+    vi.advanceTimersByTime(14_000);
     track(raw.promise);
     expect(outstanding()).toBe(1);
-    vi.setSystemTime(T0 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 14_000);
     expect(stalledSince()).toBe(T0);
     raw.resolve(1);
     await settle();
@@ -207,11 +213,11 @@ describe("the ledger — every entry leaves on settle, resolved OR rejected", ()
     // The ledger is read at every money tap and written by every board; a board's server-offset
     // clock (`stampNow()`) written here would refuse every tap by the device's skew (critic F2). The
     // signature is the guard: `track` takes no time, so this is the only start it can record.
-    vi.setSystemTime(T0 + 4_000);
+    vi.advanceTimersByTime(4_000);
     track(new Promise(() => {}));
-    vi.setSystemTime(T0 + 4_000 + STAFF_HANG_MS - 1);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 1);
     expect(stalledSince()).toBeNull();
-    vi.setSystemTime(T0 + 4_000 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(1);
     expect(stalledSince()).toBe(T0 + 4_000);
   });
 
@@ -231,7 +237,7 @@ describe("the ledger — every entry leaves on settle, resolved OR rejected", ()
 
 describe("stalledSince — the OLDEST unanswered action, and only past the bound", () => {
   it("is null with nothing outstanding", () => {
-    vi.setSystemTime(T0 + 10 * STAFF_HANG_MS);
+    vi.advanceTimersByTime(10 * STAFF_HANG_MS);
     expect(stalledSince()).toBeNull();
   });
 
@@ -239,9 +245,9 @@ describe("stalledSince — the OLDEST unanswered action, and only past the bound
     // MUTATION (p2h-core/ledger/stall-boundary): `>` — the sheet says "no answer yet" at 15s while
     // the next tap is still dispatched into the stuck queue for one more millisecond; red.
     track(new Promise(() => {}));
-    vi.setSystemTime(T0 + STAFF_HANG_MS - 1);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 1);
     expect(stalledSince()).toBeNull();
-    vi.setSystemTime(T0 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(1);
     expect(stalledSince()).toBe(T0);
   });
 
@@ -251,16 +257,16 @@ describe("stalledSince — the OLDEST unanswered action, and only past the bound
     const hungWrite = deferred<string>();
     const youngRead = deferred<string>();
     track(hungWrite.promise);
-    vi.setSystemTime(T0 + 10_000);
+    vi.advanceTimersByTime(10_000);
     track(youngRead.promise);
-    vi.setSystemTime(T0 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 10_000);
     expect(stalledSince()).toBe(T0);
     // The oldest answers: the next oldest is now the clock, and it is bound by its OWN start.
     hungWrite.resolve("ok");
     await settle();
-    vi.setSystemTime(T0 + 10_000 + STAFF_HANG_MS - 1);
+    vi.advanceTimersByTime(10_000 - 1);
     expect(stalledSince()).toBeNull();
-    vi.setSystemTime(T0 + 10_000 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(1);
     expect(stalledSince()).toBe(T0 + 10_000);
   });
 
@@ -268,8 +274,60 @@ describe("stalledSince — the OLDEST unanswered action, and only past the bound
     track(new Promise(() => {}));
     resetLedgerForTests();
     expect(outstanding()).toBe(0);
-    vi.setSystemTime(T0 + STAFF_HANG_MS);
+    vi.advanceTimersByTime(STAFF_HANG_MS);
     expect(stalledSince()).toBeNull();
+  });
+});
+
+describe("stalledSince — measured on a MONOTONIC clock, never the wall clock (Codex r2 on #310, B4)", () => {
+  // `vi.setSystemTime` is a wall-clock CORRECTION (network time, a manual fix): it moves `Date.now()`
+  // and leaves `performance.now()` — and every pending timer, the bound's included — where they were.
+  const HOUR = 3_600_000;
+
+  it("a wall clock set BACK mid-hang still reads stalled at the bound — the next money tap is refused", () => {
+    // MUTATION (p2h-cx2b/ledger/ages-on-wall-clock): the age is `Date.now() - start` again — an hour
+    // set back reads the hang as an hour in the future, the tab as healthy, and the next payment is
+    // dispatched into the stuck queue behind it; red.
+    track(new Promise(() => {}));
+    vi.advanceTimersByTime(10_000);
+    vi.setSystemTime(Date.now() - HOUR);
+    vi.advanceTimersByTime(STAFF_HANG_MS - 10_000 - 1);
+    expect(stalledSince()).toBeNull();
+    vi.advanceTimersByTime(1);
+    // The value is still the WALL-clock start (callers read only null / not null).
+    expect(stalledSince()).toBe(T0);
+  });
+
+  it("a wall clock set FORWARD never calls a fresh action stuck", () => {
+    // MUTATION (p2h-cx2b/ledger/ages-on-wall-clock): an hour forward reads a read sent this instant
+    // as an hour out — every money tap refused as "stuck — reload" for a hang that does not exist; red.
+    track(new Promise(() => {}));
+    vi.setSystemTime(Date.now() + HOUR);
+    expect(stalledSince()).toBeNull();
+    vi.advanceTimersByTime(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+  });
+
+  it("the OLDEST is chosen on the monotonic clock — a younger read with an EARLIER wall time never hides the hang", () => {
+    // MUTATION (p2h-cx2b/ledger/oldest-by-wall-clock): after a correction backward the young read
+    // carries the earlier wall time, so it is picked as "oldest" and ITS age is measured — the hung
+    // write at the head of the queue reads healthy; red.
+    track(new Promise(() => {})); // the hung write: mono 0, wall T0
+    vi.advanceTimersByTime(5_000);
+    vi.setSystemTime(Date.now() - HOUR);
+    track(new Promise(() => {})); // a young read: mono 5s, wall T0 + 5s − 1h
+    vi.advanceTimersByTime(STAFF_HANG_MS - 5_000);
+    expect(stalledSince()).toBe(T0);
+  });
+
+  it("the clock is `performance.now()`, read at the call — so the fake timers drive it", () => {
+    // MUTATION (p2h-cx2b/ledger/mono-is-wall): the seam reads `Date.now()` — the set-back case above
+    // goes red through it, and here the two clocks part; red.
+    const at = monoNow();
+    vi.setSystemTime(Date.now() - HOUR);
+    expect(monoNow()).toBe(at);
+    vi.advanceTimersByTime(1_234);
+    expect(monoNow()).toBe(at + 1_234);
   });
 });
 
@@ -343,5 +401,98 @@ describe("ownWaitSlot — a surface's own wait, by SUBJECT, outlives the mount (
     stop();
     cash.current = true;
     expect(heard).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("outReadSlot — a raw READ still out, by key, outlives the mount (Codex r2 on #310, B2)", () => {
+  afterEach(() => {
+    resetOutReadsForTests();
+  });
+  const rosterRead = () => {};
+  const otherRead = () => {};
+
+  it("a second handle on the SAME key reads the raw the first stored; another key reads null", () => {
+    const raw = new Promise<string[]>(() => {});
+    outReadSlot<string[]>(rosterRead).current = raw;
+    // A reopened sheet makes a NEW handle — it must find the read the closed one left out.
+    // MUTATION (p2h-cx2b/out-read/never-read): the register is never read, so every reopen sends
+    // another read behind the hung one; red.
+    expect(outReadSlot<string[]>(rosterRead).current).toBe(raw);
+    expect(outReadSlot<string[]>(otherRead).current).toBeNull();
+  });
+
+  it("writing null clears the key; the next handle reads null", () => {
+    const slot = outReadSlot<number>(rosterRead);
+    slot.current = Promise.resolve(1);
+    slot.current = null;
+    // MUTATION (p2h-cx2b/out-read/never-cleared): a settled read stays "out" — every later open
+    // attaches to an old answer (or an old failure) and never reads again; red.
+    expect(outReadSlot<number>(rosterRead).current).toBeNull();
+  });
+});
+
+describe("moveOwnOut — a write held from dispatch moves only by its OWN token (Codex r2 follow-up on #310, R2 · R3)", () => {
+  afterEach(() => {
+    resetOwnWaitsForTests();
+  });
+  const never = <T>() => new Promise<Late<T>>(() => {});
+
+  it("the bound marks the held write past, and its answer releases it — each only while it is still that write", () => {
+    const first = never<number>();
+    const slot = ownWaitSlot<OwnOut<number> | false>("open:c1", false);
+    slot.current = { late: first, past: false };
+    expect(moveOwnOut("open:c1", first, { late: first, past: true })).toBe(true);
+    expect(slot.current).toEqual({ late: first, past: true });
+    expect(moveOwnOut("open:c1", first, false)).toBe(true);
+    expect(hasOwnWait("open:c1")).toBe(false);
+    // Nothing held: a late move is a no-op, never a re-hold.
+    expect(moveOwnOut("open:c1", first, { late: first, past: true })).toBe(false);
+    expect(hasOwnWait("open:c1")).toBe(false);
+  });
+
+  it("an OLD write's answer never releases — nor marks — a NEWER write's hold on the same subject", () => {
+    const first = never<number>();
+    const second = never<number>();
+    const slot = ownWaitSlot<OwnOut<number> | false>("refundmark:r1", false);
+    slot.current = { late: second, past: false };
+    // MUTATION (p2h-cx2b/own-out/move-untokened): any answer moves the subject's hold — the first
+    // write's late answer frees the second while it is still out, and its tap sends a third; red.
+    expect(moveOwnOut("refundmark:r1", first, false)).toBe(false);
+    expect(moveOwnOut("refundmark:r1", first, { late: first, past: true })).toBe(false);
+    expect(slot.current).toEqual({ late: second, past: false });
+  });
+
+  it("every move notifies the subscribed controls; a refused one does not", () => {
+    const heard = vi.fn();
+    const stop = subscribeOwnWait(heard);
+    const late = never<number>();
+    ownWaitSlot<OwnOut<number> | false>("open:c2", false).current = { late, past: false };
+    expect(heard).toHaveBeenCalledTimes(1);
+    moveOwnOut("open:c2", late, { late, past: true });
+    expect(heard).toHaveBeenCalledTimes(2);
+    moveOwnOut("open:c2", never<number>(), false);
+    expect(heard).toHaveBeenCalledTimes(2);
+    stop();
+  });
+});
+
+describe("releaseOutRead — a read's settle clears only the read it is (Codex r2 follow-up on #310, R4)", () => {
+  afterEach(() => {
+    resetOutReadsForTests();
+  });
+  const rosterRead = () => {};
+
+  it("clears the key while it holds this raw; a raw that settles AFTER the register refilled leaves the newer read standing", () => {
+    const old = new Promise<string[]>(() => {});
+    const fresh = new Promise<string[]>(() => {});
+    outReadSlot<string[]>(rosterRead).current = old;
+    releaseOutRead(rosterRead, old);
+    expect(outReadSlot<string[]>(rosterRead).current).toBeNull();
+    outReadSlot<string[]>(rosterRead).current = fresh;
+    // MUTATION (p2h-cx2b/out-read/release-untokened): the old read's settle clears whatever the key
+    // holds — the newer read is forgotten while still out, and the next open sends another behind
+    // it; red.
+    releaseOutRead(rosterRead, old);
+    expect(outReadSlot<string[]>(rosterRead).current).toBe(fresh);
   });
 });

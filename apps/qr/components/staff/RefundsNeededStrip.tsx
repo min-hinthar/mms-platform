@@ -1,7 +1,15 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { resolveRefundNeeded, type RefundNeeded } from "@/lib/approvals";
-import { boundWrite } from "@/lib/bounded-write";
+import {
+  boundWrite,
+  moveOwnOut,
+  ownWaitSlot,
+  settleLate,
+  subscribeOwnWait,
+  type Late,
+  type OwnOut,
+} from "@/lib/bounded-write";
 import type { StaffLang } from "@/lib/staff-lang";
 import { al, sx } from "@/lib/staff-labels";
 import { ts } from "@/lib/i18n/staff";
@@ -15,6 +23,26 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /** A row's own line after a mark got no answer: still out at the bound, or the answer was lost. */
 type NoteKind = "waiting" | "unknown";
+/** Codex r2 on #310 (B3) — the tab's own-wait subject for a row's mark that is still out. */
+const holdOf = (id: string) => `refundmark:${id}`;
+type MarkResult = Awaited<ReturnType<typeof resolveRefundNeeded>>;
+/** The late answer a row's hold carries while its mark is out. */
+type MarkLate = Promise<Late<MarkResult>>;
+/** A row's mark, held from the moment it is sent until its answer (R3): its late answer, and
+ *  whether the bound has passed with none. */
+type MarkOut = OwnOut<MarkResult>;
+/** The row's mark that is out, from the tab's register — or false. */
+const markOut = (id: string) => ownWaitSlot<MarkOut | false>(holdOf(id), false);
+/** The rows (ids in row order, space-joined) whose mark is out: every one SENT, or only those PAST
+ *  the bound unanswered. A string, so an unchanged hold is an equal snapshot, never a re-render. */
+function rowsOut(refunds: RefundNeeded[] | null, pastOnly: boolean): string {
+  return (refunds ?? [])
+    .flatMap((r) => {
+      const out = markOut(r.id).current;
+      return out !== false && (out.past || !pastOnly) ? [r.id] : [];
+    })
+    .join(" ");
+}
 
 /**
  * A4·3 — the refunds-needed strip (W11 / M43), moved from `/staff/approvals` onto the counter's one
@@ -38,6 +66,22 @@ type NoteKind = "waiting" | "unknown";
  * answers (LEARNINGS #149 · #158 · #200): one hung approvals write kept every row's buttons dimmed.
  * The lock is a ref + state written here, the action is awaited with a bound (`boundWrite`), and a
  * lost or late answer says so honestly — it may still be marked done — never "nothing was recorded".
+ *
+ * Codex round 2 on #310 (B3) — the strip's lock frees at the bound, but a row whose mark is still
+ * unanswered keeps its OWN hold until the late answer settles: that lock was the only guard, so its
+ * confirm reopened and every attempt queued another mark behind the unresolved one. The hold is per
+ * ROW (other rows stay free) and lives in the tab's own-wait register (`refundmark:<row>`), so a
+ * strip mounted again while the mark is out still holds the row and says its line; the held row's
+ * trigger is `aria-disabled` (never native), described by its line, and a tap RE-SAYS that line as
+ * a new node instead of sending.
+ *
+ * Codex r2 follow-up (R3) — the row is held from the moment its mark is SENT, not from the bound
+ * (`OwnOut`): a strip mounted again inside the first STAFF_HANG_MS read the row free, reopened its
+ * confirm and sent a second mark behind the first. Before the bound a held row's trigger is busy
+ * (aria-disabled + aria-busy) and a tap does nothing — "Marking…" was the sender's word for it;
+ * past the bound it says "no answer yet". The strip attaches to every row's mark it finds out —
+ * sent before this mount or after — and each answer releases only the hold its own mark set
+ * (`moveOwnOut`, token-scoped).
  */
 export function RefundsNeededStrip({
   lang,
@@ -64,7 +108,23 @@ export function RefundsNeededStrip({
   // wiping this row's "no answer yet" while its mark could still land, and its late throw was then
   // dropped against the emptied slot. Each row's line is now cleared only by that row.
   const [notes, setNotes] = useState<Readonly<Record<string, NoteKind>>>({});
-  const noteOf = (id: string): NoteKind | null => notes[id] ?? null;
+  // B3 · R3 — the rows held by their own mark that is out, READ BY RENDER (subscribed): a remounted
+  // strip holds them too, and each answer frees its row wherever it lands. SENT — held from the tap
+  // (R3) — and, of those, PAST the bound with no answer (B3: said "no answer yet").
+  const sentKey = useSyncExternalStore(
+    subscribeOwnWait,
+    () => rowsOut(refunds, false),
+    () => "",
+  );
+  const heldKey = useSyncExternalStore(
+    subscribeOwnWait,
+    () => rowsOut(refunds, true),
+    () => "",
+  );
+  const sentIds = new Set(sentKey.split(" "));
+  const heldIds = new Set(heldKey.split(" "));
+  // A row held by a mark this strip did not send (mounted again since) says the hold's line too.
+  const noteOf = (id: string): NoteKind | null => notes[id] ?? (heldIds.has(id) ? "waiting" : null);
   const setNote = (id: string, kind: NoteKind | null) =>
     setNotes((n) => {
       if (kind === null) {
@@ -74,6 +134,41 @@ export function RefundsNeededStrip({
       }
       return { ...n, [id]: kind };
     });
+  // B3 — a tap on a held row re-says its line: a count per row keys the line's content, so a re-said
+  // sentence REPLACES the node and is announced again (`useResaid`'s rule, one count per row).
+  const [resaid, setResaid] = useState<Readonly<Record<string, number>>>({});
+  // B3 — the late answers this strip already hears: its OWN marks (`confirm`), and every hold it
+  // attached to. An answer is said once, by one listener here.
+  const heard = useRef(new Set<MarkLate>());
+  const alive = useRef(false);
+  const onResolvedRef = useRef(onResolved);
+  useEffect(() => {
+    onResolvedRef.current = onResolved;
+  });
+  useEffect(() => {
+    // Re-armed at every setup (a cleanup-only latch stays false after Strict Mode's first pass).
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  // B3 · R3 — a row held by a mark a strip that is GONE sent (this one mounted since — before the
+  // bound or after it): its answer lands here — the sender can no longer say it. A mark that landed
+  // leaves the row; a lost one says "couldn't confirm".
+  useEffect(() => {
+    for (const id of sentKey.split(" ")) {
+      const out = id === "" ? false : markOut(id).current;
+      if (out === false || heard.current.has(out.late)) continue;
+      heard.current.add(out.late);
+      void out.late.then((answer) => {
+        if (!alive.current) return;
+        if (answer.kind === "answer") {
+          setNote(id, null);
+          onResolvedRef.current?.(id);
+        } else setNote(id, "unknown");
+      });
+    }
+  }, [sentKey]);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // Phase 2h — the strip's one lock (one mark at a time): a REF read at tap time (two taps in one
   // frame both read the same render) and its state twin, cleared in a `finally` at the bound.
@@ -114,6 +209,13 @@ export function RefundsNeededStrip({
 
   function openConfirm(id: string) {
     if (inFlight.current) return;
+    // B3 · R3 — this row's own mark is out (sent here, or by a strip that is gone): never reopen the
+    // confirm. Past the bound, re-say its line (a new node); before it, the busy trigger says it.
+    const out = markOut(id).current;
+    if (out !== false) {
+      if (out.past) setResaid((n) => ({ ...n, [id]: (n[id] ?? 0) + 1 }));
+      return;
+    }
     setNote(id, null);
     setConfirmingId(id);
   }
@@ -126,10 +228,18 @@ export function RefundsNeededStrip({
     inFlight.current = true;
     setMarkingId(id);
     setNote(id, null);
+    // 9b — called OUTSIDE any transition, the RAW action awaited with a bound below. It throws on an
+    // unreadable table; a throw is a LOST answer, not a refusal (the update may have run).
+    const raw = resolveRefundNeeded(id);
+    const late = settleLate(raw);
+    // R3 — the ROW is held from the moment its mark is SENT, in the tab's register: a strip mounted
+    // again inside the bound refuses it instead of sending a second mark. This strip hears its own.
+    heard.current.add(late);
+    markOut(id).current = { late, past: false };
+    // Released by THIS mark's answer only (token-scoped, `moveOwnOut`), whichever way and whenever.
+    void late.then(() => moveOwnOut(holdOf(id), late, false));
     try {
-      // 9b — called OUTSIDE any transition, the RAW action awaited with a bound. It throws on an
-      // unreadable table; a throw is a LOST answer, not a refusal (the update may have run).
-      const out = await boundWrite(resolveRefundNeeded(id));
+      const out = await boundWrite(raw);
       if (out.kind === "answer") {
         // Both land in one batch: the row leaves with the group inside it, and the focus effect
         // above lands on the strip or the heading.
@@ -144,10 +254,13 @@ export function RefundsNeededStrip({
         return;
       }
       setNote(id, "waiting");
+      // B3 — the ROW stays held until the late answer settles (the strip's lock frees below): the
+      // bound marks its hold PAST, so this strip and any mounted since say "no answer yet".
+      moveOwnOut(holdOf(id), late, { late, past: true });
       // The late answer lands whenever it comes (9e): the strip lives as long as its board, so
       // there is no "gone" to guard — its own state is a no-op once both are.
-      void out.late.then((late) => {
-        if (late.kind === "answer") {
+      void late.then((answer) => {
+        if (answer.kind === "answer") {
           // A LATE mark lands (9e): the row leaves, and its "no answer yet" line with it.
           setNote(id, null);
           onResolved?.(id);
@@ -277,14 +390,22 @@ export function RefundsNeededStrip({
                    the processor. `al()` takes the same `echo` this button renders, and the
                    device's `shown`, and composes through `chromeVisible()` — so the name holds
                    exactly the visible strings, both under Both and the Burmese alone under
-                   Burmese only (WCAG 2.5.3); rule 3c compares the two echoes. */
+                   Burmese only (WCAG 2.5.3); rule 3c compares the two echoes. B3 · R3 — a row
+                   whose own mark is out is HELD (aria-disabled, dimmed): busy before the bound,
+                   described by its line after it. */
                 <button
                   id={`refund-mark-${r.id}`}
                   type="button"
                   className="staff-btn"
                   onClick={() => openConfirm(r.id)}
-                  aria-disabled={pending || undefined}
-                  style={{ ...resolveBtn, marginLeft: "var(--s2)" }}
+                  aria-disabled={pending || sentIds.has(r.id) || undefined}
+                  aria-busy={(sentIds.has(r.id) && !heldIds.has(r.id)) || undefined}
+                  aria-describedby={heldIds.has(r.id) ? `refund-line-${r.id}` : undefined}
+                  style={
+                    sentIds.has(r.id)
+                      ? { ...resolveBtn, ...heldLook, marginLeft: "var(--s2)" }
+                      : { ...resolveBtn, marginLeft: "var(--s2)" }
+                  }
                   aria-label={
                     al(lang, {
                       kind: "verb",
@@ -299,8 +420,10 @@ export function RefundsNeededStrip({
                 </button>
               )}
               {noteOf(r.id) !== null && (
-                <span role="status" style={failText}>
+                <span id={`refund-line-${r.id}`} role="status" style={failText}>
+                  {/* Keyed by the row's re-say count (B3): a re-said line replaces the node. */}
                   <Chrome
+                    key={resaid[r.id] ?? 0}
                     lang={lang}
                     k={
                       noteOf(r.id) === "waiting"
@@ -339,6 +462,8 @@ const outageText: CSSProperties = {
   fontSize: "var(--fs-sm)",
   color: "var(--warn)",
 };
+// A held control's dim (the clear, merge and open-bill controls'), never a native disable (B3).
+const heldLook: CSSProperties = { opacity: 0.5, cursor: "not-allowed" };
 const resolveBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 var(--s3)",
