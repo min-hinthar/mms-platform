@@ -14,7 +14,7 @@ a critic) and a Chromium measurement of a hung action (LEARNINGS #200). Built as
 `1c78c1e` · `7918de5` (the append-only mutant blocks rebuilt as a 3-way merge of the shared head and
 tail plus each stream's block; the merged mutant ids measured equal to the contract's plus each
 stream's additions, nothing lost), then the fixes the streams owed each other — built in three more worktrees (`p2h/int-a` · `int-b` · `int-c`), each through a fresh-context critic (APPROVE_WITH_FIXES · REJECT · APPROVE_WITH_FIXES; every finding fixed) and merged `5aec099`. Owner decision 9
-(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hr (P2hk closed by the review round). No SQL.
+(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hs (P2hk closed by the review round). No SQL.
 
 **What staff see first:**
 
@@ -105,7 +105,18 @@ sub-points declined as unfalsifiable guards, recorded in the verdict comment):
   line to the page when its sheet closes and re-says it on a re-tap; clearing a table is refused while
   the tab is stuck; the refunds strip clears only the row it opens.
 
-**Gate:** **GATE**
+**Codex round 1** (`e9de2d7`: 3×P2, all real, fixed in `3cb91ba` · `76c51f6`): a manager-list Try
+again attaches to the read still out instead of queueing another behind it, and that read's late answer
+still loads the list — retiring "Couldn't load the list of managers" and handing focus to the picker
+(one shared region rule, `useRosterRegion`); Open bill stays held while its own open waits and a tap
+re-says "no answer yet" (the hold read from a ref at the tap); a tap on the held cash trigger is said in
+an sr-only alert, re-announced on every tap.
+
+**Gate:** `turbo lint typecheck build` green on `cc949ef` (lint 0 errors); the full qr suite green
+(348 files); all 15 fast-lane steps + `check-money-coverage` green; the full `verify:slice` on `cc949ef`
+caught 2400 / 2400 (0 survived, 0 stale, no orphans), and on the Codex r1 head every new mutant plus
+every mutant on the files it touched (31 + 109) was caught; `check:mutant-anchors` 2431 anchors · 224
+files; CI green.
 
 **Filed:** P2he–P2hj (decision 9h: a compare-only `cartId` on the settle actions, a server guard on
 a dine-in clear with fired lines, a late-merge guard, polls moved to GET routes, the async-transition

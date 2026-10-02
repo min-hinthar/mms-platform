@@ -3289,3 +3289,12 @@ then concatenate both blocks — and verify the result as a SET (expected = ours
 request "follows once the gated head exists" and quoted the request phrase — the Codex connector
 treated the body as the ask and ran a task on the draft (it stood down, reading the note). Write
 about a bot's trigger without its literal text; the request goes in its own comment when meant.
+
+## #209
+
+**A count refresh by bare substring replace rewrites commit hashes.** Phase 2h refreshed doc counts
+with `str.replace('5535', '5575')` across HANDOFF, and `#283 `bf55352``silently became`bf55752`— a
+hash pointing nowhere, in a file whose every claim is meant to be measured.`check:docs` cannot see it
+(it checks the counts it knows, not every token). Replace counts by WORD BOUNDARY (`\b5535\b`), and
+after any bulk doc edit diff the number-bearing tokens against the base: every token lost must be a
+count you meant to change.
