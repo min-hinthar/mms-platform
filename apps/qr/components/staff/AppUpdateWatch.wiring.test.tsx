@@ -23,9 +23,13 @@ import { useReloadHold } from "./useReloadHold";
 const OWN = "mfq3k9aa-00112233";
 const NEW = "mfq3k9zz-ffee0011";
 
+/** The build the server serves: this bundle's own until a case's first poll (the watcher's mount
+ *  check — Codex r2 on #311 — hears "current"; `pollStale` then deploys the new one). */
+let servedBuild = OWN;
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
-  if (url === "/api/version") return Response.json({ build: NEW, contract: STAFF_CONTRACT });
+  if (url === "/api/version")
+    return Response.json({ build: servedBuild, contract: STAFF_CONTRACT });
   if (url === "/api/health") return Response.json({ db: "ok" });
   throw new Error(`unexpected fetch ${url}`);
 });
@@ -46,6 +50,7 @@ const KDS_SOUND: HoldInput = { kind: "sound", reason: "kdsSound", subject: "kds"
 
 beforeEach(() => {
   vi.useFakeTimers();
+  servedBuild = OWN;
   fetchMock.mockClear();
   reload.mockReset();
   sessionStorage.clear();
@@ -68,6 +73,8 @@ afterEach(() => {
 const phase = () => updateSnapshot().phase;
 /** One poll finds the new build: the bar's row appears. */
 const pollStale = async () => {
+  await act(() => vi.advanceTimersByTimeAsync(0)); // the mount's own check: current
+  servedBuild = NEW;
   await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
   expect(phase().k).toBe("stale");
 };

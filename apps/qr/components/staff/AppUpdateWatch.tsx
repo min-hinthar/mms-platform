@@ -46,8 +46,9 @@ const INPUT_EVENTS = ["pointerdown", "keydown", "touchstart", "wheel"] as const;
  *  - asks `/api/version` every VERSION_POLL_MS while the screen is SEEN and the device ONLINE, and
  *    at once on becoming visible, on `online`, on a `pageshow` that RESTORED the page from the
  *    back-forward cache (`persisted` — the first load's own pageshow is not one; it can fire after
- *    this effect when images are still loading), and when the reducer asks (`check`) — one request
- *    at a time. Never at mount: a document that just loaded IS the served build;
+ *    this effect when images are still loading), when the reducer asks (`check`), and ONCE AT MOUNT
+ *    (Codex r2 on #311: the staff layout can mount by a soft navigation from a page loaded long
+ *    ago) — one request at a time;
  *  - feeds input (pointer, key, touch, wheel — capture, passive) to the quiet clock and the countdown;
  *  - ticks every WATCH_TICK_MS only while a new version waits AND the screen is seen.
  *
@@ -143,6 +144,10 @@ export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }):
     };
     const offUpdate = subscribeUpdate(syncTick);
     syncTick();
+    // Once at mount (Codex r2 on #311): this layout can be reached by a SOFT navigation from a diner
+    // or board page, whose bundle is as old as THAT page's load — and nothing here can tell a soft
+    // arrival from a fresh load, so it always asks. One GET; a fresh load simply hears "current".
+    check();
 
     // ── input, visibility, the network ──
     const onInput = () => {

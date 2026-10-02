@@ -23,7 +23,7 @@ import { AppUpdateWatch, WATCH_TICK_MS } from "./AppUpdateWatch";
 /**
  * Phase 2i (P2bi) — the watcher that wires the version check, the retired witness, input and the
  * tick into the contract's store and executor. What only a mounted watcher can show: WHEN it asks
- * (seen and online only, never at mount, one at a time), that a retired action reaches the store,
+ * (seen and online only, once at mount, one at a time), that a retired action reaches the store,
  * that a touch cancels a countdown, that nothing ticks unseen — and that an automatic reload, when
  * everything is clear, marks, freezes and reloads the DOCUMENT.
  */
@@ -90,22 +90,46 @@ afterEach(() => {
 const phase = () => updateSnapshot().phase;
 
 /** Mount and let one poll find the new build: the phase is stale. */
+/** Mount on the served build (the mount's own check — Codex r2 on #311 — hears "current"), then let
+ *  one poll find the new build: the phase is stale, a poll's length after the load, so the quiet
+ *  window (the load counts as input) has passed. */
 async function mountStale() {
+  const next = served;
+  served = { build: OWN, contract: STAFF_CONTRACT };
   const r = render(<AppUpdateWatch own={OWN} />);
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(phase().k).toBe("current");
+  served = next;
   await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
   expect(phase().k).toBe("stale");
   return r;
 }
 
 describe("AppUpdateWatch — when it asks /api/version", () => {
-  it("never at mount; then every VERSION_POLL_MS, uncached and anonymous", async () => {
+  it("once at mount; then every VERSION_POLL_MS, uncached and anonymous", async () => {
+    served = { build: OWN, contract: STAFF_CONTRACT };
     render(<AppUpdateWatch own={OWN} />);
     await act(() => vi.advanceTimersByTimeAsync(0));
-    expect(versionCalls).toHaveLength(0);
-    await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
     expect(versionCalls).toHaveLength(1);
     expect(versionCalls[0]).toMatchObject({ cache: "no-store", credentials: "omit" });
+    await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
+    expect(versionCalls).toHaveLength(2);
+    expect(phase().k).toBe("current");
+    served = { build: NEW, contract: STAFF_CONTRACT };
+    await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
+    expect(versionCalls).toHaveLength(3);
     expect(phase()).toMatchObject({ k: "stale", served, retired: false });
+  });
+
+  it("Codex r2 on #311 — a staff layout reached by a SOFT navigation asks at once: its bundle is as old as the page it came from", async () => {
+    // MUTATION (p2i-watch/mount-unchecked): the mount asks nothing — a diner page open since
+    // lunch, soft-navigated into /staff, runs that lunchtime bundle for up to a minute before the
+    // first poll asks; red. The staff layout cannot tell a soft arrival from a fresh load (the
+    // document's own load may have been on any route, any time ago), so it always asks: one GET.
+    render(<AppUpdateWatch own={OWN} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(versionCalls).toHaveLength(1);
+    expect(phase()).toMatchObject({ k: "stale", served });
   });
 
   it("not while the device is offline; at once when it comes back", async () => {
@@ -146,16 +170,17 @@ describe("AppUpdateWatch — when it asks /api/version", () => {
     expect(versionCalls).toHaveLength(1);
   });
 
-  it("not on the first load's own pageshow — it can fire after mount, and that is still a mount", async () => {
+  it("not on the first load's own pageshow — it can fire after mount, and the mount already asked", async () => {
     // MUTATION (p2i-watch/pageshow-unfiltered): every pageshow checks — a page whose images were
-    // still loading asks at its first load; with an unwritable tab store that loops reload → check
-    // → stale → countdown → reload every ~20s instead of once a poll; red.
+    // still loading asks a SECOND time at its first load, right behind the mount's own check; red.
     render(<AppUpdateWatch own={OWN} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(versionCalls).toHaveLength(1);
     await act(async () => {
       pageShow(false);
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(versionCalls).toHaveLength(0);
+    expect(versionCalls).toHaveLength(1);
   });
 
   it("one request at a time: a hung answer is never stacked", async () => {
@@ -171,13 +196,18 @@ describe("AppUpdateWatch — when it asks /api/version", () => {
   });
 
   it("Strict Mode's double setup leaves ONE watcher", async () => {
+    served = { build: OWN, contract: STAFF_CONTRACT };
     render(
       <StrictMode>
         <AppUpdateWatch own={OWN} />
       </StrictMode>,
     );
+    // Each setup asks once at mount (the first's answer is dropped — it is disposed)…
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const atMount = versionCalls.length;
+    // …and one poll later exactly ONE more request: one interval survived, not two.
     await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
-    expect(versionCalls).toHaveLength(1);
+    expect(versionCalls).toHaveLength(atMount + 1);
   });
 
   it("a bundle with no stamp is inert: never asks, never retires, nothing installed", async () => {
@@ -203,25 +233,31 @@ describe("AppUpdateWatch — a retired action", () => {
   it("one UnrecognizedActionError on any tracked call marks the tab retired and asks at once", async () => {
     // MUTATION (p2i-watch/retired-unheard): the witness is not installed — the server has dropped
     // this screen's action and the screen goes on saying nothing; red.
+    served = { build: OWN, contract: STAFF_CONTRACT };
     render(<AppUpdateWatch own={OWN} />);
+    await act(() => vi.advanceTimersByTimeAsync(0)); // the mount's own check: current
+    expect(versionCalls).toHaveLength(1);
+    served = { build: NEW, contract: STAFF_CONTRACT };
     await act(async () => {
       track(Promise.reject(new UnrecognizedActionError("Server Action not found"))).catch(() => {});
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(phase()).toMatchObject({ k: "stale", retired: true });
     // The reducer's `check` effect reached the watcher: asked now, not in a minute.
-    expect(versionCalls).toHaveLength(1);
+    expect(versionCalls).toHaveLength(2);
     expect(phase()).toMatchObject({ k: "stale", retired: true, served });
   });
 
   it("any other failure is not a retired action", async () => {
+    served = { build: OWN, contract: STAFF_CONTRACT };
     render(<AppUpdateWatch own={OWN} />);
+    await act(() => vi.advanceTimersByTimeAsync(0)); // the mount's own check: current
     await act(async () => {
       track(Promise.reject(new TypeError("fetch failed"))).catch(() => {});
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(phase().k).toBe("current");
-    expect(versionCalls).toHaveLength(0);
+    expect(versionCalls).toHaveLength(1);
   });
 });
 
@@ -498,7 +534,8 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
       window.dispatchEvent(new Event("online"));
       await vi.advanceTimersByTimeAsync(VERSION_POLL_MS * 2);
     });
-    expect(versionCalls).toHaveLength(0);
+    // Only the mount's own check went out — and its answer, landing after the unmount, is dropped.
+    expect(versionCalls).toHaveLength(1);
     expect(phase().k).toBe("current");
   });
 });
@@ -593,7 +630,7 @@ describe("the production default — the layout passes no `own`", () => {
     const stamp = await import("@/lib/build-stamp");
     expect(stamp.CLIENT_BUILD).toBe(OWN);
     render(<fresh.AppUpdateWatch />);
-    await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
+    await act(() => vi.advanceTimersByTimeAsync(0));
     expect(versionCalls).toHaveLength(1);
     expect(store.updateSnapshot().phase).toMatchObject({ k: "stale", served });
   });
