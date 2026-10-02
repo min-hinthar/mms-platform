@@ -45,6 +45,7 @@ import {
   type ReaderCollectApi,
   type ReaderViewer,
 } from "./ReaderCollectContext";
+import { useReloadHold } from "./useReloadHold";
 
 /**
  * Phase 2g · reader (P2em · P2en · P2er · P2es) — THE card reader's collect, owned ABOVE navigation.
@@ -613,6 +614,16 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   );
 
   const live = record !== null && readerLive(poll.phase);
+  // Phase 2i (P2bi) — a DECLINED or CANCELLED outcome still on screen (panel or chip) is unread news
+  // a reload would erase: the stash is dropped at that phase (`answer`), so nothing brings it back
+  // (P2ie). An automatic reload waits until it is dismissed. `unrecorded` is NOT held — it is kept in
+  // the stash and comes back after any load (C1).
+  useReloadHold(
+    "unread",
+    "readerOutcome",
+    record?.sessionId ?? "",
+    record !== null && !readerPolling(poll.phase) && poll.phase !== "unrecorded",
+  );
   const value = useMemo<ReaderCollectApi>(() => {
     const status = record === null ? null : readerStatus(poll, recordingLong);
     return {

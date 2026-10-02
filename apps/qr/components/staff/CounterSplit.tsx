@@ -31,6 +31,7 @@ import { useCounterBellCover } from "./CounterBell";
 import { useReaderCollectOptional } from "./ReaderCollectContext";
 import type { TableHint } from "./TableNav";
 import { TablePane } from "./TablePane";
+import { useReloadHold } from "./useReloadHold";
 import {
   TablePaneContext,
   type CloseReason,
@@ -84,6 +85,10 @@ export function CounterSplit({
     hint: TableHint;
     kind: LostKind;
   } | null>(null);
+  // Phase 2i (P2bi) — a lost-write line on the pane is UNREAD money news ("we couldn't confirm that
+  // payment"): an automatic reload for a new version waits while it stands (a reload drops it — the
+  // pane's state, never stashed). A person's own Reload is never held by it: tapping is reading.
+  useReloadHold("unread", "paneLine", lostWrite?.sessionId ?? "", lostWrite !== null);
   // `?settle=1` (the order pad's Take payment, carried into the pane) — consumed ONCE.
   const [settleOnce, setSettleOnce] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);

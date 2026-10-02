@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { EmptyState, Icon, useSheetSubject } from "@mms/ui";
+import { Button, EmptyState, Icon, useSheetSubject } from "@mms/ui";
 import {
   getSettledToday,
   type SettledLine,
@@ -14,12 +14,15 @@ import {
   SETTLED_CAP,
   groupKey,
   receiptRowKey,
+  ackHandBack,
+  owedHandBacks,
+  peekHandBacks,
   refundSheetAfterAnswer,
   rememberHandBack,
   settledChipKey,
   settledStatusKey,
+  subscribeHandBacks,
   tabStore,
-  takeHandBacks,
   tenderKey,
   type HandBack,
 } from "@/lib/settled-view";
@@ -74,9 +77,18 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // the moment a drawer hand-back is recordable. The PATH is captured with the amount, at the moment
   // the sheet reports, rather than re-derived later from a list that has since refreshed.
   const [confirmed, setConfirmed] = useState<{ cents: number; path: RefundPath } | null>(null);
-  // Phase 2h · review a (A2) — CASH hand-backs a refund's LATE answer brought while this zone was
-  // gone (`rememberHandBack`, below): said in the banner when the zone comes back, then forgotten.
+  // Phase 2i (P2bi · D5) — every CASH hand-back still owed in this tab, read FROM THE RECORD
+  // (`peekHandBacks`): written on every cash answer, forgotten only by its own [Handed back] (or a
+  // shift's age). The banner says exactly this list — one source, so nothing is said twice.
   const [owedBack, setOwedBack] = useState<HandBack[]>([]);
+  // The ones this document could NOT write down (storage refused): said from memory instead, until
+  // acknowledged — never dropped because the tab has no storage.
+  const unkept = useRef<HandBack[]>([]);
+  const repeek = useCallback((): HandBack[] => {
+    const next = owedHandBacks(peekHandBacks(tabStore(), Date.now()), unkept.current);
+    setOwedBack(next);
+    return next;
+  }, []);
   // Phase 2h (9b) — the read is called OUTSIDE any transition: under `startTransition(async …)` its
   // `pending` (the Refresh's busy) held until the action ANSWERED, whatever `raceTimeout` did — and
   // while it hung, every other transition's pending and every router commit on the tab was held with
@@ -181,6 +193,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // puts the instruction in front of whoever must act on it, sighted or not.
   const refocusOrderId = useRef<string | null>(null);
   const refocusBanner = useRef(false);
+  // Phase 2i — the last instruction acknowledged and nothing left to say: focus goes to the zone's
+  // heading (the [Handed back] that had it is gone), never to <body>.
+  const refocusHeading = useRef(false);
   const bannerRef = useRef<HTMLParagraphElement | null>(null);
 
   // ⚠️ THE CASH BANNER'S FOCUS IS KEYED TO `confirmed`, NOT `snap` (Codex round 4 on #286, P1).
@@ -192,8 +207,15 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   //
   // `confirmed` is set synchronously in `onDone` BEFORE `refresh()` is called, so it changes
   // whether or not the read that follows ever lands. The banner also does not depend on the list:
-  // it renders from `confirmed` alone, above the orders, so there is nothing to wait for.
+  // it renders from `confirmed` and the hand-back record alone, above the orders, so there is
+  // nothing to wait for. (Phase 2i — a cash answer now moves `owedBack`, re-peeked from the record
+  // in `onDone`; `confirmed` carries only the card path's report.)
   useEffect(() => {
+    if (refocusHeading.current) {
+      refocusHeading.current = false;
+      document.getElementById("settled-h")?.focus();
+      return;
+    }
     if (!refocusBanner.current) return;
     refocusBanner.current = false;
     refocusOrderId.current = null;
@@ -204,15 +226,16 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     bannerRef.current?.scrollIntoView?.({ block: "center" });
   }, [confirmed, owedBack]);
 
-  // Phase 2h · review a (A2) — a hand-back kept while this zone was gone is said when it mounts: the
-  // banner's region takes it and takes FOCUS (the effect above), so it is read out and in view. The
-  // record is read from a timer, never in render (a server render has no tab storage, and a
-  // different first paint would not hydrate) and never as a synchronous setState in the effect
-  // body; Strict Mode's first setup is cleared before its timer fires, so the take — which forgets
-  // the record — runs exactly once per mount.
+  // Phase 2h · review a (A2) · Phase 2i (D5) — a hand-back still owed is said when the zone mounts:
+  // after the manager came back from another screen, and after a RELOAD — ours, or Next's own on the
+  // refund's answer (a stale build), which is why every cash answer is written down. The banner's
+  // region takes it and takes FOCUS (the effect above), so it is read out and in view. The record is
+  // read from a timer, never in render (a server render has no tab storage, and a different first
+  // paint would not hydrate) and never as a synchronous setState in the effect body. A peek never
+  // forgets, so Strict Mode's double setup costs nothing: only [Handed back] ends an entry.
   useEffect(() => {
     const t = setTimeout(() => {
-      const owed = takeHandBacks(tabStore());
+      const owed = peekHandBacks(tabStore(), Date.now());
       if (owed.length === 0) return;
       refocusBanner.current = true;
       setArmed(true);
@@ -220,6 +243,29 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     }, 0);
     return () => clearTimeout(t);
   }, []);
+
+  // A hand-back written down by an answer this zone did not send — a refund sent from an earlier
+  // mount of the zone, answering late after the manager came back — is said here at once, with
+  // focus, rather than on some later mount.
+  useEffect(
+    () =>
+      subscribeHandBacks(() => {
+        if (repeek().length === 0) return;
+        refocusBanner.current = true;
+        setArmed(true);
+      }),
+    [repeek],
+  );
+
+  /** [Handed back]: forget THAT entry (record and memory), say what is left, and put focus on it —
+   *  or on the zone's heading when nothing is left to say. */
+  const acknowledge = (lineId: string) => {
+    ackHandBack(tabStore(), lineId);
+    unkept.current = unkept.current.filter((h) => h.lineId !== lineId);
+    const left = repeek();
+    if (left.length > 0 || confirmed !== null) refocusBanner.current = true;
+    else refocusHeading.current = true;
+  };
 
   // The CARD path's handoff still waits for the list, and correctly: the refreshed list is what
   // swaps the Refund button for the refunded mark and drops focus to <body>, so there is nothing
@@ -312,26 +358,52 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
         )}
       </p>
       {armed && (
-        <p role="status" ref={bannerRef} tabIndex={-1} style={confirmBanner}>
-          {owedBack.map((h, i) => (
-            <Fragment key={h.lineId}>
-              {i > 0 && " "}
-              <Chrome lang={lang} k="floor.settled.confirmed.cash" vars={{ m: dollars(h.cents) }} />
-            </Fragment>
-          ))}
-          {owedBack.length > 0 && confirmed !== null && " "}
-          {confirmed !== null && (
-            <Chrome
-              lang={lang}
-              k={
-                confirmed.path === "cash"
-                  ? "floor.settled.confirmed.cash"
-                  : "floor.settled.confirmed"
-              }
-              vars={{ m: dollars(confirmed.cents) }}
-            />
+        <div style={bannerWrap}>
+          {/* The zone's ONE live region holds the words only; each [Handed back] sits outside it
+              (a control inside a live region is announced as text) and is described by its line. */}
+          <p role="status" ref={bannerRef} tabIndex={-1} style={confirmBanner}>
+            {owedBack.map((h, i) => (
+              <Fragment key={h.lineId}>
+                {i > 0 && " "}
+                <span id={handBackLineId(h.lineId)} style={bannerLine}>
+                  <Chrome
+                    lang={lang}
+                    k="floor.settled.confirmed.cashFor"
+                    vars={{ m: dollars(h.cents), x: h.name }}
+                  />
+                </span>
+              </Fragment>
+            ))}
+            {owedBack.length > 0 && confirmed !== null && " "}
+            {confirmed !== null && (
+              <span style={bannerLine}>
+                <Chrome
+                  lang={lang}
+                  k="floor.settled.confirmed"
+                  vars={{ m: dollars(confirmed.cents) }}
+                />
+              </span>
+            )}
+          </p>
+          {owedBack.length > 0 && (
+            <div style={ackRow}>
+              {owedBack.map((h) => (
+                <Button
+                  key={h.lineId}
+                  variant="secondary"
+                  size="lg"
+                  aria-describedby={handBackLineId(h.lineId)}
+                  onClick={() => acknowledge(h.lineId)}
+                >
+                  {/* The dish rides the label: two instructions standing side by side must never
+                      offer two identical buttons, to the eye or to speech input. */}
+                  <Chrome lang={lang} k="floor.settled.handBack.done" echo="inline" />
+                  <span style={ackSubject}> · {h.name}</span>
+                </Button>
+              ))}
+            </div>
           )}
-        </p>
+        </div>
       )}
 
       {orders.length === 0 ? (
@@ -352,11 +424,14 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
               onToggle={() => toggle(o.id)}
               onRefund={(line) => {
                 setArmed(true);
-                // ⚠️ CLEARED ON EVERY ATTEMPT (Codex round 3 on #286, P1). The cash banner is an
-                // imperative carrying an amount; a stale one standing over a new attempt is an
-                // instruction to pay a figure this tap has nothing to do with.
+                // ⚠️ The CARD confirmation is cleared on every attempt (Codex round 3 on #286, P1): a
+                // report standing over a new attempt reads as that attempt's figure.
+                //
+                // Phase 2i (D5) SUPERSEDES the cash half of that rule: an owed hand-back is NOT
+                // cleared here. It is the only copy of a drawer instruction that Next's reload on a
+                // stale build can otherwise erase, so it stands until its own [Handed back] — and it
+                // names its dish, which is what keeps it from reading as THIS attempt's figure.
                 setConfirmed(null);
-                setOwedBack([]); // review a (A2) — a recovered hand-back is that same imperative
                 setRefunding({ order: o, line });
               }}
             />
@@ -383,21 +458,33 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
             const orderId = subject.order.id;
             const path = subject.order.refundPath;
             const handBack = refundedCents != null && path === "cash";
-            // Review a (A2) — the zone is GONE (this is a late answer through the tap-time
-            // closure): nothing below can say the hand-back, so keep it for the zone's next mount.
-            // Only then — a hand-back this zone says now, kept as well, would be said twice.
-            if (handBack && !alive.current)
-              rememberHandBack(tabStore(), subject.line.id, refundedCents);
+            // ⚠️ Phase 2i (P2bi · D5) — FIRST, synchronously, before any state is set: write the
+            // hand-back down. `refundLine` revalidates, so on a tab older than the server Next
+            // reloads the page right after this handler — the banner below may never paint, and the
+            // record is the only place the instruction survives. EVERY cash answer, mounted or not
+            // (Phase 2h kept only a gone zone's): the banner reads the record, so it is said once.
+            if (handBack) {
+              const hb = {
+                lineId: subject.line.id,
+                cents: refundedCents,
+                name: subject.line.name,
+                at: Date.now(),
+              };
+              if (!rememberHandBack(tabStore(), hb))
+                unkept.current = [...unkept.current.filter((h) => h.lineId !== hb.lineId), hb];
+            }
             setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id, handBack));
             if (refundedCents == null) {
               // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the
-              // previous confirmation standing would re-issue its imperative over an attempt that
-              // moved no money, and a manager following it pays the earlier refund twice.
+              // previous card confirmation standing would report a figure this attempt never moved.
+              // An owed hand-back stays: it names its own dish and waits for its own [Handed back].
               setConfirmed(null);
+            } else if (handBack) {
+              repeek();
+              refocusBanner.current = true;
             } else {
               setConfirmed({ cents: refundedCents, path });
-              if (path === "cash") refocusBanner.current = true;
-              else refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
+              refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
             }
             void refresh();
           }}
@@ -406,6 +493,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     </section>
   );
 }
+
+/** The banner line a [Handed back] is described by (`aria-describedby`). */
+const handBackLineId = (lineId: string) => `settled-hand-back-${lineId}`;
 
 /** One settled order: the collapsed row is the receipt's identity line; expanded, it IS the receipt. */
 function OrderCard({
@@ -672,6 +762,10 @@ const refreshBtn: CSSProperties = {
 const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 };
 const countLine: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)" };
 const warnText: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--warn)" };
+const bannerWrap: CSSProperties = { display: "grid", gap: "var(--s2)" };
+const bannerLine: CSSProperties = { display: "block" };
+const ackRow: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--s2)" };
+const ackSubject: CSSProperties = { fontWeight: "var(--fw-regular)" };
 const confirmBanner: CSSProperties = {
   minHeight: 18,
   margin: 0,

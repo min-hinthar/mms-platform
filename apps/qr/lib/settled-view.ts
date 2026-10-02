@@ -153,23 +153,37 @@ export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
 }
 
 /**
- * Phase 2h · review a (A2) — a CASH refund's hand-back that nobody has been told to make yet.
+ * Phase 2h · review a (A2) · Phase 2i (P2bi · D5) — a CASH refund's hand-back, kept in this tab until a
+ * person says it was made.
  *
- * A cash refund with no answer at STAFF_HANG_MS frees its sheet, and its LATE answer is the ONLY
- * place the server-clamped figure and the instruction "hand back $X from the drawer" exist (record
- * first, then the drawer — `floor.settled.path.cash`). It reaches the zone through the sheet's
- * tap-time `onDone`; if the zone has unmounted by then (the manager moved to another screen), its
- * banner state is gone with it and the instruction would be dropped on the floor — money recorded
- * as handed back that never left the till. So a late hand-back that finds the zone gone is kept
- * HERE, per tab (sessionStorage survives a reload of the same tab), keyed by the refunded line, and
- * the zone says it — and forgets it — the next time it mounts.
+ * Under record-first a cash refund's ANSWER is the only place the server-clamped figure and the
+ * instruction "hand back $X from the drawer" exist (`floor.settled.path.cash`). Phase 2h kept it only
+ * when the zone had gone by the time the answer came (its late answer had nowhere else to be said).
+ * Phase 2i keeps it on EVERY cash answer, because the answer itself can erase the screen that says
+ * it: `refundLine` revalidates, and a tab running an older build than the server is hard-reloaded by
+ * Next right after the answer handler runs (one round trip later), with no client code able to veto
+ * it. The banner that said "hand back $11.05" a moment before is gone, and the money is recorded as
+ * handed back while it is still in the till. So the zone writes it HERE, synchronously, before it
+ * sets any state, and renders the banner FROM this record — one source, said once per document.
  *
- * Only a hand-back the zone could NOT say is kept: one said by a mounted zone, kept as well, would
- * be said a second time on the next mount, and a manager following it pays the guest twice.
- * Storage that throws or is absent (private mode, a server render) keeps nothing and never throws.
+ * An entry is forgotten only by `ackHandBack` (the manager's [Handed back]) or by age
+ * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets. Each entry names its dish, so a standing
+ * instruction is identifiable and acknowledged on its own — that is what answers the Codex r3 #286
+ * risk of a stale imperative standing over a new attempt, which a blanket clear answered before.
+ * Storage that throws or is absent (private mode, a server render) keeps nothing and never throws;
+ * `rememberHandBack` says so (`false`) and the zone keeps that one in memory for this document.
  */
 export const HAND_BACK_KEY = "mms.staff.refund.handBack";
-export type HandBack = { lineId: string; cents: number };
+export type HandBack = {
+  lineId: string;
+  cents: number;
+  /** The dish, as the settled list names it — the instruction says which refund it is for. */
+  name: string;
+  /** `Date.now()` when the answer came — the TTL's clock. */
+  at: number;
+};
+/** A shift: an instruction nobody acknowledged by then is not one anybody will act on. */
+export const HAND_BACK_TTL_MS = 12 * 60 * 60_000;
 export type TabStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** This tab's sessionStorage, or null where there is none (a server render) or it throws. */
@@ -181,26 +195,36 @@ export function tabStore(): TabStore | null {
   }
 }
 
+function isHandBack(h: unknown): h is HandBack {
+  return (
+    typeof h === "object" &&
+    h !== null &&
+    typeof (h as HandBack).lineId === "string" &&
+    Number.isInteger((h as HandBack).cents) &&
+    (h as HandBack).cents > 0 &&
+    typeof (h as HandBack).name === "string" &&
+    Number.isFinite((h as HandBack).at)
+  );
+}
+
+/** Still owed at `now`: younger than a shift. */
+function fresh(h: HandBack, now: number): boolean {
+  return now - h.at < HAND_BACK_TTL_MS;
+}
+
 function readHandBacks(store: TabStore): HandBack[] {
   const raw = store.getItem(HAND_BACK_KEY);
   if (raw === null) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (h): h is HandBack =>
-      typeof h === "object" &&
-      h !== null &&
-      typeof (h as HandBack).lineId === "string" &&
-      Number.isInteger((h as HandBack).cents) &&
-      (h as HandBack).cents > 0,
-  );
+  return parsed.filter(isHandBack);
 }
 
-/** Keep a hand-back the zone could not say. One line is refunded once, so a line's newer entry
- *  replaces its older one (never two instructions for one refund). */
-export function rememberHandBack(store: TabStore | null, lineId: string, cents: number): void {
-  // A non-positive or fractional figure is no hand-back; `readHandBacks` drops it on the way out.
-  if (store === null) return;
+/** Keep a hand-back. One line is refunded once, so a line's newer entry replaces its older one
+ *  (never two instructions for one refund). `true` only when the record now holds it. */
+export function rememberHandBack(store: TabStore | null, hb: HandBack): boolean {
+  // A non-positive or fractional figure, or an entry missing its dish, is no hand-back.
+  if (store === null || !isHandBack(hb)) return false;
   try {
     let kept: HandBack[] = [];
     try {
@@ -208,28 +232,69 @@ export function rememberHandBack(store: TabStore | null, lineId: string, cents: 
     } catch {
       kept = []; // an unreadable record is replaced, never allowed to block a new instruction
     }
-    const next = [...kept.filter((h) => h.lineId !== lineId), { lineId, cents }];
+    const next = [
+      ...kept.filter((h) => h.lineId !== hb.lineId && fresh(h, hb.at)),
+      { lineId: hb.lineId, cents: hb.cents, name: hb.name, at: hb.at },
+    ];
     store.setItem(HAND_BACK_KEY, JSON.stringify(next));
   } catch {
-    // Storage refused (quota, private mode): nothing can be kept. The cash refund's waiting line
-    // already told the manager to reload and hand back the figure if the line shows refunded.
+    // Storage refused (quota, private mode): nothing can be kept, and the caller is told.
+    return false;
+  }
+  // Said to every zone mounted in this document — including one that mounted AFTER the refund was
+  // sent, whose own mount-time peek ran before this late answer existed.
+  for (const fn of [...heard]) {
+    try {
+      fn();
+    } catch {
+      // A listener's failure is its own; the record is written either way.
+    }
+  }
+  return true;
+}
+
+const heard = new Set<() => void>();
+/** Told after every hand-back written down in this document (a late answer reaches a zone that
+ *  mounted after its refund was sent). Returns the unsubscribe. */
+export function subscribeHandBacks(fn: () => void): () => void {
+  heard.add(fn);
+  return () => {
+    heard.delete(fn);
+  };
+}
+
+/** Every hand-back still owed at `now`, oldest first. Reads only: NEVER forgets one. */
+export function peekHandBacks(store: TabStore | null, now: number): HandBack[] {
+  if (store === null) return [];
+  try {
+    return readHandBacks(store).filter((h) => fresh(h, now));
+  } catch {
+    return [];
   }
 }
 
-/** Every kept hand-back, and forget them: the caller is about to say them. */
-export function takeHandBacks(store: TabStore | null): HandBack[] {
-  if (store === null) return [];
-  let owed: HandBack[] = [];
+/** The manager handed `lineId`'s money back: forget that entry, and only that one. */
+export function ackHandBack(store: TabStore | null, lineId: string): void {
+  if (store === null) return;
   try {
-    owed = readHandBacks(store);
+    const left = readHandBacks(store).filter((h) => h.lineId !== lineId);
+    if (left.length === 0) store.removeItem(HAND_BACK_KEY);
+    else store.setItem(HAND_BACK_KEY, JSON.stringify(left));
   } catch {
-    owed = [];
+    // Unreadable: drop the record whole — garbage is never said as an instruction anyway.
+    try {
+      store.removeItem(HAND_BACK_KEY);
+    } catch {
+      // Nothing to do: the entry stays until its TTL, and says itself again — never a wrong figure.
+    }
   }
-  try {
-    store.removeItem(HAND_BACK_KEY);
-  } catch {
-    // Nothing to do: the next take reads the same entries again, which only repeats an instruction
-    // that was never acted on twice — the refund itself recorded once.
-  }
-  return owed;
+}
+
+/** The banner's list: the record's entries, then any this document could NOT keep (storage refused)
+ *  that the record does not already hold — said once each, never twice. */
+export function owedHandBacks(
+  stored: readonly HandBack[],
+  unkept: readonly HandBack[],
+): HandBack[] {
+  return [...stored, ...unkept.filter((u) => !stored.some((s) => s.lineId === u.lineId))];
 }
