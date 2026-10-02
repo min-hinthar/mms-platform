@@ -147,6 +147,38 @@ touched — 460 on 23 files — caught 459 and found ONE survivor, `p2i-watch/ti
 hidden-tab refusal had made the hidden-tick case blind to it, so the case now pins the work itself
 (`cf112ff`, red-first), and a re-run of that suite's 22 mutants caught 22. 0 stale.
 
+**Codex round 2 on #311** (head `3b0eeec`: 2×P1 + 3×P2 — all five real, each re-read in source first;
+fixed in `fbefa2e` · `d1336ad` · `915ce8e` · `da5a3da` · `8718188` · `5efa6f7`, mutants `31cdbfc`;
+each red-first). **P1 · a pick auto-sent after a visit to another site (CX9):** a `pagehide` that
+unloads also covers a navigation away and a tab close, and a page of another origin can never
+advance the tab's load counter, so an operator who left and came back to the lane inside five
+minutes had the old picks sent. A load now also proves by its OWN navigation that it continues the
+last one (`loadContinues`: a `reload`, or a `navigate` from this origin — Next 16.2.9's stale-build
+hard navigation is a same-origin `location.assign`/`replace`, so it still resumes); anything else
+names the bags again. Whether a restored closed tab reports `back_forward` is not measured (P2jb).
+**P1 · the stall's Reload erased what only this page held (CX11, was P2iv):** `ReloadButton` now reads
+`stallCureBlock` at the tap — the KDS Undo bar, a pick still inside its window the tab could not
+stash, and a cash hand-back only memory holds refuse it with their own sentence, in the button's own
+alert beside it, gone when the hold is. A young write, a stall, a draft and a pick already SENDING
+never do: the lane's hold now says `pickSending` once every pick is on the wire, because that write
+may be the very one that hangs. **P2 · the staff watcher's first check waited a minute (CX8):** a
+staff layout reached by a soft navigation from a diner page ran that page's bundle until the first
+poll; the watcher now asks once at mount (one GET). **P2 · the diner strip went dead after /staff
+(CX10):** the shell's three staff guards now RELEASE what they take — the ask, the debt, the pending
+failsafe and the Refresh one-shot — so the strip answers a tap again and another tab's later
+activation reloads nothing here (a debt paid on leaving /staff was refused: it would reload a diner
+page on a soft navigation). **P2 · a typed value was safe only while focused (CX12):** a new unsent
+hold reason, `draft`, is held while a value differs from what is saved — the kitchen note, the
+counter call-out, the menu price, the promo code, the phone order's name, the add-staff form and the
+help report — and refuses both the row's Reload and the automatic one with "Something you typed
+isn't saved yet — save it or clear it first." (`shell.version.wait.draft`, a K15-HIGH Burmese draft);
+the focus check stays as the belt. Mutants 2908 → 2950 (43 added, 16 re-anchored, 1 retired with the
+rule CX8 reverses), 243 target modules (MenuPriceEditor and TeamManager join, 70 components); P2iv
+closed, P2jb filed. Gate: `turbo lint typecheck build` green (0 errors, the 6 standing warnings) and the build stamp checked after it; the full qr
+suite 6129 / 6129 (370 files) and `packages/ui` 287 / 287; all 15 fast-lane steps and `check:docs` clean; a filtered
+`verify:slice` over every mutant added or re-anchored this round plus every mutant whose file or suite this round touched —
+352 on 24 files — caught 352, 0 survived, 0 stale.
+
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
 Planned on `c7bffc1` (the Phase 2g head) from a map of every staff Server Action and poll (checked by
