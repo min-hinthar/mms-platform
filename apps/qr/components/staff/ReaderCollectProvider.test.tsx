@@ -3,7 +3,13 @@ import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
-import { STAFF_HANG_MS, stalledSince, track, youngWrite } from "@/lib/bounded-write";
+import {
+  STAFF_HANG_MS,
+  msSinceWriteSettled,
+  stalledSince,
+  track,
+  youngWrite,
+} from "@/lib/bounded-write";
 import { autoBlock, reloadHolds, type GuardInput } from "@/lib/reload-guard";
 import {
   READER_COLLECT_KEY,
@@ -668,16 +674,24 @@ describe("Phase 2h (9d) — the status read sits on the stall ledger until it an
   });
 });
 
-describe("Phase 2i — the status read is a READ on the ledger", () => {
-  it("a status read in flight never reads as a young write — the collect record survives a reload and re-polls", async () => {
-    terminalStatus.mockReturnValue(new Promise(() => {}));
+describe("Phase 2i · blind review (money M2) — the status poll is a WRITE on the ledger", () => {
+  it("a status poll in flight reads as a young write, and its answer opens the answer window — it can move the freeze and cancel the payment", async () => {
+    let answer!: (v: unknown) => void;
+    terminalStatus.mockReturnValue(new Promise((r) => (answer = r)));
     mount();
     await act(async () => api.start(START));
     await tick(0);
     expect(terminalStatus).toHaveBeenCalledTimes(1);
-    // MUTATION (p2i-kind/reader-status): the poll is tracked as a write — a counter collecting a
-    // card refuses a reload for a new build for as long as it polls; red.
+    // MUTATION (p2i-kind/reader-status): the poll is tracked as a READ — `terminalStatus` extends,
+    // re-acquires or releases the settlement freeze and cancels a dead attempt's payment, and a
+    // person's Reload tap lands in the middle of it as "nothing saving"; red.
+    expect(youngWrite()).toBe(true);
+    expect(msSinceWriteSettled()).toBeNull();
+    await act(async () => {
+      answer(collecting);
+    });
     expect(youngWrite()).toBe(false);
+    expect(msSinceWriteSettled()).not.toBeNull();
   });
 });
 

@@ -362,7 +362,16 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       flight.current = ticket;
       // Phase 2h (9d) — on the stall ledger until it answers: a hung status read holds the action
       // queue like any action, so a money tap behind it is refused instead of queued.
-      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "read")
+      //
+      // ⚠️ A WRITE, not a read (Phase 2i blind review, money M2): `terminalStatus` extends, re-acquires
+      // and releases the settlement freeze and can cancel a dead attempt's PaymentIntent. So while a
+      // card is being collected the answer window (`msSinceWriteSettled`) is re-opened every poll and
+      // NO automatic reload happens — accepted: the collect record survives a reload, but nobody
+      // asked for one mid-collect. A person's Reload tap is refused as "still saving" only while a
+      // poll is IN FLIGHT (`youngWrite`); a poll answers in well under a second of its
+      // READER_POLL_MS cycle, so a re-tap between polls goes through. On a reader that answers slowly
+      // enough to overlap every re-check, the tap waits for the collect to finish — also accepted.
+      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "write")
         .catch(() => null)
         .then((res) => {
           if (flight.current === ticket) flight.current = null;

@@ -15798,7 +15798,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
     suite: "components/staff/ReaderCollectProvider.test.tsx",
     why: "Phase 2h (9d · critic F5) — the reader's 2.5s status read is on the stall ledger. Untracked, a hung status read holds the queue while a cash or refund tap is dispatched behind it",
-    find: '      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "read")\n',
+    find: '      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "write")\n',
     replace: "      terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi })\n",
   },
   {
@@ -21559,9 +21559,9 @@ const MUTANTS = [
     id: "p2i-kind/reader-status",
     file: "apps/qr/components/staff/ReaderCollectProvider.tsx",
     suite: "components/staff/ReaderCollectProvider.test.tsx",
-    why: "Phase 2i (P2bi) — the reader status poll is tracked as a READ (the collect record survives a reload and re-polls); labelled a write, a counter collecting a card never takes a new version",
-    find: 'track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "read")',
-    replace: 'track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "write")',
+    why: "Phase 2i · blind review (money M2) — the reader status poll is tracked as a WRITE: `terminalStatus` extends, re-acquires and releases the settlement freeze and can cancel a dead attempt's payment. Labelled a read, a person's Reload tap lands in the middle of it as 'nothing saving'",
+    find: 'track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "write")',
+    replace: 'track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "read")',
   },
   {
     id: "p2i-kind/reader-resume",
