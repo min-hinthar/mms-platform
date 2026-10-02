@@ -15,8 +15,6 @@ import { STAFF, STAFF_LATIN_BY_DESIGN, STAFF_PLURAL_PAIRS } from "./staff";
 /** Deliberately identical EN/MY — a DECISION list, never a hole (brand terms, Latin-anchored). */
 const IDENTICAL_BY_DESIGN = new Set<string>([]);
 
-const entries = Object.entries(DICT);
-
 /**
  * P2 — the content rules must cover EVERY dictionary, not only the ones spread into `DICT`.
  *
@@ -385,5 +383,17 @@ describe("one concept, one word — across namespaces that draw on ONE screen", 
     expect(en).toMatch(new RegExp(`\\b${START.en}`, "i"));
     expect(my).toMatch(new RegExp(`(^|[^စ])${START.my}`));
     for (const fork of START_FORKS) expect(my).not.toContain(fork);
+  });
+});
+
+describe("Phase 2h review c (C2) — a refusal that DID NOT happen is never said as 'not yet'", () => {
+  // `out.stalled` is said when a tap was refused BEFORE it was sent: nothing will ever land from it.
+  // ရသေး ("…yet") reads as PENDING — "hasn't done anything yet" — so a cashier waits for it, or
+  // takes the money another way while believing the first tap is still coming. Every `waiting`
+  // line keeps its ရသေး ("no answer yet" IS pending); this one must say "was not sent".
+  it("out.stalled says the tap was not sent — no ရသေး anywhere in it", () => {
+    const my = STAFF["out.stalled"].my;
+    expect(my).not.toContain("ရသေး");
+    expect(my).toContain("မပို့လိုက်ပါ");
   });
 });

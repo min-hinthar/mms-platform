@@ -2,10 +2,16 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getFloorView } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { floorFacts } from "@/lib/counter-attention";
 import type { FloorSnapshot } from "@/lib/floor-types";
-import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
+import {
+  floorRowKey,
+  freezeJoinsStripNotice,
+  mergeFloorRows,
+  stripNoticeStands,
+} from "@/lib/floor-rows";
 import { Button, EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { CounterOrderCard } from "./CounterOrderCard";
@@ -81,6 +87,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // cue. Seeded from the initial snapshot: a table already showing food up when the screen loads
   // never rings. Phase 2d · Codex round 1 · ready — keys, never the count (`upRose`).
   const [stripNotice, setStripNotice] = useState<StaffMsg | null>(null);
+  // Phase 2h · integration b (critic F1) — the strip notice outlived its dwell (`stripNoticeStands`):
+  // it shares the region with the freeze copy from then on (`freezeJoinsStripNotice`).
+  const [stripStanding, setStripStanding] = useState(false);
   const [upNotice, setUpNotice] = useState<string[] | null>(null);
   const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const upTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,13 +100,26 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         : initial.tables.map((t) => [t.sessionId, heardUp(undefined, t.kitchen?.upKeys ?? [])]),
     ),
   );
+  // Phase 2h · integration b — the strip's OWN (table) start is still out past the bound, as the
+  // strip reports it. Read when a notice's dwell ends, never when it is said (`stripNoticeStands`).
+  const stripWaits = useRef(false);
+  const onStripWait = useCallback((waits: boolean) => {
+    stripWaits.current = waits;
+  }, []);
   const onStripNotice = useCallback((n: StaffMsg | null) => {
     if (stripTimer.current) clearTimeout(stripTimer.current);
     stripTimer.current = null;
     setStripNotice(n);
+    setStripStanding(false);
     if (n !== null)
       stripTimer.current = setTimeout(() => {
         stripTimer.current = null;
+        // The waiting line of the strip's own start stands under its reload until that start's
+        // late answer replaces it (a landing clears it; a refusal or a lost answer says itself).
+        if (stripNoticeStands(n, stripWaits.current)) {
+          setStripStanding(true);
+          return;
+        }
         setStripNotice(null);
       }, ERR_DWELL_MS); // a refused start must outlive the poll that follows it (kitchen-10)
   }, []);
@@ -105,12 +127,51 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // it rendered (the mount never rings), heard on every GOOD poll below (a frozen floor rings nothing).
   const hear = useCounterAttention(() => floorFacts(initial.tables));
 
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). Next runs Server Actions one at a time
+  // per tab, so a read that `raceTimeout` gave up on at 15 s is still IN the queue: a 5 s tick that
+  // started a "fresh" read after it only queued another abandoned call behind the hung one, every
+  // 5 s, each of which had to drain before the next write anyone tapped could even be sent. While
+  // the RAW read is unanswered no new read starts; the ticks it refused are owed ONE read, kicked
+  // just after it answers. The gate is made ONCE for the board's life (on first use, from a
+  // callback — never during render, never in an effect's setup, which Strict Mode and a new
+  // `refresh` re-run and which would forget the hung read), and never disposed from a cleanup
+  // (Strict Mode would latch that for good): the kick is guarded by `alive`, re-armed at setup.
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
+   *  (cause `unknown`: this end failing is not evidence the platform is down). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(Date.now());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+  }, []);
+
   const refresh = useCallback(async () => {
-    if (inFlight.current) return; // coalesce overlapping fetches
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while the raw read has been out a hang's worth of time IS a
+      // miss: before, the race's give-up was the only miss a hang ever produced, and every tick after
+      // it re-armed a fresh read whose own give-up kept the count honest only by stacking calls.
+      if (asked.missed) miss();
+      return;
+    }
+    // A bare coalesce is safe here: the gate's owed kick is deferred past this read's `finally`, and
+    // nothing below is awaited after the read.
+    if (inFlight.current) return;
     inFlight.current = true;
     try {
-      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      const res = await raceTimeout(getFloorView());
+      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
+      // gate watches the RAW read (the race frees this caller at 15 s, never the queue).
+      const res = await raceTimeout(gate.watch(getFloorView()));
       if (!alive.current) return; // unmounted mid-fetch — don't setState / schedule timers
       if (!res.ok) {
         if (res.reason === "outage") {
@@ -201,17 +262,16 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     } catch (e) {
       // Don't blank the floor on a transient fetch error — keep the last good snapshot; the poll + the
       // realtime self-heal will recover. After 2 consecutive failures, say so (KDS/expo parity).
-      if (alive.current) {
-        // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-        fails.current += 1;
-        setNowMs(Date.now());
-        if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
-      }
+      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
+      if (alive.current) miss();
       console.error("[FloorBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, [hear]);
+  }, [hear, gateOf, miss]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   // Slow escalation tick while frozen/stale — the ≥2min paper-flow flip needs a re-render even if
   // every poll keeps failing silently.
@@ -281,6 +341,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // `mergeFloorRows` states once (a table asking to pay, the counter orders, the rest of the room).
   const rows = mergeFloorRows(snap.tables, snap.counter);
   const count = rows.length;
+  const freezeJoins = freezeJoinsStripNotice(stripStanding, degraded !== null);
   const tableCount = snap.tables.length;
   const counterCount = snap.counter.length;
   // Phase 2d · floor — the ask a screen-reader user must hear when it appears.
@@ -335,7 +396,25 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           }}
         >
           {stripNotice ? (
-            <MsgText lang={lang} msg={stripNotice} />
+            <>
+              <MsgText lang={lang} msg={stripNotice} />
+              {freezeJoins && degraded && (
+                // Critic F1 — a STANDING strip line shares the region with the freeze (and its
+                // paper escalation) once the board is degraded; the flat string carries its own mark.
+                <>
+                  {" · "}
+                  <span lang={lang}>
+                    {frozenBoardCopy(
+                      lang,
+                      snap.serverNow,
+                      nowMs - degraded.since,
+                      "what.floor",
+                      degraded.cause,
+                    )}
+                  </span>
+                </>
+              )}
+            </>
           ) : degraded ? (
             // A4·2 — this is the counter screen's ONE state region: the lane beside it freezes on
             // the same outage and says so in plain text, never in a second live region (two
@@ -462,6 +541,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           tables={snap.tables}
           lang={lang}
           onNotice={onStripNotice}
+          onWait={onStripWait}
         />
       ) : (
         // Phase 2d · review (floor #3) — no registered table: the strip's place SAYS so, plainly

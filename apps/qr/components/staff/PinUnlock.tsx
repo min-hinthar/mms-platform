@@ -1,15 +1,17 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { releaseLockAfterSignOut, unlockConsole } from "@/lib/staff-pin-actions";
-import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { unlockConsole, type UnlockResult } from "@/lib/staff-pin-actions";
+import { boundWrite } from "@/lib/bounded-write";
+import { isRetryableAuthShape, raceFetch } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { secondsUntil, useLockout } from "./ManagerPinStepUp";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * Shared-tablet unlock (S1.1b) — the SAME staff member who locked re-enters their PIN to resume. The
@@ -24,13 +26,40 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
  * ⚠️ NOTHING HERE IS NATIVELY `disabled`. The input is `readOnly` during a lockout — it keeps focus
  * (which `submit` just moved there) and refuses keys — and the button is `aria-disabled` with the
  * refusal inside the handler, so a locked-out person keeps their place while the countdown speaks.
+ *
+ * Phase 2h (decision 9g) — a locked shared tablet is never stranded. The unlock is awaited with a
+ * BOUND (`boundWrite`) and its busy cleared in a `finally`: a rejected `unlockConsole` used to latch
+ * "Checking…" forever and kill the form, and a hung one did the same for as long as the action queue
+ * was stuck. A lost answer says "couldn't confirm — reload: if it opens, you're in", a slow one "no
+ * answer yet — don't enter it again", each with the reload beside it; the late answer still lands.
+ * "Forgot PIN? Sign out" hard-navigates after the Supabase sign-out and awaits NO Server Action
+ * first — the lock's release is the sign-in page's (`StaffLogin`), sent on a fresh document whose
+ * action queue nothing can be stuck in.
+ *
+ * S2 critic D3 · D11 — an unlock still unanswered past the bound HOLDS Unlock (the line says "don't
+ * enter it again"): a second try would queue behind the stuck one and spend another PIN attempt,
+ * bringing the lockout nearer. The late answer frees it. And the sign-out's own network call is
+ * bounded too: a dead network answers "couldn't sign out — try again", never a link latched on
+ * "signing out" with no way off the lock screen but a force-quit.
+ *
+ * Codex round 2 on #310 (B5) — the unlock opens the console by a DOCUMENT load, never a soft
+ * navigation, the sign-in form's rule: an action dispatched on this screen after Unlock (the
+ * language switch's write) queues behind the unlock and is still out when it answers, and a soft
+ * `router.replace` carried it — and its stall-ledger entry — into the console, where every action
+ * queued behind it and the money taps refused as "still waiting". `location.replace` unloads this
+ * document, so the console starts on a fresh queue with an empty ledger. (The cost: a language
+ * write still in flight at that instant may be lost with the document — the console's own switch
+ * says which language it is in, and sets it again in one tap.)
  */
 export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName: string }) {
-  const router = useRouter();
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
+  // Phase 2h review c (C4) — the sign-out's own failure line. Separate from `msg` so a sign-out
+  // tapped while an unlock still waits says its outage BESIDE "no answer yet — don't enter it
+  // again", never over it (that line is the one reason Unlock is held, and it carries the reload).
+  const [signOutMsg, setSignOutMsg] = useState<StaffMsg | null>(null);
   // Seconds left on a lockout; 0 = not locked. Drives the refused state + the countdown copy.
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,18 +70,20 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
 
   const onlyDigits = (s: string) => s.replace(/\D/g, "").slice(0, PIN_MAX_LENGTH);
   const lengthOk = pin.length >= PIN_MIN_LENGTH;
-  const refused = busy || locked || !lengthOk;
+  // Phase 2h (D3) — an unlock still out past the bound: Unlock is held until its late answer lands.
+  const [waiting, setWaiting] = useState(false);
+  const refused = busy || waiting || locked || !lengthOk;
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (refused) return;
-    setBusy(true);
-    setMsg(null);
-    const res = await unlockConsole({ pin });
-    setBusy(false);
+  // Phase 2h — whether the region's line offers the reload (both unanswered lines say "reload").
+  const [reload, setReload] = useState(false);
+
+  /** The unlock's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
+  function land(res: UnlockResult) {
+    setReload(false);
     if (res.ok) {
-      router.replace("/staff");
-      router.refresh();
+      // B5 — a DOCUMENT load into the console (the docblock); `replace`, as the router's was: Back
+      // never returns to a lock that has been opened.
+      window.location.replace("/staff");
       return;
     }
     setPin("");
@@ -86,26 +117,84 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
     setMsg({ k: "pin.checkFailed" });
   }
 
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (refused) return;
+    setBusy(true);
+    setMsg(null);
+    setSignOutMsg(null);
+    setReload(false);
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(unlockConsole({ pin }));
+      if (out.kind === "answer") {
+        land(out.value);
+        return;
+      }
+      setReload(true);
+      if (out.kind === "threw") {
+        // The answer was lost — the PIN may have been checked, and the tablet unlocked: a reload
+        // shows which. Never "wrong PIN", never "try again" alone (a retry spends another try).
+        setMsg({ k: "pin.unlock.unknown" });
+        return;
+      }
+      setMsg({ k: "pin.unlock.waiting" });
+      setWaiting(true);
+      // The late answer lands whenever it comes: a late unlock opens the console (the lock cookie
+      // is cleared), a late refusal is said; the lock screen's only other exit is a document load.
+      void out.late.then((late) => {
+        setWaiting(false);
+        if (late.kind === "answer") land(late.value);
+        else setMsg({ k: "pin.unlock.unknown" });
+      });
+    } finally {
+      setBusy(false); // frees AT THE BOUND (fact 3) — the form never dies on "Checking…"
+    }
+  }
+
   async function signOut() {
     if (signingOut) return; // re-entry refused here, never by `disabled` (a double-tap is two sign-outs)
     setSigningOut(true);
-    setMsg(null);
-    const { error } = await browserClient().auth.signOut();
+    setSignOutMsg(null);
+    // C4 — an unlock still out past the bound keeps its line and its reload: the PIN check may yet
+    // land, Unlock stays held for it, and only that line says why. Otherwise the tap retires the
+    // region's last (answered) line, as it always did.
+    if (!waiting) {
+      setMsg(null);
+      setReload(false);
+    }
+    let error: unknown;
+    try {
+      // D11 — bounded: a dead network never latches the link on "signing out". `raceFetch`, never
+      // `raceTimeout`: a Supabase fetch is not in Next's action queue, so it must not sit on the
+      // stall ledger and refuse the money taps of the console a PIN opens next (review c, C1).
+      ({ error } = await raceFetch(browserClient().auth.signOut()));
+    } catch {
+      // No answer at the bound: the sign-in service is unreachable from here (the timeout is the
+      // evidence) — said as the outage line, and the link is live again for a retry.
+      setSigningOut(false);
+      setSignOutMsg({ k: "entry.err.signOutOutage" });
+      return;
+    }
     if (error) {
       setSigningOut(false);
       // W10b — blame the connection only on a transport shape (the audit found six surfaces
       // asserting "check your connection" with zero evidence).
-      setMsg(
+      setSignOutMsg(
         isRetryableAuthShape(error) ? { k: "entry.err.signOutOutage" } : { k: "entry.err.signOut" },
       );
       return;
     }
-    // The lock is a DEVICE cookie, httpOnly, that the browser sign-out cannot touch — left in place
-    // it met the next sign-in with this same screen and no PIN to enter, so "Forgot PIN? Sign out"
-    // was a loop (blind pass, CRITICAL). The server releases it only once it can see no session.
-    await releaseLockAfterSignOut();
-    router.replace("/staff/login");
-    router.refresh();
+    // Phase 2h (9g) — a HARD navigation, and no Server Action awaited before it. The lock is a
+    // DEVICE cookie, httpOnly, that the browser sign-out cannot touch; left in place it met the next
+    // sign-in with this same screen and no PIN to enter, so "Forgot PIN? Sign out" was a loop (blind
+    // pass, CRITICAL). Its release used to be awaited HERE — but Next runs Server Actions one at a
+    // time per tab, so on a tablet whose queue is stuck (the very tablet a person is escaping) that
+    // await never answered, and the soft `router.replace` after it could not commit either. The
+    // sign-in page releases it instead (`StaffLogin`, on mount: a fresh document, an empty queue —
+    // and the server still releases only once it sees no session). A document load is the one
+    // escape a stuck queue cannot hold.
+    window.location.assign("/staff/login");
   }
 
   // One live region (QA §A): the lockout countdown takes precedence over a transient message.
@@ -160,7 +249,13 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
 
       <p id="unlock-msg" role="status" className="entry-msg entry-msg-warn">
         {shown && <MsgText lang={lang} msg={shown} />}
+        {shown && signOutMsg && " "}
+        {signOutMsg && <MsgText lang={lang} msg={signOutMsg} />}
       </p>
+      {/* Phase 2h — both unanswered lines say "reload the page", and the console is installed
+          standalone (no browser reload): the one way out sits BESIDE the region, never inside it.
+          Not while a lockout's countdown holds the region (it is the newer sentence there). */}
+      {reload && lockCopy === null && <ReloadButton lang={lang} block />}
     </section>
   );
 }

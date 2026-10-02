@@ -4,7 +4,7 @@ import { BRAND_NAME } from "@/lib/brand";
 import { shelfWait } from "@/lib/kds-time";
 import { boardColumnFit } from "@/lib/board-fit";
 import { useWakeLock } from "@/lib/useWakeLock";
-import { raceTimeout } from "@/lib/staff-outage";
+import { raceFetch } from "@/lib/staff-outage";
 import {
   nextBoardStateOnFailure,
   readBoardRefusal,
@@ -132,7 +132,9 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       // Always polls, token or not: an empty `k` is the staff-session path, which only the server
       // can adjudicate. Raced against a timeout so a hung socket becomes a rejection (the honest
       // offline path) instead of holding the lock and silently stopping the board mid-service.
-      const res = await raceTimeout(
+      // `raceFetch`: a route-handler fetch is not in Next's action queue, so it is never put on the
+      // stall ledger (Phase 2h review c, C1).
+      const res = await raceFetch(
         fetch(`/api/board?k=${encodeURIComponent(token)}`, { cache: "no-store" }),
       );
       if (res.status === 401 || res.status === 503) {

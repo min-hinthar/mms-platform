@@ -2,7 +2,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard } from "@/lib/terminal";
+import { boundWrite, stalledSince } from "@/lib/bounded-write";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
+import type { SettleOutcome } from "@/lib/floor-pane";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { MsgText } from "./StaffMsg";
@@ -13,6 +15,7 @@ import { settleBlockedMsg } from "@/lib/staff-send-view";
 import {
   readerAlertKey,
   readerBusyKey,
+  readerCancelMsg,
   readerNameText,
   readerPanelAction,
   readerStartRefused,
@@ -20,6 +23,9 @@ import {
   type ReaderStatus,
 } from "@/lib/reader-collect";
 import { useReaderCollect } from "./ReaderCollectContext";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 
 /**
  * P2 — the two error sources on this surface, kept APART.
@@ -41,7 +47,12 @@ type SettleError =
   // server's count. Shown here, SAID by the page's one region (the jump hands it up).
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
-  | { kind: "unreadable" };
+  | { kind: "unreadable" }
+  // Phase 2h (9d) — refused AT THE TAP while an earlier action is stuck: never sent, nothing asked.
+  | { kind: "stalled" }
+  // Phase 2h (9e) — the start is still out at the bound: the reader may yet start asking for the
+  // card. Its late answer is APPLIED when it lands (a late start still starts the collect).
+  | { kind: "waiting" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -122,8 +133,11 @@ export function TerminalSettleButton({
   gateLive?: boolean;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's reader START (a refused start takes nothing), as it lands. The page says it where this control
-   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
-  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
+   *  Phase 2h · integration — and `landed`: a LATE start answering the attempt reported `unknown`
+   *  at the bound. The reader is asking for the card; the collect is the provider's (the bar's
+   *  chip says it), so the page may retract the "we don't know" it said off that unknown. */
+  onSettleOutcome?: (outcome: SettleOutcome) => void;
 }) {
   const lang = useStaffLang();
   // Phase 2g · reader — the collect's owner, above navigation. `reader.start` is the provider's
@@ -131,6 +145,11 @@ export function TerminalSettleButton({
   // around it) is still mounted, so a start that answers after a switch still polls (P2en).
   const reader = useReaderCollect();
   const startCollect = reader.start;
+  // Codex r2 on #310 (A3) — the provider's pending-start record: written before the start is sent,
+  // dropped by its token when the start answers (the provider's stable functions, like `start`).
+  const startPending = reader.startPending;
+  const startAnswered = reader.startAnswered;
+  const resumeStart = reader.resumeStart;
   // The ONE refusal left (D1): another table's collect is live — there is one reader. Shown as a
   // held control with its reason; refused at the tap (`reader.startRefused`, a ref read) before the
   // server is asked.
@@ -152,6 +171,76 @@ export function TerminalSettleButton({
   // its note says it now) or its own line retired. Hidden, it came back under a live trigger once
   // the dishes were sent, saying they had not been (critic finding).
   if (error?.kind === "unsent" && (blocked || gateLive === false)) setError(null);
+  // Phase 2h — whether this button is still mounted when a LATE answer lands (9e: a late refusal is
+  // said only while its surface is here). Re-armed at setup: Strict Mode runs the cleanup once on
+  // mount, and a cleanup-only latch would read "gone" forever (the CLAUDE.md gotcha).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  /** The start's answer, whenever it lands — at once, or after the bound (`late`). `pending` is
+   *  the token of the record written before it was sent: an answer — a start or a refusal — ends it. */
+  function land(res: Awaited<ReturnType<typeof settleCard>>, late: boolean, pending: string) {
+    if (!res.ok) {
+      onSettleOutcome?.("refused"); // the reader was never asked for the money
+      // Nothing was asked of the reader: a reload has nothing of this start's to resume.
+      startAnswered(pending);
+      // 9e — a late refusal is said only while this button is here to say it; the page says it
+      // where the button cannot (`onSettleOutcome`, above).
+      if (late && !alive.current) return;
+      setError(
+        res.code === "inflight"
+          ? { kind: "inflight", holder: res.holder }
+          : res.code === "unsent"
+            ? { kind: "unsent", units: res.units }
+            : res.code === "unreadable"
+              ? { kind: "unreadable" }
+              : { kind: "server", text: res.error },
+      );
+      // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
+      // the page says it in its one region and takes the cashier to the Send.
+      if (res.code === "unsent") {
+        onChanged?.();
+        onBlockedTap?.(res.units);
+      }
+      return;
+    }
+    // The collect starts in the PROVIDER, with the tap's facts — never through a closure of the
+    // detail, which may have unmounted while this was in the air. A LATE start lands here too
+    // (9e): the reader IS asking for the card, and only the provider's poll records the charge.
+    startCollect({
+      sessionId,
+      paymentIntentId: res.paymentIntentId,
+      totalCents: res.totalCents,
+      ...tap,
+    });
+    // The collect's own record now carries the handle: the pending record has done its job.
+    startAnswered(pending);
+    if (late) setError(null); // "no answer yet" is no longer true
+    onStarted?.();
+    // Phase 2h · integration — a LATE start answers the `unknown` this attempt handed up at the
+    // bound (an on-time start never reported one). `started`, never `landed` (critic F2): the reader
+    // is ASKING for the card — nothing went through yet, so the pane must not say it did.
+    if (late) onSettleOutcome?.("started");
+  }
+
+  /**
+   * Codex r2 on #310 follow-up (R3) — a start that THREW is resolved on this page too, never only by a
+   * reload: the provider asks the server what the reader is doing for this table (bounded, read-only —
+   * its stranded-start loop). If the reader turns out to be asking for this start's card, the collect
+   * is the provider's, and the "couldn't confirm" said off the throw is retracted — this button's
+   * line (if it is still here, and still that line) and the page's (`started`, as a late start).
+   */
+  function resumeThrown(pending: string) {
+    resumeStart(pending, () => {
+      onSettleOutcome?.("started");
+      if (alive.current) setError((e) => (e?.kind === "local" ? null : e));
+    });
+  }
 
   async function start() {
     if (inFlight.current) return;
@@ -164,51 +253,68 @@ export function TerminalSettleButton({
     // Phase 2g · reader — another table holds the one reader: no freeze, no PaymentIntent, no
     // reader command. The note under the trigger (its description) says whose and why.
     if (reader.startRefused(sessionId)) return;
+    // Phase 2h (9d) — an earlier action has been unanswered for the bound: refused AT THE TAP, never
+    // sent (it would only queue behind the stuck one and could start the reader minutes from now,
+    // after the cashier took the money another way). Read now, never from render state.
+    if (stalledSince() !== null) {
+      setError({ kind: "stalled" });
+      return;
+    }
+    // Codex r2 on #310 (A3) — written down BEFORE it is sent: a start still out at the bound tells
+    // the cashier to reload, and a reload aborts this answer — the only thing that would hand the
+    // tablet the PaymentIntent the reader may already be asking for. The next document finds this
+    // record and asks the server what the reader is doing for this table (the provider's resume).
+    // A thrown or still-unanswered start keeps it (a throw is also asked about here — R3); any answer
+    // drops it (`land`) — only ITS OWN record: an earlier start still unresolved stands (R2). Before
+    // the busy raise, so nothing sits between that raise and the `try` whose `finally` lowers it.
+    const pending = startPending({ sessionId, ...tap });
     inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
-      const res = await settleCard({ sessionId });
-      setBusy(false);
-      if (!res.ok) {
-        onSettleOutcome?.("refused"); // the reader was never asked for the money
-        setError(
-          res.code === "inflight"
-            ? { kind: "inflight", holder: res.holder }
-            : res.code === "unsent"
-              ? { kind: "unsent", units: res.units }
-              : res.code === "unreadable"
-                ? { kind: "unreadable" }
-                : { kind: "server", text: res.error },
-        );
-        // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
-        // the page says it in its one region and takes the cashier to the Send.
-        if (res.code === "unsent") {
-          onChanged?.();
-          onBlockedTap?.(res.units);
-        }
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      // Codex r3 on #310 — the pending record's token rides the start as its `startId`: the
+      // PaymentIntent carries it, so a reloaded tablet resumes THIS start and no other tablet's.
+      const out = await boundWrite(settleCard({ sessionId, startId: pending }));
+      if (out.kind === "answer") {
+        land(out.value, false, pending);
         return;
       }
-      // The collect starts in the PROVIDER, with the tap's facts — never through a closure of the
-      // detail, which may have unmounted while this was in the air.
-      startCollect({
-        sessionId,
-        paymentIntentId: res.paymentIntentId,
-        totalCents: res.totalCents,
-        ...tap,
-      });
-      onStarted?.();
-    } catch {
-      // A rejected action (Next redacts the message in prod) must never latch the button on
-      // "Starting…" — the W10c bug class.
-      setBusy(false);
-      setError({ kind: "local" });
-      // The start's answer never came: the reader may be asking for the money right now.
+      // The start's answer never came, or has not come yet: the reader may be asking for the money
+      // right now. The page says it where this button cannot (it may have unmounted mid-settle).
       onSettleOutcome?.("unknown");
+      if (out.kind === "threw") {
+        // A rejected action (Next redacts the message in prod): "couldn't confirm", never "couldn't
+        // start" — the answer may have been lost after the reader was asked (9e).
+        setError({ kind: "local" });
+        resumeThrown(pending);
+        return;
+      }
+      setError({ kind: "waiting" });
+      void out.late.then((late) => {
+        if (late.kind === "answer") land(late.value, true, pending);
+        else {
+          setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          resumeThrown(pending); // R3 — resolved on this page too
+          // Codex r2 on #310 (A1) — handed UP again: the bound's `unknown` may have reached a detail
+          // still mounted (ignored there), and a switch since leaves this throw as the pane's only cue.
+          onSettleOutcome?.("unknown");
+        }
+      });
     } finally {
+      // Frees AT THE BOUND (fact 3) — never latched on "Starting…" by the raw (the W10c bug class).
       inFlight.current = false;
+      setBusy(false);
     }
   }
+
+  // Phase 2h (S2 critic D4) — this start is still unanswered past the bound: the trigger is HELD
+  // (the waiting line says "don't … start it again"), so a re-tap can never reach the stalled
+  // refusal below and replace the money warning with "this did nothing". The late answer frees it.
+  const waiting = error?.kind === "waiting";
+  // Review a (A5) — every SET of the alert's state (a second refused tap re-says `out.stalled`)
+  // replaces the alert's content, so it is announced again — never swallowed as no change.
+  const said = useResaid(error);
 
   return (
     <div>
@@ -219,6 +325,7 @@ export function TerminalSettleButton({
         size="xl"
         block
         busy={busy}
+        disabled={waiting}
         busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
         // Phase 2c · gate — the attribute (spread only when set) plus `start`'s own guard.
         {...(blocked ? { "aria-disabled": true } : {})}
@@ -227,6 +334,7 @@ export function TerminalSettleButton({
         aria-describedby={[
           blocked && blockedNoteId ? blockedNoteId : null,
           busyElsewhere ? "terminal-busy" : null,
+          waiting ? "terminal-alert" : null,
           "terminal-hint",
         ]
           .filter(Boolean)
@@ -266,22 +374,37 @@ export function TerminalSettleButton({
         </p>
       )}
       {error && error.kind !== "unsent" && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error.kind === "server" ? (
-            <OutageText lang={lang} error={error.text} />
-          ) : error.kind === "unreadable" ? (
-            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
-          ) : error.kind === "inflight" ? (
-            <Chrome
-              lang={lang}
-              k={inFlightMsg(error.holder).k}
-              vars={inFlightMsg(error.holder).vars}
-              echo={false}
-            />
-          ) : (
-            <Chrome lang={lang} k="settle.reader.startFailed" echo={false} />
-          )}
+        <p id="terminal-alert" role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
+          <span key={said}>
+            {error.kind === "server" ? (
+              <OutageText lang={lang} error={error.text} />
+            ) : error.kind === "unreadable" ? (
+              <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : error.kind === "inflight" ? (
+              <Chrome
+                lang={lang}
+                k={inFlightMsg(error.holder).k}
+                vars={inFlightMsg(error.holder).vars}
+                echo={false}
+              />
+            ) : error.kind === "stalled" ? (
+              <Chrome lang={lang} k="out.stalled" echo={false} />
+            ) : error.kind === "waiting" ? (
+              <Chrome lang={lang} k="settle.reader.waiting" echo={false} />
+            ) : (
+              // Phase 2h (9e) — THROWN: the answer was lost, so the reader may be asking for the card
+              // now. "Couldn't start … try again" (settle.reader.startFailed) invited a second tender.
+              <Chrome lang={lang} k="settle.reader.unknown" echo={false} />
+            )}
+          </span>
         </p>
+      )}
+      {/* Phase 2h — both lines say "reload the page", and the console is installed standalone (no
+          browser reload): the one way out sits BESIDE the alert that says it, never inside it. */}
+      {(error?.kind === "stalled" || error?.kind === "waiting") && (
+        <div style={reloadRow}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </div>
   );
@@ -403,14 +526,12 @@ export function TerminalCollectPanel({
         <MsgText lang={lang} msg={status.msg} />
         {/* Lifted out of the template literal it used to be spliced into: `<OutageText>` returns
             JSX and cannot live inside a string. */}
+        {/* Phase 2h — the cancel's words are `readerCancelMsg`'s, the SAME binding the region says
+            (`readerSpoken`): a server sentence through <OutageText>, every other outcome a key. */}
         {cancelError !== null && (
           <>
             {" "}
-            {cancelError.kind === "server" ? (
-              <OutageText lang={lang} error={cancelError.text} />
-            ) : (
-              <Chrome lang={lang} k="settle.reader.cancelFailed" echo={false} />
-            )}
+            <MsgText lang={lang} msg={readerCancelMsg(cancelError)} />
           </>
         )}
       </p>
@@ -420,11 +541,22 @@ export function TerminalCollectPanel({
           size="lg"
           style={{ alignSelf: "flex-start" }}
           busy={reader.cancelBusy}
+          // Phase 2h (S2 critic D4) — held while this cancel is still unanswered past the bound: the
+          // line beside it says to check the reader, and a re-tap could only say "this did nothing".
+          disabled={cancelError?.kind === "waiting"}
           busyLabel={<Chrome lang={lang} k="settle.reader.canceling" echo={false} />}
           onClick={() => void reader.cancel()}
         >
           <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
         </Button>
+      )}
+      {/* Phase 2h — a cancel refused while the tablet is stuck (9d), or still unanswered at the bound
+          (9e): both lines say "reload the page" (`readerCancelMsg`, shown above and SAID by the page's
+          one region), so the reload sits here as the button alone — the panel has no live role. */}
+      {(cancelError?.kind === "stalled" || cancelError?.kind === "waiting") && (
+        <div style={{ alignSelf: "flex-start" }}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
       {(action === "hide" || action === "back" || action === "close") && (
         // `readerPanelAction` (PT-10): declined or cancelled → "Back to payment", the collect is
@@ -473,3 +605,5 @@ const hint: CSSProperties = {
   color: "var(--t3)",
   minHeight: 16,
 };
+// Phase 2h — the reload offered beside an alert: spaced off the line above it, never stretched.
+const reloadRow: CSSProperties = { marginTop: "var(--s2)" };

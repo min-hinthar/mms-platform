@@ -16,8 +16,13 @@ let refreshAnswer: unknown = { ok: false, reason: "outage" };
 // Mutable so a test can make ONE refund succeed and the next one no-op — which is the whole subject
 // of the two cash-banner cases below.
 let refundAnswer: unknown = { ok: false, reason: "error" };
+// Review a (A3) — how many reads the zone dispatched (a read from a DEAD zone is the defect).
+let reads = 0;
 vi.mock("@/lib/refunds", () => ({
-  getSettledToday: () => Promise.resolve(refreshAnswer),
+  getSettledToday: () => {
+    reads += 1;
+    return Promise.resolve(refreshAnswer);
+  },
   refundLine: () => Promise.resolve(refundAnswer),
 }));
 
@@ -278,11 +283,12 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     await screen.findByText(/Couldn’t refresh/);
     expect(screen.getByRole("button", { expanded: false })).toBeTruthy(); // the order is still here
     expect(screen.queryByText(STAFF["floor.settled.outage"].en)).toBeNull();
-    // A good answer then replaces the list and clears the line. Wait for the control to re-enable
-    // first: a click on a still-pending (disabled) button is a silent no-op (LEARNINGS #108).
+    // A good answer then replaces the list and clears the line. Wait for the control to re-arm
+    // first: a tap on a still-busy (aria-disabled) button is refused by its handler (LEARNINGS #108).
     refreshAnswer = snapshot([]);
     const refreshBtn = screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement;
-    await waitFor(() => expect(refreshBtn.disabled).toBe(false));
+    await waitFor(() => expect(refreshBtn.getAttribute("aria-disabled")).toBeNull());
+    expect(refreshBtn.disabled).toBe(false); // Phase 2h — never native `disabled` (§17)
     fireEvent.click(refreshBtn);
     await screen.findByText(STAFF["floor.settled.none"].en);
     await waitFor(() => expect(screen.queryByText(/Couldn’t refresh/)).toBeNull());
@@ -405,5 +411,251 @@ describe("M76 — the refund sheet is HELD through its exit", () => {
     });
     expect(screen.queryByRole("dialog")).toBeNull();
     vi.restoreAllMocks();
+  });
+});
+
+describe("Phase 2h · integration b — a refund's LATE answer closes only its OWN line's sheet", () => {
+  type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void };
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  it("a refund answered after the manager moved to ANOTHER line's sheet confirms its figure and leaves that sheet open", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+      const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+      });
+      refreshAnswer = snapshot([a, b]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a, b]));
+      for (const toggle of screen.getAllByRole("button", { expanded: false }))
+        fireEvent.click(toggle);
+      // Line A's refund is sent, and has no answer at the bound: the sheet frees and says so.
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      expect(screen.getByRole("dialog").textContent).toContain(
+        STAFF["floor.refund.waiting"].en.slice(0, 20),
+      );
+      // The manager puts A's sheet away and opens line B's.
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await flush();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+      await flush();
+      const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+      // A's refund lands late — through A's tap-time `onDone`.
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/late-done-closes-any-sheet · p2h-int-b/settled/after-answer-closes-any):
+      // A's late ok closes WHICHEVER sheet is open — B's, with the manager mid-way through it; red.
+      expect(screen.queryByRole("dialog")).toBe(bSheet);
+      expect(bSheet.getAttribute("data-state")).toBe("open");
+      // A's figure is still confirmed (the zone's banner, behind the open sheet).
+      const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]');
+      expect(banner?.textContent).toContain("$11.05");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("critic S1 — a CASH refund answered late under ANOTHER line's sheet closes it: the hand-back instruction takes focus, never hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+      const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+      });
+      refreshAnswer = snapshot([a, b]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a, b]));
+      for (const toggle of screen.getAllByRole("button", { expanded: false }))
+        fireEvent.click(toggle);
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await flush();
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+      await flush();
+      const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/hand-back-keeps-other-sheet · hand-back-never-computed): B's
+      // sheet stays open over the instruction — aria-hidden behind it, its focus taken back by the
+      // sheet's trap, and nothing re-tries when B closes; red.
+      expect(bSheet.getAttribute("data-state")).toBe("closed");
+      const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]')!;
+      expect(banner.textContent).toBe(
+        STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
+      );
+      expect(banner.closest('[aria-hidden="true"]')).toBeNull();
+      expect(document.activeElement).toBe(banner);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a refund answered late while its OWN sheet is still open closes that sheet, as an on-time one does", async () => {
+    vi.useFakeTimers();
+    try {
+      const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+      const a = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+      refreshAnswer = snapshot([a]);
+      const late = deferred<unknown>();
+      refundAnswer = late.promise;
+      mount(snapshot([a]));
+      fireEvent.click(screen.getByRole("button", { expanded: false }));
+      fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+      fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+      fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+      await flush(STAFF_HANG_MS);
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // MUTATION (p2h-int-b/settled/after-answer-closes-nothing): a landed refund's own sheet
+      // stays up over a line the ledger already holds; red.
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE (A2 · A3)", () => {
+  type Deferred<T> = { promise: Promise<T>; resolve: (v: T) => void };
+  function deferred<T>(): Deferred<T> {
+    let resolve!: (v: T) => void;
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  afterEach(() => {
+    vi.useRealTimers();
+    window.sessionStorage.clear();
+  });
+
+  /** A refund of `o`'s Mohinga line sent, no answer at the bound, the zone then unmounted. */
+  async function sendThenLeave(o: SettledOrder) {
+    const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+    refreshAnswer = snapshot([o]);
+    const late = deferred<unknown>();
+    refundAnswer = late.promise;
+    mount(snapshot([o]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+    await flush(STAFF_HANG_MS);
+    cleanup(); // the manager moved to another screen — the zone is gone
+    return late;
+  }
+
+  it("A3 — a late answer after the zone unmounted dispatches NO read from the dead zone", async () => {
+    vi.useFakeTimers();
+    const late = await sendThenLeave(order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001"));
+    const before = reads;
+    await act(async () => {
+      late.resolve({ ok: true, amountCents: 1105 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2h-rev-a/settled/refresh-unguarded): the late onDone's re-read is sent from a
+    // zone that can show nothing — one more action in the tab's one-at-a-time queue; red.
+    expect(reads).toBe(before);
+  });
+
+  it("A2 — a CASH hand-back answered after the zone unmounted is said, with focus, the next time the zone mounts — and only once", async () => {
+    vi.useFakeTimers();
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    const late = await sendThenLeave(cash);
+    await act(async () => {
+      late.resolve({ ok: true, amountCents: 1105 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    mount(snapshot([cash])); // the manager comes back (a navigation or a reload of this tab)
+    await flush();
+    const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]');
+    // MUTATION (p2h-rev-a/settled/dead-hand-back-dropped · p2h-rev-a/settled/hand-back-never-said):
+    // the only copy of "hand back $11.05" died with the unmounted zone; red.
+    expect(banner?.textContent).toBe(
+      STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
+    );
+    // MUTATION (p2h-rev-a/settled/recovered-unfocused): said below the fold to nobody; red.
+    expect(document.activeElement).toBe(banner);
+    // A new attempt clears it, as it clears a fresh confirmation: a stale imperative standing over
+    // another refund is an instruction to pay a figure that tap has nothing to do with.
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // MUTATION (p2h-rev-a/settled/recovered-outlives-attempt): red.
+    expect(screen.getByRole("status").textContent).toBe("");
+    cleanup();
+    mount(snapshot([cash]));
+    await flush();
+    // Said once: the next mount does not ask for the same money again.
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("A2 — a CASH hand-back the MOUNTED zone said is never kept for a later mount (it would be said twice); a card refund is never kept", async () => {
+    vi.useFakeTimers();
+    const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    const late = deferred<unknown>();
+    refundAnswer = late.promise;
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
+    await flush(STAFF_HANG_MS);
+    await act(async () => {
+      late.resolve({ ok: true, amountCents: 1105 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(document.querySelector('p[role="status"][tabindex="-1"]')?.textContent).toContain(
+      "$11.05",
+    );
+    // MUTATION (p2h-rev-a/settled/hand-back-kept-while-alive): kept although said — the next mount
+    // says "hand back $11.05" a second time and the guest is paid twice; red.
+    expect(window.sessionStorage.getItem("mms.staff.refund.handBack")).toBeNull();
+    cleanup();
+    const card = await sendThenLeave(order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002"));
+    await act(async () => {
+      card.resolve({ ok: true, amountCents: 1300 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2h-rev-a/settled/card-kept-as-hand-back): a card refund asks for drawer cash; red.
+    expect(window.sessionStorage.getItem("mms.staff.refund.handBack")).toBeNull();
   });
 });

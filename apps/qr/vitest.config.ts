@@ -37,6 +37,8 @@ export default defineConfig({
     // would silently start running a suffix the repo has decided must never land.
     include: ["**/*.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/.next/**"],
+    // Phase 2h (F7) — every case starts with an empty stall ledger (lib/test-setup.ts says why).
+    setupFiles: ["./lib/test-setup.ts"],
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") },

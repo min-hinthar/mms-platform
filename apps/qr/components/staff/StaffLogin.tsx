@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { isRetryableAuthShape } from "@/lib/staff-outage";
+import { isRetryableAuthShape, raceFetch } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
 import { releaseLockAfterSignOut } from "@/lib/staff-pin-actions";
+import { track } from "@/lib/bounded-write";
 import { BRAND_EMAIL, BRAND_NAME } from "@/lib/brand";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
@@ -29,6 +29,23 @@ const GOOGLE = "Google";
  * focus to `<body>` (the language switch's measured rule), and on THIS screen it also stranded the
  * old copy: a 429 disabled Send under a message telling the person to tap it. Every gate is
  * `aria-disabled` + a refusal inside the handler, so the button keeps its place and its name.
+ *
+ * Phase 2h (decision 9g) — THIS page releases the device lock. A sign-out (the lock screen's "Forgot
+ * PIN? Sign out", or "Sign out" here for a wrong account) hard-navigates to this page and awaits no
+ * Server Action first: Next runs actions one at a time per tab, so a release awaited on a tablet
+ * whose queue is stuck never answered, and the escape stranded the person it existed for. The form
+ * sends `releaseLockAfterSignOut` once it mounts — on a fresh document, whose queue nothing can be
+ * stuck in — and the server still releases only when it sees NO session (a live one keeps its lock).
+ *
+ * Codex round 2 on #310 (B5) — and every SIGN-IN leaves this page by a DOCUMENT load, never a soft
+ * navigation. That release is detached and tracked: on a tablet where it never answers, the form
+ * still works (the code check is a Supabase fetch, not a queued action), and the typed-code path's
+ * old `router.replace(next)` carried the unresolved release — and its ledger entry — into the
+ * console, where every Server Action queued behind it and the money controls refused taps as
+ * "still waiting". `location.replace(next)` unloads this document, which aborts Next's queue and
+ * starts the console on a fresh one with an empty ledger. The other two paths already load a
+ * document: Google leaves for the provider (`signInWithOAuth` assigns the location) and the magic
+ * link opens the callback route, whose redirect lands on a fresh page.
  */
 export function StaffLogin({
   lang,
@@ -45,7 +62,6 @@ export function StaffLogin({
    */
   next?: string;
 }) {
-  const router = useRouter();
   const [step, setStep] = useState<"email" | "code">("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -68,6 +84,18 @@ export function StaffLogin({
   const [sentTo, setSentTo] = useState("");
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+
+  // Phase 2h (9g) — release a lock left behind by a sign-out (the docblock). Only an anonymous
+  // visitor reaches this form's release with any effect: the server refuses it for a live session
+  // (a wrong account's, `denied`) and for an unknowable one (an outage never reads as signed out).
+  // Not awaited — nothing on this form waits for it — but TRACKED, so it sits in the stall ledger
+  // like every action on the tab; its answer changes nothing here, so a failure is swallowed.
+  useEffect(() => {
+    void track(releaseLockAfterSignOut()).catch(() => {
+      // Deliberate: the cookie stays, and the next console page shows the lock — whose own
+      // "Forgot PIN? Sign out" lands back here and asks again.
+    });
+  }, []);
 
   // Move focus deliberately on each step change (QA §A) — to the code field when it appears, back to
   // the email field on "use a different email". Also covers the initial mount (step starts 'email').
@@ -228,8 +256,11 @@ export function StaffLogin({
     // authorizeDevice for /kiosk and /board). The typed-code path never leaves the browser, so it
     // does the routing the callback route does for the link path.
     clearParkedNext(); // single-use, exactly like the callback route's clear on the link path
-    router.replace(next);
-    router.refresh();
+    // B5 — a DOCUMENT load (the docblock): the mount's release may still be out, and a soft
+    // navigation would carry it, and its ledger entry, into the console. `replace`, as the router's
+    // was: Back never returns to a sign-in form that has done its job. Busy stays on ("Checking…")
+    // until the document goes, so a second submit verifies nothing.
+    window.location.replace(next);
   }
 
   // Recovery for the "signed in but not staff" case: clear the wrong session so a different email
@@ -238,17 +269,32 @@ export function StaffLogin({
   async function signOutWrong() {
     if (signingOut) return; // re-entry refused here, never by `disabled`
     setSigningOut(true);
-    const { error: err } = await browserClient().auth.signOut();
+    let err: unknown;
+    try {
+      // Phase 2h (S2 critic D11) — bounded: a dead network never latches "Sign out" for good.
+      // Untracked (`raceFetch`): a Supabase fetch is not a queued Server Action (review c, C1).
+      ({ error: err } = await raceFetch(browserClient().auth.signOut()));
+    } catch {
+      // No answer at the bound: the sign-in service is unreachable from here — said so, and the
+      // button is live again for a retry (the session is still there, so no navigation).
+      setSigningOut(false);
+      setError({ k: "entry.err.signOutOutage" });
+      return;
+    }
     if (err && isRetryableAuthShape(err)) {
       setSigningOut(false);
       setError({ k: "entry.err.signOutOutage" });
       return;
     }
     // A wrong account can be signed in on a LOCKED tablet (the lock is a device cookie the browser
-    // sign-out cannot clear); release it now the session is gone, or the right account's first
-    // screen is the lock with no PIN to enter (blind pass, CRITICAL).
-    await releaseLockAfterSignOut();
-    router.refresh();
+    // sign-out cannot clear); it must be released now the session is gone, or the right account's
+    // first screen is the lock with no PIN to enter (blind pass, CRITICAL). Phase 2h (9g): by a HARD
+    // navigation back to this form — whose mount sends the release on a fresh document — never an
+    // awaited action here (a stuck queue held it, and the soft refresh after it, forever). The
+    // destination is kept; the "not staff" notice is not (that session is gone).
+    window.location.assign(
+      next === DEFAULT_NEXT ? "/staff/login" : `/staff/login?next=${encodeURIComponent(next)}`,
+    );
   }
 
   const shown = error ?? notice;

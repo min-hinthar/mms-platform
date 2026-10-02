@@ -1,13 +1,16 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { useTableNav } from "./TableNav";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
+import { boundWrite, outReadSlot, releaseOutRead } from "@/lib/bounded-write";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * P2 — the two error sources this panel has, kept APART rather than flattened to one string.
@@ -17,7 +20,39 @@ import { useStaffLang } from "./StaffLangProvider";
  * into the first would send an authored English literal through `<OutageText>`, which passes every
  * sentence but that one through verbatim — so it would look converted and render English forever.
  */
-type MergeError = { kind: "server"; text: string } | { kind: "loadFailed" };
+type MergeError =
+  | { kind: "server"; text: string }
+  // The candidate read failed — `waiting` when it is still out at the bound (the queue is stuck, so
+  // "try again" would only queue behind it: the reload is offered, and a late list still lands).
+  | { kind: "loadFailed"; waiting: boolean }
+  // Phase 2h (9e) — the merge's answer is still out at the bound: the tables may yet be merged.
+  | { kind: "waiting" }
+  // Phase 2h (9e) — the merge THREW: the answer was lost, so it may have landed ("couldn't confirm").
+  | { kind: "unknown" };
+
+/**
+ * Codex round 3 on #310 — the candidate read still out for this table, by identity, in the TAB's read
+ * register (`outReadSlot`, keyed by the source table): the raw outlives the open that sent it. The
+ * bound frees the panel, never the action — Next keeps a hung read in this tab's queue — so a Cancel
+ * and reopen, or a remount (staff switch tables and back), dispatched another read behind it, one
+ * more per reopen, ahead of every action tapped after. A reopen now ATTACHES to the read still out (a
+ * fresh bound), and only when none is does it send one. Cleared in the raw's OWN settle, and only
+ * while the register still holds THAT raw (`releaseOutRead`).
+ */
+function candidateRead(sourceSessionId: string): Promise<MergeCandidate[]> {
+  const key = `merge-candidates:${sourceSessionId}`;
+  const out = outReadSlot<MergeCandidate[]>(key);
+  if (out.current !== null) return out.current;
+  const raw = getMergeCandidates(sourceSessionId);
+  out.current = raw;
+  // Both arms clear it (the second also marks a rejection handled — the bounded await that sent it
+  // reads and says it).
+  const settled = () => {
+    releaseOutRead(key, raw);
+  };
+  raw.then(settled, settled);
+  return raw;
+}
 
 /**
  * One-tap merge (S1.4 soft convergence). The recovery for a double-order: fold THIS table's open order
@@ -26,6 +61,18 @@ type MergeError = { kind: "server"; text: string } | { kind: "loadFailed" };
  * both carts, refuses mid-payment, and re-parents the already-server-priced lines (no client price). On
  * success we route to the target table (this one is now closed). One assertive error region (no extra
  * live region — parity with the detail view's single status region).
+ *
+ * Phase 2h (P2fc) — both server calls are BOUNDED. The candidate read races `STAFF_HANG_MS` (a hung
+ * read says it could not load, never "Loading…" forever); the merge is awaited with `boundWrite`,
+ * busy is state cleared in a `finally`, every control is `aria-disabled` (never native — Back and
+ * Cancel were natively disabled for as long as the action hung), and a lost or slow answer is said
+ * as one ("couldn't confirm" / "no answer yet — don't merge again"); the late answer still lands.
+ *
+ * S2 critic D3 · D10 — until a slow merge answers, NO merge goes: the guard stays spent, "Merge" and
+ * the trigger are held, and Cancel / Back keep the waiting line (it is the one true sentence). Only
+ * the LATEST candidate read writes the list or its failure (a Cancel or a reopen retires an older
+ * one), a failed read never claims "no other open tables", and a read still out at the bound offers
+ * the reload — its late list lands if it is still the latest.
  */
 export function MergeTableButton({
   sourceSessionId,
@@ -45,6 +92,19 @@ export function MergeTableButton({
   const [error, setError] = useState<MergeError | null>(null);
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
+  // Phase 2h — the merge's tap-time guard (a REF: two taps in one frame both read the same render),
+  // and whether this control is still mounted when a LATE answer lands (re-armed at setup).
+  const inFlight = useRef(false);
+  // S2 critic D10 — the latest candidate read; an older one's answer (or failure) is not this one's.
+  const readSeq = useRef(0);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const alertId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const pickingRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
@@ -61,39 +121,107 @@ export function MergeTableButton({
     prevStep.current = step;
   }, [step]);
 
+  /** A new step clears the last line — except a merge still waiting (D3: it stays true). */
+  const clearUnlessWaiting = () => setError((e) => (e?.kind === "waiting" ? e : null));
+
   async function open() {
+    if (inFlight.current) return; // the trigger is held while a merge is out (aria-disabled)
+    const seq = ++readSeq.current;
     setStep("picking");
-    setError(null);
+    clearUnlessWaiting();
     setLoading(true);
     try {
-      setCandidates(await getMergeCandidates(sourceSessionId));
-    } catch {
-      setError({ kind: "loadFailed" });
+      // Phase 2h — a READ, bounded (`boundWrite` never rejects): a failure or no answer at the bound
+      // says "Couldn't load tables", never "Loading…" while the action queue is stuck. Codex r3 —
+      // the read still out is attached to, never sent again (`candidateRead`).
+      const out = await boundWrite(candidateRead(sourceSessionId));
+      if (seq !== readSeq.current) return; // retired by a Cancel or a newer read (D10)
+      if (out.kind === "answer") {
+        setCandidates(out.value);
+        return;
+      }
+      setError({ kind: "loadFailed", waiting: out.kind === "waiting" });
+      if (out.kind === "waiting") {
+        void out.late.then((late) => {
+          // Still the latest read, still here: the late list lands and the failure line goes.
+          if (seq !== readSeq.current || !alive.current || late.kind !== "answer") return;
+          setCandidates(late.value);
+          setError((e) => (e?.kind === "loadFailed" ? null : e));
+        });
+      }
     } finally {
-      setLoading(false);
+      if (seq === readSeq.current) setLoading(false);
     }
   }
 
   function reset() {
+    if (busy) return; // aria-disabled while the merge is out (§17) — the refusal is here
+    readSeq.current += 1; // a read still out is retired with the step (D10)
+    setLoading(false);
     setStep("idle");
     setTarget(null);
-    setError(null);
+    clearUnlessWaiting();
   }
 
-  async function confirm() {
-    if (!target) return;
-    setBusy(true);
-    setError(null);
-    const res = await mergeTables({ sourceSessionId, targetSessionId: target.sessionId });
+  /** The merge's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
+  function land(res: Awaited<ReturnType<typeof mergeTables>>, into: MergeCandidate) {
     if (!res.ok) {
-      setBusy(false);
       setError({ kind: "server", text: res.error });
       return;
     }
     // This table is now closed; go to the table that received the order — its page, or (in the
     // counter's pane) the pane switches to it, named by the candidate's own label.
-    nav.toTable(res.targetSessionId, { counter: false, display: tableDisplay(target).text });
+    nav.toTable(res.targetSessionId, { counter: false, display: tableDisplay(into).text });
   }
+
+  async function confirm() {
+    if (!target || inFlight.current) return;
+    const into = target;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    let left = false;
+    // Still out at the bound: the guard stays spent until the late answer lands (docblock, D3).
+    let outstanding = false;
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(
+        mergeTables({ sourceSessionId, targetSessionId: into.sessionId }),
+      );
+      if (out.kind === "answer") {
+        left = out.value.ok; // this table is leaving: stay busy until the swap
+        land(out.value, into);
+        return;
+      }
+      if (out.kind === "threw") {
+        console.error("[MergeTableButton] merge unconfirmed", out.error);
+        setError({ kind: "unknown" });
+        return;
+      }
+      setError({ kind: "waiting" });
+      outstanding = true;
+      void out.late.then((late) => {
+        // A detail that is gone has nothing to leave or say; a late merge is seen on the floor.
+        if (!alive.current) return;
+        // The answer is in: a refusal or a lost answer frees the guard; a merge leaves the table.
+        if (late.kind !== "answer" || !late.value.ok) inFlight.current = false;
+        if (late.kind === "answer") land(late.value, into);
+        else setError({ kind: "unknown" });
+      });
+    } finally {
+      // Busy frees AT THE BOUND (fact 3) — unless the table is leaving under this control; the
+      // guard stays spent while the answer is still out (`outstanding`).
+      if (!left) {
+        if (!outstanding) inFlight.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  // D3 — a merge still unanswered past the bound holds "Merge" and the trigger (the line says
+  // "don't merge again"); Cancel and Back stay live and keep the line.
+  const waiting = error?.kind === "waiting";
+  const readWaiting = error?.kind === "loadFailed" && error.waiting;
 
   return (
     <div>
@@ -103,7 +231,9 @@ export function MergeTableButton({
           ref={triggerRef}
           type="button"
           onClick={open}
-          style={mergeBtn}
+          aria-disabled={waiting || undefined}
+          aria-describedby={waiting ? alertId : undefined}
+          style={waiting ? { ...mergeBtn, ...heldLook } : mergeBtn}
         >
           <Chrome lang={lang} k="settle.merge.btn" echo="stack" />
         </button>
@@ -126,7 +256,7 @@ export function MergeTableButton({
               className="staff-btn"
               type="button"
               onClick={reset}
-              disabled={busy}
+              aria-disabled={busy || undefined}
               style={linkBtn}
             >
               <Chrome lang={lang} k="settle.cancel" echo={false} />
@@ -136,7 +266,9 @@ export function MergeTableButton({
             <p style={muted}>
               <Chrome lang={lang} k="settle.merge.loading" echo={false} />
             </p>
-          ) : candidates.length === 0 ? (
+          ) : error?.kind === "loadFailed" ? null : candidates.length === 0 ? (
+            // D10 — only an ANSWERED read may say there is nothing to merge into; a failed one
+            // says it failed (the alert below), never "no other open tables".
             <p style={muted}>
               <Chrome lang={lang} k="settle.merge.noCandidates" echo="stack" />
             </p>
@@ -202,11 +334,16 @@ export function MergeTableButton({
             <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
+            {/* aria-disabled + the handlers' guards (§17, K35) — never native `disabled`, which drops
+                focus to <body> under the tap; busy frees at the bound, so neither is stranded. */}
             <button
               className="staff-btn"
               type="button"
-              onClick={() => setStep("picking")}
-              disabled={busy}
+              onClick={() => {
+                if (busy) return;
+                setStep("picking");
+              }}
+              aria-disabled={busy || undefined}
               style={cancelBtn}
             >
               <Chrome lang={lang} k="settle.back" echo={false} />
@@ -214,9 +351,11 @@ export function MergeTableButton({
             <button
               className="staff-btn"
               type="button"
-              onClick={confirm}
-              disabled={busy}
-              style={mergeBtn}
+              onClick={() => void confirm()}
+              aria-disabled={busy || waiting || undefined}
+              aria-busy={busy || undefined}
+              aria-describedby={waiting ? alertId : undefined}
+              style={waiting ? { ...mergeBtn, ...heldLook } : mergeBtn}
             >
               {busy ? (
                 <Chrome lang={lang} k="settle.merge.merging" echo={false} />
@@ -234,18 +373,33 @@ export function MergeTableButton({
       )}
 
       {error && (
-        <p role="alert" style={{ ...muted, marginTop: 6, color: "var(--warn)" }}>
+        <p id={alertId} role="alert" style={{ ...muted, marginTop: 6, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "waiting" ? (
+            <Chrome lang={lang} k="settle.merge.waiting" echo={false} />
+          ) : error.kind === "unknown" ? (
+            <Chrome lang={lang} k="settle.merge.unknown" echo={false} />
           ) : (
             <Chrome lang={lang} k="settle.merge.loadFailed" echo={false} />
           )}
         </p>
       )}
+      {/* Phase 2h — the waiting line says "reload the page", and the console is installed standalone
+          (no browser reload): the one way out sits BESIDE the alert, never inside it. A candidate
+          read still out at the bound offers it too (D10): "try again" would only queue behind the
+          stuck action. */}
+      {(waiting || readWaiting) && (
+        <div style={{ marginTop: "var(--s2)" }}>
+          <ReloadButton lang={lang} />
+        </div>
+      )}
     </div>
   );
 }
 
+// A held control's dim (the mid-payment Clear's), never a native disable.
+const heldLook: CSSProperties = { opacity: 0.5, cursor: "not-allowed" };
 const mergeBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 18px",

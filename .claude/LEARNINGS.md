@@ -3251,3 +3251,50 @@ lane's Take payment on the order ALREADY in the pane changed the prop and nothin
 opener's own heading focus ran after it anyway, because a parent's effect runs after its child's
 (Codex r1 on #309). When a prop is a one-shot REQUEST, handle its false → true edge after mount too,
 and make sure no ancestor's effect in the same commit re-focuses over it.
+
+## #205
+
+**A bound must free the PERSON, keep the WRITE, and stop the NEXT write — three separate jobs.**
+Phase 2h turned #200's measurement into production rules, and each half alone was wrong. Freeing
+the sheet at 15 s (busy as state cleared in a bounded `finally`, never a transition's `pending`)
+without keeping the raw promise threw the late answer away, so a payment that DID record read as
+lost. Keeping the late answer without refusing new writes let the cashier's second attempt queue
+behind the stuck one in Next's one-at-a-time action queue and land minutes later — a double charge
+with every screen honest. So: `boundWrite` answers `waiting` and keeps `late`; the tab's stall ledger
+refuses a new MONEY write at the tap (never dispatched) while anything tracked is past the bound; and
+what stays held is the SUBJECT that waits (that ticket, that dish, that door), never the screen.
+
+## #206
+
+**A hand-up that only reports bad outcomes can never take them back.** `onSettleOutcome` carried
+`refused | unknown`, so once the table detail had unmounted, the pane's "we don't know whether the
+payment went through" had no event that could retract it when the late answer said ok — the warning
+outlived the fact it warned about (Phase 2h integration). Every "unknown" a surface raises needs a
+matching "resolved" edge on the SAME channel, scoped to the same subject (same session, same kind:
+a resolved settle never clears a line edit's or another table's warning). And a retraction is SAID
+("The payment on Table 4 went through."), not a line that silently vanishes from a live region.
+
+## #207
+
+**Never merge parallel streams' append-only mutant blocks by hand-unioning git's hunks.** Each
+stream appended its block before the array's closing `];`; git aligned the hunks mid-object and a
+naive union produced a file that did not parse. What works: split each side at its block marker and
+the array end, 3-way merge the shared head and tail with `git merge-file` against the common base,
+then concatenate both blocks — and verify the result as a SET (expected = ours − what theirs removed
+∪ what theirs added; no duplicates), then `check:mutant-anchors`. Every rebuilt merge in Phase 2h had zero conflicts in the shared parts and a set measured equal.
+
+## #208
+
+**A literal trigger phrase in a PR body is a trigger.** The Phase 2h draft's body said the Codex
+request "follows once the gated head exists" and quoted the request phrase — the Codex connector
+treated the body as the ask and ran a task on the draft (it stood down, reading the note). Write
+about a bot's trigger without its literal text; the request goes in its own comment when meant.
+
+## #209
+
+**A count refresh by bare substring replace rewrites commit hashes.** Phase 2h refreshed doc counts
+with `str.replace('5535', '5575')` across HANDOFF, and `#283 `bf55352``silently became`bf55752`— a
+hash pointing nowhere, in a file whose every claim is meant to be measured.`check:docs` cannot see it
+(it checks the counts it knows, not every token). Replace counts by WORD BOUNDARY (`\b5535\b`), and
+after any bulk doc edit diff the number-bearing tokens against the base: every token lost must be a
+count you meant to change.

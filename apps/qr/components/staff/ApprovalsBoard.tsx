@@ -4,7 +4,6 @@ import {
   useEffect,
   useRef,
   useState,
-  useTransition,
   type CSSProperties,
   type FormEvent,
 } from "react";
@@ -17,6 +16,8 @@ import {
 } from "@/lib/approvals";
 import { leaveForHome, leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
 import { RefundsNeededStrip } from "./RefundsNeededStrip";
@@ -27,6 +28,8 @@ import { useEchoesShown, useStaffLang } from "./StaffLangProvider";
 import { useZoneFocus } from "./ZoneFocus";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
@@ -129,7 +132,46 @@ export function ApprovalsBoard({
   const inFlight = useRef(false);
   const rosterRef = useRef(approvers);
 
+  // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). Each tick reads THREE feeds, and a feed
+  // `raceTimeout` gave up on at 15 s is still IN Next's one-at-a-time queue — a tick that started
+  // three more after it only queued them behind the hung one, every 5 s. The gate watches the tick's
+  // reads AS ONE (`Promise.allSettled` of the raw promises — shut until the LAST answers); the ticks it
+  // refused are owed ONE tick, kicked just after. Made ONCE for the zone's life, on first use from a
+  // callback (never during render, never in an effect's setup), never disposed from a cleanup (Strict
+  // Mode would latch it): the kick is guarded by `alive`, re-armed at setup.
+  const alive = useRef(true);
+  const kick = useRef<() => void>(() => {});
+  const gateRef = useRef<PollGate | null>(null);
+  const gateOf = useCallback((): PollGate => {
+    if (gateRef.current === null) {
+      gateRef.current = createPollGate(() => {
+        if (alive.current) kick.current();
+      });
+    }
+    return gateRef.current;
+  }, []);
+  /** One missed tick — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
+   *  (cause `unknown`: no side is in evidence). */
+  const miss = useCallback(() => {
+    fails.current += 1;
+    setNowMs(Date.now());
+    if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+  }, []);
+
   const refresh = useCallback(async () => {
+    // Phase 2h · critic B4 — a decision's LATE answer can land after the zone is gone (it left its
+    // transition, so a navigation commits while it is out), and a late ok re-reads the queue: a dead
+    // zone starts no read — nothing queued on the tab for a screen nobody is looking at.
+    if (!alive.current) return;
+    const gate = gateOf();
+    const asked = gate.ask();
+    if (asked.go === "owed") {
+      // Phase 2h (9f) — a tick refused while a raw read has been out a hang's worth of time IS a miss.
+      if (asked.missed) miss();
+      return;
+    }
+    // A bare coalesce is safe: the owed kick is deferred past this tick's `finally`, and nothing below
+    // is awaited after the reads.
     if (inFlight.current) return;
     inFlight.current = true;
     try {
@@ -144,13 +186,21 @@ export function ApprovalsBoard({
       // The refunds-needed ledger rides the same poll, on its own promise too (Codex round 2 on
       // #283, P1): server-rendered once, the strip never re-read the ledger, so a charge the
       // webhook recorded after load stayed hidden until someone reloaded.
+      // Phase 2h — the RAW reads, dispatched once: the gate watches them as one, and each is raced
+      // on its own (a hung roster still never stalls the queue's answer).
+      const rawQueue = pollPendingApprovals();
+      const rawWho = rosterRef.current === null ? listApprovers() : null;
+      const rawLedger = listRefundsNeeded();
+      gate.watch(Promise.allSettled([rawQueue, rawWho, rawLedger]));
       const [queue, who, ledger] = await Promise.allSettled([
-        raceTimeout(pollPendingApprovals()),
-        rosterRef.current === null
-          ? raceTimeout(listApprovers())
-          : Promise.resolve(rosterRef.current),
-        raceTimeout(listRefundsNeeded()),
+        raceTimeout(rawQueue),
+        rawWho !== null ? raceTimeout(rawWho) : Promise.resolve(rosterRef.current),
+        raceTimeout(rawLedger),
       ]);
+      // Phase 2h · review b (B1) — the reads can answer AFTER the zone is gone (queued behind another
+      // screen's action): `alive` is re-checked after the await, before any side effect — a dead
+      // zone's "go sign in" must not send the tablet away from the screen the manager moved to.
+      if (!alive.current) return;
       // Each feed's settled answer is applied on its own, BEFORE the queue's failure is raised
       // (Codex round 3 on #283, P1): raised first, an approvals-table outage threw away every
       // good ledger read beside it and hid newly stranded charges until the queue recovered.
@@ -207,18 +257,23 @@ export function ApprovalsBoard({
       setDegraded(null);
     } catch (e) {
       // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
-      fails.current += 1;
-      setNowMs(Date.now());
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+      miss();
       console.error("[ApprovalsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [gateOf, miss]);
+  useEffect(() => {
+    kick.current = () => void refresh();
+  }, [refresh]);
 
   useEffect(() => {
+    alive.current = true; // re-armed at setup (Strict Mode runs cleanup between two setups)
     const id = setInterval(refresh, 5000);
-    return () => clearInterval(id);
+    return () => {
+      alive.current = false;
+      clearInterval(id);
+    };
   }, [refresh]);
 
   // Slow escalation tick while stale (the ≥2min paper-flow flip needs a re-render).
@@ -367,7 +422,28 @@ function RequestCard({
   const [pin, setPin] = useState("");
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9a · 9b) — busy is STATE cleared in `finally` around a BOUNDED await (it frees at the
+  // bound), never a transition's `pending` — which held until the action ANSWERED, and with it every
+  // other transition and every router commit on the tab (LEARNINGS #149 · #200). The ref is the guard
+  // read at tap time (LEARNINGS #126); the state is what renders. The name stays `pending`.
+  const [pending, setPending] = useState(false);
+  const pendingRef = useRef(false);
+  // The region's waiting line promises a reload: its button stands beside the region.
+  const [reload, setReload] = useState(false);
+  // Phase 2h · critic B3 — a decision still out past the bound answers into THIS form (the card's only
+  // region, and its Reload, live in it): Cancel refuses until the late answer lands. Cancelled, a late
+  // refusal had no region left to be said in; re-opened, it read as the answer to the new attempt.
+  // The ref is the tap-time guard (LEARNINGS #126); the state is what `aria-disabled` renders.
+  const [late, setLate] = useState(false);
+  const lateRef = useRef(false);
+  // A late answer is said only while this card is mounted (9e).
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true; // re-armed at setup (Strict Mode runs cleanup between two setups)
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   // `comp` / `void` are DB values, so each gets its own key rather than riding a slot: an English
   // status word interpolated into a Burmese sentence is the OPEN-ITEMS P2g shape one file over.
@@ -391,66 +467,133 @@ function RequestCard({
     setDecision(d);
     setLastOpened(d);
     setMsg(null);
+    setReload(false);
   }
   function cancel() {
-    if (pending) return; // §17 — the button says so with `aria-disabled`; the refusal is here
+    // §17 — the button says so with `aria-disabled`; refused here. Also while a decision's answer is
+    // still owed to this form (critic B3).
+    if (pendingRef.current || lateRef.current) return;
     setDecision(null);
     setPin("");
     setMsg(null);
+    setReload(false);
   }
 
-  function confirm(e: FormEvent) {
+  /** The server's verdict, said — on time, or LATE (9e: a late refusal is said if the card is still
+   *  here; a late ok re-reads the queue, which takes the card away). */
+  function answered(res: Awaited<ReturnType<typeof resolveApproval>>): void | Promise<void> {
+    if (res.ok) {
+      // Critic B2 — a LATE ok retires "no answer yet" (its Reload already went): the decision is
+      // recorded, and the queue's re-read takes the card away. On time the region is already empty.
+      if (alive.current) setMsg(null);
+      return onResolved();
+    }
+    if (!alive.current) return;
+    setPin("");
+    switch (res.reason) {
+      case "pin_wrong":
+      case "pin_locked":
+        setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
+        break;
+      case "pin_no_pin":
+        setMsg(PIN_NO_PIN_COPY);
+        break;
+      case "bad_approver":
+        setMsg({ k: "pin.badApprover.requester" });
+        break;
+      case "step_up_rate_limited":
+        setMsg({ k: "pin.rateLimited" });
+        break;
+      case "already":
+        setMsg({ k: "table.appr.msg.already" });
+        void onResolved();
+        break;
+      case "stale":
+        setMsg({ k: "table.appr.msg.stale" });
+        void onResolved();
+        break;
+      case "not_open":
+        setMsg({ k: "table.appr.msg.notOpen" });
+        break;
+      case "in_flight":
+        setMsg({ k: "table.appr.msg.inFlight" });
+        break;
+      case "outage":
+        // W10b — nothing was recorded and the request is STILL PENDING; never imply the PIN or
+        // the request was the problem.
+        setMsg({ k: "table.appr.msg.outage" });
+        break;
+      default:
+        setMsg({ k: "table.appr.msg.failed" });
+    }
+  }
+
+  async function confirm(e: FormEvent) {
     e.preventDefault();
-    if (!canConfirm || !decision) return;
+    if (!canConfirm || !decision || pendingRef.current) return;
+    // 9d — an approval removes food from a bill or gives it away (a void or a comp). Refused AT THE
+    // TAP, never dispatched, while any action on this tab has gone unanswered past the bound: sent,
+    // it would only queue behind the stuck one, to land minutes later. Read now, never from render.
+    // Owner decision (Phase 2h · A1): KEEP this refusal — an approval authorizes a refund or void.
+    // Owner decision (Phase 2h · integration): while THIS card's own decision is still out past the
+    // bound (its PIN cleared, typed again), the refusal re-says ITS line ("Don't decide again"),
+    // never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal<StaffKey>(
+      lateRef.current ? "table.appr.msg.waiting" : null,
+      stalledSince(),
+      "out.stalled",
+    );
+    if (refused !== null) {
+      setMsg({ k: refused });
+      setReload(true);
+      return;
+    }
     setMsg(null);
-    startTransition(async () => {
-      const res = await resolveApproval({ approvalId: request.id, decision, approverStaffId, pin });
-      if (res.ok) {
-        await onResolved(); // pending covers the refetch — the card drops off before the form re-enables
+    setReload(false);
+    pendingRef.current = true;
+    setPending(true);
+    try {
+      // 9b — called OUTSIDE any transition, awaited bounded: the RAW action promise.
+      const out = await boundWrite(
+        resolveApproval({ approvalId: request.id, decision, approverStaffId, pin }),
+      );
+      if (out.kind === "answer") {
+        await answered(out.value); // on an ok, busy covers the refetch — the card drops off first
         return;
       }
+      // No answer, or a lost one: the decision may be recorded. The PIN is cleared either way (a
+      // second decision is exactly what the sentence says not to make), and the queue re-reads.
       setPin("");
-      switch (res.reason) {
-        case "pin_wrong":
-        case "pin_locked":
-          setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
-          break;
-        case "pin_no_pin":
-          setMsg(PIN_NO_PIN_COPY);
-          break;
-        case "bad_approver":
-          setMsg({ k: "pin.badApprover.requester" });
-          break;
-        case "step_up_rate_limited":
-          setMsg({ k: "pin.rateLimited" });
-          break;
-        case "already":
-          setMsg({ k: "table.appr.msg.already" });
-          onResolved();
-          break;
-        case "stale":
-          setMsg({ k: "table.appr.msg.stale" });
-          onResolved();
-          break;
-        case "not_open":
-          setMsg({ k: "table.appr.msg.notOpen" });
-          break;
-        case "in_flight":
-          setMsg({ k: "table.appr.msg.inFlight" });
-          break;
-        case "outage":
-          // W10b — nothing was recorded and the request is STILL PENDING; never imply the PIN or
-          // the request was the problem.
-          setMsg({ k: "table.appr.msg.outage" });
-          break;
-        default:
-          setMsg({ k: "table.appr.msg.failed" });
+      void onResolved();
+      if (out.kind === "threw") {
+        // Today's rejection reached the error boundary; a lost answer is "we couldn't confirm".
+        setMsg({ k: "table.appr.msg.unknown" });
+        return;
       }
-    });
+      setMsg({ k: "table.appr.msg.waiting" });
+      setReload(true);
+      lateRef.current = true;
+      setLate(true);
+      void out.late.then((late) => {
+        lateRef.current = false;
+        if (alive.current) {
+          setLate(false);
+          setReload(false);
+        }
+        if (late.kind === "answer") void answered(late.value);
+        else if (alive.current) setMsg({ k: "table.appr.msg.unknown" });
+      });
+    } finally {
+      pendingRef.current = false;
+      setPending(false); // frees AT THE BOUND (fact 3), whatever the action is doing
+    }
   }
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? msg;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
   return (
     <article
       className="card card-textured"
@@ -540,7 +683,7 @@ function RequestCard({
           ref={formRef}
           tabIndex={-1}
           aria-labelledby={`appr-q-${request.id}`}
-          onSubmit={confirm}
+          onSubmit={(e) => void confirm(e)}
           style={{ marginTop: 4, outline: "none" }}
           noValidate
         >
@@ -590,7 +733,7 @@ function RequestCard({
             <button
               type="button"
               onClick={cancel}
-              aria-disabled={pending || undefined}
+              aria-disabled={pending || late || undefined}
               className="staff-btn"
               style={{ ...actionBtn, ...cancelBtn }}
             >
@@ -605,11 +748,19 @@ function RequestCard({
             style={{ margin: "8px 0 0", minHeight: 16 }}
           >
             {shown && (
-              <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
                 <MsgText lang={lang} msg={shown} />
               </span>
             )}
           </p>
+          {/* Phase 2h — the stalled refusal and the waiting line both say "reload the page"; the
+              console installs standalone (no browser reload), so the button they promise stands
+              BESIDE the card's one region — never inside it. */}
+          {reload && (
+            <div className="mms-rise" style={{ marginTop: 8 }}>
+              <ReloadButton lang={lang} block />
+            </div>
+          )}
         </form>
       )}
     </article>

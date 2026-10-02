@@ -2,13 +2,13 @@
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
-import { settleCashInput, terminalPollInput } from "@mms/db/schemas";
+import { terminalPollInput, terminalResumeInput, terminalStartInput } from "@mms/db/schemas";
 import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { inFlightRefusalFor } from "./inflight-read";
-import type { InFlightRefusal } from "./inflight-refusal";
+import { inFlightRefusalFor, settleOwnerIsSeat } from "./inflight-read";
+import { registerFreezeHeld, type InFlightRefusal } from "./inflight-refusal";
 import {
   acquireSettlement,
   releaseSettlementFor,
@@ -101,9 +101,9 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   const gate = await staffGate();
   if (!gate.ok) return { ok: false, error: gate.error };
   const caller = gate.caller;
-  const parsed = settleCashInput.safeParse(raw);
+  const parsed = terminalStartInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId } = parsed.data;
+  const { sessionId, startId } = parsed.data;
 
   // Feature-off when the reader env is unset (the /board opt-in pattern): refuse before any money
   // work — the UI also hides the Card option, but the action is the gate.
@@ -194,13 +194,16 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
         // The webhook contract: cartId routes fulfillment, tipRate '0' makes the reconcile exact,
         // kind 'terminal' keeps this PI out of split-share routing and drives attribution + the
         // counter-session close; NEVER 'split_share' (share-ledger code with no row to find).
-        // settleAttempt scopes every later freeze release to THIS attempt's era.
+        // settleAttempt scopes every later freeze release to THIS attempt's era. startId (Codex r3
+        // on #310) is the tablet's handle on its OWN start — what a reloaded register's resume
+        // matches, so it adopts this charge and never another tablet's; absent from an old bundle.
         metadata: {
           cartId: cart.id,
           tipRate: "0",
           kind: "terminal",
           settledByStaffId: caller.staffId,
           settleAttempt: attemptId,
+          ...(startId === undefined ? {} : { startId }),
         },
       },
       // Per-ATTEMPT idempotency key (the closeSecureTab lesson): a STABLE key caches a decline for
@@ -460,6 +463,125 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
 /** The poll's transient-miss answer — the panel counts it and keeps Cancel available; the next
  *  tick asks again. Named ONCE because three arms now return it and they must read as one thing. */
 const POLL_MISS_COPY = "Couldn’t check the reader just now — still trying.";
+
+/**
+ * Codex r2 on #310 (A3) — what a RELOADED register can learn about a reader start whose answer it
+ * lost. The start's PaymentIntent reached the tablet only in `settleCard`'s answer, and a reload
+ * aborts the client's action queue with that answer still in it (the reload `settle.reader.waiting`
+ * itself asks for): the reader may already be asking for the card, with nothing on the tablet left to
+ * poll it, slide its freeze, record a counter order's #CODE, or cancel it.
+ *
+ * `collect` is the reader's current action IF it is this table's charge: a `process_payment_intent`
+ * that has not failed (the reader is asking, or the tap went through), whose PaymentIntent is one of
+ * OUR reader intents (`metadata.kind`, the poll's authority rule) on THIS session's open cart. Every
+ * other state is null — no reader configured, the table closed or paid, the reader idle, its last
+ * action failed (a decline or a cancel: nothing to resume — and possibly an older attempt's), or
+ * another table's charge. The handle only lets the tablet resume the poll and Cancel, which re-verify
+ * it on every call; the amount is the PaymentIntent's own, for display — nothing is charged here.
+ *
+ * Codex r2 on #310 follow-up (R1) — `held` rides every "nothing on the reader" answer: whether a
+ * staff attempt holds this table's settle freeze fresh (`registerFreezeHeld`), read AFTER the reader.
+ * `settleCard` takes the freeze before it mints the PaymentIntent and hands it to the reader, so a
+ * start can be in that gap at the read — an idle reader with the table's freeze held is a start still
+ * on its way, and the tablet keeps the record and asks again (bounded) instead of forgetting a charge
+ * that is about to land with no handle.
+ *
+ * READ-ONLY: no freeze is touched, nothing is extended, cancelled or revalidated. A read that cannot
+ * be made (an outage, Stripe unreachable) is `ok: false` — never a verdict, so the tablet keeps the
+ * pending start and asks again.
+ */
+export type TerminalResumeResult =
+  | {
+      ok: true;
+      collect: { paymentIntentId: string; totalCents: number; cartId: string };
+      held?: undefined;
+    }
+  | { ok: true; collect: null; held: boolean }
+  | { ok: false; error: string };
+
+export async function terminalResume(raw: unknown): Promise<TerminalResumeResult> {
+  const gate = await staffGate();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  // The session id and the pending start's own id (Codex r3 on #310 — required: see the match below).
+  const parsed = terminalResumeInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  const { sessionId, startId } = parsed.data;
+  // Feature-off: no reader, nothing it could be doing.
+  const readerId = process.env.STRIPE_TERMINAL_READER_ID;
+  if (!readerId) return { ok: true, collect: null, held: false };
+  const { cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  // Closed, or no open order (paid — a charge that went through has been recorded): nothing to resume.
+  if (!cart) return { ok: true, collect: null, held: false };
+  let piId: string | null;
+  let stripe;
+  try {
+    stripe = getStripe();
+    const reader = await stripe.terminal.readers.retrieve(readerId);
+    const action = "deleted" in reader ? null : reader.action;
+    // Only a live or captured charge: a FAILED action is a decline or a cancel — nothing to poll, and
+    // it may be an older attempt's (the reader keeps its most recent action after it ends).
+    const live = action?.type === "process_payment_intent" && action.status !== "failed";
+    const actionPi = live ? (action.process_payment_intent?.payment_intent ?? null) : null;
+    piId = typeof actionPi === "string" ? actionPi : (actionPi?.id ?? null);
+  } catch (e) {
+    console.error("[terminal] resume reader read failed", {
+      sessionId,
+      code: (e as { code?: string }).code,
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  if (piId === null) return await nothingOnTheReader(sessionId);
+  let intent;
+  try {
+    intent = await stripe.paymentIntents.retrieve(piId);
+  } catch (e) {
+    console.error("[terminal] resume intent read failed", {
+      paymentIntent: piId,
+      code: (e as { code?: string }).code,
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  // The metadata is the authority (the poll's rule) — and it must name THIS table's open cart: the
+  // one reader may be asking for another table's charge. Codex round 3 on #310 — and THIS START: a
+  // second tablet's charge for the same table names the same cart, and adopting it put Cancel on a
+  // payment that tablet was collecting. A charge another start made is "nothing of ours" — the
+  // freeze it holds keeps this record asked about until it settles (`nothingOnTheReader`).
+  if (
+    intent.metadata?.kind !== "terminal" ||
+    !intent.metadata?.settleAttempt ||
+    intent.metadata?.cartId !== cart.id ||
+    intent.metadata?.startId !== startId
+  )
+    return await nothingOnTheReader(sessionId);
+  return {
+    ok: true,
+    collect: { paymentIntentId: intent.id, totalCents: intent.amount, cartId: cart.id },
+  };
+}
+
+/**
+ * Codex r2 on #310 follow-up (R1) — the reader holds nothing of this table's: is a start still on its
+ * way to it? The freeze is RE-READ here, after the reader: a start takes it before it hands the charge
+ * to the reader, so a freeze read after an idle reader sees every start past that first step — read
+ * before the reader, a start that took it in between would read as nothing moving. The owner's seat
+ * is read only for a FRESH freeze (a lapsed or absent one is nobody's). An outage is `ok: false`,
+ * never a verdict (the tablet keeps the record).
+ */
+async function nothingOnTheReader(sessionId: string): Promise<TerminalResumeResult> {
+  const { cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  // Paid or closed meanwhile: nothing is on its way.
+  if (!cart) return { ok: true, collect: null, held: false };
+  const nowMs = Date.now();
+  const fresh = registerFreezeHeld({ settleAt: cart.settle_at, settleByIsSeat: null, nowMs });
+  const isSeat = fresh ? await settleOwnerIsSeat(sessionId, cart.settle_by ?? null) : null;
+  return {
+    ok: true,
+    collect: null,
+    held: registerFreezeHeld({ settleAt: cart.settle_at, settleByIsSeat: isSeat, nowMs }),
+  };
+}
 
 /**
  * The poll's copy for a lost mutex. Not a decline (`declineCopy`) — the card was never refused —

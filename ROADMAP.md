@@ -411,8 +411,14 @@ the plan state.
         split's pane/start holds are retired; a comped dish rides its paid bag, "No charge"; every
         open counter order is reachable oldest first, and one nobody collected in 4 hours says so;
         the lane's Take payment opens the tablet's pane at last. No SQL.
-  - [ ] **2h — a stuck or stale tablet** (P2cz · P2fc · P2bi): a hung Server Action must not trap a
-        sheet or hold every later write; staff tablets activate new builds safely.
+  - [x] **2h — a stuck tablet never traps staff** (2026-10-02, owner decision 9 — P2cz · P2fc): every
+        touched staff write is awaited through `boundWrite` outside any transition, so a sheet lets go
+        at 15 s and says "no answer yet — don't … again: reload" beside a Reload button, and the late
+        answer is still applied; a new money write is refused at the tap while the tab is stuck; polls
+        never stack (`lib/poll-gate.ts`); a slow kitchen or lane tap holds only its own subject; a
+        locked or shared tablet is never stranded. No SQL.
+  - [ ] **2i — a stale tablet** (P2bi): staff tablets activate new builds safely, on 2h's primitives
+        (needs the Skew Protection answer).
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`

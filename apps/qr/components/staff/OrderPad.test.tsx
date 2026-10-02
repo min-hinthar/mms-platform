@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { startTransition } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
@@ -7,6 +8,7 @@ import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-
 import type { StaffFireResult, StaffUndoResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
+import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 
 /**
  * Phase 2c · pad — the ORDER PAD's WIRING (DESIGN-LANGUAGE §28). The decisions are pure and pinned
@@ -509,6 +511,78 @@ describe("a sheet add queued behind a hung add — its origin is never held past
     expect(addItem).toHaveBeenCalledTimes(2);
     expect(ghosts().some((g) => g.textContent?.includes("Beef Curry"))).toBe(false);
     expect(region().textContent).toContain("Beef Curry");
+  });
+});
+
+// ── Phase 2h · p2h-sheets ──
+describe("the options sheet's busy is bounded STATE, never a transition's pending (Phase 2h · 9a)", () => {
+  it("the entanglement proxy: with an UNRELATED async transition left hanging, the sheet still frees 15s after its tap", async () => {
+    // React 19 holds EVERY transition's `pending` while any async action is unanswered — the
+    // browser's stand-in is Next's router update for a hung Server Action. A sheet whose busy is a
+    // transition's pending stays busy past the chain's bound; state cleared in a finally frees.
+    const other = deferred<void>();
+    act(() => {
+      startTransition(async () => {
+        await other.promise;
+      });
+    });
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent?.includes("$14.50") || b.getAttribute("aria-busy") === "true",
+      )!;
+    const closeX = () =>
+      within(dialog).getByRole("button", {
+        name: (n) => n === STAFF["shell.close"].en || n === STAFF["shell.closeBusy"].en,
+      });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    expect(addBtn().getAttribute("aria-busy")).toBe("true");
+    expect(closeX().getAttribute("aria-disabled")).toBe("true");
+    await flush(15_500);
+    // MUTATION (p2h-sheets/pad/sheet-busy-never-clears): the ✕, Escape, the scrim and the drag stay
+    // refused behind a trapped focus scope; red.
+    expect(addBtn().getAttribute("aria-busy")).toBeNull();
+    expect(closeX().getAttribute("aria-disabled")).toBeNull();
+    expect(dialog.textContent).toContain(STAFF["browse.add.unconfirmed"].en);
+    await act(async () => {
+      add.resolve({ ok: true });
+      other.resolve();
+    });
+  });
+
+  it("two taps on the sheet's Add inside one frame add ONE dish — the tap-time guard is a ref", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+      b.textContent?.includes("$14.50"),
+    )!;
+    await act(async () => {
+      fireEvent.click(addBtn);
+      fireEvent.click(addBtn); // the same render: neither tap has seen the busy flip
+    });
+    // MUTATION (p2h-sheets/pad/sheet-double-tap-adds-twice): the second tap mints a second key —
+    // two plates of curry; red.
+    expect(ghosts().filter((g) => g.textContent?.includes("Beef Curry"))).toHaveLength(1);
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    expect(addItem).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1500,6 +1574,112 @@ describe("P5 — a hung detail read is never piled on", () => {
     await flush();
     // The polls it refused are owed one fresh read, at once.
     expect(getTableDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Phase 2h (9c) — the pad's unconfirmed add reads THE hang bound", () => {
+  it("a dispatched add reads 'Checking…' at EXACTLY STAFF_HANG_MS — not a millisecond before", async () => {
+    // MUTATION (p2h-core/pad-add-bound-drifts): the pad's own 15s drifts off the constant the stall
+    // ledger and the poll gate read — the ghost and the refusal disagree about when a hang began; red.
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(ghosts()[0]!.textContent).toContain(STAFF["pad.ghost.adding"].en);
+    await flush(1);
+    expect(ghosts()[0]!.textContent).toContain(STAFF["pad.ghost.checking"].en);
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+  });
+});
+
+describe("Phase 2h (9d) — the pad's add sits on the stall ledger until it answers", () => {
+  it("a hung add makes the tab read stalled at 15s — the money taps behind it are refused, not queued", async () => {
+    // MUTATION (p2h-core/track-pad-add): the add is not tracked — the usual hang (LEARNINGS #157)
+    // only shows once a poll queued behind it has aged 15s, up to 5s later, and every money tap in
+    // that window is dispatched into the stuck queue; red.
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    const tappedAt = Date.now();
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(stalledSince()).toBeNull();
+    await flush(1);
+    expect(stalledSince()).toBe(tappedAt);
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    expect(stalledSince()).toBeNull();
+  });
+});
+
+describe("Phase 2h (9d) — the counter name's save sits on the stall ledger until it answers", () => {
+  it("a hung name save (Take payment's first step) makes the tab read stalled at 15s", async () => {
+    // MUTATION (p2h-core/track-name-save): the save is not tracked — hung, it holds the action queue
+    // while the ledger calls the tab healthy, and the next money tap is queued behind it; red.
+    const save = deferred<{ ok: true }>();
+    setName.mockReturnValueOnce(save.promise as never);
+    mount(counterPayable(), { counter: true });
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "Aye" },
+    });
+    const tappedAt = Date.now();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(setName).toHaveBeenCalledTimes(1);
+    expect(stalledSince()).toBeNull();
+    await flush(1);
+    expect(stalledSince()).toBe(tappedAt);
+    await act(async () => {
+      save.resolve({ ok: true });
+    });
+    await flush();
+  });
+});
+
+describe("Phase 2h (9f) — a hung detail read ARMS the not-updating line instead of hiding it", () => {
+  const stale = () => document.querySelector(".pad-stale")?.textContent ?? null;
+
+  it("a tick skipped while the raw read has been out ≥ STAFF_HANG_MS is a miss: two arm the line, it escalates, ONE read in the air", async () => {
+    const hung = deferred<TableDetailResult>();
+    getTableDetail.mockReturnValue(hung.promise);
+    mount(ONE());
+    await flush(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // Under the bound, a skipped tick is a slow read on busy wifi — not a miss, nothing said.
+    await flush(9_000);
+    expect(stale()).toBeNull();
+    // Past it: the race's give-up and the tick it refused are two misses, and the pad SAYS it is not
+    // updating. Before Phase 2h the skip never counted, so after the race's one miss the line never
+    // armed — the pad wore its live face over a frozen feed for as long as the read hung.
+    // MUTATION (p2h-core/pad-skip-never-a-miss): the hook ignores `missed`; red.
+    await flush(16_000);
+    expect(stale()).toContain(STAFF["out.head.notUpdating"].en);
+    expect(stale()).not.toContain(STAFF["out.head.cant"].en); // this end's wifi is not blamed on us
+    // …and it escalates on the outage voice's own clock (two minutes) while the read stays hung.
+    await flush(120_000);
+    expect(stale()).toContain(STAFF["out.head.stillNotUpdating"].en);
+    expect(stale()).toContain(STAFF["out.tail.paper"].en);
+    // The whole time, ONE read was in the air (the gate never stacked a second behind it).
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // The raw answers: the owed read runs once, lands, and the line clears.
+    await act(async () => {
+      hung.resolve({ kind: "detail", detail: ONE() });
+    });
+    await flush();
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(stale()).toBeNull();
   });
 });
 

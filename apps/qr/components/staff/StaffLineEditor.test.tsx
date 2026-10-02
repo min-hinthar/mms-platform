@@ -1,8 +1,11 @@
 /** @vitest-environment jsdom */
+import { startTransition } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TableLineView } from "@/lib/floor-types";
 import { STAFF } from "@/lib/i18n/staff";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 
 /**
  * manager-2 (K35) — the drill-down's line controls are §17 through the shared `Stepper` primitive:
@@ -432,5 +435,272 @@ describe("P7 — a saved note hands focus back to its note button, never to <bod
     // MUTATION: the editor closes under the finger — the input and Save unmount, focus to <body>; red.
     expect(save.isConnected).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Note — Mohinga" }));
+  });
+});
+
+/**
+ * Phase 2h (P2fc) — the qty and note writes are NOT transitions any more, and are BOUNDED. A
+ * transition's `pending` stays true until its raw action answers and entangles with every other
+ * pending async transition on the tab (LEARNINGS #149 · #200), so one hung write — this row's or
+ * another surface's — dimmed the stepper and the note's Save for as long as the queue was stuck.
+ * The sentences ride the plain-string `onError` as `WRITE_WAITING` / `WRITE_UNCONFIRMED`, which
+ * every renderer localizes (`OUTAGE_TWINS`).
+ */
+describe("StaffLineEditor — Phase 2h: bounded writes, said honestly, the late answer applied", () => {
+  const settle: Array<() => void> = [];
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(async () => {
+    await act(async () => {
+      for (const s of settle.splice(0)) s();
+    });
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  function hung(fn: typeof staffSetQty) {
+    let answer!: (v: WriteResult) => void;
+    let fail!: (e: Error) => void;
+    fn.mockReturnValueOnce(
+      new Promise<WriteResult>((res, rej) => {
+        answer = res;
+        fail = rej;
+      }),
+    );
+    return { answer: (v: WriteResult) => answer(v), fail: (e: Error) => fail(e) };
+  }
+  function row() {
+    const onError = vi.fn();
+    const onEditState = vi.fn();
+    const onWaiting = vi.fn();
+    render(
+      <StaffLangProvider lang="en">
+        <ul>
+          <StaffLineEditor
+            sessionId="s1"
+            line={{ ...line, sendable: true } as TableLineView}
+            disabled={false}
+            onError={onError}
+            onEditState={onEditState}
+            onWaiting={onWaiting}
+          />
+        </ul>
+      </StaffLangProvider>,
+    );
+    return {
+      onError,
+      onWaiting,
+      reload: () => screen.queryByRole("button", { name: STAFF["out.reload"].en }),
+      writing: () => onEditState.mock.calls.at(-1)?.[1]?.writing as boolean,
+      inc: () => screen.getByRole("button", { name: "Increase Mohinga quantity" }),
+      digit: () => document.querySelector(".staff-qty")!.textContent,
+    };
+  }
+  const tap = (el: HTMLElement) =>
+    act(async () => {
+      fireEvent.click(el);
+    });
+
+  it("a qty write with no answer frees the stepper AT the bound — beside an unrelated hung transition — keeps the figure, and says 'no answer yet'", async () => {
+    // Another surface's async transition, never answered: under `useTransition` this row's
+    // `pending` was entangled with it and the stepper stayed dimmed regardless of its own write.
+    startTransition(async () => {
+      await new Promise<void>((r) => settle.push(r));
+    });
+    hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    expect(r.digit()).toBe("3×");
+    expect(r.inc().getAttribute("aria-disabled")).toBe("true");
+    expect(r.writing()).toBe(true);
+    await flush(STAFF_HANG_MS - 1);
+    expect(r.inc().getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-doors/line-qty-unbounded): the bound never fires — the stepper (and the Send's
+    // drain-before-fire hold) stays held for as long as the queue is stuck; red.
+    await flush(1);
+    expect(r.inc().getAttribute("aria-disabled")).toBeNull();
+    expect(r.writing()).toBe(false);
+    // The person's own change stays shown: rolled back, it invites a second tap that changes it twice.
+    expect(r.digit()).toBe("3×");
+    // MUTATION (p2h-doors/line-qty-waiting-unsaid): said as "couldn't confirm", or not at all; red.
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+  });
+
+  it("a write still unanswered offers the reload IN its row and reports it; a LATE success retracts it (S2 critic D1 · D2)", async () => {
+    const h = hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS - 1);
+    expect(r.reload()).toBeNull();
+    expect(r.onWaiting).not.toHaveBeenCalled();
+    await flush(1);
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+    // MUTATION (p2h-doors/line-reload-missing): WRITE_WAITING says "reload the page" on a console
+    // with no browser reload, and nothing on screen does it; red.
+    const reload = r.reload();
+    expect(reload).not.toBeNull();
+    expect(reload!.closest("li")).not.toBeNull(); // the row the person just tapped
+    // MUTATION (p2h-doors/line-waiting-unreported): the renderer is never told a write waits — it
+    // can neither offer its own reload nor know when "no answer yet" stops being true; red.
+    expect(r.onWaiting).toHaveBeenCalledWith("l1", true);
+    await act(async () => h.answer({ ok: true }));
+    // MUTATION (p2h-doors/line-late-ok-never-retracts): a late success says nothing and reports
+    // nothing — "No answer yet — that change may still be saved" stands over a saved change, above
+    // the settle and frozen-board lines, until some other setter happens by; red.
+    expect(r.onWaiting).toHaveBeenLastCalledWith("l1", false);
+    expect(r.reload()).toBeNull();
+    expect(r.onError).toHaveBeenCalledTimes(1); // a success adds no sentence of its own
+  });
+
+  it("two writes waiting on one row are ONE waiting edge each way — told 'no longer' only when the last answers", async () => {
+    const qty = hung(staffSetQty);
+    const note = hung(setLineNotes);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS);
+    await tap(screen.getByRole("button", { name: /note/i }));
+    await act(async () => {
+      fireEvent.change(document.querySelector('[data-note-for="l1"]')!, {
+        target: { value: "no peanuts" },
+      });
+    });
+    await tap(screen.getByRole("button", { name: STAFF["table.line.save"].en }));
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/line-waiting-edge-repeats): every write re-reports the edge — the
+    // renderer counts two "waiting" for one row, or is told "no longer" while a write is still out;
+    // red.
+    expect(r.onWaiting.mock.calls).toEqual([["l1", true]]);
+    await act(async () => qty.answer({ ok: true }));
+    expect(r.onWaiting.mock.calls).toEqual([["l1", true]]);
+    expect(r.reload()).not.toBeNull();
+    await act(async () => note.answer({ ok: true }));
+    expect(r.onWaiting.mock.calls).toEqual([
+      ["l1", true],
+      ["l1", false],
+    ]);
+    expect(r.reload()).toBeNull();
+  });
+
+  it("a LATE qty refusal rolls the figure back to the server's and says the server's sentence", async () => {
+    const h = hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS);
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+    // MUTATION (p2h-doors/line-qty-late-refusal-kept): the refused figure stays on the row as if it
+    // were saved; red.
+    await act(async () => h.answer({ ok: false, error: "That dish is sold out." }));
+    expect(r.digit()).toBe("2×");
+    expect(r.onError).toHaveBeenLastCalledWith("That dish is sold out.");
+  });
+
+  it("a LATE refusal never rolls back a NEWER write's figure", async () => {
+    const first = hung(staffSetQty);
+    hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS);
+    await tap(r.inc());
+    expect(staffSetQty).toHaveBeenCalledTimes(2);
+    expect(r.digit()).toBe("4×");
+    // MUTATION (p2h-doors/line-qty-late-rollback-over-newer): the older write's refusal wipes the
+    // newer one's figure — the row reads 2 while 4 is still on its way; red.
+    await act(async () => first.answer({ ok: false, error: "That dish is sold out." }));
+    expect(r.digit()).toBe("4×");
+    expect(r.onError).toHaveBeenLastCalledWith("That dish is sold out.");
+  });
+
+  it("a LATE qty throw rolls back and says it couldn't CONFIRM", async () => {
+    const h = hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    await flush(STAFF_HANG_MS);
+    expect(r.digit()).toBe("3×");
+    // MUTATION (p2h-doors/line-qty-late-throw-unsaid): the late lost answer keeps the unconfirmed
+    // figure and says nothing more; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(r.digit()).toBe("2×");
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_UNCONFIRMED);
+  });
+
+  it("a THROWN qty write rolls back and says it couldn't CONFIRM — never 'couldn't update'", async () => {
+    const h = hung(staffSetQty);
+    const r = row();
+    await tap(r.inc());
+    // MUTATION (p2h-doors/line-qty-threw-says-failed): the old English "Couldn't update that —
+    // check the connection and try again", a failure a lost answer cannot prove (and no twin); red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(r.digit()).toBe("2×");
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_UNCONFIRMED);
+    expect(r.inc().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  /** Open the note editor, type, and Save. */
+  async function saveNote(text: string) {
+    await tap(screen.getByRole("button", { name: /note/i }));
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    await act(async () => {
+      fireEvent.change(field, { target: { value: text } });
+    });
+    const save = screen.getByRole("button", { name: STAFF["table.line.save"].en });
+    await tap(save);
+    return { field, save };
+  }
+
+  it("a note save with no answer frees Save at the bound and says 'no answer yet'; the LATE save closes an unchanged editor", async () => {
+    const h = hung(setLineNotes);
+    const r = row();
+    const { save } = await saveNote("no peanuts");
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    await flush(STAFF_HANG_MS - 1);
+    expect(save.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-doors/line-note-unbounded): "Saving…" holds — and the Send's drain hold with it
+    // — for as long as the queue is stuck; red.
+    await flush(1);
+    expect(save.getAttribute("aria-busy")).toBeNull();
+    expect(save.textContent).toBe(STAFF["table.line.save"].en);
+    // MUTATION (p2h-doors/line-note-waiting-unsaid): said as "couldn't confirm"; red.
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+    await act(async () => h.answer({ ok: true }));
+    expect(document.querySelector('[data-note-for="l1"]')).toBeNull();
+  });
+
+  it("a LATE save never throws away a draft typed since", async () => {
+    const h = hung(setLineNotes);
+    row();
+    const { field } = await saveNote("no peanuts");
+    await flush(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.change(field, { target: { value: "no peanuts, no shrimp paste" } });
+    });
+    // MUTATION (p2h-doors/line-note-late-closes-a-newer-draft): the late save closes the editor
+    // over a newer draft — "no shrimp paste", an allergy, is gone unsaved; red.
+    await act(async () => h.answer({ ok: true }));
+    const still = document.querySelector<HTMLInputElement>('[data-note-for="l1"]');
+    expect(still?.value).toBe("no peanuts, no shrimp paste");
+  });
+
+  it("a LATE note throw says it couldn't CONFIRM, over the waiting line", async () => {
+    const h = hung(setLineNotes);
+    const r = row();
+    await saveNote("no peanuts");
+    await flush(STAFF_HANG_MS);
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_WAITING);
+    // MUTATION (p2h-doors/line-note-late-throw-unsaid): "no answer yet" stands for good; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_UNCONFIRMED);
+  });
+
+  it("a THROWN note save says it couldn't CONFIRM — never 'couldn't save'", async () => {
+    const h = hung(setLineNotes);
+    const r = row();
+    await saveNote("no peanuts");
+    // MUTATION (p2h-doors/line-note-threw-says-failed): the old English "Couldn't save that note",
+    // a failure a lost answer cannot prove; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(r.onError).toHaveBeenLastCalledWith(WRITE_UNCONFIRMED);
   });
 });

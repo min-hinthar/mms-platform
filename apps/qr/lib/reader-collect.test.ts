@@ -1,16 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { STAFF_HANG_MS } from "./bounded-write";
 import {
   READER_BLIND_AFTER_MISSES,
   READER_COLLECT_KEY,
   READER_COLLECT_MAX_IDLE_MS,
   READER_LANDED_CAP,
   READER_LANDED_KEY,
+  READER_PENDING_CAP,
+  READER_PENDING_KEY,
   READER_POLL_SILENT_MS,
   READER_POLL_START,
   READER_RECORDING_ESCALATE_MS,
+  READER_RESUME_FIRST_MS,
+  READER_RESUME_MAX_GAP_MS,
   READER_UNRECORDED_MS,
   adoptLegacyCollect,
   dropLanded,
+  dropPending,
   handoffCode,
   landedExpired,
   landedHandoff,
@@ -18,27 +24,35 @@ import {
   nextReaderPoll,
   parseLandedQueue,
   parseLegacyCollect,
+  parsePendingQueue,
   parseReaderCollect,
+  pendStart,
   queueLanded,
+  queuePending,
   readLandedStash,
+  readPendingStash,
   readReaderStash,
   readerAlertKey,
   readerBusyKey,
   readerChip,
   readerChipAlert,
   readerChipDismissible,
+  readerCancelMsg,
   readerChipLinked,
   readerChipShownAt,
   readerChipStatus,
   readerCollectExpired,
   readerLive,
   readerPanelAction,
+  readerPendingExpired,
   readerPolling,
   readerRecordingLong,
+  readerResumeDelay,
   readerSpoken,
   readerStartRefused,
   readerStatus,
   restoredReaderPoll,
+  resumedCollect,
   silentMisses,
   takeLegacyCollect,
   writeLandedStash,
@@ -46,6 +60,7 @@ import {
   type ReaderChip,
   type ReaderCollect,
   type ReaderLanded,
+  type ReaderPending,
   type ReaderPoll,
 } from "./reader-collect";
 import { SETTLE_TTL_MS } from "./lock-ttl";
@@ -343,6 +358,15 @@ describe("nextReaderPoll — the poll's reducer", () => {
     expect(silentMisses(T0, T0 + READER_POLL_SILENT_MS)).toBe(1);
     expect(silentMisses(T0, T0 + 3 * READER_POLL_SILENT_MS)).toBe(3);
   });
+
+  it("the span IS the staff hang bound: silent one millisecond short of STAFF_HANG_MS is no miss, silent for exactly it is one (integration c · R1)", () => {
+    // Pinned by the contract's own bound, never by the derived constant (that would be a
+    // tautology). MUTATION (p2h-int-c/reader/silence-bound-early): a second spelling a hair short —
+    // the panel counts a miss before the ledger calls the tab stalled; red.
+    expect(silentMisses(T0, T0 + STAFF_HANG_MS - 1)).toBe(0);
+    expect(silentMisses(T0, T0 + STAFF_HANG_MS)).toBe(1);
+    expect(silentMisses(T0, T0 + 4 * STAFF_HANG_MS - 1)).toBe(3);
+  });
 });
 
 describe("readerStatus — THE binding the panel, the region and the chip read", () => {
@@ -400,7 +424,35 @@ describe("readerStatus — THE binding the panel, the region and the chip read",
       tone: "warn",
       msg: "Too late.",
     });
-    expect(readerSpoken(st, { kind: "local" }).msg).toEqual({ k: "settle.reader.cancelFailed" });
+    expect(readerSpoken(st, { kind: "local" })).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelUnknown" },
+    });
+  });
+
+  it("every cancel outcome has its own honest words (Phase 2h · 9d · 9e)", () => {
+    // MUTATION (p2h-core/reader-cancel-threw-says-failed): a THROWN cancel says "couldn't cancel —
+    // try again" — but the response can be lost after the server cancelled, so the honest line is
+    // "couldn't confirm … check it before you take another payment"; red.
+    expect(readerCancelMsg({ kind: "local" })).toEqual({ k: "settle.reader.cancelUnknown" });
+    // MUTATION (p2h-core/reader-cancel-waiting-unsaid): a cancel still out at the bound says
+    // nothing distinct — the cashier takes another payment while the reader may still take the
+    // card; red.
+    expect(readerCancelMsg({ kind: "waiting" })).toEqual({ k: "settle.reader.cancelWaiting" });
+    // MUTATION (p2h-core/reader-cancel-stalled-unsaid): a cancel refused at the tap (never sent) is
+    // said as the stalled refusal — the one sentence with a Reload beside it; red.
+    expect(readerCancelMsg({ kind: "stalled" })).toEqual({ k: "out.stalled" });
+    expect(readerCancelMsg({ kind: "server", text: "Too late." })).toBe("Too late.");
+    // The region and the panel read ONE binding.
+    const st = readerStatus(P, false);
+    for (const e of [
+      { kind: "local" },
+      { kind: "waiting" },
+      { kind: "stalled" },
+      { kind: "server", text: "x" },
+    ] as const) {
+      expect(readerSpoken(st, e)).toEqual({ tone: "warn", msg: readerCancelMsg(e) });
+    }
   });
 });
 
@@ -719,5 +771,215 @@ describe("what the chip SAYS — keyed once, named once", () => {
       ["collecting", false],
     ] as const)
       expect(readerAlertKey("pi_123", phase, long)).toBe(readerChipAlert(chip, phase, long));
+  });
+});
+
+// ── Codex r2 on #310 (A3) — the pending start: written before the reader start is sent, so a reload
+// that aborts its answer leaves the next document something to resolve ──────────────────────────────
+describe("the pending start — what a reload must not lose (Codex r2 on #310, A3)", () => {
+  const P: ReaderPending = {
+    token: "t-1",
+    sessionId: "s-7",
+    startedAt: T0,
+    isCounter: true,
+    name: { counter: true, display: "reg-7f3a" },
+    sentEarly: true,
+    cartId: "c-7",
+  };
+
+  it("round-trips through the stash, field by field — a malformed entry is dropped alone", () => {
+    const store = memStore();
+    pendStart(P, T0, store);
+    expect(readPendingStash(T0, store)).toEqual([P]);
+    const bad = [{ ...P, sessionId: "" }, { ...P, token: "" }, { ...P, startedAt: "now" }, 7];
+    const raw = JSON.stringify([...bad, { ...P, sessionId: "s-8", token: "t-8" }]);
+    expect(parsePendingQueue(raw, T0)).toEqual([{ ...P, sessionId: "s-8", token: "t-8" }]);
+    expect(parsePendingQueue("{nope", T0)).toEqual([]);
+    expect(parsePendingQueue(JSON.stringify({ a: 1 }), T0)).toEqual([]);
+    // Anything but `true` reads false — the card never claims food went out unpaid on a guess.
+    expect(parsePendingQueue(JSON.stringify([{ ...P, sentEarly: "yes" }]), T0)).toEqual([
+      { ...P, sentEarly: false },
+    ]);
+  });
+
+  it("a record older than the freeze's lifetime is history — dropped as it is read", () => {
+    expect(readerPendingExpired(P, T0 + READER_COLLECT_MAX_IDLE_MS)).toBe(false);
+    // MUTATION (p2h-cx2a/pending/never-expires): a start from hours ago is resolved on a reload —
+    // a reader asking for this cart's card now is adopted under a start nobody made; red.
+    expect(readerPendingExpired(P, T0 + READER_COLLECT_MAX_IDLE_MS + 1)).toBe(true);
+    const store = memStore({ [READER_PENDING_KEY]: JSON.stringify([P]) });
+    expect(readPendingStash(T0 + READER_COLLECT_MAX_IDLE_MS + 1, store)).toEqual([]);
+    expect(store.m.has(READER_PENDING_KEY)).toBe(false);
+  });
+
+  it("a newer start NEVER discards an unresolved earlier record — one per start, not per table (capped)", () => {
+    const seven2 = { ...P, token: "t-2", startedAt: T0 + 5 };
+    const eight = { ...P, token: "t-8", sessionId: "s-8" };
+    // Codex r2 on #310 follow-up (R2): a start that THREW is still unresolved (the reader may be
+    // asking for its card) when the cashier taps Card again — the re-tap's own record must stand
+    // BESIDE it, so the re-tap's refusal (it drops only its own token) leaves the first for a reload.
+    // MUTATION (p2h-cx2a/pending/one-per-table): one record per table — the re-tap replaces the
+    // stranded start's record, its refusal then drops it, and a reload has nothing to resume; red.
+    expect(queuePending(queuePending([P], eight), seven2)).toEqual([P, eight, seven2]);
+    // The same start written twice (one token) is ONE record, moved to the newest place.
+    expect(queuePending([P, eight], { ...P, startedAt: T0 + 9 })).toEqual([
+      eight,
+      { ...P, startedAt: T0 + 9 },
+    ]);
+    let q: ReaderPending[] = [];
+    for (let i = 0; i < READER_PENDING_CAP + 2; i++)
+      q = queuePending(q, { ...P, token: `t${i}`, sessionId: `s${i}` });
+    expect(q).toHaveLength(READER_PENDING_CAP);
+    expect(q[0]!.sessionId).toBe("s2");
+  });
+
+  it("a re-tap's refusal drops only its OWN record: the stranded one for the same table stands (R2)", () => {
+    const store = memStore();
+    pendStart(P, T0, store); // the start that threw
+    pendStart({ ...P, token: "t-2", startedAt: T0 + 5 }, T0, store); // the re-tap
+    dropPending("t-2", T0, store); // refused "in flight": the first start holds the freeze
+    expect(readPendingStash(T0, store)).toEqual([P]);
+  });
+
+  it("an answer drops ONLY its own record — never a newer start's (the token)", () => {
+    const store = memStore();
+    pendStart(P, T0, store);
+    pendStart({ ...P, token: "t-8", sessionId: "s-8" }, T0, store);
+    // MUTATION (p2h-cx2a/pending/drop-ignores-token): the first answer clears every record — the
+    // other table's start, still out, is lost to the next reload; red.
+    dropPending("t-1", T0, store);
+    expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8"]);
+    // A token already gone (its record dropped before) removes nothing.
+    pendStart({ ...P, token: "t-9" }, T0, store);
+    dropPending("t-1", T0, store);
+    expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8", "t-9"]);
+    dropPending("t-8", T0, store);
+    dropPending("t-9", T0, store);
+    expect(store.m.has(READER_PENDING_KEY)).toBe(false);
+  });
+
+  it("the resume read decides: ADOPT the reader's charge, DROP when it has none, KEEP when it could not be read", () => {
+    const res = {
+      ok: true as const,
+      collect: { paymentIntentId: "pi_live", totalCents: 4321, cartId: "c-7b" },
+    };
+    // MUTATION (p2h-cx2a/resume/adopt-dropped): the reader's live charge for this table is never
+    // adopted — nothing polls it, slides its freeze, records its #CODE or can cancel it; red.
+    expect(resumedCollect(P, res, T0 + 20_000)).toEqual({
+      kind: "adopt",
+      record: {
+        sessionId: "s-7",
+        // The server's handle, amount and cart — the tap's are a reload old.
+        // MUTATION (p2h-cx2a/resume/tap-cart-over-server): the tap's cart rides the record; red.
+        paymentIntentId: "pi_live",
+        totalCents: 4321,
+        cartId: "c-7b",
+        // The tap's facts: how the chip names it, whether its food went out unpaid.
+        isCounter: true,
+        name: { counter: true, display: "reg-7f3a" },
+        sentEarly: true,
+        startedAt: T0 + 20_000,
+        liveAt: T0 + 20_000,
+        hidden: false,
+        recordingSince: null,
+        unrecordedAt: null,
+      },
+    });
+    // MUTATION (p2h-cx2a/resume/none-kept): a reader with nothing of this table's, and no freeze
+    // held, keeps the record — every reload asks again, and a LATER charge on this cart is adopted
+    // as this start's; red.
+    expect(resumedCollect(P, { ok: true, collect: null, held: false }, T0)).toEqual({
+      kind: "drop",
+    });
+    // MUTATION (p2h-cx2a/resume/outage-is-a-verdict): a read that failed (or threw — null) drops the
+    // record — an outage read as "the reader has nothing", and the next reload cannot ask; red.
+    // R4 — and it is SAID (`unchecked`): the reader could not be checked.
+    // MUTATION (p2h-cx2a/resume/outage-unsaid): an outage keeps the record silently; red.
+    expect(resumedCollect(P, { ok: false, error: "x" }, T0)).toEqual({
+      kind: "keep",
+      unchecked: true,
+    });
+    expect(resumedCollect(P, null, T0)).toEqual({ kind: "keep", unchecked: true });
+  });
+
+  it("an idle reader under a HELD freeze is a start still on its way: KEPT, asked again — never dropped, and nothing to say (R1)", () => {
+    // MUTATION (p2h-cx2a/resume/held-dropped): the idle reader drops the record while the table's
+    // freeze is held — the start then hands its charge to the reader with no handle on the tablet; red.
+    // MUTATION (p2h-cx2a/resume/held-said-unchecked): a held freeze says "couldn't check the
+    // reader" — the read worked; red.
+    expect(resumedCollect(P, { ok: true, collect: null, held: true }, T0)).toEqual({
+      kind: "keep",
+      unchecked: false,
+    });
+  });
+
+  it("asked again on a widening gap, capped — the record's own expiry ends it (R1)", () => {
+    // MUTATION (p2h-cx2a/resume/gap-flat): every re-ask at the first gap — up to 300 reads over the
+    // freeze's ten minutes; red.
+    // MUTATION (p2h-cx2a/resume/gap-uncapped): the gap doubles past the cap — a start that reaches
+    // the reader after a minute waits minutes more to be adopted; red.
+    expect([0, 1, 2, 3, 4, 5, 9].map(readerResumeDelay)).toEqual([
+      READER_RESUME_FIRST_MS,
+      READER_RESUME_FIRST_MS * 2,
+      READER_RESUME_FIRST_MS * 4,
+      READER_RESUME_FIRST_MS * 8,
+      READER_RESUME_MAX_GAP_MS,
+      READER_RESUME_MAX_GAP_MS,
+      READER_RESUME_MAX_GAP_MS,
+    ]);
+    expect(READER_RESUME_FIRST_MS * 16).toBeGreaterThan(READER_RESUME_MAX_GAP_MS);
+    // Within the freeze's lifetime the asks stay few: well under one a second on average.
+    let at = 0;
+    let asks = 0;
+    while (at <= READER_COLLECT_MAX_IDLE_MS) at += readerResumeDelay(asks++);
+    expect(asks).toBeLessThan(30);
+  });
+});
+
+// ── Codex r2 on #310 follow-up (R4) — a stranded start whose resume read FAILED: the reader could
+// not be checked, and nothing else on any screen says so ─────────────────────────────────────────────
+describe("the chip's 'couldn't check the reader' line (Codex r2 on #310 follow-up, R4)", () => {
+  const U: ReaderPending = {
+    token: "t-u",
+    sessionId: "s-7",
+    startedAt: T0,
+    isCounter: false,
+    name: { counter: false, display: "7" },
+    sentEarly: false,
+    cartId: "c-7",
+  };
+  const chipOf = (p: Partial<Parameters<typeof readerChip>[0]> = {}) =>
+    readerChip({ collect: null, landed: [], shown: new Set(), unchecked: [U], ...p });
+
+  it("shown wherever the bar is — over its own table too: no panel there says it", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-unshown): the failed read is said nowhere; red.
+    expect(chipOf()).toEqual({ kind: "unchecked", sessionId: "s-7", name: U.name, token: "t-u" });
+    // MUTATION (p2h-cx2a/chip/unchecked-hidden-on-its-table): hidden where its table is shown — the
+    // one page a cashier goes to before taking the money says nothing; red.
+    expect(chipOf({ shown: new Set(["s-7"]) })?.kind).toBe("unchecked");
+  });
+
+  it("a collect off screen outranks it (one reader, one line); it outranks a landing", () => {
+    expect(chipOf({ collect: { ...C, sessionId: "s-9" } })?.kind).toBe("collect");
+    // The collect on screen (its panel says it): the bar says the unchecked start.
+    expect(chipOf({ collect: { ...C, sessionId: "s-9" }, shown: new Set(["s-9"]) })?.kind).toBe(
+      "unchecked",
+    );
+    // MUTATION (p2h-cx2a/chip/landing-over-unchecked): a landing elsewhere hides it; red.
+    expect(chipOf({ landed: [LANDED_TABLE] })?.kind).toBe("unchecked");
+    expect(chipOf({ unchecked: [] })).toBeNull();
+    expect(readerChip({ collect: null, landed: [], shown: new Set() })).toBeNull();
+  });
+
+  it("never put away by hand — it stands while the record does and the read fails", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-dismissible): a ✕ closes the only line saying the reader
+    // may be asking for the card; red.
+    expect(readerChipDismissible(chipOf()!, "canceled")).toBe(false);
+  });
+
+  it("said once, keyed by the start", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-unsaid): shown, never said — a screen-reader cashier takes
+    // cash while the reader may be asking for the card; red.
+    expect(readerChipAlert(chipOf(), "collecting", false)).toBe("t-u:unchecked");
   });
 });

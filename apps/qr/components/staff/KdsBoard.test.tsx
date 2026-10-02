@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -37,6 +37,9 @@ const setItemSoldOut = vi.fn(
 );
 const bumpTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const recallTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
+// Phase 2h — the line tap's and the held ticket's writes, each a case's to hang or refuse.
+const bumpLine = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
+const fireTicketNow = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const haptic = vi.fn();
 // kitchen-8 — the device's remembered sound preference and whether this "device" has audio.
 let soundWanted = false;
@@ -104,8 +107,8 @@ const getKitchenQueue = vi.fn(
 vi.mock("@/lib/kitchen", () => ({
   getKitchenQueue: () => getKitchenQueue(),
   bumpTicket: (...a: unknown[]) => bumpTicket(...(a as [])),
-  bumpLine: () => Promise.resolve({ ok: true }),
-  fireTicketNow: () => Promise.resolve({ ok: true }),
+  bumpLine: (...a: unknown[]) => bumpLine(...(a as [])),
+  fireTicketNow: (...a: unknown[]) => fireTicketNow(...(a as [])),
   recallTicket: (...a: unknown[]) => recallTicket(...(a as [])),
 }));
 vi.mock("@/lib/menu-availability", () => ({
@@ -153,7 +156,7 @@ const { KdsBoard } = await import("./KdsBoard");
 const { tf, localizeCount } = await import("@/lib/i18n/fill");
 const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { padDishName } = await import("@/lib/order-pad");
-const { sx } = await import("@/lib/staff-labels");
+const { sx, al } = await import("@/lib/staff-labels");
 
 afterEach(() => {
   cleanup();
@@ -163,6 +166,10 @@ afterEach(() => {
   bumpTicket.mockImplementation(() => Promise.resolve({ ok: true }));
   recallTicket.mockReset();
   recallTicket.mockImplementation(() => Promise.resolve({ ok: true }));
+  bumpLine.mockReset();
+  bumpLine.mockImplementation(() => Promise.resolve({ ok: true }));
+  fireTicketNow.mockReset();
+  fireTicketNow.mockImplementation(() => Promise.resolve({ ok: true }));
   haptic.mockReset();
   setKdsSoundWanted.mockReset();
   getKitchenQueue.mockReset();
@@ -188,8 +195,12 @@ const mount = (lang: "en" | "my" = "en", initial = currentQueue) =>
 /** One promise the test settles by hand — the shape of a write still in flight. */
 function deferred<T>() {
   let resolve!: (v: T) => void;
-  const promise = new Promise<T>((r) => (resolve = r));
-  return { promise, resolve };
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((r, j) => {
+    resolve = r;
+    reject = j;
+  });
+  return { promise, resolve, reject };
 }
 
 /**
@@ -494,10 +505,44 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(more.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(more);
     expect(q.queryByRole("dialog")).toBeNull();
+    // Phase 2h — the read that follows the landed 86 is its OWN round trip (a Server Action never
+    // answers inside the write's microtask burst). Held here, so the landing and that snapshot are two
+    // commits, as on a tablet. Answered instantly, both land in ONE commit — the next case (K1).
+    const after = deferred<{ ok: true; queue: KitchenQueue }>();
+    getKitchenQueue.mockImplementationOnce(() => after.promise);
     await act(async () => {
       d.resolve({ ok: true, soldOut: true });
     });
     await waitFor(() => expect(document.activeElement?.id).toBe("kds-line-line-1"));
+    await act(async () => {
+      after.resolve({ ok: true, queue: currentQueue });
+    });
+  });
+
+  it("a landed 86 and a snapshot in ONE commit: the orphaned focus still lands on the dish's line, never the heading (integration b · K1)", async () => {
+    // The post-write read answers at once, so the override and the snapshot commit TOGETHER. Both
+    // effects run in that commit, in declaration order: the landing must run before the board's
+    // focus catch-all, or the catch-all takes the orphan to the heading first and the landing then
+    // sees focus "somewhere real" and leaves it there. MUTATION (p2h-int-b/kds/focus-catch-all-first):
+    // the catch-all declared first again (the K1 order); red.
+    holdClock();
+    const d = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => d.promise);
+    const q = mount();
+    const dialog = await tapEightySix(q);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    const more = document.getElementById("kds-more-line-1")!;
+    await waitFor(() => expect(document.activeElement).toBe(more));
+    // The read that follows answers at once, and it is the truth: the dish IS off the menu.
+    const off = queue();
+    off.tickets[0]!.lines[0]!.soldOut = true;
+    currentQueue = off;
+    await act(async () => {
+      d.resolve({ ok: true, soldOut: true });
+    });
+    await waitFor(() => expect(document.getElementById("kds-more-line-1")).toBeNull());
+    expect(document.activeElement?.id).toBe("kds-line-line-1");
   });
 
   it("focus elsewhere is left alone, and the landing is one-shot — a later orphan is not pulled to the line", async () => {
@@ -1571,5 +1616,651 @@ describe("Phase 2f — a counter order sent before it was paid", () => {
         .map((x) => x.trim())
         .includes(".kds-unpaid"),
     ).toBe(true);
+  });
+});
+
+// ── Phase 2h — a hung tablet never traps the kitchen (P2cz · P2fc) ────────────────────────────────
+const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+
+describe("Phase 2h (9f) — the board's poll never stacks a read behind a hung one", () => {
+  const flush = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const region = () => document.querySelector('.kds-head [role="status"]')!;
+
+  it("a read hung for 60 s is ONE dispatch; the second miss arms the banner; the answer kicks exactly one owed read", async () => {
+    vi.useFakeTimers();
+    const hung = deferred<{ ok: true; queue: KitchenQueue }>();
+    getKitchenQueue.mockReset();
+    getKitchenQueue
+      .mockReturnValueOnce(hung.promise)
+      .mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
+    mount();
+    await flush(5_000);
+    expect(getKitchenQueue).toHaveBeenCalledTimes(1);
+    // Under the bound a skipped tick is a slow read, not a miss: the board keeps its live voice.
+    await flush(14_998);
+    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    // At the bound: the race's give-up and the tick refused past it are TWO misses — the banner.
+    // MUTATION (p2h-boards/kds/refused-tick-never-a-miss): only the race's one miss counts; red.
+    await flush(5_001);
+    expect(region().textContent).toContain(ts("en", "out.head.notUpdating"));
+    // MUTATION (p2h-boards/kds/poll-stacks · kds/gate-watches-nothing): a fresh read queued behind
+    // the hung one every tick past the race's give-up; red.
+    await flush(38_000);
+    expect(getKitchenQueue).toHaveBeenCalledTimes(1);
+    // The raw answers: exactly ONE owed read runs at once, lands, and the banner clears.
+    // MUTATION (p2h-boards/kds/owed-read-never-kicked): nothing reads until the next tick; red.
+    await act(async () => {
+      hung.resolve({ ok: true, queue: currentQueue });
+    });
+    await flush(0);
+    expect(getKitchenQueue).toHaveBeenCalledTimes(2);
+    expect(region().textContent).not.toContain(ts("en", "out.head.notUpdating"));
+    await flush(1_000);
+    expect(getKitchenQueue).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control at the bound and says so", () => {
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const region = () => document.querySelector('.kds-head [role="status"]')!;
+  const reload = () => screen.queryByRole("button", { name: ts("en", "out.reload") });
+  const waiting = (x: string) => tf("en", "kds.err.waiting", { x });
+  const unknown = (x: string) => tf("en", "kds.err.unknown", { x });
+  const T4 = tf("en", "kds.table", { id: 4 });
+
+  it("the bump: busy frees AT the bound with the waiting line and its Reload; the late ok lands", async () => {
+    vi.useFakeTimers();
+    // The polls never answer here — this case is about the write.
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    const bump = q.container.querySelector<HTMLButtonElement>(".kds-bump")!;
+    await act(async () => {
+      fireEvent.click(bump);
+    });
+    expect(bump.getAttribute("aria-busy")).toBe("true");
+    await flush(STAFF_HANG_MS - 1);
+    expect(bump.getAttribute("aria-busy")).toBe("true");
+    // AT the bound (fact 3): the control frees, whatever the action is doing, and the ONE region says
+    // there is no answer yet — never "couldn't". MUTATION (p2h-boards/kds/bump-transition — the old
+    // startTransition): pending holds until the action answers; red.
+    await flush(1);
+    expect(bump.getAttribute("aria-busy")).toBeNull();
+    expect(region().textContent).toBe(waiting(T4));
+    // The sentence says "reload the board": its button stands beside the region, outside it.
+    // MUTATION (p2h-boards/kds/waiting-offers-no-reload): no button; red.
+    expect(reload()).not.toBeNull();
+    expect(region().contains(reload())).toBe(false);
+    // Critic B1 — the ticket is HELD while its write is out: the control is no longer busy, but it
+    // says it refuses (`aria-disabled`), and a second tap re-says the waiting line and sends NOTHING
+    // (a second bump queued behind the hung one would answer "already updated" over a landed bump).
+    // MUTATION (p2h-boards/kds/held-not-said): the button reads live; red. MUTATION
+    // (p2h-boards/kds/held-subject-resent · kds/hold-never-taken): the re-tap dispatches; red.
+    expect(bump.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(bump);
+    });
+    await flush();
+    expect(bumpTicket).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(waiting(T4));
+    expect(reload()).not.toBeNull();
+    // The LATE answer lands (9e): the bump rides the recall rail, the notice speaks, the waiting line
+    // and its Reload go. MUTATION (p2h-boards/kds/late-answer-dropped): the late ok is thrown away —
+    // the rail never gets the bump; red. MUTATION (p2h-boards/kds/late-waiting-never-retired): the
+    // waiting line outranks the notice for good; red.
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush();
+    expect(q.container.querySelector(".kds-recall")).not.toBeNull();
+    expect(region().textContent).toBe(tf("en", "kds.live.bumped", { x: T4 }));
+    expect(reload()).toBeNull();
+    // …and the ticket is released by its own answer. MUTATION (p2h-boards/kds/held-never-released):
+    // the control stays refused after the write answered; red.
+    expect(bump.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("the bump: a late REFUSAL is said, replacing the waiting line", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector(".kds-bump")!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    await act(async () => {
+      write.resolve({ ok: false, error: "stale", code: "stale" });
+    });
+    await flush();
+    expect(region().textContent).toBe(tf("en", "kds.err.stale", { x: T4 }));
+    expect(q.container.querySelector(".kds-recall")).toBeNull();
+  });
+
+  it("a late answer retires ITS OWN waiting line — never a newer refusal standing over it", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount("en", two);
+    const bumps = () => q.container.querySelectorAll<HTMLButtonElement>(".kds-bump");
+    await act(async () => {
+      fireEvent.click(bumps()[0]!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    // A newer tap, refused: the region says THAT now.
+    bumpTicket.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: "stale", code: "stale" }),
+    );
+    await act(async () => {
+      fireEvent.click(bumps()[1]!);
+    });
+    await flush();
+    const T5 = tf("en", "kds.table", { id: 5 });
+    expect(region().textContent).toBe(tf("en", "kds.err.stale", { x: T5 }));
+    // Table 4's late ok lands (its bump rides the rail) — and the newer refusal STANDS.
+    // MUTATION (p2h-boards/kds/drop-retires-a-newer-line): the late answer clears whatever stands; red.
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush();
+    expect(q.container.querySelector(".kds-recall")).not.toBeNull();
+    expect(region().textContent).toBe(tf("en", "kds.err.stale", { x: T5 }));
+  });
+
+  it("the bump: a THROWN write says 'couldn't confirm' — never 'Couldn't … — try again'", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    bumpTicket.mockImplementationOnce(() => Promise.reject(new Error("Failed to fetch")));
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector(".kds-bump")!);
+    });
+    await flush();
+    // MUTATION (p2h-boards/kds/threw-says-failed): the old "Couldn't mark … all done — try again";
+    // red. A lost answer may have landed — the bump may be on the server.
+    expect(region().textContent).toBe(unknown(T4));
+    expect(region().textContent).not.toBe(tf("en", "kds.err.bump", { x: T4 }));
+    expect(reload()).toBeNull(); // only a waiting line promises a reload
+  });
+
+  it("an unrelated transition hung on the tab does not hold the bump past the bound (the entanglement proxy)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    // Something else on the tab is mid-transition and never answers (fact 2: every async
+    // transition's pending is entangled with it).
+    const { startTransition } = await import("react");
+    const never = deferred<void>();
+    act(() => {
+      startTransition(async () => {
+        await never.promise;
+      });
+    });
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    const bump = q.container.querySelector<HTMLButtonElement>(".kds-bump")!;
+    await act(async () => {
+      fireEvent.click(bump);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(bump.getAttribute("aria-busy")).toBeNull();
+    await act(async () => {
+      write.resolve({ ok: true });
+      never.resolve();
+    });
+  });
+
+  it("a line tap: frees at the bound with the dish's waiting line; the late ok refetches", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const write = deferred<KitchenActionResult>();
+    bumpLine.mockImplementationOnce(() => write.promise);
+    mount();
+    const lineBtn = document.getElementById("kds-line-line-1")!;
+    await act(async () => {
+      fireEvent.click(lineBtn);
+    });
+    expect(lineBtn.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-boards/kds/line-transition): the old transition holds pending until it answers; red.
+    await flush(STAFF_HANG_MS);
+    expect(lineBtn.getAttribute("aria-busy")).toBeNull();
+    expect(region().textContent).toBe(waiting("Mohinga"));
+    // Critic B1 — the LINE is held: a second tap re-says the line and sends nothing.
+    expect(lineBtn.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(lineBtn);
+    });
+    await flush();
+    expect(bumpLine).toHaveBeenCalledTimes(1);
+    getKitchenQueue.mockClear();
+    getKitchenQueue.mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush();
+    // The late ok asks for a fresh snapshot (here owed to the gate behind the hung poll, which is
+    // what a real tablet's queue would hold it behind) — and the waiting line goes.
+    expect(region().textContent).not.toBe(waiting("Mohinga"));
+  });
+
+  it("Cook now on a held ticket: frees at the bound with the ticket's waiting line", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const held = queue();
+    held.tickets[0] = { ...held.tickets[0]!, held: true, pickupSlot: NOW };
+    const write = deferred<KitchenActionResult>();
+    fireTicketNow.mockImplementationOnce(() => write.promise);
+    const q = mount("en", held);
+    const fire = q.container.querySelector<HTMLButtonElement>(".kds-bump-fire")!;
+    await act(async () => {
+      fireEvent.click(fire);
+    });
+    expect(fire.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-boards/kds/fire-transition): the old transition holds pending; red.
+    await flush(STAFF_HANG_MS);
+    expect(fire.getAttribute("aria-busy")).toBeNull();
+    expect(region().textContent).toBe(waiting(T4));
+    // Critic B1 — the ticket is held: Cook now says so and a second tap sends nothing.
+    // MUTATION (p2h-boards/kds/fire-held-not-said · kds/fire-held-resent); red.
+    expect(fire.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(fire);
+    });
+    await flush();
+    expect(fireTicketNow).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(waiting(T4));
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+  });
+
+  it("a recall from the rail: frees at the bound, says waiting; the late ok takes the entry off the rail", async () => {
+    vi.useFakeTimers();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    // The polls keep answering — with an EMPTY queue, as they would once both are bumped.
+    currentQueue = { ...two, tickets: [] };
+    const q = mount("en", two);
+    // Both tickets bumped: the rail holds two entries.
+    await act(async () => {
+      for (const b of [...q.container.querySelectorAll<HTMLButtonElement>(".kds-bump")])
+        fireEvent.click(b);
+    });
+    await flush();
+    const T5 = tf("en", "kds.table", { id: 5 });
+    const rail = (x: string) =>
+      q.queryByRole("button", { name: al("en", { kind: "recall", label: x }).aria });
+    expect(rail(T4)).not.toBeNull();
+    expect(rail(T5)).not.toBeNull();
+    const write = deferred<KitchenActionResult>();
+    recallTicket.mockImplementationOnce(() => write.promise);
+    await act(async () => {
+      fireEvent.click(rail(T4)!);
+    });
+    expect(rail(T5)!.getAttribute("aria-disabled")).toBe("true"); // one recall at a time
+    // AT the bound the rail frees: Table 5's entry acts again. MUTATION
+    // (p2h-boards/kds/recall-transition): the old transition holds every entry dim until the hung
+    // recall answers; red.
+    await flush(STAFF_HANG_MS);
+    expect(rail(T5)!.getAttribute("aria-disabled")).toBeNull();
+    expect(region().textContent).toBe(waiting(T4));
+    // Critic B1 — Table 4's own entry is HELD: a second recall of it only re-says the line (one
+    // queued behind the hung one would answer "too late to bring back" over a recall that landed).
+    expect(rail(T4)!.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(rail(T4)!);
+    });
+    await flush();
+    expect(recallTicket).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(waiting(T4));
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush();
+    expect(rail(T4)).toBeNull();
+    expect(region().textContent).toBe(tf("en", "kds.live.restored", { x: T4 }));
+  });
+
+  it("the 86's undo: its busy frees at the bound (the NEXT dish's Undo acts), and it says waiting about the dish; a thrown late answer says couldn't confirm", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    const q = mount("en", two);
+    const sell = async (dish: string) => {
+      fireEvent.click(q.getByRole("button", { name: moreFor(dish) }));
+      clock += SAME_GESTURE_MS;
+      await flush();
+      fireEvent.click(within(q.getByRole("dialog")).getByRole("button", { name: eightySixName }));
+      await flush();
+      clock += SAME_GESTURE_MS;
+    };
+    const undoBtn = () => q.container.querySelector<HTMLButtonElement>(".kds-undo button");
+    await sell("Mohinga");
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    await act(async () => {
+      fireEvent.click(undoBtn()!);
+    });
+    expect(undoBtn()!.getAttribute("aria-disabled")).toBe("true");
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting("Mohinga"));
+    // The bar left at its own six seconds; the NEXT dish's Undo must act. MUTATION
+    // (p2h-boards/kds/undo86-transition): the old transition's pending held every later undo dim
+    // and refused until the hung write answered; red.
+    await sell("Laphet");
+    expect(undoBtn()!.getAttribute("aria-disabled")).toBeNull();
+    // A thrown late answer for Mohinga: "couldn't confirm" — never "Couldn't put it back".
+    await act(async () => {
+      write.reject(new Error("Failed to fetch"));
+    });
+    await flush();
+    expect(region().textContent).toBe(unknown("Mohinga"));
+  });
+
+  it("the sheet's 86: frees at the bound; the waiting line is said in the sheet AND kept on the board", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    const btn = within(dialog).getByRole("button", { name: eightySixName });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-boards/kds/sheet86-unbounded): the sheet's 86 awaits the raw — busy until it
+    // answers; red.
+    await flush(STAFF_HANG_MS);
+    expect(btn.getAttribute("aria-busy")).toBeNull();
+    expect(dialog.querySelector('[role="status"]')!.textContent).toBe(waiting("Mohinga"));
+    // MUTATION (p2h-boards/kds/sheet86-waiting-board-unsaid): only the sheet says it — the board's
+    // region (and the Reload beside it) is empty once the sheet is put away; red.
+    expect(region().textContent).toBe(waiting("Mohinga"));
+    // The late ok LANDS: the dish goes sold out on the board, the sheet unmounts, the bar offers Undo.
+    await act(async () => {
+      write.resolve({ ok: true, soldOut: true });
+    });
+    await flush();
+    expect(q.queryByRole("dialog")).toBeNull();
+    expect(q.container.querySelector(".kds-undo")).not.toBeNull();
+    expect(region().textContent).not.toBe(waiting("Mohinga"));
+  });
+  it("the sheet's 86 with no answer yet: the SHEET offers the Reload beside its own region, until the late answer retires the line (integration b · K2)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    const sheetReload = () =>
+      within(dialog).queryByRole("button", { name: ts("en", "out.reload") });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: eightySixName }));
+    });
+    // In flight under the bound: nothing to reload for yet.
+    expect(sheetReload()).toBeNull();
+    await flush(STAFF_HANG_MS);
+    const msg = dialog.querySelector('[role="status"]')!;
+    expect(msg.textContent).toBe(waiting("Mohinga"));
+    // The sheet says "reload the board to see" and the board behind it is aria-hidden: the reload it
+    // promises stands IN the sheet, beside its one region — never inside it (a control in a live
+    // region). MUTATION (p2h-int-b/kds/sheet-reload-missing · sheet-reload-unflagged): the sheet
+    // promises a reload the installed console has no button for; red.
+    expect(sheetReload()).not.toBeNull();
+    expect(msg.contains(sheetReload())).toBe(false);
+    // The late answer is a refusal: the sheet says it, and the reload goes with the waiting line.
+    // MUTATION (p2h-int-b/kds/sheet-reload-outlives-the-line): it stands under a refusal that asks
+    // for no reload; red.
+    await act(async () => {
+      write.resolve({ ok: false, error: "That changed.", code: "stale" });
+    });
+    await flush();
+    expect(msg.textContent).toBe(tf("en", "kds.err.stale", { x: "Mohinga" }));
+    expect(sheetReload()).toBeNull();
+  });
+  it("a tap on ANOTHER ticket keeps a standing waiting line and its Reload (critic B12)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount("en", two);
+    const bumps = () => q.container.querySelectorAll<HTMLButtonElement>(".kds-bump");
+    await act(async () => {
+      fireEvent.click(bumps()[0]!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    // Table 5 bumped (it lands at once): Table 4's write is STILL out, so its line — and the only
+    // Reload on the board — stand. MUTATION (p2h-boards/kds/tap-clears-waiting): the tap clears
+    // whatever the region holds; red.
+    await act(async () => {
+      fireEvent.click(bumps()[1]!);
+    });
+    await flush();
+    expect(bumpTicket).toHaveBeenCalledTimes(2);
+    expect(region().textContent).toBe(waiting(T4));
+    expect(reload()).not.toBeNull();
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+  });
+
+  it("a late answer on a board that is GONE starts no read (critic B4)", async () => {
+    vi.useFakeTimers();
+    // The polls answer at once — a late answer's re-read would be dispatched, not owed.
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector(".kds-bump")!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    // The cook leaves the board (the wall link) while the bump is out; then it answers.
+    q.unmount();
+    getKitchenQueue.mockClear();
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-boards/kds/dead-board-reads): the landed bump's re-read is sent from a board
+    // that no longer exists — a read queued on the tab, and a sign-in verdict on it would send the
+    // tablet away from the screen the cook moved on to; red.
+    expect(getKitchenQueue).not.toHaveBeenCalled();
+  });
+
+  it("a read already out when the board goes, answering 'locked' after, sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const read = deferred<{ ok: false; reason: "locked" }>();
+    getKitchenQueue.mockImplementationOnce(
+      () => read.promise as unknown as Promise<{ ok: true; queue: KitchenQueue }>,
+    );
+    const q = mount();
+    await flush(5_000); // the poll goes out and waits (in Next's queue, behind e.g. a lock)
+    expect(getKitchenQueue).toHaveBeenCalledTimes(1);
+    // The cook has moved on (the lock screen, typing a PIN); then the old read answers.
+    q.unmount();
+    await act(async () => {
+      read.resolve({ ok: false, reason: "locked" });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-rev-b/kds/read-answer-after-unmount-acts): the dead board's read hard-reloads the
+    // screen the cook moved to, wiping the PIN being typed; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("a write's LATE 'go sign in' on a board that is gone sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const write = deferred<KitchenActionResult>();
+    bumpTicket.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    await act(async () => {
+      fireEvent.click(q.container.querySelector(".kds-bump")!);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(waiting(T4));
+    q.unmount();
+    await act(async () => {
+      write.resolve({ ok: false, error: "Sign in again.", code: "signin" });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-rev-b/kds/late-leave-after-unmount): the late refusal navigates from a board
+    // that no longer exists; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("the sheet's 86 still out: the dish is HELD — its sheet's 86 and its ⋯ refuse, nothing is sent twice (critic B1 · B5)", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    const btn = within(dialog).getByRole("button", { name: eightySixName });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await flush(STAFF_HANG_MS);
+    // The sheet's 86 is no longer busy — it REFUSES (the dish's write is out), and a tap sends nothing.
+    // MUTATION (p2h-boards/kds/sheet86-hold-never-taken): the button acts again and a second 86
+    // queues behind the hung one, to answer "someone else changed it" over a sold-out that landed; red.
+    expect(btn.getAttribute("aria-busy")).toBeNull();
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await flush();
+    expect(setItemSoldOut).toHaveBeenCalledTimes(1);
+    // Put away and asked for again: the ⋯ refuses (no new sheet — so no new key for the late answer
+    // to miss, B5) and the board says the line again.
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await flush();
+    const more = q.getByRole("button", { name: moreFor() });
+    expect(more.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(more);
+    });
+    await flush();
+    expect(q.queryByRole("dialog")).toBeNull();
+    expect(region().textContent).toBe(waiting("Mohinga"));
+    expect(setItemSoldOut).toHaveBeenCalledTimes(1);
+    // The late ok lands: the dish is off the menu (no ⋯ any more) and the bar offers its Undo.
+    await act(async () => {
+      write.resolve({ ok: true, soldOut: true });
+    });
+    await flush();
+    expect(q.queryByRole("button", { name: moreFor() })).toBeNull();
+    expect(q.container.querySelector(".kds-undo")).not.toBeNull();
+  });
+
+  it("the sheet's 86: a THROWN write says 'couldn't confirm' in the sheet — never 'Couldn't mark … sold out — try again'", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    setItemSoldOut.mockImplementationOnce(() => Promise.reject(new Error("Failed to fetch")));
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: eightySixName }));
+    });
+    await flush();
+    // MUTATION (p2h-boards/kds/sheet86-threw-says-failed): the old "Couldn't mark … sold out — try
+    // again" over an answer that was LOST (the dish may be off the menu already); red.
+    expect(dialog.querySelector('[role="status"]')!.textContent).toBe(unknown("Mohinga"));
+  });
+
+  it("the sheet's 86: a LATE throw after the sheet was put away is said on the board", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    holdClock();
+    const write = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => write.promise);
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: moreFor() }));
+    clock += SAME_GESTURE_MS;
+    await flush();
+    const dialog = q.getByRole("dialog");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: eightySixName }));
+    });
+    await flush(STAFF_HANG_MS);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await flush();
+    expect(region().textContent).toBe(waiting("Mohinga"));
+    await act(async () => {
+      write.reject(new Error("Failed to fetch"));
+    });
+    await flush();
+    // MUTATION (p2h-boards/kds/sheet86-late-threw-unsaid): the late throw only retires the waiting
+    // line — the board says nothing about a sold-out it cannot confirm; red.
+    expect(region().textContent).toBe(unknown("Mohinga"));
   });
 });

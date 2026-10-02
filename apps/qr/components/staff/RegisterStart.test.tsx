@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 
 /**
  * The Start zone's WIRING (counter-3 · counter-4 · counter-5, rebuilt on the screen's ONE mint lock
@@ -252,6 +253,107 @@ describe("RegisterStart — the Start zone's wiring", () => {
       await d.promise;
     });
     expect(push).toHaveBeenCalledWith("/staff/table/s4/add");
+  });
+
+  it("Phase 2h (S2 critic D1) — a start still unanswered at the bound says so in the region, with the reload BESIDE it until the late answer lands", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deferred<{ ok: false; error: string }>();
+      openRegisterOrder.mockReturnValueOnce(d.promise);
+      const { walkup, region, container } = mount();
+      await act(async () => {
+        fireEvent.click(walkup());
+      });
+      const reload = () =>
+        [...container.querySelectorAll("button")].find((b) =>
+          b.textContent?.includes(ts("en", "out.reload")),
+        ) ?? null;
+      expect(reload()).toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      // MUTATION (p2h-doors/register-reload-missing): the line says "reload the page" on a console
+      // installed standalone — no browser reload — and nothing on screen does it; red.
+      expect(reload()).not.toBeNull();
+      expect(region().contains(reload())).toBe(false); // beside the region, never inside it
+      // Every start stays held while it waits (the copy says "don't start it again").
+      expect(walkup().getAttribute("aria-disabled")).toBe("true");
+      await act(async () => {
+        d.resolve({ ok: false, error: "The counter is closed." });
+        await d.promise;
+      });
+      expect(region().textContent).toBe("The counter is closed.");
+      expect(reload()).toBeNull();
+      expect(walkup().getAttribute("aria-disabled")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Phase 2h — a LATE start that lands clears the waiting line (it is no longer true)", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deferred<{ ok: true; sessionId: string; created: boolean }>();
+      openRegisterOrder.mockReturnValueOnce(d.promise);
+      const { walkup, region } = mount();
+      await act(async () => {
+        fireEvent.click(walkup());
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      await act(async () => {
+        d.resolve({ ok: true, sessionId: "s9", created: true });
+        await d.promise;
+      });
+      expect(push).toHaveBeenCalledWith("/staff/table/s9/add");
+      // MUTATION (p2h-doors/register-late-ok-keeps-waiting): "no answer yet — don't start it
+      // again" stands over a start that went; red.
+      expect(region().textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("Phase 2h review c (C3) — opening or closing the Phone arm while a start waits keeps 'no answer yet' standing", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deferred<{ ok: false; error: string }>();
+      openRegisterOrder.mockReturnValueOnce(d.promise);
+      const { walkup, phone, region } = mount();
+      await act(async () => {
+        fireEvent.click(walkup());
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      // MUTATION (p2h-rev-c/register-toggle-clears-waiting): the arm's pick wipes the line while
+      // the start still waits — the reload stands alone and Go is dimmed with no reason given; red.
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(phone().getAttribute("aria-expanded")).toBe("true");
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      await act(async () => {
+        d.resolve({ ok: false, error: "The counter is closed." });
+        await d.promise;
+      });
+      expect(region().textContent).toBe("The counter is closed.");
+      // No start waiting: the pick clears the zone's last notice, as before.
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(region().textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the zone throws without the screen's provider — a forgotten provider must not split the lock", () => {

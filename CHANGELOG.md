@@ -4,6 +4,148 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2h — a stuck tablet never traps staff (2026-10-02)
+
+Planned on `c7bffc1` (the Phase 2g head) from a map of every staff Server Action and poll (checked by
+a critic) and a Chromium measurement of a hung action (LEARNINGS #200). Built as a contract branch
+(`p2h/contract`, rebased onto main as `32f11a3` after #309 merged) and three worktree streams on it —
+`p2h/sheets` (`3d09525` · `7ca5515`), `p2h/doors` (`325f284` · `35c1468`) and `p2h/boards`
+(`4befac0` · `c60ebaa`), each with its own fresh-context critic round — merged `df0f419` ·
+`1c78c1e` · `7918de5` (the append-only mutant blocks rebuilt as a 3-way merge of the shared head and
+tail plus each stream's block; the merged mutant ids measured equal to the contract's plus each
+stream's additions, nothing lost), then the fixes the streams owed each other — built in three more worktrees (`p2h/int-a` · `int-b` · `int-c`), each through a fresh-context critic (APPROVE_WITH_FIXES · REJECT · APPROVE_WITH_FIXES; every finding fixed) and merged `5aec099`. Owner decision 9
+(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hu (P2hk closed by the review round; P2hl · P2hm · P2ho · P2hr · P2hs by Codex round 2). No SQL.
+
+**What staff see first:**
+
+- **A sheet that gets no answer no longer locks.** Cash, a card on file, the reader, a
+  refund, a loss, a no-show, a help report: after 15 seconds with no answer the sheet lets go — Cancel,
+  Back and the rest of the screen work again — and says so plainly: "No answer yet — this payment may
+  still be recorded. Don't take it again: reload the page to see whether it went through." A Reload
+  button sits beside that line. If the answer arrives later, it is applied then: a payment that went
+  through lands (its card, its receipt), a refusal is said.
+- **One stuck action no longer freezes the whole tablet.** The tablet can only send one action at a
+  time, so a payment stuck behind a hung one would leave minutes later — after the cashier took the
+  money another way. Now a NEW payment, refund, loss or no-show tapped while something has gone 15
+  seconds without an answer is not sent at all: "This tablet is still waiting for an earlier answer,
+  so this did nothing. Reload the page to carry on." Re-tapping the sheet whose own payment is
+  waiting says that sheet's own "don't take it again" line instead. Adding dishes, the kitchen and
+  the pickup lane are never refused.
+- **"Couldn't confirm" is never "nothing was recorded".** When the answer is lost (the network broke
+  mid-way), every screen that changes money, a table or an order says it couldn't confirm — never
+  that nothing happened, because the server may have done it.
+- **Boards never pile up reads.** The floor, the kitchen, the pickup lane, approvals, today's
+  payments, the table page and the counter pane keep at most one read in the air. A read stuck past
+  15 seconds counts as missed, so "Reconnecting…" shows after two, and one fresh read runs as soon as
+  the stuck one answers.
+- **Kitchen and lane taps are held, not repeated.** A bump, a "Cook now", a dish marked out, a bag
+  handed over: if its answer is late, that ticket, dish or bag waits for it ("No answer yet…" with
+  Reload) and a second tap sends nothing. Every other ticket stays live.
+- **A locked or shared tablet is never stranded.** Unlock, sign out, lock, approvals and help catch
+  their failures; signing out goes straight to the sign-in page and never waits behind a stuck
+  action; a manager list that never loads says so with Try again.
+
+**How (the load-bearing parts):**
+
+- `lib/bounded-write.ts` (client-safe, no React): `STAFF_HANG_MS` (named once — `raceTimeout`'s
+  default, the pad's unconfirmed-add bound, the reader poll's silence span), `boundWrite` (answer ·
+  threw · waiting-with-the-late-answer; never rejects, never drops the late answer), the per-tab
+  stall ledger (`track` / `stalledSince` — one per tab because Next's action queue is one per tab).
+  `lib/test-setup.ts` empties the ledger after every case.
+- `lib/poll-gate.ts` — the pad's raw-pending / owed pattern extracted: a tick while the raw read is
+  out starts nothing and owes ONE read; a tick skipped past the bound counts as a miss (the pad's
+  banner never armed on a hang before — fixed by moving the pad onto the gate).
+- `ReloadOffer` / `ReloadButton` — the one escape that always works (a document reload); beside a
+  region, never inside it, no second live role.
+- Every touched Server Action is called OUTSIDE any async transition (a transition's `pending` — and
+  every router commit on the tab — is held while its action hangs, LEARNINGS #200): busy is state set
+  at the tap and freed at the bound. The M82 guard (`lib/sheet-busy-callers.test.ts`) now PARSES the
+  six guarded sheets with `typescript` and refuses `busy={pending}` and a latching busy.
+- **The counter pane answers its own lines.** A settle or a line edit still out when its table's
+  detail unmounted is said on the pane as waiting ("No answer yet on a change to {x} — it may still be
+  saved"), and its late answer is said there too ("The payment on {x} went through.", "The change on
+  {x} saved.") — the hand-up carries the resolving edge, scoped to the same table and kind
+  (`lostAfterLanded`, lib/floor-pane). A reader START that answers late says nothing there: the bar's
+  chip owns the collect.
+- **A refused re-tap is heard again.** A re-tap on the sheet whose own write waits re-says that
+  sheet's "don't … again" line (`tapRefusal`, decision 9i) by replacing the region's content
+  (`useResaid`), so a screen reader announces it a second time; a FOREIGN stall says `out.stalled`.
+- **Boards keep their lines honest.** The floor strip's waiting line stands while its own start
+  waits — and gives way to the frozen board's escalation; a late refund answer closes only its own
+  line's sheet, and a cash hand-back instruction is never left behind another open sheet; the KDS
+  dish menu carries its own Reload; two dead KDS keys are gone.
+- 51 staff keys (37 K15-HIGH), 2 retired, and the kiosk's `addWaiting` / `addUnknown`.
+
+**Blind review** (three lenses on `2e9c226`, `pnpm review:bundle` only: concurrency · money semantics ·
+product truth + a11y → REJECT · REJECT · REJECT; every finding verified on disk, fixed red-first on
+`p2h/rev-a` · `rev-b` · `rev-c` — `59f1691` · `7caeb49` · `2b40c82` — merged up to `cc949ef`; two
+sub-points declined as unfalsifiable guards, recorded in the verdict comment):
+
+- **A cash settle still out keeps saying so.** While its own settle waits past the bound, the
+  trigger is held and "No answer yet — this payment may still be recorded. Don't take it again" stays
+  under it with Reload; a reopened sheet never shows a clean "Take $X" (the test that pinned the
+  clean reopen is rewritten).
+- **A cash refund never loses "hand back $X".** Its waiting line now carries the instruction a reload
+  could lose ("…reload the page: if the line shows refunded, hand back $X from the drawer"), and a late
+  ok that lands after the zone unmounted is kept for the tab and said — focused — when today's
+  payments next mounts.
+- **Own waits outlive the mount.** A per-tab register keyed by subject (`ownWaitSlot`,
+  lib/bounded-write) means a refund, loss, no-show or cash sheet reopened for the same subject re-says
+  its own "don't … again" line (decision 9i), and the reader and the card-on-file close re-announce a
+  refused re-tap (`useResaid`).
+- **A board that is gone acts on nothing.** KDS, lane and approvals re-check after every await before
+  navigating, writing or setting state; the lane's leave flush marks what it sends so the unmount
+  never sends a pick twice; today's payments no longer reads from a dead zone.
+- **Only Server Actions stall the tab.** `raceTimeout` no longer tracks a plain fetch (the sign-outs,
+  `/api/board`), so a hung sign-out can never refuse a payment on the next screen.
+- **The Burmese stall line says what the English says** — the tap "was not sent, nothing will come of
+  it", never "hasn't done anything yet".
+- **Lines that stood on, now do:** the walk-up start's waiting line survives the Phone toggle; a
+  waiting unlock keeps its line and Reload through a sign-out attempt; the kiosk moves a waiting add's
+  line to the page when its sheet closes and re-says it on a re-tap; clearing a table is refused while
+  the tab is stuck; the refunds strip clears only the row it opens.
+
+**Codex round 1** (`e9de2d7`: 3×P2, all real, fixed in `3cb91ba` · `76c51f6`): a manager-list Try
+again attaches to the read still out instead of queueing another behind it, and that read's late answer
+still loads the list — retiring "Couldn't load the list of managers" and handing focus to the picker
+(one shared region rule, `useRosterRegion`); Open bill stays held while its own open waits and a tap
+re-says "no answer yet" (the hold read from a ref at the tap); a tap on the held cash trigger is said in
+an sr-only alert, re-announced on every tap.
+
+**Codex round 2** (`0a851a3`: 7×P2 + 1×P3, all real — six of them rows this phase had filed — all fixed
+in `e37c4eb` · `23cc415` and `eb1d074` · `ef67f6c`, each through an independent verifier and a follow-up
+round): a late throw after the cashier moved tables hands "we don't know" up to the pane again (cash, card on
+file, reader); a lost line edit is its own pane line ("We couldn't confirm a change on {x}"); a reader start
+is recorded before it is sent and a reloaded tablet asks Stripe what the reader is doing (`terminalResume`,
+read-only — it adopts this table's collect, keeps the record while the table's payment freeze is fresh, and
+says "Couldn't check the card reader" when it cannot ask); Open bill, the manager list and a refunds-strip
+row hold from the tap across a remount, each answer clearing only its own hold; the stall ledger runs on a
+monotonic clock; every sign-in is a fresh document, so a stuck lock release never follows staff into the
+console.
+
+**Codex round 3** (`10eb834`: 3×P2, all real, fixed on sight in `1e67e19`): the Lock circle keeps its tap
+guard until the late answer (a re-tap past the bound re-says "no answer yet" and sends nothing — it queued
+a second lock behind the hung one); the merge picker keeps ONE candidate read per table in the tab's read
+register, so a Cancel and reopen or a remount attaches to the read still out instead of queueing another;
+and a reader start now carries its pending record's UUID onto the PaymentIntent (`metadata.startId`) — a
+reloaded tablet's resume requires it, so it adopts only its OWN start and never offers to Cancel the
+charge another tablet is collecting for the same table (the freeze stays keyed by the server's
+`settleAttempt`).
+
+**Gate:** `turbo lint typecheck build` green on `cc949ef` (lint 0 errors); the full qr suite green
+(348 files); all 15 fast-lane steps + `check-money-coverage` green; the full `verify:slice` on `cc949ef`
+caught 2400 / 2400 (0 survived, 0 stale, no orphans); on each Codex round's head every new mutant plus
+every mutant on the files it touched was caught (r1: 31 + 109; r2: 81 + 227 and 43 + 171, then every mutant
+on the files both r2 streams touched, on the merged head; r3: 16 + 224 on `1e67e19`, with the full qr suite
+5695 / 5695 and `turbo lint typecheck build` green there); `check:mutant-anchors` 2571 anchors · 224 files;
+CI green.
+
+**Filed:** P2he–P2hj (decision 9h: a compare-only `cartId` on the settle actions, a server guard on
+a dine-in clear with fired lines, a late-merge guard, polls moved to GET routes, the async-transition
+sites not touched here, a help-report key) and P2hk–P2hp (a re-mounted sheet forgets its own wait;
+the ledger's wall clock; a reload during a reader start; a held subject waits until reload; two pane
+edges after an unmount; two reload buttons on the pad).
+
 ### Phase 2g — the counter screen keeps its promises (2026-10-01)
 
 Planned on `b0c0c90` (main `fcd0786` + the M250 row) from a six-area read of the code (each map

@@ -1,7 +1,9 @@
 "use client";
-import { useEffect, useId, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
-import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
+import { setLineNotes, staffSetQty, type StaffWriteResult } from "@/lib/staff-cart";
+import { boundWrite } from "@/lib/bounded-write";
+import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
 import { Stepper, useSheetSubject } from "@mms/ui";
@@ -14,6 +16,7 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
+import { ReloadButton } from "./ReloadOffer";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -33,6 +36,23 @@ const LINE_STATE_KEY: Record<"fired" | "in_progress" | "served", StaffKey> = {
  *     loss audit, so the only edit is **Void / Comp** (loss-gated, manager-PIN when cooked — S2.3).
  *   • 'voided' → terminal, shown muted with no controls. 'comped' → shown as a free line, no controls.
  * The server is authoritative; the live re-fetch (FloorDetailLive) reconciles the displayed state.
+ *
+ * Phase 2h (P2fc) — the qty and note writes are NOT transitions any more: a transition whose action
+ * hangs keeps its `pending` until the RAW answers and holds every other transition on the tab
+ * (LEARNINGS #149 · #200), so a hung qty write dimmed this row's stepper and the note's Save for as
+ * long as the queue was stuck. Each write is awaited with a BOUND (`boundWrite`), its busy is state
+ * cleared in a `finally`, and a lost or slow answer is said as one — `WRITE_UNCONFIRMED` ("we
+ * couldn't confirm that change") or `WRITE_WAITING` ("no answer yet — it may still be saved") —
+ * through the plain-string `onError`, which every renderer localizes (`OUTAGE_TWINS`). The late
+ * answer still lands: a late refusal rolls the qty back and says the server's sentence.
+ *
+ * S2 critic D1 · D2 — WRITE_WAITING says "reload the page" on a console installed standalone (no
+ * browser reload), and the regions that say it (the table page's line, the pad's Toast) are not
+ * this row's. So the ROW offers the `ReloadButton` for exactly as long as one of its writes is
+ * still unanswered — where the person just tapped — and reports it (`onWaiting`): `true` at the
+ * bound, `false` when the late answer lands, whatever it is. A late refusal or a lost answer says
+ * its own sentence through `onError` first; a late SUCCESS says nothing, so `onWaiting(…, false)`
+ * is the renderer's cue to retract a WRITE_WAITING it still shows.
  */
 export function StaffLineEditor({
   sessionId,
@@ -40,6 +60,7 @@ export function StaffLineEditor({
   disabled,
   onError,
   onEditState,
+  onWaiting,
   onRemove,
   rowProps,
   leaving = false,
@@ -48,6 +69,10 @@ export function StaffLineEditor({
   line: TableLineView;
   disabled: boolean;
   onError: (msg: string) => void;
+  /** Phase 2h (S2 critic D2) — this line has a write still unanswered past the bound (`true`, said
+   *  as WRITE_WAITING through `onError`), or no longer (`false`: its late answer landed). Reported
+   *  from the write itself, so it arrives even after this row unmounted. */
+  onWaiting?: (lineId: string, waiting: boolean) => void;
   /** Phase 2a · send — DRAIN BEFORE FIRE. The line reports what is still unsaved or in flight, so
    *  the table page's Send holds while a sendable dish's note is typed but not saved (`setLineNotes`
    *  is draft-guarded: a note still in the field when its line fires is lost — and the note is
@@ -79,35 +104,84 @@ export function StaffLineEditor({
   // side by side, a test rendering both) never share an id. The Send's note hold finds the field by
   // `data-note-for`, never by this id.
   const noteId = useId();
-  const [pending, startTransition] = useTransition();
+  // Phase 2h — the qty write's busy: STATE cleared in a `finally` at the bound (never a transition's
+  // `pending`), and its tap-time twin (two stepper taps in one frame both read the same render).
+  const [pending, setPending] = useState(false);
+  const qtyInFlight = useRef(false);
+  // Which qty write is the latest: a LATE answer rolls the optimistic value back only if no newer
+  // write has replaced it since (the bound frees the stepper while the first is still out).
+  const qtySeq = useRef(0);
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
   const [seenServerQty, setSeenServerQty] = useState(line.qty);
   const [sheetOpen, setSheetOpen] = useState(false);
   const loss = useSheetSubject(sheetOpen && !line.pendingApproval ? line : null);
   // W3b kitchen note: null = editor closed; a string = the in-progress draft (may be "", which clears).
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
-  const [notePending, startNote] = useTransition();
+  // Phase 2h — the note save's busy, the same shape as the qty's (state + its tap-time twin).
+  const [notePending, setNotePending] = useState(false);
+  const noteInFlight = useRef(false);
   // ── Phase 2c · review fixes · pad2 ── the note button, where focus goes when a save closes the
   // editor under the finger (P7): the field and its Save unmount together.
   const noteBtnRef = useRef<HTMLButtonElement>(null);
+  // Phase 2h (S2 critic D1 · D2) — this row's writes still unanswered past the bound (a qty and a
+  // note can both be): the count is the truth, the state draws the reload, `onWaiting` tells the
+  // renderer on every edge (none → some, some → none).
+  const waitingWrites = useRef(0);
+  const [waiting, setWaiting] = useState(false);
+  const lineId = line.id;
+  function markWaiting(on: boolean) {
+    const was = waitingWrites.current > 0;
+    waitingWrites.current = Math.max(0, waitingWrites.current + (on ? 1 : -1));
+    const now = waitingWrites.current > 0;
+    if (was === now) return;
+    setWaiting(now);
+    onWaiting?.(lineId, now);
+  }
 
-  function saveNote() {
-    if (notePending) return; // §17 — the button says so with `aria-disabled`; the refusal is here
+  /** The note save's answer, whenever it lands — at once, or after the bound (9e). */
+  function landNote(res: StaffWriteResult, value: string, late: boolean) {
+    if (!res.ok) {
+      onError(res.error);
+      return;
+    }
+    // The live re-fetch renders the saved note. A LATE save closes the editor only if it still
+    // holds exactly what was saved — a draft typed since is never thrown away.
+    flushSync(() => setNoteDraft((d) => (!late || (d !== null && d.trim() === value) ? null : d)));
+    // Only when focus FELL (it was on the field or its Save): a control the person moved to
+    // is never yanked.
+    if (document.activeElement === document.body) noteBtnRef.current?.focus();
+  }
+
+  async function saveNote() {
+    // §17 — the button says so with `aria-disabled`; the refusal is here (a REF: same-frame taps).
+    if (noteInFlight.current) return;
+    noteInFlight.current = true;
+    setNotePending(true);
     const value = (noteDraft ?? "").trim();
-    startNote(async () => {
-      try {
-        const res = await setLineNotes(sessionId, { cartItemId: line.id, notes: value });
-        if (!res.ok) onError(res.error);
-        else {
-          flushSync(() => setNoteDraft(null)); // the live re-fetch renders the saved note
-          // Only when focus FELL (it was on the field or its Save): a control the person moved to
-          // is never yanked.
-          if (document.activeElement === document.body) noteBtnRef.current?.focus();
-        }
-      } catch {
-        onError("Couldn’t save that note — check the connection and try again.");
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(setLineNotes(sessionId, { cartItemId: line.id, notes: value }));
+      if (out.kind === "answer") {
+        landNote(out.value, value, false);
+        return;
       }
-    });
+      if (out.kind === "threw") {
+        // The answer was lost — the note may have been saved: "couldn't confirm", never "wasn't".
+        onError(WRITE_UNCONFIRMED);
+        return;
+      }
+      onError(WRITE_WAITING);
+      markWaiting(true);
+      // The late answer is said through the PAGE's region, which outlives this row (9e).
+      void out.late.then((late) => {
+        if (late.kind === "answer") landNote(late.value, value, true);
+        else onError(WRITE_UNCONFIRMED);
+        markWaiting(false);
+      });
+    } finally {
+      noteInFlight.current = false;
+      setNotePending(false); // frees AT THE BOUND (fact 3)
+    }
   }
 
   // When the server (the live re-fetch) reports a new qty, drop any optimistic value — both when it
@@ -144,26 +218,53 @@ export function StaffLineEditor({
   }, [onEditState, line.id, line.name, line.sendable, noteDirty, writing]);
   useEffect(() => () => onEditState?.(line.id, null), [onEditState, line.id]);
 
-  function setQty(next: number) {
+  async function setQty(next: number) {
     if (next <= 0 && onRemove) {
       onRemove(); // the ticket owns the removal (focus, ghost, write, return on refusal)
       return;
     }
+    if (qtyInFlight.current) return; // the stepper says so (`aria-disabled`); the refusal is here
+    qtyInFlight.current = true;
+    const seq = ++qtySeq.current;
     setOptimisticQty(next);
-    startTransition(async () => {
-      try {
-        const res = await staffSetQty(sessionId, { cartItemId: line.id, qty: next });
-        if (!res.ok) {
+    setPending(true);
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(staffSetQty(sessionId, { cartItemId: line.id, qty: next }));
+      if (out.kind === "answer") {
+        if (!out.value.ok) {
           setOptimisticQty(null); // roll back to the last server value
-          onError(res.error);
+          onError(out.value.error);
         }
-      } catch {
-        // S2-audit B3: an unexpected throw (network/redacted server error) must not strand the optimistic
-        // qty silently — roll back + surface honest copy through the shared region.
-        setOptimisticQty(null);
-        onError("Couldn’t update that — check the connection and try again.");
+        return;
       }
-    });
+      if (out.kind === "threw") {
+        // S2-audit B3: an unexpected throw (network/redacted server error) must not strand the
+        // optimistic qty silently — roll back to the last confirmed value and say we couldn't
+        // CONFIRM it (the answer was lost, so it may have landed — never "it failed").
+        setOptimisticQty(null);
+        onError(WRITE_UNCONFIRMED);
+        return;
+      }
+      // Still out at the bound: the new figure stays shown (the person's own change, which may
+      // still be saved — rolled back it would invite a second tap that changes it twice).
+      onError(WRITE_WAITING);
+      markWaiting(true);
+      // The late answer is said through the PAGE's region, which outlives this row (9e).
+      void out.late.then((late) => {
+        if (!(late.kind === "answer" && late.value.ok)) {
+          // A late refusal or a lost answer rolls back — only if no newer write has replaced it.
+          if (qtySeq.current === seq) setOptimisticQty(null);
+          onError(late.kind === "answer" && !late.value.ok ? late.value.error : WRITE_UNCONFIRMED);
+        }
+        // A late success says nothing: the re-fetch shows it, confirmed — and the renderer
+        // retracts its "no answer yet" on this edge.
+        markWaiting(false);
+      });
+    } finally {
+      qtyInFlight.current = false;
+      setPending(false); // frees AT THE BOUND (fact 3)
+    }
   }
 
   // K33 — the options the guest chose, under the dish name on EVERY branch of this editor. The floor
@@ -380,7 +481,7 @@ export function StaffLineEditor({
         </button>
         <Stepper
           qty={qty}
-          onChange={setQty}
+          onChange={(n) => void setQty(n)}
           name={line.name}
           // The primitive maps this to `aria-disabled` + a refusal in its handlers (§17, K35).
           disabled={busy}
@@ -412,7 +513,7 @@ export function StaffLineEditor({
           <button
             className="staff-btn"
             type="button"
-            onClick={saveNote}
+            onClick={() => void saveNote()}
             aria-disabled={notePending || undefined}
             aria-busy={notePending || undefined}
             style={noteSave}
@@ -426,6 +527,14 @@ export function StaffLineEditor({
             )}
           </button>
         </span>
+      )}
+      {/* Phase 2h (S2 critic D1) — a write of this row still unanswered: WRITE_WAITING says "reload
+          the page" in the renderer's region, and the installed console has no browser reload. The
+          button alone (no line, no live role), on its own line under the row's controls. */}
+      {waiting && (
+        <div style={reloadRow}>
+          <ReloadButton lang={lang} />
+        </div>
       )}
     </li>
   );
@@ -476,6 +585,9 @@ function stepperLabels(lang: StaffLang, x: string) {
 function ghostClass(leaving: boolean): string | undefined {
   return leaving ? "mms-remove" : undefined;
 }
+
+// Phase 2h — the row's reload wraps onto a line of its own under the controls (`row` wraps).
+const reloadRow: CSSProperties = { flexBasis: "100%", display: "flex" };
 
 // The name takes the row's free space from a 12rem basis, so in a narrow pane (the order pad's
 // ticket) the controls wrap under the name instead of squeezing it to a sliver.

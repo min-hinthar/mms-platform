@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * Phase 2a · register — a secure-tab close whose Server Action REJECTS (the connection dropped
@@ -49,6 +50,23 @@ function mount() {
     });
   };
   return { trigger, charge, rerender };
+}
+
+/** Review a (A5) — whether the region's CONTENT was replaced or rewritten (what a screen reader
+ *  announces) between this call and the returned check; equal text rendered in place records none. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
 }
 
 describe("CloseSecureTabButton — a rejected close never latches", () => {
@@ -400,5 +418,242 @@ describe("CloseSecureTabButton — a refusal's figure is settled by the page's N
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
     });
     expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4210 });
+  });
+});
+
+describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9e)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  /** A close whose answer the case holds. */
+  function hungClose() {
+    let answer!: (v: unknown) => void;
+    let fail!: (e: Error) => void;
+    closeSecureTab.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        answer = res;
+        fail = rej;
+      }),
+    );
+    return { answer: (v: unknown) => answer(v), fail: (e: Error) => fail(e) };
+  }
+  function view(withButton = true) {
+    const onSettleOutcome = vi.fn();
+    const onBlockedTap = vi.fn();
+    const el = (on: boolean) => (
+      <StaffLangProvider lang="en">
+        {on && (
+          <CloseSecureTabButton
+            sessionId="s1"
+            totalCents={4210}
+            onChanged={onChanged}
+            onSettleOutcome={onSettleOutcome}
+            onBlockedTap={onBlockedTap}
+          />
+        )}
+      </StaffLangProvider>
+    );
+    const r = render(el(withButton));
+    return { onSettleOutcome, onBlockedTap, unmount: () => r.rerender(el(false)) };
+  }
+  const trigger = () =>
+    screen.getByRole("button", { name: /^Close bill · card on file · \$42\.10/ });
+  const openAndCharge = async () => {
+    fireEvent.click(trigger());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
+    });
+  };
+  const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+
+  it("no answer at the bound: the confirm closes, focus returns to the trigger, the alert says 'no answer yet' with the reload BESIDE it", async () => {
+    hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS - 1);
+    expect(screen.getByText("Charging…")).toBeTruthy();
+    // MUTATION (p2h-doors/close-unbounded): the bound never fires — "Charging…" holds, Cancel refuses,
+    // for as long as the action queue is stuck; red.
+    await flush(1);
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger());
+    const alert = screen.getByRole("alert");
+    // MUTATION (p2h-doors/close-waiting-unsaid): said as "the connection dropped" — the outcome's
+    // live half ("may still be charged … reload to see") and its reload are lost; red.
+    expect(alert.textContent).toBe(STAFF["settle.card.waiting"].en);
+    // MUTATION (p2h-doors/close-reload-missing): "reload the page" with no reload on a standalone
+    // console; red.
+    const reload = reloadBtn();
+    expect(reload).not.toBeNull();
+    expect(alert.contains(reload)).toBe(false);
+    expect(v.onSettleOutcome).toHaveBeenCalledWith("unknown");
+    expect(document.querySelectorAll("[disabled]")).toHaveLength(0);
+  });
+
+  it("a LATE charge lands: the page re-reads, and 'no answer yet' goes", async () => {
+    const h = hungClose();
+    view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.waiting"].en);
+    expect(onChanged).not.toHaveBeenCalled();
+    // MUTATION (p2h-doors/close-late-ok-dropped): the late answer is dropped — the card WAS charged
+    // and the page never re-reads, so the bill looks open under "no answer yet"; red.
+    await act(async () => h.answer({ ok: true }));
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(reloadBtn()).toBeNull();
+    // MUTATION (p2h-doors/close-late-charge-not-spent): the guard lets go of a charge that WENT —
+    // until the page's re-read lands the trigger is live and the ledger clear, so a second close
+    // is sent (S2 critic D9); red.
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(closeSecureTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("while its close waits the trigger is HELD: a re-tap never replaces the money warning with 'this did nothing' (S2 critic D4)", async () => {
+    const h = hungClose();
+    view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/close-waiting-retap-overwrites): the trigger is live — it opens the
+    // confirm, Charge meets its own stuck close in the ledger, and the alert becomes out.stalled,
+    // dropping "the card on file may still be charged. Don't take cash or another card"; red.
+    expect(trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(trigger().getAttribute("aria-describedby")).toContain("secure-close-alert");
+    fireEvent.click(trigger());
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.waiting"].en);
+    expect(closeSecureTab).toHaveBeenCalledTimes(1);
+    // A late refusal frees it: the trigger is the way forward again.
+    await act(async () => h.answer({ ok: false, error: "The card on file was declined." }));
+    expect(trigger().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a LATE refusal is said while the control is here; once it left, only the page is told", async () => {
+    const first = hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.waiting"].en);
+    // MUTATION (p2h-doors/close-late-refusal-unsaid): a late refusal is never said — "no answer
+    // yet" stands over a decline, and the cashier waits on a bill that will never close; red.
+    await act(async () => first.answer({ ok: false, error: "The card on file was declined." }));
+    expect(screen.getByRole("alert").textContent).toBe("The card on file was declined.");
+    expect(v.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    const second = hungClose();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    v.unmount();
+    onChanged.mockClear();
+    // MUTATION (p2h-doors/close-late-refusal-after-unmount): a late `unsent` refusal from a control
+    // that is GONE still jumps the page to the lines and re-reads it; red. The page is told through
+    // `onSettleOutcome` instead.
+    await act(async () =>
+      second.answer({ ok: false, code: "unsent", units: 2, error: "Send the dishes first." }),
+    );
+    expect(v.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    expect(v.onBlockedTap).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  // Phase 2h · integration (sheets residual 3 · boards P1) — the late charge answers the `unknown`
+  // handed up at the bound: `landed`, so a pane that said "we don't know" off it can retract it.
+  it("a LATE charge answers the unknown it handed up: 'landed', exactly once, after 'unknown' — even after unmount", async () => {
+    const h = hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    v.unmount(); // the pane moved on mid-wait
+    await act(async () => h.answer({ ok: true }));
+    // MUTATION (p2h-int-a/close-landed-unreported): the late charge hands nothing up — the pane
+    // keeps "we don't know if the payment went through" over a card that WAS charged; red.
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"], ["landed"]]);
+  });
+
+  it("an ON-TIME charge never says 'landed'; a late REFUSAL or THROW never does either", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    const v = view();
+    await openAndCharge();
+    await flush(0);
+    // MUTATION (p2h-int-a/close-landed-on-time): every charge that went says `landed` — a payment
+    // the pane never doubted retracts whatever this table's line says; red.
+    expect(v.onSettleOutcome).not.toHaveBeenCalled();
+    cleanup();
+    const refused = hungClose();
+    const w = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    await act(async () => refused.answer({ ok: false, error: "The card on file was declined." }));
+    expect(w.onSettleOutcome.mock.calls).toEqual([["unknown"], ["refused"]]);
+    cleanup();
+    const thrown = hungClose();
+    const x = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    await act(async () => thrown.fail(new Error("fetch failed")));
+    // MUTATION (p2h-int-a/close-landed-on-throw): a lost late answer says `landed` — "we don't know"
+    // is retracted while the charge is exactly as unknown as before; red. Codex r2 on #310 (A1) —
+    // the throw hands `unknown` up AGAIN (it is still no answer), never `landed`.
+    expect(x.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  // Codex r2 on #310 (A1) — the bound's `unknown` lands while the detail is mounted (the pane ignores
+  // it there); a throw after the cashier switched tables is the only thing left to tell the pane.
+  it("a LATE throw after the control unmounted hands the unknown up AGAIN, for the pane to say (Codex r2 on #310, A1)", async () => {
+    const h = hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    v.unmount(); // the cashier switched tables mid-wait
+    await act(async () => h.fail(new Error("fetch failed")));
+    // MUTATION (p2h-cx2a/close/late-throw-unreported): the late throw only sets state on the
+    // unmounted control — the pane never says "we don't know if the payment went through"; red.
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  it("a LATE throw says the charge's outcome is unknown, over the waiting line", async () => {
+    const h = hungClose();
+    view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.waiting"].en);
+    // MUTATION (p2h-doors/close-late-throw-unsaid): "no answer yet" stands for good over a lost
+    // answer; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.card.unknown"].en);
+  });
+
+  it("refused AT THE TAP while an earlier action is stuck: nothing charged or sent, the alert says so (9d)", async () => {
+    view();
+    void track(new Promise(() => {}));
+    await flush(STAFF_HANG_MS);
+    await openAndCharge();
+    // MUTATION (p2h-doors/close-stalled-dispatched): the charge is queued behind the stuck action —
+    // the card on file could be charged minutes from now, after the cashier took cash; red.
+    expect(closeSecureTab).not.toHaveBeenCalled();
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+    expect(reloadBtn()).not.toBeNull();
+    expect(trigger()).toBeTruthy();
+    // Review a (A5) — a SECOND refused charge puts the same sentence in the same alert: it must be
+    // RE-SAID (the content replaced), or the screen reader hears nothing and the tap reads as dead.
+    const said = watchRegion(screen.getByRole("alert"));
+    await openAndCharge();
+    expect(closeSecureTab).not.toHaveBeenCalled();
+    // MUTATION (p2h-rev-a/close/resay-unkeyed): equal text rendered in place — no DOM change; red.
+    expect(said()).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
   });
 });

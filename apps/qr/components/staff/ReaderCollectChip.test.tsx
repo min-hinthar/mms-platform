@@ -4,7 +4,12 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sheet } from "@mms/ui";
 import { PANE_QUERY, paneUrl } from "@/lib/floor-pane";
-import { READER_UNRECORDED_MS, type ReaderStart } from "@/lib/reader-collect";
+import {
+  READER_PENDING_KEY,
+  READER_UNRECORDED_MS,
+  readerResumeDelay,
+  type ReaderStart,
+} from "@/lib/reader-collect";
 
 /**
  * Phase 2g · reader — the bar's chip: the card reader's collect on every page NOT showing its table.
@@ -14,10 +19,14 @@ import { READER_UNRECORDED_MS, type ReaderStart } from "@/lib/reader-collect";
  * in from the lock screen, the outcomes said once, and every control named.
  */
 const terminalStatus = vi.fn();
+/** Codex r2 on #310 (A3) — a reader start left pending in this tab's stash is resolved by the next
+ *  provider's restore: by default no action of that table's on the reader, nothing held. */
+const terminalResume = vi.fn();
 vi.mock("@/lib/terminal", () => ({
   settleCard: vi.fn(),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: vi.fn(),
+  terminalResume: (...a: unknown[]) => terminalResume(...(a as [])),
 }));
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 let pathname = "/staff/kitchen";
@@ -83,6 +92,7 @@ let split = false;
 
 beforeEach(() => {
   vi.useFakeTimers();
+  terminalResume.mockResolvedValue({ ok: true, collect: null, held: false });
   pathname = "/staff/kitchen";
   split = false;
   window.matchMedia = ((q: string) => ({
@@ -100,6 +110,7 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   terminalStatus.mockReset();
+  terminalResume.mockReset();
   push.mockReset();
   sessionStorage.clear();
 });
@@ -507,5 +518,68 @@ describe("ReaderCollectChip — what is SAID, and when it can be heard", () => {
     // MUTATION (p2g-fix-reader/chip-said-twice-in-browse): the visible row stays exposed beside the
     // sr-only alert — a browse pass reads the outcome twice; red.
     expect(visible.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+// ── Codex r2 on #310 follow-up (R4) — a reader start this tablet lost the answer to, whose resume
+// read FAILED: the reader may be asking for that table's card, and before this line nothing said so.
+describe("ReaderCollectChip — the reader could not be checked (Codex r2 on #310 follow-up, R4)", () => {
+  /** What a tap wrote before its start was sent; the reload that followed lost the answer. */
+  const strand = () =>
+    sessionStorage.setItem(
+      READER_PENDING_KEY,
+      JSON.stringify([
+        {
+          token: "t-1",
+          sessionId: "s-7",
+          startedAt: Date.now() - 20_000,
+          isCounter: false,
+          name: { counter: false, display: "7" },
+          sentEarly: false,
+          cartId: "c-7",
+        },
+      ]),
+    );
+  const line = () => tf("en", "settle.reader.unchecked", { x: TABLE_7() });
+
+  it("the read failed: one line in the bar — over its own table too — said once, linked, never dismissible; gone once a read answers", async () => {
+    strand();
+    terminalResume
+      .mockResolvedValueOnce({ ok: false, error: "Couldn’t reach Stripe." })
+      .mockResolvedValue({ ok: true, collect: null, held: false });
+    render(page(<Shows id="s-7" />));
+    await tick(0);
+    await tick(0);
+    // MUTATION (p2h-cx2a/chip-ui/unchecked-unrendered): the chip draws nothing for it; red.
+    const c = chip()!;
+    expect(c).not.toBeNull();
+    expect(c.textContent).toContain(line());
+    expect(c.getAttribute("data-tone")).toBe("warn");
+    // Said once, assertively, naming the table — the visible row hidden from the ear meanwhile.
+    // MUTATION (p2h-cx2a/chip-ui/unchecked-alert-wrong): the alert says a paid/declined title; red.
+    const alert = within(c).getByRole("alert");
+    expect(alert.textContent).toBe(line());
+    expect(c.querySelector(".staff-reader-text")!.getAttribute("aria-hidden")).toBe("true");
+    // The way to the table, named for it; no ✕ (it stands while the reader cannot be checked).
+    expect(
+      within(c).getByRole("link", { name: tf("en", "floor.pane.open", { x: TABLE_7() }) }),
+    ).toBeTruthy();
+    expect(within(c).queryByRole("button")).toBeNull();
+    // The next read answers (nothing on the reader, nothing held): the record goes, and the line.
+    await tick(readerResumeDelay(1));
+    expect(chip()).toBeNull();
+  });
+
+  it("in the device tongue: the Burmese sentence, echo-free in the alert", async () => {
+    strand();
+    terminalResume.mockResolvedValue({ ok: false, error: "Couldn’t reach Stripe." });
+    render(page(null, "my"));
+    await tick(0);
+    await tick(0);
+    const alert = within(document.querySelector<HTMLElement>(".staff-reader")!).getByRole("alert");
+    expect(alert.textContent).toBe(
+      tf("my", "settle.reader.unchecked", { x: tf("my", "floor.table", { id: "7" }) }),
+    );
+    expect(alert.querySelector(".chrome-en")).toBeNull();
   });
 });

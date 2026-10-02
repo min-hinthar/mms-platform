@@ -22,6 +22,7 @@ import {
   type PadNotice,
 } from "@/lib/pad-errors";
 import { padDishHold } from "@/lib/order-pad";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * Phase 2c · pad — the order pad's SERIALIZED add chain (DESIGN-LANGUAGE §4 · §23 · §28).
@@ -45,8 +46,10 @@ import { padDishHold } from "@/lib/order-pad";
  */
 
 /** How long an add may go unanswered before its ghost reads "Checking…". A hang detector, not a
- *  latency budget — the same 15s as `raceTimeout` (lib/staff-outage.ts), measured there. */
-const ADD_UNCONFIRMED_MS = 15_000;
+ *  latency budget — and since Phase 2h (decision 9c) THE constant `raceTimeout`, the poll gate and
+ *  the stall ledger read (`STAFF_HANG_MS`, lib/bounded-write.ts): one hang, one number, so the pad
+ *  and the boards can never disagree about when "no answer yet" begins. */
+const ADD_UNCONFIRMED_MS = STAFF_HANG_MS;
 
 export type PadAddRequest = {
   itemId: string;
@@ -216,14 +219,19 @@ export function usePadWrites({
                 }
                 wake();
               }, ADD_UNCONFIRMED_MS);
-              staffAddItem({
-                sessionId,
-                menuItemId: req.itemId,
-                modifierIds: req.modifierIds,
-                qty: req.qty,
-                notes: req.notes,
-                addKey: key,
-              })
+              // Phase 2h (9d) — on the stall ledger until it answers: a hung add holds Next's action
+              // queue (LEARNINGS #157 — THE usual hang), so the money taps behind it are refused at
+              // 15s instead of being dispatched into the queue it holds.
+              track(
+                staffAddItem({
+                  sessionId,
+                  menuItemId: req.itemId,
+                  modifierIds: req.modifierIds,
+                  qty: req.qty,
+                  notes: req.notes,
+                  addKey: key,
+                }),
+              )
                 .then(
                   (r) => padAddVerdict(r),
                   (e: unknown) => {

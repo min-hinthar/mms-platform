@@ -1,10 +1,20 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { Button } from "@mms/ui";
 import type { Approver } from "@/lib/voids";
 import { plural, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
+import { raceTimeout } from "@/lib/staff-outage";
+import { outReadSlot, releaseOutRead } from "@/lib/bounded-write";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import type { StaffMsg } from "./StaffMsg";
@@ -92,9 +102,33 @@ export function pinFailureCopy(
  * is `failed`, never `[]`, and `retry()` re-reads it on a tap.
  *
  * `load` is passed in (the sheet's own `listApprovers` import) so this module stays free of the Server
- * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule). The
+ * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule) —
+ * unless a read is still out, which the open attaches to (B2, below). The
  * `alive` ref is the `live` guard: re-armed at every setup (a cleanup-only latch stays false after the
  * first Strict-Mode pass) and checked before any state lands on an unmounted sheet.
+ *
+ * Phase 2h (P2fc) — both reads are BOUNDED (`raceTimeout`, STAFF_HANG_MS): Next runs Server Actions
+ * one at a time per tab, so behind a stuck action the mount read sat on "Loading…" and a Try again
+ * on "Trying again…" forever, with nothing saying why. A read with no answer at the bound is a
+ * FAILURE like any other (`pin.manager.loadFailed`, whose Try again is the way forward) — never an
+ * empty roster, never a spinner that cannot end.
+ *
+ * Codex round 1 on #310 (CX1) — ONE roster read in the queue. The bound frees the CALLER, never the
+ * action: at STAFF_HANG_MS the race rejects while the raw read is still queued, so a Try again that
+ * called `load()` again put a SECOND read behind the hung one — and every press another, all of them
+ * draining later, ahead of every staff action tapped after. So the raw still out is kept by identity
+ * (`outRaw`: set at dispatch, cleared in its OWN settle — never at a bound), and `read()` hands it
+ * back instead of dispatching while it is out: a Try again then ATTACHES to it with a fresh bound
+ * (`retrying` still ends at that bound). A bound that passed with the raw still out does not drop its
+ * answer (`landLate`): whenever it comes, the roster loads and the failure clears. Only a raw that
+ * has settled — answered or failed — lets the next ask read again.
+ *
+ * Codex round 2 on #310 (B2) — and the raw still out is the TAB's, never this hook instance's: it is
+ * kept in the per-tab read register (`outReadSlot`, keyed by `load` — `listApprovers`, the one import
+ * the loss and no-show sheets share). In a ref, closing and reopening a sheet while the read hung
+ * mounted a NEW hook with an empty slot, and its mount sent a second read behind the first — every
+ * reopen one more. A remounted hook now attaches to the read still out (a fresh bound), and that
+ * read's late answer lands on whichever sheet is open when it comes.
  */
 export function useApproverRoster(load: () => Promise<Approver[]>) {
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
@@ -104,21 +138,56 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
   // The tap-time guard: two taps in one frame see the same render, so only a ref refuses the second.
   const retryInFlight = useRef(false);
 
+  /** The raw read to await: the one still out, or — only when none is — a fresh one. */
+  const read = useCallback((): Promise<Approver[]> => {
+    // CX1 · B2 — the raw roster read still unanswered, by identity, in the TAB's register (see the
+    // docblock): it outlives the Strict-Mode setup → cleanup → setup AND a closed-and-reopened sheet,
+    // so the next mount attaches instead of reading twice.
+    const outRaw = outReadSlot<Approver[]>(load);
+    if (outRaw.current !== null) return outRaw.current;
+    const raw = load();
+    outRaw.current = raw;
+    // Cleared in the raw's OWN settle, whichever way it went (the second handler also marks a
+    // rejection handled — the bounded await that dispatched it reads and says it), and only while
+    // the register still holds THIS raw (R4: never a newer read's).
+    const settled = () => {
+      releaseOutRead(load, raw);
+    };
+    raw.then(settled, settled);
+    return raw;
+  }, [load]);
+
+  /** A bound passed: the raw still out (if it is) lands its answer whenever it comes (CX1). */
+  const landLate = useCallback(() => {
+    const raw = outReadSlot<Approver[]>(load).current;
+    if (raw === null) return; // it settled — a failure, already said
+    raw.then(
+      (a) => {
+        if (!alive.current) return;
+        setApprovers(a);
+        setFailed(false);
+      },
+      // Deliberate swallow: a late failure changes nothing — the roster already reads `failed`.
+      () => {},
+    );
+  }, [load]);
+
   useEffect(() => {
     alive.current = true;
-    load().then(
+    raceTimeout(read()).then(
       (a) => {
         if (alive.current) setApprovers(a);
       },
       () => {
         // Deliberate: an unreadable roster is an OUTAGE — never an empty roster.
         if (alive.current) setFailed(true);
+        landLate();
       },
     );
     return () => {
       alive.current = false;
     };
-  }, [load]);
+  }, [read, landLate]);
 
   /** Re-read after a failure. Resolves `true` when the roster loaded, `false` when it failed again. */
   const retry = useCallback(async (): Promise<boolean> => {
@@ -126,18 +195,20 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
     retryInFlight.current = true;
     setRetrying(true);
     try {
-      const a = await load();
+      // CX1 — the read still out, if there is one (a fresh bound on it); a new read only when none is.
+      const a = await raceTimeout(read());
       if (!alive.current) return false;
       setApprovers(a);
       setFailed(false);
       return true;
     } catch {
+      landLate();
       return false; // still `failed` — the caller says so in its one region
     } finally {
       retryInFlight.current = false;
       if (alive.current) setRetrying(false);
     }
-  }, [load]);
+  }, [read, landLate]);
 
   return { approvers, failed, retrying, retry };
 }
@@ -164,10 +235,52 @@ export function rosterRetryMsg(
 }
 
 /**
+ * Codex r1 follow-up on #310 (V1) — what the region may hold given the roster's state: the failure
+ * sentence never stands over a list in hand. CX1 lets a read that answered AFTER its bound load the
+ * roster (`landLate`) with no Try again result to say so, and the region kept "Couldn't load the list
+ * of managers…" over the picker it had just filled — and the needs-manager line that sentence had
+ * displaced never came back. So with the list in hand the failure sentence is retired exactly as an
+ * on-time recovery retires it (`rosterRetryMsg(m, true, …)`); while it is still FAILED, and for any
+ * other sentence, `m` is returned as the SAME object (nothing re-said).
+ */
+export function rosterHeldMsg(
+  m: StaffMsg | null,
+  failed: boolean,
+  stepUpPending: boolean,
+): StaffMsg | null {
+  return failed ? m : rosterRetryMsg(m, true, stepUpPending);
+}
+
+/**
+ * The ONE roster rule a loss sheet's region follows (V1) — both sheets call this, so the late path
+ * and the on-time path cannot drift apart, nor the two sheets. It holds the region to `rosterHeldMsg`
+ * on every render (the sanctioned adjust-while-rendering shape: React re-runs the render with the
+ * retired sentence before committing — the late load lands in `roster.failed` with no handler of
+ * the sheet's own to run), and returns the Try again handler, which says a second failure and
+ * retires the failure on an on-time recovery (`rosterRetryMsg`). `stepUpPending` is the server's
+ * `needs_pin` — never a step-up shown up-front.
+ */
+export function useRosterRegion(
+  roster: { failed: boolean; retry: () => Promise<boolean> },
+  msg: StaffMsg | null,
+  setMsg: Dispatch<SetStateAction<StaffMsg | null>>,
+  stepUpPending: boolean,
+): () => Promise<boolean> {
+  const held = rosterHeldMsg(msg, roster.failed, stepUpPending);
+  if (held !== msg) setMsg(held);
+  return async () => {
+    const ok = await roster.retry();
+    setMsg((m) => rosterRetryMsg(m, ok, stepUpPending));
+    return ok;
+  };
+}
+
+/**
  * The manager <select> + PIN <input>. `approvers === null` reads as "Loading…"; an empty roster shows the
  * honest dead-end note (a manager has to approve and none are on shift). A roster that could not be READ
  * (`rosterFailed`) says exactly that — never "none on shift" — with a Try again that calls `onRetry`
- * (focus moves to the picker once it loads; a second failure is the caller's region's to say). `idPrefix` keeps the label↔control
+ * (focus moves to the picker once it loads — after the tap that asked, or, for a late answer, when
+ * focus was on the Try again as it left; a second failure is the caller's region's to say). `idPrefix` keeps the label↔control
  * `htmlFor` wiring unique when several cards render at once (the approvals queue).
  */
 export function ManagerPinFields({
@@ -202,8 +315,21 @@ export function ManagerPinFields({
   // Set by the Try again tap; the picker takes focus when the failure clears (the button that held it
   // unmounts), and is dropped when the retry fails again (focus stays on the button).
   const focusPicker = useRef(false);
+  // Codex r1 follow-up on #310 (V2) — a LATE answer clears the failure with no tap pending, and the
+  // Try again unmounts under whatever focus it holds (it falls to the dialog). So whether focus was
+  // ON it as it left is recorded in its box's ref cleanup — React detaches a ref BEFORE it removes the
+  // node, so `document.activeElement` still reads where focus really was. Assigned fresh at every
+  // vanish, which is the only moment it is read (the box leaves exactly when the failure clears).
+  // Focus anywhere else is the person's, and is never taken.
+  const retryHadFocus = useRef(false);
+  const retryBox = useCallback((el: HTMLDivElement | null) => {
+    if (el === null) return;
+    return () => {
+      retryHadFocus.current = el.contains(document.activeElement);
+    };
+  }, []);
   useEffect(() => {
-    if (!rosterFailed && focusPicker.current) {
+    if (!rosterFailed && (focusPicker.current || retryHadFocus.current)) {
       focusPicker.current = false;
       selectRef.current?.focus();
     }
@@ -255,7 +381,7 @@ export function ManagerPinFields({
             <Chrome lang={lang} k="pin.manager.loadFailed" echo="stack" />
           </p>
           {onRetry && (
-            <div style={{ marginTop: 8 }}>
+            <div ref={retryBox} style={{ marginTop: 8 }}>
               <Button
                 type="button"
                 variant="secondary"

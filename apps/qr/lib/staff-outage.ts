@@ -1,6 +1,7 @@
 import { STAFF, ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
+import { STAFF_HANG_MS, track } from "./bounded-write";
 
 /**
  * W10b — the staff outage vocabulary. Plain module (no "server-only"): the boards are clients, and
@@ -69,6 +70,32 @@ export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
 export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;
 /** The Burmese twin, picked at the render site by `<OutageText>`. */
 export const AUTHORITY_UNCONFIRMED_MY = STAFF["out.authority.unconfirmed"].my;
+
+/**
+ * Phase 2h (9e · the contract critic, F6) — a line edit (qty, note) whose answer has not come back
+ * (`WRITE_WAITING`), or whose action threw (`WRITE_UNCONFIRMED`). `StaffLineEditor`'s `onError` is a
+ * PLAIN-STRING channel read by four renderers it does not own (FloorDetailLive's write line, the
+ * pad's Toast via `padSentenceNotice`, StaffTicket's parents) — every one of them already renders a
+ * string through `<OutageText>` — so these two travel as their ENGLISH sentence and are given a twin
+ * there, exactly as `STAFF_WRITE_OUTAGE` is, instead of widening a channel four files deep. Each is
+ * its dictionary entry's `.en`/`.my` by construction, so the pair cannot drift apart.
+ */
+export const WRITE_WAITING = STAFF["out.write.waiting"].en;
+export const WRITE_WAITING_MY = STAFF["out.write.waiting"].my;
+export const WRITE_UNCONFIRMED = STAFF["out.write.unknown"].en;
+export const WRITE_UNCONFIRMED_MY = STAFF["out.write.unknown"].my;
+
+/**
+ * Phase 2h · integration (S2 critic D2) — the page's write line once a line edit's LATE answer has
+ * landed, with `stillWaiting` line edits still unanswered past the bound. WRITE_WAITING ("no answer
+ * yet — that change may still be saved") goes only when the LAST waiting line has answered: one
+ * row's answer says nothing about another row's write that is still out. Every OTHER line stands —
+ * the refusal or WRITE_UNCONFIRMED a late answer said first, a discount's sentence — a late answer
+ * landing is not what resolves any of them.
+ */
+export function writeLineAfterLateAnswer<T>(current: T, stillWaiting: number): T | null {
+  return stillWaiting === 0 && current === WRITE_WAITING ? null : current;
+}
 
 /**
  * The nouns a frozen board can be showing. Narrowed to the dictionary's `what.*` keys so a board
@@ -169,8 +196,31 @@ export function frozenBoardCopy(
  * WE are down. The raced promise is not cancellable (Server Actions take no signal); a late
  * settlement is simply discarded, which is why the caller must be idempotent — it is: the next
  * poll overwrites the snapshot wholesale.
+ *
+ * Phase 2h (decision 9c) — the bound is `STAFF_HANG_MS`, named ONCE in `lib/bounded-write.ts` (the
+ * pad's unconfirmed-add bound and the stall ledger read the same constant), and the raw promise is
+ * TRACKED in the stall ledger until it settles. The rejection at the bound frees this caller only:
+ * the raw read is still in Next's one-at-a-time queue, holding every later action behind it
+ * (LEARNINGS #157 · #200). Untracked, a read hung for minutes would leave `stalledSince` reading the
+ * tab as healthy, and the next money tap would be dispatched into the queue behind it (9d).
+ *
+ * ⚠️ SERVER ACTIONS ONLY. It tracks whatever it races, and a plain fetch (a Supabase auth call,
+ * ReadyBoard's `/api/board`) is NOT in Next's action queue: tracked, a hung sign-out on the lock
+ * screen stayed in the ledger after the PIN unlock's SOFT navigation into the console, refusing
+ * every money tap over a queue it never held (Phase 2h review c, C1). Race those with `raceFetch`.
  */
-export function raceTimeout<T>(p: Promise<T>, ms = 15_000): Promise<T> {
+export function raceTimeout<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
+  track(p);
+  return raceFetch(p, ms);
+}
+
+/**
+ * The same bound for a promise that is NOT a Server Action — a Supabase auth call, a route-handler
+ * fetch — and so is never TRACKED in the stall ledger: Next's one-at-a-time queue does not hold it,
+ * so its hang says nothing about whether the next money write would be sent (9d). The rejection at
+ * the bound frees the caller exactly as `raceTimeout`'s does.
+ */
+export function raceFetch<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("staff-poll-timeout")), ms);
     p.then(

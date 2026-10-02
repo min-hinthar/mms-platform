@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { terminalStatus, cancelTerminal, terminalResume } from "@/lib/terminal";
+import { boundWrite, stalledSince, track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
   READER_POLL_MS,
@@ -8,19 +9,25 @@ import {
   READER_RECORDING_ESCALATE_MS,
   adoptLegacyCollect,
   dropLanded,
+  dropPending,
   dropReaderStash,
   landedHandoff,
   nextReaderPoll,
+  pendStart,
   queueLanded,
   readLandedStash,
+  readPendingStash,
   readReaderStash,
   readerLive,
+  readerPendingExpired,
   readerPolling,
   readerRecordingLong,
+  readerResumeDelay,
   readerSpoken,
   readerStartRefused,
   readerStatus,
   restoredReaderPoll,
+  resumedCollect,
   silentMisses,
   takeLegacyCollect,
   writeLandedStash,
@@ -29,6 +36,7 @@ import {
   type ReaderCollect,
   type ReaderLanded,
   type ReaderName,
+  type ReaderPending,
   type ReaderPoll,
   type ReaderStart,
 } from "@/lib/reader-collect";
@@ -66,7 +74,12 @@ import {
  *     `unrecorded` (C1): the poll stops, the reader is free, and the outcome is shown (never left put
  *     away) until Close — kept in the stash, marked, so a reload restores the warning (Codex r1);
  *   · `shownHere` — which tables are on screen now, so the chip never repeats the panel beside it;
- *   · the ONE refusal left: a start on another table while a collect is live (one reader).
+ *   · the ONE refusal left: a start on another table while a collect is live (one reader);
+ *   · the PENDING starts (Codex r2 on #310, A3) — a start is written down before it is sent and
+ *     forgotten once it answers; one a reload stranded — or one that THREW on this page (R3) — is
+ *     resolved here, read-only (`terminalResume`), asked again on a widening gap while the reader is
+ *     idle under the table's held freeze or the read fails (R1), for no longer than the freeze could
+ *     carry it; a failed read is SAID through the bar's chip (`unchecked`, R4).
  *
  * Strict Mode: `alive` is re-armed at setup, the poll effect is idempotent (the in-flight guard
  * means a re-run never dispatches a second poll over the first), and a viewer registers by count.
@@ -88,6 +101,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [cancelError, setCancelError] = useState<ReaderCancelError | null>(null);
   const cancelInFlight = useRef(false);
+  // Phase 2h (S2 critic D4) — the collect (its PaymentIntent) whose cancel is still unanswered past
+  // the bound: a re-tap for it is a no-op (the waiting line stands — it says "check it before you
+  // take another payment"), never the stalled refusal that would replace it with "this did nothing".
+  const cancelWaitingFor = useRef<string | null>(null);
   const [focusOwed, setFocusOwed] = useState<string | null>(null);
   const [alertSaid, setAlertSaid] = useState<ReadonlySet<string>>(() => new Set());
   const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set());
@@ -128,9 +145,96 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     writeLandedStash(next);
   }, []);
 
+  // Codex r2 on #310 follow-up (R4) — the stranded starts whose LAST resume read could not be made,
+  // oldest first: the bar's chip says the reader could not be checked while one stands.
+  const [unchecked, setUnchecked] = useState<readonly ReaderPending[]>([]);
+  const markUnchecked = useCallback((p: ReaderPending, on: boolean) => {
+    setUnchecked((prev) => {
+      const has = prev.some((x) => x.token === p.token);
+      if (has === on) return prev;
+      return on ? [...prev, p] : prev.filter((x) => x.token !== p.token);
+    });
+  }, []);
+  // The pending starts THIS document wrote, in memory beside the stash: a tablet whose storage refuses
+  // the write still resolves its own thrown start (R3).
+  const pendingMem = useRef(new Map<string, ReaderPending>());
+  // R1 — the re-asks waiting out their gap. Cleared with the provider (a document unload, in life).
+  const resumeTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = resumeTimers.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
+  /**
+   * Codex r2 on #310 (A3) — ask the server, READ-ONLY, what the reader is doing for a start this tab
+   * lost the answer to, and act on it (`resumedCollect`): re-adopt the collect — the poll, Cancel and
+   * the landing exactly as a start would have — or forget the record, or keep it. Bounded and on the
+   * stall ledger like every action (`boundWrite`); a late answer is applied when it lands. No focus is
+   * owed: this is a re-attach, not a start made in view.
+   *
+   * Follow-up (R1) — KEPT is asked again, after `readerResumeDelay(asked)`: an idle reader under the
+   * table's held freeze is a start still on its way to it, and an outage is no verdict (R4: it is
+   * said). Never past the record's own expiry (the freeze's lifetime: nothing can still be on its way),
+   * and never while a collect stands (one reader, one record — the newer fact). `first` is how many
+   * reads came before this one; `onAdopted` tells the control that tapped (R3), if it asked.
+   */
+  const resume = useCallback(
+    (p: ReaderPending, first: number, onAdopted?: () => void) => {
+      const forget = () => {
+        dropPending(p.token, Date.now());
+        pendingMem.current.delete(p.token);
+        markUnchecked(p, false);
+      };
+      const ask = async (asked: number): Promise<void> => {
+        if (recordRef.current !== null || readerPendingExpired(p, Date.now())) {
+          forget();
+          return;
+        }
+        const apply = (res: Awaited<ReturnType<typeof terminalResume>> | null) => {
+          if (!alive.current) return;
+          const now = Date.now();
+          const step = resumedCollect(p, res, now);
+          if (step.kind === "keep") {
+            markUnchecked(p, step.unchecked);
+            const t = setTimeout(
+              () => {
+                resumeTimers.current.delete(t);
+                void ask(asked + 1);
+              },
+              readerResumeDelay(asked + 1),
+            );
+            resumeTimers.current.add(t);
+            return;
+          }
+          forget();
+          // A collect that stands by now (a start made meanwhile, another pending start adopted) is
+          // the newer fact — there is one reader, and one record.
+          if (step.kind === "drop" || recordRef.current !== null) return;
+          commitRecord(step.record);
+          commitPoll(READER_POLL_START);
+          setCancelError(null);
+          onAdopted?.();
+        };
+        const out = await boundWrite(terminalResume({ sessionId: p.sessionId, startId: p.token }));
+        if (out.kind === "answer") apply(out.value);
+        else if (out.kind === "threw") apply(null);
+        else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
+      };
+      void ask(first);
+    },
+    [commitRecord, commitPoll, markUnchecked],
+  );
+
   // Restore after a hard navigation (scheduled — never a synchronous setState in the effect). A
   // record already standing (a start, a legacy adoption) is newer than the stash and wins.
   useEffect(() => {
+    // Codex r2 on #310 (A3) — the pending starts a PREVIOUS document left, read at mount (never in
+    // the scheduled tick below): a start THIS document sends writes its own record, and resolving it
+    // here would ask the reader before the start reached it — and forget the start's record.
+    const stranded = readPendingStash(Date.now());
     const t = setTimeout(() => {
       const now = Date.now();
       // The landed queue first: the stash is OLDER than anything landed since mount. A landing whose
@@ -147,14 +251,21 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         for (const e of landedRef.current) q = queueLanded(q, e);
         commitLanded(q);
       }
-      if (recordRef.current !== null) return;
-      const restored = readReaderStash(now);
-      if (restored === null) return;
-      commitRecord(restored);
-      commitPoll(restoredReaderPoll(restored));
+      if (recordRef.current === null) {
+        const restored = readReaderStash(now);
+        if (restored !== null) {
+          commitRecord(restored);
+          commitPoll(restoredReaderPoll(restored));
+        }
+      }
+      // Codex r2 on #310 (A3) — a start this tab sent and never heard back from (the reload that
+      // `settle.reader.waiting` asks for aborted its answer). Each is resolved — and a collect that
+      // stands is the newer fact (its start answered, or a newer one did): `resume` forgets the
+      // record unasked.
+      for (const p of stranded) resume(p, 0);
     }, 0);
     return () => clearTimeout(t);
-  }, [commitRecord, commitPoll, commitLanded]);
+  }, [commitRecord, commitPoll, commitLanded, resume]);
 
   /** A charge that LANDED: the card (a counter's), the stash, and whoever shows its table. */
   const land = useCallback(
@@ -246,7 +357,9 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       }
       const ticket = { since: now, counted: 0, pi };
       flight.current = ticket;
-      terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi })
+      // Phase 2h (9d) — on the stall ledger until it answers: a hung status read holds the action
+      // queue like any action, so a money tap behind it is refused instead of queued.
+      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }))
         .catch(() => null)
         .then((res) => {
           if (flight.current === ticket) flight.current = null;
@@ -301,24 +414,70 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     setFocusOwed((cur) => (cur === paymentIntentId ? null : cur));
   }, []);
 
+  // Codex r2 on #310 (A3) — a start about to be sent is written down first (the tap's facts and
+  // when), so a reload that aborts its answer leaves this tab a record to resolve; its answer drops
+  // it again, by its own token. A storage failure is a deliberate swallow (`pendStart`). Codex r3 on
+  // #310 — the token is a UUID because the SERVER matches it: it rides the start (`settleCard`'s
+  // `startId`) onto the PaymentIntent, and a resume adopts only the charge carrying this exact token,
+  // never another tablet's for the same table (a per-tab counter could collide across tablets).
+  const startPending = useCallback((at: Omit<ReaderPending, "token" | "startedAt">) => {
+    const now = Date.now();
+    const token = crypto.randomUUID();
+    const p = { ...at, token, startedAt: now };
+    pendingMem.current.set(token, p);
+    pendStart(p, now);
+    return token;
+  }, []);
+  const startAnswered = useCallback((token: string) => {
+    pendingMem.current.delete(token);
+    dropPending(token, Date.now());
+  }, []);
+  // Codex r2 on #310 follow-up (R3) — a start that THREW on this page is resolved here too, never only
+  // by the next document: the same read and loop as a stranded one. Its server may still be running
+  // it (a lost response, not a refusal), so the first read waits the first gap. `onAdopted`: the
+  // reader IS asking for the card — the tapping control (or the page, through it) retracts its
+  // "couldn't confirm".
+  const resumeStart = useCallback(
+    (token: string, onAdopted?: () => void) => {
+      const p =
+        pendingMem.current.get(token) ??
+        readPendingStash(Date.now()).find((x) => x.token === token);
+      if (p === undefined) return;
+      const t = setTimeout(() => {
+        resumeTimers.current.delete(t);
+        resume(p, 0, onAdopted);
+      }, readerResumeDelay(0));
+      resumeTimers.current.add(t);
+    },
+    [resume],
+  );
+
   const cancel = useCallback(async () => {
     const rec = recordRef.current;
     if (rec === null || cancelInFlight.current) return;
+    // Phase 2h (S2 critic D4) — this collect's cancel is still out past the bound: nothing to add.
+    if (cancelWaitingFor.current === rec.paymentIntentId) return;
+    // Phase 2h (9d) — refused AT THE TAP, never sent, while an earlier action has been unanswered for
+    // the bound: Next runs Server Actions one at a time, so this cancel would only queue behind the
+    // stuck one and could reach the reader minutes from now. Read now, never from render state.
+    if (stalledSince() !== null) {
+      setCancelError({ kind: "stalled" });
+      return;
+    }
     cancelInFlight.current = true;
     setCancelBusy(true);
     setCancelError(null);
     // Codex r4 on #309 — a refusal answers the phase the cancel was ASKED in. A poll already in the
     // air can move the collect on (declined, given up) before this answers; a refusal landing after
     // that would mask the newer outcome for good, since those phases never poll (or clear) again.
+    // Phase 2h — the same guard holds for EVERY refusal this cancel writes, the bound's `waiting`
+    // and a late answer's included: written after the collect moved on, each masks the newer fact.
     const askedIn = pollRef.current.phase;
     const stillAsked = () =>
       recordRef.current?.paymentIntentId === rec.paymentIntentId &&
       pollRef.current.phase === askedIn;
-    try {
-      const res = await cancelTerminal({
-        sessionId: rec.sessionId,
-        paymentIntentId: rec.paymentIntentId,
-      });
+    /** The cancel's answer, whenever it lands — at once, or late (9e: never dropped). */
+    const landCancel = (res: Awaited<ReturnType<typeof cancelTerminal>>) => {
       if (!res.ok) {
         // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
         if (stillAsked()) setCancelError({ kind: "server", text: res.error });
@@ -326,13 +485,36 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       }
       if (recordRef.current?.paymentIntentId !== rec.paymentIntentId) return;
       const p = pollRef.current;
+      // The phase change clears a standing `waiting` (commitPoll's rule): the cancel is the newer fact.
       if (readerPolling(p.phase)) commitPoll({ ...p, phase: "canceled" });
       dropReaderStash();
-    } catch {
-      if (stillAsked()) setCancelError({ kind: "local" });
+    };
+    try {
+      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
+      const out = await boundWrite(
+        cancelTerminal({ sessionId: rec.sessionId, paymentIntentId: rec.paymentIntentId }),
+      );
+      if (out.kind === "answer") {
+        landCancel(out.value);
+        return;
+      }
+      if (out.kind === "threw") {
+        // The answer was lost — the reader may already be cancelled, or still take the card (9e).
+        if (stillAsked()) setCancelError({ kind: "local" });
+        return;
+      }
+      // Still out at the bound: no answer yet, and the reader may still take the card. The provider
+      // never unmounts mid-service, and the poll keeps reporting the truth meanwhile.
+      if (stillAsked()) setCancelError({ kind: "waiting" });
+      cancelWaitingFor.current = rec.paymentIntentId;
+      void out.late.then((late) => {
+        if (cancelWaitingFor.current === rec.paymentIntentId) cancelWaitingFor.current = null;
+        if (late.kind === "answer") landCancel(late.value);
+        else if (stillAsked()) setCancelError({ kind: "local" });
+      });
     } finally {
       cancelInFlight.current = false;
-      setCancelBusy(false);
+      setCancelBusy(false); // frees AT THE BOUND (fact 3) — never held by the raw
     }
   }, [commitPoll]);
 
@@ -445,6 +627,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       focusOwed,
       focusTaken,
       start,
+      startPending,
+      startAnswered,
+      resumeStart,
+      unchecked,
       cancel,
       dismiss,
       dismissLanded,
@@ -468,6 +654,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     focusOwed,
     focusTaken,
     start,
+    startPending,
+    startAnswered,
+    resumeStart,
+    unchecked,
     cancel,
     dismiss,
     dismissLanded,

@@ -8926,10 +8926,19 @@ a .chrome-en {
   transform: scale(0.97);
 }
 /* Same dimming the CTA gets — a pending door (mid-write, or a required-choice item the one-tap rail
-   can't add) must not look tappable. */
-.kiosk-door:disabled {
+   can't add) must not look tappable. The ONE source of that dim, for both ways a door refuses:
+   native `disabled` (the review's doors) and `aria-disabled` (the menu's dish tiles, refused by the
+   attribute and the handler so the tile just tapped keeps focus — Phase 2h critic F7). An
+   aria-disabled button still takes `:active`, so the press is stilled here too. */
+.kiosk-door:disabled,
+.kiosk-door[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
+  transform: none;
+}
+/* A sold-out dish keeps its own, lighter shade — written after the rule above, so it wins there. */
+.kiosk-door[data-sold-out] {
+  opacity: 0.55;
 }
 .kiosk-door-label {
   font-size: var(--xfs-tile);
@@ -14296,6 +14305,17 @@ a.aisle-tile {
   color: var(--warn);
   font-size: var(--fs-sm);
 }
+/* Phase 2h · integration (critic F2) — that line ANSWERED by a late ok ("…went through"): the same
+   place and size, quiet ink and a check, never warn — nothing on it is left to check. */
+.staff-pane-landed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
 .staff-pane-actions {
   margin-top: var(--s4);
 }
@@ -14405,4 +14425,23 @@ a.aisle-tile {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s2);
+}
+
+/* ── Phase 2h ── the reload offer (`ReloadOffer`, DESIGN-LANGUAGE §16/§17): the one rendering of
+   "this tablet is stuck — reload". The line is warn ink at the body-small size, the button the kit's
+   secondary at 44px+; they stack, start-aligned, so the button sits under the sentence that explains
+   it wherever the offer is mounted (a sheet's body, a section under a trigger, the bar). Tokens only;
+   the entrance is `.mms-rise` (its reduced-motion block covers it). */
+.staff-reload-offer {
+  display: grid;
+  justify-items: start;
+  gap: var(--s2);
+  margin: var(--s2) 0 0;
+}
+.staff-reload-line {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-normal);
 }

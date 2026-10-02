@@ -71,14 +71,22 @@ export function Sheet({
    * stated once, plus the honest affordance the local version could not give (the ✕ stays visible
    * and named but reads as unavailable, instead of looking live and silently doing nothing).
    *
-   * **Pass a flag that SETTLES on the failure path too** — a `useTransition` pending, or a promise's
-   * `finally`; never a bare boolean a branch can strand. All four exits are blocked while this is
-   * true and the focus scope is `trapped`, so a `busy` that never clears is a permanent keyboard
-   * trap (WCAG 2.1.2). The primitive cannot enforce that and does not pretend to; it is the one part
-   * of this contract the caller owns.
+   * **Pass state cleared in a `finally` around a BOUNDED await** — set at the tap, cleared on every
+   * path, and the await itself must end: never a bare boolean a branch can strand, and never a
+   * `useTransition` pending. A transition's pending does NOT settle while a Server Action it
+   * dispatched is unanswered — Next runs actions one at a time per tab and the router's update for
+   * the action shares the transition's lane, so `pending` holds until the RAW action answers,
+   * whatever bound the callback races (measured in Chromium; apps/qr LEARNINGS #149 · #200). All
+   * four exits are blocked while this is true and the focus scope is `trapped`, so a `busy` that
+   * does not clear is a keyboard trap (WCAG 2.1.2) — on a hung network, for as long as it hangs. The
+   * primitive cannot enforce that and does not pretend to; it is the one part of this contract the
+   * caller owns. apps/qr's shape: `boundWrite` (lib/bounded-write.ts) resolves at STAFF_HANG_MS at
+   * the latest, and its M82 guard (lib/sheet-busy-callers.test.ts) PARSES every guarded caller for
+   * it.
    *
-   * Do NOT pass it on a sheet that performs no irreversible write. Of the eleven callers today, only
-   * three qualify — see `docs/DESIGN-LANGUAGE.md` §16.
+   * Do NOT pass it on a sheet that performs no irreversible write. Six callers qualify today (the
+   * guard's GUARDED list, discovered against every caller on disk) — see `docs/DESIGN-LANGUAGE.md`
+   * §16.
    */
   busy?: boolean;
   /** Close-restore override. Since W9e the primitive restores the OPENER by default (it captures

@@ -23,6 +23,11 @@ import {
   counterColumnShown,
   lostKey,
   nextLost,
+  lostAfterLanded,
+  lostOnSelect,
+  lostResolved,
+  lostWriteKind,
+  focusAfterLostRetract,
   type LostKind,
   paneFocusAfterClose,
   paneFreezeSpoken,
@@ -39,6 +44,7 @@ import {
 } from "./floor-pane";
 import { STAFF } from "./i18n/staff";
 import { STAFF_DOOR_TARGET } from "./staff-door";
+import { WRITE_UNCONFIRMED, WRITE_WAITING } from "./staff-outage";
 
 const A = "0b8c1e7a-3f7d-4c2a-9e51-6a2b1c3d4e5f";
 const B = "9f1e2d3c-4b5a-4968-8776-655443322110";
@@ -274,6 +280,141 @@ describe("lostKey / nextLost — a change the pane's table never saw land (revie
     // Money outranks a dish: the payment line stands.
     expect(nextLost(pay("a"), w("b"))).toEqual(pay("a"));
     expect(nextLost(unk("a"), w("b"))).toEqual(unk("a"));
+  });
+});
+
+describe("lostAfterLanded — an unknown on a table the pane left turns out to LAND (Phase 2h · integration)", () => {
+  type Lost = { sessionId: string; kind: LostKind };
+  const on = (sessionId: string, kind: LostKind): Lost => ({ sessionId, kind });
+  it("the SAME table's 'we don't know if the payment went through' is ANSWERED — 'went through', never silently gone (critic F2)", () => {
+    // MUTATION (p2h-int-a/landed-never-clears): the line stands over a payment that went
+    // through — the cashier "views it before taking payment again" for nothing, every time; red.
+    // MUTATION (p2h-int-a/f2-landed-retracts-silently): the warning vanishes and nothing says why —
+    // a screen-reader cashier who heard "we don't know" never hears it was answered; red.
+    expect(lostAfterLanded(on("a", "settleUnknown"), "a", "paid")).toEqual(on("a", "settlePaid"));
+  });
+  it("a reader START's late ok retracts to nothing — the reader is asking for the card; nothing went through yet (critic F2)", () => {
+    // MUTATION (p2h-int-a/f2-reader-start-said-paid): "the payment on Table 4 went through" while
+    // the reader is still waiting for the card — the cashier hands the bag over unpaid; red.
+    expect(lostAfterLanded(on("a", "settleUnknown"), "a", "started")).toBeNull();
+  });
+  it("a line edit's late ok answers that table's 'no answer yet' with 'saved' (critic F1)", () => {
+    // MUTATION (p2h-int-a/f1-saved-answers-nothing): a late save never answers the pane's "no answer
+    // yet on a change to Table 4" — it stands over a change that saved, inviting a second tap; red.
+    expect(lostAfterLanded(on("a", "writeWaiting"), "a", "saved")).toEqual(on("a", "writeSaved"));
+  });
+  it("ANOTHER table's unknown stands — a landing on Table 4 says nothing about Table 7's money", () => {
+    // MUTATION (p2h-int-a/landed-clears-another-table): any landing answers the standing line,
+    // and Table 7's unknown payment — maybe collected twice — goes unsaid; red.
+    const seven = on("b", "settleUnknown");
+    expect(lostAfterLanded(seven, "a", "paid")).toBe(seven);
+    const sevenDish = on("b", "writeWaiting");
+    expect(lostAfterLanded(sevenDish, "a", "saved")).toBe(sevenDish);
+  });
+  it("a REFUSAL ('didn't go through'), a dish that never saved, and the other family stand", () => {
+    // MUTATION (p2h-int-a/landed-clears-a-refusal): the same table's refusal is answered by a
+    // landing — the cash the cashier took for a settle that was REFUSED is never recorded; red.
+    const refused = on("a", "settle");
+    expect(lostAfterLanded(refused, "a", "paid")).toBe(refused);
+    // MUTATION (p2h-int-a/landed-clears-a-dish): the same table's lost dish change is answered —
+    // a dish that never saved goes unsaid because its table's payment landed; red.
+    const dish = on("a", "write");
+    expect(lostAfterLanded(dish, "a", "paid")).toBe(dish);
+    expect(lostAfterLanded(dish, "a", "saved")).toBe(dish);
+    // MUTATION (p2h-int-a/f1-saved-answers-a-payment): a dish's late save answers the same table's
+    // "we don't know if the payment went through" — the money question is dropped; red.
+    const unknownPay = on("a", "settleUnknown");
+    expect(lostAfterLanded(unknownPay, "a", "saved")).toBe(unknownPay);
+    // …and a payment's landing never answers a dish's "no answer yet".
+    const waitingDish = on("a", "writeWaiting");
+    expect(lostAfterLanded(waitingDish, "a", "paid")).toBe(waitingDish);
+    expect(lostAfterLanded(null, "a", "paid")).toBeNull();
+  });
+});
+
+describe("lostWriteKind / lostOnSelect / lostResolved — the pane's line about a table it left (Phase 2h · integration, critic F1 · F2)", () => {
+  it("a line edit's 'no answer yet' reaches the pane as writeWaiting, never 'didn't save'", () => {
+    // MUTATION (p2h-int-a/f1-waiting-said-as-lost): WRITE_WAITING maps to `write` — the pane says
+    // "A change on Table 4 didn't save" over a change that may still save; red.
+    expect(lostWriteKind(WRITE_WAITING)).toBe("writeWaiting");
+    // Codex r2 on #310 (A2) — a LOST answer (the action threw) is its own kind: the change may
+    // already have saved. MUTATION (p2h-cx2a/pane/unconfirmed-said-as-lost): WRITE_UNCONFIRMED maps
+    // to `write` — "A change on Table 4 didn't save" over a change that may have saved; red.
+    expect(lostWriteKind(WRITE_UNCONFIRMED)).toBe("writeUnknown");
+    // A refusal (the server's own sentence) still said "didn't save" — nothing was saved.
+    expect(lostWriteKind("That item is no longer on the order.")).toBe("write");
+  });
+  it("a LOST line-edit answer says 'we couldn't confirm', never 'didn't save' — and no late edge answers it as saved (Codex r2 on #310, A2)", () => {
+    // MUTATION (p2h-cx2a/pane/unknown-key-is-lost): the new kind renders the refusal's sentence; red.
+    expect(lostKey("writeUnknown")).toBe("floor.pane.lostWriteUnknown");
+    // Not resolved (warn ink, the View stays): nothing on it has been checked.
+    expect(lostResolved("writeUnknown")).toBe(false);
+    type L = { sessionId: string; kind: LostKind };
+    const l = (sessionId: string, kind: LostKind): L => ({ sessionId, kind });
+    // The row's waiting edge fires after the throw too (the write is no longer out): it must never
+    // turn "we couldn't confirm" into "saved" — the answer was lost, not received.
+    // MUTATION (p2h-cx2a/pane/saved-answers-a-lost-answer): the edge answers it as "saved"; red.
+    const lost = l("a", "writeUnknown");
+    expect(lostAfterLanded(lost, "a", "saved")).toBe(lost);
+    expect(lostAfterLanded(lost, "a", "paid")).toBe(lost);
+    // A dish's unknown never replaces a payment's line; a later payment line replaces it.
+    expect(nextLost(l("a", "settleUnknown"), l("b", "writeUnknown"))).toEqual(
+      l("a", "settleUnknown"),
+    );
+    expect(nextLost(l("b", "writeUnknown"), l("a", "settle"))).toEqual(l("a", "settle"));
+    // Selecting its table clears it (the detail says the rest); another table's pick does not.
+    expect(lostOnSelect(lost, "a")).toBeNull();
+    expect(lostOnSelect(lost, "b")).toBe(lost);
+  });
+  it("each new kind says its own sentence", () => {
+    expect(lostKey("writeWaiting")).toBe("floor.pane.lostWriteWaiting");
+    expect(lostKey("settlePaid")).toBe("floor.pane.landedSettle");
+    expect(lostKey("writeSaved")).toBe("floor.pane.landedWrite");
+    expect(lostResolved("settlePaid")).toBe(true);
+    expect(lostResolved("writeSaved")).toBe(true);
+    for (const k of ["write", "writeWaiting", "settle", "settleUnknown"] as const)
+      expect(lostResolved(k)).toBe(false);
+  });
+  it("a 'no answer yet' on a dish never replaces a payment's line; a resolved line outranks nothing", () => {
+    type L = { id: string; kind: LostKind };
+    const l = (id: string, kind: LostKind): L => ({ id, kind });
+    // MUTATION (p2d-rev/split-a-dish-replaces-a-payment-loss, re-anchored): red here too.
+    expect(nextLost(l("a", "settleUnknown"), l("b", "writeWaiting"))).toEqual(
+      l("a", "settleUnknown"),
+    );
+    // MUTATION (p2h-int-a/f2-resolved-outranks): "the payment on Table 4 went through" holds the
+    // slot and Table 7's "didn't save" is never shown or said; red.
+    expect(nextLost(l("a", "settlePaid"), l("b", "write"))).toEqual(l("b", "write"));
+    expect(nextLost(l("a", "writeSaved"), l("b", "writeWaiting"))).toEqual(l("b", "writeWaiting"));
+  });
+  it("selecting a table clears its own line, and a RESOLVED line on any selection — another table's loss stands", () => {
+    type L = { sessionId: string; kind: LostKind };
+    const l = (sessionId: string, kind: LostKind): L => ({ sessionId, kind });
+    expect(lostOnSelect(l("a", "settleUnknown"), "a")).toBeNull();
+    // MUTATION (p2h-int-a/f2-resolved-lingers): a "went through" stays above every table the
+    // cashier opens after — a stale line, read as news on each visit; red.
+    expect(lostOnSelect(l("a", "settlePaid"), "b")).toBeNull();
+    expect(lostOnSelect(l("a", "writeSaved"), "b")).toBeNull();
+    // MUTATION (p2h-int-a/f2-select-clears-any-loss): opening Table 7 drops Table 4's unknown
+    // payment — the money question goes unsaid; red.
+    const four = l("a", "settleUnknown");
+    expect(lostOnSelect(four, "b")).toBe(four);
+    expect(lostOnSelect(null, "b")).toBeNull();
+  });
+});
+
+describe("focusAfterLostRetract — the retracted line took the focused 'View' with it (Phase 2h · integration)", () => {
+  it("focus that FELL lands on the pane's heading while a table is open, the floor's otherwise", () => {
+    // MUTATION (p2h-int-a/retract-focus-always-floor): the floor's heading even with a table open
+    // beside it — focus jumps out of the pane the person is working in; red.
+    expect(focusAfterLostRetract({ focusFell: true, paneOpen: true })).toBe("paneHeading");
+    expect(focusAfterLostRetract({ focusFell: true, paneOpen: false })).toBe("floorHeading");
+  });
+  it("focus that did not fall stays where the person put it", () => {
+    // MUTATION (p2h-int-a/retract-focus-yanks): a landing pulls focus off whatever control the
+    // person is on, mid-task; red.
+    expect(focusAfterLostRetract({ focusFell: false, paneOpen: true })).toBe("stay");
+    expect(focusAfterLostRetract({ focusFell: false, paneOpen: false })).toBe("stay");
   });
 });
 

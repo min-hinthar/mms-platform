@@ -945,3 +945,22 @@ describe("board-1 · 6 · 9 — the stylesheet, parsed (comments stripped, at-ru
     expect(rule(".orb-card").flatMap((b) => decl(b, "justify-content"))).toEqual([]);
   });
 });
+
+describe("ReadyBoard — the /api/board read is a fetch, not a Server Action (Phase 2h review c, C1)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  it("a hung board read never reaches the stall ledger — Next's action queue does not hold it", async () => {
+    const { STAFF_HANG_MS, outstanding, stalledSince } = await import("@/lib/bounded-write");
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ReadyBoard token="t" lang="en" />);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(STAFF_HANG_MS * 3)));
+    expect(fetchMock).toHaveBeenCalled();
+    // MUTATION (p2h-rev-c/board-fetch-tracked): raced through the TRACKING race, every hung read
+    // sits on the ledger as a stuck action the queue never held; red.
+    expect(outstanding()).toBe(0);
+    expect(stalledSince()).toBeNull();
+  });
+});

@@ -20,13 +20,14 @@
  * the chip import it. It moves no money and authorizes nothing — the server re-verifies every PI
  * handle (`terminalStatus` reads `metadata.kind`), and fulfilment is the signed webhook's.
  */
-import type { TerminalPollResult } from "./terminal";
+import type { TerminalPollResult, TerminalResumeResult } from "./terminal";
 import type { Handoff } from "./register-ui";
 import { parseHandoffStash } from "./floor-pane";
 import { ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
 import { SETTLE_TTL_MS } from "./lock-ttl";
+import { STAFF_HANG_MS } from "./bounded-write";
 
 /** How the floor names the table or guest a collect is for — FloorDetailLive's `paneName`, the
  *  lost-write sentence's shape: a counter order reads "Counter order", a table "Table {display}". */
@@ -204,8 +205,11 @@ export const READER_BLIND_AFTER_MISSES = 3;
 export const READER_RECORDING_ESCALATE_MS = 20_000;
 /** A poll still unanswered this long counts as a miss (and one more per further span): Next runs
  *  Server Actions one at a time, so a second poll is never dispatched over a hung one — it would only
- *  queue behind it — and a hung one must still be able to make the panel admit it is blind. */
-export const READER_POLL_SILENT_MS = 15_000;
+ *  queue behind it — and a hung one must still be able to make the panel admit it is blind.
+ *  It IS the staff hang bound, named once (`STAFF_HANG_MS`): the poll is on the stall ledger, so its
+ *  first miss lands at the instant the ledger calls the tab stalled — a second spelling of 15s could
+ *  only drift from that. */
+export const READER_POLL_SILENT_MS = STAFF_HANG_MS;
 /**
  * C1 · P2gb — how long a charge may stand captured with NO order before this tab stops watching it.
  * `recording` is the window the poll matters most: each live answer re-extends the settle freeze
@@ -352,8 +356,38 @@ export function readerPanelAction(
   return "back";
 }
 
-/** A cancel that did not happen: the server's sentence ("too late…"), or the transport's own key. */
-export type ReaderCancelError = { kind: "server"; text: string } | { kind: "local" };
+/**
+ * A cancel that did not (or may not have) happened — Phase 2h (9d · 9e) gave it every outcome a
+ * bounded money write has:
+ *  - `server`: the server answered with a refusal sentence ("too late…") — said verbatim;
+ *  - `local`: the cancel THREW. The response can be lost AFTER the server cancelled, so it is
+ *    "couldn't confirm", never "couldn't cancel — try again" (9e);
+ *  - `waiting`: no answer within STAFF_HANG_MS (`boundWrite`) — the reader may still be taking the
+ *    card; the late answer is applied when it lands (the poll keeps reporting the truth meanwhile);
+ *  - `stalled`: refused at the tap, never dispatched — an earlier action has held the queue past the
+ *    bound (`stalledSince() !== null`), so a cancel would only queue behind it (9d).
+ * The cancel WRITE lives in `ReaderCollectProvider.cancel`; every surface that says a cancel error
+ * (the collect panel's line, the page's region through `readerSpoken`) reads `readerCancelMsg`.
+ */
+export type ReaderCancelError =
+  | { kind: "server"; text: string }
+  | { kind: "local" }
+  | { kind: "waiting" }
+  | { kind: "stalled" };
+
+/** THE words for a cancel error — the panel's visible line and the page's region both read this. */
+export function readerCancelMsg(e: ReaderCancelError): { k: StaffKey } | string {
+  switch (e.kind) {
+    case "server":
+      return e.text;
+    case "local":
+      return { k: "settle.reader.cancelUnknown" };
+    case "waiting":
+      return { k: "settle.reader.cancelWaiting" };
+    case "stalled":
+      return { k: "out.stalled" };
+  }
+}
 
 /** What the page's region SPEAKS: a cancel refusal is the newer fact while it stands. */
 export function readerSpoken(
@@ -361,10 +395,7 @@ export function readerSpoken(
   cancelError: ReaderCancelError | null,
 ): ReaderStatus {
   if (cancelError === null) return status;
-  return {
-    tone: "warn",
-    msg: cancelError.kind === "server" ? cancelError.text : { k: "settle.reader.cancelFailed" },
-  };
+  return { tone: "warn", msg: readerCancelMsg(cancelError) };
 }
 
 /**
@@ -556,7 +587,10 @@ export type ReaderChip =
       orderId: string;
       totalCents: number;
       code: string | null;
-    };
+    }
+  // Codex r2 on #310 follow-up (R4) — a start this tab lost the answer to, whose resume read FAILED:
+  // the reader could not be checked, and it may be asking for this table's card.
+  | { kind: "unchecked"; sessionId: string; name: ReaderName; token: string };
 
 /**
  * Whether the bar shows the chip, and for what. NEVER over its own table: where the paying table's
@@ -565,11 +599,18 @@ export type ReaderChip =
  * away ("Hide this" while charged-not-recorded, D4) is silent until it lands or is given up. The
  * collect outranks a landing for another table — one line in the bar at a time; the landings wait,
  * oldest first.
+ *
+ * Codex r2 on #310 follow-up (R4) — a stranded start whose resume read FAILED (`unchecked`, the
+ * provider's, oldest first) comes after an off-screen collect and BEFORE a landing: "couldn't check
+ * the card reader — check it before you take payment" guards money still moving, a landing reports
+ * money that already has. It is shown over its own table too: no panel there says it (there is no
+ * collect to show), and that table is where the cashier goes to take the money.
  */
 export function readerChip(p: {
   collect: ReaderCollect | null;
   landed: readonly ReaderLanded[];
   shown: ReadonlySet<string>;
+  unchecked?: readonly ReaderPending[];
 }): ReaderChip | null {
   const c = p.collect;
   if (c !== null && !c.hidden && !p.shown.has(c.sessionId))
@@ -580,6 +621,9 @@ export function readerChip(p: {
       paymentIntentId: c.paymentIntentId,
       totalCents: c.totalCents,
     };
+  const u = p.unchecked?.[0];
+  if (u !== undefined)
+    return { kind: "unchecked", sessionId: u.sessionId, name: u.name, token: u.token };
   const l = p.landed.find((x) => !p.shown.has(x.sessionId));
   if (l === undefined) return null;
   return {
@@ -611,8 +655,11 @@ export function readerChipShownAt(pathname: string | null): boolean {
 }
 
 /** The chip's ✕: every outcome is the cashier's to put away — a landing, a decline, a cancel, a charge
- *  given up as unrecorded. A collect still polling is not (its panel has the controls). */
+ *  given up as unrecorded. A collect still polling is not (its panel has the controls), and neither
+ *  is an unchecked start (R4): it stands while its record does and the reader cannot be read — a ✕
+ *  would close the one line saying the reader may be asking for the card. */
 export function readerChipDismissible(chip: ReaderChip, phase: ReaderPhase): boolean {
+  if (chip.kind === "unchecked") return false;
   return chip.kind === "landed" || !readerPolling(phase);
 }
 
@@ -657,6 +704,8 @@ export function readerChipAlert(
 ): string | null {
   if (chip === null) return null;
   if (chip.kind === "landed") return `${chip.orderId}:landed`;
+  // R4 — said once per stranded start (its token): the next page's chip stays quiet about it.
+  if (chip.kind === "unchecked") return `${chip.token}:unchecked`;
   return readerAlertKey(chip.paymentIntentId, phase, recordingLong);
 }
 
@@ -744,4 +793,197 @@ export function readLandedStash(nowMs: number, store: Store | null = session()):
   const q = parseLandedQueue(raw, nowMs);
   writeLandedStash(q, store);
   return q;
+}
+
+// ── the pending start (Codex r2 on #310, A3) ─────────────────────────────────────────────────────
+
+/**
+ * A reader START dispatched and not yet answered — the collect's record is written only once the
+ * start answers with its PaymentIntent, and a start still out at the bound (`settle.reader.waiting`)
+ * tells the cashier to reload. A reload aborts the client's action queue and with it the start's late
+ * answer: the reader may already be asking for the card, and the new document had no handle to
+ * restore, poll or cancel. So the start is written down BEFORE it is sent (the tap's facts and when),
+ * dropped once it answers (`dropReaderPending`, by its own token — never a newer start's), and a
+ * document that finds one still standing asks the server, read-only, what the reader is doing for that
+ * table (`terminalResume`) and re-adopts the collect or forgets the record (`resumedCollect`).
+ */
+export type ReaderPending = {
+  /**
+   * One per dispatch (a UUID): a late answer drops only its own record, never a newer start's — and
+   * the start carries it to the server as its `startId`, so the resume adopts only THIS start's
+   * charge (Codex r3 on #310).
+   */
+  token: string;
+  sessionId: string;
+  /** Device ms when the start was dispatched — the record's expiry clock. */
+  startedAt: number;
+  isCounter: boolean;
+  name: ReaderName;
+  sentEarly: boolean;
+  cartId: string | null;
+};
+
+/** The pending starts' sessionStorage key — beside the collect record, per tab, surviving a reload. */
+export const READER_PENDING_KEY = "mms-reader-pending";
+/** At most this many held (one per START — the oldest goes first past the cap). */
+export const READER_PENDING_CAP = 5;
+
+/**
+ * A pending start older than the freeze's lifetime is history: the freeze its start took lapses
+ * `SETTLE_TTL_MS` after it unless a poll extends it, and nothing on this tab has polled it (named once
+ * with the collect's own idle bound, `READER_COLLECT_MAX_IDLE_MS`).
+ */
+export function readerPendingExpired(p: Pick<ReaderPending, "startedAt">, nowMs: number): boolean {
+  return nowMs - p.startedAt > READER_COLLECT_MAX_IDLE_MS;
+}
+
+function parsePending(v: unknown): ReaderPending | null {
+  if (typeof v !== "object" || v === null) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.token !== "string" || o.token === "") return null;
+  if (typeof o.sessionId !== "string" || o.sessionId === "") return null;
+  if (!ms(o.startedAt)) return null;
+  if (typeof o.isCounter !== "boolean") return null;
+  const name = parseName(o.name);
+  if (name === null) return null;
+  if (o.cartId !== null && (typeof o.cartId !== "string" || o.cartId === "")) return null;
+  return {
+    token: o.token,
+    sessionId: o.sessionId,
+    startedAt: o.startedAt,
+    isCounter: o.isCounter,
+    name,
+    // Anything but `true` reads false — the card never claims food went out unpaid on a guess.
+    sentEarly: o.sentEarly === true,
+    cartId: o.cartId as string | null,
+  };
+}
+
+/**
+ * Hold a pending start: one per START (its token), newest last. Codex r2 on #310 follow-up (R2) — never
+ * one per table: a start that THREW is unresolved (the reader may be asking for its card) when the
+ * cashier taps Card again, and that re-tap is refused "in flight" while the first holds the freeze. A
+ * re-tap that replaced the first record would then drop it with its own refusal, and a reload would
+ * have nothing left to resume. Each answer drops only its own token (`dropPending`).
+ */
+export function queuePending(
+  q: readonly ReaderPending[],
+  p: ReaderPending,
+  cap: number = READER_PENDING_CAP,
+): ReaderPending[] {
+  return [...q.filter((x) => x.token !== p.token), p].slice(-cap);
+}
+
+/** The stashed pending starts, field by field: a malformed or expired entry is dropped alone. */
+export function parsePendingQueue(raw: string | null, nowMs: number): ReaderPending[] {
+  if (raw === null) return [];
+  let v: unknown;
+  try {
+    v = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(v)) return [];
+  let q: ReaderPending[] = [];
+  for (const x of v) {
+    const p = parsePending(x);
+    if (p !== null && !readerPendingExpired(p, nowMs)) q = queuePending(q, p);
+  }
+  return q;
+}
+
+/**
+ * What a pending start becomes once the server answered the resume read. `res` null is a read that
+ * THREW (or never answered): like a refused one, an outage is not a verdict — the record is KEPT and
+ * asked about again (`readerResumeDelay`, until it expires), and it is SAID (`unchecked`, R4: the
+ * reader could not be checked — check it before taking payment). The server found no action of this
+ * table's on the reader: with the table's freeze HELD by a staff attempt (`held`, R1) the start may
+ * still be on its way — it takes the freeze before it hands the charge to the reader — so the record
+ * is KEPT and asked about again, silently (the read worked); with nothing held → DROP (nothing to
+ * poll). It found one → ADOPT: a collect exactly as a start would have made, from the tap's facts and
+ * the server's handle, amount and cart — the handle only resumes the poll and Cancel (the server
+ * re-verifies it on every call), and the amount is display, never charged.
+ */
+export function resumedCollect(
+  p: ReaderPending,
+  res: TerminalResumeResult | null,
+  nowMs: number,
+):
+  | { kind: "adopt"; record: ReaderCollect }
+  | { kind: "drop" }
+  | { kind: "keep"; unchecked: boolean } {
+  if (res === null || !res.ok) return { kind: "keep", unchecked: true };
+  if (res.collect === null) return res.held ? { kind: "keep", unchecked: false } : { kind: "drop" };
+  return {
+    kind: "adopt",
+    record: {
+      sessionId: p.sessionId,
+      paymentIntentId: res.collect.paymentIntentId,
+      totalCents: res.collect.totalCents,
+      isCounter: p.isCounter,
+      name: p.name,
+      sentEarly: p.sentEarly,
+      cartId: res.collect.cartId,
+      startedAt: nowMs,
+      liveAt: nowMs,
+      hidden: false,
+      recordingSince: null,
+      unrecordedAt: null,
+    },
+  };
+}
+
+/** R1 — the first wait before a stranded start is asked about again (and before a start that THREW on
+ *  this page is first asked about: its server may still be running it). */
+export const READER_RESUME_FIRST_MS = 2_000;
+/** R1 — the widest gap between two asks: a start that reaches the reader late is adopted within it. */
+export const READER_RESUME_MAX_GAP_MS = 30_000;
+
+/**
+ * Codex r2 on #310 follow-up (R1) — the wait before the next resume read, after `asked` reads have been
+ * made: doubling from `READER_RESUME_FIRST_MS`, capped at `READER_RESUME_MAX_GAP_MS`. The asks end with
+ * the record (`readerPendingExpired`, the freeze's own lifetime — the provider checks it before each
+ * ask): past it no start can still be on its way, so a bound of a couple of dozen reads.
+ */
+export function readerResumeDelay(asked: number): number {
+  return Math.min(READER_RESUME_FIRST_MS * 2 ** asked, READER_RESUME_MAX_GAP_MS);
+}
+
+/** Write the pending starts (an empty queue leaves no key behind). */
+export function writePendingStash(
+  q: readonly ReaderPending[],
+  store: Store | null = session(),
+): void {
+  try {
+    if (q.length === 0) store?.removeItem(READER_PENDING_KEY);
+    else store?.setItem(READER_PENDING_KEY, JSON.stringify(q));
+  } catch {
+    /* deliberate: quota or privacy mode — the start still runs; only a reload's resume is lost */
+  }
+}
+
+/** The stashed pending starts — malformed and expired entries dropped, the stash rewritten to match. */
+export function readPendingStash(nowMs: number, store: Store | null = session()): ReaderPending[] {
+  let raw: string | null;
+  try {
+    raw = store?.getItem(READER_PENDING_KEY) ?? null;
+  } catch {
+    return []; // deliberate: unreadable storage is a cold start
+  }
+  if (raw === null) return [];
+  const q = parsePendingQueue(raw, nowMs);
+  writePendingStash(q, store);
+  return q;
+}
+
+/** Record a start about to be sent (read-modify-write: one per start, the cap kept). */
+export function pendStart(p: ReaderPending, nowMs: number, store: Store | null = session()): void {
+  writePendingStash(queuePending(readPendingStash(nowMs, store), p), store);
+}
+
+/** Drop ONE start's record — by its token, so an answer never removes a newer start's. */
+export function dropPending(token: string, nowMs: number, store: Store | null = session()): void {
+  const q = readPendingStash(nowMs, store);
+  const next = q.filter((x) => x.token !== token);
+  if (next.length !== q.length) writePendingStash(next, store);
 }

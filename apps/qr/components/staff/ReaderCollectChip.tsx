@@ -32,6 +32,10 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * "Payment didn't go through" when it was declined, and — once it LANDED with its table off screen —
  * a counter order's "Paid · #A1B2C3" (the card the cashier hands the bag over by, which used to be
  * lost with the detail) or a table's "Paid · $42.10". Landings queue; the chip shows the oldest.
+ * Codex r2 on #310 follow-up (R4) — and, where a reader start this tablet lost the answer to could
+ * not be checked (its resume read failed), "Couldn't check the card reader for Table 7 — check the
+ * reader before you take payment", over its own table too (no panel there says it), until a read
+ * answers or the record lapses; never dismissible.
  * Rendered by `StaffBar` just before its offline row; StaffBar stays hook-free (this is the client
  * child).
  *
@@ -61,7 +65,12 @@ export function ReaderCollectChip({ lang }: { lang: StaffLang }) {
   const chip =
     reader === null
       ? null
-      : readerChip({ collect: reader.record, landed: reader.landed, shown: reader.shown });
+      : readerChip({
+          collect: reader.record,
+          landed: reader.landed,
+          shown: reader.shown,
+          unchecked: reader.unchecked,
+        });
   if (reader === null || chip === null) return null;
   return <ChipOnRoute lang={lang} reader={reader} chip={chip} />;
 }
@@ -145,12 +154,22 @@ function ChipBody({
   }, [alertKey, said, markSaid]);
   const alerting = alertKey !== null && speaking === alertKey;
 
-  const warn = status?.tone === "warn" || (chip.kind === "collect" && phase === "failed");
+  const warn =
+    status?.tone === "warn" ||
+    (chip.kind === "collect" && phase === "failed") ||
+    chip.kind === "unchecked";
   const paid = chip.kind === "landed" || phase === "recording";
   const dismissible = readerChipDismissible(chip, phase);
 
   const title =
-    chip.kind === "landed" ? (
+    chip.kind === "unchecked" ? (
+      <Chrome
+        lang={lang}
+        k="settle.reader.unchecked"
+        vars={{ x: readerNameText(lang, chip.name) }}
+        echo="stack"
+      />
+    ) : chip.kind === "landed" ? (
       <>
         <Chrome lang={lang} k="settle.reader.paid" echo="inline" />
         {" · "}
@@ -256,6 +275,15 @@ function ChipSpoken({
   phase: ReaderPhase;
   sub: ReaderStatus | null;
 }) {
+  // R4 — the sentence names the table itself; nothing else to add.
+  if (chip.kind === "unchecked")
+    return (
+      <Chrome
+        lang={lang}
+        k="settle.reader.unchecked"
+        vars={{ x: readerNameText(lang, chip.name) }}
+      />
+    );
   const failed = chip.kind === "collect" && phase === "failed";
   return (
     <>

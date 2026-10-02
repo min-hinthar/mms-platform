@@ -649,6 +649,19 @@ export const terminalPollInput = z.object({
   paymentIntentId: z.string().startsWith("pi_").max(200),
 });
 
+/** settleCard (Terminal) — the settle's own shape plus the tablet's per-START id (Codex round 3 on
+ *  #310). The register writes a pending record before it sends a reader start, keyed by a fresh
+ *  `crypto.randomUUID()`; the server stamps it on the PaymentIntent (`metadata.startId`) so a reloaded
+ *  tablet can find ITS start and nobody else's (`terminalResumeInput`). A HANDLE, never an owner: the
+ *  freeze stays keyed by the server-minted `settleAttempt`. Optional so a tablet left open across a
+ *  deploy can still take a card (its start is simply not resumable). */
+export const terminalStartInput = settleCashInput.extend({ startId: uuid.optional() });
+
+/** terminalResume — the read-only "what is the reader doing for MY start?" a reloaded register asks.
+ *  `startId` is REQUIRED: a PaymentIntent is adopted only when it carries this exact start's id, so
+ *  another tablet's charge for the same table is never taken over (and never offered to Cancel). */
+export const terminalResumeInput = z.object({ sessionId: uuid, startId: uuid });
+
 /** openRegisterOrder (W6a) — staff start an order that has no diner phone behind it: a walk-up or a
  *  phone order (counter arms — a per-order `mode='pickup'` session keyed `reg-<code>`), or "start a
  *  table" (a real dine-in session on a registered table, so eat-in tax basis and floor/KDS routing come

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 
 const lockConsole = vi.fn();
 vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: () => lockConsole() }));
@@ -94,15 +95,34 @@ describe("LockButton", () => {
     expect(lockConsole).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ["refused", () => lockConsole.mockResolvedValue({ ok: false, reason: "outage" })],
-    ["THROWN", () => lockConsole.mockRejectedValue(new Error("fetch failed"))],
-  ])("an outage — %s — says the outage key and releases the circle", async (_, arm) => {
-    arm();
+  it("an outage — refused — says the outage key and releases the circle", async () => {
+    lockConsole.mockResolvedValue({ ok: false, reason: "outage" });
     render(<LockButton lang="en" />);
     fireEvent.click(circle());
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(STAFF["shell.lock.err.outage"].en);
+    expect(circle().getAttribute("aria-busy")).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: STAFF["out.reload"].en })).toBeNull();
+    fireEvent.click(circle());
+    expect(lockConsole).toHaveBeenCalledTimes(2);
+  });
+
+  it("a THROWN lock says it couldn't CONFIRM the lock — never blames the sign-in service — offers the reload and releases the circle", async () => {
+    lockConsole.mockRejectedValue(new Error("fetch failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<LockButton lang="en" />);
+    fireEvent.click(circle());
+    const alert = await screen.findByRole("alert");
+    // MUTATION (p2h-doors/lock-threw-blames-the-sign-in): the action's own `outage` sentence ("we
+    // can't reach the sign-in service — the tablet wasn't locked"), false for a lost answer — the
+    // lock cookie may already be set (critic F10); red.
+    expect(alert.textContent).toContain(STAFF["shell.lock.unknown"].en);
+    expect(alert.textContent).not.toContain(STAFF["shell.lock.err.outage"].en);
+    // MUTATION (p2h-doors/lock-reload-missing): "reload the page before you leave it" with no
+    // reload on a standalone console; red.
+    const reload = screen.getByRole("button", { name: STAFF["out.reload"].en });
+    expect(alert.contains(reload)).toBe(false);
     expect(circle().getAttribute("aria-busy")).toBeNull();
     expect(replace).not.toHaveBeenCalled();
     fireEvent.click(circle());
@@ -161,5 +181,104 @@ describe("the refusal line's CSS", () => {
     expect(has).not.toBeNull();
     expect(has![1]).toMatch(/flex-wrap:\s*wrap/);
     expect(phone!).toMatch(/\.staff-bar-tail > \.staff-bar-msg\s*\{[^}]*max-width:/);
+  });
+});
+
+describe("LockButton — Phase 2h: the lock is bounded (9g)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+
+  it("no answer at the bound: the circle frees and says the tablet may NOT be locked, with the reload — and a LATE lock still goes to the lock screen", async () => {
+    let settle!: (v: unknown) => void;
+    lockConsole.mockReturnValue(new Promise((r) => (settle = r)));
+    render(<LockButton lang="en" />);
+    const b = circle();
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(b.getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-doors/lock-unbounded): the bound never fires — "Locking…" forever while the
+    // tablet stays OPEN, the one fact that matters on a shared device; red.
+    await flush(1);
+    expect(b.getAttribute("aria-busy")).toBeNull();
+    // MUTATION (p2h-doors/lock-waiting-unsaid): said as "couldn't confirm"; red.
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.waiting"].en);
+    expect(screen.getByRole("button", { name: STAFF["out.reload"].en })).toBeTruthy();
+    // MUTATION (p2h-doors/lock-late-ok-dropped): the late answer is dropped — the tablet IS locked
+    // (the cookie is set) and the bar stays up as if it were not; red.
+    await act(async () => settle({ ok: true }));
+    expect(replace).toHaveBeenCalledWith("/staff/lock");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: STAFF["out.reload"].en })).toBeNull();
+  });
+
+  it("a LATE throw says the lock couldn't be confirmed — the reload stays", async () => {
+    let fail!: (e: Error) => void;
+    lockConsole.mockReturnValue(new Promise((_r, j) => (fail = j)));
+    render(<LockButton lang="en" />);
+    await act(async () => {
+      fireEvent.click(circle());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.waiting"].en);
+    // MUTATION (p2h-doors/lock-late-throw-unsaid): "no answer yet" stands for good; red.
+    await act(async () => fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.unknown"].en);
+    expect(screen.getByRole("button", { name: STAFF["out.reload"].en })).toBeTruthy();
+    // The answer is in (lost): the circle is live again — a tap sends.
+    expect(circle().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(circle());
+    });
+    expect(lockConsole).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Codex round 3 on #310 — the bound frees the circle, never the action: Next keeps the raw lock
+  // in the tab's queue, so until its answer no second lock goes.
+  it("past the bound NO second lock goes: a re-tap re-says the waiting line and sends nothing; the late answer frees the circle", async () => {
+    let settle!: (v: unknown) => void;
+    lockConsole.mockReturnValueOnce(new Promise((r) => (settle = r)));
+    render(<LockButton lang="en" />);
+    await act(async () => {
+      fireEvent.click(circle());
+    });
+    await flush(STAFF_HANG_MS);
+    const b = circle();
+    expect(b.getAttribute("aria-busy")).toBeNull();
+    // MUTATION (p2h-cx3/lock-guard-freed-at-bound): the bound frees the guard with busy — a re-tap
+    // queues a second lock behind the hung one; red.
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(b.hasAttribute("disabled")).toBe(false);
+    const before = screen.getByRole("alert").firstChild;
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    expect(lockConsole).toHaveBeenCalledTimes(1);
+    expect(haptic).toHaveBeenCalledTimes(1); // no commit buzz for a tap that sent nothing
+    // MUTATION (p2h-cx3/lock-held-tap-silent): the refused re-tap says nothing new — equal text into
+    // the same node is no change at all, so the tap reads as dead; red.
+    expect(screen.getByRole("alert").firstChild).not.toBe(before);
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.waiting"].en);
+    // A late refusal: the answer is in, the circle is live again and a tap sends.
+    await act(async () => settle({ ok: false, reason: "no_pin" }));
+    expect(b.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.getByRole("alert").textContent).toContain(STAFF["shell.lock.err.noPin"].en);
+    lockConsole.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(b);
+    });
+    // MUTATION (p2h-cx3/lock-guard-never-freed): the late answer never frees the guard — the circle
+    // is dead until a reload; red.
+    expect(lockConsole).toHaveBeenCalledTimes(2);
+    expect(replace).toHaveBeenCalledWith("/staff/lock");
   });
 });

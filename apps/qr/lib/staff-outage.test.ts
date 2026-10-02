@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STAFF_OUTAGE_ESCALATE_MS,
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
+  WRITE_UNCONFIRMED,
+  WRITE_WAITING,
   frozenBoardCopy,
   nextDegraded,
+  raceFetch,
+  raceTimeout,
+  writeLineAfterLateAnswer,
 } from "./staff-outage";
+import { STAFF_HANG_MS, outstanding, resetLedgerForTests, stalledSince } from "./bounded-write";
 
 /**
  * P2 · G13 — the outage voice. **This module had no suite at all before P2**, which is worth saying
@@ -115,5 +121,110 @@ describe("nextDegraded — unchanged by P2, pinned because nothing else pins it"
   it("returns the SAME object when the cause is unchanged, so a steady degrade does not re-render", () => {
     const d = nextDegraded(null, "outage", 1_000);
     expect(nextDegraded(d, "outage", 5_000)).toBe(d);
+  });
+});
+
+describe("raceTimeout — Phase 2h: the bound named ONCE, and the raw promise tracked", () => {
+  const T0 = Date.parse("2026-10-01T18:00:00.000Z");
+  beforeEach(() => {
+    vi.useFakeTimers({ now: T0 });
+    resetLedgerForTests();
+  });
+  afterEach(() => {
+    resetLedgerForTests();
+    vi.useRealTimers();
+  });
+
+  /** The race's outcome, read through a `.then` — `undefined` while it is still out. */
+  function outcome<T>(p: Promise<T>) {
+    let got: { ok: true; v: T } | { ok: false; e: unknown } | undefined;
+    p.then(
+      (v) => {
+        got = { ok: true, v };
+      },
+      (e: unknown) => {
+        got = { ok: false, e };
+      },
+    );
+    return () => got;
+  }
+
+  it("rejects `staff-poll-timeout` at EXACTLY STAFF_HANG_MS by default — not a millisecond before", async () => {
+    // MUTATION (p2h-core/race/bound-drifts): a default that is not THE constant — the pad's
+    // unconfirmed add, the stall ledger and the poll watchdog disagree about one hang; red.
+    const got = outcome(raceTimeout(new Promise<never>(() => {})));
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+    expect(got()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    const out = got();
+    expect(out?.ok).toBe(false);
+    expect((out as { e: Error }).e.message).toBe("staff-poll-timeout");
+  });
+
+  it("passes an answer and a rejection straight through", async () => {
+    const ok = outcome(raceTimeout(Promise.resolve(7)));
+    const err = new Error("fetch failed");
+    const bad = outcome(raceTimeout(Promise.reject(err)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ok()).toEqual({ ok: true, v: 7 });
+    expect(bad()).toEqual({ ok: false, e: err });
+  });
+
+  it("tracks the RAW promise — past its own rejection, until the raw answers", async () => {
+    // MUTATION (p2h-core/race/untracked): a raced read hung for minutes never reaches the ledger,
+    // so `stalledSince` calls the tab healthy and the next money tap queues behind it; red.
+    let answer!: (v: number) => void;
+    const raw = new Promise<number>((r) => {
+      answer = r;
+    });
+    const got = outcome(raceTimeout(raw));
+    expect(outstanding()).toBe(1);
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    // The race freed its CALLER; the raw read is still in Next's queue, and still on the ledger.
+    expect(got()?.ok).toBe(false);
+    expect(outstanding()).toBe(1);
+    expect(stalledSince()).toBe(T0);
+    answer(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outstanding()).toBe(0);
+  });
+
+  it("raceFetch bounds a NON-action fetch (a Supabase sign-out) the same way and NEVER tracks it (review c, C1)", async () => {
+    // A hung auth fetch is not in Next's action queue: tracked, it would read the whole tab as
+    // stalled and refuse every money tap after the unlock's soft navigation into the console.
+    // MUTATION (p2h-rev-c/race-fetch-tracks): raceFetch registers its promise; red.
+    const got = outcome(raceFetch(new Promise<never>(() => {})));
+    expect(outstanding()).toBe(0);
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+    expect(got()).toBeUndefined();
+    // MUTATION (p2h-rev-c/race-fetch-bound-drifts): the default is not THE constant; red.
+    await vi.advanceTimersByTimeAsync(1);
+    expect((got() as { e: Error } | undefined)?.e.message).toBe("staff-poll-timeout");
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS * 4);
+    expect(outstanding()).toBe(0);
+    expect(stalledSince()).toBeNull();
+    const ok = outcome(raceFetch(Promise.resolve(7)));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ok()).toEqual({ ok: true, v: 7 });
+  });
+});
+
+describe("writeLineAfterLateAnswer — a line edit's late answer and the page's write line (Phase 2h · integration, S2 critic D2)", () => {
+  it("the LAST waiting line answering retracts 'no answer yet — it may still be saved'", () => {
+    // MUTATION (p2h-int-a/write-waiting-never-retracts): the sentence stands over a change that
+    // saved — and it outranks the settle and frozen lines, so it hides them too; red.
+    expect(writeLineAfterLateAnswer(WRITE_WAITING, 0)).toBeNull();
+  });
+  it("while another line's write is still out, the sentence stands — it is still true of that one", () => {
+    // MUTATION (p2h-int-a/write-waiting-retracts-early): the first answer retracts it while a
+    // second row's change is still unanswered; red.
+    expect(writeLineAfterLateAnswer(WRITE_WAITING, 1)).toBe(WRITE_WAITING);
+  });
+  it("any OTHER line stands — a refusal, 'couldn't confirm', a discount's sentence", () => {
+    // MUTATION (p2h-int-a/write-retract-any-line): the late answer wipes whatever the line says —
+    // the refusal the late answer itself just said ("That line just changed.") goes unread; red.
+    expect(writeLineAfterLateAnswer("That line just changed.", 0)).toBe("That line just changed.");
+    expect(writeLineAfterLateAnswer(WRITE_UNCONFIRMED, 0)).toBe(WRITE_UNCONFIRMED);
+    expect(writeLineAfterLateAnswer(null, 0)).toBeNull();
   });
 });

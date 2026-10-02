@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
-import { READER_UNRECORDED_MS } from "@/lib/reader-collect";
+import { READER_PENDING_KEY, READER_UNRECORDED_MS, readerResumeDelay } from "@/lib/reader-collect";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * Phase 2c · register — the card reader's two halves after the register's Button conversion and the
@@ -17,10 +18,13 @@ import { READER_UNRECORDED_MS } from "@/lib/reader-collect";
 const settleCard = vi.fn();
 const terminalStatus = vi.fn();
 const cancelTerminal = vi.fn();
+/** Codex r2 on #310 (A3) — the read-only resume of a start a reload stranded. */
+const terminalResume = vi.fn();
 vi.mock("@/lib/terminal", () => ({
   settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: (...a: unknown[]) => cancelTerminal(...(a as [])),
+  terminalResume: (...a: unknown[]) => terminalResume(...(a as [])),
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
@@ -51,7 +55,13 @@ const flush = (ms = 0) =>
   });
 
 beforeEach(() => {
+  // Codex r2 on #310 follow-up (R6) — every case starts on an EMPTY tab: a collect, a landing or a
+  // pending start left in sessionStorage by an earlier case is restored (and polled, or asked about)
+  // by the next case's provider — the A3 reload case left its adopted collect there for whichever case
+  // ran next. MUTATION (by hand): drop the `sessionStorage.clear()` below — red here.
+  expect(sessionStorage.length, "an earlier case left its reader stash behind").toBe(0);
   vi.useFakeTimers();
+  terminalResume.mockResolvedValue({ ok: true, collect: null, held: false });
 });
 afterEach(() => {
   cleanup();
@@ -59,7 +69,26 @@ afterEach(() => {
   settleCard.mockReset();
   terminalStatus.mockReset();
   cancelTerminal.mockReset();
+  terminalResume.mockReset();
+  sessionStorage.clear();
 });
+
+/** Review a (A5) — whether the region's CONTENT was replaced or rewritten (what a screen reader
+ *  announces) between this call and the returned check; equal text rendered in place records none. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 
 describe("TerminalSettleButton — a Button, secondary by default", () => {
   it("starts the reader once, busy with its label kept as a word, never natively disabled; a rejection clears busy and says so", async () => {
@@ -89,8 +118,505 @@ describe("TerminalSettleButton — a Button, secondary by default", () => {
       fail(new Error("fetch failed"));
     });
     expect(trigger.getAttribute("aria-busy")).toBeNull();
-    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.startFailed"].en);
+    // Phase 2h (9e) — THROWN is a LOST answer: "couldn't confirm … the reader may be asking for the
+    // card now", never "couldn't start — try again" (a second tender while the reader collects).
+    // MUTATION (p2h-doors/reader-start-threw-says-start-failed): red.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
     expect(onStarted).not.toHaveBeenCalled();
+  });
+});
+
+describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9e)", () => {
+  // A landed start writes the reader stash; a fresh provider would restore (and poll) it.
+  beforeEach(() => {
+    sessionStorage.clear();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+  });
+  /** The button in its provider, with the page's outcome hook, and a way to take it off the page. */
+  function startTree() {
+    const onSettleOutcome = vi.fn();
+    const onStarted = vi.fn();
+    const onBlockedTap = vi.fn();
+    const view = (withButton: boolean) => (
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          {withButton && (
+            <TerminalSettleButton
+              sessionId="s1"
+              totalCents={4210}
+              tap={TAP}
+              onStarted={onStarted}
+              onSettleOutcome={onSettleOutcome}
+              onBlockedTap={onBlockedTap}
+            />
+          )}
+        </ReaderCollectProvider>
+      </StaffLangProvider>
+    );
+    const r = render(view(true));
+    // Held once: a busy Button keeps its element (the label swaps to "Starting the reader…").
+    const el = screen.getByRole("button", { name: /Card on the reader/ });
+    const trigger = () => el;
+    const reloadBtn = () => screen.queryByRole("button", { name: STAFF["out.reload"].en });
+    return {
+      ...r,
+      onSettleOutcome,
+      onStarted,
+      onBlockedTap,
+      trigger,
+      reloadBtn,
+      unmountButton: () => r.rerender(view(false)),
+    };
+  }
+  /** A start whose answer the case holds. */
+  function hungStart() {
+    let answer!: (v: unknown) => void;
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(
+      new Promise((res, rej) => {
+        answer = res;
+        fail = rej;
+      }),
+    );
+    return { answer: (v: unknown) => answer(v), fail: (e: Error) => fail(e) };
+  }
+
+  it("a start with no answer frees the trigger AT the bound, says 'no answer yet' and offers the reload", async () => {
+    // MUTATION (p2h-doors/reader-start-unbounded): the bound never fires — "Starting…" holds for as
+    // long as the queue is stuck, the W10c latch in a new shape; red.
+    hungStart();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS - 1);
+    expect(t.trigger().getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByRole("alert")).toBeNull();
+    await flush(1);
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull();
+    // MUTATION (p2h-doors/reader-start-waiting-unsaid): said as "couldn't confirm" — the waiting
+    // line's reload is never offered, and a late start reads as a lost one; red.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-reload-missing): the line says "reload the page" on a
+    // standalone console with no browser reload button; red.
+    const reload = t.reloadBtn();
+    expect(reload).not.toBeNull();
+    // Beside the alert, never inside it (one live region; the button is no region of its own).
+    expect(screen.getByRole("alert").contains(reload)).toBe(false);
+    expect(t.onSettleOutcome).toHaveBeenCalledWith("unknown");
+    expect(document.querySelectorAll("[disabled]")).toHaveLength(0);
+  });
+
+  it("while its start waits the trigger is HELD: a re-tap never replaces the money warning with 'this did nothing' (S2 critic D4)", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    // MUTATION (p2h-doors/reader-start-waiting-retap-overwrites): the trigger is live again — the
+    // re-tap meets its own stuck start in the ledger and the alert becomes out.stalled, dropping
+    // "the reader may still start asking for the card. Don't take cash"; red.
+    expect(t.trigger().getAttribute("aria-disabled")).toBe("true");
+    expect(t.trigger().getAttribute("aria-describedby")).toContain("terminal-alert");
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    expect(settleCard).toHaveBeenCalledTimes(1);
+    expect(t.reloadBtn()).not.toBeNull();
+    // The late answer frees it (a refusal: the trigger is the way forward again).
+    await act(async () => h.answer({ ok: false, error: "The reader is offline." }));
+    expect(t.trigger().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("a LATE start lands: the provider's collect starts with the TAP's facts, and 'no answer yet' goes", async () => {
+    const h = hungStart();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    expect(api.record).toBeNull();
+    // MUTATION (p2h-doors/reader-start-late-ok-dropped): the late answer is dropped — the reader IS
+    // asking for the card, and no poll records the charge or slides the freeze; red.
+    await act(async () => h.answer({ ok: true, paymentIntentId: "pi_late", totalCents: 4210 }));
+    expect(api.record).toMatchObject({ sessionId: "s1", paymentIntentId: "pi_late", cartId: "c1" });
+    expect(t.onStarted).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(STAFF["settle.reader.waiting"].en)).toBeNull();
+    expect(t.reloadBtn()).toBeNull();
+  });
+
+  // Phase 2h · integration (doors residual · boards P1) — the late start answers the `unknown`
+  // handed up at the bound: `landed` (the reader IS asking; the provider's chip says it), so a pane
+  // that said "we don't know if the payment went through" off that unknown can retract it.
+  it("a LATE start answers the unknown it handed up: 'landed', exactly once, after 'unknown' — even after unmount", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    t.unmountButton(); // the pane moved on mid-wait
+    await act(async () => h.answer({ ok: true, paymentIntentId: "pi_late", totalCents: 4210 }));
+    expect(api.record).toMatchObject({ sessionId: "s1", paymentIntentId: "pi_late" });
+    // MUTATION (p2h-int-a/reader-landed-unreported): the late start hands nothing up — the pane
+    // keeps "we don't know if the payment went through" while the reader is collecting it; red.
+    // Critic F2 — `started`, never `landed`: the reader is asking for the card, nothing went through
+    // yet. MUTATION (p2h-int-a/f2-reader-start-landed): the pane would say "went through"; red.
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"], ["started"]]);
+  });
+
+  it("an ON-TIME start never says 'landed' — nothing was said to be unknown; a late REFUSAL or THROW never does either", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_now", totalCents: 4210 });
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(0);
+    expect(t.onStarted).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-int-a/reader-landed-on-time): every start says `landed` — a start the pane
+    // never doubted retracts whatever this table's line says; red.
+    expect(t.onSettleOutcome).not.toHaveBeenCalled();
+    cleanup();
+    sessionStorage.clear(); // the landed start's stash: a fresh provider would restore its collect
+    const refused = hungStart();
+    const u = startTree();
+    await act(async () => {
+      fireEvent.click(u.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    await act(async () => refused.answer({ ok: false, error: "The reader is offline." }));
+    // MUTATION (p2h-int-a/reader-landed-on-refusal): any late answer says `landed` — the refusal's
+    // "didn't go through" is retracted as it is said; red.
+    expect(u.onSettleOutcome.mock.calls).toEqual([["unknown"], ["refused"]]);
+    cleanup();
+    const thrown = hungStart();
+    const w = startTree();
+    await act(async () => {
+      fireEvent.click(w.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    await act(async () => thrown.fail(new Error("fetch failed")));
+    // MUTATION (p2h-int-a/reader-landed-on-throw): a lost late answer says `landed` — "we don't
+    // know" is retracted while the reader may still be asking for the card; red. Codex r2 on #310
+    // (A1) — the throw hands `unknown` up AGAIN (it is still no answer), never `started`.
+    expect(w.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  // Codex r2 on #310 (A1) — the bound's `unknown` lands while the detail is mounted (the pane ignores
+  // it there); a throw after the cashier switched tables is the only thing left to tell the pane.
+  it("a LATE throw after the button unmounted hands the unknown up AGAIN, for the pane to say (Codex r2 on #310, A1)", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    t.unmountButton(); // the cashier switched tables mid-wait
+    await act(async () => h.fail(new Error("fetch failed")));
+    // MUTATION (p2h-cx2a/reader/late-throw-unreported): the late throw only sets state on the
+    // unmounted button — the pane never says "we don't know" while the reader may be asking; red.
+    expect(t.onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
+  });
+
+  it("a LATE refusal is said while the button is here; after it left, the page is told instead", async () => {
+    const first = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull(); // free at the bound, not at the answer
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-late-refusal-unsaid): a late refusal is never said — the
+    // cashier is left on "no answer yet" for a start the server refused; red.
+    await act(async () => first.answer({ ok: false, error: "The reader is offline." }));
+    expect(screen.getByRole("alert").textContent).toBe("The reader is offline.");
+    expect(t.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    const second = hungStart();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    t.unmountButton();
+    // MUTATION (p2h-doors/reader-start-late-refusal-after-unmount): a late `unsent` refusal from a
+    // button that is GONE still jumps the page to the Send — focus pulled off wherever the cashier
+    // went; red. The page is told through `onSettleOutcome` instead.
+    await act(async () =>
+      second.answer({ ok: false, code: "unsent", units: 2, error: "Send the dishes first." }),
+    );
+    expect(t.onSettleOutcome).toHaveBeenLastCalledWith("refused");
+    expect(t.onBlockedTap).not.toHaveBeenCalled();
+    expect(api.record).toBeNull();
+  });
+
+  it("a LATE throw says 'couldn't confirm' over the waiting line — the reader may still be asking", async () => {
+    const h = hungStart();
+    const t = startTree();
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    // MUTATION (p2h-doors/reader-start-late-throw-unsaid): the lost answer leaves "no answer yet"
+    // standing for good; red.
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(t.reloadBtn()).toBeNull();
+  });
+
+  it("refused AT THE TAP while an earlier action is stuck: nothing is sent, the alert says so, the reload is beside it (9d)", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    const t = startTree();
+    // An earlier action on this tab, unanswered for the bound (a hung poll, another sheet's write).
+    void track(new Promise(() => {}));
+    await flush(STAFF_HANG_MS);
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    // MUTATION (p2h-doors/reader-start-stalled-dispatched): the start is dispatched into the stuck
+    // queue — it could start the reader minutes from now, after the cashier took cash; red.
+    expect(settleCard).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+    expect(t.reloadBtn()).not.toBeNull();
+    expect(t.trigger().getAttribute("aria-busy")).toBeNull();
+    // Review a (A5) — a SECOND refused tap puts the same sentence in the same alert: it must be
+    // RE-SAID (the content replaced), or the screen reader hears nothing and the tap reads as dead.
+    const said = watchRegion(screen.getByRole("alert"));
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    expect(settleCard).not.toHaveBeenCalled();
+    // MUTATION (p2h-rev-a/reader/resay-unkeyed): equal text rendered in place — no DOM change; red.
+    expect(said()).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+  });
+});
+
+// ── Codex r2 on #310 (A3) — the start is written down BEFORE it is sent, so the reload its waiting
+// line asks for (which aborts the start's answer, the only thing that would hand this tablet the
+// PaymentIntent) leaves the next document a record to resolve.
+describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2 on #310, A3)", () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+  });
+  const pending = () => JSON.parse(sessionStorage.getItem(READER_PENDING_KEY) ?? "[]") as unknown[];
+  /** A register page: the provider (the layout's), the button, and the collect panel. */
+  function register() {
+    return render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton sessionId="s1" totalCents={4210} tap={TAP} />
+          <TerminalCollectPanel sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  }
+  const tapCard = () =>
+    act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Card on the reader/ }));
+    });
+
+  it("the record is written BEFORE the start is sent, with the tap's facts", async () => {
+    let seen: unknown[] = [];
+    settleCard.mockImplementationOnce(() => {
+      seen = pending();
+      return new Promise(() => {});
+    });
+    register();
+    await tapCard();
+    // MUTATION (p2h-cx2a/start/pending-after-dispatch · pending-never-written): written only once the
+    // start answers (or never) — the reload that aborts the answer leaves nothing to resume; red.
+    expect(seen).toEqual([
+      expect.objectContaining({
+        sessionId: "s1",
+        isCounter: true,
+        name: TAP.name,
+        sentEarly: true,
+        cartId: "c1",
+      }),
+    ]);
+    // Codex r3 on #310 — the record's token rides the start as its `startId`, so the PaymentIntent
+    // carries it and a reloaded tablet resumes THIS start and no other tablet's.
+    // MUTATION (p2h-cx3/start/no-start-id): the start sends the session only — no charge carries
+    // this tablet's id, so the resume (which requires it) never adopts the collect it began; red.
+    expect(settleCard).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (seen[0] as { token: string }).token,
+    });
+  });
+
+  it("any ANSWER ends it — a start or a refusal, on time or late; no answer (waiting, a throw) keeps it", async () => {
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_now", totalCents: 4210 });
+    const a = register();
+    await tapCard();
+    await flush(0);
+    // MUTATION (p2h-cx2a/start/ok-keeps-pending): the record outlives the start's own collect; red.
+    expect(pending()).toEqual([]);
+    a.unmount();
+    sessionStorage.clear();
+    settleCard.mockResolvedValueOnce({ ok: false, error: "The reader is offline." });
+    const b = register();
+    await tapCard();
+    await flush(0);
+    // MUTATION (p2h-cx2a/start/refusal-keeps-pending): a refused start (nothing asked of the reader)
+    // stays recorded — a reload then adopts whatever charge the reader holds for that cart, perhaps
+    // another tablet's; red.
+    expect(pending()).toEqual([]);
+    b.unmount();
+    let answer!: (v: unknown) => void;
+    settleCard.mockReturnValueOnce(new Promise((res) => (answer = res)));
+    const c = register();
+    await tapCard();
+    await flush(STAFF_HANG_MS);
+    expect(pending()).toHaveLength(1); // no answer yet: kept for the reload the line asks for
+    await act(async () => answer({ ok: false, error: "The reader is offline." }));
+    expect(pending()).toEqual([]);
+    c.unmount();
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    register();
+    await tapCard();
+    await act(async () => fail(new Error("fetch failed")));
+    // A thrown start may have reached the reader ("couldn't confirm"): kept for the next document.
+    expect(pending()).toHaveLength(1);
+  });
+
+  it("a start still out at the bound, then the RELOAD its line asks for: the next document finds the reader asking and shows the collect with Cancel", async () => {
+    settleCard.mockReturnValueOnce(new Promise(() => {})); // its answer dies with the document
+    const first = register();
+    await tapCard();
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.waiting"].en);
+    first.unmount(); // the reload: the page and its action queue are gone; sessionStorage stays
+    terminalResume.mockResolvedValue({
+      ok: true,
+      collect: { paymentIntentId: "pi_live", totalCents: 4210, cartId: "c1" },
+    });
+    register();
+    await flush(0);
+    // MUTATION (p2h-cx2a/start/pending-never-written · provider/pending-never-resolved): the new
+    // document has no handle — the reader asks for the card with nothing here to poll or cancel it;
+    // red.
+    expect(terminalResume).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (settleCard.mock.calls[0]?.[0] as { startId: string }).startId,
+    });
+    expect(api.record?.paymentIntentId).toBe("pi_live");
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
+    expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();
+    expect(pending()).toEqual([]);
+  });
+  // ── Codex r2 on #310 follow-up (R2) — a refused re-tap never erases the stranded record ──
+  it("a start THROWS, the cashier taps Card again and is refused 'in flight': the first start's record stands for the reload", async () => {
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    register();
+    await tapCard();
+    await act(async () => fail(new Error("fetch failed")));
+    expect(pending()).toHaveLength(1);
+    const first = (pending()[0] as { token: string }).token;
+    // The re-tap: the first start holds the table's freeze, so the server refuses this one.
+    settleCard.mockResolvedValueOnce({
+      ok: false,
+      error: "A payment started at the register on this table hasn’t finished.",
+      code: "inflight",
+      holder: "register",
+    });
+    await tapCard();
+    await flush(0);
+    expect(settleCard).toHaveBeenCalledTimes(2);
+    // MUTATION (p2h-cx2a/pending/retap-erases-at-the-button): the re-tap's record replaced the
+    // first, and its refusal dropped it — a reload then has nothing to resume while the reader may
+    // take the card; red.
+    expect(pending()).toEqual([expect.objectContaining({ token: first, sessionId: "s1" })]);
+  });
+
+  // ── Codex r2 on #310 follow-up (R3) — a thrown start is resolved on THIS page too ──
+  it("a start that THROWS is asked about on this page after the first gap: the reader's charge is adopted, and 'couldn't confirm' is retracted here and at the page", async () => {
+    const onSettleOutcome = vi.fn();
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton
+            sessionId="s1"
+            totalCents={4210}
+            tap={TAP}
+            onSettleOutcome={onSettleOutcome}
+          />
+          <TerminalCollectPanel sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tapCard();
+    await act(async () => fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    terminalResume.mockResolvedValue({
+      ok: true,
+      collect: { paymentIntentId: "pi_live", totalCents: 4210, cartId: "c1" },
+    });
+    await flush(readerResumeDelay(0));
+    // MUTATION (p2h-cx2a/start/thrown-never-resumed): only a reload resolves it — the reader asks
+    // for the card while this page says "couldn't confirm" and nothing polls the charge; red.
+    expect(terminalResume).toHaveBeenCalledWith({
+      sessionId: "s1",
+      startId: (settleCard.mock.calls[0]?.[0] as { startId: string }).startId,
+    });
+    expect(api.record?.paymentIntentId).toBe("pi_live");
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
+    expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();
+    // MUTATION (p2h-cx2a/start/adoption-unsaid): the page is never told the reader is asking — its
+    // "we don't know" stands over a charge the reader is taking; red.
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["started"]]);
+    // MUTATION (p2h-cx2a/start/adoption-keeps-couldnt-confirm): the button's "couldn't confirm"
+    // stands beside the panel that now knows; red.
+    expect(screen.queryByText(STAFF["settle.reader.unknown"].en)).toBeNull();
+    expect(pending()).toEqual([]);
+  });
+
+  it("a LATE throw (past the bound) is asked about on this page too; a reader with nothing — and no freeze held — leaves 'couldn't confirm' standing and forgets the record", async () => {
+    const onSettleOutcome = vi.fn();
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton
+            sessionId="s1"
+            totalCents={4210}
+            tap={TAP}
+            onSettleOutcome={onSettleOutcome}
+          />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tapCard();
+    await flush(STAFF_HANG_MS);
+    await act(async () => fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    terminalResume.mockResolvedValue({ ok: true, collect: null, held: false });
+    await flush(readerResumeDelay(0));
+    // MUTATION (p2h-cx2a/start/late-thrown-never-resumed): the late throw is left for a reload; red.
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    expect(api.record).toBeNull();
+    expect(pending()).toEqual([]);
+    // Nothing was found: the honest line stays, and nothing claims the reader started.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
   });
 });
 
@@ -199,6 +725,54 @@ describe("TerminalCollectPanel — a view over the provider: shown here, said by
     // Declined or cancelled: "Back to payment" clears the collect — the panel goes.
     expect(group()).toBeNull();
     expect(api.record).toBeNull();
+  });
+
+  it("a cancel with no answer at the bound frees, says 'no answer yet' in the panel and the region, and offers the reload beside them", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    cancelTerminal.mockReturnValueOnce(new Promise(() => {}));
+    const { onStatus } = await panel();
+    await flush();
+    const cancel = screen.getByRole("button", { name: /Cancel the reader|Canceling/ });
+    await act(async () => {
+      fireEvent.click(cancel);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(cancel.getAttribute("aria-busy")).toBeNull();
+    expect(group()!.textContent).toContain(STAFF["settle.reader.cancelWaiting"].en);
+    expect(lastStatus(onStatus)).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelWaiting" },
+    });
+    // MUTATION (p2h-doors/panel-cancel-reload-missing): the line says "reload the page" and the
+    // panel offers no reload — on a standalone console there is no other; red.
+    const reload = screen.getByRole("button", { name: STAFF["out.reload"].en });
+    expect(group()!.contains(reload)).toBe(true);
+    // The panel is no live region; the button is none either (the page's region says it).
+    expect(group()!.querySelectorAll('[role="alert"],[role="status"],[aria-live]')).toHaveLength(0);
+    // MUTATION (p2h-doors/panel-cancel-waiting-live): the Cancel looks ready while its own cancel
+    // is still out — a tap that can only do nothing (S2 critic D4); red.
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a THROWN cancel says 'couldn't confirm' — in the panel and the region, one binding (Phase 2h · 9e)", async () => {
+    // MUTATION (p2h-core/panel-cancel-words-forked): the panel keeps its own copy of the cancel's
+    // words ("Couldn't cancel just now — try again") while the region says the honest one — two
+    // sentences about one tap, and the visible one invites a blind retry over a reader that may
+    // already be cancelled; red.
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    cancelTerminal.mockRejectedValueOnce(new Error("fetch failed"));
+    const { onStatus } = await panel();
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Cancel the reader/ }));
+    });
+    await flush();
+    expect(group()!.textContent).toContain(STAFF["settle.reader.cancelUnknown"].en);
+    expect(group()!.textContent).not.toContain(STAFF["settle.reader.cancelFailed"].en);
+    expect(lastStatus(onStatus)).toEqual({
+      tone: "warn",
+      msg: { k: "settle.reader.cancelUnknown" },
+    });
   });
 
   it("charged but slow to record: the button HIDES the panel and says so — never 'Back to payment' (PT-10)", async () => {

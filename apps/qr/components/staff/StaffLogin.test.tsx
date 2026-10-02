@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outstanding, STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 
 const auth = {
   signInWithOtp: vi.fn(),
@@ -25,8 +26,19 @@ const { StaffLogin } = await import("./StaffLogin");
  * holds in both tongues (a transport failure never blames the address or the code); and the view
  * still has exactly ONE polite live region.
  */
-afterEach(cleanup);
+// Phase 2h — a sign-out is a DOCUMENT navigation; jsdom's `location.assign` cannot be spied, so
+// the whole object is stubbed for every case.
+const assign = vi.fn();
+// Codex r2 on #310 (B5) — a sign-in is a DOCUMENT navigation too (`location.replace`).
+const locReplace = vi.fn();
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 beforeEach(() => {
+  assign.mockReset();
+  locReplace.mockReset();
+  vi.stubGlobal("location", { ...window.location, assign, replace: locReplace });
   for (const fn of Object.values(auth)) fn.mockReset();
   replace.mockReset();
   refresh.mockReset();
@@ -127,10 +139,36 @@ describe("StaffLogin", () => {
     auth.verifyOtp.mockResolvedValueOnce({ error: RETRYABLE });
     submitOf(code);
     await waitFor(() => expect(status().textContent).toMatch(/your code may still be good/));
-    expect(replace).not.toHaveBeenCalled();
+    expect(locReplace).not.toHaveBeenCalled();
     auth.verifyOtp.mockResolvedValueOnce({ error: null });
     submitOf(code);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff"));
+    // Codex r2 on #310 (B5) — the console is reached by a document load, never a soft navigation.
+    await waitFor(() => expect(locReplace).toHaveBeenCalledWith("/staff"));
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("a typed code signs in by a HARD navigation to where the sign-in was for — though the mount's lock release never answered (Codex r2 on #310, B5)", async () => {
+    // The release this form sends on mount is detached and TRACKED. Hung, it stays in Next's
+    // one-at-a-time queue and on the stall ledger while the form works on (a Supabase fetch is not
+    // a queued action) — and a soft `router.replace(next)` carried both into the console: every
+    // action there queued behind it and the money controls refused taps as "still waiting".
+    releaseLock.mockReturnValue(new Promise(() => {}));
+    render(<StaffLogin lang="en" next="/kiosk" />);
+    expect(outstanding()).toBe(1);
+    fireEvent.change(email(), { target: { value: "min@example.com" } });
+    submitOf(email());
+    const code = await screen.findByLabelText(/Sign-in code/);
+    fireEvent.change(code, { target: { value: "123456" } });
+    submitOf(code);
+    // MUTATION (p2h-cx2b/login-verify-soft-nav): a soft navigation again — the hung release and its
+    // ledger entry ride into the console; red.
+    await waitFor(() => expect(locReplace).toHaveBeenCalledWith("/kiosk"));
+    expect(locReplace).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    // "Checking…" holds until the document goes: a second submit verifies nothing.
+    submitOf(code);
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
   });
 
   it("the resend countdown speaks the device's numerals", async () => {
@@ -158,20 +196,98 @@ describe("StaffLogin", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(status().textContent).toMatch(/couldn’t sign out just now/));
     expect(refresh).not.toHaveBeenCalled();
-    expect(releaseLock).not.toHaveBeenCalled(); // the session survived — so does the lock
+    expect(assign).not.toHaveBeenCalled();
+    // Only the mount's release was sent — and the server refuses it while that session lives.
+    expect(releaseLock).toHaveBeenCalledTimes(1);
   });
 
-  it("denied: a successful sign-out releases the device lock, once, then re-gates", async () => {
+  it("denied: a successful sign-out HARD-navigates back to this form (whose mount releases the lock), awaiting no Server Action first", async () => {
     // A wrong account can be signed in on a LOCKED tablet; the browser sign-out cannot clear the
     // httpOnly lock, so the right account's first screen was the lock with no PIN to enter.
-    render(<StaffLogin lang="en" denied />);
+    // Phase 2h (9g) — the release awaited HERE never answered behind a stuck action queue, and the
+    // soft refresh after it could not commit: the escape went nowhere.
+    releaseLock.mockReturnValue(new Promise(() => {}));
+    render(<StaffLogin lang="en" denied next="/kiosk" />);
     const out = screen.getByRole("button", { name: "Sign out" });
     fireEvent.click(out);
     fireEvent.click(out); // refused in the handler — never `disabled`
-    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    // MUTATION (p2h-doors/login-signout-soft-nav): a soft refresh — held behind the stuck action like
+    // every router commit, so the wrong account is never cleared off the screen; red.
+    await waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    // The destination is kept; the "not staff" notice is not (that session is gone).
+    expect(assign).toHaveBeenCalledWith("/staff/login?next=%2Fkiosk");
+    expect(refresh).not.toHaveBeenCalled();
     expect(auth.signOut).toHaveBeenCalledTimes(1);
-    expect(releaseLock).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(1); // the mount's, never a second awaited one
     expect((out as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("denied: a sign-out whose network call never answers frees 'Sign out' at the bound and says the service is unreachable (S2 critic D11)", async () => {
+    vi.useFakeTimers();
+    try {
+      auth.signOut.mockReturnValue(new Promise(() => {}));
+      render(<StaffLogin lang="en" denied />);
+      const out = screen.getByRole("button", { name: "Sign out" });
+      fireEvent.click(out);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS - 1);
+      });
+      expect(status().textContent).toBe("");
+      // MUTATION (p2h-doors/login-signout-unbounded): the sign-out is awaited raw — with no network
+      // the wrong account's escape is latched for good, refusing every tap in its handler; red.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(status().textContent).toMatch(/couldn’t sign out just now/);
+      expect(assign).not.toHaveBeenCalled();
+      auth.signOut.mockResolvedValue({ error: null });
+      await act(async () => {
+        fireEvent.click(out);
+      });
+      expect(assign).toHaveBeenCalledWith("/staff/login");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("denied: a hung sign-out never reaches the stall ledger — it is a Supabase fetch, not a queued action (review c, C1)", async () => {
+    vi.useFakeTimers();
+    try {
+      auth.signOut.mockReturnValue(new Promise(() => {}));
+      render(<StaffLogin lang="en" denied />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0); // the mount's tracked release answers and leaves
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS * 3);
+      });
+      // MUTATION (p2h-rev-c/login-signout-tracked): raced through the tracking race, the hung
+      // fetch reads the tab as stalled and refuses every money tap after the next sign-in; red.
+      expect(outstanding()).toBe(0);
+      expect(stalledSince()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the form RELEASES a lock left behind by a sign-out as it mounts — tracked on the ledger, never awaited", async () => {
+    // Phase 2h (9g) — the lock screen's "Forgot PIN? Sign out" lands here on a fresh document; the
+    // release goes from here, where no earlier action can be stuck ahead of it.
+    let answered!: (v: { released: boolean }) => void;
+    releaseLock.mockReturnValue(new Promise((r) => (answered = r)));
+    render(<StaffLogin lang="en" />);
+    // MUTATION (p2h-doors/login-release-never-sent): the form never sends it — the lock outlives the
+    // sign-out and the next sign-in lands on a lock nobody can open; red.
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+    // On the stall ledger while it is out (a hung release holds the queue like any action).
+    expect(outstanding()).toBe(1);
+    // Never awaited: the form works while it is out.
+    fireEvent.change(email(), { target: { value: "min@example.com" } });
+    submitOf(email());
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    answered({ released: true });
+    await waitFor(() => expect(outstanding()).toBe(0));
   });
 
   it("the code field carries NO Burmese placeholder — an attribute value cannot be marked", async () => {

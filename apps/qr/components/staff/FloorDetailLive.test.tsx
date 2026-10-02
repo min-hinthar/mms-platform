@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
 import { handoffFocusKey, handoffStashKey } from "@/lib/floor-pane";
@@ -51,6 +52,9 @@ vi.mock("@/lib/terminal", () => ({
   settleCard: (...a: unknown[]) => settleCard(...(a as [])),
   terminalStatus: (...a: unknown[]) => terminalStatus(...(a as [])),
   cancelTerminal: vi.fn(),
+  // Codex r2 on #310 (A3) — a reader start left pending in this tab's stash by an earlier case is
+  // resolved by the next provider's restore: no action of that table's on the reader.
+  terminalResume: () => Promise.resolve({ ok: true, collect: null }),
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 vi.mock("@/lib/staff-promo", () => ({
@@ -2031,5 +2035,185 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
     await tick(5000);
     expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
     expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
+  });
+});
+
+describe("Phase 2h (9f) — the table's poll never stacks a read behind a hung one", () => {
+  it("a read hung for 60 s is ONE dispatch; the second miss arms the freeze; the answer kicks exactly one owed read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let release!: (r: TableDetailResult) => void;
+    const hung = new Promise<TableDetailResult>((r) => (release = r));
+    getTableDetail.mockImplementationOnce(() => hung);
+    mount();
+    await tick(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    const notUpdating = ts("en", "out.head.notUpdating");
+    await tick(14_998);
+    expect(orderRegion().textContent).not.toContain(notUpdating);
+    // At the bound: the race's give-up and the tick refused past it are TWO misses — the freeze.
+    // MUTATION (p2h-boards/floor-detail/refused-tick-never-a-miss): only the race's miss counts; red.
+    await tick(5_001);
+    expect(orderRegion().textContent).toContain(notUpdating);
+    // MUTATION (p2h-boards/floor-detail/poll-stacks · floor-detail/gate-watches-nothing): a read
+    // per tick queued behind the hung one; red.
+    await tick(38_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-boards/floor-detail/owed-read-never-kicked): nothing reads until the next
+    // tick; red.
+    await act(async () => {
+      release({ kind: "detail", detail: DETAIL });
+    });
+    await tick(0);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    expect(orderRegion().textContent).not.toContain(notUpdating);
+    await tick(1_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    vi.restoreAllMocks();
+  });
+});
+
+// ── Phase 2h · integration ─────────────────────────────────────────────────────────────────────────
+function deferredOf<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+// S2 critic D2's renderer half — a line edit whose write went past the bound said WRITE_WAITING in
+// the order card's ONE region; its late SUCCESS says nothing through `onError`, so only the row's
+// `onWaiting` edge can retract it. It stood (outranking the settle and frozen lines) until another
+// setter happened by.
+describe("Phase 2h · integration — a line edit's LATE answer and the region's 'no answer yet' (S2 critic D2)", () => {
+  const waitingLine = () => ts("en", "out.write.waiting");
+  const incOf = (name: string) => {
+    const row = [...document.querySelectorAll("li")].find((li) => li.textContent?.includes(name))!;
+    return row.querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+  };
+
+  it("two rows' writes still out: the first late success keeps the line (the other may still save); the LAST retracts it", async () => {
+    const one = deferredOf<{ ok: boolean; error?: string }>();
+    const two = deferredOf<{ ok: boolean; error?: string }>();
+    staffSetQty.mockReturnValueOnce(one.promise).mockReturnValueOnce(two.promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(incOf("Mohinga"));
+    });
+    await act(async () => {
+      fireEvent.click(incOf("Tea Leaf Salad"));
+    });
+    expect(staffSetQty).toHaveBeenCalledTimes(2);
+    await tick(STAFF_HANG_MS);
+    expect(orderRegion().textContent).toBe(waitingLine());
+    await act(async () => one.resolve({ ok: true }));
+    await tick(0);
+    // MUTATION (p2h-int-a/line-waiting-forgets-the-others): the first answer retracts the line
+    // while Tea Leaf Salad's change is still unanswered — "may still be saved" is still true of
+    // it, and the region falls silent over it; red.
+    expect(orderRegion().textContent).toBe(waitingLine());
+    await act(async () => two.resolve({ ok: true }));
+    await tick(0);
+    // MUTATION (p2h-int-a/line-waiting-unwired): the detail hands the rows no `onWaiting` — "no
+    // answer yet — that change may still be saved" stands over two changes that saved; red.
+    expect(orderRegion().textContent).toBe("");
+  });
+
+  it("a LATE refusal says its own sentence first, and its waiting edge never wipes it — only 'no answer yet' is retracted", async () => {
+    const one = deferredOf<{ ok: boolean; error?: string }>();
+    staffSetQty.mockReturnValueOnce(one.promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(incOf("Mohinga"));
+    });
+    await tick(STAFF_HANG_MS);
+    expect(orderRegion().textContent).toBe(waitingLine());
+    await act(async () => one.resolve({ ok: false, error: "That line just changed." }));
+    await tick(0);
+    // MUTATION (p2h-int-a/line-waiting-wipes-any-line): the edge clears whatever the region says
+    // — the refusal the late answer just said goes unread, and the dish looks saved; red.
+    expect(orderRegion().textContent).toBe("That line just changed.");
+  });
+});
+
+// Sheets residual 3 · boards P1 — the detail forwards a settle's outcome to the pane only once it
+// UNMOUNTED (a mounted control says its own); `landed` (a late ok answering an `unknown`) follows the
+// same rule through its own hand-up, and a detail that is GONE starts no read off a late hand-up.
+describe("Phase 2h · integration — a settle answered late, after the detail left", () => {
+  const OK = { ok: true as const, orderId: "o1", totalCents: 4210, tipCents: 0 };
+  async function takeCash() {
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.textContent?.startsWith("Take $"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+  }
+  function paneDetail() {
+    const onLostWrite = vi.fn();
+    const onLostLanded = vi.fn();
+    const r = render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <FloorDetailLive
+            initial={SETTLEABLE}
+            sessionId="s1"
+            onLostWrite={onLostWrite}
+            onLostLanded={onLostLanded}
+          />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    return { ...r, onLostWrite, onLostLanded };
+  }
+
+  it("unmounted mid-wait: 'we don't know' at the bound, then the late ok is handed up as landed — once, for this table", async () => {
+    const late = deferredOf<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const v = paneDetail();
+    await takeCash();
+    v.unmount(); // the pane moved on while the settle was out
+    await tick(STAFF_HANG_MS);
+    expect(v.onLostWrite).toHaveBeenCalledWith("s1", expect.anything(), "settleUnknown");
+    expect(v.onLostLanded).not.toHaveBeenCalled();
+    await act(async () => late.resolve(OK));
+    // MUTATION (p2h-int-a/detail-landed-unforwarded): the landing dies with the detail — the pane's
+    // "we don't know if the payment went through" stands over a payment that was recorded; red.
+    // MUTATION (p2h-int-a/landed-said-as-refused): `landed` falls through to the refusal mapping —
+    // the pane is told a payment that WENT THROUGH "didn't go through"; red (here, and below).
+    expect(v.onLostLanded.mock.calls).toEqual([["s1", "paid"]]);
+    expect(v.onLostWrite).toHaveBeenCalledTimes(1);
+  });
+
+  it("MOUNTED: a late ok is the control's own business — nothing is handed to the pane", async () => {
+    const late = deferredOf<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const v = paneDetail();
+    await takeCash();
+    await tick(STAFF_HANG_MS);
+    expect(v.onLostWrite).not.toHaveBeenCalled();
+    await act(async () => late.resolve(OK));
+    // MUTATION (p2h-int-a/detail-landed-while-mounted): a mounted detail forwards its own landing —
+    // the detail-to-pane contract ("only what no mounted region can say") breaks for the landing
+    // alone; red.
+    expect(v.onLostLanded).not.toHaveBeenCalled();
+    expect(v.onLostWrite).not.toHaveBeenCalled();
+  });
+
+  it("a detail that is GONE starts no read: the settle's hand-up re-reads (at the bound, at the late ok) dispatch nothing (X1)", async () => {
+    const late = deferredOf<typeof OK>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const v = paneDetail();
+    await takeCash();
+    v.unmount();
+    getTableDetail.mockClear();
+    await tick(STAFF_HANG_MS + 1_000);
+    // MUTATION (p2h-int-a/dead-detail-reads): the waiting arm's `onChanged` debounces a read on the
+    // unmounted detail — dispatched into Next's one-at-a-time queue behind the very settle that is
+    // hanging, for a table nobody is looking at; red.
+    expect(getTableDetail).not.toHaveBeenCalled();
+    await act(async () => late.resolve(OK));
+    await tick(1_000);
+    expect(getTableDetail).not.toHaveBeenCalled();
   });
 });

@@ -1,9 +1,11 @@
 "use client";
-import { useState, useTransition, type CSSProperties, type FormEvent } from "react";
+import { useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
+import { useResaid } from "./useResaid";
 import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
+import { boundWrite, ownWaitSlot, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
@@ -12,12 +14,13 @@ import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
   pinFailureCopy,
-  rosterRetryMsg,
   useApproverRoster,
   useLockout,
+  useRosterRegion,
 } from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+import { ReloadButton } from "./ReloadOffer";
 import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -81,6 +84,14 @@ const REQUEST_KEY: Record<Action, StaffKey> = {
   comp: "table.loss.requestApproval.comp",
 };
 
+/** Phase 2h — the sentences that say "reload the page": the region says them, and the ONE reload
+ *  control sits beside the region (the console is installed standalone — no browser reload). */
+const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
+  "out.stalled",
+  "table.loss.msg.waiting",
+  "table.loss.msg.requestWaiting",
+]);
+
 /**
  * The loss action (S2.3): void (cancel + remove) or comp (free, kitchen still makes it) a fired line, with
  * the manager-PIN step-up when the server requires it. The loss gate is SERVER-authoritative — this sheet
@@ -110,7 +121,23 @@ export function LossActionSheet({
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
-  const [pending, startTransition] = useTransition();
+  // Phase 2h (9a) — the sheet's `busy` is STATE, set at the tap and cleared in the `finally` around a
+  // BOUNDED await — never a transition's `pending`, which does not clear while the Server Action it
+  // dispatched is unanswered (Next's per-tab action queue; LEARNINGS #149 · #200). Freed at
+  // STAFF_HANG_MS at the latest, on every path; the M82 guard parses for exactly this shape.
+  const [busy, setBusy] = useState(false);
+  // The tap-time guard: two taps in one frame both read the render before `busy` flipped.
+  const inFlight = useRef(false);
+  // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
+  // is refused on it directly, not only through the 9d ledger check: it is this sheet's OWN fact,
+  // whatever the ledger reads (F12 caught the ledger reading "not stalled" with the wall clock set
+  // back mid-hang; it ages on a monotonic clock since Codex r2 B4), so a second write never queues
+  // behind the first. It holds the
+  // sentence that write SAID at the bound (the void's or the request's — one write is out at a time),
+  // because the refusal re-says it, not the tablet's (`tapRefusal`, owner decision); null: none out.
+  // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount (the line editor
+  // keys every open as a fresh sheet; a re-opened one must still say the write that is out).
+  const ownLate = ownWaitSlot<StaffKey | null>(`loss:${line.id}`, null);
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
   const cooked = line.state === "in_progress" || line.state === "served";
@@ -126,6 +153,11 @@ export function LossActionSheet({
   // deferred request to primary and tell the server nobody is on shift (Codex round 2 on #308).
   const roster = useApproverRoster(listApprovers);
   const approvers = roster.approvers;
+  // Try again on the roster, and the ONE region rule for any recovery (`useRosterRegion`, shared with
+  // the no-show sheet): a second failure is said in the region; a recovery — the Try again's answer,
+  // or a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
+  // sentence, putting back "a manager needs to approve" while the server's step-up is pending.
+  const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
 
   const reasonOptions = REASONS[action];
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
@@ -135,7 +167,7 @@ export function LossActionSheet({
   const pinOk = pin.length >= 4 && pin.length <= 8;
   // The reason is validated inline on submit (S14), not folded into the disabled gate — a silently-dimmed
   // CTA leaves the server with no idea why. The PIN/manager completeness still gates the button visibly.
-  const canSubmit = !locked && !pending && (!showStepUp || (!!approverStaffId && pinOk));
+  const canSubmit = !locked && !busy && (!showStepUp || (!!approverStaffId && pinOk));
   // S11: no manager is signed in → the PIN path is a dead end; the deferred request becomes the primary.
   const noManagers = approvers !== null && approvers.length === 0;
 
@@ -144,6 +176,13 @@ export function LossActionSheet({
     setReasonInvalid(false);
   }
 
+  /**
+   * The void/comp's ANSWER — on time, or late (9e: the answer to an attempt the region already said
+   * had none yet). A landed one closes through the parent (`onDone`/`onOpenChange` are its state, so
+   * a late landing after the sheet closed still lands); a refusal is said in the one region — state,
+   * which React drops on an unmounted sheet, so a late refusal is said only while it is open. Every
+   * value read here is the TAP's render (the closure), never the one the answer lands in.
+   */
   function handleResult(res: VoidLineResult) {
     if (res.ok) {
       onDone(res.action);
@@ -184,7 +223,8 @@ export function LossActionSheet({
         onOpenChange(false);
         break;
       case "outage":
-        // W10b — nothing was voided/comped; the platform is unreachable, not the line or the PIN.
+        // W10b — the action ANSWERED that nothing was voided/comped; the platform is unreachable, not
+        // the line or the PIN. (A THROWN action is not this: it may have landed — see `submit`.)
         setMsg(STAFF_WRITE_OUTAGE);
         break;
       default:
@@ -192,117 +232,173 @@ export function LossActionSheet({
     }
   }
 
-  function submit(e: FormEvent) {
+  /** The approval request's answer — on time or late, the same rule as `handleResult`. */
+  function handleRequest(res: Awaited<ReturnType<typeof requestApproval>>) {
+    if (res.ok) {
+      onDone(action);
+      onOpenChange(false);
+      return;
+    }
+    switch (res.reason) {
+      case "already_pending":
+        setMsg({ k: "table.loss.msg.alreadyPending" });
+        break;
+      case "no_approval_needed":
+        setMsg({
+          k: "table.loss.msg.noApprovalNeeded",
+          vars: { x: ts(lang, "table.loss.seg.void") },
+        });
+        break;
+      case "in_flight":
+        setMsg({ k: "table.appr.msg.inFlight" });
+        break;
+      case "not_open":
+        setMsg({ k: "table.loss.msg.notOpen" });
+        break;
+      case "not_found":
+        setMsg({ k: "table.loss.msg.notFound" });
+        break;
+      case "outage":
+        // W10b — the request ANSWERED that it wasn't recorded; the platform is unreachable.
+        setMsg(STAFF_WRITE_OUTAGE);
+        break;
+      default:
+        setMsg({ k: "table.loss.msg.sendFailed" });
+    }
+  }
+
+  async function submit(e: FormEvent) {
     e.preventDefault();
+    if (inFlight.current) return;
     if (!effectiveReason) {
       setReasonInvalid(true); // S14: tell them what's missing instead of a dead, dimmed button
       setMsg({ k: "table.loss.reasonRequired" });
       return;
     }
     if (!canSubmit) return; // §17 — the button says so with `aria-disabled`; the refusal is here
+    // Phase 2h (9d) — a loss is refused AT THE TAP, never dispatched, while any action on this tab
+    // has gone STAFF_HANG_MS without an answer (Next would only queue it behind that one — and the
+    // void spends a manager's PIN attempt when it finally runs). Read now, never from render state.
+    // Owner decision: while THIS sheet's own write is still out past the bound, the refusal re-says
+    // ITS sentence ("Don't do it again"), never the tablet's "this did nothing" (`tapRefusal`).
+    const refused = tapRefusal(ownLate.current, stalledSince(), "out.stalled");
+    if (refused !== null) {
+      setMsg({ k: refused });
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
     setMsg(null);
-    startTransition(async () => {
-      // ⚠️ The transport itself can reject — offline, a server-action version skew after a deploy —
-      // and an unhandled rejection inside a transition scope surfaces as a THROW into the nearest
-      // error boundary, taking the whole staff table page down instead of showing the outage copy
-      // every other failure reason gets. Its sibling `RefundActionSheet` (and the order pad's add
-      // chain, `usePadWrites`) already wrap; this file was the one that did not. M82 adversarial
-      // pass, LOW.
-      try {
-        const res = await voidLine({
+    try {
+      // 9b — called OUTSIDE any transition and awaited BOUNDED, the RAW action promise handed over.
+      const out = await boundWrite(
+        voidLine({
           sessionId,
           cartItemId: line.id,
           action,
           reason: effectiveReason,
           ...(showStepUp ? { approverStaffId, pin } : {}),
-        });
-        handleResult(res);
-      } catch {
-        setMsg(STAFF_WRITE_OUTAGE);
+        }),
+      );
+      if (out.kind === "answer") {
+        handleResult(out.value);
+        return;
       }
-    });
+      // Sent either way (critic F4): `voidLine` spends the manager's attempt BEFORE the RPC, so a PIN
+      // whose verdict was lost must not stay to be re-sent toward the floor-wide lockout — the
+      // refund and no-show sheets empty theirs on the same two arms.
+      setPin("");
+      if (out.kind === "threw") {
+        // ⚠️ A REJECTED action — offline, a version skew after a deploy, a response lost after the
+        // RPC committed — may have landed: "couldn't confirm", never "wasn't saved" (9e). It used to
+        // say the write-outage sentence, which claims nothing was voided.
+        setMsg({ k: "table.loss.msg.unknown" });
+        return;
+      }
+      // 9e — no answer yet: it may still be recorded; the late answer is applied when it arrives.
+      setMsg({ k: "table.loss.msg.waiting" });
+      ownLate.current = "table.loss.msg.waiting";
+      void out.late.then((late) => {
+        ownLate.current = null;
+        if (late.kind === "answer") handleResult(late.value);
+        else setMsg({ k: "table.loss.msg.unknown" });
+      });
+    } finally {
+      inFlight.current = false;
+      setBusy(false); // frees AT THE BOUND on every path — the M82 guard parses for it
+    }
   }
 
   // Deferred path (S2.4): no manager at hand → request approval (no PIN). The line stays live until a
   // manager resolves it from the queue. Needs a reason (for the audit), not a manager/PIN.
-  function submitRequest() {
-    if (pending || locked) return; // §17 — the buttons say so with `aria-disabled`
+  async function submitRequest() {
+    if (inFlight.current || busy || locked) return; // §17 — the buttons say so with `aria-disabled`
     if (!effectiveReason) {
       setReasonInvalid(true); // S14: same inline validation on the deferred path
       setMsg({ k: "table.loss.reasonRequired" });
       return;
     }
+    // 9d — the request rides the same queue as the loss it asks for; refused while stalled too —
+    // and while this sheet's own void or request is still out, in THAT write's words (`tapRefusal`).
+    const refused = tapRefusal(ownLate.current, stalledSince(), "out.stalled");
+    if (refused !== null) {
+      setMsg({ k: refused });
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
     setMsg(null);
-    startTransition(async () => {
-      let res: Awaited<ReturnType<typeof requestApproval>>;
-      // Same rule as the direct path above — a rejected transport must read as an outage, not as a
-      // crashed page. This is also the arm that keeps `busy` honest: the flag settles either way.
-      try {
-        res = await requestApproval({
+    try {
+      const out = await boundWrite(
+        requestApproval({
           sessionId,
           cartItemId: line.id,
           action,
           reason: effectiveReason,
-        });
-      } catch {
-        setMsg(STAFF_WRITE_OUTAGE);
+        }),
+      );
+      if (out.kind === "answer") {
+        handleRequest(out.value);
         return;
       }
-      if (res.ok) {
-        onDone(action);
-        onOpenChange(false);
+      if (out.kind === "threw") {
+        // A rejected transport may have reached the queue: couldn't confirm (an `already_pending`
+        // on the retry says so if it did).
+        setMsg({ k: "table.loss.msg.requestUnknown" });
         return;
       }
-      switch (res.reason) {
-        case "already_pending":
-          setMsg({ k: "table.loss.msg.alreadyPending" });
-          break;
-        case "no_approval_needed":
-          setMsg({
-            k: "table.loss.msg.noApprovalNeeded",
-            vars: { x: ts(lang, "table.loss.seg.void") },
-          });
-          break;
-        case "in_flight":
-          setMsg({ k: "table.appr.msg.inFlight" });
-          break;
-        case "not_open":
-          setMsg({ k: "table.loss.msg.notOpen" });
-          break;
-        case "not_found":
-          setMsg({ k: "table.loss.msg.notFound" });
-          break;
-        case "outage":
-          // W10b — the request wasn't recorded; the platform is unreachable, not the line.
-          setMsg(STAFF_WRITE_OUTAGE);
-          break;
-        default:
-          setMsg({ k: "table.loss.msg.sendFailed" });
-      }
-    });
+      setMsg({ k: "table.loss.msg.requestWaiting" });
+      ownLate.current = "table.loss.msg.requestWaiting";
+      void out.late.then((late) => {
+        ownLate.current = null;
+        if (late.kind === "answer") handleRequest(late.value);
+        else setMsg({ k: "table.loss.msg.requestUnknown" });
+      });
+    } finally {
+      inFlight.current = false;
+      setBusy(false); // the request's lock frees at the bound too
+    }
   }
 
   // The lockout countdown takes precedence over a transient message.
-  // Try again on the roster: a second failure is said in the ONE region; a recovery clears only that
-  // — and puts back "a manager needs to approve" while the server's step-up is still pending.
-  async function retryRoster(): Promise<boolean> {
-    const ok = await roster.retry();
-    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
-    return ok;
-  }
-
   const shown = lockCopy ?? msg;
+  // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
+  // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
+  const said = useResaid(msg);
+  const reload =
+    typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
   return (
     // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
     // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
     // runs `verifyStaffPin` BEFORE the RPC, which atomically spends one of the manager's five
     // attempts. A dismissal mid-flight therefore loses the verdict AND the attempt — and the natural
     // response, trying again, walks a manager toward a floor-wide lockout with nothing on screen
-    // ever having said why. `pending` is `useTransition`'s flag, so it settles on the failure path.
+    // ever having said why. Phase 2h: `busy` is state cleared in a bounded `finally` (9a), so a
+    // hung write frees every exit at STAFF_HANG_MS and the region says "no answer yet" instead.
     <Sheet
       open={open}
       onOpenChange={onOpenChange}
-      busy={pending}
+      busy={busy}
       closeLabel={sheetCloseLabel(lang)}
       // manager-6 / P2t — the dictionary's title, marked (`Sheet.title` is a ReactNode, and the
       // refund sheet beside this one already passes <Chrome>); the comment that kept it an English
@@ -424,11 +520,11 @@ export function LossActionSheet({
             className="staff-btn"
             type="button"
             onClick={submitRequest}
-            aria-disabled={pending || locked || undefined}
-            aria-busy={pending || undefined}
-            style={{ ...primaryBtn, opacity: pending || locked ? 0.6 : 1 }}
+            aria-disabled={busy || locked || undefined}
+            aria-busy={busy || undefined}
+            style={{ ...primaryBtn, opacity: busy || locked ? 0.6 : 1 }}
           >
-            {pending ? (
+            {busy ? (
               <Chrome lang={lang} k="table.loss.sending" echo="stack" />
             ) : (
               <Chrome lang={lang} k={REQUEST_KEY[action]} echo="stack" />
@@ -440,10 +536,10 @@ export function LossActionSheet({
               className="staff-btn"
               type="submit"
               aria-disabled={!canSubmit || undefined}
-              aria-busy={pending || undefined}
+              aria-busy={busy || undefined}
               style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
             >
-              {pending ? (
+              {busy ? (
                 <Chrome lang={lang} k="table.loss.working" echo="stack" />
               ) : showStepUp ? (
                 <Chrome lang={lang} k={CONFIRM_APPROVAL_KEY[action]} echo="stack" />
@@ -459,8 +555,8 @@ export function LossActionSheet({
                 className="staff-btn"
                 type="button"
                 onClick={submitRequest}
-                aria-disabled={pending || locked || undefined}
-                style={{ ...secondaryBtn, opacity: pending || locked ? 0.6 : 1 }}
+                aria-disabled={busy || locked || undefined}
+                style={{ ...secondaryBtn, opacity: busy || locked ? 0.6 : 1 }}
               >
                 <Chrome lang={lang} k="table.loss.noManager" echo="stack" />
               </button>
@@ -471,18 +567,26 @@ export function LossActionSheet({
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {shown && (
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+            <span key={said} style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
               {/* P7·2 — a `pin.*` key renders through <Chrome>; a server sentence passes through
                   <OutageText>, which swaps in the one twin that exists (the rest is P2i). */}
               <MsgText lang={lang} msg={shown} />
             </span>
           )}
         </p>
+        {/* Phase 2h — the reload the region's sentence names, BESIDE the region (never inside it:
+            no second live role, no <div> in a <p>). */}
+        {reload && (
+          <div style={reloadRow}>
+            <ReloadButton lang={lang} block />
+          </div>
+        )}
       </form>
     </Sheet>
   );
 }
 
+const reloadRow: CSSProperties = { marginTop: "var(--s2)" };
 const lineSummary: CSSProperties = {
   margin: "0 0 14px",
   fontSize: "var(--fs-sm)",

@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FocusEvent,
   type MouseEvent,
 } from "react";
@@ -26,6 +27,8 @@ import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { useCounterMint, type MintNotice } from "./CounterMint";
 import { useTablePane } from "./TablePaneContext";
+// ── Phase 2h ──
+import { ReloadButton } from "./ReloadOffer";
 
 /**
  * Phase 2d · floor — THE TABLE STRIP: the room's map AND its one-tap start (owner decision 5c).
@@ -56,6 +59,11 @@ import { useTablePane } from "./TablePaneContext";
  * tile's name already says its word.
  *
  * The strip mounts NO live region: a refusal is handed to the board's one region (`onNotice`).
+ *
+ * Phase 2h (S2 critic D1) — a table start still unanswered past the bound (`waiting`) is said in the
+ * board's region ("no answer yet … reload the page"), and the console is installed standalone (no
+ * browser reload): the strip offers the reload at its head, under that region, until the late
+ * answer lands.
  */
 const GLYPH: Record<FloorTone, IconName> = {
   ask: "receipt",
@@ -71,15 +79,25 @@ export function TableStrip({
   tables,
   lang,
   onNotice,
+  onWait,
 }: {
   registry: readonly number[];
   tables: readonly FloorTable[];
   lang: StaffLang;
   /** The board's ONE region: a refusal lands there; `null` clears it (a new tap). */
   onNotice: (n: MintNotice | null) => void;
+  /** Phase 2h · integration b — whether the strip's OWN (table) start is still unanswered past the
+   *  bound: the board keeps that start's waiting line standing (no dwell) while it is. */
+  onWait?: (waits: boolean) => void;
 }) {
-  const { minting, held, isBusy, run } = useCounterMint();
+  const { minting, held, startHeld, waiting, isBusy, run } = useCounterMint();
   const tiles = tableStrip(registry, tables);
+  // Phase 2h · integration b — the wait the strip OWNS (a table start's; a Walk-up's is the Start
+  // zone's): its reload stands at the strip's head, and the board's line stands while it lasts.
+  const tableWaits = waiting?.startsWith("table-") ?? false;
+  useEffect(() => {
+    onWait?.(tableWaits);
+  }, [onWait, tableWaits]);
   const listRef = useRef<HTMLUListElement>(null);
 
   // ── the flip guard ── (the memory and its clock live in `createFlipGuard`; the strip only asks)
@@ -157,7 +175,7 @@ export function TableStrip({
       run(
         `table-${n}`,
         { kind: "table", tableNumber: n },
-        { onStart: () => onNotice(null), onRefusal: onNotice },
+        { onStart: () => onNotice(null), onRefusal: onNotice, onResolved: () => onNotice(null) },
       );
     },
     [onNotice, run],
@@ -187,6 +205,11 @@ export function TableStrip({
   return (
     // The visible label names the LIST (not a wrapping group as well — one name, heard once).
     <div className="floor-strip-wrap">
+      {tableWaits && (
+        <div style={reloadRow}>
+          <ReloadButton lang={lang} />
+        </div>
+      )}
       <p id="floor-strip-h" className="floor-strip-label">
         <Chrome lang={lang} k="floor.strip.label" />
       </p>
@@ -204,7 +227,7 @@ export function TableStrip({
               <FreeTile
                 n={n}
                 lang={lang}
-                held={held || settling.has(n)}
+                held={startHeld || settling.has(n)}
                 busy={minting === `table-${n}`}
                 onTap={() => tapFree(n)}
               />
@@ -314,3 +337,6 @@ function OccupiedTile({
     </Link>
   );
 }
+
+// Phase 2h — the reload offered under the board's region, spaced off the strip label below it.
+const reloadRow: CSSProperties = { display: "flex", margin: "0 0 var(--s2)" };

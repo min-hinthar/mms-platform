@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outstanding } from "@/lib/bounded-write";
 
 /**
  * P3 — the register's promo control, and specifically the three things about it that are NOT
@@ -204,5 +205,37 @@ describe("StaffPromoControl", () => {
     render(<StaffPromoControl {...props} canWrite={false} />);
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByText("No code on this order.")).toBeTruthy();
+  });
+});
+
+describe("Phase 2h (9d) — the promo write sits on the stall ledger until it answers", () => {
+  it("a hung APPLY is one outstanding action, gone when it answers", async () => {
+    // MUTATION (p2h-core/track-promo-apply): the apply is not tracked — hung, it holds the action
+    // queue while the ledger calls the tab healthy, and a cash or refund tap is queued behind it; red.
+    let release!: (v: { ok: true }) => void;
+    applyPromoForTable.mockReturnValue(new Promise<{ ok: true }>((r) => (release = r)));
+    render(<StaffPromoControl {...props} />);
+    fireEvent.change(field(), { target: { value: "PILOT15" } });
+    fireEvent.click(submit());
+    expect(applyPromoForTable).toHaveBeenCalledTimes(1);
+    expect(outstanding()).toBe(1);
+    await act(async () => {
+      release({ ok: true });
+    });
+    expect(outstanding()).toBe(0);
+  });
+
+  it("a hung REMOVE is one outstanding action, gone when it answers", async () => {
+    // MUTATION (p2h-core/track-promo-clear): the remove is not tracked; red.
+    let release!: (v: { ok: true }) => void;
+    clearPromoForTable.mockReturnValue(new Promise<{ ok: true }>((r) => (release = r)));
+    render(<StaffPromoControl {...props} promoCode="PILOT15" />);
+    fireEvent.click(submit());
+    expect(clearPromoForTable).toHaveBeenCalledTimes(1);
+    expect(outstanding()).toBe(1);
+    await act(async () => {
+      release({ ok: true });
+    });
+    expect(outstanding()).toBe(0);
   });
 });
