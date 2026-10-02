@@ -14,7 +14,7 @@ import { plural, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { raceTimeout } from "@/lib/staff-outage";
-import { outReadSlot } from "@/lib/bounded-write";
+import { outReadSlot, releaseOutRead } from "@/lib/bounded-write";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import type { StaffMsg } from "./StaffMsg";
@@ -148,9 +148,10 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
     const raw = load();
     outRaw.current = raw;
     // Cleared in the raw's OWN settle, whichever way it went (the second handler also marks a
-    // rejection handled — the bounded await that dispatched it reads and says it).
+    // rejection handled — the bounded await that dispatched it reads and says it), and only while
+    // the register still holds THIS raw (R4: never a newer read's).
     const settled = () => {
-      outRaw.current = null;
+      releaseOutRead(load, raw);
     };
     raw.then(settled, settled);
     return raw;

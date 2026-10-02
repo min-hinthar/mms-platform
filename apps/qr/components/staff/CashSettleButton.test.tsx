@@ -1493,8 +1493,9 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
       fireEvent.click(settle());
     });
     await advance(STAFF_HANG_MS);
-    // The bound fires on a monotonic timer; the ledger ages its entries by the WALL clock. Set back
-    // (a person, a sync), the ledger reads "not stalled" while this settle is still out.
+    // A wall clock set back (a person, a sync) while this settle is still out: the own wait refuses
+    // regardless (the ledger ages on a monotonic clock since Codex r2 B4; F12 caught it reading
+    // "not stalled" here while it aged by the wall clock).
     vi.setSystemTime(Date.now() - 60_000);
     await act(async () => {
       fireEvent.click(settle());

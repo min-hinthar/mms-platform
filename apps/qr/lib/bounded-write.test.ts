@@ -4,9 +4,11 @@ import {
   boundWrite,
   hasOwnWait,
   monoNow,
+  moveOwnOut,
   outReadSlot,
   outstanding,
   ownWaitSlot,
+  releaseOutRead,
   resetOutReadsForTests,
   resetOwnWaitsForTests,
   subscribeOwnWait,
@@ -17,6 +19,7 @@ import {
   track,
   type Bounded,
   type Late,
+  type OwnOut,
 } from "./bounded-write";
 
 /**
@@ -425,5 +428,71 @@ describe("outReadSlot — a raw READ still out, by key, outlives the mount (Code
     // MUTATION (p2h-cx2b/out-read/never-cleared): a settled read stays "out" — every later open
     // attaches to an old answer (or an old failure) and never reads again; red.
     expect(outReadSlot<number>(rosterRead).current).toBeNull();
+  });
+});
+
+describe("moveOwnOut — a write held from dispatch moves only by its OWN token (Codex r2 follow-up on #310, R2 · R3)", () => {
+  afterEach(() => {
+    resetOwnWaitsForTests();
+  });
+  const never = <T>() => new Promise<Late<T>>(() => {});
+
+  it("the bound marks the held write past, and its answer releases it — each only while it is still that write", () => {
+    const first = never<number>();
+    const slot = ownWaitSlot<OwnOut<number> | false>("open:c1", false);
+    slot.current = { late: first, past: false };
+    expect(moveOwnOut("open:c1", first, { late: first, past: true })).toBe(true);
+    expect(slot.current).toEqual({ late: first, past: true });
+    expect(moveOwnOut("open:c1", first, false)).toBe(true);
+    expect(hasOwnWait("open:c1")).toBe(false);
+    // Nothing held: a late move is a no-op, never a re-hold.
+    expect(moveOwnOut("open:c1", first, { late: first, past: true })).toBe(false);
+    expect(hasOwnWait("open:c1")).toBe(false);
+  });
+
+  it("an OLD write's answer never releases — nor marks — a NEWER write's hold on the same subject", () => {
+    const first = never<number>();
+    const second = never<number>();
+    const slot = ownWaitSlot<OwnOut<number> | false>("refundmark:r1", false);
+    slot.current = { late: second, past: false };
+    // MUTATION (p2h-cx2b/own-out/move-untokened): any answer moves the subject's hold — the first
+    // write's late answer frees the second while it is still out, and its tap sends a third; red.
+    expect(moveOwnOut("refundmark:r1", first, false)).toBe(false);
+    expect(moveOwnOut("refundmark:r1", first, { late: first, past: true })).toBe(false);
+    expect(slot.current).toEqual({ late: second, past: false });
+  });
+
+  it("every move notifies the subscribed controls; a refused one does not", () => {
+    const heard = vi.fn();
+    const stop = subscribeOwnWait(heard);
+    const late = never<number>();
+    ownWaitSlot<OwnOut<number> | false>("open:c2", false).current = { late, past: false };
+    expect(heard).toHaveBeenCalledTimes(1);
+    moveOwnOut("open:c2", late, { late, past: true });
+    expect(heard).toHaveBeenCalledTimes(2);
+    moveOwnOut("open:c2", never<number>(), false);
+    expect(heard).toHaveBeenCalledTimes(2);
+    stop();
+  });
+});
+
+describe("releaseOutRead — a read's settle clears only the read it is (Codex r2 follow-up on #310, R4)", () => {
+  afterEach(() => {
+    resetOutReadsForTests();
+  });
+  const rosterRead = () => {};
+
+  it("clears the key while it holds this raw; a raw that settles AFTER the register refilled leaves the newer read standing", () => {
+    const old = new Promise<string[]>(() => {});
+    const fresh = new Promise<string[]>(() => {});
+    outReadSlot<string[]>(rosterRead).current = old;
+    releaseOutRead(rosterRead, old);
+    expect(outReadSlot<string[]>(rosterRead).current).toBeNull();
+    outReadSlot<string[]>(rosterRead).current = fresh;
+    // MUTATION (p2h-cx2b/out-read/release-untokened): the old read's settle clears whatever the key
+    // holds — the newer read is forgotten while still out, and the next open sends another behind
+    // it; red.
+    releaseOutRead(rosterRead, old);
+    expect(outReadSlot<string[]>(rosterRead).current).toBe(fresh);
   });
 });

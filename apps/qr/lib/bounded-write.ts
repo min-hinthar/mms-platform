@@ -230,6 +230,39 @@ export function resetOwnWaitsForTests(): void {
 }
 
 /**
+ * Codex r2 follow-up on #310 (R2 · R3) — a write HELD FROM THE MOMENT IT IS SENT. A hold set only at
+ * the bound left its first STAFF_HANG_MS to the mount that sent it: the open-bill button or the
+ * refunds strip mounted again inside that window (staff switch tables and back) read free, and a tap
+ * sent a second write behind the first. So those two register their write at DISPATCH in the
+ * own-wait register: `late`, the write's never-rejecting answer (`settleLate` of the raw), and
+ * `past`, false until the bound passes with no answer. Every mount reads the one entry — before the
+ * bound the control is busy, after it it says "no answer yet" — and refuses to send while it stands.
+ */
+export type OwnOut<T> = { readonly late: Promise<Late<T>>; readonly past: boolean };
+
+/**
+ * Move `subject`'s held write ONLY while it is still the write whose answer is `late`: `next`
+ * replaces it (the bound marks it `past`), `false` releases it (its answer came). TOKEN-SCOPED — an
+ * answer releases only the hold IT set, never a newer write's that took the subject since: the old
+ * late handlers cleared unconditionally, so the first write's answer freed a second write's hold
+ * while that one was still out. Through one subject's own flow a second write cannot start while
+ * the first is held (the tap refuses on the entry), so this is the belt behind that rule — no path,
+ * and no register reset between test cases, lets a stale answer move a newer hold. Returns whether
+ * it moved.
+ */
+export function moveOwnOut<T>(
+  subject: string,
+  late: Promise<Late<T>>,
+  next: OwnOut<T> | false,
+): boolean {
+  const slot = ownWaitSlot<OwnOut<T> | false>(subject, false);
+  const held = slot.current;
+  if (held === false || held.late !== late) return false;
+  slot.current = next;
+  return true;
+}
+
+/**
  * Codex round 2 on #310 (B2) — the per-tab register of a raw READ still unanswered, keyed by what
  * reads it, so it outlives the MOUNT that sent it. The bound frees the caller, never the action, so a
  * hung read stays in Next's per-tab queue after the surface that sent it closes; a per-mount ref
@@ -240,8 +273,9 @@ export function resetOwnWaitsForTests(): void {
  *
  * `outReadSlot(key)` is a ref-shaped handle onto that key's entry (`ownWaitSlot`'s shape): `.current`
  * is the raw still out, or null; writing null clears it, a promise sets it. The owner sets it at
- * dispatch and clears it in the raw's OWN settle (and only while it still holds that raw) — never at
- * a bound.
+ * dispatch and clears it in the raw's OWN settle — never at a bound — through `releaseOutRead`, which
+ * clears it only while it still holds THAT raw (Codex r2 follow-up, R4: the settle used to clear
+ * unconditionally, which this sentence already denied).
  */
 const outReads = new Map<unknown, Promise<unknown>>();
 
@@ -255,6 +289,16 @@ export function outReadSlot<T>(key: unknown): { current: Promise<T> | null } {
       else outReads.set(key, raw);
     },
   };
+}
+
+/**
+ * A read's OWN settle: clear `key` only while it still holds `raw` (R4). The register refills only
+ * when it is empty, so through the roster's own flow the raw that settles is the one it holds; the
+ * check keeps a read that settles AFTER the register was emptied (a reset between test cases) from
+ * clearing the newer read a later mount registered — which then sent a second read behind it.
+ */
+export function releaseOutRead(key: unknown, raw: Promise<unknown>): void {
+  if (outReads.get(key) === raw) outReads.delete(key);
 }
 
 /** Test seam: forget every outstanding read (module state, shared by every case in a file). */

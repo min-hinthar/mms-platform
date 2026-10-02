@@ -196,10 +196,11 @@ export function CashSettleButton({
   // one frame both read the render before it flipped.
   const inFlight = useRef(false);
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
-  // is refused on it directly, not only through the 9d ledger check: the ledger ages its entries by
-  // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
-  // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
-  // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `confirm`).
+  // is refused on it directly, not only through the 9d ledger check: it is this sheet's OWN fact,
+  // whatever the ledger reads (F12 caught the ledger reading "not stalled" with the wall clock set
+  // back mid-hang; it ages on a monotonic clock since Codex r2 B4), so a second write never queues
+  // behind the first. The refusal it drives re-says the sheet's OWN waiting sentence, not the
+  // tablet's (`tapRefusal`, in `confirm`).
   // Review a (A4) — kept per CART in the tab's own-wait register, never per mount: the detail this
   // control lives in can unmount and come back while the settle is still in Next's queue.
   const ownWaitKey = `cash:${sessionId}`;

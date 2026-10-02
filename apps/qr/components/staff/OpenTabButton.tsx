@@ -11,10 +11,12 @@ import { useRouter } from "next/navigation";
 import { openTab } from "@/lib/tabs";
 import {
   boundWrite,
-  hasOwnWait,
+  moveOwnOut,
   ownWaitSlot,
+  settleLate,
   subscribeOwnWait,
   type Late,
+  type OwnOut,
 } from "@/lib/bounded-write";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -24,13 +26,18 @@ import { useResaid } from "./useResaid";
 /**
  * What the opener says after a tap that did not open the bill, kept APART by who authored it (the
  * TerminalSettle `SettleError` pattern): `server` is `openTab`'s own sentence (`<OutageText>`, which
- * swaps the one write-outage twin); `waiting` / `unknown` are THIS file's (Phase 2h, 9e) — the answer
- * is still out at the bound, or it was lost (the bill may have opened: "couldn't confirm").
+ * swaps the one write-outage twin); `unknown` is THIS file's (Phase 2h, 9e) — the answer was lost
+ * (the bill may have opened: "couldn't confirm"). `waiting` — still out at the bound — is never this
+ * state: the cart's hold alone says it (`HELD`, R1).
  */
-type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind: "unknown" };
+type OpenError = { kind: "server"; text: string } | { kind: "unknown" };
+type OpenLine = OpenError | { kind: "waiting" };
 type OpenResult = Awaited<ReturnType<typeof openTab>>;
-/** What a button mounted while its cart's open is still out shows before any tap of its own (B1). */
-const HELD: OpenError = { kind: "waiting" };
+/** The cart's open, held from the moment it is sent until its answer (R2): its late answer, and
+ *  whether the bound has passed with none. */
+type OpenOut = OwnOut<OpenResult>;
+/** What the line says while the cart's open is out past the bound — for every mount alike (B1). */
+const HELD: OpenLine = { kind: "waiting" };
 
 /**
  * Open a trust tab on a dine-in table (S3.1). Low-stakes, single-tap (no confirm step): it marks the
@@ -50,17 +57,24 @@ const HELD: OpenError = { kind: "waiting" };
  * Codex round 1 on #310 (CX2) — "Opening…" frees at the bound, but the GUARD does not: while this
  * open is still unanswered the control is HELD (aria-disabled, never native; the handler refuses at
  * the tap), as the clear and merge controls hold — a second open would only queue behind the stuck
- * one. A tap on the held control RE-SAYS "no answer yet" as a new node (`useResaid` keys the alert's
- * content), so it is announced again instead of reading as a dead tap. The hold lets go when the late
- * answer lands: a late open stays held as an on-time one does; a late refusal or a lost answer frees
- * it, with its sentence.
+ * one. A tap on the held control RE-SAYS "no answer yet" as a new node (a re-say count keys the
+ * alert's content), so it is announced again instead of reading as a dead tap. The hold lets go when
+ * the late answer lands: a late open stays held as an on-time one does; a late refusal or a lost
+ * answer frees it, with its sentence.
  *
  * Codex round 2 on #310 (B1) — the hold is the CART's, never this mount's: it lives in the tab's
- * own-wait register under `open:<cart>` (`ownWaitSlot`, holding the open's late answer while it is
- * out), as the other remount-safe guards do. In refs, switching to another table and back remounted
- * this button with both reset, and the next tap sent another open behind the unresolved one. A
- * button mounted while its cart's open still waits renders HELD (subscribed) with the waiting line
- * and the reload, a tap re-says it, and the late answer lands on it as on the one that sent it.
+ * own-wait register under `open:<cart>`, as the other remount-safe guards do. In refs, switching to
+ * another table and back remounted this button with both reset, and the next tap sent another open
+ * behind the unresolved one.
+ *
+ * Codex r2 follow-up (R1 · R2) — and it is held from the moment the open is SENT, not from the bound
+ * (`OwnOut`: before the bound every mount reads "Opening…", after it "no answer yet"), so a button
+ * remounted inside the first STAFF_HANG_MS refuses too instead of sending a second open; each answer
+ * releases only the hold its own open set (`moveOwnOut`, token-scoped). Every mount ATTACHES to its
+ * cart's open whenever the hold appears — at mount, or while mounted (two buttons on one cart) — and
+ * applies the answer once (`heard`): a late open holds "Opening…" and re-reads the detail, a late
+ * refusal is said, a lost one says "couldn't confirm". Attached only at mount, a button remounted
+ * before the bound never heard the answer: it read "no answer yet" over a bill that had opened.
  */
 export function OpenTabButton({
   cartId,
@@ -76,33 +90,40 @@ export function OpenTabButton({
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<OpenError | null>(null);
-  // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
-  // render), beside the `busy` the button says.
+  // This mount's own tap-time guard — a REF read when the finger lands (two taps in one frame both
+  // read the same render), beside the `busy` the button says. It spans this mount's own open until
+  // the bound, and an OPENED bill until the re-read swaps the button away (D8); past the bound the
+  // CART's hold is the guard, for this button and any mounted since (R2).
   const inFlight = useRef(false);
-  // Codex r1 follow-up on #310 (V3) — the HOLD as the tap reads it: set from the bound until the
-  // late answer lands, set and cleared with the same updates that move `waiting`. A tap's handler is
-  // the COMMITTED render's, so between a late answer and React's commit its `waiting` still reads
-  // true — and a tap in that beat re-said "no answer yet" over a bill that had just opened.
-  // Codex r2 (B1) — kept per CART in the tab's own-wait register, never per mount (the docblock): it
-  // holds the open's late answer while the open is out, and `false` when none is.
+  // Codex r1 follow-up on #310 (V3) — the HOLD as the tap reads it: the register, written by the same
+  // updates that move the render. A tap's handler is the COMMITTED render's, so between a late answer
+  // and React's commit the render's hold still reads held — and a tap in that beat re-said "no answer
+  // yet" over a bill that had just opened. Codex r2 (B1 · R2) — kept per CART in the tab's own-wait
+  // register, never per mount: set when the open is sent, released by its answer.
   const ownWaitKey = `open:${cartId}`;
-  const heldOut = ownWaitSlot<Promise<Late<OpenResult>> | false>(ownWaitKey, false);
-  // B1 — the same hold, READ BY RENDER: a button mounted while its cart's open still waits renders
-  // held with the waiting line before any tap of its own, and frees when the late answer clears it.
-  const held = useSyncExternalStore(
+  const heldOut = ownWaitSlot<OpenOut | false>(ownWaitKey, false);
+  // B1 · R1 — the same hold, READ BY RENDER (subscribed): a button mounted while its cart's open is
+  // out shows it before any tap of its own, and frees when the answer releases it.
+  const hold = useSyncExternalStore<OpenOut | false>(
     subscribeOwnWait,
-    () => hasOwnWait(ownWaitKey),
+    () => ownWaitSlot<OpenOut | false>(ownWaitKey, false).current,
     () => false,
   );
+  // R2 — sent and not yet at the bound (by this mount, or one that is gone): "Opening…".
+  const opening = hold !== false && !hold.past;
+  const opens = busy || opening;
   const hintId = useId();
   const alertId = useId();
-  // CX2 — every SET of the line moves this, even to the sentence standing: the alert's content is
-  // keyed by it, so a re-said "no answer yet" replaces the node and is announced again.
+  // CX2 — the alert's content is keyed by these: an answer's sentence (every SET of `error`, even to
+  // the sentence standing) and a re-said "no answer yet" (`resaid`) replace the node, so each is
+  // announced again.
   const said = useResaid(error);
-  // What the line says: this mount's own word (an answer, a lost one, a re-said wait), else the
-  // hold's "no answer yet" while this cart's open is out past the bound (B1: set nowhere else).
-  const shown = error ?? (held ? HELD : null);
-  // CX2 — this open is still unanswered past the bound: the control is held, described by the line.
+  const [resaid, setResaid] = useState(0);
+  // What the line says. While this cart's open is out the HOLD alone speaks — nothing before the
+  // bound ("Opening…" says it), "no answer yet" past it — for this button and any mounted since
+  // (B1 · R1); otherwise this mount's own word: an answer, or a lost one.
+  const shown: OpenLine | null = hold === false ? error : hold.past ? HELD : null;
+  // CX2 — this cart's open is still unanswered past the bound: the control is held, described by it.
   const waiting = shown?.kind === "waiting";
 
   /** The open's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
@@ -115,54 +136,80 @@ export function OpenTabButton({
     if (onChanged) onChanged();
     else router.refresh();
   }
-  // B1 — the late answer reaches the CURRENT `land` (its props), from an effect bound to the cart.
-  const landRef = useRef(land);
+  /** A LATE answer to this cart's open, on whichever mount hears it (R1): a lost one says "couldn't
+   *  confirm" and frees; an open holds "Opening…" until the re-read swaps this away (D8); a refusal
+   *  frees, with its sentence. */
+  function hearLate(late: Late<OpenResult>) {
+    if (late.kind !== "answer") {
+      setError({ kind: "unknown" });
+      return;
+    }
+    if (late.value.ok) {
+      inFlight.current = true;
+      setBusy(true);
+    }
+    land(late.value);
+  }
+  // R1 — the late answers this mount already hears: its OWN open (the bound's `.then` in `onOpen`),
+  // and every hold it attached to. One late answer is applied once, by one listener here.
+  const heard = useRef(new Set<Promise<Late<OpenResult>>>());
+  const alive = useRef(false);
+  // The late answer reaches the CURRENT `hearLate` (its props) and is applied only while this
+  // button still shows the cart it was sent for.
+  const hearRef = useRef(hearLate);
+  const keyRef = useRef(ownWaitKey);
   useEffect(() => {
-    landRef.current = land;
+    hearRef.current = hearLate;
+    keyRef.current = ownWaitKey;
   });
-
-  // B1 — mounted while this cart's open is still out (sent by a mount that is gone): its late answer
-  // lands HERE — the one that sent it can no longer say it. Its own state is a no-op once this goes.
   useEffect(() => {
-    const late = ownWaitSlot<Promise<Late<OpenResult>> | false>(ownWaitKey, false).current;
-    if (late === false) return;
-    let live = true;
-    void late.then((answer) => {
-      if (!live) return;
-      if (answer.kind !== "answer") {
-        setError({ kind: "unknown" });
-        return;
-      }
-      // A late open holds "Opening…" until the re-read swaps this button away (D8).
-      if (answer.value.ok) {
-        inFlight.current = true;
-        setBusy(true);
-      }
-      landRef.current(answer.value);
-    });
+    // Re-armed at every setup (a cleanup-only latch stays false after Strict Mode's first pass).
+    alive.current = true;
     return () => {
-      live = false;
+      alive.current = false;
     };
-  }, [ownWaitKey]);
+  }, []);
+
+  // R1 — whenever this cart's open is out and this mount does not already hear it (sent by a
+  // button that is gone, or by another on the same cart), its answer lands HERE: keyed on the hold,
+  // never only on the mount, so a hold that appears while this is mounted is heard too.
+  const holdLate = hold === false ? null : hold.late;
+  useEffect(() => {
+    if (holdLate === null || heard.current.has(holdLate)) return;
+    heard.current.add(holdLate);
+    const key = ownWaitKey;
+    void holdLate.then((answer) => {
+      if (alive.current && keyRef.current === key) hearRef.current(answer);
+    });
+  }, [holdLate, ownWaitKey]);
 
   async function onOpen() {
-    if (inFlight.current || heldOut.current) {
-      // CX2 — its own open still waits past the bound: re-say "no answer yet", send nothing. Read
-      // from the ref, never the render (V3): a late answer may have landed and not yet committed.
-      // B1 — the hold is the cart's: a remounted button's fresh `inFlight` does not free it.
-      if (heldOut.current) setError({ kind: "waiting" });
+    // Refused at the tap, read from the ref and the register — never the render (V3): this mount's
+    // own open (an opened bill holds until the swap, D8), or this CART's open still out, sent here or
+    // by a button that is gone (B1 · R2). Past the bound the tap re-says "no answer yet" (CX2);
+    // before it, "Opening…" already says it.
+    const out0 = heldOut.current;
+    if (inFlight.current || out0 !== false) {
+      if (out0 !== false && out0.past) setResaid((n) => n + 1);
       return;
     }
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    // 9b — the RAW action, awaited with a bound below (`boundWrite` never rejects, tracks the raw).
+    const raw = openTab({ cartId });
+    const late = settleLate(raw);
+    // R2 — HELD from the moment it is sent, in the cart's register: a button mounted again inside
+    // the bound refuses instead of sending a second open. This mount hears its own answer below.
+    heard.current.add(late);
+    ownWaitSlot<OpenOut | false>(ownWaitKey, false).current = { late, past: false };
+    // Released by THIS open's answer only (token-scoped, `moveOwnOut`), whichever way and whenever
+    // it comes — the first reaction to it, so the hold ends before the answer's state commits (V3).
+    void late.then(() => moveOwnOut(ownWaitKey, late, false));
     // The bill opened: stay busy until the re-read swaps this button away (D8).
     let opened = false;
-    // Still out at the bound: the guard stays spent until the late answer lands (CX2).
-    let outstanding = false;
     try {
-      // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
-      const out = await boundWrite(openTab({ cartId }));
+      const out = await boundWrite(raw);
       if (out.kind === "answer") {
         opened = out.value.ok;
         land(out.value);
@@ -173,32 +220,16 @@ export function OpenTabButton({
         setError({ kind: "unknown" });
         return;
       }
-      // "No answer yet" is said by the HOLD (`shown`) — one source for this button and for any
-      // mounted on this cart since, so the line cannot say one thing here and another there.
-      heldOut.current = out.late;
-      outstanding = true;
+      // Still out at the bound: the hold turns "no answer yet" — the HOLD says it (`shown`), one
+      // source for this button and any mounted on this cart, so no two can say different things.
+      moveOwnOut(ownWaitKey, late, { late, past: true });
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
       // the page's re-read is right whenever the bill did open.
-      void out.late.then((late) => {
-        // The hold ends the moment the answer lands, before its state commits (V3).
-        heldOut.current = false;
-        if (late.kind !== "answer") {
-          // A lost answer ends the hold: said, and the open may be asked again.
-          inFlight.current = false;
-          setError({ kind: "unknown" });
-          return;
-        }
-        // A LATE open holds exactly like an on-time one, until the re-read swaps it away; a late
-        // refusal ends the hold, with its sentence.
-        if (late.value.ok) setBusy(true);
-        else inFlight.current = false;
-        land(late.value);
-      });
+      void late.then(hearLate);
     } finally {
-      // "Opening…" frees AT THE BOUND (fact 3) — never latched by the raw — unless it opened; the
-      // guard stays spent while the answer is still out (`outstanding`, CX2).
+      // "Opening…" frees AT THE BOUND (fact 3) — never latched by the raw — unless it opened (D8).
       if (!opened) {
-        if (!outstanding) inFlight.current = false;
+        inFlight.current = false;
         setBusy(false);
       }
     }
@@ -209,14 +240,14 @@ export function OpenTabButton({
       <button
         type="button"
         onClick={() => void onOpen()}
-        // Held while it opens AND while its own open is still out past the bound (CX2).
-        aria-disabled={busy || waiting || undefined}
-        aria-busy={busy || undefined}
+        // Held while it opens AND while its cart's open is still out past the bound (CX2 · R2).
+        aria-disabled={opens || waiting || undefined}
+        aria-busy={opens || undefined}
         aria-describedby={waiting ? `${alertId} ${hintId}` : hintId}
         style={waiting ? { ...btn, ...heldLook } : btn}
       >
         {/* A stated word while it opens, never a bare ellipsis: the content IS the name. */}
-        {busy ? (
+        {opens ? (
           <Chrome lang={lang} k="table.detail.openBill.opening" echo={false} />
         ) : (
           <Chrome lang={lang} k="table.detail.openBill.btn" echo="stack" />
@@ -227,8 +258,8 @@ export function OpenTabButton({
       </p>
       {shown && (
         <p id={alertId} role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {/* Keyed by `said` (CX2): a re-said sentence replaces the node, so it is announced again. */}
-          <span key={said}>
+          {/* Keyed by the two counts (CX2): a re-said sentence replaces the node, announced again. */}
+          <span key={`${said}.${resaid}`}>
             {shown.kind === "server" ? (
               <OutageText lang={lang} error={shown.text} />
             ) : shown.kind === "waiting" ? (

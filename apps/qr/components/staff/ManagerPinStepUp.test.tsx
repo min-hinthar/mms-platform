@@ -2,7 +2,7 @@
 import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Approver } from "@/lib/voids";
-import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, resetOutReadsForTests } from "@/lib/bounded-write";
 import { StaffLangProvider } from "./StaffLangProvider";
 import {
   ManagerPinFields,
@@ -340,6 +340,32 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
     second.unmount();
     renderHook(() => useApproverRoster(load));
     await flush();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("a read that settles AFTER the register was emptied leaves the newer read standing — the next open attaches to it (Codex r2 follow-up, R4)", async () => {
+    vi.useFakeTimers();
+    const answers: Array<(a: Approver[]) => void> = [];
+    const load = vi.fn(
+      (): Promise<Approver[]> => new Promise<Approver[]>((res) => answers.push(res)),
+    );
+    const first = renderHook(() => useApproverRoster(load));
+    await flush();
+    first.unmount();
+    // The register is emptied while the first read is still out — what `lib/test-setup.ts` does
+    // between two cases, and the only way two reads of one key can be out at once.
+    resetOutReadsForTests();
+    const second = renderHook(() => useApproverRoster(load));
+    await flush();
+    expect(load).toHaveBeenCalledTimes(2);
+    // The OLD read answers now.
+    await act(async () => answers[0]!(AYE));
+    second.unmount();
+    renderHook(() => useApproverRoster(load));
+    await flush();
+    // MUTATION (p2h-cx2b/roster/settle-clears-newer): the old read's settle clears the register
+    // whatever it holds — the newer read is forgotten while still out, and this open sends a third
+    // read behind it; red.
     expect(load).toHaveBeenCalledTimes(2);
   });
 

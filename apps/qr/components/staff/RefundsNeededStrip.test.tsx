@@ -374,6 +374,96 @@ describe("Mark refunded — the row whose mark is still out is held (Codex r2 on
     expect(lineOf("r1")).toBeNull();
   });
 
+  it("a strip mounted again INSIDE the bound holds the row from the tap — busy, nothing sent; at the bound it says 'no answer yet', and the late answer lands there (Codex r2 follow-up, R3)", async () => {
+    const h = hungMark();
+    const first = strip();
+    await commit("r1");
+    await flush(5_000);
+    first.unmount();
+    await flush(3_000);
+    const resolved = vi.fn();
+    strip(resolved);
+    // MUTATION (p2h-cx2b/refund-mark/pre-bound-reads-live): the remounted strip reads the row free
+    // while its mark is in flight; red.
+    expect(markOf("r1").getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (p2h-cx2b/refund-mark/pre-bound-not-busy): the held row is not said to be busy — a
+    // dimmed control with no reason before the bound; red.
+    expect(markOf("r1").getAttribute("aria-busy")).toBe("true");
+    expect(lineOf("r1")).toBeNull();
+    // MUTATION (p2h-cx2b/refund-mark/hold-at-bound-only): the row is held only from the bound — the
+    // remounted strip reopens its confirm and a second mark queues behind the first; red.
+    await act(async () => {
+      fireEvent.click(markOf("r1"));
+    });
+    expect(confirmOf("r1")).toBeNull();
+    expect(resolveRefundNeeded).toHaveBeenCalledTimes(1);
+    expect(markOf("r2").getAttribute("aria-disabled")).toBeNull();
+    await flush(STAFF_HANG_MS - 8_000);
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    expect(markOf("r1").getAttribute("aria-busy")).toBeNull();
+    expect(markOf("r1").getAttribute("aria-disabled")).toBe("true");
+    expect(markOf("r1").getAttribute("aria-describedby")).toBe(lineOf("r1")!.id);
+    await act(async () => h.answer());
+    expect(resolved).toHaveBeenCalledWith("r1");
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
+    expect(lineOf("r1")).toBeNull();
+  });
+
+  it("an ON-TIME answer reaching a strip mounted before the bound lands there; a lost one says 'couldn't confirm' on its row (Codex r2 follow-up, R3)", async () => {
+    const h = hungMark();
+    const first = strip();
+    await commit("r1");
+    await flush(5_000);
+    first.unmount();
+    const resolved = vi.fn();
+    strip(resolved);
+    // MUTATION (p2h-cx2b/refund-mark/attach-past-only): the strip attaches only to marks past the
+    // bound — an answer before it never reaches the remounted strip, and the board is not told; red.
+    await act(async () => h.answer());
+    expect(resolved).toHaveBeenCalledWith("r1");
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
+    cleanup();
+    const t = hungMark();
+    const again = strip();
+    await commit("r1");
+    again.unmount();
+    strip();
+    await act(async () => t.fail(new Error("fetch failed")));
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markUnknown"].en);
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("two strips at once: the one that did not send holds the row from the tap and hears its answer (Codex r2 follow-up, R3)", async () => {
+    const h = hungMark();
+    const sentFrom = vi.fn();
+    const other = vi.fn();
+    const a = strip(sentFrom);
+    const b = render(
+      <StaffLangProvider lang="en">
+        <RefundsNeededStrip lang="en" refunds={[ROW, R2]} onResolved={other} />
+      </StaffLangProvider>,
+    );
+    const markIn = (c: HTMLElement, id: string) =>
+      c.querySelector<HTMLButtonElement>(`#refund-mark-${id}`)!;
+    await act(async () => {
+      fireEvent.click(markIn(a.container, "r1"));
+    });
+    await act(async () => {
+      fireEvent.click(
+        a.container
+          .querySelector(`#refund-confirm-r1`)!
+          .querySelector<HTMLButtonElement>("button:last-of-type")!,
+      );
+    });
+    expect(markIn(b.container, "r1").getAttribute("aria-busy")).toBe("true");
+    // MUTATION (p2h-cx2b/refund-mark/attach-mount-only): a strip attaches only to marks it finds at
+    // mount — the one mounted before the tap never hears the answer; red.
+    await act(async () => h.answer());
+    expect(sentFrom).toHaveBeenCalledWith("r1");
+    expect(other).toHaveBeenCalledWith("r1");
+    expect(markIn(b.container, "r1").getAttribute("aria-disabled")).toBeNull();
+  });
+
   it("a LATE throw reaching a strip mounted since says 'couldn't confirm' on its row — never a silent free row", async () => {
     const h = hungMark();
     const first = strip();
