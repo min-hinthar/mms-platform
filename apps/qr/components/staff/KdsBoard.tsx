@@ -408,7 +408,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
 
   // Stamp the degrade in the SAME clock space as `nowMs` (server-space, offset-corrected), so the
   // escalation elapsed cancels any device-clock skew. The BOARD's clock, for its own stamps only —
-  // the poll gate and the stall ledger read this device's `Date.now()` (the contract critic, F2).
+  // the poll gate and the stall ledger read this device's monotonic `monoNow()` (F2 · Codex r2 B4).
   const stampNow = useCallback(() => Date.now() + (clockOffset.current ?? 0), []);
   // ── Phase 2h (9f) ── polls never stack (`lib/poll-gate.ts`). A read `raceTimeout` gave up on at 15 s
   // is still IN Next's one-at-a-time queue: a tick that started a "fresh" read after it only queued

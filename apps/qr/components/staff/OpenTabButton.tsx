@@ -1,8 +1,21 @@
 "use client";
-import { useId, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { useRouter } from "next/navigation";
 import { openTab } from "@/lib/tabs";
-import { boundWrite } from "@/lib/bounded-write";
+import {
+  boundWrite,
+  hasOwnWait,
+  ownWaitSlot,
+  subscribeOwnWait,
+  type Late,
+} from "@/lib/bounded-write";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import { ReloadButton } from "./ReloadOffer";
@@ -15,6 +28,9 @@ import { useResaid } from "./useResaid";
  * is still out at the bound, or it was lost (the bill may have opened: "couldn't confirm").
  */
 type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind: "unknown" };
+type OpenResult = Awaited<ReturnType<typeof openTab>>;
+/** What a button mounted while its cart's open is still out shows before any tap of its own (B1). */
+const HELD: OpenError = { kind: "waiting" };
 
 /**
  * Open a trust tab on a dine-in table (S3.1). Low-stakes, single-tap (no confirm step): it marks the
@@ -38,6 +54,13 @@ type OpenError = { kind: "server"; text: string } | { kind: "waiting" } | { kind
  * content), so it is announced again instead of reading as a dead tap. The hold lets go when the late
  * answer lands: a late open stays held as an on-time one does; a late refusal or a lost answer frees
  * it, with its sentence.
+ *
+ * Codex round 2 on #310 (B1) — the hold is the CART's, never this mount's: it lives in the tab's
+ * own-wait register under `open:<cart>` (`ownWaitSlot`, holding the open's late answer while it is
+ * out), as the other remount-safe guards do. In refs, switching to another table and back remounted
+ * this button with both reset, and the next tap sent another open behind the unresolved one. A
+ * button mounted while its cart's open still waits renders HELD (subscribed) with the waiting line
+ * and the reload, a tap re-says it, and the late answer lands on it as on the one that sent it.
  */
 export function OpenTabButton({
   cartId,
@@ -56,21 +79,33 @@ export function OpenTabButton({
   // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
   // render), beside the `busy` the button says.
   const inFlight = useRef(false);
-  // Codex r1 follow-up on #310 (V3) — the HOLD as the tap reads it: true from the bound until the
+  // Codex r1 follow-up on #310 (V3) — the HOLD as the tap reads it: set from the bound until the
   // late answer lands, set and cleared with the same updates that move `waiting`. A tap's handler is
   // the COMMITTED render's, so between a late answer and React's commit its `waiting` still reads
   // true — and a tap in that beat re-said "no answer yet" over a bill that had just opened.
-  const heldOut = useRef(false);
+  // Codex r2 (B1) — kept per CART in the tab's own-wait register, never per mount (the docblock): it
+  // holds the open's late answer while the open is out, and `false` when none is.
+  const ownWaitKey = `open:${cartId}`;
+  const heldOut = ownWaitSlot<Promise<Late<OpenResult>> | false>(ownWaitKey, false);
+  // B1 — the same hold, READ BY RENDER: a button mounted while its cart's open still waits renders
+  // held with the waiting line before any tap of its own, and frees when the late answer clears it.
+  const held = useSyncExternalStore(
+    subscribeOwnWait,
+    () => hasOwnWait(ownWaitKey),
+    () => false,
+  );
   const hintId = useId();
   const alertId = useId();
   // CX2 — every SET of the line moves this, even to the sentence standing: the alert's content is
   // keyed by it, so a re-said "no answer yet" replaces the node and is announced again.
   const said = useResaid(error);
+  // What the line says: this mount's own word, or — mounted while its cart's open waits — the hold's.
+  const shown = error ?? (held ? HELD : null);
   // CX2 — this open is still unanswered past the bound: the control is held, described by the line.
-  const waiting = error?.kind === "waiting";
+  const waiting = shown?.kind === "waiting";
 
   /** The open's answer, whenever it lands — at once, or after the bound (9e: never dropped). */
-  function land(res: Awaited<ReturnType<typeof openTab>>) {
+  function land(res: OpenResult) {
     if (!res.ok) {
       setError({ kind: "server", text: res.error });
       return;
@@ -79,11 +114,41 @@ export function OpenTabButton({
     if (onChanged) onChanged();
     else router.refresh();
   }
+  // B1 — the late answer reaches the CURRENT `land` (its props), from an effect bound to the cart.
+  const landRef = useRef(land);
+  useEffect(() => {
+    landRef.current = land;
+  });
+
+  // B1 — mounted while this cart's open is still out (sent by a mount that is gone): its late answer
+  // lands HERE — the one that sent it can no longer say it. Its own state is a no-op once this goes.
+  useEffect(() => {
+    const late = ownWaitSlot<Promise<Late<OpenResult>> | false>(ownWaitKey, false).current;
+    if (late === false) return;
+    let live = true;
+    void late.then((answer) => {
+      if (!live) return;
+      if (answer.kind !== "answer") {
+        setError({ kind: "unknown" });
+        return;
+      }
+      // A late open holds "Opening…" until the re-read swaps this button away (D8).
+      if (answer.value.ok) {
+        inFlight.current = true;
+        setBusy(true);
+      }
+      landRef.current(answer.value);
+    });
+    return () => {
+      live = false;
+    };
+  }, [ownWaitKey]);
 
   async function onOpen() {
-    if (inFlight.current) {
+    if (inFlight.current || heldOut.current) {
       // CX2 — its own open still waits past the bound: re-say "no answer yet", send nothing. Read
       // from the ref, never the render (V3): a late answer may have landed and not yet committed.
+      // B1 — the hold is the cart's: a remounted button's fresh `inFlight` does not free it.
       if (heldOut.current) setError({ kind: "waiting" });
       return;
     }
@@ -108,7 +173,7 @@ export function OpenTabButton({
         return;
       }
       setError({ kind: "waiting" });
-      heldOut.current = true;
+      heldOut.current = out.late;
       outstanding = true;
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
       // the page's re-read is right whenever the bill did open.
@@ -158,13 +223,13 @@ export function OpenTabButton({
       <p id={hintId} style={hint}>
         <Chrome lang={lang} k="table.detail.openBill.hint" echo="stack" />
       </p>
-      {error && (
+      {shown && (
         <p id={alertId} role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {/* Keyed by `said` (CX2): a re-said sentence replaces the node, so it is announced again. */}
           <span key={said}>
-            {error.kind === "server" ? (
-              <OutageText lang={lang} error={error.text} />
-            ) : error.kind === "waiting" ? (
+            {shown.kind === "server" ? (
+              <OutageText lang={lang} error={shown.text} />
+            ) : shown.kind === "waiting" ? (
               <Chrome lang={lang} k="table.detail.openBill.waiting" echo={false} />
             ) : (
               <Chrome lang={lang} k="table.detail.openBill.unknown" echo={false} />
@@ -174,7 +239,7 @@ export function OpenTabButton({
       )}
       {/* The waiting line says "reload the page", and the console is installed standalone (no
           browser reload): the one way out sits BESIDE the alert, never inside it. */}
-      {error?.kind === "waiting" && (
+      {waiting && (
         <div style={{ marginTop: "var(--s2)" }}>
           <ReloadButton lang={lang} />
         </div>

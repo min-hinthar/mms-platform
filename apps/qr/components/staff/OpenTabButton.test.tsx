@@ -280,3 +280,107 @@ describe("OpenTabButton — the open is bounded, never natively disabled", () =>
     expect(onChanged).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Codex round 2 on #310 (B1) — the hold is the CART's, never the mount's. The bound frees the caller,
+ * never the action, so the open stays in Next's per-tab queue after the button that sent it is gone;
+ * staff switch to another table and back, the button remounts with both refs fresh, and the next tap
+ * dispatched another open behind the unresolved one. The hold now lives in the tab's own-wait
+ * register under `open:<cart>` (subscribed), as the other remount-safe guards do.
+ */
+describe("OpenTabButton — the hold outlives the mount (Codex r2 on #310, B1)", () => {
+  function mountCart(cartId: string, changed = vi.fn()) {
+    render(
+      <StaffLangProvider lang="en">
+        <OpenTabButton cartId={cartId} onChanged={changed} />
+      </StaffLangProvider>,
+    );
+    return changed;
+  }
+  /** Send the open, let the bound pass, and leave for another table. */
+  async function openThenLeave() {
+    const h = hungOpen();
+    const first = mount();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Open a running bill/ }));
+    });
+    await flush(STAFF_HANG_MS);
+    first.unmount();
+    return h;
+  }
+
+  it("back on the table while its open still waits: the button is HELD, says 'no answer yet' with the reload, and a tap sends nothing", async () => {
+    await openThenLeave();
+    mountCart("c1");
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    // MUTATION (p2h-cx2b/open-bill/hold-per-mount): the hold is the mount's again — the remounted
+    // button reads live, says nothing, and its tap queues a second open behind the first; red.
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.waiting"));
+    expect(btn.getAttribute("aria-describedby")).toContain(screen.getByRole("alert").id);
+    expect(reload()).not.toBeNull();
+    const said = watchRegion(screen.getByRole("alert"));
+    // MUTATION (p2h-cx2b/open-bill/remount-tap-dispatches): the tap reads only the mount's own
+    // in-flight ref (fresh: false) — a second open is sent behind the stuck one; red.
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(said()).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.waiting"));
+  });
+
+  it("the LATE open lands on the remounted button: its detail re-reads, and it holds 'Opening…' until the swap", async () => {
+    const h = await openThenLeave();
+    const changed = mountCart("c1");
+    // MUTATION (p2h-cx2b/open-bill/remount-late-unheard): the remounted button never hears the late
+    // answer — the hold frees, and the bill that opened reads as a live "Open a running bill"; red.
+    await act(async () => h.answer({ ok: true }));
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+    const btn = screen.getByRole("button", { name: /Opening/ });
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(1);
+  });
+
+  it("a LATE refusal on the remounted button says its sentence and frees it; a LATE throw says 'couldn't confirm'", async () => {
+    const h = await openThenLeave();
+    mountCart("c1");
+    await act(async () => h.answer({ ok: false, error: "Tabs aren’t available right now." }));
+    expect(screen.getByRole("alert").textContent).toBe("Tabs aren’t available right now.");
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(reload()).toBeNull();
+    cleanup();
+    const t = await openThenLeave();
+    mountCart("c1");
+    await act(async () => t.fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.unknown"));
+    const again = screen.getByRole("button", { name: /Open a running bill/ });
+    expect(again.getAttribute("aria-disabled")).toBeNull();
+    openTab.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(again);
+    });
+    expect(openTab).toHaveBeenCalledTimes(3);
+  });
+
+  it("ANOTHER table's button is not held by this table's wait", async () => {
+    await openThenLeave();
+    mountCart("c2");
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    // MUTATION (p2h-cx2b/open-bill/hold-unkeyed): one hold for every cart — the wait on table 4
+    // freezes the opener on every other table; red.
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    openTab.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    expect(openTab).toHaveBeenCalledTimes(2);
+    expect(openTab).toHaveBeenLastCalledWith({ cartId: "c2" });
+  });
+});

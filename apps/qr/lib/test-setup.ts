@@ -1,5 +1,5 @@
 import { afterEach } from "vitest";
-import { resetLedgerForTests, resetOwnWaitsForTests } from "./bounded-write";
+import { resetLedgerForTests, resetOutReadsForTests, resetOwnWaitsForTests } from "./bounded-write";
 
 /**
  * Phase 2h (the contract critic, F7) — vitest's `setupFiles` entry for every suite in apps/qr.
@@ -17,4 +17,7 @@ afterEach(() => {
   // Phase 2h · review a (A4) — the per-subject own-wait register is module state too: a case that
   // leaves a refund hung would refuse the next case's refund of the same line in its own words.
   resetOwnWaitsForTests();
+  // Codex r2 on #310 (B2) — and so is the per-key register of a read still out: a case that leaves
+  // the roster read hung would hand the next case's mount that hung read instead of a fresh one.
+  resetOutReadsForTests();
 });

@@ -14,6 +14,7 @@ import { plural, tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { raceTimeout } from "@/lib/staff-outage";
+import { outReadSlot } from "@/lib/bounded-write";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 import type { StaffMsg } from "./StaffMsg";
@@ -101,7 +102,8 @@ export function pinFailureCopy(
  * is `failed`, never `[]`, and `retry()` re-reads it on a tap.
  *
  * `load` is passed in (the sheet's own `listApprovers` import) so this module stays free of the Server
- * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule). The
+ * Action. The sheets mount only while open, so each open is a fresh read (the fresh-mount rule) —
+ * unless a read is still out, which the open attaches to (B2, below). The
  * `alive` ref is the `live` guard: re-armed at every setup (a cleanup-only latch stays false after the
  * first Strict-Mode pass) and checked before any state lands on an unmounted sheet.
  *
@@ -120,6 +122,13 @@ export function pinFailureCopy(
  * (`retrying` still ends at that bound). A bound that passed with the raw still out does not drop its
  * answer (`landLate`): whenever it comes, the roster loads and the failure clears. Only a raw that
  * has settled — answered or failed — lets the next ask read again.
+ *
+ * Codex round 2 on #310 (B2) — and the raw still out is the TAB's, never this hook instance's: it is
+ * kept in the per-tab read register (`outReadSlot`, keyed by `load` — `listApprovers`, the one import
+ * the loss and no-show sheets share). In a ref, closing and reopening a sheet while the read hung
+ * mounted a NEW hook with an empty slot, and its mount sent a second read behind the first — every
+ * reopen one more. A remounted hook now attaches to the read still out (a fresh bound), and that
+ * read's late answer lands on whichever sheet is open when it comes.
  */
 export function useApproverRoster(load: () => Promise<Approver[]>) {
   const [approvers, setApprovers] = useState<Approver[] | null>(null);
@@ -128,12 +137,13 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
   const alive = useRef(false);
   // The tap-time guard: two taps in one frame see the same render, so only a ref refuses the second.
   const retryInFlight = useRef(false);
-  // CX1 — the raw roster read still unanswered, by identity (see the docblock). A ref, so it outlives
-  // the Strict-Mode setup → cleanup → setup: the second setup attaches instead of reading twice.
-  const outRaw = useRef<Promise<Approver[]> | null>(null);
 
   /** The raw read to await: the one still out, or — only when none is — a fresh one. */
   const read = useCallback((): Promise<Approver[]> => {
+    // CX1 · B2 — the raw roster read still unanswered, by identity, in the TAB's register (see the
+    // docblock): it outlives the Strict-Mode setup → cleanup → setup AND a closed-and-reopened sheet,
+    // so the next mount attaches instead of reading twice.
+    const outRaw = outReadSlot<Approver[]>(load);
     if (outRaw.current !== null) return outRaw.current;
     const raw = load();
     outRaw.current = raw;
@@ -148,7 +158,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
 
   /** A bound passed: the raw still out (if it is) lands its answer whenever it comes (CX1). */
   const landLate = useCallback(() => {
-    const raw = outRaw.current;
+    const raw = outReadSlot<Approver[]>(load).current;
     if (raw === null) return; // it settled — a failure, already said
     raw.then(
       (a) => {
@@ -159,7 +169,7 @@ export function useApproverRoster(load: () => Promise<Approver[]>) {
       // Deliberate swallow: a late failure changes nothing — the roster already reads `failed`.
       () => {},
     );
-  }, []);
+  }, [load]);
 
   useEffect(() => {
     alive.current = true;

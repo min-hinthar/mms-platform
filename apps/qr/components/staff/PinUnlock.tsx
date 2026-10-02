@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { unlockConsole, type UnlockResult } from "@/lib/staff-pin-actions";
 import { boundWrite } from "@/lib/bounded-write";
@@ -42,9 +41,17 @@ import { ReloadButton } from "./ReloadOffer";
  * bringing the lockout nearer. The late answer frees it. And the sign-out's own network call is
  * bounded too: a dead network answers "couldn't sign out — try again", never a link latched on
  * "signing out" with no way off the lock screen but a force-quit.
+ *
+ * Codex round 2 on #310 (B5) — the unlock opens the console by a DOCUMENT load, never a soft
+ * navigation, the sign-in form's rule: an action dispatched on this screen after Unlock (the
+ * language switch's write) queues behind the unlock and is still out when it answers, and a soft
+ * `router.replace` carried it — and its stall-ledger entry — into the console, where every action
+ * queued behind it and the money taps refused as "still waiting". `location.replace` unloads this
+ * document, so the console starts on a fresh queue with an empty ledger. (The cost: a language
+ * write still in flight at that instant may be lost with the document — the console's own switch
+ * says which language it is in, and sets it again in one tap.)
  */
 export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName: string }) {
-  const router = useRouter();
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -74,8 +81,9 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
   function land(res: UnlockResult) {
     setReload(false);
     if (res.ok) {
-      router.replace("/staff");
-      router.refresh();
+      // B5 — a DOCUMENT load into the console (the docblock); `replace`, as the router's was: Back
+      // never returns to a lock that has been opened.
+      window.location.replace("/staff");
       return;
     }
     setPin("");

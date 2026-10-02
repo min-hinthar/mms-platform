@@ -1,4 +1,4 @@
-import { STAFF_HANG_MS, track } from "./bounded-write";
+import { STAFF_HANG_MS, monoNow, track } from "./bounded-write";
 
 /**
  * Phase 2h (decision 9f) — polls never stack. The order pad's `rawPending` / `owed` pattern
@@ -21,7 +21,9 @@ import { STAFF_HANG_MS, track } from "./bounded-write";
  *
  * ONE CLOCK — THIS DEVICE'S. Neither `ask` nor `watch` takes a time: a skipped tick's `missed` and
  * the stall ledger's "stalled" are the same measurement (a raw read out ≥ STAFF_HANG_MS), so both
- * read `Date.now()` and agree to the millisecond. A board that runs its own clock in SERVER space
+ * read the ledger's MONOTONIC clock (`monoNow`, Codex r2 on #310 B4) and agree to the millisecond — a
+ * wall clock corrected mid-hang moves neither, so the degraded banner arms at the bound exactly as
+ * the money taps start refusing, never an hour late. A board that runs its own clock in SERVER space
  * (`KdsBoard`/`ExpoBoard`'s `stampNow()`) keeps it for its own stamps; handed to the gate, it would
  * have been written into the ledger every money tap reads, refusing every tap by the device's skew
  * (the Phase 2h contract critic, F2). The gate tracks each watched read in that ledger
@@ -72,7 +74,7 @@ export type PollGate = {
 };
 
 export function createPollGate(kick: () => void): PollGate {
-  // The ONE unanswered raw read, by identity, and when it went out (this device's clock).
+  // The ONE unanswered raw read, by identity, and when it went out (this device's monotonic clock).
   let out: { since: number } | null = null;
   // However many asks were refused while it was out, they are owed ONE read.
   let owed = false;
@@ -83,13 +85,13 @@ export function createPollGate(kick: () => void): PollGate {
     ask() {
       if (out === null) return { go: "start" };
       owed = true;
-      return { go: "owed", missed: Date.now() - out.since >= STAFF_HANG_MS };
+      return { go: "owed", missed: monoNow() - out.since >= STAFF_HANG_MS };
     },
     watch(raw) {
       // A read starting now pays the debt a deferred kick was about to pay.
       if (due !== null) clearTimeout(due);
       due = null;
-      const mine = { since: Date.now() };
+      const mine = { since: monoNow() };
       out = mine;
       track(raw);
       const answered = () => {

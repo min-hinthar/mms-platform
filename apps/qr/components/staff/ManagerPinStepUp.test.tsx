@@ -304,6 +304,58 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
     // MUTATION (p2h-cx1/roster/answered-never-clears): red.
     expect(load).toHaveBeenCalledTimes(3);
   });
+
+  it("closing and reopening the sheet while the read hangs: the new mount ATTACHES to it — ONE read in the queue, and its late answer loads the reopened sheet (Codex r2 B2)", async () => {
+    vi.useFakeTimers();
+    const { load, answer } = hungLoad();
+    // The loss sheet opens, its roster read hangs, the manager gives up and closes it.
+    const first = renderHook(() => useApproverRoster(load));
+    await flush(STAFF_HANG_MS);
+    expect(first.result.current.failed).toBe(true);
+    first.unmount();
+    // Reopened (the same sheet, or the no-show sheet — both read through the one `listApprovers`).
+    const second = renderHook(() => useApproverRoster(load));
+    await flush();
+    // MUTATION (p2h-cx2b/roster/read-slot-per-mount): the outstanding read is the hook INSTANCE's —
+    // the reopened sheet starts with an empty slot and sends a second read behind the hung one,
+    // every reopen another, each ahead of every staff action tapped after it; red.
+    expect(load).toHaveBeenCalledTimes(1);
+    // It waits on that read with a FRESH bound — never "Loading…" for good.
+    await flush(STAFF_HANG_MS);
+    expect(second.result.current.failed).toBe(true);
+    // A Try again on the reopened sheet attaches too.
+    await act(async () => {
+      void second.result.current.retry();
+    });
+    await flush(STAFF_HANG_MS);
+    expect(load).toHaveBeenCalledTimes(1);
+    // The answer that finally came loads the sheet that is OPEN now.
+    // MUTATION (p2h-cx2b/roster/late-reads-own-slot): the late landing looks for the read in a slot
+    // of its own that never held it — the reopened sheet keeps "couldn't load" over a list that came;
+    // red.
+    await act(async () => answer(AYE));
+    expect(second.result.current.approvers).toEqual(AYE);
+    expect(second.result.current.failed).toBe(false);
+    // Settled: the next open reads afresh, never the old answer handed back.
+    second.unmount();
+    renderHook(() => useApproverRoster(load));
+    await flush();
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("a reopen BEFORE the bound attaches too, and the one answer lands on the open sheet (Codex r2 B2)", async () => {
+    vi.useFakeTimers();
+    const { load, answer } = hungLoad();
+    const first = renderHook(() => useApproverRoster(load));
+    await flush(5_000);
+    first.unmount();
+    const second = renderHook(() => useApproverRoster(load));
+    await flush(5_000);
+    expect(load).toHaveBeenCalledTimes(1);
+    await act(async () => answer(AYE));
+    expect(second.result.current.approvers).toEqual(AYE);
+    expect(second.result.current.failed).toBe(false);
+  });
 });
 
 /**

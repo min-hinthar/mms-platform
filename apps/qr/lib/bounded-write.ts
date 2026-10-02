@@ -80,11 +80,10 @@ export function boundWrite<T>(raw: Promise<T>, ms: number = STAFF_HANG_MS): Prom
 }
 
 /**
- * The ledger: raw promise → when it was dispatched, on THIS DEVICE'S clock (`Date.now()`). Keyed by
- * the PROMISE so the same raw tracked twice — `poll-gate`'s `watch` and then `raceTimeout` around the
- * same read — is ONE outstanding action at its FIRST registration's start: never two entries that
- * double `outstanding()`, and never a second registration that restarts the clock on a hang already
- * out.
+ * The ledger: raw promise → when it was dispatched. Keyed by the PROMISE so the same raw tracked
+ * twice — `poll-gate`'s `watch` and then `raceTimeout` around the same read — is ONE outstanding
+ * action at its FIRST registration's start: never two entries that double `outstanding()`, and never
+ * a second registration that restarts the clock on a hang already out.
  *
  * ⚠️ ONE CLOCK, AND NOBODY CAN HAND IT ANOTHER. Neither `track` nor `stalledSince` takes a time: the
  * ledger is read by every money tap on the tab and written by every board, and the boards run their
@@ -93,12 +92,31 @@ export function boundWrite<T>(raw: Promise<T>, ms: number = STAFF_HANG_MS): Prom
  * cash, reader, refund, loss and no-show tap is refused as "stuck" the instant a lane read leaves,
  * which a reload does not fix; 20s behind, and a real hang hides for 20s (the Phase 2h contract
  * critic, F2). A stall is a DURATION on this tablet, so it is measured on this tablet's clock only.
+ *
+ * ⚠️ AND THAT CLOCK IS MONOTONIC (`monoNow`), never the wall clock (Codex round 2 on #310, B4). A
+ * tablet's wall clock is CORRECTED — network time, a manual fix, a timezone sync — and a correction
+ * backward while an action is hung made `Date.now() - start` small or negative: the tab read healthy
+ * and the next payment was dispatched into the stuck queue behind it; a correction forward called a
+ * read sent a second ago "stuck". Each entry keeps `monoAt` (the age is measured on it, and the
+ * OLDEST is chosen by it) beside `startedAt` (the wall-clock instant, which is all `stalledSince`
+ * still returns — every caller reads it only as null / not null).
  */
-const ledger = new Map<Promise<unknown>, { startedAt: number }>();
+const ledger = new Map<Promise<unknown>, { startedAt: number; monoAt: number }>();
+
+/**
+ * THE ledger's clock (Codex round 2 on #310, B4): elapsed milliseconds on a MONOTONIC clock — it
+ * only moves forward, at the rate the bound's own `setTimeout` runs, whatever the wall clock is set
+ * to. Read at call time (never captured at import), so vitest's fake timers drive it: they fake
+ * `performance.now` by default, `advanceTimersByTime` moves it, and `setSystemTime` — a wall-clock
+ * correction — does not.
+ */
+export function monoNow(): number {
+  return performance.now();
+}
 
 /**
  * Register a raw Server Action promise in the per-tab ledger until it settles; returns `raw`. The
- * start is `Date.now()` at the FIRST registration (see the ledger's ⚠️).
+ * start is `monoNow()` (and `Date.now()` beside it) at the FIRST registration (see the ledger's ⚠️).
  *
  * Every entry leaves on settle, RESOLVED OR REJECTED: an entry that outlived a rejection would read
  * as a hang forever, and the tab would refuse every money write until a reload for an action that
@@ -108,7 +126,7 @@ const ledger = new Map<Promise<unknown>, { startedAt: number }>();
  */
 export function track<T>(raw: Promise<T>): Promise<T> {
   if (ledger.has(raw)) return raw;
-  const entry = { startedAt: Date.now() };
+  const entry = { startedAt: Date.now(), monoAt: monoNow() };
   ledger.set(raw, entry);
   const leave = () => {
     // Only THIS registration leaves: after `resetLedgerForTests`, a re-tracked copy of the same
@@ -120,22 +138,25 @@ export function track<T>(raw: Promise<T>): Promise<T> {
 }
 
 /**
- * The start time of the OLDEST tracked action still unanswered, if it has been out ≥ STAFF_HANG_MS
- * now (`Date.now()`); else null. "Stalled" means Next's queue is blocked behind it (fact 1), so a new
- * write would only queue behind it. Read it AT THE TAP — never from render state (a `nowMs` that
- * re-renders every 15s would let a stalled tablet dispatch for up to 15s more).
+ * The wall-clock start of the OLDEST tracked action still unanswered, if it has been out
+ * ≥ STAFF_HANG_MS on the monotonic clock now (`monoNow()`); else null. "Stalled" means Next's queue
+ * is blocked behind it (fact 1), so a new write would only queue behind it. Read it AT THE TAP —
+ * never from render state (a `nowMs` that re-renders every 15s would let a stalled tablet dispatch
+ * for up to 15s more).
  *
  * The OLDEST, not the newest: a fresh poll queued behind a hung write is young, and reading it would
  * call the tab healthy while the write at the head of the queue holds everything (the critic's
  * adjustment 9 — never mark "not stalled" on a younger answer while an older raw is still out).
+ * Oldest by `monoAt`, never by the wall clock: after a correction backward, a younger entry carries
+ * the EARLIER wall time, and choosing by it measured the young read's age instead (B4).
  */
 export function stalledSince(): number | null {
-  let oldest: number | null = null;
-  for (const { startedAt } of ledger.values()) {
-    if (oldest === null || startedAt < oldest) oldest = startedAt;
+  let oldest: { startedAt: number; monoAt: number } | null = null;
+  for (const entry of ledger.values()) {
+    if (oldest === null || entry.monoAt < oldest.monoAt) oldest = entry;
   }
   if (oldest === null) return null;
-  return Date.now() - oldest >= STAFF_HANG_MS ? oldest : null;
+  return monoNow() - oldest.monoAt >= STAFF_HANG_MS ? oldest.startedAt : null;
 }
 
 /**
@@ -149,9 +170,9 @@ export function stalledSince(): number | null {
  * speaks only for the refused tap, and drops the one instruction the person needs: don't do it again.
  * Only the surface's own sentence says that ("No answer yet — this payment may still be recorded.
  * Don't take it again…"), so a re-tap re-says it. A tap refused for ANOTHER action's stall — this
- * surface's own write not out — keeps `stalled`. Read first, the own wait also refuses with the wall
- * clock set back mid-hang, when the ledger (aged by `Date.now()`) reads "not stalled" (the sheets'
- * critic F12). Nothing is sent on either refusal.
+ * surface's own write not out — keeps `stalled`. Read first, the own wait also refuses whatever the
+ * ledger reads (the sheets' critic F12 raised it for a wall clock set back mid-hang, which the ledger
+ * — monotonic since Codex r2 B4 — no longer misreads). Nothing is sent on either refusal.
  */
 export function tapRefusal<M>(own: M | null, stalledAt: number | null, stalled: M): M | null {
   if (own !== null) return own;
@@ -206,6 +227,39 @@ export function subscribeOwnWait(listener: () => void): () => void {
 /** Test seam: forget every own wait (module state, shared by every case in a file). */
 export function resetOwnWaitsForTests(): void {
   ownWaits.clear();
+}
+
+/**
+ * Codex round 2 on #310 (B2) — the per-tab register of a raw READ still unanswered, keyed by what
+ * reads it, so it outlives the MOUNT that sent it. The bound frees the caller, never the action, so a
+ * hung read stays in Next's per-tab queue after the surface that sent it closes; a per-mount ref
+ * forgot it, and the next open dispatched another read behind it — the roster hook's, keyed by its
+ * `load` (`listApprovers`, the one import the loss and no-show sheets share), was the case: close and
+ * reopen a sheet while the roster hung, and every reopen queued one more read ahead of every action
+ * tapped after it.
+ *
+ * `outReadSlot(key)` is a ref-shaped handle onto that key's entry (`ownWaitSlot`'s shape): `.current`
+ * is the raw still out, or null; writing null clears it, a promise sets it. The owner sets it at
+ * dispatch and clears it in the raw's OWN settle (and only while it still holds that raw) — never at
+ * a bound.
+ */
+const outReads = new Map<unknown, Promise<unknown>>();
+
+export function outReadSlot<T>(key: unknown): { current: Promise<T> | null } {
+  return {
+    get current(): Promise<T> | null {
+      return (outReads.get(key) as Promise<T> | undefined) ?? null;
+    },
+    set current(raw: Promise<T> | null) {
+      if (raw === null) outReads.delete(key);
+      else outReads.set(key, raw);
+    },
+  };
+}
+
+/** Test seam: forget every outstanding read (module state, shared by every case in a file). */
+export function resetOutReadsForTests(): void {
+  outReads.clear();
 }
 
 /** Test seam: how many tracked actions are outstanding. */

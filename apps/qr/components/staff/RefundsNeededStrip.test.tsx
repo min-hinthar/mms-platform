@@ -136,7 +136,11 @@ describe("Mark refunded — Phase 2h: no transition, a bounded write, honest whe
     // MUTATION (p2h-doors/refund-mark-unbounded): the bound never fires — "Marking…" holds and
     // every row is dimmed for as long as the queue is stuck; red.
     await flush(1);
-    expect(mark().getAttribute("aria-disabled")).toBeNull();
+    // The strip's lock frees ("Marking…" goes) — but THIS row stays HELD while its own mark is still
+    // out (Codex r2 on #310, B3: a re-tap re-says its line, never sends again; cases below).
+    expect(screen.queryByRole("button", { name: "Marking…" })).toBeNull();
+    expect(mark().getAttribute("aria-busy")).toBeNull();
+    expect(mark().getAttribute("aria-disabled")).toBe("true");
     expect(document.activeElement).toBe(mark());
     // MUTATION (p2h-doors/refund-mark-waiting-unsaid): the bound passes in silence; red.
     expect(line()?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
@@ -208,5 +212,179 @@ describe("Mark refunded — Phase 2h: no transition, a bounded write, honest whe
     expect(line()?.textContent).not.toContain(STAFF["table.appr.msg.failed"].en);
     expect(reload()).not.toBeNull();
     expect(mark().getAttribute("aria-disabled")).toBeNull();
+  });
+});
+
+/**
+ * Codex round 2 on #310 (B3) — a row whose mark is still unanswered at the bound keeps its OWN hold
+ * until the late answer settles. The strip's one lock frees at the bound (fact 3), and it was the
+ * only guard: staff could reopen that row's confirm and send another mark behind the unresolved one
+ * on every attempt. The hold is per ROW (other rows stay free), kept in the tab's own-wait register
+ * (`refundmark:<row>`) so a remounted strip still holds it, and a tap on the held row RE-SAYS its
+ * waiting line as a new node instead of sending.
+ */
+describe("Mark refunded — the row whose mark is still out is held (Codex r2 on #310, B3)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    resolveRefundNeeded.mockReset();
+    resolveRefundNeeded.mockImplementation(() => Promise.resolve());
+  });
+  const R2: RefundNeeded = { ...ROW, id: "r2", paymentIntent: "pi_second" };
+  const flush = (ms = 0) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  function hungMark() {
+    let answer!: () => void;
+    let fail!: (e: Error) => void;
+    resolveRefundNeeded.mockImplementationOnce(
+      () =>
+        new Promise<void>((res, rej) => {
+          answer = res;
+          fail = rej;
+        }),
+    );
+    return { answer: () => answer(), fail: (e: Error) => fail(e) };
+  }
+  function strip(onResolved = vi.fn()) {
+    return render(
+      <StaffLangProvider lang="en">
+        <RefundsNeededStrip lang="en" refunds={[ROW, R2]} onResolved={onResolved} />
+      </StaffLangProvider>,
+    );
+  }
+  const markOf = (id: string) => document.querySelector<HTMLButtonElement>(`#refund-mark-${id}`)!;
+  const lineOf = (id: string) => markOf(id).closest("li")!.querySelector('[role="status"]');
+  const confirmOf = (id: string) => document.getElementById(`refund-confirm-${id}`);
+  async function commit(id: string) {
+    await act(async () => {
+      fireEvent.click(markOf(id));
+    });
+    await act(async () => {
+      fireEvent.click(
+        confirmOf(id)!.querySelector<HTMLButtonElement>("button:last-of-type") as HTMLElement,
+      );
+    });
+  }
+  /** Whether the line's CONTENT was replaced (what a screen reader announces) since this call. */
+  function watchLine(node: Element) {
+    const recs: MutationRecord[] = [];
+    const obs = new MutationObserver((rs) => {
+      recs.push(...rs);
+    });
+    obs.observe(node, { childList: true, subtree: true, characterData: true });
+    return () => {
+      recs.push(...obs.takeRecords());
+      obs.disconnect();
+      return recs.some(
+        (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+      );
+    };
+  }
+
+  it("a tap on the held row RE-SAYS its waiting line and sends nothing — its confirm never reopens; the other row stays free", async () => {
+    hungMark();
+    strip();
+    await commit("r1");
+    await flush(STAFF_HANG_MS);
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    // MUTATION (p2h-cx2b/refund-mark/held-looks-live): the held row reads as a live "Mark refunded"
+    // over a mark that may still land; red.
+    expect(markOf("r1").getAttribute("aria-disabled")).toBe("true");
+    expect(markOf("r1").getAttribute("aria-describedby")).toBe(lineOf("r1")!.id);
+    for (let tap = 0; tap < 2; tap += 1) {
+      const said = watchLine(lineOf("r1")!);
+      await act(async () => {
+        fireEvent.click(markOf("r1"));
+      });
+      // MUTATION (p2h-cx2b/refund-mark/held-row-reopens): the hold ended with the strip's lock at the
+      // bound — the confirm reopens and a second mark queues behind the unresolved one; red.
+      expect(confirmOf("r1")).toBeNull();
+      expect(resolveRefundNeeded).toHaveBeenCalledTimes(1);
+      // MUTATION (p2h-cx2b/refund-mark/held-tap-silent · p2h-cx2b/refund-mark/resay-unkeyed): the
+      // refused tap is dead — equal text re-rendered in place is no DOM change, nothing announced;
+      // red.
+      expect(said()).toBe(true);
+      expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    }
+    // Another row is not held by this row's wait: its confirm opens, and its mark is sent.
+    // MUTATION (p2h-cx2b/refund-mark/hold-unkeyed): one hold for every row — the wait on one
+    // stranded charge freezes every other row; red.
+    expect(markOf("r2").getAttribute("aria-disabled")).toBeNull();
+    await commit("r2");
+    expect(resolveRefundNeeded).toHaveBeenCalledTimes(2);
+    expect(resolveRefundNeeded).toHaveBeenLastCalledWith("r2");
+  });
+
+  it("the LATE answer ends the hold: a late throw says 'couldn't confirm' and the row may be marked again", async () => {
+    const h = hungMark();
+    strip();
+    await commit("r1");
+    await flush(STAFF_HANG_MS);
+    await act(async () => h.fail(new Error("fetch failed")));
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markUnknown"].en);
+    // MUTATION (p2h-cx2b/refund-mark/hold-never-cleared): the answer came and the row stays held —
+    // a live-looking line with a control that only re-says; red.
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
+    await commit("r1");
+    expect(resolveRefundNeeded).toHaveBeenCalledTimes(2);
+  });
+
+  it("the strip that SENT the mark hands its late answer up ONCE — its own hold is never heard a second time", async () => {
+    const h = hungMark();
+    const resolved = vi.fn();
+    strip(resolved);
+    await commit("r1");
+    await flush(STAFF_HANG_MS);
+    await act(async () => h.answer());
+    // MUTATION (p2h-cx2b/refund-mark/own-late-heard-twice): the strip attaches to its OWN hold as if
+    // a strip that is gone had sent it — the board is told twice and re-polls twice; red.
+    expect(resolved).toHaveBeenCalledTimes(1);
+    expect(resolved).toHaveBeenCalledWith("r1");
+  });
+
+  it("a strip mounted again while a row's mark is still out holds that row, says its line with the reload, and a tap sends nothing", async () => {
+    const h = hungMark();
+    const first = strip();
+    await commit("r1");
+    await flush(STAFF_HANG_MS);
+    first.unmount();
+    const resolved = vi.fn();
+    strip(resolved);
+    // MUTATION (p2h-cx2b/refund-mark/hold-per-mount): the hold is the strip instance's — the
+    // remounted strip offers a live "Mark refunded" and its confirm sends a second mark; red.
+    expect(markOf("r1").getAttribute("aria-disabled")).toBe("true");
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markWaiting"].en);
+    expect(screen.queryByRole("button", { name: STAFF["out.reload"].en })).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(markOf("r1"));
+    });
+    expect(confirmOf("r1")).toBeNull();
+    expect(resolveRefundNeeded).toHaveBeenCalledTimes(1);
+    // The answer lands on THIS strip — the one that sent it is gone: the row is handed up as
+    // resolved, and its hold and line go.
+    // MUTATION (p2h-cx2b/refund-mark/remount-late-unheard): the remounted strip never hears the late
+    // answer — the board is never told the row is done, and it reads as a free row until a poll; red.
+    await act(async () => h.answer());
+    expect(resolved).toHaveBeenCalledWith("r1");
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
+    expect(lineOf("r1")).toBeNull();
+  });
+
+  it("a LATE throw reaching a strip mounted since says 'couldn't confirm' on its row — never a silent free row", async () => {
+    const h = hungMark();
+    const first = strip();
+    await commit("r1");
+    await flush(STAFF_HANG_MS);
+    first.unmount();
+    strip();
+    await act(async () => h.fail(new Error("fetch failed")));
+    // MUTATION (p2h-cx2b/refund-mark/remount-late-throw-unsaid): the lost answer frees the row in
+    // silence — a mark that may have landed reads as never tried; red.
+    expect(lineOf("r1")?.textContent).toContain(STAFF["table.appr.refunds.markUnknown"].en);
+    expect(markOf("r1").getAttribute("aria-disabled")).toBeNull();
   });
 });
