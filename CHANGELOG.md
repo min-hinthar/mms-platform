@@ -14,7 +14,7 @@ a critic) and a Chromium measurement of a hung action (LEARNINGS #200). Built as
 `1c78c1e` · `7918de5` (the append-only mutant blocks rebuilt as a 3-way merge of the shared head and
 tail plus each stream's block; the merged mutant ids measured equal to the contract's plus each
 stream's additions, nothing lost), then the fixes the streams owed each other — built in three more worktrees (`p2h/int-a` · `int-b` · `int-c`), each through a fresh-context critic (APPROVE_WITH_FIXES · REJECT · APPROVE_WITH_FIXES; every finding fixed) and merged `5aec099`. Owner decision 9
-(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hs (P2hk closed by the review round). No SQL.
+(delegated, 2026-10-01). Closes **P2cz · P2fc**; P2bi (the stale build) becomes **Phase 2i**; files P2he–P2hu (P2hk closed by the review round; P2hl · P2hm · P2ho · P2hr · P2hs by Codex round 2). No SQL.
 
 **What staff see first:**
 
@@ -74,7 +74,7 @@ stream's additions, nothing lost), then the fixes the streams owed each other �
   waits — and gives way to the frozen board's escalation; a late refund answer closes only its own
   line's sheet, and a cash hand-back instruction is never left behind another open sheet; the KDS
   dish menu carries its own Reload; two dead KDS keys are gone.
-- 49 staff keys (35 K15-HIGH), 2 retired, and the kiosk's `addWaiting` / `addUnknown`.
+- 51 staff keys (37 K15-HIGH), 2 retired, and the kiosk's `addWaiting` / `addUnknown`.
 
 **Blind review** (three lenses on `2e9c226`, `pnpm review:bundle` only: concurrency · money semantics ·
 product truth + a11y → REJECT · REJECT · REJECT; every finding verified on disk, fixed red-first on
@@ -112,11 +112,23 @@ still loads the list — retiring "Couldn't load the list of managers" and handi
 re-says "no answer yet" (the hold read from a ref at the tap); a tap on the held cash trigger is said in
 an sr-only alert, re-announced on every tap.
 
+**Codex round 2** (`0a851a3`: 7×P2 + 1×P3, all real — six of them rows this phase had filed — all fixed
+in `e37c4eb` · `23cc415` and `eb1d074` · `ef67f6c`, each through an independent verifier and a follow-up
+round): a late throw after the cashier moved tables hands "we don't know" up to the pane again (cash, card on
+file, reader); a lost line edit is its own pane line ("We couldn't confirm a change on {x}"); a reader start
+is recorded before it is sent and a reloaded tablet asks Stripe what the reader is doing (`terminalResume`,
+read-only — it adopts this table's collect, keeps the record while the table's payment freeze is fresh, and
+says "Couldn't check the card reader" when it cannot ask); Open bill, the manager list and a refunds-strip
+row hold from the tap across a remount, each answer clearing only its own hold; the stall ledger runs on a
+monotonic clock; every sign-in is a fresh document, so a stuck lock release never follows staff into the
+console.
+
 **Gate:** `turbo lint typecheck build` green on `cc949ef` (lint 0 errors); the full qr suite green
 (348 files); all 15 fast-lane steps + `check-money-coverage` green; the full `verify:slice` on `cc949ef`
-caught 2400 / 2400 (0 survived, 0 stale, no orphans), and on the Codex r1 head every new mutant plus
-every mutant on the files it touched (31 + 109) was caught; `check:mutant-anchors` 2431 anchors · 224
-files; CI green.
+caught 2400 / 2400 (0 survived, 0 stale, no orphans); on each Codex round's head every new mutant plus
+every mutant on the files it touched was caught (r1: 31 + 109; r2: 81 + 227 and 43 + 171, then every mutant
+on the files both r2 streams touched, on the merged head); `check:mutant-anchors` 2555 anchors · 224 files;
+CI green.
 
 **Filed:** P2he–P2hj (decision 9h: a compare-only `cartId` on the settle actions, a server guard on
 a dine-in clear with fired lines, a late-merge guard, polls moved to GET routes, the async-transition
