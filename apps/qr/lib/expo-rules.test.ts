@@ -11,6 +11,7 @@ import {
   PICKED_UNDO_MS,
   pickedUndoArmed,
   pickedUndoOpen,
+  reloadForgetsAPick,
   toastPick,
   type ExpoOrderKey,
 } from "./expo-rules";
@@ -274,5 +275,18 @@ describe("laneRows — paid and unpaid bags in the lane's ONE order", () => {
 
   it("no unpaid bags: the paid order is unchanged", () => {
     expect(order(laneRows([paid("a"), paid("b", { kitchen: "done" })], []))).toEqual(["b", "a"]);
+  });
+});
+
+describe("reloadForgetsAPick — the lane's Reload caveat is said only when a reload can forget a pick (review b · B3)", () => {
+  it("no pick held in this tab: nothing to forget", () => {
+    // MUTATION (p2h-rev-b/expo-rules/reload-always-forgets): the caveat stands over every waiting
+    // line — a bag write hanging with no pick anywhere still warns about picks; red.
+    expect(reloadForgetsAPick(new Map())).toBe(false);
+  });
+  it("a pick inside its window, or committing and unconfirmed: a reload can forget it", () => {
+    // MUTATION (p2h-rev-b/expo-rules/reload-never-forgets): the caveat is never said; red.
+    expect(reloadForgetsAPick(new Map([["order-1", { committing: false }]]))).toBe(true);
+    expect(reloadForgetsAPick(new Map([["order-1", { committing: true }]]))).toBe(true);
   });
 });

@@ -281,13 +281,18 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     }),
     [showErr, dropErr, clearErr, held, hold, release, refuseHeld],
   );
+  // Mounted — re-armed at setup, latched in the poll effect's cleanup (below). Read after every await
+  // that can outlive the board: the poll's answer and a write's late refusal.
+  const alive = useRef(true);
   // A refused server action: the dictionary's sentence in the device language, or the exit to
   // /staff/login when the refusal is "go sign in" — a banner in the wrong language is not an answer.
   const onRefused = useCallback(
     (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => {
       const out = kitchenErrOutcome(res, act, x);
       if (out.kind === "leave") {
-        window.location.assign(out.href);
+        // Phase 2h · review b (B1) — a LATE refusal can land after the board is gone: a dead board
+        // sends nobody anywhere (the screen now showing reads its own session).
+        if (alive.current) window.location.assign(out.href);
         return;
       }
       showErr(out.msg);
@@ -411,8 +416,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // of them. While the RAW read is unanswered no new read starts; the ticks it refused are owed ONE
   // read, kicked just after it answers. Made ONCE for the board's life, on first use from a callback
   // (never during render, never in an effect's setup — a re-setup would forget the hung read), never
-  // disposed from a cleanup (Strict Mode would latch it): the kick is guarded by `alive`, re-armed.
-  const alive = useRef(true);
+  // disposed from a cleanup (Strict Mode would latch it): the kick is guarded by `alive` (declared
+  // above `onRefused`, which reads it too), re-armed.
   const kick = useRef<() => void>(() => {});
   const gateRef = useRef<PollGate | null>(null);
   const gateOf = useCallback((): PollGate => {
@@ -453,6 +458,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // stop all polling with the board still wearing its live face — turn it into the catch path.
       // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
       const res = await raceTimeout(gate.watch(getKitchenQueue()));
+      // Phase 2h · review b (B1) — the read can answer AFTER the board is gone (it queued behind the
+      // lock, a sign-out, another screen's action): `alive` is re-checked after the await, before any
+      // side effect — a dead board's "locked" must not hard-reload the screen the cook moved to.
+      if (!alive.current) return;
       if (!res.ok) {
         // W10b (M32): "outage" means the platform is unreachable — NOT a verdict about the cookie.
         // The old redirect here destroyed the queue mid-service, exactly when the kitchen needed its

@@ -197,6 +197,10 @@ export function ApprovalsBoard({
         rawWho !== null ? raceTimeout(rawWho) : Promise.resolve(rosterRef.current),
         raceTimeout(rawLedger),
       ]);
+      // Phase 2h · review b (B1) — the reads can answer AFTER the zone is gone (queued behind another
+      // screen's action): `alive` is re-checked after the await, before any side effect — a dead
+      // zone's "go sign in" must not send the tablet away from the screen the manager moved to.
+      if (!alive.current) return;
       // Each feed's settled answer is applied on its own, BEFORE the queue's failure is raised
       // (Codex round 3 on #283, P1): raised first, an approvals-table outage threw away every
       // good ledger read beside it and hid newly stranded charges until the queue recovered.

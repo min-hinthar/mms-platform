@@ -636,4 +636,26 @@ describe("Phase 2h (9b · 9d · 9e) — the decision is bounded, caught, and ref
     // no longer exists — three reads queued on the tab for a screen nobody is looking at; red.
     expect(polls).toBe(0);
   });
+
+  it("a poll already out when the zone goes, answering 'go sign in' after, sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    const read = deferred<ApprovalsPoll>();
+    let first = true;
+    pollAnswer = () => {
+      if (!first) return new Promise(() => {});
+      first = false;
+      return read.promise;
+    };
+    const q = mount([pending("r1")], [approver]);
+    await tick(5_000); // the tick's reads go out and wait
+    q.unmount();
+    await act(async () => {
+      read.resolve({ ok: false, reason: "signin" });
+    });
+    await tick(1_000);
+    // MUTATION (p2h-rev-b/approvals/read-answer-after-unmount-acts): the dead zone's poll sends the
+    // tablet to the login from the screen the manager moved to; red.
+    expect(leaveForLogin).not.toHaveBeenCalled();
+    leaveForLogin.mockClear();
+  });
 });

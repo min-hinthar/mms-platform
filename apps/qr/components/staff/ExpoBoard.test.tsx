@@ -1270,7 +1270,7 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
   const bagged = (root: ReturnType<typeof mount>) =>
     root.getByRole("button", { name: new RegExp(`^${ts("en", "expo.verb.bagged")}`) });
 
-  it("Bagged & ready: busy frees AT the bound; the waiting line, its Reload and the bags caveat; the late ok refetches", async () => {
+  it("Bagged & ready: busy frees AT the bound; the waiting line and its Reload (no pick held, no bags caveat); the late ok refetches", async () => {
     vi.useFakeTimers();
     getExpoQueue.mockImplementation(() => new Promise(() => {}));
     currentQueue = queue([ticket({ status: "preparing" })]);
@@ -1289,12 +1289,13 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     await flush(1);
     expect(btn.getAttribute("aria-busy")).toBeNull();
     expect(region().textContent).toBe(tf("en", "expo.err.waitingTable", { id: 7 }));
-    // "Reload the screen to see": the button, beside the region (never inside it), with what a reload
-    // costs on the lane (a pick inside its window lives only in this tab).
+    // "Reload the screen to see": the button, beside the region (never inside it).
     // MUTATION (p2h-boards/expo/waiting-offers-no-reload): no button; red.
     expect(reload()).not.toBeNull();
     expect(region().contains(reload())).toBe(false);
-    expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
+    // Review b (B3) — no pick is held in this tab, so a reload forgets nothing: the caveat is not said.
+    // MUTATION (p2h-rev-b/expo/reload-caveat-unconditional): it stands over every waiting line; red.
+    expect(document.querySelector(".staff-reload-offer")!.textContent).not.toContain(
       ts("en", "expo.reload.bags"),
     );
     // Critic B1 — the bag is HELD while its write is out: no longer busy, but refusing (a second
@@ -1517,6 +1518,112 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     // MUTATION (p2h-boards/expo/dead-lane-reads): the landed bag's re-read is sent from a lane that
     // no longer exists (and its leave path would re-send windows the unmount flush already sent); red.
     expect(getExpoQueue).not.toHaveBeenCalled();
+  });
+
+  it("the Reload caveat about picks is said while a pick is held in this tab (review b · B3)", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    currentQueue = queue([
+      ticket({ status: "preparing" }),
+      ticket({ orderId: "order-2", tableNumber: 8, label: "T8", status: "ready" }),
+    ]);
+    const write = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => write.promise);
+    const q = mount("en", currentQueue);
+    await act(async () => {
+      fireEvent.click(bagged(q));
+    });
+    // Table 8 handed over while Table 7's bag write is out: its pick lives only in this tab.
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(tf("en", "expo.err.waitingTable", { id: 7 }));
+    expect(reload()).not.toBeNull();
+    // MUTATION (p2h-rev-b/expo/reload-caveat-never): the caveat a reload makes true is not said; red.
+    expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
+      ts("en", "expo.reload.bags"),
+    );
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+  });
+
+  it("a read already out when the lane goes, answering 'go sign in' after, neither navigates nor re-sends the unmount flush's write (review b · B1)", async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const read = deferred<ExpoPoll>();
+    getExpoQueue.mockReset();
+    getExpoQueue.mockReturnValueOnce(read.promise).mockImplementation(() => new Promise(() => {}));
+    setTogoStatus.mockImplementation(() => new Promise(() => {}));
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    await flush(5_000); // the poll goes out, the window still open
+    expect(getExpoQueue).toHaveBeenCalledTimes(1);
+    q.unmount(); // the unmount flush sends the open window's write
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      read.resolve({ ok: false, reason: "signin" } as unknown as ExpoPoll);
+    });
+    await flush(STAFF_HANG_MS + 1_000);
+    // MUTATION (p2h-rev-b/expo/read-answer-after-unmount-acts): the dead lane's leave branch re-sends
+    // picked_up for the bag the unmount flush already sent (a second write per bag) and hard-reloads
+    // the screen the counter moved to; red.
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("the lane goes WHILE its leave flush is out: the unmount flush does not send it again, and nothing navigates (review b · B1)", async () => {
+    vi.useFakeTimers();
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const read = deferred<ExpoPoll>();
+    getExpoQueue.mockReset();
+    getExpoQueue.mockReturnValueOnce(read.promise).mockImplementation(() => new Promise(() => {}));
+    setTogoStatus.mockImplementation(() => new Promise(() => {}));
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    await flush(5_000);
+    await act(async () => {
+      read.resolve({ ok: false, reason: "signin" } as unknown as ExpoPoll);
+    });
+    await flush();
+    // The leave flush has sent the open window's write and waits on it (bounded).
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    q.unmount();
+    // MUTATION (p2h-rev-b/expo/leave-flush-unmarked): the leave flush does not mark what it sent, so
+    // the unmount flush sends picked_up for the same bag again; red.
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    await flush(STAFF_HANG_MS + 1_000);
+    // MUTATION (p2h-rev-b/expo/leave-after-flush-unchecked): the bounded flush ends and the gone lane
+    // still hard-reloads the screen the counter moved to; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("a bag write's LATE 'go sign in' on a lane that is gone sends nobody anywhere (review b · B1)", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    currentQueue = queue([ticket({ status: "preparing" })]);
+    const write = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => write.promise);
+    const q = mount("en", currentQueue);
+    await act(async () => {
+      fireEvent.click(bagged(q));
+    });
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(tf("en", "expo.err.waitingTable", { id: 7 }));
+    q.unmount();
+    await act(async () => {
+      write.resolve({ ok: false, error: "Sign in again.", code: "signin" });
+    });
+    await flush(1_000);
+    // MUTATION (p2h-rev-b/expo/late-leave-after-unmount): the late refusal navigates from a lane that
+    // no longer exists; red.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("a THROWN picked-up write says 'couldn't confirm' and keeps the card picked until a read that STARTED after it decides (critic B11 · B10)", async () => {
