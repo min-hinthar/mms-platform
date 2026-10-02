@@ -56,6 +56,11 @@ export function OpenTabButton({
   // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
   // render), beside the `busy` the button says.
   const inFlight = useRef(false);
+  // Codex r1 follow-up on #310 (V3) — the HOLD as the tap reads it: true from the bound until the
+  // late answer lands, set and cleared with the same updates that move `waiting`. A tap's handler is
+  // the COMMITTED render's, so between a late answer and React's commit its `waiting` still reads
+  // true — and a tap in that beat re-said "no answer yet" over a bill that had just opened.
+  const heldOut = useRef(false);
   const hintId = useId();
   const alertId = useId();
   // CX2 — every SET of the line moves this, even to the sentence standing: the alert's content is
@@ -77,8 +82,9 @@ export function OpenTabButton({
 
   async function onOpen() {
     if (inFlight.current) {
-      // CX2 — its own open still waits past the bound: re-say "no answer yet", send nothing.
-      if (waiting) setError({ kind: "waiting" });
+      // CX2 — its own open still waits past the bound: re-say "no answer yet", send nothing. Read
+      // from the ref, never the render (V3): a late answer may have landed and not yet committed.
+      if (heldOut.current) setError({ kind: "waiting" });
       return;
     }
     inFlight.current = true;
@@ -102,10 +108,13 @@ export function OpenTabButton({
         return;
       }
       setError({ kind: "waiting" });
+      heldOut.current = true;
       outstanding = true;
       // The late answer lands whenever it comes: its own state is a no-op once this is gone, and
       // the page's re-read is right whenever the bill did open.
       void out.late.then((late) => {
+        // The hold ends the moment the answer lands, before its state commits (V3).
+        heldOut.current = false;
         if (late.kind !== "answer") {
           // A lost answer ends the hold: said, and the open may be asked again.
           inFlight.current = false;

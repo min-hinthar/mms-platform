@@ -7,11 +7,15 @@ import { StaffLangProvider } from "./StaffLangProvider";
 import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
+  ROSTER_FAILED_COPY,
   lockoutDuration,
   pinFailureCopy,
+  rosterHeldMsg,
   secondsUntil,
   useApproverRoster,
 } from "./ManagerPinStepUp";
+import { STAFF } from "@/lib/i18n/staff";
+import type { StaffMsg } from "./StaffMsg";
 
 /**
  * P7·2 — the shared PIN vocabulary. The mapper returns KEYS, not sentences, so what is pinned is the
@@ -299,5 +303,104 @@ describe("useApproverRoster — Codex r1 on #310: one roster read in the queue, 
     await flush();
     // MUTATION (p2h-cx1/roster/answered-never-clears): red.
     expect(load).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * Codex r1 follow-up on #310 (V1) — the ONE rule both loss sheets hold their region to: the roster
+ * failure sentence never stands over a list in hand. A recovery by ANY path — a Try again that
+ * answered on time, or a read that answered after its bound (CX1) — retires exactly that sentence,
+ * back to "a manager needs to approve" while the server's step-up is pending, else to silence; any
+ * other sentence is the SAME object (nothing re-said).
+ */
+describe("rosterHeldMsg — the failure sentence never stands over a list in hand (V1)", () => {
+  const other: StaffMsg = { k: "table.loss.msg.failed" };
+  it("while the roster is FAILED, whatever the region holds stands — the failure sentence included", () => {
+    // MUTATION (p2h-cx1/roster-region/retired-while-failed): the failure sentence is retired while
+    // the list is still unreadable — a Try again that fails again says nothing; red.
+    expect(rosterHeldMsg(ROSTER_FAILED_COPY, true, true)).toBe(ROSTER_FAILED_COPY);
+    expect(rosterHeldMsg(ROSTER_FAILED_COPY, true, false)).toBe(ROSTER_FAILED_COPY);
+    expect(rosterHeldMsg(other, true, false)).toBe(other);
+    expect(rosterHeldMsg(null, true, true)).toBeNull();
+  });
+  it("with the list in hand the failure sentence goes: back to 'a manager needs to approve' while the step-up is pending, else silence", () => {
+    // MUTATION (p2h-cx1/roster-region/late-drops-needs-manager): the pending step-up's sentence is
+    // not put back — the fields stand with nothing saying why; red.
+    expect(rosterHeldMsg(ROSTER_FAILED_COPY, false, true)).toEqual({ k: "pin.needsManager" });
+    expect(rosterHeldMsg(ROSTER_FAILED_COPY, false, false)).toBeNull();
+  });
+  it("any other sentence — or none — is left alone, as the SAME object", () => {
+    expect(rosterHeldMsg(other, false, true)).toBe(other);
+    expect(rosterHeldMsg(other, false, false)).toBe(other);
+    expect(rosterHeldMsg(null, false, true)).toBeNull();
+  });
+});
+
+/**
+ * Codex r1 follow-up on #310 (V2) — a recovery unmounts the Try again. On time, the tap that asked
+ * moves focus to the picker; a LATE answer comes with no tap pending, and the button that held focus
+ * vanished under it (focus fell to the dialog). So focus that was ON the vanished Try again goes to
+ * the picker either way — and focus the person has put anywhere else is never taken.
+ */
+describe("ManagerPinFields — a Try again that vanishes with focus hands it to the picker (V2)", () => {
+  const AYE: Approver[] = [{ staffId: "m1", displayName: "Aye", role: "manager" }];
+  const base = {
+    idPrefix: "v2",
+    approverStaffId: "",
+    onApproverChange: () => {},
+    pin: "",
+    onPinChange: () => {},
+    locked: false,
+  };
+  function fields(failed: boolean, onRetry: () => Promise<boolean>) {
+    return (
+      <StaffLangProvider lang="en">
+        <ManagerPinFields
+          {...base}
+          approvers={failed ? null : AYE}
+          rosterFailed={failed}
+          onRetry={onRetry}
+        />
+      </StaffLangProvider>
+    );
+  }
+  const retryBtn = () => screen.queryByRole("button", { name: STAFF["out.shell.retry"].en });
+
+  it("a recovery with NO tap pending (the late answer) moves focus from the vanished Try again to the picker", () => {
+    const onRetry = vi.fn(async () => false);
+    const { rerender } = render(fields(true, onRetry));
+    retryBtn()!.focus();
+    expect(document.activeElement).toBe(retryBtn());
+    rerender(fields(false, onRetry));
+    expect(retryBtn()).toBeNull();
+    // MUTATION (p2h-cx1/fields/late-load-no-focus): focus falls with the button; red.
+    expect(document.activeElement).toBe(screen.getByLabelText("Manager"));
+  });
+
+  it("focus the person put elsewhere (the PIN field) is never taken by the recovery", () => {
+    const onRetry = vi.fn(async () => false);
+    const { rerender } = render(fields(true, onRetry));
+    const pinField = screen.getByLabelText("PIN");
+    pinField.focus();
+    rerender(fields(false, onRetry));
+    // MUTATION (p2h-cx1/fields/late-load-steals-focus): the picker takes focus from the PIN field; red.
+    expect(document.activeElement).toBe(pinField);
+  });
+
+  it("a Try again that comes BACK after a recovery starts clean: a later recovery with focus elsewhere takes nothing", () => {
+    const onRetry = vi.fn(async () => false);
+    const { rerender } = render(fields(true, onRetry));
+    retryBtn()!.focus();
+    rerender(fields(false, onRetry));
+    expect(document.activeElement).toBe(screen.getByLabelText("Manager"));
+    // The list fails again (a fresh sheet would re-read; here the same fields re-fail) and the person
+    // moves on to the PIN before the next recovery.
+    rerender(fields(true, onRetry));
+    const pinField = screen.getByLabelText("PIN");
+    pinField.focus();
+    rerender(fields(false, onRetry));
+    // MUTATION (p2h-cx1/fields/held-focus-latched): the first vanish's "had focus" outlives it and the
+    // second recovery takes focus from the PIN field; red.
+    expect(document.activeElement).toBe(pinField);
   });
 });

@@ -424,6 +424,43 @@ describe("CounterNoShowButton — a roster that could not be read (Codex round 2
     expect(select().disabled).toBe(false);
   });
 
+  it("a list that answers AFTER a failed Try again: 'couldn't load' goes, 'a manager needs to approve' comes back, and focus moves from the vanished Try again to the picker (Codex r1 follow-up on #310, V1 · V2)", async () => {
+    vi.useFakeTimers();
+    try {
+      await stepUpWithFailedRoster();
+      expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+      let answer!: (a: typeof ROSTER) => void;
+      approvers.mockImplementationOnce(
+        () =>
+          new Promise<typeof ROSTER>((res) => {
+            answer = res;
+          }),
+      );
+      const retry = retryBtn()!;
+      retry.focus();
+      await act(async () => {
+        fireEvent.click(retry);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+      });
+      expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
+      expect(document.activeElement).toBe(retry);
+      // The read answers after its bound: the list loads (CX1) and the Try again goes.
+      await act(async () => answer(ROSTER));
+      expect(select().disabled).toBe(false);
+      expect(retryBtn()).toBeUndefined();
+      // MUTATION (p2h-cx1/no-show/late-keeps-failure-copy · p2h-cx1/no-show/region-unwired):
+      // "couldn't load the list" stands over the picker it just filled; red.
+      // MUTATION (p2f-sr-sheet/roster/no-show-step-up-unwired): the region reads "" — red.
+      expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+      // MUTATION (p2h-cx1/no-show/late-load-no-focus): focus fell to the dialog with the Try again; red.
+      expect(document.activeElement).toBe(select());
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a genuinely EMPTY roster still says nobody is on shift (the outage copy is not a blanket)", async () => {
     approvers.mockResolvedValueOnce([]);
     record.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });

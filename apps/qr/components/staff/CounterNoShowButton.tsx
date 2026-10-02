@@ -17,9 +17,9 @@ import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
   pinFailureCopy,
-  rosterRetryMsg,
   useApproverRoster,
   useLockout,
+  useRosterRegion,
 } from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
@@ -260,6 +260,11 @@ function NoShowSheet({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
+  // Try again on the roster, and the ONE region rule for any recovery (`useRosterRegion`, shared with
+  // the loss sheet): a second failure is said in the region; a recovery — the Try again's answer, or
+  // a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
+  // sentence, putting back "a manager needs to approve" while the step-up is still pending.
+  const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
   // The tap-time guard: two taps in one frame see the same render, so only a REF refuses the second.
   const inFlight = useRef(false);
   // Critic F12 — THIS sheet's own write went past the bound unanswered and is still out. A re-tap
@@ -391,15 +396,6 @@ function NoShowSheet({
       inFlight.current = false;
       setBusy(false); // frees AT THE BOUND on every path — the M82 guard parses for it
     }
-  }
-
-  // Try again on the roster: a second failure is said in the sheet's ONE region; a recovery clears
-  // that sentence (and only that one) — and puts back "a manager needs to approve" while the step-up
-  // is still pending (`rosterRetryMsg`).
-  async function retryRoster(): Promise<boolean> {
-    const ok = await roster.retry();
-    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
-    return ok;
   }
 
   // The lockout countdown outranks everything; a moved order outranks a transient message — but

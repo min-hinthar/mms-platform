@@ -191,6 +191,33 @@ describe("OpenTabButton — the open is bounded, never natively disabled", () =>
     expect(openTab).toHaveBeenCalledTimes(1);
   });
 
+  it("a tap landing between a LATE open and React's commit never re-says 'no answer yet' over the opened bill — the hold is read at the tap, never from the render (Codex r1 follow-up, V3)", async () => {
+    const h = hungOpen();
+    mount();
+    const btn = screen.getByRole("button", { name: /Open a running bill/ });
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    await flush(STAFF_HANG_MS);
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "table.detail.openBill.waiting"));
+    await act(async () => {
+      h.answer({ ok: true });
+      // Let the late answer land (its state is queued, NOT yet committed: act holds the render)…
+      for (let i = 0; i < 10 && onChanged.mock.calls.length === 0; i += 1) await Promise.resolve();
+      expect(onChanged).toHaveBeenCalledTimes(1);
+      // …and a tap fires through the COMMITTED render's handler, whose `waiting` still reads true.
+      fireEvent.click(btn);
+    });
+    // MUTATION (p2h-cx1/open-bill/held-tap-reads-render · p2h-cx1/open-bill/held-ref-outlives-answer):
+    // the stale render's `waiting` re-sets "no answer yet" over a bill that just opened; red.
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(reload()).toBeNull();
+    // The opened bill holds "Opening…" until the re-read swaps the button away (D8), and nothing
+    // was sent again.
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    expect(openTab).toHaveBeenCalledTimes(1);
+  });
+
   it("an OPENED bill keeps 'Opening…' until the re-read swaps the button away — a second tap opens nothing (S2 critic D8)", async () => {
     openTab.mockResolvedValueOnce({ ok: true });
     mount();

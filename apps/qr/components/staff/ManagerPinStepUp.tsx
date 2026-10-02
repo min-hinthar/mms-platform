@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { Button } from "@mms/ui";
 import type { Approver } from "@/lib/voids";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -216,10 +224,52 @@ export function rosterRetryMsg(
 }
 
 /**
+ * Codex r1 follow-up on #310 (V1) — what the region may hold given the roster's state: the failure
+ * sentence never stands over a list in hand. CX1 lets a read that answered AFTER its bound load the
+ * roster (`landLate`) with no Try again result to say so, and the region kept "Couldn't load the list
+ * of managers…" over the picker it had just filled — and the needs-manager line that sentence had
+ * displaced never came back. So with the list in hand the failure sentence is retired exactly as an
+ * on-time recovery retires it (`rosterRetryMsg(m, true, …)`); while it is still FAILED, and for any
+ * other sentence, `m` is returned as the SAME object (nothing re-said).
+ */
+export function rosterHeldMsg(
+  m: StaffMsg | null,
+  failed: boolean,
+  stepUpPending: boolean,
+): StaffMsg | null {
+  return failed ? m : rosterRetryMsg(m, true, stepUpPending);
+}
+
+/**
+ * The ONE roster rule a loss sheet's region follows (V1) — both sheets call this, so the late path
+ * and the on-time path cannot drift apart, nor the two sheets. It holds the region to `rosterHeldMsg`
+ * on every render (the sanctioned adjust-while-rendering shape: React re-runs the render with the
+ * retired sentence before committing — the late load lands in `roster.failed` with no handler of
+ * the sheet's own to run), and returns the Try again handler, which says a second failure and
+ * retires the failure on an on-time recovery (`rosterRetryMsg`). `stepUpPending` is the server's
+ * `needs_pin` — never a step-up shown up-front.
+ */
+export function useRosterRegion(
+  roster: { failed: boolean; retry: () => Promise<boolean> },
+  msg: StaffMsg | null,
+  setMsg: Dispatch<SetStateAction<StaffMsg | null>>,
+  stepUpPending: boolean,
+): () => Promise<boolean> {
+  const held = rosterHeldMsg(msg, roster.failed, stepUpPending);
+  if (held !== msg) setMsg(held);
+  return async () => {
+    const ok = await roster.retry();
+    setMsg((m) => rosterRetryMsg(m, ok, stepUpPending));
+    return ok;
+  };
+}
+
+/**
  * The manager <select> + PIN <input>. `approvers === null` reads as "Loading…"; an empty roster shows the
  * honest dead-end note (a manager has to approve and none are on shift). A roster that could not be READ
  * (`rosterFailed`) says exactly that — never "none on shift" — with a Try again that calls `onRetry`
- * (focus moves to the picker once it loads; a second failure is the caller's region's to say). `idPrefix` keeps the label↔control
+ * (focus moves to the picker once it loads — after the tap that asked, or, for a late answer, when
+ * focus was on the Try again as it left; a second failure is the caller's region's to say). `idPrefix` keeps the label↔control
  * `htmlFor` wiring unique when several cards render at once (the approvals queue).
  */
 export function ManagerPinFields({
@@ -254,8 +304,21 @@ export function ManagerPinFields({
   // Set by the Try again tap; the picker takes focus when the failure clears (the button that held it
   // unmounts), and is dropped when the retry fails again (focus stays on the button).
   const focusPicker = useRef(false);
+  // Codex r1 follow-up on #310 (V2) — a LATE answer clears the failure with no tap pending, and the
+  // Try again unmounts under whatever focus it holds (it falls to the dialog). So whether focus was
+  // ON it as it left is recorded in its box's ref cleanup — React detaches a ref BEFORE it removes the
+  // node, so `document.activeElement` still reads where focus really was. Assigned fresh at every
+  // vanish, which is the only moment it is read (the box leaves exactly when the failure clears).
+  // Focus anywhere else is the person's, and is never taken.
+  const retryHadFocus = useRef(false);
+  const retryBox = useCallback((el: HTMLDivElement | null) => {
+    if (el === null) return;
+    return () => {
+      retryHadFocus.current = el.contains(document.activeElement);
+    };
+  }, []);
   useEffect(() => {
-    if (!rosterFailed && focusPicker.current) {
+    if (!rosterFailed && (focusPicker.current || retryHadFocus.current)) {
       focusPicker.current = false;
       selectRef.current?.focus();
     }
@@ -307,7 +370,7 @@ export function ManagerPinFields({
             <Chrome lang={lang} k="pin.manager.loadFailed" echo="stack" />
           </p>
           {onRetry && (
-            <div style={{ marginTop: 8 }}>
+            <div ref={retryBox} style={{ marginTop: 8 }}>
               <Button
                 type="button"
                 variant="secondary"

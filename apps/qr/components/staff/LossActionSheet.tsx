@@ -14,9 +14,9 @@ import {
   ManagerPinFields,
   PIN_NO_PIN_COPY,
   pinFailureCopy,
-  rosterRetryMsg,
   useApproverRoster,
   useLockout,
+  useRosterRegion,
 } from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
@@ -152,6 +152,11 @@ export function LossActionSheet({
   // deferred request to primary and tell the server nobody is on shift (Codex round 2 on #308).
   const roster = useApproverRoster(listApprovers);
   const approvers = roster.approvers;
+  // Try again on the roster, and the ONE region rule for any recovery (`useRosterRegion`, shared with
+  // the no-show sheet): a second failure is said in the region; a recovery — the Try again's answer,
+  // or a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
+  // sentence, putting back "a manager needs to approve" while the server's step-up is pending.
+  const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
 
   const reasonOptions = REASONS[action];
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
@@ -375,14 +380,6 @@ export function LossActionSheet({
   }
 
   // The lockout countdown takes precedence over a transient message.
-  // Try again on the roster: a second failure is said in the ONE region; a recovery clears only that
-  // — and puts back "a manager needs to approve" while the server's step-up is still pending.
-  async function retryRoster(): Promise<boolean> {
-    const ok = await roster.retry();
-    setMsg((m) => rosterRetryMsg(m, ok, stepUp));
-    return ok;
-  }
-
   const shown = lockCopy ?? msg;
   // Critic F1 — every SET of the message (a re-tap's refusal re-says the standing waiting line)
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.

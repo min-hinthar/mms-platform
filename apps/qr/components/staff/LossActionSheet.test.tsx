@@ -238,6 +238,109 @@ describe("LossActionSheet — a roster that could not be read (Codex round 2 on 
   });
 });
 
+/**
+ * Codex r1 follow-up on #310 (V1 · V2) — the roster's LATE answer. CX1 lets a read that answers after
+ * its bound load the list, but the sheet's region kept "Couldn't load the list of managers…" over the
+ * picker it had just filled, and the needs-manager line the failure had displaced never came back.
+ * And the Try again that held focus unmounted under it, dropping focus to the dialog. A late load
+ * does exactly what an on-time recovery does: the failure sentence goes, the needs-manager line comes
+ * back while the server's step-up is pending, and focus that was on the vanished Try again lands on
+ * the picker — but focus the person has put anywhere else is never taken.
+ */
+describe("LossActionSheet — the roster's LATE answer (Codex r1 follow-up on #310, V1 · V2)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const advance = (ms: number) =>
+    act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  const retryBtn = () => screen.queryByRole("button", { name: STAFF["out.shell.retry"].en });
+  const DAW_MYA = [{ staffId: "m1", displayName: "Daw Mya", role: "manager" }];
+  /** The Try again's read: it answers only when told to — after its bound. */
+  function hungRoster() {
+    let answer!: (a: unknown[]) => void;
+    approvers.mockImplementationOnce(
+      () =>
+        new Promise<unknown[]>((res) => {
+          answer = res;
+        }),
+    );
+    return (a: unknown[]) => answer(a);
+  }
+
+  it("a list that answers AFTER a failed Try again: 'couldn't load' goes, 'a manager needs to approve' comes back, and focus moves from the vanished Try again to the picker", async () => {
+    vi.useFakeTimers();
+    approvers.mockRejectedValueOnce(new Error("503"));
+    voidLine.mockResolvedValueOnce({ ok: false, reason: "needs_pin" });
+    mount();
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(reason());
+    });
+    await act(async () => {
+      fireEvent.submit(confirmVoid().closest("form")!);
+    });
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+    const answer = hungRoster();
+    const retry = retryBtn()!;
+    retry.focus();
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
+    expect(document.activeElement).toBe(retry);
+    // The read answers after its bound: the list loads (CX1) and the Try again goes.
+    await act(async () => answer(DAW_MYA));
+    const select = document.querySelector<HTMLSelectElement>('[role="dialog"] select')!;
+    expect(select.disabled).toBe(false);
+    expect(retryBtn()).toBeNull();
+    // MUTATION (p2h-cx1/roster-region/late-keeps-failure-copy · p2h-cx1/loss/region-unwired): the
+    // region still says the list couldn't load, over the picker it just filled; red.
+    // MUTATION (p2f-sr-sheet/loss-sheet/recovery-drops-needs-manager): the region reads "" — red.
+    expect(region().textContent).toBe(STAFF["pin.needsManager"].en);
+    // MUTATION (p2h-cx1/loss/late-load-no-focus): focus fell to the dialog with the Try again; red.
+    expect(document.activeElement).toBe(select);
+  });
+
+  it("with no step-up asked by the server the late list leaves the region empty — and focus the person put on the PIN field stays there", async () => {
+    vi.useFakeTimers();
+    approvers.mockRejectedValueOnce(new Error("503"));
+    // A cooked line gates the step-up up-front: the manager fields are there, the server asked nothing.
+    const cooked = { ...line, state: "served" } as unknown as TableLineView;
+    render(
+      <StaffLangProvider lang="en">
+        <LossActionSheet
+          open
+          onOpenChange={() => {}}
+          sessionId="s1"
+          line={cooked}
+          onDone={() => {}}
+        />
+      </StaffLangProvider>,
+    );
+    await act(async () => {});
+    const answer = hungRoster();
+    await act(async () => {
+      fireEvent.click(retryBtn()!);
+    });
+    await advance(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["pin.manager.loadFailed"].en);
+    const pinField = document.querySelector<HTMLInputElement>(
+      '[role="dialog"] input[type="password"]',
+    )!;
+    pinField.focus();
+    await act(async () => answer(DAW_MYA));
+    expect(retryBtn()).toBeNull();
+    // MUTATION (p2h-cx1/roster-region/late-keeps-failure-copy): red.
+    expect(region().textContent).toBe("");
+    // Never taken from where the person put it (the unit case pins the rule:
+    // p2h-cx1/fields/late-load-steals-focus in ManagerPinStepUp.test.tsx).
+    expect(document.activeElement).toBe(pinField);
+  });
+});
+
 // ── Phase 2h · p2h-sheets ──
 /** A write still in the air when the case ends — settled in `afterEach`, after the tree is gone, so
  *  a pre-fix transition left pending by a red-first run can never entangle the next case. */
