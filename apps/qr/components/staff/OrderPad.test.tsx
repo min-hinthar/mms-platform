@@ -8,7 +8,7 @@ import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-
 import type { StaffFireResult, StaffUndoResult } from "@/lib/staff-send-view";
 import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
-import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, stalledSince, youngWrite } from "@/lib/bounded-write";
 
 /**
  * Phase 2c · pad — the ORDER PAD's WIRING (DESIGN-LANGUAGE §28). The decisions are pure and pinned
@@ -1193,6 +1193,29 @@ describe("a removal whose answer is lost — said as unknown, never stranded", (
   });
 });
 
+describe("Phase 2i — the pad's removal is a WRITE on the ledger", () => {
+  it("a removal in flight is a young write — a reload for a new build is refused for it", async () => {
+    setQty.mockReturnValueOnce(new Promise(() => {}));
+    mount(
+      detail({
+        lines: [
+          line({ id: "l1" }),
+          line({ id: "l2", name: "Tea", menuItemId: "t1", nameMy: null }),
+        ],
+        itemCount: 2,
+      }),
+    );
+    await flush(400);
+    expect(youngWrite()).toBe(false);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Mohinga" }));
+    });
+    // MUTATION (p2i-kind/pad-removal): the removal's race labels it a read — a reload for a new
+    // build lands over a removal still in flight; red.
+    expect(youngWrite()).toBe(true);
+  });
+});
+
 describe("the options sheet's retry reads 2a's key rule", () => {
   it("an unknown outcome keeps the key: the same choice again rides the SAME key; a new choice mints one", async () => {
     addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
@@ -1574,6 +1597,18 @@ describe("P5 — a hung detail read is never piled on", () => {
     await flush();
     // The polls it refused are owed one fresh read, at once.
     expect(getTableDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Phase 2i — the pad's detail read is a READ on the ledger", () => {
+  it("a detail read in flight never reads as a young write", async () => {
+    getTableDetail.mockReturnValue(new Promise(() => {}));
+    mount(ONE());
+    await flush(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/pad-detail-poll): the race labels the poll a write — an open pad refuses a
+    // reload for a new build every 5s; red.
+    expect(youngWrite()).toBe(false);
   });
 });
 

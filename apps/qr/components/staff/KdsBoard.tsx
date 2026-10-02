@@ -457,7 +457,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       // raceTimeout (W10b): a HUNG poll (socket that never settles) would hold inFlight forever and
       // stop all polling with the board still wearing its live face — turn it into the catch path.
       // The gate watches the RAW read: the race frees this caller at 15 s, never Next's queue.
-      const res = await raceTimeout(gate.watch(getKitchenQueue()));
+      const res = await raceTimeout(gate.watch(getKitchenQueue()), "read");
       // Phase 2h · review b (B1) — the read can answer AFTER the board is gone (it queued behind the
       // lock, a sign-out, another screen's action): `alive` is re-checked after the await, before any
       // side effect — a dead board's "locked" must not hard-reload the screen the cook moved to.

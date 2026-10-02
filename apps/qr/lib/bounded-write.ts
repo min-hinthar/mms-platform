@@ -66,7 +66,22 @@ export function settleLate<T>(raw: Promise<T>): Promise<Late<T>> {
  * the truth is `waiting`, and the late answer is dropped with the race (9e).
  */
 export function boundWrite<T>(raw: Promise<T>, ms: number = STAFF_HANG_MS): Promise<Bounded<T>> {
-  track(raw);
+  return bounded(raw, ms, "write");
+}
+
+/**
+ * Phase 2i (P2bi) — the same bounded await for a READ action: identical outcomes, but its raw is
+ * tracked as a `read`, so it never counts as a young or stalled WRITE (`youngWrite` / `stalledWrite`),
+ * never stamps the answer window (`msSinceWriteSettled`) and never notifies `subscribeWrites` — a
+ * read in flight is not work a reload would lose. It still holds Next's queue, so `stalledSince`
+ * still sees it (9d).
+ */
+export function boundRead<T>(raw: Promise<T>, ms: number = STAFF_HANG_MS): Promise<Bounded<T>> {
+  return bounded(raw, ms, "read");
+}
+
+function bounded<T>(raw: Promise<T>, ms: number, kind: CallKind): Promise<Bounded<T>> {
+  track(raw, kind);
   const late = settleLate(raw);
   return new Promise<Bounded<T>>((resolve) => {
     const bound = setTimeout(() => resolve({ kind: "waiting", late }), ms);
@@ -101,7 +116,17 @@ export function boundWrite<T>(raw: Promise<T>, ms: number = STAFF_HANG_MS): Prom
  * OLDEST is chosen by it) beside `startedAt` (the wall-clock instant, which is all `stalledSince`
  * still returns — every caller reads it only as null / not null).
  */
-const ledger = new Map<Promise<unknown>, { startedAt: number; monoAt: number }>();
+type Entry = { startedAt: number; monoAt: number; kind: CallKind };
+const ledger = new Map<Promise<unknown>, Entry>();
+
+/**
+ * Phase 2i (P2bi) — what a tracked action IS, for the one question a reload asks: would reloading
+ * now lose it? A `write` would (its answer, its line, maybe the write itself); a `read` would not
+ * (the next document reads again). The ledger keeps reads because a hung read holds Next's queue
+ * exactly as a hung write does (`stalledSince` stays kind-agnostic, 9d) — only the reload verdict
+ * (`youngWrite` · `stalledWrite` · `msSinceWriteSettled`) reads the kind.
+ */
+export type CallKind = "read" | "write";
 
 /**
  * THE ledger's clock (Codex round 2 on #310, B4): elapsed milliseconds on a MONOTONIC clock — it
@@ -124,17 +149,116 @@ export function monoNow(): number {
  * that dispatched it still owns reading it (every tracked caller here does: `raceTimeout` rethrows
  * it, `boundWrite` turns it into `threw`, the pad's add chain and send read it in their own catch).
  */
-export function track<T>(raw: Promise<T>): Promise<T> {
-  if (ledger.has(raw)) return raw;
-  const entry = { startedAt: Date.now(), monoAt: monoNow() };
+export function track<T>(raw: Promise<T>, kind: CallKind = "write"): Promise<T> {
+  const known = ledger.get(raw);
+  if (known !== undefined) {
+    // Phase 2i — the FIRST registration's clock wins (unchanged), but a WRITE registration upgrades
+    // a read entry, and a read never downgrades a write: unsure is counted as a write (fail-safe —
+    // a reload refused for a read costs a few seconds; one allowed over a write loses it).
+    if (kind === "write" && known.kind === "read") {
+      known.kind = "write";
+      notifyWrites();
+    }
+    return raw;
+  }
+  const entry: Entry = { startedAt: Date.now(), monoAt: monoNow(), kind };
   ledger.set(raw, entry);
-  const leave = () => {
+  if (kind === "write") notifyWrites();
+  const leave = (): boolean => {
     // Only THIS registration leaves: after `resetLedgerForTests`, a re-tracked copy of the same
     // promise belongs to the new ledger and must not be dropped by the old settle.
-    if (ledger.get(raw) === entry) ledger.delete(raw);
+    if (ledger.get(raw) !== entry) return false;
+    ledger.delete(raw);
+    // Phase 2i — a WRITE that ended, RESOLVED OR REJECTED, opens the answer window: either way a
+    // line on screen may have just changed to say so, and someone may be reading it.
+    if (entry.kind === "write") {
+      lastWriteSettled = monoNow();
+      notifyWrites();
+    }
+    return true;
   };
-  raw.then(leave, leave);
+  raw.then(
+    () => {
+      leave();
+    },
+    (error: unknown) => {
+      // Phase 2i — the entry leaves FIRST, then the witnesses hear the reason, each try/caught: a
+      // throwing listener must never strand an entry (the tab would read stalled forever).
+      if (!leave()) return;
+      for (const listener of [...rejectionListeners]) {
+        try {
+          listener(error);
+        } catch {
+          // Deliberate swallow: a witness is an observer; its failure is not this action's outcome,
+          // and the caller that dispatched the raw still reads the rejection on its own path.
+        }
+      }
+    },
+  );
   return raw;
+}
+
+/** Phase 2i — `monoNow()` when the last WRITE entry left the ledger; null: none this document. */
+let lastWriteSettled: number | null = null;
+const writeListeners = new Set<() => void>();
+const rejectionListeners = new Set<(error: unknown) => void>();
+
+function notifyWrites(): void {
+  for (const listener of [...writeListeners]) listener();
+}
+
+/** Phase 2i — a WRITE entry out for less than STAFF_HANG_MS (monotonic): the reload would lose it. */
+export function youngWrite(): boolean {
+  const now = monoNow();
+  for (const entry of ledger.values()) {
+    if (entry.kind === "write" && now - entry.monoAt < STAFF_HANG_MS) return true;
+  }
+  return false;
+}
+
+/**
+ * Phase 2i — a WRITE entry out for STAFF_HANG_MS or more. The boundary agrees with `stalledSince`'s
+ * `>=`, so a write is young or stalled, never both and never neither. `stalledSince` stays
+ * kind-agnostic: 9d refuses money taps on a hung READ too.
+ */
+export function stalledWrite(): boolean {
+  const now = monoNow();
+  for (const entry of ledger.values()) {
+    if (entry.kind === "write" && now - entry.monoAt >= STAFF_HANG_MS) return true;
+  }
+  return false;
+}
+
+/** Phase 2i — ms on `monoNow()` since the last WRITE entry left the ledger; null: none yet. */
+export function msSinceWriteSettled(): number | null {
+  return lastWriteSettled === null ? null : monoNow() - lastWriteSettled;
+}
+
+/** Phase 2i — notified when a WRITE entry enters, upgrades or leaves. Reads never notify, so a poll
+ *  causes no re-render of whatever subscribes. Returns the unsubscribe. */
+export function subscribeWrites(listener: () => void): () => void {
+  writeListeners.add(listener);
+  return () => {
+    writeListeners.delete(listener);
+  };
+}
+
+/**
+ * Phase 2i — called with every tracked raw's REJECTION reason, after its entry has left the ledger.
+ * The one place a retired action id (`UnrecognizedActionError`) can be witnessed for the whole tab,
+ * since every staff action call goes through `track`. Returns the unsubscribe.
+ */
+export function onTrackedRejection(listener: (error: unknown) => void): () => void {
+  rejectionListeners.add(listener);
+  return () => {
+    rejectionListeners.delete(listener);
+  };
+}
+
+/** Test seam: clear the answer-window stamp and the rejection listeners (module state). */
+export function resetWriteSignalsForTests(): void {
+  lastWriteSettled = null;
+  rejectionListeners.clear();
 }
 
 /**
@@ -209,6 +333,11 @@ export function ownWaitSlot<T>(subject: string, idle: T): { current: T } {
       for (const listener of ownWaitListeners) listener();
     },
   };
+}
+
+/** Phase 2i — ANY subject's own write is held (every money surface's, whatever its subject). */
+export function anyOwnWait(): boolean {
+  return ownWaits.size > 0;
 }
 
 /** Whether `subject`'s own write is still out past the bound (see `ownWaitSlot`). */

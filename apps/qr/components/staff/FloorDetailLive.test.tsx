@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
-import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, youngWrite } from "@/lib/bounded-write";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
 import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
 import { handoffFocusKey, handoffStashKey } from "@/lib/floor-pane";
@@ -2035,6 +2035,17 @@ describe("FloorDetailLive — a settled counter order's server-built #CODE card 
     await tick(5000);
     expect(screen.getByRole("region", { name: /Paid.*Change.*\$7\.90.*#A1B2C3/ })).toBeTruthy();
     expect(sessionStorage.getItem(handoffStashKey("s1"))).not.toBeNull();
+  });
+});
+
+describe("Phase 2i — the table's poll is a READ on the ledger", () => {
+  it("a poll in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    answer = () => new Promise(() => {});
+    mount();
+    await tick(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/floor-detail-poll): the race labels the poll a write; red.
+    expect(youngWrite()).toBe(false);
   });
 });
 

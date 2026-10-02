@@ -133,7 +133,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     setReading(true);
     try {
       // The RAW read is watched (the race frees this caller at 15 s, never Next's queue).
-      const next = await raceTimeout(gate.watch(getSettledToday()));
+      const next = await raceTimeout(gate.watch(getSettledToday()), "read");
       // `getSettledToday` RETURNS its failures (`{ ok: false }`), it does not throw — so the
       // first draft installed an outage over a good list, and the manager who had just moved
       // money saw "can't load right now" where the confirmation was (blind pass on A4·3,

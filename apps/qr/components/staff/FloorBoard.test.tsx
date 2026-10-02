@@ -68,7 +68,7 @@ const { ts } = await import("@/lib/i18n/staff");
 const { FLOOR_WAIT_TICK_MS } = await import("./FloorWait");
 const { UP_NOTICE_DWELL_MS } = await import("@/lib/floor-kitchen");
 const { ERR_DWELL_MS } = await import("@/lib/kds-errors");
-const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+const { STAFF_HANG_MS, youngWrite } = await import("@/lib/bounded-write");
 // ── Phase 2g ──
 const { COUNTER_UNCOLLECTED_HOURS } = await import("@/lib/counter-order");
 const { tf } = await import("@/lib/i18n/fill");
@@ -973,6 +973,18 @@ describe("Phase 2g — the floor says what its counter list leaves out, and offe
     expect(openSession).toHaveBeenCalledWith("old-1", { counter: true, display: "" });
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).not.toBe(door());
+  });
+});
+
+describe("Phase 2i — the floor's poll is a READ on the ledger", () => {
+  it("a poll in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    const reads = vi.fn<() => Promise<unknown>>(() => new Promise(() => {}));
+    answer = reads;
+    mount(snap([table(7)]));
+    await tick(POLL_MS);
+    expect(reads).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/floor-poll): the race labels the poll a write; red.
+    expect(youngWrite()).toBe(false);
   });
 });
 

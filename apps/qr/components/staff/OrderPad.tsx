@@ -502,7 +502,7 @@ export function OrderPad({
         refreshRef.current(); // the late answer: re-read what it did
       };
       raw.then(onAnswer, onAnswer);
-      raceTimeout(raw)
+      raceTimeout(raw, "write")
         .then(
           (res) => {
             if (!res.ok) {

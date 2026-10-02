@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { outReadSlot, outstanding, stalledSince, track } from "./bounded-write";
+import {
+  msSinceWriteSettled,
+  onTrackedRejection,
+  outReadSlot,
+  outstanding,
+  stalledSince,
+  track,
+} from "./bounded-write";
 
 /**
  * Phase 2h (F7) — the stall ledger is emptied after every case by `lib/test-setup.ts` (vitest's
@@ -33,5 +40,26 @@ describe("every case starts with no read still out", () => {
     // mount would await the first case's hung read instead of its own, and pass or fail by its
     // position in the file; red.
     expect(outReadSlot<string[]>(rosterRead).current).toBeNull();
+  });
+});
+
+/** Phase 2i (P2bi) — the answer-window stamp and the rejection witnesses are emptied too. */
+describe("every case starts with no write answered and no witness listening", () => {
+  const heard: unknown[] = [];
+  it("a case may settle a write and install a witness…", async () => {
+    onTrackedRejection((e) => {
+      heard.push(e);
+    });
+    await track(Promise.resolve(1));
+    expect(msSinceWriteSettled()).not.toBeNull();
+  });
+
+  it("…and the next case inherits neither", async () => {
+    // MUTATION (p2i-setup/write-signals-leak): the setup's reset is gone — this case's quiet moment
+    // is shortened by the first case's write, and the first case's witness hears this case's
+    // rejection (a retired tab in a suite that never retired anything); red.
+    expect(msSinceWriteSettled()).toBeNull();
+    await track(Promise.reject(new Error("x"))).catch(() => {});
+    expect(heard).toEqual([]);
   });
 });

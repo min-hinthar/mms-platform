@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STAFF_HANG_MS,
+  anyOwnWait,
+  boundRead,
   boundWrite,
+  msSinceWriteSettled,
+  onTrackedRejection,
+  resetWriteSignalsForTests,
+  stalledWrite,
+  subscribeWrites,
+  youngWrite,
   hasOwnWait,
   monoNow,
   moveOwnOut,
@@ -55,9 +63,11 @@ function watchOutcome<T>(p: Promise<T>): { get: () => T | undefined } {
 beforeEach(() => {
   vi.useFakeTimers({ now: T0 });
   resetLedgerForTests();
+  resetWriteSignalsForTests();
 });
 afterEach(() => {
   resetLedgerForTests();
+  resetWriteSignalsForTests();
   vi.useRealTimers();
 });
 
@@ -494,5 +504,229 @@ describe("releaseOutRead — a read's settle clears only the read it is (Codex r
     // it; red.
     releaseOutRead(rosterRead, old);
     expect(outReadSlot<string[]>(rosterRead).current).toBe(fresh);
+  });
+});
+
+/**
+ * Phase 2i (P2bi) — the ledger's KIND, for the one question a reload for a new build asks: would it
+ * lose work? A young WRITE refuses every reload; a stalled one refuses only the automatic one (the
+ * reload is its cure); a READ refuses neither (the next document reads again) — but still holds
+ * Next's queue, so `stalledSince` keeps seeing it (9d).
+ */
+describe("the ledger's kind — reads never count as writes (Phase 2i)", () => {
+  it("a READ in flight is not a young write", () => {
+    // MUTATION (p2i-ledger/kind-ignored): the kind is ignored — every board poll in flight reads as
+    // unsaved work, and the tablet can never take a new version while it polls; red.
+    track(new Promise(() => {}), "read");
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(false);
+  });
+
+  it("an UNLABELLED track is a write — unsure counts as a write (fail-safe)", () => {
+    // MUTATION (p2i-ledger/default-read): the default is a read — the pad's add, the Send and every
+    // other untagged write would be reloaded over mid-flight; red.
+    track(new Promise(() => {}));
+    expect(youngWrite()).toBe(true);
+  });
+
+  it("a write registration UPGRADES a read entry, and a read never downgrades a write", () => {
+    // MUTATION (p2i-ledger/write-downgraded): a later READ registration relabels a write — the
+    // second registration of one raw (the gate's `watch`, then a race) decides what it is; red.
+    // MUTATION (p2i-ledger/read-never-upgraded): a write registered over a read stays a read; red.
+    const a = new Promise(() => {});
+    track(a, "read");
+    expect(youngWrite()).toBe(false);
+    track(a, "write");
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(true);
+    resetLedgerForTests();
+    const b = new Promise(() => {});
+    track(b, "write");
+    track(b, "read");
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(true);
+  });
+
+  it("a write is young under the bound and stalled AT it — never both, never neither", () => {
+    // MUTATION (p2i-ledger/young-boundary): young at the bound too — the instant `stalledSince`
+    // calls the tab stuck, the manual reload (the cure) is refused as "still saving"; red.
+    track(new Promise(() => {}), "write");
+    vi.advanceTimersByTime(STAFF_HANG_MS - 1);
+    expect(youngWrite()).toBe(true);
+    expect(stalledWrite()).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(youngWrite()).toBe(false);
+    expect(stalledWrite()).toBe(true);
+  });
+
+  it("a hung READ is not a stalled write — but `stalledSince` still sees it (9d)", () => {
+    // MUTATION (p2i-ledger/stalled-read-counts): a hung poll blocks the automatic reload as if it
+    // were unsaved work — the stale board waits on the very hang a reload would cure; red.
+    // MUTATION (p2i-ledger/stalledSince-kinded): `stalledSince` reads writes only — a hung READ
+    // holds Next's queue, and the next money tap is dispatched behind it; red.
+    track(new Promise(() => {}), "read");
+    vi.advanceTimersByTime(STAFF_HANG_MS);
+    expect(stalledWrite()).toBe(false);
+    expect(stalledSince()).toBe(T0);
+  });
+
+  it("boundRead tracks a READ — the same bounded outcomes, never a young write", async () => {
+    // MUTATION (p2i-ledger/bound-read-writes): `boundRead` tracks a write — the merge sheet's
+    // candidate read would refuse a reload as unsaved work; red.
+    const raw = deferred<number>();
+    const got = watchOutcome(boundRead(raw.promise));
+    expect(outstanding()).toBe(1);
+    expect(youngWrite()).toBe(false);
+    await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+    expect(got.get()?.kind).toBe("waiting");
+    raw.resolve(3);
+    await settle();
+    expect(outstanding()).toBe(0);
+    expect(msSinceWriteSettled()).toBeNull();
+  });
+
+  it("boundWrite still tracks a WRITE", () => {
+    void boundWrite(new Promise(() => {}));
+    expect(youngWrite()).toBe(true);
+  });
+});
+
+describe("msSinceWriteSettled — the answer window opens when a WRITE leaves (Phase 2i)", () => {
+  it("is null before any write has settled in this document", () => {
+    expect(msSinceWriteSettled()).toBeNull();
+  });
+
+  it("a RESOLVED write stamps it, measured on the monotonic clock", async () => {
+    const raw = deferred<number>();
+    track(raw.promise, "write");
+    vi.advanceTimersByTime(2_000);
+    raw.resolve(1);
+    await settle();
+    expect(msSinceWriteSettled()).toBe(0);
+    vi.advanceTimersByTime(700);
+    expect(msSinceWriteSettled()).toBe(700);
+  });
+
+  it("a REJECTED write stamps it too — its line on screen just changed either way", async () => {
+    // MUTATION (p2i-ledger/settle-on-resolve-only): only an answer opens the window — a refused or
+    // thrown write's "couldn't confirm" line is reloaded away the instant it appears; red.
+    const raw = deferred<number>();
+    track(raw.promise, "write");
+    raw.reject(new Error("refused"));
+    await settle();
+    expect(msSinceWriteSettled()).toBe(0);
+  });
+
+  it("a READ settling never stamps it — polls never hold the window open", async () => {
+    // MUTATION (p2i-ledger/read-settle-stamps): every 5s poll re-opens the 30s window and the
+    // automatic reload never finds a quiet moment on a live board; red.
+    const raw = deferred<number>();
+    track(raw.promise, "read");
+    raw.resolve(1);
+    await settle();
+    expect(msSinceWriteSettled()).toBeNull();
+    const bad = deferred<number>();
+    track(bad.promise, "read");
+    bad.reject(new Error("x"));
+    await settle();
+    expect(msSinceWriteSettled()).toBeNull();
+  });
+});
+
+describe("subscribeWrites — writes notify, reads never do (Phase 2i)", () => {
+  it("a write entering and leaving notifies; a read does neither; an upgrade does", async () => {
+    // MUTATION (p2i-ledger/write-enter-silent): a write going OUT is not heard — a refusal on screen
+    // ("still saving") would never re-check when the write starts; red.
+    // MUTATION (p2i-ledger/read-notifies): reads notify too — every poll re-renders the subscribers; red.
+    let calls = 0;
+    const off = subscribeWrites(() => {
+      calls++;
+    });
+    const r = deferred<number>();
+    track(r.promise, "read");
+    expect(calls).toBe(0);
+    const w = deferred<number>();
+    track(w.promise, "write");
+    expect(calls).toBe(1);
+    w.resolve(1);
+    await settle();
+    expect(calls).toBe(2);
+    track(r.promise, "write");
+    expect(calls).toBe(3);
+    off();
+    r.resolve(1);
+    await settle();
+    expect(calls).toBe(3);
+  });
+});
+
+describe("onTrackedRejection — the witness hears every tracked rejection (Phase 2i)", () => {
+  it("is called once with the reason, AFTER the entry has left", async () => {
+    // MUTATION (p2i-ledger/rejection-unheard): the witness hears nothing — a retired action id
+    // (`UnrecognizedActionError`) is never noticed and the stale screen keeps dropping taps; red.
+    const heard: Array<{ e: unknown; out: number }> = [];
+    const off = onTrackedRejection((e) => {
+      heard.push({ e, out: outstanding() });
+    });
+    const err = new Error("gone");
+    const raw = deferred<number>();
+    track(raw.promise, "read");
+    raw.reject(err);
+    await settle();
+    expect(heard).toEqual([{ e: err, out: 0 }]);
+    const ok = deferred<number>();
+    track(ok.promise, "write");
+    ok.resolve(1);
+    await settle();
+    expect(heard).toHaveLength(1);
+    off();
+  });
+
+  it("a THROWING listener never strands the entry, and the next listener still hears it", async () => {
+    // MUTATION (p2i-ledger/listener-before-leave): listeners run before the entry leaves, unguarded —
+    // a throwing witness leaves a rejected action on the ledger, and the tab reads stalled forever; red.
+    const heard: unknown[] = [];
+    onTrackedRejection(() => {
+      throw new Error("witness broke");
+    });
+    onTrackedRejection((e) => {
+      heard.push(e);
+    });
+    const raw = deferred<number>();
+    track(raw.promise, "write");
+    const err = new Error("refused");
+    raw.reject(err);
+    await settle();
+    expect(outstanding()).toBe(0);
+    expect(heard).toEqual([err]);
+  });
+
+  it("the reset forgets every listener", async () => {
+    let n = 0;
+    onTrackedRejection(() => {
+      n++;
+    });
+    resetWriteSignalsForTests();
+    const raw = deferred<number>();
+    track(raw.promise);
+    raw.reject(new Error("x"));
+    await settle();
+    expect(n).toBe(0);
+  });
+});
+
+describe("anyOwnWait — any money surface's own write held (Phase 2i)", () => {
+  afterEach(() => {
+    resetOwnWaitsForTests();
+  });
+  it("is true while any subject is set, false once every one is cleared", () => {
+    // MUTATION (p2i-ledger/own-wait-blind): a held payment is invisible to the reload verdict — the
+    // automatic reload drops the cashier's "no answer yet — don't take it again" line; red.
+    expect(anyOwnWait()).toBe(false);
+    const slot = ownWaitSlot<string | null>("cash:c1", null);
+    slot.current = "waiting";
+    expect(anyOwnWait()).toBe(true);
+    slot.current = null;
+    expect(anyOwnWait()).toBe(false);
   });
 });

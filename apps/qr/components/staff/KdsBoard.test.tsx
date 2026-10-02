@@ -1620,7 +1620,23 @@ describe("Phase 2f — a counter order sent before it was paid", () => {
 });
 
 // ── Phase 2h — a hung tablet never traps the kitchen (P2cz · P2fc) ────────────────────────────────
-const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
+const { STAFF_HANG_MS, youngWrite } = await import("@/lib/bounded-write");
+
+describe("Phase 2i — the board's poll is a READ on the ledger", () => {
+  it("a poll in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    vi.useFakeTimers();
+    getKitchenQueue.mockReset();
+    getKitchenQueue.mockImplementation(() => new Promise(() => {}));
+    mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(getKitchenQueue).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/kds-poll): the race labels the poll a write — the kitchen board never
+    // finds a moment to take a new version; red.
+    expect(youngWrite()).toBe(false);
+  });
+});
 
 describe("Phase 2h (9f) — the board's poll never stacks a read behind a hung one", () => {
   const flush = (ms: number) =>

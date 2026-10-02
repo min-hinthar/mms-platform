@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { terminalStatus, cancelTerminal, terminalResume } from "@/lib/terminal";
-import { boundWrite, stalledSince, track } from "@/lib/bounded-write";
+import { boundRead, boundWrite, stalledSince, track } from "@/lib/bounded-write";
 import { stashHandoff } from "@/lib/floor-pane";
 import {
   READER_POLL_MS,
@@ -218,7 +218,9 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
           setCancelError(null);
           onAdopted?.();
         };
-        const out = await boundWrite(terminalResume({ sessionId: p.sessionId, startId: p.token }));
+        // Phase 2i — the resume is READ-ONLY (`terminalResume` touches no freeze), so it is a READ on
+        // the ledger: in flight it never refuses a reload for a new build as unsaved work.
+        const out = await boundRead(terminalResume({ sessionId: p.sessionId, startId: p.token }));
         if (out.kind === "answer") apply(out.value);
         else if (out.kind === "threw") apply(null);
         else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
@@ -359,7 +361,7 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       flight.current = ticket;
       // Phase 2h (9d) — on the stall ledger until it answers: a hung status read holds the action
       // queue like any action, so a money tap behind it is refused instead of queued.
-      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }))
+      track(terminalStatus({ sessionId: rec.sessionId, paymentIntentId: pi }), "read")
         .catch(() => null)
         .then((res) => {
           if (flight.current === ticket) flight.current = null;

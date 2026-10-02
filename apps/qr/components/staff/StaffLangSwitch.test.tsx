@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { echoesShown, scriptOf, type StaffLangMode } from "@/lib/staff-lang";
+import { youngWrite } from "@/lib/bounded-write";
 
 const setStaffLang = vi.fn();
 const refresh = vi.fn();
@@ -152,6 +153,18 @@ describe("StaffLangSwitch — the pill", () => {
     expect(pressed(my())).toBe("false");
     await act(async () => w.release({ ok: true, mode: "en" }));
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("the language save in flight is a young WRITE — a reload for a new build is refused for it (Phase 2i)", async () => {
+    setStaffLang.mockReturnValue(new Promise(() => {}));
+    mount("both");
+    expect(youngWrite()).toBe(false);
+    fireEvent.click(en());
+    await act(async () => {});
+    expect(setStaffLang).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/lang-write): the save's race labels it a read — a reload lands over a
+    // language choice still being written; red.
+    expect(youngWrite()).toBe(true);
   });
 
   it("two taps inside ONE act write once — the latch is a ref, read at the tap", async () => {

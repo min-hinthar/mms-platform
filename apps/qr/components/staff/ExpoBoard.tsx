@@ -429,7 +429,7 @@ export function ExpoBoard({
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight. The
       // gate watches the RAW read — the race frees this caller at 15 s, never Next's queue.
-      const res = await raceTimeout(gate.watch(getExpoQueue()));
+      const res = await raceTimeout(gate.watch(getExpoQueue()), "read");
       // Phase 2h · review b (B1) — the read can answer AFTER the lane is gone (it queued behind a
       // lock, a sign-out, another screen's action): `alive` is re-checked after the await, before any
       // side effect — a dead lane neither re-sends the windows its unmount flush already sent nor

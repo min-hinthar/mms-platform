@@ -1218,7 +1218,7 @@ describe("Phase 2g — an unpaid bag that has waited past the horizon says so, i
 });
 
 // ── Phase 2h — a hung tablet never traps the lane (P2cz · P2fc) ───────────────────────────────────
-const { STAFF_HANG_MS, stalledSince } = await import("@/lib/bounded-write");
+const { STAFF_HANG_MS, stalledSince, youngWrite } = await import("@/lib/bounded-write");
 const { PICKED_UNDO_MS } = await import("@/lib/expo-rules");
 
 describe("Phase 2h (9f) — the lane's poll never stacks a read behind a hung one", () => {
@@ -1256,6 +1256,22 @@ describe("Phase 2h (9f) — the lane's poll never stacks a read behind a hung on
     expect(head().textContent).not.toContain(ts("en", "out.head.notUpdating"));
     await flush(1_000);
     expect(getExpoQueue).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Phase 2i — the lane's poll is a READ on the ledger", () => {
+  it("a poll in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockReset();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(getExpoQueue).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/expo-poll): the race labels the poll a write — the lane's every poll
+    // refuses the reload as "still saving"; red.
+    expect(youngWrite()).toBe(false);
   });
 });
 

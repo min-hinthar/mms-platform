@@ -128,6 +128,22 @@ describe("SettledToday — overlapping refreshes", () => {
   });
 });
 
+describe("Phase 2i — the zone's read is a READ on the ledger", () => {
+  it("a Refresh in flight never reads as a young write — a reload for a new build is not refused for it", async () => {
+    const { youngWrite, outstanding } = await import("@/lib/bounded-write");
+    render(
+      <StaffLangProvider lang="en">
+        <SettledToday initial={snapshot(order(false))} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(reads.length).toBe(1);
+    expect(outstanding()).toBe(1);
+    // MUTATION (p2i-kind/settled-poll): the race labels the read a write; red.
+    expect(youngWrite()).toBe(false);
+  });
+});
+
 describe("Phase 2h — the zone's read is bounded, never stacked, and its Refresh frees at the bound", () => {
   it("a read hung for 60 s is ONE dispatch: Refresh frees at the bound, the list says it is stale, taps past it start nothing, and the answer kicks exactly one owed read", async () => {
     vi.useFakeTimers();

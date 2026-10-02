@@ -3,7 +3,7 @@ import { StrictMode, useLayoutEffect } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
-import { STAFF_HANG_MS, stalledSince, track } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, stalledSince, track, youngWrite } from "@/lib/bounded-write";
 import {
   READER_COLLECT_KEY,
   READER_COLLECT_MAX_IDLE_MS,
@@ -667,6 +667,19 @@ describe("Phase 2h (9d) — the status read sits on the stall ledger until it an
   });
 });
 
+describe("Phase 2i — the status read is a READ on the ledger", () => {
+  it("a status read in flight never reads as a young write — the collect record survives a reload and re-polls", async () => {
+    terminalStatus.mockReturnValue(new Promise(() => {}));
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    expect(terminalStatus).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/reader-status): the poll is tracked as a write — a counter collecting a
+    // card refuses a reload for a new build for as long as it polls; red.
+    expect(youngWrite()).toBe(false);
+  });
+});
+
 describe("Phase 2h — the reader CANCEL is bounded (9b · 9d · 9e)", () => {
   /** A cancel whose answer the case holds. */
   function hungCancel() {
@@ -919,6 +932,17 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     await act(async () => answer(live));
     // MUTATION (p2h-cx2a/provider/late-resume-dropped): the answer past the bound is dropped; red.
     expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+
+  it("the resume in flight is a READ — never a young write (Phase 2i)", async () => {
+    seed(PENDING);
+    terminalResume.mockReturnValueOnce(new Promise(() => {}));
+    mount();
+    await tick(0);
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/reader-resume): the read-only resume is tracked as a write — a reload for a
+    // new build is refused as "still saving" over a read; red.
+    expect(youngWrite()).toBe(false);
   });
 
   it("a collect that STANDS is the newer fact: the record goes without a read", async () => {

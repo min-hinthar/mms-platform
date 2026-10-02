@@ -1,5 +1,10 @@
 import { afterEach } from "vitest";
-import { resetLedgerForTests, resetOutReadsForTests, resetOwnWaitsForTests } from "./bounded-write";
+import {
+  resetLedgerForTests,
+  resetOutReadsForTests,
+  resetOwnWaitsForTests,
+  resetWriteSignalsForTests,
+} from "./bounded-write";
 
 /**
  * Phase 2h (the contract critic, F7) — vitest's `setupFiles` entry for every suite in apps/qr.
@@ -20,4 +25,8 @@ afterEach(() => {
   // Codex r2 on #310 (B2) — and so is the per-key register of a read still out: a case that leaves
   // the roster read hung would hand the next case's mount that hung read instead of a fresh one.
   resetOutReadsForTests();
+  // Phase 2i (P2bi) — and so are the answer-window stamp and the rejection witnesses: a case whose
+  // write settled would shorten the next case's quiet moment, and a witness a case installed (the
+  // staff layout's) would hear the next case's rejections and mark its tab retired.
+  resetWriteSignalsForTests();
 });

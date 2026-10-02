@@ -193,9 +193,9 @@ export function ApprovalsBoard({
       const rawLedger = listRefundsNeeded();
       gate.watch(Promise.allSettled([rawQueue, rawWho, rawLedger]));
       const [queue, who, ledger] = await Promise.allSettled([
-        raceTimeout(rawQueue),
-        rawWho !== null ? raceTimeout(rawWho) : Promise.resolve(rosterRef.current),
-        raceTimeout(rawLedger),
+        raceTimeout(rawQueue, "read"),
+        rawWho !== null ? raceTimeout(rawWho, "read") : Promise.resolve(rosterRef.current),
+        raceTimeout(rawLedger, "read"),
       ]);
       // Phase 2h · review b (B1) — the reads can answer AFTER the zone is gone (queued behind another
       // screen's action): `alive` is re-checked after the await, before any side effect — a dead

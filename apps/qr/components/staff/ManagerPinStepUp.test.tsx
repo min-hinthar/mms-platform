@@ -2,7 +2,7 @@
 import { act, cleanup, render, renderHook, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Approver } from "@/lib/voids";
-import { STAFF_HANG_MS, resetOutReadsForTests } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, resetOutReadsForTests, youngWrite } from "@/lib/bounded-write";
 import { StaffLangProvider } from "./StaffLangProvider";
 import {
   ManagerPinFields,
@@ -161,6 +161,34 @@ describe("useApproverRoster — Phase 2h: both reads end at the bound", () => {
     expect(result.current.retrying).toBe(false);
     expect(ok).toBe(false);
     expect(result.current.failed).toBe(true);
+  });
+});
+
+describe("useApproverRoster — Phase 2i: both roster reads are READs on the ledger", () => {
+  it("the mount read in flight never reads as a young write", async () => {
+    const load = vi.fn((): Promise<Approver[]> => new Promise(() => {}));
+    renderHook(() => useApproverRoster(load));
+    await act(async () => {});
+    expect(load).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-kind/roster-mount): the mount's race labels the roster read a write; red.
+    expect(youngWrite()).toBe(false);
+  });
+
+  it("a Try again's read in flight never reads as a young write", async () => {
+    let calls = 0;
+    const load = vi.fn((): Promise<Approver[]> => {
+      calls += 1;
+      return calls === 1 ? Promise.reject(new Error("unavailable")) : new Promise(() => {});
+    });
+    const { result } = renderHook(() => useApproverRoster(load));
+    await act(async () => {});
+    expect(result.current.failed).toBe(true);
+    await act(async () => {
+      void result.current.retry();
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+    // MUTATION (p2i-kind/roster-retry): the Try again's race labels the roster read a write; red.
+    expect(youngWrite()).toBe(false);
   });
 });
 

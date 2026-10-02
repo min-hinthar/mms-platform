@@ -1,7 +1,7 @@
 import { STAFF, ts, type StaffKey } from "./i18n/staff";
 import { tf } from "./i18n/fill";
 import type { StaffLang } from "./staff-lang";
-import { STAFF_HANG_MS, track } from "./bounded-write";
+import { STAFF_HANG_MS, track, type CallKind } from "./bounded-write";
 
 /**
  * W10b — the staff outage vocabulary. Plain module (no "server-only"): the boards are clients, and
@@ -208,9 +208,18 @@ export function frozenBoardCopy(
  * ReadyBoard's `/api/board`) is NOT in Next's action queue: tracked, a hung sign-out on the lock
  * screen stayed in the ledger after the PIN unlock's SOFT navigation into the console, refusing
  * every money tap over a queue it never held (Phase 2h review c, C1). Race those with `raceFetch`.
+ *
+ * Phase 2i (P2bi) — `kind` is REQUIRED, and the compiler is the guard: every caller says whether it
+ * races a READ (a poll, a roster) or a WRITE (the pad's removal, the language save). A reload for a
+ * new build refuses while a WRITE is young (it would lose it), never for a read (the next document
+ * reads again) — and a default would have let a new write call slip in labelled as a read.
  */
-export function raceTimeout<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
-  track(p);
+export function raceTimeout<T>(
+  p: Promise<T>,
+  kind: CallKind,
+  ms: number = STAFF_HANG_MS,
+): Promise<T> {
+  track(p, kind);
   return raceFetch(p, ms);
 }
 

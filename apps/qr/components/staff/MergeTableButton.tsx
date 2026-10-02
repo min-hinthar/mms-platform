@@ -2,7 +2,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { useTableNav } from "./TableNav";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
-import { boundWrite, outReadSlot, releaseOutRead } from "@/lib/bounded-write";
+import { boundRead, boundWrite, outReadSlot, releaseOutRead } from "@/lib/bounded-write";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
@@ -131,10 +131,10 @@ export function MergeTableButton({
     clearUnlessWaiting();
     setLoading(true);
     try {
-      // Phase 2h — a READ, bounded (`boundWrite` never rejects): a failure or no answer at the bound
+      // Phase 2h — a READ, bounded (`boundRead` never rejects): a failure or no answer at the bound
       // says "Couldn't load tables", never "Loading…" while the action queue is stuck. Codex r3 —
       // the read still out is attached to, never sent again (`candidateRead`).
-      const out = await boundWrite(candidateRead(sourceSessionId));
+      const out = await boundRead(candidateRead(sourceSessionId));
       if (seq !== readSeq.current) return; // retired by a Cancel or a newer read (D10)
       if (out.kind === "answer") {
         setCandidates(out.value);

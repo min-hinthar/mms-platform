@@ -65,7 +65,7 @@ export type PollGate = {
   ask(): { go: "start" } | { go: "owed"; missed: boolean };
   /** Shut the gate until `raw` settles; then, if a read is owed and the gate is not disposed, kick
    *  once on the next macrotask (see WHY THE OWED KICK IS DEFERRED). Returns raw. Tracks raw in the
-   *  stall ledger. */
+   *  stall ledger as a READ (Phase 2i: a poll in flight never blocks a reload for a new build). */
   watch<T>(raw: Promise<T>): Promise<T>;
   /** A watched raw read is still unanswered. */
   pending(): boolean;
@@ -93,7 +93,7 @@ export function createPollGate(kick: () => void): PollGate {
       due = null;
       const mine = { since: monoNow() };
       out = mine;
-      track(raw);
+      track(raw, "read");
       const answered = () => {
         // Only the read that shut the gate may open it: a caller that watched a second read over an
         // unanswered first (outside `ask`'s contract) must not have the OLDER answer reopen the gate

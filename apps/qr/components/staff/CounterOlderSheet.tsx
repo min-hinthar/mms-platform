@@ -100,7 +100,7 @@ export function CounterOlderSheet({
     inFlight.current = true;
     try {
       // Phase 2h (9d) — on the stall ledger until it answers (a hung read holds the action queue).
-      const res = await track(getOldestCounterOrders({ after }));
+      const res = await track(getOldestCounterOrders({ after }), "read");
       if (!alive.current) return;
       if (!res.ok) {
         // The floor poll's verdicts, the floor's exits.

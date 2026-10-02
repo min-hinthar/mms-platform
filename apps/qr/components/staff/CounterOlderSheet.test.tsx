@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, outstanding, stalledSince, youngWrite } from "@/lib/bounded-write";
 import type { CounterFloorRow, OlderCounterPoll } from "@/lib/floor-types";
 
 /**
@@ -263,5 +263,14 @@ describe("Phase 2h (9d) — the page read sits on the stall ledger until it answ
     expect(stalledSince()).toBeNull();
     await tick(1);
     expect(stalledSince()).toBe(openedAt);
+  });
+  it("the page read in flight is a READ — never a young write (Phase 2i)", async () => {
+    read.mockReturnValue(new Promise(() => {}));
+    mount();
+    await tick(0);
+    expect(outstanding()).toBe(1);
+    // MUTATION (p2i-kind/older-read): the page read is tracked as a write — an open sheet refuses a
+    // reload for a new build as "still saving"; red.
+    expect(youngWrite()).toBe(false);
   });
 });

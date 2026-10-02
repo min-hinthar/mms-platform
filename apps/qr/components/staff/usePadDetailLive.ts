@@ -104,7 +104,7 @@ export function usePadDetailLive({
         const ticket = ++readsRef.current;
         try {
           const raw = gate.watch(getTableDetail(sessionId));
-          const res = await raceTimeout(raw);
+          const res = await raceTimeout(raw, "read");
           if (!alive.current) return;
           if (res.kind === "detail") {
             setDetail(res.detail);
