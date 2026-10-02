@@ -317,6 +317,45 @@ describe("RegisterStart — the Start zone's wiring", () => {
     }
   });
 
+  it("Phase 2h review c (C3) — opening or closing the Phone arm while a start waits keeps 'no answer yet' standing", async () => {
+    vi.useFakeTimers();
+    try {
+      const d = deferred<{ ok: false; error: string }>();
+      openRegisterOrder.mockReturnValueOnce(d.promise);
+      const { walkup, phone, region } = mount();
+      await act(async () => {
+        fireEvent.click(walkup());
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS);
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      // MUTATION (p2h-rev-c/register-toggle-clears-waiting): the arm's pick wipes the line while
+      // the start still waits — the reload stands alone and Go is dimmed with no reason given; red.
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(phone().getAttribute("aria-expanded")).toBe("true");
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(region().textContent).toBe(ts("en", "floor.mint.waiting"));
+      await act(async () => {
+        d.resolve({ ok: false, error: "The counter is closed." });
+        await d.promise;
+      });
+      expect(region().textContent).toBe("The counter is closed.");
+      // No start waiting: the pick clears the zone's last notice, as before.
+      await act(async () => {
+        fireEvent.click(phone());
+      });
+      expect(region().textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("the zone throws without the screen's provider — a forgotten provider must not split the lock", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(() =>

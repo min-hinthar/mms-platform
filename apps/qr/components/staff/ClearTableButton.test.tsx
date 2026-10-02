@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
-import { STAFF_HANG_MS } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
  * Phase 2a · tablet — a cleared table returns to the FLOOR, asked for by name. A bare `/staff`
@@ -237,6 +237,40 @@ describe("ClearTableButton — Phase 2h: the clear is bounded, every control ari
     expect(screen.queryByRole("group")).toBeNull();
     expect(document.querySelector('[aria-busy="true"]')).toBeNull();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("review c (C6) — on a STALLED tablet the confirm is refused before anything is sent: 'this did nothing' with the reload", async () => {
+    // Another action, out past the bound: the tab's one-at-a-time queue is held behind it, so a
+    // clear sent now would land whenever that releases — possibly on the NEXT party's order.
+    void track(new Promise(() => {}));
+    await flush(STAFF_HANG_MS);
+    mount();
+    await confirmClear();
+    // MUTATION (p2h-rev-c/clear-stall-unrefused): the clear is dispatched into the stuck queue; red.
+    expect(clearTable).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "out.stalled"));
+    expect(reload()).not.toBeNull();
+    expect(screen.getByRole("alert").contains(reload())).toBe(false);
+  });
+
+  it("review c (C6) — a tap on the HELD trigger while its own clear waits RE-SAYS 'no answer yet — don't clear it again' (a new node), never a dead tap", async () => {
+    hungClear();
+    mount();
+    await confirmClear();
+    await flush(STAFF_HANG_MS);
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toBe(ts("en", "settle.clear.waiting"));
+    const before = alert.firstChild;
+    await act(async () => {
+      fireEvent.click(trigger());
+    });
+    expect(clearTable).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("group")).toBeNull();
+    // MUTATION (p2h-rev-c/clear-own-wait-unresaid): equal text re-rendered in place — no DOM change,
+    // nothing announced; the person taps again and again; red.
+    expect(screen.getByRole("alert").firstChild).not.toBe(before);
+    // Its OWN line — never "this did nothing", which drops "don't clear it again".
+    expect(screen.getByRole("alert").textContent).toBe(ts("en", "settle.clear.waiting"));
   });
 
   it("mid-payment the trigger is aria-disabled (never native), described by the reason, and inert", () => {

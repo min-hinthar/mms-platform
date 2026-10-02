@@ -106,6 +106,21 @@ const advance = (ms: number) =>
   act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
   });
+/** Did the region's content change in the DOM (a new node, or new text) since the call? */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
 const tile = (name: RegExp) => screen.getByRole("button", { name });
 const pageStatus = () => document.querySelector<HTMLElement>('.kiosk-screen [role="status"]')!;
 async function openCurrySheet() {
@@ -256,6 +271,67 @@ describe("KioskMenu — a stuck add never traps the guest (Phase 2h · 9a · 9e)
     // MUTATION (p2h-sheets/kiosk/retap-adds-twice): two bowls when both land; red.
     expect(addItem).toHaveBeenCalledTimes(1);
     expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+  });
+
+  it("review c (C5) — closing the sheet while its add waits MOVES 'Still adding that' to the page; it never drops", async () => {
+    vi.useFakeTimers();
+    // An older line on the page first: a different dish that was added.
+    addItem.mockResolvedValueOnce({});
+    mount();
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    expect(pageStatus().textContent).toContain("Mohinga");
+    addItem.mockReturnValueOnce(hang().promise);
+    const { addBtn, closeX, sheetLine } = await openCurrySheet();
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(sheetLine().textContent).toBe(t("en", "addWaiting"));
+    await act(async () => {
+      fireEvent.click(closeX());
+    });
+    // MUTATION (p2h-rev-c/kiosk-close-drops-waiting): the line leaves with the sheet and the page
+    // keeps "Added · Mohinga" — the guest, told nothing, adds the curry again; red.
+    expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+  });
+
+  it("review c (C5) — a re-tap of a waiting dish RE-SAYS the line (a new node), on the page and in the sheet — never a dead tap", async () => {
+    vi.useFakeTimers();
+    addItem.mockReturnValueOnce(hang().promise);
+    mount();
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    await advance(STAFF_HANG_MS);
+    expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+    const pageSaid = watchRegion(pageStatus());
+    await act(async () => {
+      fireEvent.click(tile(/Mohinga/));
+    });
+    expect(addItem).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-c/kiosk-page-resay-unkeyed): equal text re-rendered in place is no DOM
+    // change — nothing announced, nothing seen; red.
+    expect(pageSaid()).toBe(true);
+    expect(pageStatus().textContent).toBe(t("en", "addWaiting"));
+
+    addItem.mockReturnValueOnce(hang().promise);
+    const { addBtn, sheetLine } = await openCurrySheet();
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await advance(STAFF_HANG_MS);
+    expect(sheetLine().textContent).toBe(t("en", "addWaiting"));
+    const sheetSaid = watchRegion(sheetLine());
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    expect(addItem).toHaveBeenCalledTimes(2);
+    // MUTATION (p2h-rev-c/kiosk-sheet-resay-unkeyed): the sheet's region re-renders the same text
+    // in place — the Add tap reads as dead; red.
+    expect(sheetSaid()).toBe(true);
+    expect(sheetLine().textContent).toBe(t("en", "addWaiting"));
   });
 
   it("a tapped tile keeps FOCUS while its add is out — refused by aria-disabled and the handler, never a native `disabled` that drops focus to <body> (critic F7)", async () => {

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { outstanding, STAFF_HANG_MS } from "@/lib/bounded-write";
+import { outstanding, STAFF_HANG_MS, stalledSince } from "@/lib/bounded-write";
 
 const auth = {
   signInWithOtp: vi.fn(),
@@ -216,6 +216,27 @@ describe("StaffLogin", () => {
         fireEvent.click(out);
       });
       expect(assign).toHaveBeenCalledWith("/staff/login");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("denied: a hung sign-out never reaches the stall ledger — it is a Supabase fetch, not a queued action (review c, C1)", async () => {
+    vi.useFakeTimers();
+    try {
+      auth.signOut.mockReturnValue(new Promise(() => {}));
+      render(<StaffLogin lang="en" denied />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0); // the mount's tracked release answers and leaves
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(STAFF_HANG_MS * 3);
+      });
+      // MUTATION (p2h-rev-c/login-signout-tracked): raced through the tracking race, the hung
+      // fetch reads the tab as stalled and refuses every money tap after the next sign-in; red.
+      expect(outstanding()).toBe(0);
+      expect(stalledSince()).toBeNull();
     } finally {
       vi.useRealTimers();
     }

@@ -6,6 +6,7 @@ import { addItem } from "@/lib/cart";
 import { boundWrite } from "@/lib/bounded-write";
 import { t, type KioskLang } from "@/lib/kiosk/strings";
 import { StaffModSheet } from "@/components/staff/StaffModSheet";
+import { useResaid } from "@/components/staff/useResaid";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import type { KioskItem } from "./types";
 
@@ -57,8 +58,12 @@ export function KioskMenu({
   const [cat, setCat] = useState<string | null>(categories[0] ?? null);
   const [sheetItem, setSheetItem] = useState<KioskItem | null>(null);
   const mod = useSheetSubject(sheetItem);
-  const [sheetError, setSheetError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  // Phase 2h review c (C5) — each line is held as a fresh `{ text }` per SAY, so `useResaid` moves on
+  // a re-said, equal sentence (a re-tap of a waiting dish) and the keyed content is announced again.
+  const [sheetError, setSheetError] = useState<{ text: string } | null>(null);
+  const [status, setStatus] = useState<{ text: string } | null>(null);
+  const sheetSaid = useResaid(sheetError);
+  const statusSaid = useResaid(status);
   // Phase 2h (9a) — the sheet's busy: state set at the tap, cleared in the finally around the bounded
   // add (the M82 guard parses for it). The ref is the tap-time guard (two taps in one frame).
   const [adding, setAdding] = useState(false);
@@ -73,8 +78,8 @@ export function KioskMenu({
 
   /** Into ITS sheet while that sheet is open (the page region is behind the scrim), else the page. */
   function say(item: KioskItem, msg: string) {
-    if (sheetNow.current?.id === item.id) setSheetError(msg);
-    else setStatus(msg);
+    if (sheetNow.current?.id === item.id) setSheetError({ text: msg });
+    else setStatus({ text: msg });
   }
 
   /** The add went on — on time, or LATE (9e): the count moves (`onAdded` is the flow's, so it lands
@@ -85,7 +90,7 @@ export function KioskMenu({
       setSheetItem(null);
       setSheetError(null);
     }
-    setStatus(`${t(lang, "add")} · ${qty} × ${item.nameEn}`);
+    setStatus({ text: `${t(lang, "add")} · ${qty} × ${item.nameEn}` });
   }
 
   async function add(
@@ -154,7 +159,7 @@ export function KioskMenu({
 
       {/* The screen's ONE polite live region — add confirmations + refusals. */}
       <p role="status" className="kiosk-touch-hint" style={{ minHeight: 28, margin: 0 }}>
-        {status ?? ""}
+        {status === null ? "" : <span key={statusSaid}>{status.text}</span>}
       </p>
 
       <ul
@@ -248,6 +253,11 @@ export function KioskMenu({
           open={mod.open}
           onOpenChange={(open) => {
             if (!open) {
+              // C5 — an add of THIS dish still out past the bound: its line moves to the page as the
+              // sheet goes (the late answer will speak there too), never dropped under an older one.
+              const held = sheetNow.current;
+              if (held && waiting.has(`${cartId}:${held.id}`))
+                setStatus({ text: t(lang, "addWaiting") });
               setSheetItem(null);
               setSheetError(null);
             }
@@ -256,7 +266,8 @@ export function KioskMenu({
           basePriceCents={mod.held.priceCents}
           groups={mod.held.groups}
           busy={adding}
-          error={sheetError}
+          error={sheetError?.text ?? null}
+          errorSaid={sheetSaid}
           onAdd={(choice) => void add(mod.held!, choice)}
         />
       )}

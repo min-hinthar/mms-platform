@@ -204,13 +204,23 @@ export function frozenBoardCopy(
  * (LEARNINGS #157 · #200). Untracked, a read hung for minutes would leave `stalledSince` reading the
  * tab as healthy, and the next money tap would be dispatched into the queue behind it (9d).
  *
- * ⚠️ It tracks WHATEVER it races — a Server Action, or (ReadyBoard's `/api/board`) a plain fetch,
- * which is NOT in the action queue. Harmless today (`/board` is its own tab, with no money taps),
- * but the filed 9h move of the staff polls onto GET route handlers must race those reads WITHOUT
- * tracking them, or a hung fetch would refuse money taps over a queue it never held.
+ * ⚠️ SERVER ACTIONS ONLY. It tracks whatever it races, and a plain fetch (a Supabase auth call,
+ * ReadyBoard's `/api/board`) is NOT in Next's action queue: tracked, a hung sign-out on the lock
+ * screen stayed in the ledger after the PIN unlock's SOFT navigation into the console, refusing
+ * every money tap over a queue it never held (Phase 2h review c, C1). Race those with `raceFetch`.
  */
 export function raceTimeout<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
   track(p);
+  return raceFetch(p, ms);
+}
+
+/**
+ * The same bound for a promise that is NOT a Server Action — a Supabase auth call, a route-handler
+ * fetch — and so is never TRACKED in the stall ledger: Next's one-at-a-time queue does not hold it,
+ * so its hang says nothing about whether the next money write would be sent (9d). The rejection at
+ * the bound frees the caller exactly as `raceTimeout`'s does.
+ */
+export function raceFetch<T>(p: Promise<T>, ms: number = STAFF_HANG_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("staff-poll-timeout")), ms);
     p.then(

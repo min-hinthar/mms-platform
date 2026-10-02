@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
-import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
+import { STAFF_HANG_MS, outstanding, stalledSince, track } from "@/lib/bounded-write";
 
 const unlockConsole = vi.fn();
 const releaseLock = vi.fn();
@@ -324,5 +324,49 @@ describe("PinUnlock — Phase 2h: the unlock is bounded, a locked tablet is neve
     expect(escape.getAttribute("aria-disabled")).toBeNull();
     expect(region().textContent).toBe(STAFF["entry.err.signOutOutage"].en);
     expect(assign).not.toHaveBeenCalled(); // the session may still be there: nowhere to go
+  });
+
+  it("'Forgot PIN? Sign out' during a waiting unlock keeps 'no answer yet' and the reload; a failed sign-out is said BESIDE it (review c, C4)", async () => {
+    hungUnlock();
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    await submit("1234");
+    await flush(STAFF_HANG_MS);
+    expect(region().textContent).toBe(STAFF["pin.unlock.waiting"].en);
+    signOut.mockResolvedValueOnce({ error: { name: "AuthRetryableFetchError", status: 0 } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Forgot PIN\? Sign out/ }));
+    });
+    // MUTATION (p2h-rev-c/pin-signout-wipes-waiting): the sign-out tap wipes the pending-unlock
+    // warning and the only reload — Unlock stays held with no reason given, and "don't enter it
+    // again" is gone while the PIN check may still land; red.
+    expect(region().textContent).toContain(STAFF["pin.unlock.waiting"].en);
+    expect(region().textContent).toContain(STAFF["entry.err.signOutOutage"].en);
+    expect(reload()).not.toBeNull();
+    expect(submitBtn().getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("a sign-out with NO unlock waiting still replaces the region's last line (review c, C4)", async () => {
+    unlockConsole.mockResolvedValueOnce({ ok: false, reason: "wrong", attemptsRemaining: 2 });
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    await submit("1234");
+    expect(region().textContent).toBe("Wrong PIN — 2 tries left.");
+    signOut.mockResolvedValueOnce({ error: { status: 400, message: "nope" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Forgot PIN\? Sign out/ }));
+    });
+    // MUTATION (p2h-rev-c/pin-signout-keeps-stale): an answered line outlives the sign-out tap; red.
+    expect(region().textContent).toBe(STAFF["entry.err.signOut"].en);
+  });
+
+  it("a hung sign-out is NOT a stuck action: the stall ledger stays clear, so the console the PIN opens next takes money (review c, C1)", async () => {
+    signOut.mockReturnValueOnce(new Promise(() => {}));
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    fireEvent.click(screen.getByRole("button", { name: /Forgot PIN\? Sign out/ }));
+    await flush(STAFF_HANG_MS * 3);
+    // MUTATION (p2h-rev-c/pin-signout-tracked): the Supabase fetch is raced through the TRACKING
+    // race — it sits on the ledger for good, and after the unlock's soft navigation every cash,
+    // reader and refund tap is refused as "still waiting" over a queue it never held; red.
+    expect(outstanding()).toBe(0);
+    expect(stalledSince()).toBeNull();
   });
 });

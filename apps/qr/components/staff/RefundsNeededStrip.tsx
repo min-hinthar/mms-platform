@@ -13,6 +13,9 @@ import { ReloadButton } from "./ReloadOffer";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
+/** A row's own line after a mark got no answer: still out at the bound, or the answer was lost. */
+type NoteKind = "waiting" | "unknown";
+
 /**
  * A4·3 — the refunds-needed strip (W11 / M43), moved from `/staff/approvals` onto the counter's one
  * screen as the first of the manager rails. Every row is a charge (or a hold we knowingly
@@ -57,7 +60,20 @@ export function RefundsNeededStrip({
   // it. Phase 2h (9e) — `unknown`: the answer was lost, so the mark MAY have landed (a reload shows
   // whether the row is still listed); `waiting`: still no answer at the bound. Never "nothing was
   // recorded". The region exists only after the person's own tap, so it never announces on load.
-  const [note, setNote] = useState<{ id: string; kind: "waiting" | "unknown" } | null>(null);
+  // Phase 2h review c (C7) — PER ROW: opening or marking another row used to clear the one slot,
+  // wiping this row's "no answer yet" while its mark could still land, and its late throw was then
+  // dropped against the emptied slot. Each row's line is now cleared only by that row.
+  const [notes, setNotes] = useState<Readonly<Record<string, NoteKind>>>({});
+  const noteOf = (id: string): NoteKind | null => notes[id] ?? null;
+  const setNote = (id: string, kind: NoteKind | null) =>
+    setNotes((n) => {
+      if (kind === null) {
+        if (!(id in n)) return n;
+        const { [id]: _gone, ...rest } = n;
+        return rest;
+      }
+      return { ...n, [id]: kind };
+    });
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   // Phase 2h — the strip's one lock (one mark at a time): a REF read at tap time (two taps in one
   // frame both read the same render) and its state twin, cleared in a `finally` at the bound.
@@ -98,7 +114,7 @@ export function RefundsNeededStrip({
 
   function openConfirm(id: string) {
     if (inFlight.current) return;
-    setNote(null);
+    setNote(id, null);
     setConfirmingId(id);
   }
   function cancel() {
@@ -109,7 +125,7 @@ export function RefundsNeededStrip({
     if (inFlight.current) return;
     inFlight.current = true;
     setMarkingId(id);
-    setNote(null);
+    setNote(id, null);
     try {
       // 9b — called OUTSIDE any transition, the RAW action awaited with a bound. It throws on an
       // unreadable table; a throw is a LOST answer, not a refusal (the update may have run).
@@ -124,18 +140,21 @@ export function RefundsNeededStrip({
       setConfirmingId(null); // the effect returns focus to the trigger, beside the line
       if (out.kind === "threw") {
         console.error("[RefundsNeededStrip] mark unconfirmed — the row stays", out.error);
-        setNote({ id, kind: "unknown" });
+        setNote(id, "unknown");
         return;
       }
-      setNote({ id, kind: "waiting" });
+      setNote(id, "waiting");
       // The late answer lands whenever it comes (9e): the strip lives as long as its board, so
       // there is no "gone" to guard — its own state is a no-op once both are.
       void out.late.then((late) => {
         if (late.kind === "answer") {
           // A LATE mark lands (9e): the row leaves, and its "no answer yet" line with it.
-          setNote((n) => (n?.id === id ? null : n));
+          setNote(id, null);
           onResolved?.(id);
-        } else setNote((n) => (n?.id === id ? { id, kind: "unknown" } : n));
+        } else {
+          // Only over its own waiting line: a row re-marked since says that attempt's outcome.
+          setNotes((n) => (n[id] === "waiting" ? { ...n, [id]: "unknown" } : n));
+        }
       });
     } finally {
       // Frees AT THE BOUND (fact 3): never held by the raw, never by another surface's transition.
@@ -279,12 +298,12 @@ export function RefundsNeededStrip({
                   <Chrome lang={lang} k="table.appr.verb.markRefunded" echo="stack" />
                 </button>
               )}
-              {note?.id === r.id && (
+              {noteOf(r.id) !== null && (
                 <span role="status" style={failText}>
                   <Chrome
                     lang={lang}
                     k={
-                      note.kind === "waiting"
+                      noteOf(r.id) === "waiting"
                         ? "table.appr.refunds.markWaiting"
                         : "table.appr.refunds.markUnknown"
                     }
@@ -294,7 +313,7 @@ export function RefundsNeededStrip({
               )}
               {/* Phase 2h — both lines say "reload", and the console is installed standalone (no
                   browser reload): the one way out sits BESIDE the line, never inside its region. */}
-              {note?.id === r.id && (
+              {noteOf(r.id) !== null && (
                 <div style={{ marginTop: "var(--s2)" }}>
                   <ReloadButton lang={lang} />
                 </div>

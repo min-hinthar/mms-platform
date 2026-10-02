@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useReducer, useRef, useState, type CSSProperties } from "react";
 import { clearTable } from "@/lib/floor";
-import { boundWrite } from "@/lib/bounded-write";
+import { boundWrite, stalledSince } from "@/lib/bounded-write";
 import { dropHandoffStash } from "@/lib/floor-pane";
 import { useTableNav } from "./TableNav";
 import { tf } from "@/lib/i18n/fill";
@@ -22,6 +22,13 @@ import { ReloadButton } from "./ReloadOffer";
  * again" with the reload beside it; the late answer still lands (a late clear leaves the table).
  * Until it does, "Clear table" is HELD (S2 critic D3): a second clear would only queue behind the
  * stuck one, so the guard stays spent and the trigger says why, described by the waiting line.
+ *
+ * Phase 2h review c (C6) — clearing is not money, but a late clear lands destructively ("possibly on
+ * the NEXT party's order"), so it takes the money doors' 9d rule: on a STALLED tablet
+ * (`stalledSince() !== null` — another action out past the bound) the confirm is refused BEFORE
+ * anything is sent, said as `out.stalled` with the reload beside it. And a tap on the held trigger
+ * while THIS clear waits re-says its own waiting line as a new node (announced again), never a dead
+ * tap and never "this did nothing", which would drop "don't clear it again".
  */
 export function ClearTableButton({
   sessionId,
@@ -44,6 +51,10 @@ export function ClearTableButton({
   // Phase 2h — the clear's own outcome when no answer came: `unknown` (it threw — the answer was
   // lost) or `waiting` (still out at the bound). Kept apart from the server's sentence (`error`).
   const [unanswered, setUnanswered] = useState<"waiting" | "unknown" | null>(null);
+  // Review c (C6) — the confirm was refused before dispatch on a stalled tablet (9d).
+  const [stalled, setStalled] = useState(false);
+  // Moves on every SAY — keys the alert's content so an equal sentence re-said is a new node.
+  const [said, resay] = useReducer((n: number) => n + 1, 0);
   // The tap-time guard — a REF read when the finger lands (two taps in one frame both read the same
   // render), beside the `busy` the buttons say.
   const inFlight = useRef(false);
@@ -89,6 +100,14 @@ export function ClearTableButton({
 
   async function confirm() {
     if (inFlight.current) return;
+    // 9d — read AT THE TAP: sent now, the clear would queue behind the stuck action and land
+    // whenever it releases. Nothing is sent; the confirm step stays open for Cancel.
+    if (stalledSince() !== null) {
+      setStalled(true);
+      resay();
+      return;
+    }
+    setStalled(false);
     inFlight.current = true;
     setBusy(true);
     setError(null);
@@ -205,7 +224,11 @@ export function ClearTableButton({
           ref={triggerRef}
           type="button"
           onClick={() => {
-            if (inFlight.current) return;
+            if (inFlight.current) {
+              // C6 — its own clear still waits: re-say "no answer yet — don't clear it again".
+              if (waiting) resay();
+              return;
+            }
             setConfirming(true);
           }}
           aria-disabled={waiting || undefined}
@@ -217,22 +240,27 @@ export function ClearTableButton({
       )}
       {/* Assertive alert (not a polite live region) so the detail view keeps ONE polite region — its
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
-      {(error || unanswered) && (
+      {(error || unanswered || stalled) && (
         <p id={alertId} role="alert" style={{ ...hint, color: "var(--warn)" }}>
-          {unanswered === "waiting" ? (
-            <Chrome lang={lang} k="settle.clear.waiting" echo={false} />
-          ) : unanswered === "unknown" ? (
-            <Chrome lang={lang} k="settle.clear.unknown" echo={false} />
-          ) : sentRefused ? (
-            <Chrome lang={lang} k="settle.clear.counterSent" echo="stack" />
-          ) : (
-            <OutageText lang={lang} error={error ?? ""} />
-          )}
+          {/* Keyed by `said`: a re-said sentence replaces the node, so it is announced again. */}
+          <span key={said}>
+            {unanswered === "waiting" ? (
+              <Chrome lang={lang} k="settle.clear.waiting" echo={false} />
+            ) : unanswered === "unknown" ? (
+              <Chrome lang={lang} k="settle.clear.unknown" echo={false} />
+            ) : stalled ? (
+              <Chrome lang={lang} k="out.stalled" echo={false} />
+            ) : sentRefused ? (
+              <Chrome lang={lang} k="settle.clear.counterSent" echo="stack" />
+            ) : (
+              <OutageText lang={lang} error={error ?? ""} />
+            )}
+          </span>
         </p>
       )}
       {/* Phase 2h — the waiting line says "reload the page", and the console is installed standalone
           (no browser reload): the one way out sits BESIDE the alert, never inside it. */}
-      {waiting && (
+      {(waiting || (stalled && unanswered === null)) && (
         <div style={{ marginTop: "var(--s2)" }}>
           <ReloadButton lang={lang} />
         </div>
