@@ -13,8 +13,8 @@ import { isImmediatelyAfter, type TabLoad } from "./tab-load";
  * is mirrored here, and the NEXT document decides what to do with them:
  *
  *  - `resume` — only on the IMMEDIATELY next load of the same page (`isImmediatelyAfter`, the load
- *    generation — never a TTL alone) and only while the newest pick is younger than
- *    `PICK_RESUME_MS`. A window still open reopens with the time it had left; every other entry
+ *    generation — never a TTL alone), only from a stash whose WRITER HAS UNLOADED (`closed`, stamped
+ *    at its `pagehide`), and only while the newest pick is younger than `PICK_RESUME_MS`. A window still open reopens with the time it had left; every other entry
  *    (its window closed, or its write already on the wire) SENDS, through the lane's normal
  *    status-guarded commit.
  *  - `remark` — any other load (another page in between, a sign-in, a second reload) or an older
@@ -25,6 +25,12 @@ import { isImmediatelyAfter, type TabLoad } from "./tab-load";
  * The decision is taken against `ready`, the lane's FIRST read that started after the mount: a pick
  * whose bag is no longer ready either landed or the bag moved, and re-sending it would only earn the
  * honest "stale" line for a bag that already left.
+ *
+ * ⚠️ `closed` is the critic's F5: sessionStorage is CLONED into a duplicated tab, so the copy claims
+ * seq N+1 at the same path and — on the load generation alone — would resume the original tab's
+ * live picks, and later commit one the person undid over there. A writer that is still open never
+ * stamped `closed`, so its copy is a remark at most. A writer that died without a `pagehide` (an OS
+ * kill) degrades the same way: a remark, never a send.
  *
  * Storage that throws or is absent (a private window, a full quota) degrades to today's behaviour:
  * `writePickStash` answers false, the lane's reload hold then reports `survives:false`, and the
@@ -43,7 +49,15 @@ export type StashedPick = {
   subject: ExpoSubject;
   committing: boolean;
 };
-export type PickStash = { v: 1; seq: number; path: string; picks: StashedPick[] };
+export type PickStash = {
+  v: 1;
+  seq: number;
+  path: string;
+  picks: StashedPick[];
+  /** Stamped by the writing document's `pagehide`: it has unloaded (a reload, a navigation away).
+   *  Absent while it is open — a duplicated tab's copy of it never resumes (F5). */
+  closed?: true;
+};
 
 /** The longest identifier a subject carries (a diner's name with its short code); a stash is never
  *  allowed to carry more into the lane's region. */
@@ -102,26 +116,35 @@ export function readPickStash(store: TabStore | null): PickStash | null {
     if (!Number.isSafeInteger(v.seq) || (v.seq as number) < 0) return null;
     if (typeof v.path !== "string") return null;
     if (!Array.isArray(v.picks)) return null;
+    if (v.closed !== undefined && v.closed !== true) return null;
     const picks: StashedPick[] = [];
     for (const p of v.picks) {
       const ok = parsePick(p);
       if (ok === null) return null;
       picks.push(ok);
     }
-    return { v: 1, seq: v.seq as number, path: v.path, picks };
+    const out: PickStash = { v: 1, seq: v.seq as number, path: v.path, picks };
+    if (v.closed === true) out.closed = true;
+    return out;
   } catch {
     return null;
   }
 }
 
+/** A stash nothing can resume or remark: no picks, and a load no document ever claims. */
+const EMPTY_STASH: PickStash = { v: 1, seq: 0, path: "", picks: [] };
+
+/** Clear the stash. A store that cannot REMOVE is overwritten with an empty stash instead (critic F7):
+ *  a leftover carries THIS document's seq — exactly the one before the next load — so it would be
+ *  read as resumable, and remark (or send) picks this document already undid or landed. */
 export function clearPickStash(store: TabStore | null): void {
   if (store === null) return;
   try {
     store.removeItem(PICK_STASH_KEY);
   } catch {
-    // Deliberate: a store that cannot remove leaves the stash, and the next load's decision reads it
-    // as a stranger's (its seq is this document's, never the one before the next) — a remark at
-    // most, never a send.
+    // Deliberate: the fallback below; a store that refuses both leaves whatever it holds, and the
+    // `closed` stamp (absent on anything this document wrote while open) keeps it a remark at most.
+    writePickStash(store, EMPTY_STASH);
   }
 }
 
@@ -154,7 +177,7 @@ export function restorePicks(
   if (live.length === 0) return { kind: "none" };
   const age = (p: StashedPick) => Math.max(0, now - p.at);
   const newest = Math.min(...live.map(age));
-  if (isImmediatelyAfter(s, load) && newest < PICK_RESUME_MS) {
+  if (s.closed === true && isImmediatelyAfter(s, load) && newest < PICK_RESUME_MS) {
     const reopen: Array<StashedPick & { remainingMs: number }> = [];
     const send: StashedPick[] = [];
     for (const p of live) {
@@ -182,7 +205,106 @@ export function mirrorPicks(
   return [...pending.filter((p) => !liveIds.has(p.orderId)), ...live];
 }
 
-/** The "mark these again" line stands while ANY bag it names is still ready on the lane. */
-export function remarkStands(orderIds: readonly string[], ready: ReadonlySet<string>): boolean {
-  return orderIds.some((id) => ready.has(id));
+/**
+ * The stash the lane's mirror writes, or null (nothing held: clear it). `here` is this document's
+ * load and page.
+ *
+ * ⚠️ While a found stash is UNDECIDED it keeps THAT stash's own load and page (critic F1), never this
+ * document's: stamped with this document's seq, a reload before the first read decided it would make
+ * the NEXT load read a stranger's picks as "immediately after" and send them. Kept on its own, older
+ * load, a second reload remarks — and so does anything picked here before the decision, which is why
+ * `resumableUntil` answers null for it.
+ */
+export function mirrorStash(
+  pending: PickStash | null,
+  live: readonly StashedPick[],
+  here: { seq: number; path: string },
+  closed = false,
+): PickStash | null {
+  const picks = mirrorPicks(pending?.picks ?? null, live);
+  if (picks.length === 0) return null;
+  const gen = pending ?? here;
+  const s: PickStash = { v: 1, seq: gen.seq, path: gen.path, picks };
+  if (closed) s.closed = true;
+  return s;
+}
+
+/**
+ * Until when a reload of this page, starting NOW, would RESUME the stash just written — `restorePicks`'
+ * own gates, applied to the load that reload would be (`here.seq + 1` at `here.path`): null when it
+ * would not resume at all (an undecided stash on its own, older load; a load counter that failed).
+ * The bound is the OLDEST pick's, so whichever of them the next read still shows ready, the newest of
+ * those is younger than `PICK_RESUME_MS` (critic F4: past it, the next load remarks or forgets, and
+ * `survives`/the caveat must stop saying the pick is kept).
+ */
+export function resumableUntil(
+  s: PickStash | null,
+  here: { seq: number; path: string },
+): number | null {
+  if (s === null || s.picks.length === 0) return null;
+  if (!isImmediatelyAfter(s, { seq: here.seq + 1, initialPath: here.path })) return null;
+  return Math.min(...s.picks.map((p) => p.at)) + PICK_RESUME_MS;
+}
+
+/**
+ * Phase 2i (D3 · critic F2) — the "mark these again" line, kept in the tab too: it is the only record
+ * that a bag reading "ready" was in fact taken, so a reload (our own, the stall cure's, Next's) must
+ * not erase it. Not bound to a load: whoever opens the lane next in this tab is told.
+ */
+export const PICK_REMARK_KEY = "mms.lane.remark";
+
+/** Write the line's bags (none → removed). Deliberate swallow: a store that refuses keeps today's
+ *  behaviour — the line simply does not outlive a reload. */
+export function writeRemark(store: TabStore | null, bags: readonly StashedPick[]): void {
+  if (store === null) return;
+  try {
+    if (bags.length === 0) store.removeItem(PICK_REMARK_KEY);
+    else store.setItem(PICK_REMARK_KEY, JSON.stringify({ v: 1, bags }));
+  } catch {
+    // Deliberate (above).
+  }
+}
+
+/** Read the line's bags STRICTLY (one malformed entry → none). Never throws. */
+export function readRemark(store: TabStore | null): StashedPick[] {
+  if (store === null) return [];
+  try {
+    const raw = store.getItem(PICK_REMARK_KEY);
+    if (raw === null) return [];
+    const v: unknown = JSON.parse(raw);
+    if (!isRecord(v) || v.v !== 1 || !Array.isArray(v.bags)) return [];
+    const bags: StashedPick[] = [];
+    for (const b of v.bags) {
+      const ok = parsePick(b);
+      if (ok === null) return [];
+      bags.push(ok);
+    }
+    return bags;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The bags the line still names after a read (critic F3): each one still READY and younger than
+ * `PICK_REMARK_MS`, once — a bag handed over elsewhere, or forgotten by age, drops out ALONE; the rest
+ * stay named. Empty → the line goes.
+ */
+export function remarkLeft(
+  bags: readonly StashedPick[],
+  ready: ReadonlySet<string>,
+  now: number,
+): StashedPick[] {
+  const seen = new Set<string>();
+  return bags.filter((b) => {
+    if (!ready.has(b.orderId) || seen.has(b.orderId)) return false;
+    if (Math.max(0, now - b.at) >= PICK_REMARK_MS) return false;
+    seen.add(b.orderId);
+    return true;
+  });
+}
+
+/** A pick of ONE bag takes that bag off the line (critic F3) — never the others it names. */
+export function remarkWithout(bags: readonly StashedPick[], orderId: string): StashedPick[] {
+  return bags.filter((b) => b.orderId !== orderId);
 }

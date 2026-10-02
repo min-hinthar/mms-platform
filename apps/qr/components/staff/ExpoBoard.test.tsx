@@ -1243,7 +1243,9 @@ describe("Phase 2g — an unpaid bag that has waited past the horizon says so, i
 // ── Phase 2h — a hung tablet never traps the lane (P2cz · P2fc) ───────────────────────────────────
 const { STAFF_HANG_MS, stalledSince, youngWrite } = await import("@/lib/bounded-write");
 const { PICKED_UNDO_ARM_MS, PICKED_UNDO_MS } = await import("@/lib/expo-rules");
-const { PICK_STASH_KEY, readPickStash, writePickStash } = await import("@/lib/pick-stash");
+const { PICK_RESUME_MS, PICK_STASH_KEY, readPickStash, readRemark, writePickStash } =
+  await import("@/lib/pick-stash");
+const { reloadHolds } = await import("@/lib/reload-guard");
 
 describe("Phase 2h (9f) — the lane's poll never stacks a read behind a hung one", () => {
   const flush = (ms: number) =>
@@ -1617,6 +1619,42 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
     });
   });
 
+  it("critic F4 — past PICK_RESUME_MS the stash no longer saves the pick: the caveat comes back and the hold stops saying survives", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    currentQueue = queue([
+      ticket({ status: "preparing" }),
+      ticket({ orderId: "order-2", tableNumber: 8, label: "T8", status: "ready" }),
+    ]);
+    const write = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => write.promise);
+    const q = mount("en", currentQueue);
+    await act(async () => {
+      fireEvent.click(bagged(q));
+    });
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    await flush(STAFF_HANG_MS);
+    expect(reloadHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: true })]);
+    expect(document.querySelector(".staff-reload-offer")!.textContent).not.toContain(
+      ts("en", "expo.reload.bags"),
+    );
+    // The pick is still held (no read has shown its bag gone) when the resume window closes: the
+    // next load would remark it — or, past PICK_REMARK_MS, forget it.
+    await flush(PICK_RESUME_MS);
+    expect(readPickStash(sessionStorage)?.picks.map((p) => p.orderId)).toEqual(["order-2"]);
+    // MUTATION (p2i-lane/survives-never-lapses): `stashOk` is the write's answer for ever — the hold
+    // lets a retired tab reload over a pick the stash will no longer resume, and the caveat stays
+    // silent; red.
+    expect(reloadHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: false })]);
+    expect(reload()).not.toBeNull();
+    expect(document.querySelector(".staff-reload-offer")!.textContent).toContain(
+      ts("en", "expo.reload.bags"),
+    );
+    await act(async () => {
+      write.resolve({ ok: true });
+    });
+  });
+
   it("a read already out when the lane goes, answering 'go sign in' after, neither navigates nor re-sends the unmount flush's write (review b · B1)", async () => {
     vi.useFakeTimers();
     const assign = vi.fn();
@@ -1743,8 +1781,7 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
 });
 
 // ── Phase 2i (P2bi · D3) — the lane's picks survive a reload of the page ─────────────────────────
-const { LOAD_SEQ_KEY, thisLoad } = await import("@/lib/tab-load");
-const { reloadHolds } = await import("@/lib/reload-guard");
+const { LOAD_SEQ_KEY, resetLoadForTests, thisLoad } = await import("@/lib/tab-load");
 
 describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by the next load", () => {
   const flush = (ms = 0) =>
@@ -1753,24 +1790,41 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     });
   const region = () => document.querySelector('[role="status"]')!;
   const card = () => document.querySelector("article");
-  /** A stash left by the previous document at this page: `gap` 1 = the immediately previous load. */
-  const seed = (at: number, opts: { gap?: number; committing?: boolean } = {}) => {
+  /** A stash left by the previous document at this page: `gap` 1 = the immediately previous load.
+   *  `closed` (default): its writer unloaded — the `pagehide` stamp a real reload leaves. */
+  const seed = (
+    at: number,
+    opts: { gap?: number; committing?: boolean; closed?: boolean; tables?: number[] } = {},
+  ) => {
     const prev = 4;
     sessionStorage.setItem(LOAD_SEQ_KEY, String(prev));
     writePickStash(sessionStorage, {
       v: 1,
       seq: prev + 1 - (opts.gap ?? 1),
       path: location.pathname,
-      picks: [
-        {
-          orderId: "order-1",
-          at,
-          subject: { kind: "table", id: 7 },
-          committing: opts.committing ?? false,
-        },
-      ],
+      picks: (opts.tables ?? [7]).map((id, i) => ({
+        orderId: `order-${i + 1}`,
+        at,
+        subject: { kind: "table", id },
+        committing: opts.committing ?? false,
+      })),
+      ...(opts.closed === false ? {} : { closed: true as const }),
     });
   };
+  /** A reload of this page: the document unloads (`pagehide`), the next one claims the next load and
+   *  mounts the lane afresh. */
+  const reloadPage = () => {
+    window.dispatchEvent(new Event("pagehide"));
+    cleanup();
+    resetLoadForTests();
+    return mount();
+  };
+  const remarkOf = (...tables: number[]) =>
+    tf("en", "expo.reload.remark", {
+      x: tables.map((id) => tf("en", "floor.table", { id })).join(", "),
+    });
+  const two = () =>
+    queue([ticket(), ticket({ orderId: "order-2", tableNumber: 8, label: "T8", shortCode: "B2" })]);
   const pickedUpWrites = () =>
     setTogoStatus.mock.calls.filter(
       (c) => (c as unknown as [{ to: string }])[0]?.to === "picked_up",
@@ -1911,6 +1965,7 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     currentQueue = queue([]);
     await flush(5_000);
     expect(region().textContent).not.toContain(remark);
+    expect(readRemark(sessionStorage)).toEqual([]);
   });
 
   it("the remark goes at the next pick — the person is marking", async () => {
@@ -1923,6 +1978,140 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     expect(region().textContent).toBe(tf("en", "expo.live.pickedTable", { id: 7 }));
     await flush(PICKED_UNDO_MS + 1_000);
     expect(region().textContent).not.toContain(ts("en", "expo.reload.remark").split(" —")[0]!);
+  });
+
+  it("critic F1 — a reload BEFORE the first read decided a stranger's stash keeps it a stranger's: a remark, nothing sent", async () => {
+    vi.useFakeTimers();
+    seed(Date.now() - 1_000, { gap: 2 });
+    mount();
+    // MUTATION (p2i-picks/mirror-takes-this-load): the undecided stash is re-stamped with THIS
+    // document's load, so the next load reads it as "immediately after" and SENDS; red below.
+    expect(readPickStash(sessionStorage)?.seq).toBe(3);
+    reloadPage();
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7));
+    expect(card()?.getAttribute("data-picked")).toBeNull();
+    await flush(PICKED_UNDO_MS + 5_000);
+    expect(pickedUpWrites()).toHaveLength(0);
+  });
+
+  it("critic F5 — the stash resumes only once its writer has UNLOADED: a duplicated tab's copy remarks", async () => {
+    vi.useFakeTimers();
+    // The immediately next load at this page, but the writer never stamped `closed` (it is still
+    // open — sessionStorage was cloned into this tab).
+    seed(Date.now() + 5_000 - 2_000, { closed: false });
+    mount();
+    await flush(5_000);
+    // MUTATION (p2i-picks/open-writer-resumes): the writer's stamp is not required — this tab
+    // reopens the other's pick and later commits it; red.
+    expect(card()?.getAttribute("data-picked")).toBeNull();
+    expect(region().textContent).toBe(remarkOf(7));
+    await flush(PICKED_UNDO_MS + 5_000);
+    expect(pickedUpWrites()).toHaveLength(0);
+  });
+
+  it("critic F5 — pagehide stamps the stash closed; back from the back-forward cache the stamp comes off", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    expect(readPickStash(sessionStorage)?.closed).toBeUndefined();
+    // MUTATION (p2i-lane/pagehide-unstamped): no stamp — a real reload would remark; red.
+    window.dispatchEvent(new Event("pagehide"));
+    expect(readPickStash(sessionStorage)?.closed).toBe(true);
+    window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: false }));
+    expect(readPickStash(sessionStorage)?.closed).toBe(true);
+    // MUTATION (p2i-lane/pageshow-keeps-stamp): the restored document's stash stays stamped — a
+    // duplicate of it would resume its live picks; red.
+    window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    expect(readPickStash(sessionStorage)?.closed).toBeUndefined();
+    expect(readPickStash(sessionStorage)?.picks.map((p) => p.orderId)).toEqual(["order-1"]);
+  });
+
+  it("critic F1 · F4 — a pick made under an UNDECIDED stash does not survive a reload: survives:false", async () => {
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    currentQueue = two();
+    seed(Date.now() - 1_000, { gap: 2, tables: [9] }); // order-1 in the stash, not this lane's bag
+    const q = mount("en", currentQueue);
+    fireEvent.click(
+      within(q.container.querySelectorAll("article")[1] as HTMLElement).getByRole("button", {
+        name: pickedUpName("en"),
+      }),
+    );
+    // MUTATION (p2i-lane/survives-unearned-write): `survives` = the write's answer alone — a reload
+    // here would remark this pick (it rides the stranger's older load), never resume it; red.
+    expect(reloadHolds()).toEqual([expect.objectContaining({ reason: "pick", survives: false })]);
+  });
+
+  it("critic F2 — the 'mark these again' line outlives a reload of the page", async () => {
+    vi.useFakeTimers();
+    seed(Date.now() - 1_000, { gap: 2 });
+    mount();
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7));
+    // MUTATION (p2i-lane/remark-not-kept): the line is not written to the tab; red.
+    expect(readRemark(sessionStorage).map((b) => b.orderId)).toEqual(["order-1"]);
+    reloadPage();
+    // MUTATION (p2i-lane/remark-not-read): the next mount never reads it back; red.
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7));
+    expect(pickedUpWrites()).toHaveLength(0);
+  });
+
+  it("critic F3 — a bag gone from the lane leaves the line ALONE; the others stay named", async () => {
+    vi.useFakeTimers();
+    currentQueue = two();
+    seed(Date.now() - 1_000, { gap: 2, tables: [7, 8] });
+    mount("en", currentQueue);
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7, 8));
+    currentQueue = queue([
+      ticket({ orderId: "order-2", tableNumber: 8, label: "T8", shortCode: "B2" }),
+    ]);
+    await flush(5_000);
+    // MUTATION (p2i-lane/remark-never-clears) keeps both, and (p2i-picks/remark-keeps-gone) keeps
+    // the bag that left; red.
+    expect(region().textContent).toBe(remarkOf(8));
+    expect(readRemark(sessionStorage).map((b) => b.orderId)).toEqual(["order-2"]);
+  });
+
+  it("critic F3 — a pick takes ONLY its own bag off the line", async () => {
+    vi.useFakeTimers();
+    currentQueue = two();
+    seed(Date.now() - 1_000, { gap: 2, tables: [7, 8] });
+    const q = mount("en", currentQueue);
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7, 8));
+    fireEvent.click(
+      within(q.container.querySelectorAll("article")[0] as HTMLElement).getByRole("button", {
+        name: pickedUpName("en"),
+      }),
+    );
+    expect(region().textContent).toBe(tf("en", "expo.live.pickedTable", { id: 7 }));
+    // MUTATION (p2i-lane/pick-wipes-remark): any pick wipes the line — Table 8, taken, reads "ready"
+    // with nothing saying so; red. (p2i-lane/pick-keeps-remark: Table 7 stays named; red.)
+    expect(readRemark(sessionStorage).map((b) => b.orderId)).toEqual(["order-2"]);
+    await flush(4_500);
+    expect(region().textContent).toBe(remarkOf(8));
+  });
+
+  it("critic F6 — a bag the person picks AGAIN before the first read keeps the person's own window: the restore never sends it", async () => {
+    vi.useFakeTimers();
+    seed(Date.now() - 60_000); // elapsed: the restore would SEND it at the first read
+    const q = mount();
+    await flush(4_000);
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    await flush(1_000); // the first read lands: the restore is decided
+    expect(getExpoQueue).toHaveBeenCalledTimes(1);
+    // MUTATION (p2i-lane/restore-overrides-repick): the person's own pick is not excluded from the
+    // send — picked_up goes out at once, under the person's open window; red.
+    expect(pickedUpWrites()).toHaveLength(0);
+    await flush(PICKED_UNDO_ARM_MS);
+    fireEvent.click(cardUndo(q.container));
+    expect(card()?.getAttribute("data-picked")).toBeNull();
+    await flush(PICKED_UNDO_MS + 5_000);
+    expect(pickedUpWrites()).toHaveLength(0);
   });
 
   it("under my the remark is the dictionary's, naming the table in Burmese", async () => {
