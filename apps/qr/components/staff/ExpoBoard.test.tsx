@@ -2034,6 +2034,21 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     expect(readPickStash(sessionStorage)?.picks.map((p) => p.orderId)).toEqual(["order-1"]);
   });
 
+  it("Codex r1 on #311 (P2iz) — a pagehide INTO the back-forward cache leaves the stash open; an unloading one stamps it", async () => {
+    // MUTATION (p2i-lane/bfcache-hide-unread): the lane stamps on every pagehide — a page parked in
+    // the back-forward cache reads as unloaded, and a tab duplicated meanwhile resumes (and later
+    // sends) its picks; red.
+    vi.useFakeTimers();
+    getExpoQueue.mockImplementation(() => new Promise(() => {}));
+    const q = mount();
+    fireEvent.click(q.getByRole("button", { name: pickedUpName("en") }));
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+    expect(readPickStash(sessionStorage)?.closed).toBeUndefined();
+    expect(readPickStash(sessionStorage)?.picks.map((p) => p.orderId)).toEqual(["order-1"]);
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));
+    expect(readPickStash(sessionStorage)?.closed).toBe(true);
+  });
+
   it("critic F1 · F4 — a pick made under an UNDECIDED stash does not survive a reload: survives:false", async () => {
     vi.useFakeTimers();
     getExpoQueue.mockImplementation(() => new Promise(() => {}));

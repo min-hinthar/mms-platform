@@ -81,6 +81,7 @@ import { ReloadButton } from "./ReloadOffer";
 // ── Phase 2i (P2bi · D3) ── the lane's picks survive a reload of the page.
 import {
   clearPickStash,
+  hideClosesStash,
   mirrorStash,
   readPickStash,
   readRemark,
@@ -510,10 +511,13 @@ export function ExpoBoard({
   }, [picked, writeMirror]);
   // Critic F5 — the stash may resume only once ITS WRITER HAS UNLOADED: `pagehide` stamps it
   // `closed`, so a duplicated tab (sessionStorage is cloned into it) finds a stash still open and
-  // remarks instead of re-sending this tab's picks. Back from the back-forward cache, the document
-  // is open again and the stamp comes off.
+  // remarks instead of re-sending this tab's picks. Only an unloading hide stamps it (Codex r1 on
+  // #311, `hideClosesStash`): a hide INTO the back-forward cache leaves the document alive. Back from
+  // the back-forward cache, the document is open again and any stamp comes off.
   useEffect(() => {
-    const hide = () => writeMirror(pickedRef.current, true);
+    const hide = (e: PageTransitionEvent) => {
+      if (hideClosesStash(e.persisted)) writeMirror(pickedRef.current, true);
+    };
     const show = (e: PageTransitionEvent) => {
       if (e.persisted) writeMirror(pickedRef.current);
     };

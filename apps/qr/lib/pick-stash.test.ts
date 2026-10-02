@@ -18,6 +18,7 @@ import {
   writeRemark,
   type PickStash,
   type StashedPick,
+  hideClosesStash,
 } from "./pick-stash";
 import type { TabStore } from "./settled-view";
 
@@ -411,5 +412,15 @@ describe("the 'mark these again' line — kept in the tab, and each bag leaves i
   it("remarkWithout takes ONE bag off the line (p2i-picks/remark-without-all)", () => {
     expect(remarkWithout([pick("a", 0), pick("b", 0)], "a")).toEqual([pick("b", 0)]);
     expect(remarkWithout([pick("a", 0)], "z")).toEqual([pick("a", 0)]);
+  });
+});
+
+describe("hideClosesStash — Codex r1 on #311 (P2iz): only an UNLOAD stamps the stash closed", () => {
+  it("a pagehide that unloads stamps it; one into the back-forward cache does not", () => {
+    // MUTATION (p2i-lane/bfcache-hide-closes): every pagehide stamps `closed` — a page parked in the
+    // back-forward cache (still alive, its picks still its own) reads as unloaded, and a tab
+    // duplicated meanwhile resumes and later SENDS the original's picks; red.
+    expect(hideClosesStash(false)).toBe(true);
+    expect(hideClosesStash(true)).toBe(false);
   });
 });

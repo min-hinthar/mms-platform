@@ -215,6 +215,18 @@ export function mirrorPicks(
  * load, a second reload remarks — and so does anything picked here before the decision, which is why
  * `resumableUntil` answers null for it.
  */
+/**
+ * Does this `pagehide` stamp the stash `closed`? Only an UNLOAD does (Codex r1 on #311, P2iz). A
+ * hide into the back-forward cache (`persisted`) parks a document that is still alive — its picks
+ * are still its own, and `pageshow` takes the stamp off when it returns — so a tab DUPLICATED while
+ * it sits there must find the stash open (a remark at most), never closed (a resume, then a send of
+ * another tab's picks). A parked page that is then evicted without coming back leaves an open stash:
+ * the next load remarks — the safe direction.
+ */
+export function hideClosesStash(persisted: boolean): boolean {
+  return !persisted;
+}
+
 export function mirrorStash(
   pending: PickStash | null,
   live: readonly StashedPick[],

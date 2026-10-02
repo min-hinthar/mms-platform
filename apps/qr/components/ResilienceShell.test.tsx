@@ -46,6 +46,12 @@ const reload = vi.fn();
 let onLine = true;
 let sw: FakeContainer;
 
+/** A SOFT navigation: the root layout (and the shell in it) stays mounted, the path changes. */
+function navigate(to: string) {
+  pathname = to;
+  vi.stubGlobal("location", { ...window.location, pathname: to, reload });
+}
+
 function goOnline() {
   onLine = true;
   window.dispatchEvent(new Event("online"));
@@ -174,6 +180,39 @@ describe("ResilienceShell — controllerchange reloads only the tab that asked",
     expect(sw.registration.waiting?.postMessage).not.toHaveBeenCalled();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("Codex r1 on #311 (P2ix) — owed on a diner page, then a soft navigation into /staff: `online` pays nothing there", async () => {
+    // MUTATION (p2i-shell/owed-staff-unread): the shell pays the owed reload without reading where
+    // the tab now is — a KDS is reloaded under every reload hold the staff app keeps; red.
+    await mountWaiting();
+    await tapRefresh();
+    onLine = false;
+    act(() => sw.controllerChange()); // owed
+    navigate("/staff/kitchen");
+    act(() => goOnline());
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("Codex r1 on #311 (P2ix) — the failsafe of a Refresh tapped on a diner page reloads nothing once the tab is under /staff", async () => {
+    // MUTATION (p2i-shell/failsafe-staff-unread): the failsafe reloads whatever page the tab
+    // reached in its 4s; red.
+    await mountWaiting();
+    await tapRefresh();
+    navigate("/staff");
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("Codex r1 on #311 (P2ix) — the activation a diner page asked for, arriving under /staff, reloads nothing", async () => {
+    // MUTATION (p2i-shell/change-staff-unread): the asked-for change reloads the staff screen; red.
+    await mountWaiting();
+    await tapRefresh();
+    navigate("/staff/kitchen");
+    act(() => sw.controllerChange());
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).not.toHaveBeenCalled();
   });
 
   it("coming online with nothing owed reloads nothing", async () => {

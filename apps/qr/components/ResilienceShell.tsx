@@ -3,7 +3,13 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { usePathname } from "next/navigation";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import { resetWithEachTest } from "@/lib/test-resets";
-import { activationFailsafe, controllerChange, refreshTap } from "@/lib/sw-activation";
+import {
+  activationFailsafe,
+  controllerChange,
+  payOwed,
+  refreshTap,
+  staffOwnsReload,
+} from "@/lib/sw-activation";
 import { Icon } from "@mms/ui";
 
 /**
@@ -26,7 +32,9 @@ import { Icon } from "@mms/ui";
  * Now the module-level `requested` — set by THIS tab's Refresh before its SKIP_WAITING — is the only
  * way to a reload; another tab's activation is ignored (documents are network-only, so the page
  * keeps working). A reload due while the device is offline is OWED (the failsafe's too) and paid on
- * `online`: a reload with no network lands on the worker's offline page, which holds nothing.
+ * `online`: a reload with no network lands on the worker's offline page, which holds nothing. And
+ * none of the three is paid while the tab is under /staff (Codex r1 on #311): the staff watcher owns
+ * every reload there.
  *
  * The offline pill reads `useConnectionTruth` — never a second bare navigator.onLine listener with
  * its own copy (the W10a single-truth rule). `you-offline` is the only state it renders: `we-down`
@@ -130,6 +138,7 @@ export function ResilienceShell() {
         hadController,
         requested,
         online: navigator.onLine !== false,
+        staff: staffOwnsReload(window.location.pathname),
       });
       hadController = true;
       if (action === "adopt-first" || action === "ignore") return;
@@ -145,13 +154,15 @@ export function ResilienceShell() {
       window.location.reload();
     };
     navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
-    // The owed reload is paid the moment the device is back online.
-    const payOwed = () => {
-      if (!owed) return;
+    // The owed reload is paid the moment the device is back online — off /staff only (Codex r1 on
+    // #311): a soft navigation into the staff app leaves this listener mounted, and the staff
+    // watcher owns every reload there. Read where the tab is NOW, never the mount's path.
+    const payOwedNow = () => {
+      if (!payOwed({ owed, staff: staffOwnsReload(window.location.pathname) })) return;
       owed = false;
       window.location.reload();
     };
-    window.addEventListener("online", payOwed);
+    window.addEventListener("online", payOwedNow);
 
     return () => {
       disposed = true;
@@ -160,7 +171,7 @@ export function ResilienceShell() {
       window.removeEventListener("online", handleWake);
       registration?.removeEventListener("updatefound", handleUpdateFound);
       navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
-      window.removeEventListener("online", payOwed);
+      window.removeEventListener("online", payOwedNow);
     };
   }, []);
 
@@ -187,7 +198,12 @@ export function ResilienceShell() {
     requested = true;
     waitingRef.current?.postMessage({ type: "SKIP_WAITING" });
     failsafeRef.current = window.setTimeout(() => {
-      if (activationFailsafe({ online: navigator.onLine !== false }) === "owe") {
+      const due = activationFailsafe({
+        online: navigator.onLine !== false,
+        staff: staffOwnsReload(window.location.pathname),
+      });
+      if (due === "ignore") return;
+      if (due === "owe") {
         owed = true;
         return;
       }
