@@ -175,6 +175,13 @@ jobs:
       - name: Test files run in the environment their suffix promises
         run: node scripts/check-test-env.mjs
       - run: pnpm turbo run lint typecheck build test
+      # Phase 2i (P2bi) — the build stamp reached BOTH places a staff screen compares: the
+      # prerendered /api/version body (parsed with the app's own parseServed) and a client chunk. A
+      # build script that lost its NEXT_PUBLIC_BUILD_STAMP assignment, or a client that stopped
+      # inlining CLIENT_BUILD, ships screens that never learn of a deploy — with every check above
+      # green. NOT fast lane: it reads the build output, so it runs after the build, never before it.
+      - name: The build stamp reached /api/version and the client bundle
+        run: node scripts/check-build-stamp.mjs
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
   supabase:
