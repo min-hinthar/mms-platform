@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettledOrder, SettledToday as Snapshot } from "@/lib/refunds";
 import { STAFF } from "@/lib/i18n/staff";
 import { fill } from "@/lib/i18n/fill";
+import { resetHandBackDocumentForTests } from "@/lib/settled-view";
+import { reloadHolds, resetHoldsForTests } from "@/lib/reload-guard";
 
 /**
  * A4·3 · M204 · M183 — the settled list's WIRING, which has nowhere else to live: which lines get a
@@ -36,9 +38,12 @@ afterEach(() => {
   // Phase 2i — a cash hand-back is kept in the tab until [Handed back]: never let one case's owed
   // instruction stand in the next case's banner.
   window.sessionStorage.clear();
+  resetHandBackDocumentForTests(); // each case is a new document
+  resetHoldsForTests();
 });
-/** The drawer instruction as the banner says it — `fill`ed, never transcribed. */
-const cashFor = (m: string, x = "Mohinga") =>
+/** The drawer instruction as the banner says it — `fill`ed, never transcribed. The subject is the
+ *  dish and the receipt's code (`handBackSubjects`); every cash order here is `…aaaa0001`. */
+const cashFor = (m: string, x = "Mohinga · AA0001") =>
   fill(STAFF["floor.settled.confirmed.cashFor"].en, { m, x }, "en");
 
 const line = (id: string, over: Partial<SettledOrder["lines"][number]> = {}) => ({
@@ -668,6 +673,65 @@ describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE
     const banner = screen.getByRole("status");
     expect(banner.textContent).toBe(cashFor("$11.05"));
     expect(document.activeElement).toBe(banner);
+  });
+
+  it("critic F5 — a late answer heard by a NEWER mount closes the sheet open there: the instruction is never said under it", async () => {
+    vi.useFakeTimers();
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    const late = await sendThenLeave(cash);
+    const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+      lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+    });
+    refreshAnswer = snapshot([cash, b]);
+    mount(snapshot([cash, b])); // back before the answer, and opens ANOTHER line's refund
+    await flush();
+    for (const toggle of screen.getAllByRole("button", { expanded: false }))
+      fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+    await flush();
+    const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+    await act(async () => {
+      late.resolve({ ok: true, amountCents: 1105 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2i-handback/late-under-sheet): only the answering (dead) zone's closure closes a
+    // sheet — this mount's stays open over the instruction, aria-hidden behind it, its focus taken
+    // back by the sheet's trap; red.
+    expect(bSheet.getAttribute("data-state")).toBe("closed");
+    const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]')!;
+    expect(banner.textContent).toBe(cashFor("$11.05"));
+    expect(banner.closest('[aria-hidden="true"]')).toBeNull();
+    expect(document.activeElement).toBe(banner);
+  });
+
+  it("critic F1 · F2 — storage refused AND answered after the zone unmounted: the next mount still says it, and an automatic reload waits until [Handed back]", async () => {
+    vi.useFakeTimers();
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    const late = await sendThenLeave(cash);
+    const refused = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    try {
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // The only copy is in memory: a reload would erase it, so the automatic one waits.
+      expect(reloadHolds().map((h) => [h.kind, h.reason])).toEqual([["unread", "paneLine"]]);
+      mount(snapshot([cash]));
+      await flush();
+      // MUTATION (p2i-handback/memory-unsaid): the late answer's instruction lived in the dead
+      // zone's memory — no banner anywhere, the money recorded as refunded; red.
+      const banner = screen.getByRole("status");
+      expect(banner.textContent).toBe(cashFor("$11.05"));
+      expect(document.activeElement).toBe(banner);
+      fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
+      await flush();
+      expect(screen.getByRole("status").textContent).toBe("");
+      expect(reloadHolds()).toEqual([]);
+    } finally {
+      refused.mockRestore();
+    }
   });
 
   it("2i — a card refund is never kept as a drawer instruction", async () => {

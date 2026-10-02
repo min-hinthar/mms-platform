@@ -15,9 +15,10 @@ import {
   groupKey,
   receiptRowKey,
   ackHandBack,
+  announceHandBacks,
   handBackKey,
-  owedHandBacks,
-  peekHandBacks,
+  handBackSubjects,
+  owedHandBacksNow,
   refundSheetAfterAnswer,
   rememberHandBack,
   settledChipKey,
@@ -82,11 +83,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // (`peekHandBacks`): written on every cash answer, forgotten only by its own [Handed back] (or a
   // shift's age). The banner says exactly this list — one source, so nothing is said twice.
   const [owedBack, setOwedBack] = useState<HandBack[]>([]);
-  // The ones this document could NOT write down (storage refused): said from memory instead, until
-  // acknowledged — never dropped because the tab has no storage.
-  const unkept = useRef<HandBack[]>([]);
+  // The record, then any entry this DOCUMENT could not write down (storage refused) — held in the
+  // lib's memory, not this zone's, so a late answer after an unmount still reaches the next mount
+  // (critic F2). Every read of the list goes through here: mount, answer, late answer, ack (F8).
   const repeek = useCallback((): HandBack[] => {
-    const next = owedHandBacks(peekHandBacks(tabStore(), Date.now()), unkept.current);
+    const next = owedHandBacksNow(tabStore(), Date.now());
     setOwedBack(next);
     return next;
   }, []);
@@ -223,6 +224,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     if (!refocusBanner.current) return;
     refocusBanner.current = false;
     refocusOrderId.current = null;
+    // What the banner says with focus is said in this document: a navigation back re-shows it
+    // without taking focus again (critic F4). Marked HERE, where it is said — never by an answer
+    // landing in a zone that is gone.
+    announceHandBacks(owedBack);
     bannerRef.current?.focus();
     // Optional call: `scrollIntoView` is not implemented in every DOM this renders under (jsdom
     // has no layout), and a missing scroll must never throw out of an effect that has just moved
@@ -237,24 +242,34 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // read from a timer, never in render (a server render has no tab storage, and a different first
   // paint would not hydrate) and never as a synchronous setState in the effect body. A peek never
   // forgets, so Strict Mode's double setup costs nothing: only [Handed back] ends an entry.
+  //
+  // Critic F4 — an entry stands for a shift now, so a mount takes focus only for something THIS
+  // document has not said yet (`announceHandBacks`: a navigation back re-shows it quietly; a reload
+  // is a new document and says it again), and never pulls focus out of where someone already put it
+  // (a pane a hash opened, another zone): only from <body>.
   useEffect(() => {
     const t = setTimeout(() => {
-      const owed = peekHandBacks(tabStore(), Date.now());
+      const owed = repeek();
       if (owed.length === 0) return;
-      refocusBanner.current = true;
       setArmed(true);
-      setOwedBack(owed);
+      const free = document.activeElement === null || document.activeElement === document.body;
+      if (free && announceHandBacks(owed)) refocusBanner.current = true;
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [repeek]);
 
-  // A hand-back written down by an answer this zone did not send — a refund sent from an earlier
+  // A hand-back remembered by an answer this zone did not send — a refund sent from an earlier
   // mount of the zone, answering late after the manager came back — is said here at once, with
-  // focus, rather than on some later mount.
+  // focus, rather than on some later mount. Like the answering zone (`refundSheetAfterAnswer`'s
+  // hand-back rule, critic S1), it closes whatever sheet is open here first (critic F5): under an
+  // open sheet the banner is aria-hidden and the sheet's focus trap takes its focus back. An entry
+  // only AGING out of memory just re-reads the list.
   useEffect(
     () =>
-      subscribeHandBacks(() => {
-        if (repeek().length === 0) return;
+      subscribeHandBacks((what) => {
+        const owed = repeek();
+        if (what === "expired" || owed.length === 0) return;
+        setRefunding(null);
         refocusBanner.current = true;
         setArmed(true);
       }),
@@ -265,7 +280,6 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
    *  or on the zone's heading when nothing is left to say. */
   const acknowledge = (lineId: string) => {
     ackHandBack(tabStore(), lineId);
-    unkept.current = unkept.current.filter((h) => h.lineId !== lineId);
     const left = repeek();
     if (left.length > 0 || confirmed !== null) refocusBanner.current = true;
     else refocusHeading.current = true;
@@ -290,6 +304,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // redirects on the same race) — nothing to say, nothing to show. An outage says so (never an
   // empty day), and a refresh can never turn a good list into this branch (above).
   if (!snap.ok && snap.reason === "forbidden") return null;
+
+  // What each owed instruction is called — its banner line and its [Handed back] say the same.
+  const subjects = handBackSubjects(owedBack);
 
   const head = (
     <div style={headRow}>
@@ -373,7 +390,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
                   <Chrome
                     lang={lang}
                     k={handBackKey(h)}
-                    vars={{ m: dollars(h.cents), x: h.name }}
+                    vars={{ m: dollars(h.cents), x: subjects[i] ?? "" }}
                   />
                 </span>
               </Fragment>
@@ -391,7 +408,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
           </p>
           {owedBack.length > 0 && (
             <div style={ackRow}>
-              {owedBack.map((h) => (
+              {owedBack.map((h, i) => (
                 <Button
                   key={h.lineId}
                   variant="secondary"
@@ -399,10 +416,12 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
                   aria-describedby={handBackLineId(h.lineId)}
                   onClick={() => acknowledge(h.lineId)}
                 >
-                  {/* The dish rides the label: two instructions standing side by side must never
-                      offer two identical buttons, to the eye or to speech input. */}
+                  {/* The subject rides the label — the same words as its line (dish · receipt, or
+                      the figure), numbered when two still read alike: two instructions standing side
+                      by side never offer two identical buttons, to the eye or to speech input
+                      (critic F3 — the dish alone repeats across orders). */}
                   <Chrome lang={lang} k="floor.settled.handBack.done" echo="inline" />
-                  {h.name !== "" && <span style={ackSubject}> · {h.name}</span>}
+                  <span style={ackSubject}> · {subjects[i]}</span>
                 </Button>
               ))}
             </div>
@@ -468,14 +487,16 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
             // record is the only place the instruction survives. EVERY cash answer, mounted or not
             // (Phase 2h kept only a gone zone's): the banner reads the record, so it is said once.
             if (handBack) {
+              // Storage refused → the lib holds it in the document's memory and holds an automatic
+              // reload while it does (critic F1 · F2); not a hand-back at all → kept nowhere (F7).
               const hb = {
                 lineId: subject.line.id,
                 cents: refundedCents,
                 name: subject.line.name,
+                code: subject.order.code,
                 at: Date.now(),
               };
-              if (!rememberHandBack(tabStore(), hb))
-                unkept.current = [...unkept.current.filter((h) => h.lineId !== hb.lineId), hb];
+              rememberHandBack(tabStore(), hb);
             }
             setRefunding((open) => refundSheetAfterAnswer(open, subject.line.id, handBack));
             if (refundedCents == null) {

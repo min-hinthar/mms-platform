@@ -9,7 +9,8 @@
  * here rather than drifting.
  */
 import type { StaffKey } from "./i18n/staff";
-import type { ReceiptRow } from "./receipt-view";
+import { dollars, type ReceiptRow } from "./receipt-view";
+import { holdReload } from "./reload-guard";
 import type { RefundSummary } from "./refund-view";
 
 /** The settled read's cap (a "use server" module may export only actions, so it lives here). A
@@ -167,11 +168,15 @@ export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
  * sets any state, and renders the banner FROM this record — one source, said once per document.
  *
  * An entry is forgotten only by `ackHandBack` (the manager's [Handed back]) or by age
- * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets. Each entry names its dish, so a standing
- * instruction is identifiable and acknowledged on its own — that is what answers the Codex r3 #286
- * risk of a stale imperative standing over a new attempt, which a blanket clear answered before.
- * Storage that throws or is absent (private mode, a server render) keeps nothing and never throws;
- * `rememberHandBack` says so (`false`) and the zone keeps that one in memory for this document.
+ * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets. Each entry names its dish and its receipt, and
+ * `handBackSubjects` tells apart any two that still read alike, so a standing instruction is
+ * identifiable and acknowledged on its own — that is what answers the Codex r3 #286 risk of a stale
+ * imperative standing over a new attempt, which a blanket clear answered before.
+ *
+ * Storage that throws or is absent (private mode, quota, a server render) cannot keep one. Then the
+ * entry is held in THIS MODULE's memory — the document's, not a zone's: a late answer after the zone
+ * unmounted still reaches the next mount (critic F2) — and while memory holds one, an automatic
+ * reload is held (`holdReload`, critic F1): a reload is the one thing that would erase it.
  */
 export const HAND_BACK_KEY = "mms.staff.refund.handBack";
 export type HandBack = {
@@ -179,6 +184,8 @@ export type HandBack = {
   cents: number;
   /** The dish, as the settled list names it — the instruction says which refund it is for. */
   name: string;
+  /** The receipt's short code (`SettledOrder.code`): two orders' same dish read apart. */
+  code: string;
   /** `Date.now()` when the answer came — the TTL's clock. */
   at: number;
 };
@@ -203,6 +210,7 @@ function isHandBack(h: unknown): h is HandBack {
     Number.isInteger((h as HandBack).cents) &&
     (h as HandBack).cents > 0 &&
     typeof (h as HandBack).name === "string" &&
+    typeof (h as HandBack).code === "string" &&
     Number.isFinite((h as HandBack).at)
   );
 }
@@ -214,22 +222,32 @@ function fresh(h: HandBack, now: number): boolean {
 
 /**
  * Phase 2h wrote `{ lineId, cents }` only. A tab holding one is exactly the tab the 2i rollout
- * reloads (D9), so such an entry is read as owed — with no dish (`name: ""`, said by
- * `handBackKey`'s dish-less sentence) and dated `now`, so it stands until its [Handed back].
+ * reloads (D9), so such an entry is read as owed — with no dish or receipt (`name: ""`, said by
+ * `handBackKey`'s dish-less sentence) and dated by the FIRST read that sees it, which writes it
+ * back (`peekHandBacks`) so the TTL runs from there (critic F9) instead of re-dating it forever.
  */
 function upgradeLegacy(h: unknown, now: number): unknown {
   if (typeof h !== "object" || h === null) return h;
   const o = h as Partial<HandBack>;
   if (o.name !== undefined || o.at !== undefined) return h;
-  return { lineId: o.lineId, cents: o.cents, name: "", at: now };
+  return { lineId: o.lineId, cents: o.cents, name: "", code: "", at: now };
 }
 
-function readHandBacks(store: TabStore, now: number): HandBack[] {
+/** The record's entries (legacy ones upgraded) and whether any was upgraded on this read. */
+function readHandBacks(store: TabStore, now: number): { list: HandBack[]; upgraded: boolean } {
   const raw = store.getItem(HAND_BACK_KEY);
-  if (raw === null) return [];
+  if (raw === null) return { list: [], upgraded: false };
   const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.map((h) => upgradeLegacy(h, now)).filter(isHandBack);
+  if (!Array.isArray(parsed)) return { list: [], upgraded: false };
+  let upgraded = false;
+  const list = parsed
+    .map((h) => {
+      const u = upgradeLegacy(h, now);
+      if (u !== h) upgraded = true;
+      return u;
+    })
+    .filter(isHandBack);
+  return { list, upgraded };
 }
 
 /** The banner's sentence for an entry: with its dish, or — a Phase 2h entry that never recorded
@@ -240,64 +258,148 @@ export function handBackKey(
   return h.name === "" ? "floor.settled.confirmed.cash" : "floor.settled.confirmed.cashFor";
 }
 
-/** Keep a hand-back. One line is refunded once, so a line's newer entry replaces its older one
- *  (never two instructions for one refund). `true` only when the record now holds it. */
-export function rememberHandBack(store: TabStore | null, hb: HandBack): boolean {
-  // A non-positive or fractional figure, or an entry missing its dish, is no hand-back.
-  if (store === null || !isHandBack(hb)) return false;
-  try {
-    let kept: HandBack[] = [];
-    try {
-      kept = readHandBacks(store, hb.at);
-    } catch {
-      kept = []; // an unreadable record is replaced, never allowed to block a new instruction
-    }
-    const next = [
-      ...kept.filter((h) => h.lineId !== hb.lineId && fresh(h, hb.at)),
-      { lineId: hb.lineId, cents: hb.cents, name: hb.name, at: hb.at },
-    ];
-    store.setItem(HAND_BACK_KEY, JSON.stringify(next));
-  } catch {
-    // Storage refused (quota, private mode): nothing can be kept, and the caller is told.
-    return false;
+/**
+ * Critic F3 — what each owed entry is called, on its banner line ({x}) and on its [Handed back]: the
+ * dish and its receipt ("Mohinga · AA0001"), or, for a dish-less Phase 2h entry, its figure. Two
+ * entries that would still read alike (two lines of one dish on one receipt; two legacy entries of
+ * one figure) are numbered in list order, so no two instructions ever offer the same button.
+ */
+export function handBackSubjects(list: readonly HandBack[]): string[] {
+  const base = list.map((h) =>
+    h.name === "" ? dollars(h.cents) : h.code === "" ? h.name : `${h.name} · ${h.code}`,
+  );
+  return base.map((b, i) => {
+    if (base.filter((x) => x === b).length < 2) return b;
+    return `${b} (${base.slice(0, i + 1).filter((x) => x === b).length})`;
+  });
+}
+
+// ── the document's memory: hand-backs storage refused (critic F1 · F2) ──────────────────────────
+let memory: HandBack[] = [];
+let releaseHold: (() => void) | null = null;
+let expiry: ReturnType<typeof setTimeout> | null = null;
+
+/** Memory shed of expired entries; the reload hold raised exactly while memory holds one, and a
+ *  timer that sheds the oldest at its TTL (the hold never outlives what it protects). */
+function syncMemory(now: number): void {
+  memory = memory.filter((h) => fresh(h, now));
+  if (expiry !== null) {
+    clearTimeout(expiry);
+    expiry = null;
   }
+  if (memory.length === 0) {
+    releaseHold?.();
+    releaseHold = null;
+    return;
+  }
+  // An unread money line: the ONLY copy of a drawer instruction, which a reload would erase. The
+  // S0 contract names no hand-back reason (its table leaves the hand-back out because it is
+  // persisted — false for exactly this entry), so it rides the nearest unread one: the counter's
+  // lost money line. Filed for integration to name its own.
+  if (releaseHold === null)
+    releaseHold = holdReload({
+      kind: "unread",
+      reason: "paneLine",
+      subject: "handBack",
+      survives: false,
+    });
+  const due = Math.min(...memory.map((h) => h.at)) + HAND_BACK_TTL_MS - now;
+  expiry = setTimeout(
+    () => {
+      expiry = null;
+      syncMemory(Date.now());
+      tell("expired");
+    },
+    Math.max(0, due),
+  );
+}
+
+/** What `rememberHandBack` did: written down, held in memory only (storage refused), or refused
+ *  as no hand-back at all (critic F7 — never said from memory either). */
+export type Remembered = "kept" | "memory" | "invalid";
+
+/** Keep a hand-back. One line is refunded once, so a line's newer entry replaces its older one
+ *  (never two instructions for one refund). */
+export function rememberHandBack(store: TabStore | null, hb: HandBack): Remembered {
+  // A non-positive or fractional figure, or an entry missing its dish, is no hand-back.
+  if (!isHandBack(hb)) return "invalid";
+  const entry = { lineId: hb.lineId, cents: hb.cents, name: hb.name, code: hb.code, at: hb.at };
+  let kept = false;
+  if (store !== null) {
+    try {
+      let stored: HandBack[] = [];
+      try {
+        stored = readHandBacks(store, hb.at).list;
+      } catch {
+        stored = []; // an unreadable record is replaced, never allowed to block a new instruction
+      }
+      const next = [...stored.filter((h) => h.lineId !== hb.lineId && fresh(h, hb.at)), entry];
+      store.setItem(HAND_BACK_KEY, JSON.stringify(next));
+      kept = true;
+    } catch {
+      // Storage refused (quota, private mode): held in memory below, and the caller is told.
+    }
+  }
+  memory = memory.filter((h) => h.lineId !== hb.lineId);
+  if (!kept) memory = [...memory, entry];
+  syncMemory(hb.at);
   // Said to every zone mounted in this document — including one that mounted AFTER the refund was
-  // sent, whose own mount-time peek ran before this late answer existed.
+  // sent, whose own mount-time read ran before this late answer existed — whichever source holds it.
+  tell("remembered");
+  return kept ? "kept" : "memory";
+}
+
+/** Why the list moved: an answer was remembered (said, with focus), or a memory entry aged out
+ *  (re-read quietly). */
+export type HandBackNews = "remembered" | "expired";
+const heard = new Set<(what: HandBackNews) => void>();
+function tell(what: HandBackNews): void {
   for (const fn of [...heard]) {
     try {
-      fn();
+      fn(what);
     } catch {
       // A listener's failure is its own; the record is written either way.
     }
   }
-  return true;
 }
-
-const heard = new Set<() => void>();
-/** Told after every hand-back written down in this document (a late answer reaches a zone that
+/** Told after every hand-back remembered in this document (a late answer reaches a zone that
  *  mounted after its refund was sent). Returns the unsubscribe. */
-export function subscribeHandBacks(fn: () => void): () => void {
+export function subscribeHandBacks(fn: (what: HandBackNews) => void): () => void {
   heard.add(fn);
   return () => {
     heard.delete(fn);
   };
 }
 
-/** Every hand-back still owed at `now`, oldest first. Reads only: NEVER forgets one. */
+/** Every hand-back the RECORD still owes at `now`, oldest first. NEVER forgets one; it writes back
+ *  only a Phase 2h entry it has just dated, so that entry's TTL runs (critic F9). */
 export function peekHandBacks(store: TabStore | null, now: number): HandBack[] {
   if (store === null) return [];
   try {
-    return readHandBacks(store, now).filter((h) => fresh(h, now));
+    const { list, upgraded } = readHandBacks(store, now);
+    if (upgraded) {
+      try {
+        store.setItem(HAND_BACK_KEY, JSON.stringify(list));
+      } catch {
+        // Not written back: it is re-dated by the next read, and still said — never lost.
+      }
+    }
+    return list.filter((h) => fresh(h, now));
   } catch {
     return [];
   }
 }
 
-/** The manager handed `lineId`'s money back: forget that entry, and only that one. */
+/** The manager handed `lineId`'s money back: forget that entry, and only that one — in the record
+ *  and in memory. */
 export function ackHandBack(store: TabStore | null, lineId: string): void {
+  if (memory.some((h) => h.lineId === lineId)) {
+    memory = memory.filter((h) => h.lineId !== lineId);
+    syncMemory(Date.now());
+  }
   if (store === null) return;
   try {
-    const left = readHandBacks(store, Date.now()).filter((h) => h.lineId !== lineId);
+    const left = readHandBacks(store, Date.now()).list.filter((h) => h.lineId !== lineId);
     if (left.length === 0) store.removeItem(HAND_BACK_KEY);
     else store.setItem(HAND_BACK_KEY, JSON.stringify(left));
   } catch {
@@ -317,4 +419,39 @@ export function owedHandBacks(
   unkept: readonly HandBack[],
 ): HandBack[] {
   return [...stored, ...unkept.filter((u) => !stored.some((s) => s.lineId === u.lineId))];
+}
+
+/** Everything owed in this document at `now`: the record, then memory (critic F2 — one read, used
+ *  by every zone mount and every re-read, so a late answer held only in memory reaches them all). */
+export function owedHandBacksNow(store: TabStore | null, now: number): HandBack[] {
+  return owedHandBacks(
+    peekHandBacks(store, now),
+    memory.filter((h) => fresh(h, now)),
+  );
+}
+
+// ── what this document has already announced (critic F4) ───────────────────────────────────────
+const announced = new Set<string>();
+/** Mark `list` as said in this document; true when any of it had not been said here before. A
+ *  remount (a navigation back) re-shows what is owed but takes focus only for something new; a
+ *  reload is a new document and says everything again. */
+export function announceHandBacks(list: readonly HandBack[]): boolean {
+  let unsaid = false;
+  for (const h of list) {
+    const k = `${h.lineId}@${h.at}`;
+    if (announced.has(k)) continue;
+    announced.add(k);
+    unsaid = true;
+  }
+  return unsaid;
+}
+
+/** Test seam: a new document — memory, its hold and timer, and what was announced, all gone. */
+export function resetHandBackDocumentForTests(): void {
+  memory = [];
+  releaseHold?.();
+  releaseHold = null;
+  if (expiry !== null) clearTimeout(expiry);
+  expiry = null;
+  announced.clear();
 }
