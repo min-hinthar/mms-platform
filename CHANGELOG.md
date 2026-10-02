@@ -179,6 +179,21 @@ suite 6129 / 6129 (370 files) and `packages/ui` 287 / 287; all 15 fast-lane step
 `verify:slice` over every mutant added or re-anchored this round plus every mutant whose file or suite this round touched —
 352 on 24 files — caught 352, 0 survived, 0 stale.
 
+**Codex round 3 on #311** (head `6c7ebf0`: 2×P2 — both real, each re-read in source first; fixed in
+`03b0dad`, each red-first). **P2 · an unload between a commit and its passive flush stamped stale
+picks (CX13):** the lane's `pagehide` read a map synced in a passive effect while the stash mirror
+wrote the latest picks in a layout effect, so an unload in between rewrote the stash from the map
+before that commit (a fresh pick erased); the map is now synced in the mirror's own layout effect.
+**P2 · a kept cash tip was lost to a reload (CX14):** the cash sheet keeps a typed tip after it
+closes, and no `draft` hold covered it; `cashTipDraftHeld` (lib/reload-guard) holds while the typed
+tip, read as cents the way the settle reads it, differs from what a reload re-mounts the field with
+(the kiosk intent, or no tip) — a cleared kiosk tip included, the same tip written another way not —
+until the settle lands. Mutants 2950 → 2958 (8 added, none re-anchored). Gate: `turbo lint
+typecheck build` green (0 errors, the 6 standing warnings) and the build stamp checked after it; the
+full qr suite 6134 / 6134 (370 files); all 15 fast-lane steps and `check:docs` clean; a filtered
+`verify:slice` over the 8 new mutants plus every mutant on `ExpoBoard.tsx`, `CashSettleButton.tsx` and
+`lib/reload-guard.ts` or their suites — 194 on 3 files — caught 194, 0 survived, 0 stale.
+
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
 Planned on `c7bffc1` (the Phase 2g head) from a map of every staff Server Action and poll (checked by
