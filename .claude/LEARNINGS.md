@@ -3297,4 +3297,41 @@ with `str.replace('5535', '5575')` across HANDOFF, and `#283 `bf55352``silently 
 hash pointing nowhere, in a file whose every claim is meant to be measured.`check:docs` cannot see it
 (it checks the counts it knows, not every token). Replace counts by WORD BOUNDARY (`\b5535\b`), and
 after any bulk doc edit diff the number-bearing tokens against the base: every token lost must be a
-count you meant to change.
+count you meant to change. ⚠️ A word boundary alone is not enough: a hash sign is not a word character, so
+a word-boundary pattern for 233 also rewrites the PR reference "#233" (Phase 2i's README refresh
+turned "a money-path P1 from #233" into "#240", caught only by that token diff). Refuse a preceding
+hash sign as well as a word character (a negative lookbehind on both).
+
+## #210
+
+**With several worktrees, "is a verify:slice run live?" must ask WHERE.** Phase 2i ran five
+checkouts of the same repo side by side, and the prescribed check
+(`ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'`) lists every checkout's runs — a
+stream saw another stream's run and could not tell whether it was safe to commit, or whether its own
+run was the one that had stalled. The process carries its checkout: `readlink /proc/<pid>/cwd`
+names the worktree (a filtered run started as `node scripts/.vs-tmp.mjs` from the repo root shows
+the root of ITS worktree). So the live-run check is
+`ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs|\.vs-tmp\.mjs/{print $1}' | while read p; do echo "$p $(readlink /proc/$p/cwd)"; done`
+and only a row whose cwd is THIS checkout blocks a commit here. Never kill or `git checkout -- .`
+on the strength of a row from another worktree — its mutant is on ITS disk, not yours.
+
+## #211
+
+**Make the classifying argument REQUIRED when a default would silently pick the dangerous class.**
+Phase 2i's reload verdict reads the stall ledger, and a read that never answers must not count as
+a write "still saving" (it would refuse every reload for a board whose poll hung). Giving
+`raceTimeout` a `kind` parameter with a default would have left all fourteen existing call sites
+classified by the default — the compiler, made to require it, listed every one, and each was
+relabelled on purpose (`track`/`boundWrite` keep `write` as the default because their callers are
+writes by construction). A new axis on a shared primitive: required first, let `tsc` enumerate the
+sites, then decide each.
+
+## #212
+
+**Bind "resume this work" to the next LOAD, never to a clock.** The lane's pick stash resumes (sends)
+only on the immediately next document load of the same page (`lib/tab-load.ts`'s per-tab load
+counter), written by a writer that unloaded (`pagehide`) — not "within five minutes". A TTL alone
+resumes a stranger's pick after a sign-in or a page in between, and sessionStorage is CLONED into a
+duplicated tab, counter and all, so the clone would resume the original's work too. A clock may
+still bound the resume (a pick older than its window becomes a remark), but it is the load binding
+that makes a send exact; anything that fails it degrades to saying what was lost.

@@ -417,8 +417,14 @@ the plan state.
         answer is still applied; a new money write is refused at the tap while the tab is stuck; polls
         never stack (`lib/poll-gate.ts`); a slow kitchen or lane tap holds only its own subject; a
         locked or shared tablet is never stranded. No SQL.
-  - [ ] **2i — a stale tablet** (P2bi): staff tablets activate new builds safely, on 2h's primitives
-        (needs the Skew Protection answer).
+  - [x] **2i — staff screens take new builds without losing work** (2026-10-02, owner decision 10 —
+        P2bi · P2hq; designed for Skew Protection OFF): a stamped build and a force-static
+        `/api/version`, a watcher on every staff screen, one reload verdict over 2h's ledger plus a
+        hold register, one executor; the staff bar's "A new version of this screen is ready" row (a
+        refused tap says why), an automatic reload only at a quiet moment behind a visible 5 s
+        countdown with Not now and never on a sound-live board unless retired; lane picks resume on
+        the next load (else "mark these again"); the cash hand-back kept until Handed back, naming
+        the dish. No SQL.
 - [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`

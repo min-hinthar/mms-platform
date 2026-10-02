@@ -4,6 +4,90 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2i — staff screens take new builds without losing work (2026-10-02)
+
+Planned on the Phase 2h head (`17f1b1e`) from three designs, two critics and a Vercel read (owner
+decision 10, delegated, 2026-10-02: design for Skew Protection OFF). Built as a contract branch
+(`p2i/contract`: `b7915b7` · `2fe1a80` · `377ad8d`, its fresh-context critic round `6eb2f9d`) and four
+worktree streams on it — `p2i/s1` detect (`8ea5d20` · critic `ad1c9b4`), `p2i/s2` the row and the
+boards' holds (`1839ebe` · `a3e4fba`), `p2i/s3` the lane (`48e18eb` · `777c052`) and `p2i/s4` the money
+lines (`3d4b046` · `7e1358c` · `e934cbf` · critic `01f2691` · `cd2c3a4`) — merged `9d91041` · `eeb6b9b` ·
+`41d5041` · `3f357e1` (the append-only mutant blocks rebuilt per LEARNINGS #207; the merged ids
+measured equal to the contract's − 3 retired ∪ each stream's additions, no duplicate, every
+re-anchor kept), then the integration fixes `f5203ec` · `b9b9c72`. Closes **P2bi · P2hq**. No SQL.
+
+**What staff see first:**
+
+- **A new version says so in the staff bar.** Within a minute of a deploy, every staff screen that is
+  seen and online shows a row under its bar: "A new version of this screen is ready." with a **Reload
+  the page** button. Tapping it reloads the screen — unless reloading now would lose something, in
+  which case the row says why in one sentence, in the row's own place, and the sentence goes away by
+  itself the moment it stops being true: "A bag you just marked picked up hasn't saved yet — try
+  again in a few seconds." · "The Undo button is still showing — …" · "Still saving what you just did
+  — …" · "This device is offline — reload when it's back online." · "The order system isn't answering
+  — reloading now would empty this screen. Keep working from it."
+- **A quiet screen takes the new version on its own — visibly.** After 15 seconds with nobody touching
+  it and nothing unsaved, unread or open, the row counts down "Reloading for the new version in 5…"
+  with **Not now** (ten minutes); any touch, key, scroll or hiding the screen cancels it. A screen
+  whose kitchen sound or counter bell is on never reloads by itself — it waits for a person, and the
+  row adds "After it reloads, the sound stays off until you turn it on again."
+- **An out-of-date screen says its taps may not save.** When a tap is refused because the server no
+  longer knows this screen's code, the row turns to "This screen is out of date — some taps here won't
+  save. Reload the page." (said once), and the quiet wait shortens — a sound-live board then reloads
+  too, after the same visible countdown.
+- **Picks on the pickup lane survive a reload.** A bag marked picked up whose Undo window was still
+  open when the page reloaded comes back on the very next load of the lane: the window reopens, or the
+  pick is sent if its window had run out. Any other visit within 15 minutes lists them instead: "The screen
+  reloaded before these bags saved as picked up — mark them again: …" — nothing is sent for a bag the
+  lane did not see ready.
+- **A cash hand-back stays until it is done.** "Recorded — now hand back $X for {the dish · its
+  receipt code} from the drawer." stands — through a reload, through leaving the page, for up to 12
+  hours — until **Handed back** is tapped for that line; each refund has its own button.
+- **The Reload offer never reloads offline.** It reads "Offline — reload when this device is back
+  online" while the device is offline; an offer on screen also stops the automatic reload.
+- **While the screen reloads,** it dims under the bar and shows a progress cursor; nothing on it
+  answers a tap.
+
+**How (the load-bearing parts):**
+
+- **Detect:** `NEXT_PUBLIC_BUILD_STAMP` is minted once per `next build` (`apps/qr/scripts/build-stamp.mjs`)
+  and inlined into the client bundle and a force-static `GET /api/version` (`{ build, contract }`).
+  `AppUpdateWatch` (mounted once in `app/staff/layout.tsx`) asks it every 60 s while seen and online —
+  uncached, no credentials, bounded (`timeoutSignal`: AbortSignal.timeout, or a controller + timer on
+  iPadOS < 16), parsed strictly (anything else is "no verdict", never "changed"). CI proves the stamp
+  reached both the route's prerendered body and a client chunk (`scripts/check-build-stamp.mjs`, after
+  the build).
+- **One verdict:** the stall ledger learns a call KIND (`raceTimeout`'s kind is REQUIRED); a hold
+  register (`lib/reload-guard.ts`) carries what no promise represents — unsent picks and the KDS Undo,
+  unread money lines and the recall rail, live sound, a standing reload offer. `manualBlock` refuses
+  only offline, for unsent work and for a young write; `autoBlock` refuses for anything that could be lost or
+  unread, and its heuristics (quiet, dialog, typing, answer grace) only ever refuse.
+- **One executor** (`lib/app-update.ts`): a fresh pre-flight (online, `/api/version` still differs, a
+  health probe that bypasses the 15 s cache), the verdict re-read after the last await, `body.inert` +
+  `<html data-reloading>` in the same task as `location.reload()`, and a one-shot per-target record so
+  an automatic reload never loops.
+- **Retired:** the first `UnrecognizedActionError` on any tracked call marks the tab retired (it relaxes
+  only sound, stashed unsent work and the quiet windows); a bumped `STAFF_CONTRACT` forces the same.
+- **The lane:** `lib/pick-stash.ts` binds the stash to the immediately next LOAD (`lib/tab-load.ts`) of
+  the same page, written by a writer that unloaded — never a TTL; the restore is decided at the first
+  good read, against the bags that read shows ready.
+- **The hand-back:** written synchronously in the refund's answer handler, peeked (never taken) by every
+  mount, forgotten per line by its acknowledgement; storage refused keeps it in the document's memory
+  and holds the automatic reload under its own `handBack` reason.
+- **The service worker:** `controllerchange` reloads only the tab that asked for the activation, and
+  never offline (`lib/sw-activation.ts`).
+
+**Gate:** `turbo lint typecheck build` green on `b9b9c72` (lint 0 errors) and `node scripts/check-build-stamp.mjs` after it (the stamp in `/api/version`'s prerendered body and a client chunk); the full qr suite 6048 / 6048 (369 files) and `packages/ui` 287 / 287 on the final tree; all 15 fast-lane steps green, `check:docs` clean (2869 mutants · 6048 + 287 tests), `check:mutant-anchors` 2869 anchors · 240 files; a filtered `verify:slice` (`--no-gate`) over every `p2i-*` mutant plus every mutant on every file changed since `17f1b1e` — 876 mutants on 42 files — caught 876 / 876 (0 survived, 0 stale, no orphans). The full unfiltered run is still to come.
+
+**Filed:** P2ia–P2ik and P2im–P2iq (the plan's §8: pad adds and the KDS Undo/recall lost to Next's own
+reload, the reload swallow window, the pane hash, the reader outcome under Next's reload, one
+deliberate worker change, kiosk and `/board`, "not sent" for a retired write, the Help report's build,
+fewer `revalidatePath` triggers, gestureless sound proof, inline drafts, the counter mint, a
+`STAFF_CONTRACT` guard, diner tabs, a deploy push; P2il was built by the contract's critic round, not
+filed), P2ir (unread holds have no age bound) · P2is (a cash refund is not recorded before it is sent) ·
+P2it (the health probe's own `AbortSignal.timeout`), and C25 · C26 (the action-encryption key; Pro +
+Skew Protection, optional).
+
 ### Phase 2h — a stuck tablet never traps staff (2026-10-02)
 
 Planned on `c7bffc1` (the Phase 2g head) from a map of every staff Server Action and poll (checked by
