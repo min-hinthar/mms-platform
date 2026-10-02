@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { usePathname } from "next/navigation";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
-import { activationFailsafe, controllerChange } from "@/lib/sw-activation";
+import { activationFailsafe, controllerChange, refreshTap } from "@/lib/sw-activation";
 import { Icon } from "@mms/ui";
 
 /**
@@ -167,6 +167,20 @@ export function ResilienceShell() {
     // id is kept so the controllerchange reload can CANCEL it (see the handler).
     if (firedRef.current) return;
     firedRef.current = true;
+    // Another tab's Refresh may already have activated this worker (we ignored that change): no
+    // controllerchange will follow a SKIP_WAITING, so reload now rather than after the failsafe.
+    const tap = refreshTap({
+      workerState: waitingRef.current?.state ?? null,
+      online: navigator.onLine !== false,
+    });
+    if (tap === "owe") {
+      owed = true;
+      return;
+    }
+    if (tap === "reload") {
+      window.location.reload();
+      return;
+    }
     // Asked BEFORE the message: the activation it triggers may arrive in the same task.
     requested = true;
     waitingRef.current?.postMessage({ type: "SKIP_WAITING" });

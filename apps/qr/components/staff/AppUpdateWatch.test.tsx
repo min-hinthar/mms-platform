@@ -47,6 +47,11 @@ const reload = vi.fn();
 let onLine = true;
 let visibility: DocumentVisibilityState = "visible";
 
+/** A `pageshow`; `persisted` = the page came back from the back-forward cache. */
+function pageShow(persisted = true) {
+  window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted }));
+}
+
 function setVisibility(v: DocumentVisibilityState) {
   visibility = v;
   document.dispatchEvent(new Event("visibilitychange"));
@@ -135,10 +140,22 @@ describe("AppUpdateWatch — when it asks /api/version", () => {
   it("at once on pageshow (a page back from the back-forward cache)", async () => {
     render(<AppUpdateWatch own={OWN} />);
     await act(async () => {
-      window.dispatchEvent(new Event("pageshow"));
+      pageShow();
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(versionCalls).toHaveLength(1);
+  });
+
+  it("not on the first load's own pageshow — it can fire after mount, and that is still a mount", async () => {
+    // MUTATION (p2i-watch/pageshow-unfiltered): every pageshow checks — a page whose images were
+    // still loading asks at its first load; with an unwritable tab store that loops reload → check
+    // → stale → countdown → reload every ~20s instead of once a poll; red.
+    render(<AppUpdateWatch own={OWN} />);
+    await act(async () => {
+      pageShow(false);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(versionCalls).toHaveLength(0);
   });
 
   it("one request at a time: a hung answer is never stacked", async () => {
@@ -147,7 +164,7 @@ describe("AppUpdateWatch — when it asks /api/version", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(VERSION_POLL_MS * 3);
       window.dispatchEvent(new Event("online"));
-      window.dispatchEvent(new Event("pageshow"));
+      pageShow();
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(versionCalls).toHaveLength(1);
@@ -257,9 +274,11 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it("a key or a touchstart is input too", async () => {
+  it("a key, a touchstart or a wheel scroll is input too", async () => {
+    // MUTATION (p2i-watch/wheel-unheard): a wheel is not input — someone scrolling a long list
+    // with a mouse or trackpad is reloaded under the cursor; red.
     await mountStale();
-    for (const type of ["keydown", "touchstart"]) {
+    for (const type of ["keydown", "touchstart", "wheel"]) {
       // A touch, then the quiet window: the countdown has just started.
       act(() => {
         window.dispatchEvent(new Event("pointerdown"));
@@ -295,6 +314,9 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
   });
 
   it("a hold refuses the countdown at the tick (the verdict, read live)", async () => {
+    // MUTATION (p2i-watch/tick-unguarded): the tick reads no verdict — a visible "Reloading in 5…"
+    // runs over an open Undo bar (the executor's own re-read refuses at the end, so the END phase
+    // alone cannot tell; every phase is recorded); red.
     await mountStale();
     const release = holdReload({
       kind: "unsent",
@@ -302,7 +324,12 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
       subject: "kds",
       survives: false,
     });
+    const seen: string[] = [];
+    const off = subscribeUpdate(() => seen.push(phase().k));
     await act(() => vi.advanceTimersByTimeAsync(WATCH_TICK_MS * 10));
+    off();
+    expect(seen).not.toContain("countdown");
+    expect(seen).not.toContain("applying");
     expect(phase().k).toBe("stale");
     release();
     await act(() => vi.advanceTimersByTimeAsync(WATCH_TICK_MS));
@@ -333,7 +360,7 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
   it("a person's tap runs the executor the watcher installed", async () => {
     render(<AppUpdateWatch own={OWN} />);
     await act(async () => {
-      window.dispatchEvent(new Event("pageshow"));
+      pageShow();
       await vi.advanceTimersByTimeAsync(0);
     });
     // Input just happened (the automatic path would wait); a person's tap does not.
@@ -360,7 +387,7 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
     );
     const r = render(<AppUpdateWatch own={OWN} />);
     await act(async () => {
-      window.dispatchEvent(new Event("pageshow"));
+      pageShow();
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(versionCalls).toHaveLength(1);
@@ -370,6 +397,41 @@ describe("AppUpdateWatch — the tick, input, and the automatic reload", () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(phase().k).toBe("current");
+  });
+
+  it("an attempt already in flight when the watcher unmounts reloads nothing", async () => {
+    // MUTATION (p2i-watch/attempt-outlives-unmount): the gone watcher's input still reads — an
+    // attempt whose pre-flight was answering when the watcher left marks, freezes and reloads a
+    // page it no longer serves; red.
+    const r = await mountStale();
+    let answer: (res: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      (input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve) => {
+          versionCalls.push(init ?? {});
+          answer = resolve;
+        }),
+    );
+    act(() => {
+      dispatchUpdate({ e: "tap" });
+    });
+    expect(phase().k).toBe("applying");
+    r.unmount();
+    await act(async () => {
+      answer(Response.json(served));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reload).not.toHaveBeenCalled();
+    expect(document.body.inert).toBe(false);
+    expect(sessionStorage.getItem(APPLIED_KEY)).toBeNull();
+    // Refused, never left latched: the next watcher's tap applies.
+    expect(phase().k).toBe("stale");
+    render(<AppUpdateWatch own={OWN} />);
+    await act(async () => {
+      dispatchUpdate({ e: "tap" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("unmounted: the executor is uninstalled and nothing is heard", async () => {
@@ -454,5 +516,29 @@ describe("the staff layout mounts it — one live watcher for every staff page",
     };
     const [el] = live;
     expect(el && within(el, "ReaderCollectProvider") && within(el, "StaffLangProvider")).toBe(true);
+  });
+});
+
+describe("the production default — the layout passes no `own`", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("a stamped bundle's watcher with NO prop reads CLIENT_BUILD and is live", async () => {
+    // MUTATION (p2i-watch/default-unstamped): the default is not CLIENT_BUILD — the layout mounts
+    // `<AppUpdateWatch />` bare, so every staff screen goes inert and no deploy is ever noticed,
+    // while every `own=`-passing case above stays green; red. `CLIENT_BUILD` is fixed when its
+    // module loads, so the stamp is stubbed and the watcher (and the store it writes) re-imported.
+    vi.stubEnv("NEXT_PUBLIC_BUILD_STAMP", OWN);
+    vi.resetModules();
+    const fresh = await import("./AppUpdateWatch");
+    const store = await import("@/lib/app-update");
+    const stamp = await import("@/lib/build-stamp");
+    expect(stamp.CLIENT_BUILD).toBe(OWN);
+    render(<fresh.AppUpdateWatch />);
+    await act(() => vi.advanceTimersByTimeAsync(VERSION_POLL_MS));
+    expect(versionCalls).toHaveLength(1);
+    expect(store.updateSnapshot().phase).toMatchObject({ k: "stale", served });
   });
 });

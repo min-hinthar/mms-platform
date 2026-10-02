@@ -5,9 +5,11 @@ import { checkBuildStamp, loadParseServed } from "../../../scripts/check-build-s
 import { STAFF_CONTRACT, parseServed } from "./build-stamp";
 
 /**
- * Phase 2i (P2bi) — the CI artifact check's decision. The build-output half (a real `next build`
- * with the env assignment removed → red; with the client import removed → red) is measured by hand
- * in the S1 notes; here every way the decision could wrongly pass gets a case.
+ * Phase 2i (P2bi) — the CI artifact check's decision. The build-output half was measured by hand
+ * on real `next build`s (S1 build notes): the env assignment removed → red ("answers no build
+ * stamp"); `build-stamp.ts` reading the env through a destructure → red ("in no client chunk").
+ * Here every way the decision could wrongly pass gets a case. Whether the WATCHER reads the stamp
+ * is not this check's to prove — `AppUpdateWatch.test.tsx` pins its default.
  */
 type Input = { body: string | null; chunks: Iterable<string>; parseServed: typeof parseServed };
 const check = checkBuildStamp as (i: Input) => { ok: boolean; stamp?: string; reason?: string };

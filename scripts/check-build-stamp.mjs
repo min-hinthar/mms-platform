@@ -7,9 +7,15 @@
  *
  * Why it exists: the detector is only as good as the stamp. A build script that lost its
  * `NEXT_PUBLIC_BUILD_STAMP=…` assignment answers `{ build: null }` — every screen reads "no verdict"
- * and never learns of a deploy, silently, with every other check green. A client that stopped
- * importing `CLIENT_BUILD` the inlinable way (a destructure, a computed key) ships `undefined` in the
- * bundle while the route still answers a stamp — the same silence from the other side.
+ * and never learns of a deploy, silently, with every other check green. A `build-stamp.ts` that
+ * stopped reading `process.env.NEXT_PUBLIC_BUILD_STAMP` the inlinable way (a destructure, a
+ * computed key) ships `undefined` in the bundle while the route still answers a stamp — the same
+ * silence from the other side.
+ *
+ * What it does NOT prove: that the WATCHER reads the stamp. Any client chunk carrying the literal
+ * passes (`makeFetchServed`'s own default inlines it too), so a watcher whose default stopped being
+ * `CLIENT_BUILD` stays green here. That wiring is pinned in `AppUpdateWatch.test.tsx` (the bare
+ * `<AppUpdateWatch />` case, mutant `p2i-watch/default-unstamped`).
  *
  * It reads BUILD OUTPUT, never source text: the prerendered body is parsed with the app's own strict
  * reader (`parseServed`, transpiled from `apps/qr/lib/build-stamp.ts` — never a copy of its regex),

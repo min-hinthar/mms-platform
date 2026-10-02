@@ -161,6 +161,21 @@ describe("ResilienceShell — controllerchange reloads only the tab that asked",
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("another tab already activated the offered worker: Refresh reloads at once, no 4s wait", async () => {
+    // MUTATION (p2i-shell/tap-rule-ignored): Refresh always posts SKIP_WAITING — the worker is
+    // already active, no controllerchange follows, and the tap does nothing for 4s; red.
+    await mountWaiting();
+    // Tab A's Refresh: the worker took over here too, and this tab (which did not ask) ignored it.
+    if (sw.registration.waiting) Object.assign(sw.registration.waiting, { state: "activated" });
+    act(() => sw.controllerChange());
+    expect(reload).not.toHaveBeenCalled();
+    await tapRefresh();
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(sw.registration.waiting?.postMessage).not.toHaveBeenCalled();
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
   it("coming online with nothing owed reloads nothing", async () => {
     sw.controller = {};
     render(<ResilienceShell />);

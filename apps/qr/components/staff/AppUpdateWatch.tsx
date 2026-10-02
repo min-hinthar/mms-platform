@@ -23,10 +23,14 @@ import { VERSION_POLL_MS } from "@/lib/update-policy";
 import { freshTruth } from "@/lib/useConnectionTruth";
 
 /** How often the automatic path re-reads its verdict while a new version waits (and the screen is
- *  seen). Drives the countdown's start, its visible seconds and its end. */
+ *  seen). Drives the countdown's START and its END only: a countdown tick that changes nothing
+ *  publishes nothing (`stepUpdate` returns the same phase; `publish` drops it), so no subscriber
+ *  re-renders each second. A surface that SHOWS the seconds runs its own clock from `endsAt`. */
 export const WATCH_TICK_MS = 1_000;
 
-const INPUT_EVENTS = ["pointerdown", "keydown", "touchstart"] as const;
+/** Input that keeps the screen "in use": a tap, a key, a touch — and a wheel or trackpad scroll
+ *  (someone reading a long list on a counter terminal is using it, with no click). */
+const INPUT_EVENTS = ["pointerdown", "keydown", "touchstart", "wheel"] as const;
 
 /**
  * Phase 2i (P2bi) — the staff screens' version watcher. Renders NOTHING; mounted ONCE in
@@ -40,9 +44,11 @@ const INPUT_EVENTS = ["pointerdown", "keydown", "touchstart"] as const;
  *    credentials, strict) and the health read is `freshTruth` (never the 15s cache);
  *  - hears every tracked rejection, and one `UnrecognizedActionError` marks the tab retired;
  *  - asks `/api/version` every VERSION_POLL_MS while the screen is SEEN and the device ONLINE, and
- *    at once on becoming visible, on `online`, on `pageshow` and when the reducer asks (`check`) —
- *    one request at a time. Never at mount: a document that just loaded IS the served build;
- *  - feeds input (pointer, key, touch — capture, passive) to the quiet clock and the countdown;
+ *    at once on becoming visible, on `online`, on a `pageshow` that RESTORED the page from the
+ *    back-forward cache (`persisted` — the first load's own pageshow is not one; it can fire after
+ *    this effect when images are still loading), and when the reducer asks (`check`) — one request
+ *    at a time. Never at mount: a document that just loaded IS the served build;
+ *  - feeds input (pointer, key, touch, wheel — capture, passive) to the quiet clock and the countdown;
  *  - ticks every WATCH_TICK_MS only while a new version waits AND the screen is seen.
  *
  * Inert in a bundle with no stamp (dev, tests, a stampless build): such a screen cannot say which
@@ -62,7 +68,15 @@ export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }):
       const p = updateSnapshot().phase;
       return p.k !== "current" && p.retired;
     };
-    const guardInput = () => readGuardInput({ doc: document, nav: navigator, retired: retired() });
+    let disposed = false;
+    // An attempt already past its awaits when this watcher unmounts re-reads the verdict through
+    // HERE before it marks, freezes or reloads: a gone watcher's input cannot be read, the executor
+    // catches the throw (refused, latch released), and no page this watcher no longer serves is
+    // reloaded.
+    const guardInput = () => {
+      if (disposed) throw new Error("AppUpdateWatch: unmounted");
+      return readGuardInput({ doc: document, nav: navigator, retired: retired() });
+    };
     // Read `fetch` at the call, so the request is whatever the page's fetch is NOW.
     const fetchServed = makeFetchServed((input, init) => fetch(input, init), own);
     const uninstall = installApplyDeps({
@@ -88,7 +102,6 @@ export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }):
     });
 
     // ── the version check ──
-    let disposed = false;
     let checking = false;
     const check = () => {
       if (checking) return;
@@ -146,7 +159,10 @@ export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }):
       window.addEventListener(type, onInput, { capture: true, passive: true });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", check);
-    window.addEventListener("pageshow", check);
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) check();
+    };
+    window.addEventListener("pageshow", onPageShow);
 
     return () => {
       disposed = true;
@@ -159,7 +175,7 @@ export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }):
       for (const type of INPUT_EVENTS) window.removeEventListener(type, onInput, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", check);
-      window.removeEventListener("pageshow", check);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, [own]);
   return null;

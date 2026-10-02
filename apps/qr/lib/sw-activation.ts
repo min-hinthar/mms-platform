@@ -37,3 +37,18 @@ export function activationFailsafe(i: { online: boolean }): "reload" | "owe" {
   if (!i.online) return "owe";
   return "reload";
 }
+
+/**
+ * The strip's Refresh. The worker it offers may already be TAKING OVER: another tab's Refresh
+ * activated it, and this tab — which did not ask — ignored that `controllerchange`. A SKIP_WAITING
+ * to an active worker does nothing and no further `controllerchange` comes, so the person would
+ * wait out the failsafe for nothing: reload now (owe it offline). A worker still waiting is asked.
+ */
+export function refreshTap(i: {
+  workerState: ServiceWorkerState | null;
+  online: boolean;
+}): "ask" | "reload" | "owe" {
+  if (i.workerState !== "activating" && i.workerState !== "activated") return "ask";
+  if (!i.online) return "owe";
+  return "reload";
+}

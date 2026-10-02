@@ -22550,9 +22550,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/AppUpdateWatch.tsx",
     suite: "components/staff/AppUpdateWatch.test.tsx",
     why: "Phase 2i (P2bi) — the verdicts read the phase's `retired`. Read false, a sound-live board whose actions are gone waits for a person forever",
-    find: "    const guardInput = () => readGuardInput({ doc: document, nav: navigator, retired: retired() });",
-    replace:
-      "    const guardInput = () => readGuardInput({ doc: document, nav: navigator, retired: false });",
+    find: "      return readGuardInput({ doc: document, nav: navigator, retired: retired() });",
+    replace: "      return readGuardInput({ doc: document, nav: navigator, retired: false });",
   },
   {
     id: "p2i-watch/input-unheard",
@@ -22705,6 +22704,64 @@ const MUTANTS = [
     why: "Phase 2i (P2bi) — the failsafe asks the rule. Ignored, a stalled activation reloads into the offline page",
     find: '      if (activationFailsafe({ online: navigator.onLine !== false }) === "owe") {',
     replace: "      if (false) {",
+  },
+  // Phase 2i · S1 critic round — the production default, the bfcache-only pageshow, a wheel is
+  // input, an attempt outliving its watcher, and Refresh on a worker another tab already activated.
+  {
+    id: "p2i-watch/default-unstamped",
+    file: "apps/qr/components/staff/AppUpdateWatch.tsx",
+    suite: "components/staff/AppUpdateWatch.test.tsx",
+    why: "Phase 2i (P2bi) — the layout mounts the watcher bare, so its DEFAULT is the production wiring: not CLIENT_BUILD and every staff screen is inert, every own=-passing case still green",
+    find: "export function AppUpdateWatch({ own = CLIENT_BUILD }: { own?: string | null }): null {",
+    replace: "export function AppUpdateWatch({ own = null }: { own?: string | null }): null {",
+  },
+  {
+    id: "p2i-watch/pageshow-unfiltered",
+    file: "apps/qr/components/staff/AppUpdateWatch.tsx",
+    suite: "components/staff/AppUpdateWatch.test.tsx",
+    why: "Phase 2i (P2bi) — only a pageshow that restored the page from the back-forward cache checks; the first load's own pageshow can follow the effect, and a check there is a check at mount",
+    find: "      if (e.persisted) check();",
+    replace: "      check();",
+  },
+  {
+    id: "p2i-watch/wheel-unheard",
+    file: "apps/qr/components/staff/AppUpdateWatch.tsx",
+    suite: "components/staff/AppUpdateWatch.test.tsx",
+    why: "Phase 2i (P2bi) — a wheel or trackpad scroll is input. Unheard, someone reading a long list on a counter terminal is reloaded under the cursor",
+    find: '"touchstart", "wheel"] as const;',
+    replace: '"touchstart"] as const;',
+  },
+  {
+    id: "p2i-watch/attempt-outlives-unmount",
+    file: "apps/qr/components/staff/AppUpdateWatch.tsx",
+    suite: "components/staff/AppUpdateWatch.test.tsx",
+    why: "Phase 2i (P2bi) — an attempt in flight when the watcher unmounts re-reads a guard input that refuses, so it never marks, freezes or reloads a page the watcher no longer serves (and the latch is released)",
+    find: '      if (disposed) throw new Error("AppUpdateWatch: unmounted");\n',
+    replace: "",
+  },
+  {
+    id: "p2i-shell/tap-posts-to-active",
+    file: "apps/qr/lib/sw-activation.ts",
+    suite: "lib/sw-activation.test.ts",
+    why: "Phase 2i (P2bi) — Refresh on a worker another tab already activated reloads now. Asked instead, no controllerchange follows and the tap does nothing for 4s",
+    find: '  if (i.workerState !== "activating" && i.workerState !== "activated") return "ask";',
+    replace: '  return "ask";',
+  },
+  {
+    id: "p2i-shell/tap-offline-reloads",
+    file: "apps/qr/lib/sw-activation.ts",
+    suite: "lib/sw-activation.test.ts",
+    why: "Phase 2i (P2bi) — Refresh on an already-active worker owes its reload offline, never into the offline page",
+    find: 'return "ask";\n  if (!i.online) return "owe";\n',
+    replace: 'return "ask";\n',
+  },
+  {
+    id: "p2i-shell/tap-rule-ignored",
+    file: "apps/qr/components/ResilienceShell.tsx",
+    suite: "components/ResilienceShell.test.tsx",
+    why: "Phase 2i (P2bi) — the Refresh reads the offered worker's state. Unread, a worker another tab activated gets a SKIP_WAITING that does nothing and the tap waits out the failsafe",
+    find: "      workerState: waitingRef.current?.state ?? null,",
+    replace: "      workerState: null,",
   },
 ];
 

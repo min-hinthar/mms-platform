@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activationFailsafe, controllerChange } from "./sw-activation";
+import { activationFailsafe, controllerChange, refreshTap } from "./sw-activation";
 
 /**
  * Phase 2i (P2bi) — a worker change reloads only the tab that asked for it, and never offline.
@@ -37,5 +37,18 @@ describe("activationFailsafe", () => {
     // MUTATION (p2i-shell/failsafe-offline): the failsafe reloads offline; red.
     expect(activationFailsafe({ online: true })).toBe("reload");
     expect(activationFailsafe({ online: false })).toBe("owe");
+  });
+});
+
+describe("refreshTap", () => {
+  it("a worker still waiting is ASKED (SKIP_WAITING); one already taking over is reloaded into", () => {
+    // MUTATION (p2i-shell/tap-posts-to-active): the state is not read — another tab's Refresh
+    // already activated the worker (this tab ignored that change), the message goes to an active
+    // worker, no change follows, and the person waits out the 4s failsafe for nothing; red.
+    expect(refreshTap({ workerState: "installed", online: true })).toBe("ask");
+    expect(refreshTap({ workerState: null, online: true })).toBe("ask");
+    expect(refreshTap({ workerState: "activating", online: true })).toBe("reload");
+    expect(refreshTap({ workerState: "activated", online: true })).toBe("reload");
+    expect(refreshTap({ workerState: "activated", online: false })).toBe("owe");
   });
 });
