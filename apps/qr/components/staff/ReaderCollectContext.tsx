@@ -51,6 +51,13 @@ export type ReaderCollectApi = {
   startPending: (at: Omit<ReaderPending, "token" | "startedAt">) => string;
   /** The start answered (any answer: a start, a refusal) — its record goes, by its own token. */
   startAnswered: (token: string) => void;
+  /** Codex r2 on #310 follow-up (R3) — the start (by its token) THREW: resolve it on this page too,
+   *  read-only and bounded, as a reload would. `onAdopted` runs if the reader turns out to be asking
+   *  for its card (the collect is then the provider's, polled and cancellable). */
+  resumeStart: (token: string, onAdopted?: () => void) => void;
+  /** R4 — stranded starts whose last resume read failed, oldest first: the reader could not be
+   *  checked, and it may be asking for that table's card (the bar's chip says so). */
+  unchecked: readonly ReaderPending[];
   cancel: () => Promise<void>;
   /** The panel's "Back to payment" / Close and the chip's ✕: a declined, cancelled or unrecorded
    *  collect is cleared; a charged-not-recorded one ("Hide this") is put away and keeps polling

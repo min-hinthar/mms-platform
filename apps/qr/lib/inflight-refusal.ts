@@ -55,6 +55,29 @@ export function inFlightHolder(i: {
   return "unsure";
 }
 
+/**
+ * Codex r2 on #310 follow-up (R1) — whether a STAFF attempt holds the cart's settle freeze fresh: the
+ * resume read's answer when the reader shows nothing of the table's. A reader start takes the freeze
+ * BEFORE it mints the PaymentIntent and hands it to the reader (`settleCard`), so a stranded start
+ * can sit in that gap — still on its way to the reader — and a reload that reads an idle reader then
+ * must KEEP its record and ask again, never forget it (the charge would land with no handle).
+ *
+ * Measured as `inFlightHolder` measures it (the same `fresh`, the same TTL). A seat's freeze is a
+ * guest's split — a register start was refused under it, nothing is on its way. An owner that could
+ * not be read (or none) is held: unsure is never "nothing is moving", and the cost of a wrong "held"
+ * is only another bounded ask. The owner names no KIND — cash and the card on file key theirs the
+ * same way (A3 · M201) — so this over-includes them; that too only buys asks, never an adoption
+ * (which needs the reader's own action on this cart's PaymentIntent).
+ */
+export function registerFreezeHeld(i: {
+  settleAt: string | null;
+  settleByIsSeat: boolean | null;
+  nowMs: number;
+}): boolean {
+  if (!fresh(i.settleAt, SETTLE_TTL_MS, i.nowMs)) return false;
+  return i.settleByIsSeat !== true;
+}
+
 /** The freeze's lifetime in whole minutes — the wait a held register attempt can impose. It rides
  *  the `{n}` slot (Burmese digits in Burmese); the dictionary value carries no digit. */
 export const SETTLE_MINUTES = Math.round(SETTLE_TTL_MS / 60_000);

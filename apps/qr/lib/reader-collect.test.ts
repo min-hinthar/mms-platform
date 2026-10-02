@@ -11,6 +11,8 @@ import {
   READER_POLL_SILENT_MS,
   READER_POLL_START,
   READER_RECORDING_ESCALATE_MS,
+  READER_RESUME_FIRST_MS,
+  READER_RESUME_MAX_GAP_MS,
   READER_UNRECORDED_MS,
   adoptLegacyCollect,
   dropLanded,
@@ -45,6 +47,7 @@ import {
   readerPendingExpired,
   readerPolling,
   readerRecordingLong,
+  readerResumeDelay,
   readerSpoken,
   readerStartRefused,
   readerStatus,
@@ -809,17 +812,33 @@ describe("the pending start — what a reload must not lose (Codex r2 on #310, A
     expect(store.m.has(READER_PENDING_KEY)).toBe(false);
   });
 
-  it("one per table: a newer start replaces its table's older one; other tables' stand (capped)", () => {
+  it("a newer start NEVER discards an unresolved earlier record — one per start, not per table (capped)", () => {
     const seven2 = { ...P, token: "t-2", startedAt: T0 + 5 };
     const eight = { ...P, token: "t-8", sessionId: "s-8" };
-    // MUTATION (p2h-cx2a/pending/one-per-table): the older start for Table 7 stays beside the newer
-    // one — a reload resolves both, and the cap evicts other tables' starts; red.
-    expect(queuePending(queuePending([P], eight), seven2)).toEqual([eight, seven2]);
+    // Codex r2 on #310 follow-up (R2): a start that THREW is still unresolved (the reader may be
+    // asking for its card) when the cashier taps Card again — the re-tap's own record must stand
+    // BESIDE it, so the re-tap's refusal (it drops only its own token) leaves the first for a reload.
+    // MUTATION (p2h-cx2a/pending/one-per-table): one record per table — the re-tap replaces the
+    // stranded start's record, its refusal then drops it, and a reload has nothing to resume; red.
+    expect(queuePending(queuePending([P], eight), seven2)).toEqual([P, eight, seven2]);
+    // The same start written twice (one token) is ONE record, moved to the newest place.
+    expect(queuePending([P, eight], { ...P, startedAt: T0 + 9 })).toEqual([
+      eight,
+      { ...P, startedAt: T0 + 9 },
+    ]);
     let q: ReaderPending[] = [];
     for (let i = 0; i < READER_PENDING_CAP + 2; i++)
       q = queuePending(q, { ...P, token: `t${i}`, sessionId: `s${i}` });
     expect(q).toHaveLength(READER_PENDING_CAP);
     expect(q[0]!.sessionId).toBe("s2");
+  });
+
+  it("a re-tap's refusal drops only its OWN record: the stranded one for the same table stands (R2)", () => {
+    const store = memStore();
+    pendStart(P, T0, store); // the start that threw
+    pendStart({ ...P, token: "t-2", startedAt: T0 + 5 }, T0, store); // the re-tap
+    dropPending("t-2", T0, store); // refused "in flight": the first start holds the freeze
+    expect(readPendingStash(T0, store)).toEqual([P]);
   });
 
   it("an answer drops ONLY its own record — never a newer start's (the token)", () => {
@@ -830,7 +849,7 @@ describe("the pending start — what a reload must not lose (Codex r2 on #310, A
     // other table's start, still out, is lost to the next reload; red.
     dropPending("t-1", T0, store);
     expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8"]);
-    // A stale token (a start whose table's record a newer start replaced) removes nothing.
+    // A token already gone (its record dropped before) removes nothing.
     pendStart({ ...P, token: "t-9" }, T0, store);
     dropPending("t-1", T0, store);
     expect(readPendingStash(T0, store).map((p) => p.token)).toEqual(["t-8", "t-9"]);
@@ -866,12 +885,101 @@ describe("the pending start — what a reload must not lose (Codex r2 on #310, A
         unrecordedAt: null,
       },
     });
-    // MUTATION (p2h-cx2a/resume/none-kept): a reader with nothing of this table's keeps the record —
-    // every reload asks again, and a LATER charge on this cart is adopted as this start's; red.
-    expect(resumedCollect(P, { ok: true, collect: null }, T0)).toEqual({ kind: "drop" });
+    // MUTATION (p2h-cx2a/resume/none-kept): a reader with nothing of this table's, and no freeze
+    // held, keeps the record — every reload asks again, and a LATER charge on this cart is adopted
+    // as this start's; red.
+    expect(resumedCollect(P, { ok: true, collect: null, held: false }, T0)).toEqual({
+      kind: "drop",
+    });
     // MUTATION (p2h-cx2a/resume/outage-is-a-verdict): a read that failed (or threw — null) drops the
     // record — an outage read as "the reader has nothing", and the next reload cannot ask; red.
-    expect(resumedCollect(P, { ok: false, error: "x" }, T0)).toEqual({ kind: "keep" });
-    expect(resumedCollect(P, null, T0)).toEqual({ kind: "keep" });
+    // R4 — and it is SAID (`unchecked`): the reader could not be checked.
+    // MUTATION (p2h-cx2a/resume/outage-unsaid): an outage keeps the record silently; red.
+    expect(resumedCollect(P, { ok: false, error: "x" }, T0)).toEqual({
+      kind: "keep",
+      unchecked: true,
+    });
+    expect(resumedCollect(P, null, T0)).toEqual({ kind: "keep", unchecked: true });
+  });
+
+  it("an idle reader under a HELD freeze is a start still on its way: KEPT, asked again — never dropped, and nothing to say (R1)", () => {
+    // MUTATION (p2h-cx2a/resume/held-dropped): the idle reader drops the record while the table's
+    // freeze is held — the start then hands its charge to the reader with no handle on the tablet; red.
+    // MUTATION (p2h-cx2a/resume/held-said-unchecked): a held freeze says "couldn't check the
+    // reader" — the read worked; red.
+    expect(resumedCollect(P, { ok: true, collect: null, held: true }, T0)).toEqual({
+      kind: "keep",
+      unchecked: false,
+    });
+  });
+
+  it("asked again on a widening gap, capped — the record's own expiry ends it (R1)", () => {
+    // MUTATION (p2h-cx2a/resume/gap-flat): every re-ask at the first gap — up to 300 reads over the
+    // freeze's ten minutes; red.
+    // MUTATION (p2h-cx2a/resume/gap-uncapped): the gap doubles past the cap — a start that reaches
+    // the reader after a minute waits minutes more to be adopted; red.
+    expect([0, 1, 2, 3, 4, 5, 9].map(readerResumeDelay)).toEqual([
+      READER_RESUME_FIRST_MS,
+      READER_RESUME_FIRST_MS * 2,
+      READER_RESUME_FIRST_MS * 4,
+      READER_RESUME_FIRST_MS * 8,
+      READER_RESUME_MAX_GAP_MS,
+      READER_RESUME_MAX_GAP_MS,
+      READER_RESUME_MAX_GAP_MS,
+    ]);
+    expect(READER_RESUME_FIRST_MS * 16).toBeGreaterThan(READER_RESUME_MAX_GAP_MS);
+    // Within the freeze's lifetime the asks stay few: well under one a second on average.
+    let at = 0;
+    let asks = 0;
+    while (at <= READER_COLLECT_MAX_IDLE_MS) at += readerResumeDelay(asks++);
+    expect(asks).toBeLessThan(30);
+  });
+});
+
+// ── Codex r2 on #310 follow-up (R4) — a stranded start whose resume read FAILED: the reader could
+// not be checked, and nothing else on any screen says so ─────────────────────────────────────────────
+describe("the chip's 'couldn't check the reader' line (Codex r2 on #310 follow-up, R4)", () => {
+  const U: ReaderPending = {
+    token: "t-u",
+    sessionId: "s-7",
+    startedAt: T0,
+    isCounter: false,
+    name: { counter: false, display: "7" },
+    sentEarly: false,
+    cartId: "c-7",
+  };
+  const chipOf = (p: Partial<Parameters<typeof readerChip>[0]> = {}) =>
+    readerChip({ collect: null, landed: [], shown: new Set(), unchecked: [U], ...p });
+
+  it("shown wherever the bar is — over its own table too: no panel there says it", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-unshown): the failed read is said nowhere; red.
+    expect(chipOf()).toEqual({ kind: "unchecked", sessionId: "s-7", name: U.name, token: "t-u" });
+    // MUTATION (p2h-cx2a/chip/unchecked-hidden-on-its-table): hidden where its table is shown — the
+    // one page a cashier goes to before taking the money says nothing; red.
+    expect(chipOf({ shown: new Set(["s-7"]) })?.kind).toBe("unchecked");
+  });
+
+  it("a collect off screen outranks it (one reader, one line); it outranks a landing", () => {
+    expect(chipOf({ collect: { ...C, sessionId: "s-9" } })?.kind).toBe("collect");
+    // The collect on screen (its panel says it): the bar says the unchecked start.
+    expect(chipOf({ collect: { ...C, sessionId: "s-9" }, shown: new Set(["s-9"]) })?.kind).toBe(
+      "unchecked",
+    );
+    // MUTATION (p2h-cx2a/chip/landing-over-unchecked): a landing elsewhere hides it; red.
+    expect(chipOf({ landed: [LANDED_TABLE] })?.kind).toBe("unchecked");
+    expect(chipOf({ unchecked: [] })).toBeNull();
+    expect(readerChip({ collect: null, landed: [], shown: new Set() })).toBeNull();
+  });
+
+  it("never put away by hand — it stands while the record does and the read fails", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-dismissible): a ✕ closes the only line saying the reader
+    // may be asking for the card; red.
+    expect(readerChipDismissible(chipOf()!, "canceled")).toBe(false);
+  });
+
+  it("said once, keyed by the start", () => {
+    // MUTATION (p2h-cx2a/chip/unchecked-unsaid): shown, never said — a screen-reader cashier takes
+    // cash while the reader may be asking for the card; red.
+    expect(readerChipAlert(chipOf(), "collecting", false)).toBe("t-u:unchecked");
   });
 });

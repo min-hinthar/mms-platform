@@ -8,6 +8,7 @@ import {
   inFlightMsg,
   inFlightRefusal,
   inFlightRefusalOf,
+  registerFreezeHeld,
 } from "./inflight-refusal";
 
 /**
@@ -146,5 +147,41 @@ describe("the register's held attempt never invites a blind retry (review open q
     expect(my).not.toContain("ထပ်စမ်းပါ");
     expect(my).toContain("ပိုင်ရှင်");
     expect(my).toContain("{n}");
+  });
+});
+
+// ── Codex r2 on #310 follow-up (R1) — the resume read's "a register attempt holds the freeze" ──
+describe("registerFreezeHeld — a FRESH freeze no seat owns (a start may be handing its charge to the reader)", () => {
+  it("fresh and owned by no seat: held — the stranded start is kept and asked about again", () => {
+    expect(registerFreezeHeld({ settleAt: ago(1000), settleByIsSeat: false, nowMs: NOW })).toBe(
+      true,
+    );
+  });
+
+  it("an owner that could not be read (or no owner): held — unsure is never 'nothing is moving'", () => {
+    // MUTATION (p2h-cx2a/held/unsure-is-free): an unreadable owner reads as free — a start whose
+    // seat read failed is forgotten while it may still reach the reader; red.
+    expect(registerFreezeHeld({ settleAt: ago(1000), settleByIsSeat: null, nowMs: NOW })).toBe(
+      true,
+    );
+  });
+
+  it("a SEAT's freeze is a guest's split, never the register's start: not held", () => {
+    // MUTATION (p2h-cx2a/held/seat-is-the-register): a diner's split reads as a register start —
+    // the tablet keeps asking about a start that was refused, for the split's whole lifetime; red.
+    expect(registerFreezeHeld({ settleAt: ago(1000), settleByIsSeat: true, nowMs: NOW })).toBe(
+      false,
+    );
+  });
+
+  it("a freeze past its lifetime, or none at all, holds nothing (the freezes' own TTL, measured as the guard does)", () => {
+    // MUTATION (p2h-cx2a/held/stale-freeze-holds): a lapsed freeze still reads as held; red.
+    expect(
+      registerFreezeHeld({ settleAt: ago(SETTLE_TTL_MS), settleByIsSeat: false, nowMs: NOW }),
+    ).toBe(false);
+    expect(
+      registerFreezeHeld({ settleAt: ago(SETTLE_TTL_MS - 1), settleByIsSeat: false, nowMs: NOW }),
+    ).toBe(true);
+    expect(registerFreezeHeld({ settleAt: null, settleByIsSeat: false, nowMs: NOW })).toBe(false);
   });
 });

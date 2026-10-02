@@ -3970,6 +3970,16 @@ export const STAFF = {
     en: "We couldn’t confirm a change on {x} — view it to check.",
     my: "{x} မှာ ပြင်လိုက်တာကို အတည်မပြုနိုင်ပါ — ကြည့်ပြီး စစ်ပါ။",
   }, // K15-HIGH — misread as "didn't save", a quantity is changed twice on the bill of a table the cashier has left
+  // Codex r2 on #310 follow-up (R4) — the bar chip's line while a card reader start this tablet lost
+  // the answer to cannot be checked (the resume read failed): the reader may be asking for that
+  // table's card, and nothing else on any screen says so. {x} is the table's name as the floor gives
+  // it. K15 draft. Words: စစ်လို့ မရပါ "couldn't check" (settle.unsentUnreadable), ကတ်စက်က … ကတ်ကို
+  // တောင်းနေတာ ဖြစ်နိုင်ပါတယ် (settle.reader.unknown), ငွေမယူခင် … စစ်ပါ (settle.reader.cancelUnknown),
+  // {x} အတွက် (settle.reader.busyElsewhere).
+  "settle.reader.unchecked": {
+    en: "Couldn’t check the card reader for {x} — it may be asking for the card. Check the reader before you take payment.",
+    my: "{x} အတွက် ကတ်စက်ကို စစ်လို့ မရပါ — ကတ်စက်က ကတ်ကို တောင်းနေတာ ဖြစ်နိုင်ပါတယ်။ ငွေမယူခင် ကတ်စက်ကို စစ်ပါ။",
+  }, // K15-HIGH — misread, cash is taken while the reader may still collect the card
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4276,6 +4286,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.pane.landedWrite",
   "floor.refund.waitingCash",
   "floor.pane.lostWriteUnknown",
+  "settle.reader.unchecked",
 ]);
 
 /**

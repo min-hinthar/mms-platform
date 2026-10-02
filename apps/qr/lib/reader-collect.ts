@@ -587,7 +587,10 @@ export type ReaderChip =
       orderId: string;
       totalCents: number;
       code: string | null;
-    };
+    }
+  // Codex r2 on #310 follow-up (R4) — a start this tab lost the answer to, whose resume read FAILED:
+  // the reader could not be checked, and it may be asking for this table's card.
+  | { kind: "unchecked"; sessionId: string; name: ReaderName; token: string };
 
 /**
  * Whether the bar shows the chip, and for what. NEVER over its own table: where the paying table's
@@ -596,11 +599,18 @@ export type ReaderChip =
  * away ("Hide this" while charged-not-recorded, D4) is silent until it lands or is given up. The
  * collect outranks a landing for another table — one line in the bar at a time; the landings wait,
  * oldest first.
+ *
+ * Codex r2 on #310 follow-up (R4) — a stranded start whose resume read FAILED (`unchecked`, the
+ * provider's, oldest first) comes after an off-screen collect and BEFORE a landing: "couldn't check
+ * the card reader — check it before you take payment" guards money still moving, a landing reports
+ * money that already has. It is shown over its own table too: no panel there says it (there is no
+ * collect to show), and that table is where the cashier goes to take the money.
  */
 export function readerChip(p: {
   collect: ReaderCollect | null;
   landed: readonly ReaderLanded[];
   shown: ReadonlySet<string>;
+  unchecked?: readonly ReaderPending[];
 }): ReaderChip | null {
   const c = p.collect;
   if (c !== null && !c.hidden && !p.shown.has(c.sessionId))
@@ -611,6 +621,9 @@ export function readerChip(p: {
       paymentIntentId: c.paymentIntentId,
       totalCents: c.totalCents,
     };
+  const u = p.unchecked?.[0];
+  if (u !== undefined)
+    return { kind: "unchecked", sessionId: u.sessionId, name: u.name, token: u.token };
   const l = p.landed.find((x) => !p.shown.has(x.sessionId));
   if (l === undefined) return null;
   return {
@@ -642,8 +655,11 @@ export function readerChipShownAt(pathname: string | null): boolean {
 }
 
 /** The chip's ✕: every outcome is the cashier's to put away — a landing, a decline, a cancel, a charge
- *  given up as unrecorded. A collect still polling is not (its panel has the controls). */
+ *  given up as unrecorded. A collect still polling is not (its panel has the controls), and neither
+ *  is an unchecked start (R4): it stands while its record does and the reader cannot be read — a ✕
+ *  would close the one line saying the reader may be asking for the card. */
 export function readerChipDismissible(chip: ReaderChip, phase: ReaderPhase): boolean {
+  if (chip.kind === "unchecked") return false;
   return chip.kind === "landed" || !readerPolling(phase);
 }
 
@@ -688,6 +704,8 @@ export function readerChipAlert(
 ): string | null {
   if (chip === null) return null;
   if (chip.kind === "landed") return `${chip.orderId}:landed`;
+  // R4 — said once per stranded start (its token): the next page's chip stays quiet about it.
+  if (chip.kind === "unchecked") return `${chip.token}:unchecked`;
   return readerAlertKey(chip.paymentIntentId, phase, recordingLong);
 }
 
@@ -803,7 +821,7 @@ export type ReaderPending = {
 
 /** The pending starts' sessionStorage key — beside the collect record, per tab, surviving a reload. */
 export const READER_PENDING_KEY = "mms-reader-pending";
-/** At most this many held (one per table — a newer start for a table replaces its older one). */
+/** At most this many held (one per START — the oldest goes first past the cap). */
 export const READER_PENDING_CAP = 5;
 
 /**
@@ -837,13 +855,19 @@ function parsePending(v: unknown): ReaderPending | null {
   };
 }
 
-/** Hold a pending start: one per table (a newer start replaces its table's older one), newest last. */
+/**
+ * Hold a pending start: one per START (its token), newest last. Codex r2 on #310 follow-up (R2) — never
+ * one per table: a start that THREW is unresolved (the reader may be asking for its card) when the
+ * cashier taps Card again, and that re-tap is refused "in flight" while the first holds the freeze. A
+ * re-tap that replaced the first record would then drop it with its own refusal, and a reload would
+ * have nothing left to resume. Each answer drops only its own token (`dropPending`).
+ */
 export function queuePending(
   q: readonly ReaderPending[],
   p: ReaderPending,
   cap: number = READER_PENDING_CAP,
 ): ReaderPending[] {
-  return [...q.filter((x) => x.sessionId !== p.sessionId), p].slice(-cap);
+  return [...q.filter((x) => x.token !== p.token), p].slice(-cap);
 }
 
 /** The stashed pending starts, field by field: a malformed or expired entry is dropped alone. */
@@ -866,20 +890,26 @@ export function parsePendingQueue(raw: string | null, nowMs: number): ReaderPend
 
 /**
  * What a pending start becomes once the server answered the resume read. `res` null is a read that
- * THREW (or never answered): like a refused one, an outage is not a verdict — the record is KEPT for
- * the next document to ask again (until it expires). The server found no action of this table's on
- * the reader → DROP (nothing to poll; the detail's own freeze read still says a payment is under way
- * while one is). It found one → ADOPT: a collect exactly as a start would have made, from the tap's
- * facts and the server's handle, amount and cart — the handle only resumes the poll and Cancel (the
- * server re-verifies it on every call), and the amount is display, never charged.
+ * THREW (or never answered): like a refused one, an outage is not a verdict — the record is KEPT and
+ * asked about again (`readerResumeDelay`, until it expires), and it is SAID (`unchecked`, R4: the
+ * reader could not be checked — check it before taking payment). The server found no action of this
+ * table's on the reader: with the table's freeze HELD by a staff attempt (`held`, R1) the start may
+ * still be on its way — it takes the freeze before it hands the charge to the reader — so the record
+ * is KEPT and asked about again, silently (the read worked); with nothing held → DROP (nothing to
+ * poll). It found one → ADOPT: a collect exactly as a start would have made, from the tap's facts and
+ * the server's handle, amount and cart — the handle only resumes the poll and Cancel (the server
+ * re-verifies it on every call), and the amount is display, never charged.
  */
 export function resumedCollect(
   p: ReaderPending,
   res: TerminalResumeResult | null,
   nowMs: number,
-): { kind: "adopt"; record: ReaderCollect } | { kind: "drop" } | { kind: "keep" } {
-  if (res === null || !res.ok) return { kind: "keep" };
-  if (res.collect === null) return { kind: "drop" };
+):
+  | { kind: "adopt"; record: ReaderCollect }
+  | { kind: "drop" }
+  | { kind: "keep"; unchecked: boolean } {
+  if (res === null || !res.ok) return { kind: "keep", unchecked: true };
+  if (res.collect === null) return res.held ? { kind: "keep", unchecked: false } : { kind: "drop" };
   return {
     kind: "adopt",
     record: {
@@ -897,6 +927,22 @@ export function resumedCollect(
       unrecordedAt: null,
     },
   };
+}
+
+/** R1 — the first wait before a stranded start is asked about again (and before a start that THREW on
+ *  this page is first asked about: its server may still be running it). */
+export const READER_RESUME_FIRST_MS = 2_000;
+/** R1 — the widest gap between two asks: a start that reaches the reader late is adopted within it. */
+export const READER_RESUME_MAX_GAP_MS = 30_000;
+
+/**
+ * Codex r2 on #310 follow-up (R1) — the wait before the next resume read, after `asked` reads have been
+ * made: doubling from `READER_RESUME_FIRST_MS`, capped at `READER_RESUME_MAX_GAP_MS`. The asks end with
+ * the record (`readerPendingExpired`, the freeze's own lifetime — the provider checks it before each
+ * ask): past it no start can still be on its way, so a bound of a couple of dozen reads.
+ */
+export function readerResumeDelay(asked: number): number {
+  return Math.min(READER_RESUME_FIRST_MS * 2 ** asked, READER_RESUME_MAX_GAP_MS);
 }
 
 /** Write the pending starts (an empty queue leaves no key behind). */
@@ -926,7 +972,7 @@ export function readPendingStash(nowMs: number, store: Store | null = session())
   return q;
 }
 
-/** Record a start about to be sent (read-modify-write: one per table, the cap kept). */
+/** Record a start about to be sent (read-modify-write: one per start, the cap kept). */
 export function pendStart(p: ReaderPending, nowMs: number, store: Store | null = session()): void {
   writePendingStash(queuePending(readPendingStash(nowMs, store), p), store);
 }

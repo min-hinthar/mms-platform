@@ -149,6 +149,7 @@ export function TerminalSettleButton({
   // dropped by its token when the start answers (the provider's stable functions, like `start`).
   const startPending = reader.startPending;
   const startAnswered = reader.startAnswered;
+  const resumeStart = reader.resumeStart;
   // The ONE refusal left (D1): another table's collect is live — there is one reader. Shown as a
   // held control with its reason; refused at the tap (`reader.startRefused`, a ref read) before the
   // server is asked.
@@ -227,6 +228,20 @@ export function TerminalSettleButton({
     if (late) onSettleOutcome?.("started");
   }
 
+  /**
+   * Codex r2 on #310 follow-up (R3) — a start that THREW is resolved on this page too, never only by a
+   * reload: the provider asks the server what the reader is doing for this table (bounded, read-only —
+   * its stranded-start loop). If the reader turns out to be asking for this start's card, the collect
+   * is the provider's, and the "couldn't confirm" said off the throw is retracted — this button's
+   * line (if it is still here, and still that line) and the page's (`started`, as a late start).
+   */
+  function resumeThrown(pending: string) {
+    resumeStart(pending, () => {
+      onSettleOutcome?.("started");
+      if (alive.current) setError((e) => (e?.kind === "local" ? null : e));
+    });
+  }
+
   async function start() {
     if (inFlight.current) return;
     if (blocked) {
@@ -249,8 +264,9 @@ export function TerminalSettleButton({
     // the cashier to reload, and a reload aborts this answer — the only thing that would hand the
     // tablet the PaymentIntent the reader may already be asking for. The next document finds this
     // record and asks the server what the reader is doing for this table (the provider's resume).
-    // A thrown or still-unanswered start keeps it; any answer drops it (`land`). Before the busy
-    // raise, so nothing sits between that raise and the `try` whose `finally` lowers it.
+    // A thrown or still-unanswered start keeps it (a throw is also asked about here — R3); any answer
+    // drops it (`land`) — only ITS OWN record: an earlier start still unresolved stands (R2). Before
+    // the busy raise, so nothing sits between that raise and the `try` whose `finally` lowers it.
     const pending = startPending({ sessionId, ...tap });
     inFlight.current = true;
     setBusy(true);
@@ -269,6 +285,7 @@ export function TerminalSettleButton({
         // A rejected action (Next redacts the message in prod): "couldn't confirm", never "couldn't
         // start" — the answer may have been lost after the reader was asked (9e).
         setError({ kind: "local" });
+        resumeThrown(pending);
         return;
       }
       setError({ kind: "waiting" });
@@ -276,6 +293,7 @@ export function TerminalSettleButton({
         if (late.kind === "answer") land(late.value, true, pending);
         else {
           setError({ kind: "local" }); // a lost late answer: "couldn't confirm" (9e)
+          resumeThrown(pending); // R3 — resolved on this page too
           // Codex r2 on #310 (A1) — handed UP again: the bound's `unknown` may have reached a detail
           // still mounted (ignored there), and a switch since leaves this throw as the pane's only cue.
           onSettleOutcome?.("unknown");

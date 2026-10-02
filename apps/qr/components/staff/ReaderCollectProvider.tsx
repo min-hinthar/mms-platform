@@ -19,8 +19,10 @@ import {
   readPendingStash,
   readReaderStash,
   readerLive,
+  readerPendingExpired,
   readerPolling,
   readerRecordingLong,
+  readerResumeDelay,
   readerSpoken,
   readerStartRefused,
   readerStatus,
@@ -74,7 +76,10 @@ import {
  *   · `shownHere` — which tables are on screen now, so the chip never repeats the panel beside it;
  *   · the ONE refusal left: a start on another table while a collect is live (one reader);
  *   · the PENDING starts (Codex r2 on #310, A3) — a start is written down before it is sent and
- *     forgotten once it answers; one a reload stranded is resolved here, read-only (`terminalResume`).
+ *     forgotten once it answers; one a reload stranded — or one that THREW on this page (R3) — is
+ *     resolved here, read-only (`terminalResume`), asked again on a widening gap while the reader is
+ *     idle under the table's held freeze or the read fails (R1), for no longer than the freeze could
+ *     carry it; a failed read is SAID through the bar's chip (`unchecked`, R4).
  *
  * Strict Mode: `alive` is re-armed at setup, the poll effect is idempotent (the in-flight guard
  * means a re-run never dispatches a second poll over the first), and a viewer registers by count.
@@ -140,33 +145,87 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     writeLandedStash(next);
   }, []);
 
+  // Codex r2 on #310 follow-up (R4) — the stranded starts whose LAST resume read could not be made,
+  // oldest first: the bar's chip says the reader could not be checked while one stands.
+  const [unchecked, setUnchecked] = useState<readonly ReaderPending[]>([]);
+  const markUnchecked = useCallback((p: ReaderPending, on: boolean) => {
+    setUnchecked((prev) => {
+      const has = prev.some((x) => x.token === p.token);
+      if (has === on) return prev;
+      return on ? [...prev, p] : prev.filter((x) => x.token !== p.token);
+    });
+  }, []);
+  // The pending starts THIS document wrote, in memory beside the stash: a tablet whose storage refuses
+  // the write still resolves its own thrown start (R3).
+  const pendingMem = useRef(new Map<string, ReaderPending>());
+  // R1 — the re-asks waiting out their gap. Cleared with the provider (a document unload, in life).
+  const resumeTimers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const timers = resumeTimers.current;
+    return () => {
+      for (const t of timers) clearTimeout(t);
+      timers.clear();
+    };
+  }, []);
+
   /**
    * Codex r2 on #310 (A3) — ask the server, READ-ONLY, what the reader is doing for a start this tab
    * lost the answer to, and act on it (`resumedCollect`): re-adopt the collect — the poll, Cancel and
-   * the landing exactly as a start would have — or forget the record, or keep it when the read could
-   * not be made. Bounded and on the stall ledger like every action (`boundWrite`); a late answer is
-   * applied when it lands. No focus is owed: this is a re-attach, not a start made in view.
+   * the landing exactly as a start would have — or forget the record, or keep it. Bounded and on the
+   * stall ledger like every action (`boundWrite`); a late answer is applied when it lands. No focus is
+   * owed: this is a re-attach, not a start made in view.
+   *
+   * Follow-up (R1) — KEPT is asked again, after `readerResumeDelay(asked)`: an idle reader under the
+   * table's held freeze is a start still on its way to it, and an outage is no verdict (R4: it is
+   * said). Never past the record's own expiry (the freeze's lifetime: nothing can still be on its way),
+   * and never while a collect stands (one reader, one record — the newer fact). `first` is how many
+   * reads came before this one; `onAdopted` tells the control that tapped (R3), if it asked.
    */
   const resume = useCallback(
-    async (p: ReaderPending) => {
-      const apply = (res: Awaited<ReturnType<typeof terminalResume>> | null) => {
-        const now = Date.now();
-        const step = resumedCollect(p, res, now);
-        if (step.kind === "keep") return;
-        dropPending(p.token, now);
-        // A collect that stands by now (a start made meanwhile, another pending start adopted) is
-        // the newer fact — there is one reader, and one record.
-        if (step.kind === "drop" || recordRef.current !== null) return;
-        commitRecord(step.record);
-        commitPoll(READER_POLL_START);
-        setCancelError(null);
+    (p: ReaderPending, first: number, onAdopted?: () => void) => {
+      const forget = () => {
+        dropPending(p.token, Date.now());
+        pendingMem.current.delete(p.token);
+        markUnchecked(p, false);
       };
-      const out = await boundWrite(terminalResume({ sessionId: p.sessionId }));
-      if (out.kind === "answer") apply(out.value);
-      else if (out.kind === "threw") apply(null);
-      else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
+      const ask = async (asked: number): Promise<void> => {
+        if (recordRef.current !== null || readerPendingExpired(p, Date.now())) {
+          forget();
+          return;
+        }
+        const apply = (res: Awaited<ReturnType<typeof terminalResume>> | null) => {
+          if (!alive.current) return;
+          const now = Date.now();
+          const step = resumedCollect(p, res, now);
+          if (step.kind === "keep") {
+            markUnchecked(p, step.unchecked);
+            const t = setTimeout(
+              () => {
+                resumeTimers.current.delete(t);
+                void ask(asked + 1);
+              },
+              readerResumeDelay(asked + 1),
+            );
+            resumeTimers.current.add(t);
+            return;
+          }
+          forget();
+          // A collect that stands by now (a start made meanwhile, another pending start adopted) is
+          // the newer fact — there is one reader, and one record.
+          if (step.kind === "drop" || recordRef.current !== null) return;
+          commitRecord(step.record);
+          commitPoll(READER_POLL_START);
+          setCancelError(null);
+          onAdopted?.();
+        };
+        const out = await boundWrite(terminalResume({ sessionId: p.sessionId }));
+        if (out.kind === "answer") apply(out.value);
+        else if (out.kind === "threw") apply(null);
+        else void out.late.then((late) => apply(late.kind === "answer" ? late.value : null));
+      };
+      void ask(first);
     },
-    [commitRecord, commitPoll],
+    [commitRecord, commitPoll, markUnchecked],
   );
 
   // Restore after a hard navigation (scheduled — never a synchronous setState in the effect). A
@@ -200,12 +259,10 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
         }
       }
       // Codex r2 on #310 (A3) — a start this tab sent and never heard back from (the reload that
-      // `settle.reader.waiting` asks for aborted its answer). A collect that stands is the newer fact
-      // (its start answered, or a newer one did): the pending records go. Otherwise each is resolved.
-      for (const p of stranded) {
-        if (recordRef.current !== null) dropPending(p.token, now);
-        else void resume(p);
-      }
+      // `settle.reader.waiting` asks for aborted its answer). Each is resolved — and a collect that
+      // stands is the newer fact (its start answered, or a newer one did): `resume` forgets the
+      // record unasked.
+      for (const p of stranded) resume(p, 0);
     }, 0);
     return () => clearTimeout(t);
   }, [commitRecord, commitPoll, commitLanded, resume]);
@@ -365,10 +422,34 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     const now = Date.now();
     pendingSeq.current += 1;
     const token = `${now}-${pendingSeq.current}`;
-    pendStart({ ...at, token, startedAt: now }, now);
+    const p = { ...at, token, startedAt: now };
+    pendingMem.current.set(token, p);
+    pendStart(p, now);
     return token;
   }, []);
-  const startAnswered = useCallback((token: string) => dropPending(token, Date.now()), []);
+  const startAnswered = useCallback((token: string) => {
+    pendingMem.current.delete(token);
+    dropPending(token, Date.now());
+  }, []);
+  // Codex r2 on #310 follow-up (R3) — a start that THREW on this page is resolved here too, never only
+  // by the next document: the same read and loop as a stranded one. Its server may still be running
+  // it (a lost response, not a refusal), so the first read waits the first gap. `onAdopted`: the
+  // reader IS asking for the card — the tapping control (or the page, through it) retracts its
+  // "couldn't confirm".
+  const resumeStart = useCallback(
+    (token: string, onAdopted?: () => void) => {
+      const p =
+        pendingMem.current.get(token) ??
+        readPendingStash(Date.now()).find((x) => x.token === token);
+      if (p === undefined) return;
+      const t = setTimeout(() => {
+        resumeTimers.current.delete(t);
+        resume(p, 0, onAdopted);
+      }, readerResumeDelay(0));
+      resumeTimers.current.add(t);
+    },
+    [resume],
+  );
 
   const cancel = useCallback(async () => {
     const rec = recordRef.current;
@@ -547,6 +628,8 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
       start,
       startPending,
       startAnswered,
+      resumeStart,
+      unchecked,
       cancel,
       dismiss,
       dismissLanded,
@@ -572,6 +655,8 @@ export function ReaderCollectProvider({ children }: { children: ReactNode }) {
     start,
     startPending,
     startAnswered,
+    resumeStart,
+    unchecked,
     cancel,
     dismiss,
     dismissLanded,

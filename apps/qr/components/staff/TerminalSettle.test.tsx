@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
-import { READER_PENDING_KEY, READER_UNRECORDED_MS } from "@/lib/reader-collect";
+import { READER_PENDING_KEY, READER_UNRECORDED_MS, readerResumeDelay } from "@/lib/reader-collect";
 import { STAFF_HANG_MS, track } from "@/lib/bounded-write";
 
 /**
@@ -55,8 +55,13 @@ const flush = (ms = 0) =>
   });
 
 beforeEach(() => {
+  // Codex r2 on #310 follow-up (R6) — every case starts on an EMPTY tab: a collect, a landing or a
+  // pending start left in sessionStorage by an earlier case is restored (and polled, or asked about)
+  // by the next case's provider — the A3 reload case left its adopted collect there for whichever case
+  // ran next. MUTATION (by hand): drop the `sessionStorage.clear()` below — red here.
+  expect(sessionStorage.length, "an earlier case left its reader stash behind").toBe(0);
   vi.useFakeTimers();
-  terminalResume.mockResolvedValue({ ok: true, collect: null });
+  terminalResume.mockResolvedValue({ ok: true, collect: null, held: false });
 });
 afterEach(() => {
   cleanup();
@@ -65,6 +70,7 @@ afterEach(() => {
   terminalStatus.mockReset();
   cancelTerminal.mockReset();
   terminalResume.mockReset();
+  sessionStorage.clear();
 });
 
 /** Review a (A5) — whether the region's CONTENT was replaced or rewritten (what a screen reader
@@ -498,6 +504,105 @@ describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2
     expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
     expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();
     expect(pending()).toEqual([]);
+  });
+  // ── Codex r2 on #310 follow-up (R2) — a refused re-tap never erases the stranded record ──
+  it("a start THROWS, the cashier taps Card again and is refused 'in flight': the first start's record stands for the reload", async () => {
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    register();
+    await tapCard();
+    await act(async () => fail(new Error("fetch failed")));
+    expect(pending()).toHaveLength(1);
+    const first = (pending()[0] as { token: string }).token;
+    // The re-tap: the first start holds the table's freeze, so the server refuses this one.
+    settleCard.mockResolvedValueOnce({
+      ok: false,
+      error: "A payment started at the register on this table hasn’t finished.",
+      code: "inflight",
+      holder: "register",
+    });
+    await tapCard();
+    await flush(0);
+    expect(settleCard).toHaveBeenCalledTimes(2);
+    // MUTATION (p2h-cx2a/pending/retap-erases-at-the-button): the re-tap's record replaced the
+    // first, and its refusal dropped it — a reload then has nothing to resume while the reader may
+    // take the card; red.
+    expect(pending()).toEqual([expect.objectContaining({ token: first, sessionId: "s1" })]);
+  });
+
+  // ── Codex r2 on #310 follow-up (R3) — a thrown start is resolved on THIS page too ──
+  it("a start that THROWS is asked about on this page after the first gap: the reader's charge is adopted, and 'couldn't confirm' is retracted here and at the page", async () => {
+    const onSettleOutcome = vi.fn();
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton
+            sessionId="s1"
+            totalCents={4210}
+            tap={TAP}
+            onSettleOutcome={onSettleOutcome}
+          />
+          <TerminalCollectPanel sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tapCard();
+    await act(async () => fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    terminalResume.mockResolvedValue({
+      ok: true,
+      collect: { paymentIntentId: "pi_live", totalCents: 4210, cartId: "c1" },
+    });
+    await flush(readerResumeDelay(0));
+    // MUTATION (p2h-cx2a/start/thrown-never-resumed): only a reload resolves it — the reader asks
+    // for the card while this page says "couldn't confirm" and nothing polls the charge; red.
+    expect(terminalResume).toHaveBeenCalledWith({ sessionId: "s1" });
+    expect(api.record?.paymentIntentId).toBe("pi_live");
+    expect(terminalStatus).toHaveBeenCalledWith({ sessionId: "s1", paymentIntentId: "pi_live" });
+    expect(screen.getByRole("button", { name: STAFF["settle.reader.cancelBtn"].en })).toBeTruthy();
+    // MUTATION (p2h-cx2a/start/adoption-unsaid): the page is never told the reader is asking — its
+    // "we don't know" stands over a charge the reader is taking; red.
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["started"]]);
+    // MUTATION (p2h-cx2a/start/adoption-keeps-couldnt-confirm): the button's "couldn't confirm"
+    // stands beside the panel that now knows; red.
+    expect(screen.queryByText(STAFF["settle.reader.unknown"].en)).toBeNull();
+    expect(pending()).toEqual([]);
+  });
+
+  it("a LATE throw (past the bound) is asked about on this page too; a reader with nothing — and no freeze held — leaves 'couldn't confirm' standing and forgets the record", async () => {
+    const onSettleOutcome = vi.fn();
+    let fail!: (e: Error) => void;
+    settleCard.mockReturnValueOnce(new Promise((_r, j) => (fail = j)));
+    render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <Probe />
+          <TerminalSettleButton
+            sessionId="s1"
+            totalCents={4210}
+            tap={TAP}
+            onSettleOutcome={onSettleOutcome}
+          />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+    await tapCard();
+    await flush(STAFF_HANG_MS);
+    await act(async () => fail(new Error("fetch failed")));
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    terminalResume.mockResolvedValue({ ok: true, collect: null, held: false });
+    await flush(readerResumeDelay(0));
+    // MUTATION (p2h-cx2a/start/late-thrown-never-resumed): the late throw is left for a reload; red.
+    expect(terminalResume).toHaveBeenCalledTimes(1);
+    expect(api.record).toBeNull();
+    expect(pending()).toEqual([]);
+    // Nothing was found: the honest line stays, and nothing claims the reader started.
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["settle.reader.unknown"].en);
+    expect(onSettleOutcome.mock.calls).toEqual([["unknown"], ["unknown"]]);
   });
 });
 

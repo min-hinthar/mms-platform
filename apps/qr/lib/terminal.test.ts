@@ -41,6 +41,9 @@ let readerAction: Record<string, unknown> | null = null;
 /** Codex r2 on #310 (A3) — the resume read's failure switches. */
 let readerRetrieveFails = false;
 let piRetrieveFails = false;
+/** Codex r2 on #310 follow-up (R1) — runs as the reader is read: a start taking the freeze in that
+ *  instant (it acquires BEFORE it hands the charge to the reader). */
+let onReaderRead: (() => void) | null = null;
 vi.mock("./stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
@@ -75,6 +78,7 @@ vi.mock("./stripe", () => ({
       readers: {
         retrieve: (readerId: string) => {
           log("reader.retrieve", readerId);
+          onReaderRead?.();
           if (readerRetrieveFails)
             return Promise.reject(
               Object.assign(new Error("net"), { code: "api_connection_error" }),
@@ -128,11 +132,18 @@ vi.mock("./unsent-read", () => ({
 }));
 /** Codex r2 on #310 (A3) — the open-cart read's other answers: no open cart, or an outage. */
 let openCart: "open" | "none" | "unavailable" = "open";
+/** Codex r2 on #310 follow-up (R1) — what the open-cart read answers once the READER has been read
+ *  (the freeze re-read); null answers as `openCart`. */
+let openCartAfterReader: "open" | "none" | "unavailable" | null = null;
+const cartRead = () =>
+  openCartAfterReader !== null && calls.some((c) => c.op === "reader.retrieve")
+    ? openCartAfterReader
+    : openCart;
 vi.mock("./staff-open-cart", () => ({
   openCartFor: () =>
-    openCart === "none"
+    cartRead() === "none"
       ? Promise.resolve({ session: null, cart: null, unavailable: false })
-      : openCart === "unavailable"
+      : cartRead() === "unavailable"
         ? Promise.resolve({ session: null, cart: null, unavailable: true })
         : Promise.resolve({
             session: {
@@ -193,6 +204,9 @@ vi.mock("next/server", () => ({ after: (fn: () => unknown) => void fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 let orderRow: { id: string } | null = null;
+/** Codex r2 on #310 follow-up (R1) — the freeze's owner is a member seat (a diner's split). */
+let seatOwns = false;
+let seatReads = 0;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
@@ -200,9 +214,16 @@ vi.mock("@mms/db/server", () => ({
         if (opts?.head) return { eq: () => Promise.resolve({ count: 2, error: null }) };
         if (table === "session_members") {
           // P2w — the freeze owner's seat read (two filters): no seat owns a register attempt.
+          // R1 — `seatOwns`: the freeze is a guest's split (its owner IS a seat of the session).
           const members: Record<string, unknown> = {
             eq: () => members,
-            maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            maybeSingle: () => {
+              seatReads += 1; // counted apart: the settle paths' call-shape logs stay as they were
+              return Promise.resolve({
+                data: seatOwns ? { seat_id: "seat-1" } : null,
+                error: null,
+              });
+            },
           };
           return members;
         }
@@ -247,6 +268,10 @@ beforeEach(() => {
   readerRetrieveFails = false;
   piRetrieveFails = false;
   openCart = "open";
+  openCartAfterReader = null;
+  onReaderRead = null;
+  seatOwns = false;
+  seatReads = 0;
   gateRefuses = false;
   vi.stubEnv("STRIPE_TERMINAL_READER_ID", "tmr_test_reader");
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -907,7 +932,11 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = { ...ours, metadata: { ...TERMINAL_META, cartId: "cart-OTHER" } };
     // MUTATION (p2h-cx2a/resume/any-cart): the cart is never compared — table 4's reload adopts
     // table 7's live charge, polls it as its own and offers to Cancel it; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     readOnly();
   });
 
@@ -916,11 +945,19 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = { ...ours, metadata: { cartId: "cart-1", settleAttempt: "attempt-1" } };
     // MUTATION (p2h-cx2a/resume/any-kind): any PaymentIntent naming the cart — a guest's own phone
     // payment — is adopted as a reader collect; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     // MUTATION (p2h-cx2a/resume/no-attempt): a PaymentIntent with no settle attempt — one the poll
     // refuses as "Invalid request." — is adopted, and the panel goes blind on it; red.
     retrieved = { ...ours, metadata: { kind: "terminal", cartId: "cart-1" } };
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
   });
 
   it("a FAILED last action (a decline or a cancel — maybe an older attempt's) is nothing to resume, and its PaymentIntent is never read", async () => {
@@ -928,13 +965,21 @@ describe("terminalResume — what a reloaded register can learn about a start it
     retrieved = ours;
     // MUTATION (p2h-cx2a/resume/failed-action-resumed): the reader's last action, a decline, is
     // adopted — the reload says "the card was declined" for an attempt that may be long over; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     expect(calls.map((c) => c.op)).not.toContain("pi.retrieve");
   });
 
   it("an idle reader, or one doing something else, has nothing to resume", async () => {
     readerAction = null;
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     // MUTATION (p2h-cx2a/resume/any-action-type): any action type is read as a payment's —
     // a reader showing a cart display is "asking" for a PaymentIntent it does not hold; red.
     readerAction = {
@@ -943,20 +988,32 @@ describe("terminalResume — what a reloaded register can learn about a start it
       process_payment_intent: { payment_intent: "pi_live" },
     };
     retrieved = ours;
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     expect(calls.map((c) => c.op)).not.toContain("pi.retrieve");
   });
 
   it("no reader configured, or no open order on the table: nothing to resume — and Stripe is never asked", async () => {
     vi.stubEnv("STRIPE_TERMINAL_READER_ID", "");
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     vi.stubEnv("STRIPE_TERMINAL_READER_ID", "tmr_test_reader");
     openCart = "none";
     readerAction = asking();
     retrieved = ours;
     // MUTATION (p2h-cx2a/resume/no-cart-still-reads): a paid or closed table's last charge is
     // resumed off the reader — a reload re-announces a payment already recorded; red.
-    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: true, collect: null });
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
     expect(calls.map((c) => c.op)).not.toContain("reader.retrieve");
   });
 
@@ -975,6 +1032,91 @@ describe("terminalResume — what a reloaded register can learn about a start it
     readerRetrieveFails = false;
     piRetrieveFails = true;
     expect(await terminalResume({ sessionId: SESSION })).toMatchObject({ ok: false });
+  });
+
+  // ── Codex r2 on #310 follow-up (R1) — a start still on its way to the reader. `settleCard` takes the
+  // freeze BEFORE it mints the PaymentIntent and hands it to the reader, so a reload can read an idle
+  // reader while its start is in that gap: the answer says the freeze is HELD, and the tablet keeps
+  // the record and asks again instead of forgetting a charge about to land.
+  it("an idle reader under a FRESH freeze no seat owns: nothing yet, but HELD — read-only, and only the owner is read", async () => {
+    readerAction = null;
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-9" };
+    // MUTATION (p2h-cx2a/resume/held-never-said): the idle reader answers held: false — a reload
+    // forgets the start while it is minting the charge it is about to hand the reader; red.
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: true,
+    });
+    expect(seatReads).toBe(1);
+    readOnly();
+    // Another table's charge on the one reader, while this table's freeze is held: still held.
+    readerAction = asking();
+    retrieved = { ...ours, metadata: { ...TERMINAL_META, cartId: "cart-OTHER" } };
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: true,
+    });
+    readOnly();
+  });
+
+  it("the freeze is read AFTER the reader: a start that takes it while the reader is being read is held", async () => {
+    readerAction = null;
+    cartFreeze = { settle_at: null, settle_by: null };
+    onReaderRead = () => {
+      cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-9" };
+    };
+    // MUTATION (p2h-cx2a/resume/freeze-read-before-the-reader): the freeze is the one read BEFORE
+    // the reader — a start that took it in between (idle reader, PaymentIntent being minted) reads
+    // as nothing moving, and the record is forgotten; red.
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: true,
+    });
+  });
+
+  it("a guest's split (a SEAT owns the freeze), a lapsed freeze, or none: not held", async () => {
+    readerAction = null;
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "seat-1" };
+    seatOwns = true;
+    // MUTATION (p2h-cx2a/resume/seat-read-skipped): the owner is never read — a guest's split reads
+    // as a register start, and the tablet keeps asking for the split's whole lifetime; red.
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
+    seatOwns = false;
+    seatReads = 0;
+    cartFreeze = {
+      settle_at: new Date(Date.now() - 11 * 60_000).toISOString(),
+      settle_by: "attempt-9",
+    };
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
+    // A lapsed freeze is nobody's — the owner is not even read.
+    expect(seatReads).toBe(0);
+  });
+
+  it("the freeze re-read: an outage is not a verdict; a table paid meanwhile holds nothing", async () => {
+    readerAction = null;
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-9" };
+    openCartAfterReader = "unavailable";
+    // MUTATION (p2h-cx2a/resume/held-read-outage-reads-free): the re-read's outage answers "not
+    // held" — the record is forgotten over an outage; red.
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({ ok: false, error: "outage" });
+    calls = [];
+    openCartAfterReader = "none";
+    expect(await terminalResume({ sessionId: SESSION })).toEqual({
+      ok: true,
+      collect: null,
+      held: false,
+    });
   });
 
   it("staff only: a refused gate reads nothing — not the reader, not the PaymentIntent", async () => {

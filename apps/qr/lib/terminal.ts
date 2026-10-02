@@ -7,8 +7,8 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { inFlightRefusalFor } from "./inflight-read";
-import type { InFlightRefusal } from "./inflight-refusal";
+import { inFlightRefusalFor, settleOwnerIsSeat } from "./inflight-read";
+import { registerFreezeHeld, type InFlightRefusal } from "./inflight-refusal";
 import {
   acquireSettlement,
   releaseSettlementFor,
@@ -476,12 +476,24 @@ const POLL_MISS_COPY = "Couldn’t check the reader just now — still trying.";
  * another table's charge. The handle only lets the tablet resume the poll and Cancel, which re-verify
  * it on every call; the amount is the PaymentIntent's own, for display — nothing is charged here.
  *
+ * Codex r2 on #310 follow-up (R1) — `held` rides every "nothing on the reader" answer: whether a
+ * staff attempt holds this table's settle freeze fresh (`registerFreezeHeld`), read AFTER the reader.
+ * `settleCard` takes the freeze before it mints the PaymentIntent and hands it to the reader, so a
+ * start can be in that gap at the read — an idle reader with the table's freeze held is a start still
+ * on its way, and the tablet keeps the record and asks again (bounded) instead of forgetting a charge
+ * that is about to land with no handle.
+ *
  * READ-ONLY: no freeze is touched, nothing is extended, cancelled or revalidated. A read that cannot
  * be made (an outage, Stripe unreachable) is `ok: false` — never a verdict, so the tablet keeps the
- * pending start and a later document asks again.
+ * pending start and asks again.
  */
 export type TerminalResumeResult =
-  | { ok: true; collect: { paymentIntentId: string; totalCents: number; cartId: string } | null }
+  | {
+      ok: true;
+      collect: { paymentIntentId: string; totalCents: number; cartId: string };
+      held?: undefined;
+    }
+  | { ok: true; collect: null; held: boolean }
   | { ok: false; error: string };
 
 export async function terminalResume(raw: unknown): Promise<TerminalResumeResult> {
@@ -493,11 +505,11 @@ export async function terminalResume(raw: unknown): Promise<TerminalResumeResult
   const { sessionId } = parsed.data;
   // Feature-off: no reader, nothing it could be doing.
   const readerId = process.env.STRIPE_TERMINAL_READER_ID;
-  if (!readerId) return { ok: true, collect: null };
+  if (!readerId) return { ok: true, collect: null, held: false };
   const { cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   // Closed, or no open order (paid — a charge that went through has been recorded): nothing to resume.
-  if (!cart) return { ok: true, collect: null };
+  if (!cart) return { ok: true, collect: null, held: false };
   let piId: string | null;
   let stripe;
   try {
@@ -516,7 +528,7 @@ export async function terminalResume(raw: unknown): Promise<TerminalResumeResult
     });
     return { ok: false, error: POLL_MISS_COPY };
   }
-  if (piId === null) return { ok: true, collect: null };
+  if (piId === null) return await nothingOnTheReader(sessionId);
   let intent;
   try {
     intent = await stripe.paymentIntents.retrieve(piId);
@@ -534,10 +546,33 @@ export async function terminalResume(raw: unknown): Promise<TerminalResumeResult
     !intent.metadata?.settleAttempt ||
     intent.metadata?.cartId !== cart.id
   )
-    return { ok: true, collect: null };
+    return await nothingOnTheReader(sessionId);
   return {
     ok: true,
     collect: { paymentIntentId: intent.id, totalCents: intent.amount, cartId: cart.id },
+  };
+}
+
+/**
+ * Codex r2 on #310 follow-up (R1) — the reader holds nothing of this table's: is a start still on its
+ * way to it? The freeze is RE-READ here, after the reader: a start takes it before it hands the charge
+ * to the reader, so a freeze read after an idle reader sees every start past that first step — read
+ * before the reader, a start that took it in between would read as nothing moving. The owner's seat
+ * is read only for a FRESH freeze (a lapsed or absent one is nobody's). An outage is `ok: false`,
+ * never a verdict (the tablet keeps the record).
+ */
+async function nothingOnTheReader(sessionId: string): Promise<TerminalResumeResult> {
+  const { cart, unavailable } = await openCartFor(sessionId);
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  // Paid or closed meanwhile: nothing is on its way.
+  if (!cart) return { ok: true, collect: null, held: false };
+  const nowMs = Date.now();
+  const fresh = registerFreezeHeld({ settleAt: cart.settle_at, settleByIsSeat: null, nowMs });
+  const isSeat = fresh ? await settleOwnerIsSeat(sessionId, cart.settle_by ?? null) : null;
+  return {
+    ok: true,
+    collect: null,
+    held: registerFreezeHeld({ settleAt: cart.settle_at, settleByIsSeat: isSeat, nowMs }),
   };
 }
 
