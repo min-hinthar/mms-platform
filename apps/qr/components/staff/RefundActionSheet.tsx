@@ -4,7 +4,7 @@ import { Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
 import { refundLine, type RefundResult, type SettledLine, type SettledOrder } from "@/lib/refunds";
-import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import { boundWrite, ownWaitSlot, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import { dollars } from "@/lib/receipt-view";
 import { REFUND_REASONS, REFUND_REASON_KEY, type RefundReason } from "@/lib/settled-view";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
@@ -35,6 +35,7 @@ import { ExpoLineMy } from "./TicketText";
 const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "out.stalled",
   "floor.refund.waiting",
+  "floor.refund.waitingCash",
 ]);
 export function RefundActionSheet({
   order,
@@ -74,7 +75,9 @@ export function RefundActionSheet({
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
   // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
   // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `submit`).
-  const ownLate = useRef(false);
+  // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount: the board keys
+  // every open as a fresh sheet, and a re-opened sheet for the same line must still say its own line.
+  const ownLate = ownWaitSlot(`refund:${line.id}`, false);
   // A LATE refusal (9e) moves focus into the PIN field — only while THIS sheet is open: the id is
   // shared with any refund sheet opened since. Re-armed at setup (Strict Mode runs the cleanup
   // between two setups).
@@ -86,6 +89,11 @@ export function RefundActionSheet({
     };
   }, []);
   const amount = dollars(line.offeredCents);
+  // Review a (A2) — THIS refund's waiting sentence. A CASH refund's answer is the only thing that
+  // says "hand back $X from the drawer" (record-first), and the reload the sentence asks for kills
+  // that answer — so the cash line carries the instruction itself ({m}, the figure shown above).
+  const waitingKey: StaffKey =
+    order.refundPath === "cash" ? "floor.refund.waitingCash" : "floor.refund.waiting";
   const canSubmit = !busy && !locked && pin.length >= 4;
 
   // manager-5 — a refused PIN leaves the field: the masked wrong digits used to stay, so the next
@@ -172,12 +180,12 @@ export function RefundActionSheet({
     // the bound, the refusal re-says ITS sentence ("Don't refund it again or hand anything back"),
     // never the tablet's "this did nothing" (`tapRefusal`).
     const refused = tapRefusal<StaffKey>(
-      ownLate.current ? "floor.refund.waiting" : null,
+      ownLate.current ? waitingKey : null,
       stalledSince(),
       "out.stalled",
     );
     if (refused !== null) {
-      setError({ k: refused });
+      setError({ k: refused, vars: { m: amount } });
       return;
     }
     inFlight.current = true;
@@ -199,7 +207,7 @@ export function RefundActionSheet({
         setError({ k: "floor.refund.err.unknown" });
         return;
       }
-      setError({ k: "floor.refund.waiting" });
+      setError({ k: waitingKey, vars: { m: amount } });
       ownLate.current = true;
       void out.late.then((late) => {
         ownLate.current = false;

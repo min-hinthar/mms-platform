@@ -25,6 +25,7 @@ import {
 import { useReaderCollect } from "./ReaderCollectContext";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 
 /**
  * P2 — the two error sources on this surface, kept APART.
@@ -270,6 +271,9 @@ export function TerminalSettleButton({
   // (the waiting line says "don't … start it again"), so a re-tap can never reach the stalled
   // refusal below and replace the money warning with "this did nothing". The late answer frees it.
   const waiting = error?.kind === "waiting";
+  // Review a (A5) — every SET of the alert's state (a second refused tap re-says `out.stalled`)
+  // replaces the alert's content, so it is announced again — never swallowed as no change.
+  const said = useResaid(error);
 
   return (
     <div>
@@ -330,26 +334,28 @@ export function TerminalSettleButton({
       )}
       {error && error.kind !== "unsent" && (
         <p id="terminal-alert" role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error.kind === "server" ? (
-            <OutageText lang={lang} error={error.text} />
-          ) : error.kind === "unreadable" ? (
-            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
-          ) : error.kind === "inflight" ? (
-            <Chrome
-              lang={lang}
-              k={inFlightMsg(error.holder).k}
-              vars={inFlightMsg(error.holder).vars}
-              echo={false}
-            />
-          ) : error.kind === "stalled" ? (
-            <Chrome lang={lang} k="out.stalled" echo={false} />
-          ) : error.kind === "waiting" ? (
-            <Chrome lang={lang} k="settle.reader.waiting" echo={false} />
-          ) : (
-            // Phase 2h (9e) — THROWN: the answer was lost, so the reader may be asking for the card
-            // now. "Couldn't start … try again" (settle.reader.startFailed) invited a second tender.
-            <Chrome lang={lang} k="settle.reader.unknown" echo={false} />
-          )}
+          <span key={said}>
+            {error.kind === "server" ? (
+              <OutageText lang={lang} error={error.text} />
+            ) : error.kind === "unreadable" ? (
+              <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : error.kind === "inflight" ? (
+              <Chrome
+                lang={lang}
+                k={inFlightMsg(error.holder).k}
+                vars={inFlightMsg(error.holder).vars}
+                echo={false}
+              />
+            ) : error.kind === "stalled" ? (
+              <Chrome lang={lang} k="out.stalled" echo={false} />
+            ) : error.kind === "waiting" ? (
+              <Chrome lang={lang} k="settle.reader.waiting" echo={false} />
+            ) : (
+              // Phase 2h (9e) — THROWN: the answer was lost, so the reader may be asking for the card
+              // now. "Couldn't start … try again" (settle.reader.startFailed) invited a second tender.
+              <Chrome lang={lang} k="settle.reader.unknown" echo={false} />
+            )}
+          </span>
         </p>
       )}
       {/* Phase 2h — both lines say "reload the page", and the console is installed standalone (no

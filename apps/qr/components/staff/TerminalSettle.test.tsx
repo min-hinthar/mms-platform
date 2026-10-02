@@ -62,6 +62,23 @@ afterEach(() => {
   cancelTerminal.mockReset();
 });
 
+/** Review a (A5) — whether the region's CONTENT was replaced or rewritten (what a screen reader
+ *  announces) between this call and the returned check; equal text rendered in place records none. */
+function watchRegion(node: Element) {
+  const recs: MutationRecord[] = [];
+  const obs = new MutationObserver((rs) => {
+    recs.push(...rs);
+  });
+  obs.observe(node, { childList: true, subtree: true, characterData: true });
+  return () => {
+    recs.push(...obs.takeRecords());
+    obs.disconnect();
+    return recs.some(
+      (r) => r.type === "characterData" || (r.type === "childList" && r.addedNodes.length > 0),
+    );
+  };
+}
+
 describe("TerminalSettleButton — a Button, secondary by default", () => {
   it("starts the reader once, busy with its label kept as a word, never natively disabled; a rejection clears busy and says so", async () => {
     let fail!: (e: Error) => void;
@@ -341,6 +358,16 @@ describe("TerminalSettleButton — Phase 2h: the START is bounded (9b · 9d · 9
     expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
     expect(t.reloadBtn()).not.toBeNull();
     expect(t.trigger().getAttribute("aria-busy")).toBeNull();
+    // Review a (A5) — a SECOND refused tap puts the same sentence in the same alert: it must be
+    // RE-SAID (the content replaced), or the screen reader hears nothing and the tap reads as dead.
+    const said = watchRegion(screen.getByRole("alert"));
+    await act(async () => {
+      fireEvent.click(t.trigger());
+    });
+    expect(settleCard).not.toHaveBeenCalled();
+    // MUTATION (p2h-rev-a/reader/resay-unkeyed): equal text rendered in place — no DOM change; red.
+    expect(said()).toBe(true);
+    expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
   });
 });
 

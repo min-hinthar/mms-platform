@@ -3950,6 +3950,17 @@ export const STAFF = {
     en: "The change on {x} saved.",
     my: "{x} မှာ ပြင်လိုက်တာ သိမ်းပြီးပါပြီ။",
   }, // K15-HIGH — a dish change on a table the cashier has left; a misread changes it twice
+  // Phase 2h · review a (A2) — the CASH refund's waiting line. Under record-first the drawer opens
+  // only after the record, and the record's answer is the only thing that said "hand back $X": a
+  // reload (which floor.refund.waiting itself asks for) kills that answer, so this sentence carries
+  // the instruction the reload could lose. {m} is the sheet's offered figure (the server's clamp,
+  // shown before the tap). Words: မှတ်ပြီးသား (settle.cash.waiting), ပြန်အမ်းပြီး
+  // (floor.status.refunded), ပစ္စည်း "item" (table.loss.*), အံဆွဲကနေ {m} ပြန်အမ်းပါ
+  // (floor.settled.confirmed.cash).
+  "floor.refund.waitingCash": {
+    en: "No answer yet — this refund may still be recorded. Don’t refund it again. Reload the page: if the line shows refunded, hand back {m} from the drawer.",
+    my: "အဖြေ မရသေးပါ — ဒီပြန်အမ်းတာ မှတ်ပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မလုပ်ပါနဲ့။ စာမျက်နှာ ပြန်ဖွင့်ပါ — ဒီပစ္စည်းက ပြန်အမ်းပြီးလို့ ပြရင် အံဆွဲကနေ {m} ပြန်အမ်းပါ။",
+  }, // K15-HIGH — misread, a guest is handed cash twice, or a recorded refund is never handed back
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -4254,6 +4265,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "floor.pane.lostWriteWaiting",
   "floor.pane.landedSettle",
   "floor.pane.landedWrite",
+  "floor.refund.waitingCash",
 ]);
 
 /**

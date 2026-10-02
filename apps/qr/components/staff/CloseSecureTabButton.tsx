@@ -13,6 +13,7 @@ import { useStaffLang } from "./StaffLangProvider";
 import { settleBlockedMsg } from "@/lib/staff-send-view";
 // ── Phase 2h ──
 import { ReloadButton } from "./ReloadOffer";
+import { useResaid } from "./useResaid";
 
 /**
  * The two error sources on this surface, kept APART (the TerminalSettle `SettleError` pattern).
@@ -286,6 +287,10 @@ export function CloseSecureTabButton({
   // refusal and replace that warning with "this did nothing". The late answer frees it — or, a
   // charge, keeps it spent (`charged`).
   const held = error?.kind === "waiting" || charged;
+  // Review a (A5) — every SET of the stored outcome (a second refused charge re-says `out.stalled`)
+  // replaces the alert's content, so it is announced again. Keyed on the STATE: `alertMsg` is
+  // built fresh each render while the figures drift.
+  const said = useResaid(error);
 
   return (
     <div>
@@ -391,31 +396,33 @@ export function CloseSecureTabButton({
           role="alert"
           style={{ ...hint, marginTop: 4, color: "var(--warn)" }}
         >
-          {alertMsg.kind === "server" ? (
-            <OutageText lang={lang} error={alertMsg.text} />
-          ) : alertMsg.kind === "unreadable" ? (
-            <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
-          ) : alertMsg.kind === "moved" ? (
-            <Chrome
-              lang={lang}
-              k="settle.cash.moved"
-              vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
-              echo={false}
-            />
-          ) : alertMsg.kind === "inflight" ? (
-            <Chrome
-              lang={lang}
-              k={inFlightMsg(alertMsg.holder).k}
-              vars={inFlightMsg(alertMsg.holder).vars}
-              echo={false}
-            />
-          ) : alertMsg.kind === "stalled" ? (
-            <Chrome lang={lang} k="out.stalled" echo={false} />
-          ) : alertMsg.kind === "waiting" ? (
-            <Chrome lang={lang} k="settle.card.waiting" echo={false} />
-          ) : (
-            <Chrome lang={lang} k="settle.card.unknown" echo={false} />
-          )}
+          <span key={said}>
+            {alertMsg.kind === "server" ? (
+              <OutageText lang={lang} error={alertMsg.text} />
+            ) : alertMsg.kind === "unreadable" ? (
+              <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : alertMsg.kind === "moved" ? (
+              <Chrome
+                lang={lang}
+                k="settle.cash.moved"
+                vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
+                echo={false}
+              />
+            ) : alertMsg.kind === "inflight" ? (
+              <Chrome
+                lang={lang}
+                k={inFlightMsg(alertMsg.holder).k}
+                vars={inFlightMsg(alertMsg.holder).vars}
+                echo={false}
+              />
+            ) : alertMsg.kind === "stalled" ? (
+              <Chrome lang={lang} k="out.stalled" echo={false} />
+            ) : alertMsg.kind === "waiting" ? (
+              <Chrome lang={lang} k="settle.card.waiting" echo={false} />
+            ) : (
+              <Chrome lang={lang} k="settle.card.unknown" echo={false} />
+            )}
+          </span>
         </p>
       )}
       {/* Phase 2h — both lines say "reload the page", and the console is installed standalone (no

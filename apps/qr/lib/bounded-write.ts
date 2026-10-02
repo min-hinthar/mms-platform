@@ -158,6 +158,56 @@ export function tapRefusal<M>(own: M | null, stalledAt: number | null, stalled: 
   return stalledAt === null ? null : stalled;
 }
 
+/**
+ * Phase 2h · review a (A4) — the per-tab register of a money surface's OWN write still out past the
+ * bound, keyed by its SUBJECT (`refund:<order item>`, `loss:<cart item>`, `noshow:<cart>`,
+ * `cash:<cart>`), so it outlives the MOUNT that sent it. A refund, loss or no-show sheet is keyed
+ * per open, and the cash control's detail can unmount and come back, while the write they sent is
+ * still in Next's per-tab queue; a per-mount ref forgot it, and a re-tap of the SAME subject said the
+ * tablet's "this did nothing" (`out.stalled`) where the owner's decision 9i wants the surface's own
+ * "no answer yet — don't … again". The kiosk's module-level waiting set is the same shape (critic F8).
+ *
+ * `ownWaitSlot(subject, idle)` is a ref-shaped handle onto that subject's entry: reading `.current`
+ * gives the stored value (or `idle` when nothing waits); writing `idle` clears it, anything else
+ * sets it. The sheets keep their `ownLate.current = …` lines unchanged — only the storage moved.
+ * Every write notifies `subscribeOwnWait` listeners, so a control can HOLD on its own wait across a
+ * remount and free the moment the late answer clears it (`hasOwnWait`, read through
+ * `useSyncExternalStore`).
+ */
+const ownWaits = new Map<string, unknown>();
+const ownWaitListeners = new Set<() => void>();
+
+export function ownWaitSlot<T>(subject: string, idle: T): { current: T } {
+  return {
+    get current(): T {
+      return ownWaits.has(subject) ? (ownWaits.get(subject) as T) : idle;
+    },
+    set current(value: T) {
+      if (value === idle) ownWaits.delete(subject);
+      else ownWaits.set(subject, value);
+      for (const listener of ownWaitListeners) listener();
+    },
+  };
+}
+
+/** Whether `subject`'s own write is still out past the bound (see `ownWaitSlot`). */
+export function hasOwnWait(subject: string): boolean {
+  return ownWaits.has(subject);
+}
+
+/** Called on every own-wait write; returns the unsubscribe (`useSyncExternalStore`'s shape). */
+export function subscribeOwnWait(listener: () => void): () => void {
+  ownWaitListeners.add(listener);
+  return () => {
+    ownWaitListeners.delete(listener);
+  };
+}
+
+/** Test seam: forget every own wait (module state, shared by every case in a file). */
+export function resetOwnWaitsForTests(): void {
+  ownWaits.clear();
+}
+
 /** Test seam: how many tracked actions are outstanding. */
 export function outstanding(): number {
   return ledger.size;

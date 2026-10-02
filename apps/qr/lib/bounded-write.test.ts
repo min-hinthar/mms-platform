@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STAFF_HANG_MS,
   boundWrite,
+  hasOwnWait,
   outstanding,
+  ownWaitSlot,
+  resetOwnWaitsForTests,
+  subscribeOwnWait,
   resetLedgerForTests,
   settleLate,
   stalledSince,
@@ -297,5 +301,47 @@ describe("tapRefusal — a surface's OWN wait outranks the tab's stall (Phase 2h
 
   it("neither: nothing refused — the tap is sent", () => {
     expect(tapRefusal<string>(null, null, STALLED)).toBeNull();
+  });
+});
+
+describe("ownWaitSlot — a surface's own wait, by SUBJECT, outlives the mount (Phase 2h · review a, A4)", () => {
+  afterEach(() => {
+    resetOwnWaitsForTests();
+  });
+
+  it("a second handle on the SAME subject reads what the first wrote; another subject reads idle", () => {
+    const first = ownWaitSlot("refund:li1", false);
+    first.current = true;
+    // A re-mounted sheet makes a NEW handle — it must read the old mount's wait.
+    // MUTATION (p2h-rev-a/own-wait/never-read): the register is never read, so a remount forgets it; red.
+    expect(ownWaitSlot("refund:li1", false).current).toBe(true);
+    expect(hasOwnWait("refund:li1")).toBe(true);
+    expect(ownWaitSlot("refund:li2", false).current).toBe(false);
+    expect(hasOwnWait("refund:li2")).toBe(false);
+  });
+
+  it("writing idle clears the entry; any other value is stored as written", () => {
+    const loss = ownWaitSlot<string | null>("loss:c1", null);
+    loss.current = "table.loss.msg.requestWaiting";
+    expect(ownWaitSlot<string | null>("loss:c1", null).current).toBe(
+      "table.loss.msg.requestWaiting",
+    );
+    loss.current = null;
+    // MUTATION (p2h-rev-a/own-wait/never-cleared): the late answer cannot free the subject; red.
+    expect(hasOwnWait("loss:c1")).toBe(false);
+    expect(ownWaitSlot<string | null>("loss:c1", null).current).toBeNull();
+  });
+
+  it("every write notifies the listeners until they unsubscribe", () => {
+    const heard = vi.fn();
+    const stop = subscribeOwnWait(heard);
+    const cash = ownWaitSlot("cash:s1", false);
+    cash.current = true;
+    cash.current = false;
+    // MUTATION (p2h-rev-a/own-wait/silent): a held trigger never hears its wait end; red.
+    expect(heard).toHaveBeenCalledTimes(2);
+    stop();
+    cash.current = true;
+    expect(heard).toHaveBeenCalledTimes(2);
   });
 });

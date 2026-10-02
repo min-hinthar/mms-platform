@@ -383,4 +383,82 @@ describe("RefundActionSheet — a hung refund never traps the sheet (Phase 2h ·
     // MUTATION (p2h-sheets/refund/own-wait-never-cleared): an answered refund still refuses the retry; red.
     expect(refundLine).toHaveBeenCalledTimes(2);
   });
+
+  it("a sheet RE-OPENED for the same line while its refund is still out remembers it: the re-tap says the refund's OWN line, never 'this did nothing' (review a, A4 · decision 9i)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<RefundResult>();
+    refundLine.mockReturnValueOnce(late.promise);
+    const first = mountSpied();
+    await first.tap();
+    await advance(STAFF_HANG_MS);
+    cleanup(); // put away — the board keys the next open as a fresh mount
+    const again = mountSpied();
+    await again.tap("5678");
+    expect(refundLine).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-a/refund/subject-unkeyed): a per-mount wait is forgotten by the remount,
+    // and the re-tap says the tablet's "this did nothing" — dropping "don't refund it again"; red.
+    expect(region().textContent).toBe(STAFF["floor.refund.waiting"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "stripe_error" });
+    });
+    refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
+    await again.tap("5678");
+    // The late answer reached the subject through the CLOSED mount's closure: the re-opened sheet
+    // may send again.
+    expect(refundLine).toHaveBeenCalledTimes(2);
+  });
+
+  it("a CASH refund with no answer carries its own hand-back in the waiting line — the reload it asks for kills the answer that would have said it (review a, A2)", async () => {
+    vi.useFakeTimers();
+    refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
+    const cash = { ...order, refundPath: "cash" } as SettledOrder;
+    render(
+      <StaffLangProvider lang="en">
+        <RefundActionSheet open order={cash} line={line} onClose={() => {}} onDone={() => {}} />
+      </StaffLangProvider>,
+    );
+    const pin = () => document.getElementById("refund-pin") as HTMLInputElement;
+    const tap = async () => {
+      fireEvent.change(pin(), { target: { value: "1234" } });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Refund \$13\.00|Refunding/ }));
+      });
+    };
+    await tap();
+    await advance(STAFF_HANG_MS);
+    const said = STAFF["floor.refund.waitingCash"].en.replace("{m}", "$13.00");
+    // MUTATION (p2h-rev-a/refund/cash-waiting-said-as-card): the card line — "don't hand anything
+    // back" — and after the reload nothing on the screen ever says to hand the $13.00 back; red.
+    expect(region().textContent).toBe(said);
+    // MUTATION (p2h-rev-a/refund/cash-waiting-no-reload): the sentence says reload, no button; red.
+    expect(reloadBtn()).not.toBeNull();
+    // The re-tap re-says the SAME cash line, figure included (decision 9i).
+    await tap();
+    expect(refundLine).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-a/refund/cash-refusal-loses-figure): the refusal drops {m}; red.
+    expect(region().textContent).toBe(said);
+  });
+
+  it("a sheet for ANOTHER line is not refused in this line's words — another line's wait is the tablet's stall (review a, A4)", async () => {
+    vi.useFakeTimers();
+    refundLine.mockReturnValueOnce(hang<RefundResult>({ ok: false, reason: "not_paid" }).promise);
+    const first = mountSpied();
+    await first.tap();
+    await advance(STAFF_HANG_MS);
+    cleanup();
+    const other = { ...line, id: "li2" } as SettledLine;
+    render(
+      <StaffLangProvider lang="en">
+        <RefundActionSheet open order={order} line={other} onClose={() => {}} onDone={() => {}} />
+      </StaffLangProvider>,
+    );
+    fireEvent.change(document.getElementById("refund-pin")!, { target: { value: "1234" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Refund \$13\.00/ }));
+    });
+    expect(refundLine).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-a/refund/subject-shared): one key for every line — the other line's sheet
+    // claims a refund it never sent; red.
+    expect(region().textContent).toBe(STAFF["out.stalled"].en);
+  });
 });

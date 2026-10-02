@@ -8,7 +8,7 @@ import type { TableLineView } from "@/lib/floor-types";
 import { plural } from "@/lib/i18n/fill";
 import type { StaffLang } from "@/lib/staff-lang";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
-import { boundWrite, stalledSince, tapRefusal } from "@/lib/bounded-write";
+import { boundWrite, ownWaitSlot, stalledSince, tapRefusal } from "@/lib/bounded-write";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { haptic } from "@/lib/haptics";
 import { sheetCloseLabel } from "./SheetCloseLabel";
@@ -267,7 +267,9 @@ function NoShowSheet({
   // the WALL clock (`Date.now()`) while the bound fires on a monotonic timer, so a clock set back
   // mid-hang reads "not stalled" and would let a second write queue behind the first. The refusal it
   // drives re-says the sheet's OWN waiting sentence, not the tablet's (`tapRefusal`, in `submit`).
-  const ownLate = useRef(false);
+  // Review a (A4) — kept per CART in the tab's own-wait register, never per mount: the sheet is
+  // mounted only while open, and a re-opened one must still say its own write-off's line.
+  const ownLate = ownWaitSlot(`noshow:${sessionId}`, false);
   const bodyRef = useRef<HTMLParagraphElement>(null);
   // A LATE landing (9e) leaves the detail only while this sheet is still open: once the manager
   // closed it, the page's own read finds the closed order — the sheet never navigates under them.

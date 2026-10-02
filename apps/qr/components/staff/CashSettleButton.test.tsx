@@ -1361,7 +1361,7 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     vi.useFakeTimers();
     settleCash.mockReturnValueOnce(hang());
     const { open, settle, cancel } = mount();
-    let dialog = open();
+    const dialog = open();
     await act(async () => {
       fireEvent.click(settle());
     });
@@ -1383,19 +1383,62 @@ describe("CashSettleButton — a hung settle never traps the sheet (Phase 2h · 
     // again" — the one instruction that keeps the guest from paying twice; red.
     expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
     expect(reloadBtn()).not.toBeNull();
-    // Re-SAID, not merely left standing: put away and reopened, the sheet opens with no alert, and
-    // the next tap says it again — still nothing sent.
+    // Review a (A1) — put away while the settle is still out, the trigger is HELD and the waiting
+    // sentence stays under it, with the reload; a tap opens NO sheet — never a clean "Take $X" with
+    // tender tiles over a payment that may already be recorded.
     await act(async () => {
       fireEvent.click(cancel());
     });
-    dialog = open();
-    expect(within(dialog).queryByRole("alert")).toBeNull();
-    await act(async () => {
-      fireEvent.click(settle());
+    await advance(0);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    const trigger = screen.getByRole<HTMLButtonElement>("button", {
+      name: STAFF["settle.cash.trigger"].en.replace("{m}", "$42.10"),
     });
-    expect(settleCash).toHaveBeenCalledTimes(1);
-    expect(alertText(dialog)).toBe(STAFF["settle.cash.waiting"].en);
+    // MUTATION (p2h-rev-a/cash/trigger-not-held): the trigger looks live over the waiting payment; red.
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.disabled).toBe(false); // §17 — the attribute, never native
+    // MUTATION (p2h-rev-a/cash/wait-line-dropped): the line goes back to the neutral hint; red.
+    expect(document.getElementById("settle-hint")!.textContent).toBe(
+      STAFF["settle.cash.waiting"].en,
+    );
+    expect(trigger.getAttribute("aria-describedby")).toContain("settle-hint");
+    // MUTATION (p2h-rev-a/cash/wait-reload-missing): the line says reload, no button; red.
     expect(reloadBtn()).not.toBeNull();
+    fireEvent.click(trigger);
+    // MUTATION (p2h-rev-a/cash/held-tap-opens): the tap opens a fresh sheet over the waiting payment; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(settleCash).toHaveBeenCalledTimes(1);
+  });
+
+  it("a control RE-MOUNTED while its cart's settle is still out holds too, and the late answer frees it wherever it lands (review a, A1 · A4)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<{ ok: false; error: string }>();
+    settleCash.mockReturnValueOnce(late.promise);
+    const first = mount();
+    first.open();
+    await act(async () => {
+      fireEvent.click(first.settle());
+    });
+    await advance(STAFF_HANG_MS);
+    cleanup(); // the detail unmounted mid-settle (the cashier moved to another table)
+    const again = mount(); // …and came back
+    const trigger = again.trigger();
+    // MUTATION (p2h-rev-a/cash/subject-unkeyed): a per-mount wait forgets it, and the fresh control
+    // offers a clean "Take $X" over a payment that may be recorded; red.
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById("settle-hint")!.textContent).toBe(
+      STAFF["settle.cash.waiting"].en,
+    );
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The CLOSED mount's late answer ends the wait: the fresh control frees.
+    await act(async () => {
+      late.resolve({ ok: false, error: "Card reader offline" });
+    });
+    // MUTATION (p2h-rev-a/cash/hold-never-hears): the held trigger never re-reads the register; red.
+    expect(trigger.getAttribute("aria-disabled")).toBeNull();
+    expect(document.getElementById("settle-hint")!.textContent).toBe(STAFF["settle.cash.hint"].en);
+    expect(again.open()).toBeTruthy();
   });
 
   it("its own settle ANSWERED while ANOTHER action still stalls the tablet: the re-tap says the tablet's 'out.stalled', never its old waiting line", async () => {

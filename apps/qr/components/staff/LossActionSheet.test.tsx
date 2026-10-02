@@ -584,6 +584,28 @@ describe("LossActionSheet — a hung write never traps the sheet (Phase 2h · 9a
     expect(region().textContent).toBe(STAFF["table.loss.msg.requestUnknown"].en);
   });
 
+  it("a sheet RE-OPENED for the same line while its void is still out remembers it: the re-tap says the void's OWN line, never 'this did nothing' (review a, A4 · decision 9i)", async () => {
+    vi.useFakeTimers();
+    const late = deferred<VoidLineResult>();
+    voidLine.mockReturnValueOnce(late.promise);
+    mountSpied();
+    await tapVoid();
+    await advance(STAFF_HANG_MS);
+    cleanup(); // put away — the line editor keys the next open as a fresh mount
+    mountSpied();
+    await tapVoid();
+    expect(voidLine).toHaveBeenCalledTimes(1);
+    // MUTATION (p2h-rev-a/loss/subject-unkeyed): the remount forgot the void and says the tablet's
+    // "this did nothing" — dropping "don't do it again"; red.
+    expect(region().textContent).toBe(STAFF["table.loss.msg.waiting"].en);
+    await act(async () => {
+      late.resolve({ ok: false, reason: "not_found" });
+    });
+    voidLine.mockReturnValueOnce(hang<VoidLineResult>({ ok: false, reason: "not_found" }).promise);
+    await tapVoid();
+    expect(voidLine).toHaveBeenCalledTimes(2);
+  });
+
   it("a re-tap of THIS sheet's own waiting void is refused even with the wall clock set back mid-hang — and sent again once it answers (critic F12)", async () => {
     vi.useFakeTimers();
     const late = deferred<VoidLineResult>();
