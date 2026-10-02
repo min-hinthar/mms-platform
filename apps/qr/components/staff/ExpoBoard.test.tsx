@@ -1667,7 +1667,7 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
   });
 
   it("Codex r2 on #311 — the lane's Reload refuses a pick still inside its window the tab could not stash, and NEVER the pick's own hung write", async () => {
-    // MUTATION (p2i-lane/hold-reason-always-pick): the lane's hold never says `pickSending` — its own
+    // MUTATION (p2i-lane/hold-reason-unwired): the lane's hold never says `pickSending` — its own
     // hung pick write refuses the only way out of the stall, on a tab that could not stash it, for
     // as long as it hangs (the Phase 2h trap); red.
     vi.useFakeTimers();

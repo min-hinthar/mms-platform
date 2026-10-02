@@ -249,8 +249,9 @@ describe("Codex r2 on #311 — the stall cure never erases what only this docume
   });
 
   it("NEVER refused by the stall it cures: a stalled or young write, a pick already sending, a stashed pick, sound, unread lines", () => {
-    // MUTATION (p2i-offer/cure-reads-manual): the button reads the MANUAL verdict — a young write
-    // (the stall's own) refuses the only way out of a stuck tablet; red.
+    // The regression this pins: reading the MANUAL verdict here would let a young write (the stall's
+    // own) refuse the only way out of a stuck tablet. The predicate itself is falsified in lib
+    // (p2i-guard/cure-refuses-sending · p2i-guard/cure-refuses-draft).
     track(new Promise(() => {})); // a write out now: young, and in time stalled
     holdReload({ kind: "unsent", reason: "pickSending", subject: "lane", survives: false });
     holdReload({ kind: "unsent", reason: "pick", subject: "lane2", survives: true });
