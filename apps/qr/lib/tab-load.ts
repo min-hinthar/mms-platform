@@ -10,6 +10,11 @@ import { tabStore, type TabStore } from "./settled-view";
  * later does not (it is the same document, and a stash is consumed once), and neither does a lock →
  * sign-in or any other page in between (another document, or another path).
  *
+ * ⚠️ EVERY DOCUMENT CLAIMS, not only the ones that read it (S0 critic F5): the root layout mounts
+ * `LoadClaim`, which calls `thisLoad()` at hydration. Claimed lazily by its consumers, a page in
+ * between that never read it left the counter unmoved, and the next lane document read as
+ * "immediately after" the one before the page in between.
+ *
  * The counter lives in sessionStorage (per tab, survives a reload of the tab). Storage that throws
  * or is absent claims seq 0, which `isImmediatelyAfter` never matches — the safe direction: nothing
  * resumes, the caller shows its "mark these again" line instead.

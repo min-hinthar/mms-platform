@@ -31,7 +31,7 @@ import {
   submitStaffReport,
   type StaffReportRow,
 } from "@/lib/staff-report-actions";
-import { boundWrite } from "@/lib/bounded-write";
+import { boundWrite, track } from "@/lib/bounded-write";
 import type { StaffLang, StaffLangMode } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
@@ -266,7 +266,7 @@ export function HelpButton(props: HelpProps) {
     void Promise.resolve().then(() => {
       if (!active) return;
       setMine((m) => ({ state: "loading", rows: m.rows }));
-      void listMyStaffReports().then((res) => {
+      void track(listMyStaffReports(), "read").then((res) => {
         if (!active) return;
         setMine(
           res.ok

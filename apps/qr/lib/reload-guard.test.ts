@@ -14,6 +14,7 @@ import {
   type ApplyBlock,
   type GuardInput,
   type Hold,
+  type HoldInput,
 } from "./reload-guard";
 import { STAFF } from "./i18n/staff";
 
@@ -318,6 +319,23 @@ describe("blockKey — the refusal sentence, named once", () => {
       const b = manualBlock({ ...IDLE, ...i });
       expect(b).not.toBeNull();
       expect(blockKey(b!)).not.toBeNull();
+    }
+  });
+});
+
+describe("a hold's kind fixes its reason (S0 critic F6)", () => {
+  it("the compiler refuses a kind/reason mismatch, so every unsent block has a sentence", () => {
+    // Red-first by `tsc`: with an unpaired `Hold`, each directive below is UNUSED and the typecheck
+    // fails. Never registered — the mismatched literals exist only to be refused.
+    // @ts-expect-error — an unsent hold cannot carry an unread reason (blockKey could not say it)
+    const a: HoldInput = { kind: "unsent", reason: "paneLine", subject: "", survives: false };
+    // @ts-expect-error — a sound hold cannot carry a standing reason
+    const b: HoldInput = { kind: "sound", reason: "reloadOffer", subject: "", survives: false };
+    expect([a.kind, b.kind]).toEqual(["unsent", "sound"]);
+    for (const reason of ["pick", "kitchenUndo"] as const) {
+      const release = holdReload({ kind: "unsent", reason, subject: "k", survives: false });
+      expect(blockKey(manualBlock({ ...IDLE, holds: reloadHolds() })!)).not.toBeNull();
+      release();
     }
   });
 });

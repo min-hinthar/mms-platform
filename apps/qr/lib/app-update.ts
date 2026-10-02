@@ -144,16 +144,42 @@ export function installApplyDeps(d: ApplyDeps): () => void {
 
 let applying = false;
 
+/**
+ * ⚠️ THE LATCH IS RELEASED IN ONE PLACE. Every outcome but `reloading` frees it — a refusal, a
+ * `current`, and a THROW from any injected dependency after the latch was set (a `guardInput` that
+ * throws, a `freeze` with no body): each is caught here and answers a refused `check`. A latch left
+ * set reads `busy` for every later apply, and the reducer holds `applying` on `busy` — the row would
+ * say "Reloading…" for the life of the document with nothing reloading. And `applyUpdate` never
+ * rejects, so `dispatchUpdate`'s `.then(land)` always lands.
+ */
 export async function applyUpdate(mode: "manual" | "auto", d: ApplyDeps): Promise<ApplyOutcome> {
   if (applying) return { kind: "busy" };
   const verdict = mode === "manual" ? manualBlock : autoBlock;
-  const first = verdict(d.guardInput());
+  let first: ApplyBlock | null;
+  try {
+    first = verdict(d.guardInput());
+  } catch {
+    return { kind: "refused", block: { kind: "check" } };
+  }
   if (first !== null) return { kind: "refused", block: first };
   applying = true;
-  const refuse = (block: ApplyBlock): ApplyOutcome => {
-    applying = false;
-    return { kind: "refused", block };
-  };
+  let out: ApplyOutcome;
+  try {
+    out = await attempt(mode, d, verdict);
+  } catch {
+    out = { kind: "refused", block: { kind: "check" } };
+  }
+  if (out.kind !== "reloading") applying = false;
+  return out;
+}
+
+/** The latched part: the fresh pre-flight, the re-read, then mark → freeze → reload. */
+async function attempt(
+  mode: "manual" | "auto",
+  d: ApplyDeps,
+  verdict: (i: GuardInput) => ApplyBlock | null,
+): Promise<ApplyOutcome> {
+  const refuse = (block: ApplyBlock): ApplyOutcome => ({ kind: "refused", block });
   // ── pre-flight, always fresh ──
   if (!d.online()) return refuse({ kind: "offline" });
   let served: VersionVerdict;
@@ -163,10 +189,7 @@ export async function applyUpdate(mode: "manual" | "auto", d: ApplyDeps): Promis
     return refuse({ kind: "check" });
   }
   if (served.kind === "unknown") return refuse({ kind: "check" });
-  if (served.kind === "current") {
-    applying = false;
-    return { kind: "current" };
-  }
+  if (served.kind === "current") return { kind: "current" };
   const target = served.served.build;
   let truth: ConnectionTruth;
   try {
@@ -182,7 +205,14 @@ export async function applyUpdate(mode: "manual" | "auto", d: ApplyDeps): Promis
   const last = verdict(d.guardInput());
   if (last !== null) return refuse(last);
   d.markApplied(target);
-  d.freeze();
+  // A freeze that throws part-way may already have made the page inert: the reload still goes out —
+  // refusing here would leave an inert page that never reloads. (Inert only keeps taps out of the
+  // unload; the verdict was clear a moment ago.) A `reload` that throws is caught by `applyUpdate`.
+  try {
+    d.freeze();
+  } catch {
+    // Deliberate swallow: see above — the reload below is the outcome either way.
+  }
   d.reload();
   return { kind: "reloading" };
 }

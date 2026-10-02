@@ -4,6 +4,7 @@ import { type MouseEvent, useRef, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@mms/ui";
 import { setStaffDoor } from "@/lib/staff-door-actions";
+import { track } from "@/lib/bounded-write";
 import { STAFF_DOOR_TARGET, type StaffDoor, parseStaffDoor } from "@/lib/staff-door";
 import { haptic } from "@/lib/haptics";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -66,7 +67,7 @@ export function StaffDoors({
     // the press itself (`.staff-press` scale + sheen) and the page that opens — never the buzz alone.
     haptic("commit");
     try {
-      await setStaffDoor({ door });
+      await track(setStaffDoor({ door }));
     } catch {
       // Deliberate: the door opens regardless (see the docblock). A thrown action is the same
       // outcome as a refused one — nothing remembered, page still reached.

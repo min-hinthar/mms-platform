@@ -87,3 +87,13 @@ describe("useReloadHold", () => {
     expect(seen).toBe(1);
   });
 });
+
+describe("useReloadHold's kind fixes its reason (S0 critic F6)", () => {
+  it("a mismatched pair does not compile", () => {
+    // Red-first by `tsc`: with an unpaired signature the directive is UNUSED and the typecheck
+    // fails. Never called.
+    // @ts-expect-error — an unsent hold cannot carry an unread reason
+    const useBad = () => useReloadHold("unsent", "paneLine", "x", false);
+    expect(typeof useBad).toBe("function");
+  });
+});

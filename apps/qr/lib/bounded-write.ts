@@ -245,8 +245,12 @@ export function subscribeWrites(listener: () => void): () => void {
 
 /**
  * Phase 2i — called with every tracked raw's REJECTION reason, after its entry has left the ledger.
- * The one place a retired action id (`UnrecognizedActionError`) can be witnessed for the whole tab,
- * since every staff action call goes through `track`. Returns the unsubscribe.
+ * The one place a retired action id (`UnrecognizedActionError`) can be witnessed for the whole tab:
+ * every Server Action a staff component (`components/staff`) calls reaches `track` — directly, or
+ * through `boundWrite` / `boundRead` / `raceTimeout` / a poll gate's `watch` — and
+ * `lib/staff-actions-tracked.test.ts` PARSES every call site to keep it so (S0 critic F1). A raw
+ * `await action()` is invisible to this witness AND to the reload verdict's young-write, stalled-write
+ * and answer-window inputs. Returns the unsubscribe.
  */
 export function onTrackedRejection(listener: (error: unknown) => void): () => void {
   rejectionListeners.add(listener);

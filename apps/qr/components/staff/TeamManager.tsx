@@ -2,6 +2,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { provisionStaff, setStaffActive, setStaffRole } from "@/lib/staff-actions";
+import { track } from "@/lib/bounded-write";
 import type { StaffRow } from "@/lib/staff";
 // The ladder comes from the PLAIN module: importing a value from "@/lib/staff" would pull the
 // service-role client into this client bundle (it reaches authz → staff-lock → @mms/db/server).
@@ -138,7 +139,9 @@ export function TeamManager({
     // to fall through to — so the clear never ran, the control stayed busy until a reload, and the
     // rejection went unhandled with nothing on screen to explain it.
     try {
-      const res = await provisionStaff({ email: email.trim(), displayName: name.trim(), role });
+      const res = await track(
+        provisionStaff({ email: email.trim(), displayName: name.trim(), role }),
+      );
       if (!res.ok) {
         say({ ok: false, m: res.error });
         return;
@@ -163,7 +166,7 @@ export function TeamManager({
     setRolePendingUid(row.userId);
     say(null);
     try {
-      const res = await setStaffRole({ userId: row.userId, role: next });
+      const res = await track(setStaffRole({ userId: row.userId, role: next }));
       if (!res.ok) {
         say({ ok: false, m: res.error });
         // The <select> is CONTROLLED by `row.role` (server state), so a refused change snaps back
@@ -187,7 +190,7 @@ export function TeamManager({
     setPendingUid(row.userId);
     say(null);
     try {
-      const res = await setStaffActive({ userId: row.userId, active: !row.active });
+      const res = await track(setStaffActive({ userId: row.userId, active: !row.active }));
       if (!res.ok) {
         say({ ok: false, m: res.error });
         return;

@@ -20,25 +20,35 @@ import type { StaffKey } from "./i18n/staff";
  * so everything else this tab sends may still land.
  */
 
-export type HoldKind = "unsent" | "unread" | "sound" | "standing";
-export type HoldReason =
-  | "pick" // unsent — the lane's open pick windows
-  | "kitchenUndo" // unsent — the KDS Undo bar
-  | "kitchenRecall" // unread — the KDS recall rail
-  | "paneLine" // unread — the counter pane's lost-payment line
-  | "readerOutcome" // unread — a declined or cancelled reader outcome on screen
-  | "kdsSound" // sound
-  | "bellSound" // sound
-  | "reloadOffer"; // standing — a Phase 2h "reload the page" offer on screen
-
-export type Hold = {
-  kind: HoldKind;
-  reason: HoldReason;
-  subject: string;
-  seq: number;
-  /** The work is stashed and restored after a document load (only the lane's picks can say true). */
-  survives: boolean;
+/**
+ * Each kind's reasons, named once — and the PAIRING is the type: `Hold` is a union over this map, so
+ * an `unsent` hold with an `unread` reason does not compile (S0 critic F6). It matters because the
+ * MANUAL verdict refuses on any `unsent` hold and `blockKey` gives a sentence only for the unsent
+ * reasons — a mismatched hold would refuse a person's tap with nothing to say.
+ */
+export type HoldReasonOf = {
+  /** The lane's open pick windows (`pick`) · the KDS Undo bar (`kitchenUndo`). */
+  unsent: "pick" | "kitchenUndo";
+  /** The KDS recall rail · the counter pane's lost-payment line · a declined/cancelled reader outcome. */
+  unread: "kitchenRecall" | "paneLine" | "readerOutcome";
+  sound: "kdsSound" | "bellSound";
+  /** A Phase 2h "reload the page" offer on screen. */
+  standing: "reloadOffer";
 };
+export type HoldKind = keyof HoldReasonOf;
+export type HoldReason = HoldReasonOf[HoldKind];
+
+/** What a caller registers: a kind with one of ITS reasons. */
+export type HoldInput = {
+  [K in HoldKind]: {
+    kind: K;
+    reason: HoldReasonOf[K];
+    subject: string;
+    /** The work is stashed and restored after a document load (only the lane's picks can say true). */
+    survives: boolean;
+  };
+}[HoldKind];
+export type Hold = HoldInput & { seq: number };
 
 type Token = { hold: Hold };
 const tokens = new Set<Token>();
@@ -57,7 +67,7 @@ function changed(): void {
  * Mode's setup → cleanup → setup releases the first token and registers a second, and a second call
  * to the first release must never release the second.
  */
-export function holdReload(h: Omit<Hold, "seq">): () => void {
+export function holdReload(h: HoldInput): () => void {
   const token: Token = { hold: { ...h, seq: nextSeq++ } };
   tokens.add(token);
   changed();

@@ -3,6 +3,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { removePin, setPin } from "@/lib/staff-pin-actions";
+import { track } from "@/lib/bounded-write";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 import { BRAND_NAME } from "@/lib/brand";
@@ -105,7 +106,7 @@ export function SignedInCard({
     // saved, and the pair is kept for the retry.
     let res: Awaited<ReturnType<typeof setPin>>;
     try {
-      res = await setPin({ pin });
+      res = await track(setPin({ pin }));
     } catch (e) {
       console.error("[sign-in] setPin rejected", e);
       say({ ok: false, m: { k: "entry.pin.err.outage" } });
@@ -143,7 +144,7 @@ export function SignedInCard({
     say(null);
     let res: Awaited<ReturnType<typeof removePin>>;
     try {
-      res = await removePin();
+      res = await track(removePin());
     } catch (e) {
       console.error("[sign-in] removePin rejected", e);
       say({ ok: false, m: { k: "entry.pin.err.outage" } });

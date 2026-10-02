@@ -202,6 +202,54 @@ describe("applyUpdate — its own mode's verdict, at the call AND after the last
     expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
   });
 
+  it("a `current` frees the latch — the next deploy's tap reloads, never `busy`", async () => {
+    // MUTATION (p2i-apply/latch-kept-after-current): an apply that came back current keeps the
+    // latch; the next stale verdict's tap reads `busy`, the reducer holds `applying`, and the row
+    // says "Reloading…" forever with nothing reloading; red.
+    const d = fake({ fetchServed: vi.fn(async () => ({ kind: "current" }) as const) });
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "current" });
+    d.fetchServed = vi.fn(async () => changed);
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
+  });
+
+  it("a dependency that THROWS after the latch: refused `check`, latch freed, never a rejection", async () => {
+    // MUTATION (p2i-apply/throw-strands-latch): the throw rejects applyUpdate — `land` never runs
+    // and the latch stays set for the life of the document; red.
+    const d = fake();
+    let reads = 0;
+    d.guardInput = () => {
+      reads++;
+      if (reads === 2) throw new Error("no document");
+      return IDLE;
+    };
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "refused", block: { kind: "check" } });
+    expect(d.calls).toEqual([]);
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
+  });
+
+  it("a guard read that throws at the call: refused `check`, never a rejection", async () => {
+    // MUTATION (p2i-apply/guard-throw-rejects): the first read's throw rejects applyUpdate; red.
+    const d = fake();
+    d.guardInput = () => {
+      throw new Error("no document");
+    };
+    expect(await applyUpdate("auto", d)).toEqual({ kind: "refused", block: { kind: "check" } });
+    expect(d.fetchServed).not.toHaveBeenCalled();
+  });
+
+  it("a freeze that throws part-way still reloads — never an inert page left standing", async () => {
+    // MUTATION (p2i-apply/freeze-throw-no-reload): the freeze's throw skips the reload, and a page
+    // that may already be inert never reloads; red.
+    const d = fake({
+      freeze: () => {
+        d.calls.push("freeze");
+        throw new Error("no body");
+      },
+    });
+    expect(await applyUpdate("manual", d)).toEqual({ kind: "reloading" });
+    expect(d.calls).toEqual([`mark:${NEW}`, "freeze", "reload"]);
+  });
+
   it("a tried target: AUTO refuses, a PERSON may retry it", async () => {
     // MUTATION (p2i-apply/tried-ignored): the automatic path reloads into the same missing build on
     // every load, forever; red.
@@ -268,6 +316,19 @@ describe("the store — dispatch, effects, the row's refusal", () => {
     expect(heard).toBe(1);
     dispatchUpdate({ e: "input" });
     expect(heard).toBe(1);
+  });
+
+  it("deps that throw: the tap still lands back on stale — never stuck applying", async () => {
+    const d = fake();
+    d.guardInput = () => {
+      throw new Error("no document");
+    };
+    installApplyDeps(d);
+    dispatchUpdate({ e: "verdict", v: changed, now: 0 });
+    dispatchUpdate({ e: "tap" });
+    await flush();
+    expect(updateSnapshot().phase.k).toBe("stale");
+    expect(updateSnapshot().refusal).toEqual({ kind: "check" });
   });
 
   it("with nothing installed, a tap falls back to stale — never stuck applying", () => {
@@ -354,8 +415,8 @@ describe("makeFetchServed — strict, uncached, anonymous", () => {
     vi.fn(async () => new Response(JSON.stringify(body), { status }));
 
   it("asks /api/version with no-store and no credentials", async () => {
-    // MUTATION (p2i-fetch/cache-allowed): a cached answer reports the build of an hour ago; red.
-    // MUTATION (p2i-fetch/credentials-sent): the staff session cookie rides a request that needs
+    // MUTATION (p2i-apply/fetch-cache-allowed): a cached answer reports the build of an hour ago; red.
+    // MUTATION (p2i-apply/fetch-credentials-sent): the staff session cookie rides a request that needs
     // none; red.
     const f = json({ build: NEW, contract: STAFF_CONTRACT });
     expect(await makeFetchServed(f as unknown as typeof fetch, OWN)()).toEqual(changed);
@@ -367,7 +428,7 @@ describe("makeFetchServed — strict, uncached, anonymous", () => {
   });
 
   it("a non-ok status, HTML, junk or a throw is unknown — never changed", async () => {
-    // MUTATION (p2i-fetch/status-trusted): a 503 page's body is parsed; red.
+    // MUTATION (p2i-apply/fetch-status-trusted): a 503 page's body is parsed; red.
     const html = vi.fn(async () => new Response("<html>login</html>", { status: 200 }));
     expect(await makeFetchServed(html as unknown as typeof fetch, OWN)()).toEqual({
       kind: "unknown",
