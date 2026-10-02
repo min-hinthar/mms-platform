@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettledOrder, SettledToday as Snapshot } from "@/lib/refunds";
 import { STAFF } from "@/lib/i18n/staff";
+import { fill } from "@/lib/i18n/fill";
+import { resetHandBackDocumentForTests } from "@/lib/settled-view";
+import { reloadHolds, resetHoldsForTests } from "@/lib/reload-guard";
 
 /**
  * A4·3 · M204 · M183 — the settled list's WIRING, which has nowhere else to live: which lines get a
@@ -32,7 +35,16 @@ const { SettledToday } = await import("./SettledToday");
 afterEach(() => {
   cleanup();
   refundAnswer = { ok: false, reason: "error" };
+  // Phase 2i — a cash hand-back is kept in the tab until [Handed back]: never let one case's owed
+  // instruction stand in the next case's banner.
+  window.sessionStorage.clear();
+  resetHandBackDocumentForTests(); // each case is a new document
+  resetHoldsForTests();
 });
+/** The drawer instruction as the banner says it — `fill`ed, never transcribed. The subject is the
+ *  dish and the receipt's code (`handBackSubjects`); every cash order here is `…aaaa0001`. */
+const cashFor = (m: string, x = "Mohinga · AA0001") =>
+  fill(STAFF["floor.settled.confirmed.cashFor"].en, { m, x }, "en");
 
 const line = (id: string, over: Partial<SettledOrder["lines"][number]> = {}) => ({
   id,
@@ -193,26 +205,40 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
   };
 
-  it("a NO-OP clears the cash instruction — it never re-issues the last one's amount", async () => {
-    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
-    refreshAnswer = snapshot([cash]);
-    mount(snapshot([cash]));
+  it("a NO-OP clears the card confirmation — it never re-reports the last one's amount", async () => {
+    const card = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+    refreshAnswer = snapshot([card]);
+    mount(snapshot([card]));
     fireEvent.click(screen.getByRole("button", { expanded: false }));
 
     refundAnswer = { ok: true, amountCents: 1105 };
     await openAndRefund();
-    const banner = screen.getByRole("status");
-    expect(banner.textContent).toContain("$11.05");
-    expect(banner.textContent).toContain("hand back");
+    expect(screen.getByRole("status").textContent).toBe(
+      STAFF["floor.settled.confirmed"].en.replace("{m}", "$11.05"),
+    );
 
     // A second attempt the server refuses: already refunded, nothing recorded, no amount returned.
     // The card stays expanded across the refresh, so the Refund control is already in reach — which
     // is precisely the stale board this case is about.
     refundAnswer = { ok: false, reason: "already_refunded" };
     await openAndRefund();
-    // ⚠️ The old imperative must be GONE. Left standing it reads "now hand back $11.05" over an
-    // attempt that moved no money, and a manager following it pays the first refund twice.
+    // MUTATION (settled/a-no-op-re-issues-the-last-instruction): "Refunded $11.05" over an attempt
+    // that moved no money; red.
     expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("Phase 2i (D5) — a NO-OP leaves an owed hand-back standing: it names its own dish and waits for its own [Handed back]", async () => {
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+    expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05"));
+    refundAnswer = { ok: false, reason: "already_refunded" };
+    await openAndRefund();
+    // The drawer still owes the guest $11.05 — nothing about this no-op changed that.
+    expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05"));
   });
 
   it("the cash instruction takes focus even when the post-write refresh FAILS — the refund recorded either way", async () => {
@@ -229,17 +255,16 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     await openAndRefund();
 
     const banner = screen.getByRole("status");
-    expect(banner.textContent).toContain("$11.05");
-    expect(banner.textContent).toContain("hand back");
+    expect(banner.textContent).toBe(cashFor("$11.05"));
     // The instruction has focus, so it is in view and announced — not sitting above a fold the
     // manager never scrolls back to.
     expect(document.activeElement).toBe(banner);
   });
 
-  it("opening a new Refund clears the previous instruction before the manager can act on it", async () => {
-    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
-    refreshAnswer = snapshot([cash]);
-    mount(snapshot([cash]));
+  it("opening a new Refund clears the previous CARD confirmation before the manager can act on it", async () => {
+    const card = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001");
+    refreshAnswer = snapshot([card]);
+    mount(snapshot([card]));
     fireEvent.click(screen.getByRole("button", { expanded: false }));
 
     refundAnswer = { ok: true, amountCents: 1105 };
@@ -255,6 +280,7 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     // page behind it, so the banner is out of the a11y tree entirely and a query here reads the
     // sheet's own empty error region instead — passing however the banner behaves. The first draft
     // of this case did exactly that, and the mutation that deletes the clear SURVIVED it.
+    // MUTATION (settled/a-new-attempt-inherits-the-last-figure): red.
     expect(screen.getByRole("status").textContent).toBe("");
   });
 
@@ -506,9 +532,7 @@ describe("Phase 2h · integration b — a refund's LATE answer closes only its O
       // sheet's trap, and nothing re-tries when B closes; red.
       expect(bSheet.getAttribute("data-state")).toBe("closed");
       const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]')!;
-      expect(banner.textContent).toBe(
-        STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
-      );
+      expect(banner.textContent).toBe(cashFor("$11.05"));
       expect(banner.closest('[aria-hidden="true"]')).toBeNull();
       expect(document.activeElement).toBe(banner);
     } finally {
@@ -591,7 +615,7 @@ describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE
     expect(reads).toBe(before);
   });
 
-  it("A2 — a CASH hand-back answered after the zone unmounted is said, with focus, the next time the zone mounts — and only once", async () => {
+  it("A2 · 2i — a CASH hand-back answered after the zone unmounted is said, with focus, every time the zone mounts until [Handed back]", async () => {
     vi.useFakeTimers();
     const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
     const late = await sendThenLeave(cash);
@@ -604,52 +628,114 @@ describe("Phase 2h · review a — a refund's LATE answer after the zone is GONE
     const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]');
     // MUTATION (p2h-rev-a/settled/dead-hand-back-dropped · p2h-rev-a/settled/hand-back-never-said):
     // the only copy of "hand back $11.05" died with the unmounted zone; red.
-    expect(banner?.textContent).toBe(
-      STAFF["floor.settled.confirmed.cash"].en.replace("{m}", "$11.05"),
-    );
+    expect(banner?.textContent).toBe(cashFor("$11.05"));
     // MUTATION (p2h-rev-a/settled/recovered-unfocused): said below the fold to nobody; red.
     expect(document.activeElement).toBe(banner);
-    // A new attempt clears it, as it clears a fresh confirmation: a stale imperative standing over
-    // another refund is an instruction to pay a figure that tap has nothing to do with.
+    // Phase 2i (D5) — a new attempt does NOT clear it (it names its dish; Codex r3 #286's stale
+    // imperative is answered by the name and its own acknowledgement).
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
     await flush();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await flush();
     expect(screen.queryByRole("dialog")).toBeNull();
-    // MUTATION (p2h-rev-a/settled/recovered-outlives-attempt): red.
+    // MUTATION (p2i-handback/cleared-on-new-attempt): the instruction is gone before anyone opened
+    // the drawer; red.
+    expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05"));
+    // Not acknowledged: the next mount says it again.
+    cleanup();
+    mount(snapshot([cash]));
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(cashFor("$11.05"));
+    fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
+    await flush();
     expect(screen.getByRole("status").textContent).toBe("");
     cleanup();
     mount(snapshot([cash]));
     await flush();
-    // Said once: the next mount does not ask for the same money again.
+    // Acknowledged: the next mount does not ask for the same money again.
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("A2 — a CASH hand-back the MOUNTED zone said is never kept for a later mount (it would be said twice); a card refund is never kept", async () => {
+  it("2i — a late answer reaches a zone that mounted AFTER its refund was sent: said at once, with focus", async () => {
     vi.useFakeTimers();
-    const { STAFF_HANG_MS } = await import("@/lib/bounded-write");
     const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
-    refreshAnswer = snapshot([cash]);
-    const late = deferred<unknown>();
-    refundAnswer = late.promise;
-    mount(snapshot([cash]));
-    fireEvent.click(screen.getByRole("button", { expanded: false }));
-    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
-    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Refund \$/ }));
-    await flush(STAFF_HANG_MS);
+    const late = await sendThenLeave(cash);
+    mount(snapshot([cash])); // back BEFORE the answer: this mount's own peek finds nothing yet
+    await flush();
+    expect(screen.queryByRole("status")).toBeNull();
     await act(async () => {
       late.resolve({ ok: true, amountCents: 1105 });
       await vi.advanceTimersByTimeAsync(0);
     });
-    expect(document.querySelector('p[role="status"][tabindex="-1"]')?.textContent).toContain(
-      "$11.05",
-    );
-    // MUTATION (p2h-rev-a/settled/hand-back-kept-while-alive): kept although said — the next mount
-    // says "hand back $11.05" a second time and the guest is paid twice; red.
-    expect(window.sessionStorage.getItem("mms.staff.refund.handBack")).toBeNull();
-    cleanup();
+    // MUTATION (p2i-handback/late-unheard): the record holds it, the screen in front of the manager
+    // says nothing until some later mount; red.
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toBe(cashFor("$11.05"));
+    expect(document.activeElement).toBe(banner);
+  });
+
+  it("critic F5 — a late answer heard by a NEWER mount closes the sheet open there: the instruction is never said under it", async () => {
+    vi.useFakeTimers();
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    const late = await sendThenLeave(cash);
+    const b = order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+      lines: [line("bbbbbbbb-l1", { name: "Laphet", nameMy: null })],
+    });
+    refreshAnswer = snapshot([cash, b]);
+    mount(snapshot([cash, b])); // back before the answer, and opens ANOTHER line's refund
+    await flush();
+    for (const toggle of screen.getAllByRole("button", { expanded: false }))
+      fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Laphet" }));
+    await flush();
+    const bSheet = screen.getByRole("dialog", { name: /Refund Laphet/ });
+    await act(async () => {
+      late.resolve({ ok: true, amountCents: 1105 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2i-handback/late-under-sheet): only the answering (dead) zone's closure closes a
+    // sheet — this mount's stays open over the instruction, aria-hidden behind it, its focus taken
+    // back by the sheet's trap; red.
+    expect(bSheet.getAttribute("data-state")).toBe("closed");
+    const banner = document.querySelector<HTMLElement>('p[role="status"][tabindex="-1"]')!;
+    expect(banner.textContent).toBe(cashFor("$11.05"));
+    expect(banner.closest('[aria-hidden="true"]')).toBeNull();
+    expect(document.activeElement).toBe(banner);
+  });
+
+  it("critic F1 · F2 — storage refused AND answered after the zone unmounted: the next mount still says it, and an automatic reload waits until [Handed back]", async () => {
+    vi.useFakeTimers();
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    const late = await sendThenLeave(cash);
+    const refused = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    try {
+      await act(async () => {
+        late.resolve({ ok: true, amountCents: 1105 });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // The only copy is in memory: a reload would erase it, so the automatic one waits.
+      expect(reloadHolds().map((h) => [h.kind, h.reason])).toEqual([["unread", "paneLine"]]);
+      mount(snapshot([cash]));
+      await flush();
+      // MUTATION (p2i-handback/memory-unsaid): the late answer's instruction lived in the dead
+      // zone's memory — no banner anywhere, the money recorded as refunded; red.
+      const banner = screen.getByRole("status");
+      expect(banner.textContent).toBe(cashFor("$11.05"));
+      expect(document.activeElement).toBe(banner);
+      fireEvent.click(screen.getByRole("button", { name: /^Handed back/ }));
+      await flush();
+      expect(screen.getByRole("status").textContent).toBe("");
+      expect(reloadHolds()).toEqual([]);
+    } finally {
+      refused.mockRestore();
+    }
+  });
+
+  it("2i — a card refund is never kept as a drawer instruction", async () => {
+    vi.useFakeTimers();
     const card = await sendThenLeave(order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002"));
     await act(async () => {
       card.resolve({ ok: true, amountCents: 1300 });

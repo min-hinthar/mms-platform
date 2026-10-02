@@ -4,6 +4,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handoffStashKey } from "@/lib/floor-pane";
 import { STAFF_HANG_MS, stalledSince, track, youngWrite } from "@/lib/bounded-write";
+import { autoBlock, reloadHolds, type GuardInput } from "@/lib/reload-guard";
 import {
   READER_COLLECT_KEY,
   READER_COLLECT_MAX_IDLE_MS,
@@ -1208,5 +1209,75 @@ describe("a start a reload stranded is resolved, read-only (Codex r2 on #310, A3
     // a tablet that cannot write it never resolves its own thrown start; red.
     expect(terminalResume).toHaveBeenCalledTimes(1);
     expect(api.record?.paymentIntentId).toBe("pi_live");
+  });
+});
+
+describe("Phase 2i (P2bi) — a declined or cancelled outcome on screen holds an AUTOMATIC reload", () => {
+  /** A moment `autoBlock` would otherwise reload at: nothing but the register can refuse it. */
+  const QUIET: GuardInput = {
+    online: true,
+    holds: [],
+    youngWrite: false,
+    stalledWrite: false,
+    ownWait: false,
+    msSinceWriteSettled: null,
+    msSinceInput: Number.MAX_SAFE_INTEGER,
+    dialogOpen: false,
+    typing: false,
+    retired: false,
+  };
+  const holds = () =>
+    reloadHolds()
+      .filter((h) => h.reason === "readerOutcome")
+      .map((h) => ({ kind: h.kind, subject: h.subject, survives: h.survives }));
+  const held = [{ kind: "unread", subject: "s-7", survives: false }];
+
+  it("declined: held while the outcome stands, released by its dismissal — never while the reader collects", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    expect(api.poll.phase).toBe("collecting");
+    expect(holds()).toEqual([]);
+    terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: "Declined." });
+    await tick(2500);
+    expect(api.poll.phase).toBe("failed");
+    // MUTATION (p2i-reader/outcome-unheld): a reload for a new version erases "Declined" — the stash
+    // was dropped at that phase, nothing brings it back, and the cashier believes the card paid; red.
+    expect(holds()).toEqual(held);
+    expect(autoBlock({ ...QUIET, holds: reloadHolds() })).toEqual({
+      kind: "hold",
+      reason: "readerOutcome",
+    });
+    await act(async () => api.dismiss());
+    expect(holds()).toEqual([]);
+  });
+
+  it("cancelled is held the same way; a charge given up as UNRECORDED is not (its stash restores it after any load)", async () => {
+    terminalStatus.mockResolvedValue(collecting);
+    cancelTerminal.mockResolvedValueOnce({ ok: true });
+    const r = mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await act(async () => api.cancel());
+    expect(api.poll.phase).toBe("canceled");
+    expect(holds()).toEqual(held);
+    await act(async () => api.dismiss());
+    expect(holds()).toEqual([]);
+    r.unmount();
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: null,
+      totalCents: 4210,
+    });
+    mount();
+    await act(async () => api.start(START));
+    await tick(0);
+    await tick(READER_UNRECORDED_MS);
+    expect(api.poll.phase).toBe("unrecorded");
+    // MUTATION (p2i-reader/unrecorded-held): the kept warning holds every automatic reload for as
+    // long as nobody closes it — though a reload brings it straight back; red.
+    expect(holds()).toEqual([]);
   });
 });

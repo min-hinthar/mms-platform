@@ -9,7 +9,8 @@
  * here rather than drifting.
  */
 import type { StaffKey } from "./i18n/staff";
-import type { ReceiptRow } from "./receipt-view";
+import { dollars, type ReceiptRow } from "./receipt-view";
+import { holdReload } from "./reload-guard";
 import type { RefundSummary } from "./refund-view";
 
 /** The settled read's cap (a "use server" module may export only actions, so it lives here). A
@@ -153,23 +154,43 @@ export function refundSheetAfterAnswer<T extends { line: { id: string } }>(
 }
 
 /**
- * Phase 2h · review a (A2) — a CASH refund's hand-back that nobody has been told to make yet.
+ * Phase 2h · review a (A2) · Phase 2i (P2bi · D5) — a CASH refund's hand-back, kept in this tab until a
+ * person says it was made.
  *
- * A cash refund with no answer at STAFF_HANG_MS frees its sheet, and its LATE answer is the ONLY
- * place the server-clamped figure and the instruction "hand back $X from the drawer" exist (record
- * first, then the drawer — `floor.settled.path.cash`). It reaches the zone through the sheet's
- * tap-time `onDone`; if the zone has unmounted by then (the manager moved to another screen), its
- * banner state is gone with it and the instruction would be dropped on the floor — money recorded
- * as handed back that never left the till. So a late hand-back that finds the zone gone is kept
- * HERE, per tab (sessionStorage survives a reload of the same tab), keyed by the refunded line, and
- * the zone says it — and forgets it — the next time it mounts.
+ * Under record-first a cash refund's ANSWER is the only place the server-clamped figure and the
+ * instruction "hand back $X from the drawer" exist (`floor.settled.path.cash`). Phase 2h kept it only
+ * when the zone had gone by the time the answer came (its late answer had nowhere else to be said).
+ * Phase 2i keeps it on EVERY cash answer, because the answer itself can erase the screen that says
+ * it: `refundLine` revalidates, and a tab running an older build than the server is hard-reloaded by
+ * Next right after the answer handler runs (one round trip later), with no client code able to veto
+ * it. The banner that said "hand back $11.05" a moment before is gone, and the money is recorded as
+ * handed back while it is still in the till. So the zone writes it HERE, synchronously, before it
+ * sets any state, and renders the banner FROM this record — one source, said once per document.
  *
- * Only a hand-back the zone could NOT say is kept: one said by a mounted zone, kept as well, would
- * be said a second time on the next mount, and a manager following it pays the guest twice.
- * Storage that throws or is absent (private mode, a server render) keeps nothing and never throws.
+ * An entry is forgotten only by `ackHandBack` (the manager's [Handed back]) or by age
+ * (`HAND_BACK_TTL_MS`, a shift): a peek never forgets. Each entry names its dish and its receipt, and
+ * `handBackSubjects` tells apart any two that still read alike, so a standing instruction is
+ * identifiable and acknowledged on its own — that is what answers the Codex r3 #286 risk of a stale
+ * imperative standing over a new attempt, which a blanket clear answered before.
+ *
+ * Storage that throws or is absent (private mode, quota, a server render) cannot keep one. Then the
+ * entry is held in THIS MODULE's memory — the document's, not a zone's: a late answer after the zone
+ * unmounted still reaches the next mount (critic F2) — and while memory holds one, an automatic
+ * reload is held (`holdReload`, critic F1): a reload is the one thing that would erase it.
  */
 export const HAND_BACK_KEY = "mms.staff.refund.handBack";
-export type HandBack = { lineId: string; cents: number };
+export type HandBack = {
+  lineId: string;
+  cents: number;
+  /** The dish, as the settled list names it — the instruction says which refund it is for. */
+  name: string;
+  /** The receipt's short code (`SettledOrder.code`): two orders' same dish read apart. */
+  code: string;
+  /** `Date.now()` when the answer came — the TTL's clock. */
+  at: number;
+};
+/** A shift: an instruction nobody acknowledged by then is not one anybody will act on. */
+export const HAND_BACK_TTL_MS = 12 * 60 * 60_000;
 export type TabStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** This tab's sessionStorage, or null where there is none (a server render) or it throws. */
@@ -181,55 +202,256 @@ export function tabStore(): TabStore | null {
   }
 }
 
-function readHandBacks(store: TabStore): HandBack[] {
-  const raw = store.getItem(HAND_BACK_KEY);
-  if (raw === null) return [];
-  const parsed: unknown = JSON.parse(raw);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter(
-    (h): h is HandBack =>
-      typeof h === "object" &&
-      h !== null &&
-      typeof (h as HandBack).lineId === "string" &&
-      Number.isInteger((h as HandBack).cents) &&
-      (h as HandBack).cents > 0,
+function isHandBack(h: unknown): h is HandBack {
+  return (
+    typeof h === "object" &&
+    h !== null &&
+    typeof (h as HandBack).lineId === "string" &&
+    Number.isInteger((h as HandBack).cents) &&
+    (h as HandBack).cents > 0 &&
+    typeof (h as HandBack).name === "string" &&
+    typeof (h as HandBack).code === "string" &&
+    Number.isFinite((h as HandBack).at)
   );
 }
 
-/** Keep a hand-back the zone could not say. One line is refunded once, so a line's newer entry
- *  replaces its older one (never two instructions for one refund). */
-export function rememberHandBack(store: TabStore | null, lineId: string, cents: number): void {
-  // A non-positive or fractional figure is no hand-back; `readHandBacks` drops it on the way out.
-  if (store === null) return;
-  try {
-    let kept: HandBack[] = [];
+/** Still owed at `now`: younger than a shift. */
+function fresh(h: HandBack, now: number): boolean {
+  return now - h.at < HAND_BACK_TTL_MS;
+}
+
+/**
+ * Phase 2h wrote `{ lineId, cents }` only. A tab holding one is exactly the tab the 2i rollout
+ * reloads (D9), so such an entry is read as owed — with no dish or receipt (`name: ""`, said by
+ * `handBackKey`'s dish-less sentence) and dated by the FIRST read that sees it, which writes it
+ * back (`peekHandBacks`) so the TTL runs from there (critic F9) instead of re-dating it forever.
+ */
+function upgradeLegacy(h: unknown, now: number): unknown {
+  if (typeof h !== "object" || h === null) return h;
+  const o = h as Partial<HandBack>;
+  if (o.name !== undefined || o.at !== undefined) return h;
+  return { lineId: o.lineId, cents: o.cents, name: "", code: "", at: now };
+}
+
+/** The record's entries (legacy ones upgraded) and whether any was upgraded on this read. */
+function readHandBacks(store: TabStore, now: number): { list: HandBack[]; upgraded: boolean } {
+  const raw = store.getItem(HAND_BACK_KEY);
+  if (raw === null) return { list: [], upgraded: false };
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return { list: [], upgraded: false };
+  let upgraded = false;
+  const list = parsed
+    .map((h) => {
+      const u = upgradeLegacy(h, now);
+      if (u !== h) upgraded = true;
+      return u;
+    })
+    .filter(isHandBack);
+  return { list, upgraded };
+}
+
+/** The banner's sentence for an entry: with its dish, or — a Phase 2h entry that never recorded
+ *  one — the dish-less instruction, never "for  from the drawer". */
+export function handBackKey(
+  h: HandBack,
+): "floor.settled.confirmed.cashFor" | "floor.settled.confirmed.cash" {
+  return h.name === "" ? "floor.settled.confirmed.cash" : "floor.settled.confirmed.cashFor";
+}
+
+/**
+ * Critic F3 — what each owed entry is called, on its banner line ({x}) and on its [Handed back]: the
+ * dish and its receipt ("Mohinga · AA0001"), or, for a dish-less Phase 2h entry, its figure. Two
+ * entries that would still read alike (two lines of one dish on one receipt; two legacy entries of
+ * one figure) are numbered in list order, so no two instructions ever offer the same button.
+ */
+export function handBackSubjects(list: readonly HandBack[]): string[] {
+  const base = list.map((h) =>
+    h.name === "" ? dollars(h.cents) : h.code === "" ? h.name : `${h.name} · ${h.code}`,
+  );
+  return base.map((b, i) => {
+    if (base.filter((x) => x === b).length < 2) return b;
+    return `${b} (${base.slice(0, i + 1).filter((x) => x === b).length})`;
+  });
+}
+
+// ── the document's memory: hand-backs storage refused (critic F1 · F2) ──────────────────────────
+let memory: HandBack[] = [];
+let releaseHold: (() => void) | null = null;
+let expiry: ReturnType<typeof setTimeout> | null = null;
+
+/** Memory shed of expired entries; the reload hold raised exactly while memory holds one, and a
+ *  timer that sheds the oldest at its TTL (the hold never outlives what it protects). */
+function syncMemory(now: number): void {
+  memory = memory.filter((h) => fresh(h, now));
+  if (expiry !== null) {
+    clearTimeout(expiry);
+    expiry = null;
+  }
+  if (memory.length === 0) {
+    releaseHold?.();
+    releaseHold = null;
+    return;
+  }
+  // An unread money line: the ONLY copy of a drawer instruction, which a reload would erase. The
+  // S0 contract names no hand-back reason (its table leaves the hand-back out because it is
+  // persisted — false for exactly this entry), so it rides the nearest unread one: the counter's
+  // lost money line. Filed for integration to name its own.
+  if (releaseHold === null)
+    releaseHold = holdReload({
+      kind: "unread",
+      reason: "paneLine",
+      subject: "handBack",
+      survives: false,
+    });
+  const due = Math.min(...memory.map((h) => h.at)) + HAND_BACK_TTL_MS - now;
+  expiry = setTimeout(
+    () => {
+      expiry = null;
+      syncMemory(Date.now());
+      tell("expired");
+    },
+    Math.max(0, due),
+  );
+}
+
+/** What `rememberHandBack` did: written down, held in memory only (storage refused), or refused
+ *  as no hand-back at all (critic F7 — never said from memory either). */
+export type Remembered = "kept" | "memory" | "invalid";
+
+/** Keep a hand-back. One line is refunded once, so a line's newer entry replaces its older one
+ *  (never two instructions for one refund). */
+export function rememberHandBack(store: TabStore | null, hb: HandBack): Remembered {
+  // A non-positive or fractional figure, or an entry missing its dish, is no hand-back.
+  if (!isHandBack(hb)) return "invalid";
+  const entry = { lineId: hb.lineId, cents: hb.cents, name: hb.name, code: hb.code, at: hb.at };
+  let kept = false;
+  if (store !== null) {
     try {
-      kept = readHandBacks(store);
+      let stored: HandBack[] = [];
+      try {
+        stored = readHandBacks(store, hb.at).list;
+      } catch {
+        stored = []; // an unreadable record is replaced, never allowed to block a new instruction
+      }
+      const next = [...stored.filter((h) => h.lineId !== hb.lineId && fresh(h, hb.at)), entry];
+      store.setItem(HAND_BACK_KEY, JSON.stringify(next));
+      kept = true;
     } catch {
-      kept = []; // an unreadable record is replaced, never allowed to block a new instruction
+      // Storage refused (quota, private mode): held in memory below, and the caller is told.
     }
-    const next = [...kept.filter((h) => h.lineId !== lineId), { lineId, cents }];
-    store.setItem(HAND_BACK_KEY, JSON.stringify(next));
+  }
+  memory = memory.filter((h) => h.lineId !== hb.lineId);
+  if (!kept) memory = [...memory, entry];
+  syncMemory(hb.at);
+  // Said to every zone mounted in this document — including one that mounted AFTER the refund was
+  // sent, whose own mount-time read ran before this late answer existed — whichever source holds it.
+  tell("remembered");
+  return kept ? "kept" : "memory";
+}
+
+/** Why the list moved: an answer was remembered (said, with focus), or a memory entry aged out
+ *  (re-read quietly). */
+export type HandBackNews = "remembered" | "expired";
+const heard = new Set<(what: HandBackNews) => void>();
+function tell(what: HandBackNews): void {
+  for (const fn of [...heard]) {
+    try {
+      fn(what);
+    } catch {
+      // A listener's failure is its own; the record is written either way.
+    }
+  }
+}
+/** Told after every hand-back remembered in this document (a late answer reaches a zone that
+ *  mounted after its refund was sent). Returns the unsubscribe. */
+export function subscribeHandBacks(fn: (what: HandBackNews) => void): () => void {
+  heard.add(fn);
+  return () => {
+    heard.delete(fn);
+  };
+}
+
+/** Every hand-back the RECORD still owes at `now`, oldest first. NEVER forgets one; it writes back
+ *  only a Phase 2h entry it has just dated, so that entry's TTL runs (critic F9). */
+export function peekHandBacks(store: TabStore | null, now: number): HandBack[] {
+  if (store === null) return [];
+  try {
+    const { list, upgraded } = readHandBacks(store, now);
+    if (upgraded) {
+      try {
+        store.setItem(HAND_BACK_KEY, JSON.stringify(list));
+      } catch {
+        // Not written back: it is re-dated by the next read, and still said — never lost.
+      }
+    }
+    return list.filter((h) => fresh(h, now));
   } catch {
-    // Storage refused (quota, private mode): nothing can be kept. The cash refund's waiting line
-    // already told the manager to reload and hand back the figure if the line shows refunded.
+    return [];
   }
 }
 
-/** Every kept hand-back, and forget them: the caller is about to say them. */
-export function takeHandBacks(store: TabStore | null): HandBack[] {
-  if (store === null) return [];
-  let owed: HandBack[] = [];
-  try {
-    owed = readHandBacks(store);
-  } catch {
-    owed = [];
+/** The manager handed `lineId`'s money back: forget that entry, and only that one — in the record
+ *  and in memory. */
+export function ackHandBack(store: TabStore | null, lineId: string): void {
+  if (memory.some((h) => h.lineId === lineId)) {
+    memory = memory.filter((h) => h.lineId !== lineId);
+    syncMemory(Date.now());
   }
+  if (store === null) return;
   try {
-    store.removeItem(HAND_BACK_KEY);
+    const left = readHandBacks(store, Date.now()).list.filter((h) => h.lineId !== lineId);
+    if (left.length === 0) store.removeItem(HAND_BACK_KEY);
+    else store.setItem(HAND_BACK_KEY, JSON.stringify(left));
   } catch {
-    // Nothing to do: the next take reads the same entries again, which only repeats an instruction
-    // that was never acted on twice — the refund itself recorded once.
+    // Unreadable: drop the record whole — garbage is never said as an instruction anyway.
+    try {
+      store.removeItem(HAND_BACK_KEY);
+    } catch {
+      // Nothing to do: the entry stays until its TTL, and says itself again — never a wrong figure.
+    }
   }
-  return owed;
+}
+
+/** The banner's list: the record's entries, then any this document could NOT keep (storage refused)
+ *  that the record does not already hold — said once each, never twice. */
+export function owedHandBacks(
+  stored: readonly HandBack[],
+  unkept: readonly HandBack[],
+): HandBack[] {
+  return [...stored, ...unkept.filter((u) => !stored.some((s) => s.lineId === u.lineId))];
+}
+
+/** Everything owed in this document at `now`: the record, then memory (critic F2 — one read, used
+ *  by every zone mount and every re-read, so a late answer held only in memory reaches them all). */
+export function owedHandBacksNow(store: TabStore | null, now: number): HandBack[] {
+  return owedHandBacks(
+    peekHandBacks(store, now),
+    memory.filter((h) => fresh(h, now)),
+  );
+}
+
+// ── what this document has already announced (critic F4) ───────────────────────────────────────
+const announced = new Set<string>();
+/** Mark `list` as said in this document; true when any of it had not been said here before. A
+ *  remount (a navigation back) re-shows what is owed but takes focus only for something new; a
+ *  reload is a new document and says everything again. */
+export function announceHandBacks(list: readonly HandBack[]): boolean {
+  let unsaid = false;
+  for (const h of list) {
+    const k = `${h.lineId}@${h.at}`;
+    if (announced.has(k)) continue;
+    announced.add(k);
+    unsaid = true;
+  }
+  return unsaid;
+}
+
+/** Test seam: a new document — memory, its hold and timer, and what was announced, all gone. */
+export function resetHandBackDocumentForTests(): void {
+  memory = [];
+  releaseHold?.();
+  releaseHold = null;
+  if (expiry !== null) clearTimeout(expiry);
+  expiry = null;
+  announced.clear();
 }
