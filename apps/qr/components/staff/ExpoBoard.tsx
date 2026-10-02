@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -77,6 +78,21 @@ import { useTablePane } from "./TablePaneContext";
 import { COUNTER_UNCOLLECTED_HOURS } from "@/lib/counter-order";
 import { uncollectedBadgeWords } from "./CounterOrderCard";
 import { ReloadButton } from "./ReloadOffer";
+// ── Phase 2i (P2bi · D3) ── the lane's picks survive a reload of the page.
+import {
+  clearPickStash,
+  mirrorPicks,
+  readPickStash,
+  remarkStands,
+  restorePicks,
+  writePickStash,
+  type PickRestore,
+  type PickStash,
+  type StashedPick,
+} from "@/lib/pick-stash";
+import { tabStore } from "@/lib/settled-view";
+import { thisLoad } from "@/lib/tab-load";
+import { useReloadHold } from "./useReloadHold";
 
 // ── Phase 2h (9b · 9e) ── the lane's writes, bounded. Next runs Server Actions one at a time per tab,
 // and a transition's `pending` holds until its action ANSWERS (and holds every other transition and
@@ -104,6 +120,16 @@ const saysWaiting = (m: ExpoMsg | null): boolean =>
   m !== null &&
   typeof m !== "string" &&
   (m.k === "expo.err.waitingTable" || m.k === "expo.err.waitingFor");
+
+/** The region's sentence for a pick — a scan-and-go hand-over is spoken as what its button said,
+ *  "handed over", not "picked up". Said for a tap and for a window a reload reopened alike. */
+function pickedNotice(subject: ExpoSubject): ExpoMsg {
+  return subject.kind === "table"
+    ? { k: "expo.live.pickedTable", vars: { id: subject.id } }
+    : subject.kind === "verify"
+      ? { k: "expo.live.handedOver", vars: { x: subject.x } }
+      : { k: "expo.live.picked", vars: { x: subject.x } };
+}
 
 /** Phase 2h · critic B1 · B12 — the lane's bags whose write is still out past the bound. */
 type ExpoLaneHold = {
@@ -399,6 +425,109 @@ export function ExpoBoard({
     }
     return gateRef.current;
   }, []);
+
+  // ── Phase 2i (P2bi · D3) ── THE PICK STASH (`lib/pick-stash.ts`). A reload of this page — ours for
+  // a new build, Next's own after a revalidating tap on a stale screen, the stall cure — used to forget
+  // every pick still inside its window, and a bag the guest had walked away with read "ready" again.
+  // Every change of `picked` is mirrored into the tab (a LAYOUT effect, so the stash is written before
+  // the browser can deliver the next event); the next lane mount reads it ONCE and decides after its
+  // FIRST good read — never before: a decision off the server-rendered snapshot would re-send a bag
+  // that already left. Until then the mirror keeps the found picks beside the live ones (an unread
+  // stash is never overwritten), and once decided the stash is consumed.
+  const pendingRestore = useRef<PickStash | null>(null);
+  const stashRead = useRef(false);
+  // The LAST mirror write succeeded: the reload hold's `survives`, and why the caveat is not said.
+  const [stashOk, setStashOk] = useState(false);
+  // The "mark these again" line: the bags a reload interrupted that this lane will not send for a
+  // stranger (not the immediately next load, or too old to resume). Cleared at the next pick, or by
+  // the first read on which none of them is still ready.
+  const [remark, setRemark] = useState<readonly { orderId: string; subject: ExpoSubject }[] | null>(
+    null,
+  );
+  // `commitPicked` is made below `refresh` (it calls it); a restore decided inside `refresh` reaches
+  // it through this ref.
+  const commitRef = useRef<(orderId: string, subject: ExpoSubject) => Promise<void>>(
+    async () => {},
+  );
+  const writeMirror = useCallback((live: ReadonlyMap<string, Omit<StashedPick, "orderId">>) => {
+    const store = tabStore();
+    const picks = mirrorPicks(
+      pendingRestore.current?.picks ?? null,
+      [...live].map(([orderId, p]) => ({
+        orderId,
+        at: p.at,
+        subject: p.subject,
+        committing: p.committing,
+      })),
+    );
+    if (picks.length === 0) {
+      clearPickStash(store);
+      setStashOk(false);
+      return;
+    }
+    setStashOk(
+      writePickStash(store, { v: 1, seq: thisLoad().seq, path: location.pathname, picks }),
+    );
+  }, []);
+  // Read ONCE per lane instance — Strict Mode's second setup must not re-read the stash the first
+  // setup's mirror has already rewritten under this document's own generation.
+  useLayoutEffect(() => {
+    if (stashRead.current) return;
+    stashRead.current = true;
+    pendingRestore.current = readPickStash(tabStore());
+  }, []);
+  useLayoutEffect(() => {
+    writeMirror(picked);
+  }, [picked, writeMirror]);
+  // The hold that refuses a reload for a new build while a pick is held in this tab; `survives` lets
+  // a RETIRED tab reload over it only while the stash actually holds it.
+  useReloadHold("unsent", "pick", "lane", reloadForgetsAPick(picked), stashOk);
+  /** Apply the decision. A bag picked again on this screen before the read decided is the person's
+   *  own pick, and wins. */
+  const decideRestore = useCallback((r: PickRestore) => {
+    if (r.kind === "remark") {
+      setRemark(r.bags.map(({ orderId, subject }) => ({ orderId, subject })));
+      return;
+    }
+    if (r.kind !== "resume") return;
+    const held = pickedRef.current;
+    const reopen = r.reopen.filter((p) => !held.has(p.orderId));
+    const send = r.send.filter(
+      (p) => !held.has(p.orderId) && !committingRef.current.has(p.orderId),
+    );
+    // The ref FIRST, in this same turn (the tick's rule): an Undo tapped before the render reads it.
+    for (const p of send) committingRef.current.add(p.orderId);
+    setPicked((prev) => {
+      const next = new Map(prev);
+      // A reopened window keeps its moment, so the tick resumes it with the time it had left.
+      for (const p of reopen)
+        if (!next.has(p.orderId))
+          next.set(p.orderId, { at: p.at, subject: p.subject, committing: false });
+      for (const p of send)
+        if (!next.has(p.orderId))
+          next.set(p.orderId, { at: p.at, subject: p.subject, committing: true });
+      return next;
+    });
+    // The pill reopens for the NEWEST reopened window, and the region says it once.
+    const newest = reopen.reduce<(typeof reopen)[number] | null>(
+      (a, p) => (a === null || p.at > a.at ? p : a),
+      null,
+    );
+    if (newest !== null) {
+      setNotice(pickedNotice(newest.subject));
+      toastSeq.current += 1;
+      setToast({
+        id: newest.orderId,
+        subject: newest.subject,
+        key: toastSeq.current,
+        phase: "open",
+        armed: false,
+      });
+    }
+    // Due entries go through the normal status-guarded commit: a `stale` answer (the bag moved under
+    // a write already landed) is its existing honest line.
+    for (const p of send) void commitRef.current(p.orderId, p.subject);
+  }, []);
   /** One missed read — a failed, hung, or refused-past-the-bound one. Two in a row arm the freeze
    *  (stamped on the lane's own server-space clock, for its escalation only). */
   const miss = useCallback(() => {
@@ -475,6 +604,26 @@ export function ExpoBoard({
       // takes its window with it — writing picked_up to a gone order would only earn a "stale"
       // banner. Pruned HERE, in the poll's own callback, never in an effect on `snap`.
       const live = new Set(res.queue.tickets.map((t) => t.orderId));
+      // Phase 2i (D3) — the first good read decides the found stash, against the bags it shows
+      // still READY (a pick only exists on a ready bag; gone or moved, its write landed or is moot).
+      const ready = new Set(
+        res.queue.tickets.filter((t) => t.status === "ready").map((t) => t.orderId),
+      );
+      const found = pendingRestore.current;
+      if (found !== null) {
+        pendingRestore.current = null; // consumed: decided once, and never re-read
+        decideRestore(restorePicks(found, thisLoad(), Date.now(), ready));
+        writeMirror(pickedRef.current);
+      }
+      setRemark((r) =>
+        r !== null &&
+        remarkStands(
+          r.map((b) => b.orderId),
+          ready,
+        )
+          ? r
+          : null,
+      );
       // Critic B11 — a lost pick, decided by the first read that started after it was lost: still on
       // the counter, it did not land, so the bag goes back (its window dropped); gone, the prune
       // below takes it with the bag.
@@ -514,7 +663,7 @@ export function ExpoBoard({
     } finally {
       inFlight.current = false;
     }
-  }, [stampNow, hear, pulseCards, gateOf, miss, dropPicked]);
+  }, [stampNow, hear, pulseCards, gateOf, miss, dropPicked, decideRestore, writeMirror]);
   useEffect(() => {
     kick.current = () => void refresh();
   }, [refresh]);
@@ -561,6 +710,9 @@ export function ExpoBoard({
     },
     [dropPicked, onRefused, refresh, showErr, dropErr],
   );
+  useEffect(() => {
+    commitRef.current = commitPicked;
+  }, [commitPicked]);
   // The interval is re-armed when the map changes (a tap, an undo, a bag leaving) so the tick
   // always reads the live windows without a ref written during render.
   useEffect(() => {
@@ -652,14 +804,9 @@ export function ExpoBoard({
       for (const [id, h] of holdsRef.current)
         if (id !== orderId && h.sources.has("toast")) markHeld(id, setHeld(h, "toast", false, at));
       setPicked((prev) => new Map(prev).set(orderId, { at, subject, committing: false }));
-      // A scan-and-go hand-over is spoken as what its button said — "handed over", not "picked up".
-      setNotice(
-        subject.kind === "table"
-          ? { k: "expo.live.pickedTable", vars: { id: subject.id } }
-          : subject.kind === "verify"
-            ? { k: "expo.live.handedOver", vars: { x: subject.x } }
-            : { k: "expo.live.picked", vars: { x: subject.x } },
-      );
+      // Phase 2i (D3) — a new pick retires the "mark these again" line: the person is marking.
+      setRemark(null);
+      setNotice(pickedNotice(subject));
       toastSeq.current += 1;
       setToast({ id: orderId, subject, key: toastSeq.current, phase: "open", armed: false });
     },
@@ -890,6 +1037,24 @@ export function ExpoBoard({
             <MsgText lang={lang} msg={err} />
           ) : notice !== null ? (
             <MsgText lang={lang} msg={notice} />
+          ) : remark !== null ? (
+            // Phase 2i (D3) — the bags a reload interrupted, by their own names or codes (a table by
+            // its number), standing until marked again or gone from the lane.
+            <MsgText
+              lang={lang}
+              msg={{
+                k: "expo.reload.remark",
+                vars: {
+                  x: remark
+                    .map(({ subject }) =>
+                      subject.kind === "table"
+                        ? tf(lang, "floor.table", { id: subject.id })
+                        : subject.x,
+                    )
+                    .join(", "),
+                },
+              }}
+            />
           ) : (
             <span className="sr-only" lang={lang}>
               {announced}
@@ -955,10 +1120,13 @@ export function ExpoBoard({
             it), with what a reload costs on THIS lane — a pick still inside its undo window is only
             in this tab, and a reload forgets it (the P2fc critic, adjustment 8). Plain text: the
             region already spoke. Review b (B3): said only when a pick IS held in this tab
-            (`reloadForgetsAPick`) — over a bag write with no pick anywhere it warned about nothing. */}
+            (`reloadForgetsAPick`) — over a bag write with no pick anywhere it warned about nothing.
+            Phase 2i (D3): and only while the TAB does not hold it — with the stash written, a reload
+            of this page is the immediately next load, which resumes the pick, so the caveat would be
+            false. */}
         {saysWaiting(err) && (
           <div className="staff-reload-offer mms-rise" style={reloadRow}>
-            {reloadForgetsAPick(picked) && (
+            {reloadForgetsAPick(picked) && !stashOk && (
               <p className="expo-status">
                 <Chrome lang={lang} k="expo.reload.bags" />
               </p>
