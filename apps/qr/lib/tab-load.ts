@@ -18,13 +18,44 @@ import { tabStore, type TabStore } from "./settled-view";
  * The counter lives in sessionStorage (per tab, survives a reload of the tab). Storage that throws
  * or is absent claims seq 0, which `isImmediatelyAfter` never matches — the safe direction: nothing
  * resumes, the caller shows its "mark these again" line instead.
+ *
+ * ⚠️ THE COUNTER CANNOT SEE ANOTHER ORIGIN (Codex r2 on #311). A document of another site in between
+ * (the operator left for a payment page and came back), or a closed tab restored with its storage,
+ * never claims here — so on the counter alone the lane's next document reads as "immediately after"
+ * and sends picks minutes old. So a load also has to PROVE it continues the last one by its own
+ * navigation (`loadContinues`): a reload, or a navigation whose referrer is this origin. Next's
+ * stale-build hard navigation (`app-router.js`: `location.assign`/`location.replace` on
+ * `pushRef.mpaNavigation`) is a same-origin navigation, so it qualifies; a back/forward, a typed
+ * URL, a bookmark or anything from another site does not — those remark.
  */
 export const LOAD_SEQ_KEY = "mms.tab.loadSeq";
-export type TabLoad = { seq: number; initialPath: string };
+export type TabLoad = {
+  seq: number;
+  initialPath: string;
+  /** This document's own navigation continues the tab's last load (`loadContinues`). */
+  continues: boolean;
+};
+
+/**
+ * Does a navigation of `type` (the navigation entry's — `reload` · `navigate` · `back_forward` ·
+ * `prerender`; null when there is none) arriving from `referrer` prove this document is the NEXT
+ * load of the page before it? Only a reload, or a navigation whose referrer is a page of `origin`.
+ * Everything else — back/forward, no referrer, another origin's, a malformed one — answers false,
+ * the safe direction (a remark, never a send).
+ */
+export function loadContinues(type: string | null, referrer: string, origin: string): boolean {
+  if (type === "reload") return true;
+  if (type !== "navigate" || referrer === "") return false;
+  try {
+    return new URL(referrer).origin === origin;
+  } catch {
+    return false;
+  }
+}
 
 /** Read the previous seq (a non-negative integer, else 0), write prev+1, return it. Any storage
  *  failure → seq 0. */
-export function claimLoad(store: TabStore | null, initialPath: string): TabLoad {
+export function claimLoad(store: TabStore | null, initialPath: string): Omit<TabLoad, "continues"> {
   if (store === null) return { seq: 0, initialPath };
   try {
     const raw = store.getItem(LOAD_SEQ_KEY);
@@ -38,16 +69,37 @@ export function claimLoad(store: TabStore | null, initialPath: string): TabLoad 
   }
 }
 
-/** The path THIS document loaded at: the navigation entry's URL (a soft navigation since then
- *  does not change it), else `location.pathname`. */
-function documentPath(): string {
+/** This document's navigation entry, or null (an old engine, a test). */
+function navigationEntry(): PerformanceNavigationTiming | null {
   try {
     const nav = performance.getEntriesByType("navigation")[0];
-    if (nav !== undefined && nav.name !== "") return new URL(nav.name).pathname;
+    return nav === undefined ? null : (nav as PerformanceNavigationTiming);
   } catch {
-    // Deliberate: no navigation timing (an old engine, a test) falls back to the location below.
+    // Deliberate: no navigation timing — the callers fall back (the path to the location, and
+    // `continues` to false: the safe direction).
+    return null;
+  }
+}
+
+/** The path THIS document loaded at: the navigation entry's URL (a soft navigation since then
+ *  does not change it), else `location.pathname`. */
+function documentPath(nav: PerformanceNavigationTiming | null): string {
+  try {
+    if (nav !== null && nav.name !== "") return new URL(nav.name).pathname;
+  } catch {
+    // Deliberate: an unparsable entry name falls back to the location below.
   }
   return location.pathname;
+}
+
+/** `document.referrer`, or "" where there is none to read (the safe direction: no continue). */
+function documentReferrer(): string {
+  try {
+    return document.referrer ?? "";
+  } catch {
+    // Deliberate: no document (a worker, a test) — no referrer.
+    return "";
+  }
 }
 
 let memo: TabLoad | null = null;
@@ -58,15 +110,25 @@ let memo: TabLoad | null = null;
  * never memoized (module state there is shared across requests).
  */
 export function thisLoad(): TabLoad {
-  if (typeof window === "undefined") return { seq: 0, initialPath: "" };
+  if (typeof window === "undefined") return { seq: 0, initialPath: "", continues: false };
   if (memo !== null) return memo;
-  memo = claimLoad(tabStore(), documentPath());
+  const nav = navigationEntry();
+  memo = {
+    ...claimLoad(tabStore(), documentPath(nav)),
+    continues: loadContinues(nav?.type ?? null, documentReferrer(), location.origin ?? ""),
+  };
   return memo;
 }
 
-/** `written` came from the IMMEDIATELY previous document of this tab, at the page this one loaded at. */
+/** `written` came from the IMMEDIATELY previous document of this tab, at the page this one loaded
+ *  at — and this document's own navigation proves nothing came between (`continues`). */
 export function isImmediatelyAfter(written: { seq: number; path: string }, load: TabLoad): boolean {
-  return load.seq > 1 && written.seq === load.seq - 1 && written.path === load.initialPath;
+  return (
+    load.continues &&
+    load.seq > 1 &&
+    written.seq === load.seq - 1 &&
+    written.path === load.initialPath
+  );
 }
 
 /** Test seam: forget this document's claimed load. */

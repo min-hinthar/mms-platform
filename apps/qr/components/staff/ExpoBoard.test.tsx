@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExpoPoll, ExpoQueue, ExpoTicket, ExpoUnpaidBag } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
 import type { TablePaneApi } from "./TablePaneContext";
@@ -1790,6 +1790,34 @@ describe("Phase 2h (9b · 9e) — a lane write that hangs frees its control at t
 const { LOAD_SEQ_KEY, resetLoadForTests, thisLoad } = await import("@/lib/tab-load");
 
 describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by the next load", () => {
+  /** How THIS document was reached (its navigation entry and `document.referrer`, read once per
+   *  document by `thisLoad`). A reload by default — the case every resume below is about; Codex r2
+   *  on #311 made the load's own navigation part of "immediately after". */
+  let navigation: { type: string; referrer: string } = { type: "reload", referrer: "" };
+  let navSpy: { mockRestore: () => void } | null = null;
+  /** Stub the navigation entry on whatever `performance` is global NOW — fake timers replace the
+   *  object, so `seed` and `reloadPage` (called after `vi.useFakeTimers()`) re-stub it. */
+  const stubNavigation = () => {
+    navSpy?.mockRestore();
+    navSpy = vi
+      .spyOn(performance, "getEntriesByType")
+      .mockImplementation(
+        () => [{ name: location.href, type: navigation.type }] as unknown as PerformanceEntryList,
+      );
+  };
+  beforeEach(() => {
+    navigation = { type: "reload", referrer: "" };
+    stubNavigation();
+    Object.defineProperty(document, "referrer", {
+      configurable: true,
+      get: () => navigation.referrer,
+    });
+  });
+  afterEach(() => {
+    navSpy?.mockRestore();
+    navSpy = null;
+    Reflect.deleteProperty(document, "referrer");
+  });
   const flush = (ms = 0) =>
     act(async () => {
       await vi.advanceTimersByTimeAsync(ms);
@@ -1803,6 +1831,7 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     opts: { gap?: number; committing?: boolean; closed?: boolean; tables?: number[] } = {},
   ) => {
     const prev = 4;
+    stubNavigation();
     sessionStorage.setItem(LOAD_SEQ_KEY, String(prev));
     writePickStash(sessionStorage, {
       v: 1,
@@ -1823,6 +1852,7 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     window.dispatchEvent(new Event("pagehide"));
     cleanup();
     resetLoadForTests();
+    stubNavigation();
     return mount();
   };
   const remarkOf = (...tables: number[]) =>
@@ -1951,6 +1981,30 @@ describe("Phase 2i (D3) — the lane's picks are kept in the tab and resumed by 
     expect(card()?.getAttribute("data-picked")).toBe("true");
     await flush(10_000);
     expect(pickedUpWrites()).toHaveLength(1);
+  });
+
+  it("Codex r2 on #311 — back on the lane from ANOTHER SITE within the window: the counter says next, the navigation does not — a remark, nothing sent", async () => {
+    // MUTATION (p2i-load/continues-ignored) · (p2i-load/navigation-unread): the load counter alone
+    // decides — a page of another origin cannot advance it, so the operator who left for it and
+    // came back has the old pick sent behind their back; red.
+    vi.useFakeTimers();
+    seed(Date.now() - 1_000);
+    navigation = { type: "navigate", referrer: "https://pay.elsewhere.test/checkout" };
+    mount();
+    await flush(5_000);
+    expect(region().textContent).toBe(remarkOf(7));
+    expect(card()?.getAttribute("data-picked")).toBeNull();
+    await flush(PICKED_UNDO_MS + 5_000);
+    expect(pickedUpWrites()).toHaveLength(0);
+  });
+
+  it("…and Next's own stale-build hard navigation (a SAME-ORIGIN `location.assign`) still resumes", async () => {
+    vi.useFakeTimers();
+    seed(Date.now() - 1_000, { committing: true });
+    navigation = { type: "navigate", referrer: location.href };
+    mount();
+    await flush(5_000);
+    expect(pickedUpWrites()).toEqual([[{ orderId: "order-1", to: "picked_up" }]]);
   });
 
   it("any other load REMARKS — nothing is sent for a stranger, the stash is consumed once, and the line goes with the bag", async () => {

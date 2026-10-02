@@ -3,6 +3,7 @@ import {
   LOAD_SEQ_KEY,
   claimLoad,
   isImmediatelyAfter,
+  loadContinues,
   resetLoadForTests,
   thisLoad,
   type TabLoad,
@@ -66,8 +67,40 @@ describe("claimLoad — one generation per document", () => {
   });
 });
 
+describe("loadContinues — the new document's own navigation proves it is the NEXT load of this page (Codex r2 on #311)", () => {
+  const ORIGIN = "https://mms.test";
+
+  it("a reload continues — ours, the stall cure's, a chunk reload", () => {
+    expect(loadContinues("reload", "", ORIGIN)).toBe(true);
+    expect(loadContinues("reload", "https://elsewhere.test/", ORIGIN)).toBe(true);
+  });
+
+  it("a navigation FROM THIS ORIGIN continues — Next's stale-build MPA (`location.assign`/`replace`) is one", () => {
+    expect(loadContinues("navigate", `${ORIGIN}/staff/expo`, ORIGIN)).toBe(true);
+  });
+
+  it("a navigation from ANOTHER origin, or with no referrer, does not: a document in between could not count", () => {
+    // MUTATION (p2i-load/referrer-origin-unchecked): any referrer passes — the operator who left for
+    // another site and came back to the lane within five minutes has the old picks sent; red.
+    expect(loadContinues("navigate", "https://elsewhere.test/", ORIGIN)).toBe(false);
+    expect(loadContinues("navigate", "https://mms.test.elsewhere.test/", ORIGIN)).toBe(false);
+    // MUTATION (p2i-load/navigate-always-continues): a plain navigation continues — a typed URL, a
+    // bookmark, a restored tab with no referrer resumes; red.
+    expect(loadContinues("navigate", "", ORIGIN)).toBe(false);
+    expect(loadContinues("navigate", "not a url", ORIGIN)).toBe(false);
+  });
+
+  it("back/forward, a prerender, or no navigation entry at all: never", () => {
+    // MUTATION (p2i-load/any-type-continues): the type is not read — a back from another site (its
+    // referrer is this origin's lane) resumes; red.
+    expect(loadContinues("back_forward", `${ORIGIN}/staff/expo`, ORIGIN)).toBe(false);
+    expect(loadContinues("prerender", `${ORIGIN}/staff/expo`, ORIGIN)).toBe(false);
+    expect(loadContinues(null, `${ORIGIN}/staff/expo`, ORIGIN)).toBe(false);
+  });
+});
+
 describe("isImmediatelyAfter — the next load of the same page, and nothing else", () => {
-  const load: TabLoad = { seq: 5, initialPath: "/staff/expo" };
+  const load: TabLoad = { seq: 5, initialPath: "/staff/expo", continues: true };
 
   it("the previous document at the same page: true", () => {
     expect(isImmediatelyAfter({ seq: 4, path: "/staff/expo" }, load)).toBe(true);
@@ -84,20 +117,37 @@ describe("isImmediatelyAfter — the next load of the same page, and nothing els
     expect(isImmediatelyAfter({ seq: 4, path: "/staff/kds" }, load)).toBe(false);
   });
 
+  it("the previous claim at the same page, but a load whose navigation does not continue it: false (Codex r2 on #311)", () => {
+    // MUTATION (p2i-load/continues-ignored): the counter alone decides — a cross-origin page or a
+    // tab close in between cannot advance it, so the old picks auto-send; red.
+    expect(isImmediatelyAfter({ seq: 4, path: "/staff/expo" }, { ...load, continues: false })).toBe(
+      false,
+    );
+  });
+
   it("a load whose claim failed (seq 0), or the first claimed load (seq 1), never matches", () => {
     // MUTATION (p2i-load/storage-failure-is-next): a stash written by a document whose own claim
     // failed reads as adjacent to the first claimed load — with no proof of which load came between; red.
-    expect(isImmediatelyAfter({ seq: 0, path: "/p" }, { seq: 1, initialPath: "/p" })).toBe(false);
-    expect(isImmediatelyAfter({ seq: -1, path: "/p" }, { seq: 0, initialPath: "/p" })).toBe(false);
+    const p = { initialPath: "/p", continues: true };
+    expect(isImmediatelyAfter({ seq: 0, path: "/p" }, { seq: 1, ...p })).toBe(false);
+    expect(isImmediatelyAfter({ seq: -1, path: "/p" }, { seq: 0, ...p })).toBe(false);
   });
 });
 
 describe("thisLoad — claimed once per document, at the URL the document loaded", () => {
-  function stubBrowser(store: TabStore, navName: string | null, pathname: string) {
+  function stubBrowser(
+    store: TabStore,
+    navName: string | null,
+    pathname: string,
+    nav: { type?: string; referrer?: string } = {},
+  ) {
     vi.stubGlobal("window", { sessionStorage: store });
-    vi.stubGlobal("location", { pathname });
+    vi.stubGlobal("location", { pathname, origin: "https://x.test" });
+    vi.stubGlobal("document", { referrer: nav.referrer ?? "" });
     vi.spyOn(performance, "getEntriesByType").mockReturnValue(
-      navName === null ? [] : ([{ name: navName }] as unknown as PerformanceEntryList),
+      navName === null
+        ? []
+        : ([{ name: navName, type: nav.type ?? "navigate" }] as unknown as PerformanceEntryList),
     );
   }
 
@@ -120,12 +170,37 @@ describe("thisLoad — claimed once per document, at the URL the document loaded
     expect(thisLoad().initialPath).toBe("/staff/floor");
   });
 
-  it("falls back to the location when there is no navigation entry", () => {
-    stubBrowser(memStore(), null, "/staff/expo");
-    expect(thisLoad().initialPath).toBe("/staff/expo");
+  it("falls back to the location when there is no navigation entry — and then never continues", () => {
+    stubBrowser(memStore(), null, "/staff/expo", { referrer: "https://x.test/staff/expo" });
+    expect(thisLoad()).toMatchObject({ initialPath: "/staff/expo", continues: false });
   });
 
-  it("on the server: seq 0 and nothing remembered", () => {
-    expect(thisLoad()).toEqual({ seq: 0, initialPath: "" });
+  it("reads whether its OWN navigation continues the last load: its type and its referrer (Codex r2 on #311)", () => {
+    // MUTATION (p2i-load/navigation-unread): every load continues — the old picks of an operator
+    // who left the site and came back are sent; red.
+    stubBrowser(memStore(), "https://x.test/staff/expo", "/staff/expo", { type: "reload" });
+    expect(thisLoad().continues).toBe(true);
+    resetLoadForTests();
+    stubBrowser(memStore(), "https://x.test/staff/expo", "/staff/expo", {
+      type: "navigate",
+      referrer: "https://x.test/staff/expo",
+    });
+    expect(thisLoad().continues).toBe(true);
+    resetLoadForTests();
+    stubBrowser(memStore(), "https://x.test/staff/expo", "/staff/expo", {
+      type: "navigate",
+      referrer: "https://pay.elsewhere.test/",
+    });
+    expect(thisLoad().continues).toBe(false);
+    resetLoadForTests();
+    stubBrowser(memStore(), "https://x.test/staff/expo", "/staff/expo", {
+      type: "back_forward",
+      referrer: "https://x.test/staff/expo",
+    });
+    expect(thisLoad().continues).toBe(false);
+  });
+
+  it("on the server: seq 0, nothing remembered, never continues", () => {
+    expect(thisLoad()).toEqual({ seq: 0, initialPath: "", continues: false });
   });
 });

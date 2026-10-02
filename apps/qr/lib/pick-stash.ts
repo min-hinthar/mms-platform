@@ -13,7 +13,9 @@ import { isImmediatelyAfter, type TabLoad } from "./tab-load";
  * is mirrored here, and the NEXT document decides what to do with them:
  *
  *  - `resume` — only on the IMMEDIATELY next load of the same page (`isImmediatelyAfter`, the load
- *    generation — never a TTL alone), only from a stash whose WRITER HAS UNLOADED (`closed`, stamped
+ *    generation — never a TTL alone — AND, since Codex r2 on #311, a load whose own navigation is a
+ *    reload or comes from this origin: a page of another site in between, or a tab closed and
+ *    restored, cannot advance the generation), only from a stash whose WRITER HAS UNLOADED (`closed`, stamped
  *    at its `pagehide`), and only while the newest pick is younger than `PICK_RESUME_MS`. A window still open reopens with the time it had left; every other entry
  *    (its window closed, or its write already on the wire) SENDS, through the lane's normal
  *    status-guarded commit.
@@ -254,7 +256,9 @@ export function resumableUntil(
   here: { seq: number; path: string },
 ): number | null {
   if (s === null || s.picks.length === 0) return null;
-  if (!isImmediatelyAfter(s, { seq: here.seq + 1, initialPath: here.path })) return null;
+  // The load a reload starting now would be: a reload continues (`loadContinues`).
+  if (!isImmediatelyAfter(s, { seq: here.seq + 1, initialPath: here.path, continues: true }))
+    return null;
   return Math.min(...s.picks.map((p) => p.at)) + PICK_RESUME_MS;
 }
 

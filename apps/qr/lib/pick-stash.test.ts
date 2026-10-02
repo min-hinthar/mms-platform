@@ -65,7 +65,7 @@ const stash = (picks: StashedPick[], seq = 4, path = PATH): PickStash => ({
   closed: true,
 });
 /** The load right after the stash's own document, at the same page. */
-const NEXT = { seq: 5, initialPath: PATH };
+const NEXT = { seq: 5, initialPath: PATH, continues: true };
 const ready = (...ids: string[]) => new Set(ids);
 
 describe("restorePicks — the immediately next load resumes", () => {
@@ -128,14 +128,27 @@ describe("restorePicks — the immediately next load resumes", () => {
 describe("restorePicks — anything else is a remark, never a send", () => {
   it("a load that is not the immediately next one remarks (p2i-picks/next-load-ignored)", () => {
     for (const load of [
-      { seq: 6, initialPath: PATH }, // a page in between
-      { seq: 4, initialPath: PATH }, // the same document (a soft navigation back)
-      { seq: 5, initialPath: "/staff/kitchen" }, // another page
-      { seq: 0, initialPath: PATH }, // storage failed for the load counter
+      { seq: 6, initialPath: PATH, continues: true }, // a page in between
+      { seq: 4, initialPath: PATH, continues: true }, // the same document (a soft navigation back)
+      { seq: 5, initialPath: "/staff/kitchen", continues: true }, // another page
+      { seq: 0, initialPath: PATH, continues: true }, // storage failed for the load counter
     ]) {
       const r = restorePicks(stash([pick("a", 1_000)]), load, NOW, ready("a"));
       expect(r).toEqual({ kind: "remark", bags: [pick("a", 1_000)] });
     }
+  });
+
+  it("Codex r2 on #311 — the next CLAIM at this page, by a load whose own navigation does not continue the last one, remarks", () => {
+    // An operator who left for another site (it cannot advance the counter) and came back to the
+    // lane, or a closed tab restored with its storage: the counter says "next", the navigation
+    // does not prove it — the picks are named again, never sent.
+    const r = restorePicks(
+      stash([pick("a", 1_000)]),
+      { ...NEXT, continues: false },
+      NOW,
+      ready("a"),
+    );
+    expect(r).toEqual({ kind: "remark", bags: [pick("a", 1_000)] });
   });
 
   it("the immediately next load past PICK_RESUME_MS remarks (p2i-picks/resume-ttl-ignored)", () => {
@@ -161,7 +174,7 @@ describe("restorePicks — anything else is a remark, never a send", () => {
   });
 
   it("older than PICK_REMARK_MS is forgotten (p2i-picks/remark-ttl-ignored)", () => {
-    const far = { seq: 9, initialPath: PATH };
+    const far = { seq: 9, initialPath: PATH, continues: true };
     expect(restorePicks(stash([pick("a", PICK_REMARK_MS)]), far, NOW, ready("a"))).toEqual({
       kind: "none",
     });
@@ -182,7 +195,7 @@ describe("restorePicks — anything else is a remark, never a send", () => {
     expect(r).toEqual({ kind: "resume", reopen: [], send: [pick("b", 40_000)] });
     const far = restorePicks(
       stash([pick("a", 1_000)]),
-      { seq: 9, initialPath: PATH },
+      { seq: 9, initialPath: PATH, continues: true },
       NOW,
       ready(),
     );
@@ -337,7 +350,7 @@ describe("mirrorPicks · mirrorStash · resumableUntil", () => {
     const s = mirrorStash(found, [pick("a", 0)], HERE);
     expect(s).toEqual({ v: 1, seq: 3, path: "/staff", picks: [pick("x", 9_000), pick("a", 0)] });
     // …so the load after this document's NEXT one can never read it as "immediately after".
-    const next = { seq: HERE.seq + 1, initialPath: PATH };
+    const next = { seq: HERE.seq + 1, initialPath: PATH, continues: true };
     expect(restorePicks({ ...s!, closed: true }, next, NOW, ready("x", "a")).kind).toBe("remark");
   });
 
@@ -347,7 +360,7 @@ describe("mirrorPicks · mirrorStash · resumableUntil", () => {
     // turned PICK_RESUME_MS old, with only it still ready, would remark it; red.
     expect(resumableUntil(s, HERE)).toBe(NOW - 60_000 + PICK_RESUME_MS);
     // The very gates restorePicks applies, at either side of the bound — every subset still ready.
-    const next = { seq: HERE.seq + 1, initialPath: PATH };
+    const next = { seq: HERE.seq + 1, initialPath: PATH, continues: true };
     const until = resumableUntil(s, HERE)!;
     for (const ids of [["a"], ["b"], ["a", "b"]]) {
       expect(restorePicks({ ...s, closed: true }, next, until - 1, new Set(ids)).kind).toBe(
