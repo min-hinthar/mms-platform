@@ -13,7 +13,13 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
-import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import {
+  frozenBoardCopy,
+  nextDegraded,
+  raceTimeout,
+  writeLineAfterLateAnswer,
+  type StaffDegraded,
+} from "@/lib/staff-outage";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { type ClosedVerdict, type TableDetail, tableDisplay } from "@/lib/floor-types";
@@ -73,7 +79,10 @@ import {
   paneFreezeSpoken,
   readHandoffStash,
   stashHandoff,
+  lostWriteKind,
+  type LateAnswer,
   type LostKind,
+  type SettleOutcome,
 } from "@/lib/floor-pane";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { useTableNav } from "./TableNav";
@@ -119,6 +128,7 @@ export function FloorDetailLive({
   variant = "page",
   onClosed,
   onLostWrite,
+  onLostLanded,
   paneNotice,
 }: {
   initial: TableDetail;
@@ -140,6 +150,11 @@ export function FloorDetailLive({
     name: { counter: boolean; display: string },
     kind: LostKind,
   ) => void;
+  /** Pane — Phase 2h · integration: a payment (or a line edit) this detail had reported UNKNOWN (no
+   *  answer at the bound) LANDED after this detail unmounted — a late ok. The pane answers its "we
+   *  don't know" / "no answer yet" for this table (`lostAfterLanded`): `paid`, `started` (the reader
+   *  START — the reader is asking for the card), or `saved` (critic F1, a line edit). */
+  onLostLanded?: (sessionId: string, how: LateAnswer) => void;
   /** Pane — the lost-write sentence for ANOTHER table, spoken through this view's one region. */
   paneNotice?: ReactNode;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
@@ -414,6 +429,12 @@ export function FloorDetailLive({
   }, []);
 
   const refresh = useCallback(async () => {
+    // Phase 2h · integration (X1) — a detail that is GONE never starts a read. A settle control's
+    // late hand-up still calls `onChanged` after the pane moved on (cash at the bound, a late ok, a
+    // late `moved` refusal), and its debounce timer is created AFTER the unmount cleared the last
+    // one — so without this, the dead detail dispatched a read into Next's one-at-a-time queue,
+    // behind the very settle that was hanging, for a table nobody is looking at.
+    if (!alive.current) return;
     const gate = gateOf();
     const asked = gate.ask();
     if (asked.go === "owed") {
@@ -610,10 +631,12 @@ export function FloorDetailLive({
   const paneName = { counter: isCounter, display: tableDisplay(detail).text };
   const paneNameRef = useRef(paneName);
   const onLostWriteRef = useRef(onLostWrite);
+  const onLostLandedRef = useRef(onLostLanded);
   useEffect(() => {
     paneNameRef.current = { counter: paneName.counter, display: paneName.display };
     onLostWriteRef.current = onLostWrite;
-  }, [paneName.counter, paneName.display, onLostWrite]);
+    onLostLandedRef.current = onLostLanded;
+  }, [paneName.counter, paneName.display, onLostWrite, onLostLanded]);
   // ── Phase 2g · reader ── this table is ON SCREEN: the bar's chip stands down for it, and a charge
   // landing for it is handed HERE (the provider already stashed a counter order's card): the card is
   // adopted, and the detail re-reads either way — a table's paid state is the quiet signal. The
@@ -649,9 +672,10 @@ export function FloorDetailLive({
     (e: ReactNode) => {
       // Phase 2d · split — a refusal that lands after this detail UNMOUNTED (the pane moved to
       // another table mid-write) is said by the pane, naming this table — never dropped. A clear
-      // (null) after unmount has nothing to say.
+      // (null) after unmount has nothing to say. Phase 2h · integration (critic F1) — a line edit
+      // still out at the bound is "no answer yet", never "didn't save" (`lostWriteKind`).
       if (!alive.current) {
-        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current, "write");
+        if (e !== null) onLostWriteRef.current?.(sessionId, paneNameRef.current, lostWriteKind(e));
         return;
       }
       setWriteError(e);
@@ -662,12 +686,49 @@ export function FloorDetailLive({
     },
     [setSendNote, setSettleGate, sessionId],
   );
+  // ── Phase 2h · integration (S2 critic D2) ── a line edit whose write went past the bound says
+  // WRITE_WAITING here ("no answer yet — that change may still be saved") through `onError`; its
+  // row reports each edge through `onWaiting`. A late REFUSAL says its own sentence first (through
+  // `onError`), but a late SUCCESS says nothing — so without this the region kept "may still be
+  // saved" over a change that saved, outranking the settle and frozen lines, until another setter
+  // happened by. The ids still out are a ref (a row can unmount while its write is out — the edge
+  // still arrives); the line goes only when the LAST of them answered, and only if it is still
+  // WRITE_WAITING (`writeLineAfterLateAnswer`). The reload is the ROW's, never a second one here.
+  //
+  // Critic F1 — the same edge after this detail UNMOUNTED: its WRITE_WAITING went to the pane as
+  // `writeWaiting` (`onWriteError`), and setting this dead detail's state does nothing. So once the
+  // LAST waiting line answered, the pane hears it (`saved`) — and answers only that table's "no
+  // answer yet": a late refusal already replaced it with "didn't save", which stands.
+  const waitingLines = useRef(new Set<string>());
+  const onLineWaiting = useCallback(
+    (lineId: string, waiting: boolean) => {
+      if (waiting) {
+        waitingLines.current.add(lineId);
+        return;
+      }
+      waitingLines.current.delete(lineId);
+      const stillWaiting = waitingLines.current.size;
+      setWriteError((e) => writeLineAfterLateAnswer(e, stillWaiting));
+      if (!alive.current && stillWaiting === 0) onLostLandedRef.current?.(sessionId, "saved");
+    },
+    [sessionId],
+  );
   // Phase 2d · review fixes — a settle's refusal or unknown outcome, as it lands. While this detail
   // is mounted the control says it itself (its sheet's alert, its line); once the detail UNMOUNTED
   // (the pane moved on, closed, or went Back mid-settle) that control is gone with it, so the pane
   // says it, naming this table — a cashier who took cash and left must learn it was not recorded.
+  //
+  // Phase 2h · integration — and a LATE ok to an attempt the control already reported unknown
+  // (`landed`): the pane's "we don't know if the payment went through", raised off that unknown, is
+  // retracted. The same rule as the other two — forwarded only once this detail UNMOUNTED: while it
+  // is mounted the pane holds no line about it, and the control's own line already moved on.
   const onSettleOutcome = useCallback(
-    (outcome: "refused" | "unknown") => {
+    (outcome: SettleOutcome) => {
+      if (outcome === "landed" || outcome === "started") {
+        if (!alive.current)
+          onLostLandedRef.current?.(sessionId, outcome === "landed" ? "paid" : "started");
+        return;
+      }
       if (alive.current) return;
       onLostWriteRef.current?.(
         sessionId,
@@ -1094,6 +1155,7 @@ export function FloorDetailLive({
                   disabled={false}
                   onError={onWriteError}
                   onEditState={onEditState}
+                  onWaiting={onLineWaiting}
                 />
               ))}
             </ul>

@@ -549,6 +549,47 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     expect(onChanged).not.toHaveBeenCalled();
   });
 
+  // Phase 2h · integration (sheets residual 3 · boards P1) — the late charge answers the `unknown`
+  // handed up at the bound: `landed`, so a pane that said "we don't know" off it can retract it.
+  it("a LATE charge answers the unknown it handed up: 'landed', exactly once, after 'unknown' — even after unmount", async () => {
+    const h = hungClose();
+    const v = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+    v.unmount(); // the pane moved on mid-wait
+    await act(async () => h.answer({ ok: true }));
+    // MUTATION (p2h-int-a/close-landed-unreported): the late charge hands nothing up — the pane
+    // keeps "we don't know if the payment went through" over a card that WAS charged; red.
+    expect(v.onSettleOutcome.mock.calls).toEqual([["unknown"], ["landed"]]);
+  });
+
+  it("an ON-TIME charge never says 'landed'; a late REFUSAL or THROW never does either", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    const v = view();
+    await openAndCharge();
+    await flush(0);
+    // MUTATION (p2h-int-a/close-landed-on-time): every charge that went says `landed` — a payment
+    // the pane never doubted retracts whatever this table's line says; red.
+    expect(v.onSettleOutcome).not.toHaveBeenCalled();
+    cleanup();
+    const refused = hungClose();
+    const w = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    await act(async () => refused.answer({ ok: false, error: "The card on file was declined." }));
+    expect(w.onSettleOutcome.mock.calls).toEqual([["unknown"], ["refused"]]);
+    cleanup();
+    const thrown = hungClose();
+    const x = view();
+    await openAndCharge();
+    await flush(STAFF_HANG_MS);
+    await act(async () => thrown.fail(new Error("fetch failed")));
+    // MUTATION (p2h-int-a/close-landed-on-throw): a lost late answer says `landed` — "we don't know"
+    // is retracted while the charge is exactly as unknown as before; red.
+    expect(x.onSettleOutcome.mock.calls).toEqual([["unknown"]]);
+  });
+
   it("a LATE throw says the charge's outcome is unknown, over the waiting line", async () => {
     const h = hungClose();
     view();

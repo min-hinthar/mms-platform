@@ -86,6 +86,18 @@ export const WRITE_UNCONFIRMED = STAFF["out.write.unknown"].en;
 export const WRITE_UNCONFIRMED_MY = STAFF["out.write.unknown"].my;
 
 /**
+ * Phase 2h · integration (S2 critic D2) — the page's write line once a line edit's LATE answer has
+ * landed, with `stillWaiting` line edits still unanswered past the bound. WRITE_WAITING ("no answer
+ * yet — that change may still be saved") goes only when the LAST waiting line has answered: one
+ * row's answer says nothing about another row's write that is still out. Every OTHER line stands —
+ * the refusal or WRITE_UNCONFIRMED a late answer said first, a discount's sentence — a late answer
+ * landing is not what resolves any of them.
+ */
+export function writeLineAfterLateAnswer<T>(current: T, stillWaiting: number): T | null {
+  return stillWaiting === 0 && current === WRITE_WAITING ? null : current;
+}
+
+/**
  * The nouns a frozen board can be showing. Narrowed to the dictionary's `what.*` keys so a board
  * cannot pass a free string: the previous signature took `what: string`, which meant every call site
  * carried its own English literal and no translation could reach them.

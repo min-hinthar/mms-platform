@@ -4,6 +4,7 @@ import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard } from "@/lib/terminal";
 import { boundWrite, stalledSince } from "@/lib/bounded-write";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
+import type { SettleOutcome } from "@/lib/floor-pane";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { MsgText } from "./StaffMsg";
@@ -131,8 +132,11 @@ export function TerminalSettleButton({
   gateLive?: boolean;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's reader START (a refused start takes nothing), as it lands. The page says it where this control
-   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
-  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
+   *  Phase 2h · integration — and `landed`: a LATE start answering the attempt reported `unknown`
+   *  at the bound. The reader is asking for the card; the collect is the provider's (the bar's
+   *  chip says it), so the page may retract the "we don't know" it said off that unknown. */
+  onSettleOutcome?: (outcome: SettleOutcome) => void;
 }) {
   const lang = useStaffLang();
   // Phase 2g · reader — the collect's owner, above navigation. `reader.start` is the provider's
@@ -207,6 +211,10 @@ export function TerminalSettleButton({
     });
     if (late) setError(null); // "no answer yet" is no longer true
     onStarted?.();
+    // Phase 2h · integration — a LATE start answers the `unknown` this attempt handed up at the
+    // bound (an on-time start never reported one). `started`, never `landed` (critic F2): the reader
+    // is ASKING for the card — nothing went through yet, so the pane must not say it did.
+    if (late) onSettleOutcome?.("started");
   }
 
   async function start() {

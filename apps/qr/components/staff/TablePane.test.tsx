@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PANE_QUERY, handoffStashKey, stashHandoff } from "@/lib/floor-pane";
 import { frozenBoardCopy } from "@/lib/staff-outage";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -2593,5 +2594,298 @@ describe("Phase 2h (9f) — every read the pane starts goes through ONE gate", (
     expect(document.getElementById("order-h")).not.toBeNull();
     expect(pane().textContent).not.toContain(ts("en", "floor.pane.fail.title"));
     vi.restoreAllMocks();
+  });
+});
+
+// ── Phase 2h · integration (sheets residual 3 · boards P1 · doors residual) ── a payment on Table 4
+// whose answer had not come at the bound, after the pane moved on: the unmounted detail hands the
+// pane its `unknown`, and the pane says "we don't know if the payment on Table 4 went through". When
+// the LATE answer then turns out OK, nothing used to retract that line — the cashier was told to
+// check before taking payment again on a table that was paid. The control now reports `landed`, the
+// unmounted detail forwards it, and the split retracts only THAT table's unknown (`lostAfterLanded`).
+describe("TablePane — a payment the pane said it did not know about LANDS late (Phase 2h · integration)", () => {
+  const settleable = (id: string, n: number) =>
+    detail(id, n, {
+      settleTotalCents: 4210,
+      settleTipBaseCents: 4000,
+      lines: [line(`l-${n}`, "Mohinga", false)],
+      send: {
+        sendable: 0,
+        staffAdded: 0,
+        togoDraft: 0,
+        inKitchen: true,
+        foodDraft: false,
+        counterDraft: 0,
+        counterSentPastGrace: false,
+      },
+    });
+  const tableN = (n: number) => tf("en", "floor.table", { id: String(n) });
+  const unknownOn = (n: number) => tf("en", "floor.pane.lostSettleUnknown", { x: tableN(n) });
+  const lostLine = () => pane().querySelector<HTMLElement>(".staff-pane-lost");
+  const landedLine = () => pane().querySelector<HTMLElement>(".staff-pane-landed");
+  const paidOn = (n: number) => tf("en", "floor.pane.landedSettle", { x: tableN(n) });
+  const viewBtn = () => within(lostLine()!).getByRole("button");
+  const paneSays = () =>
+    [...pane().querySelectorAll('[role="status"]')].map((r) => r.textContent).join(" | ");
+  const OK = { ok: true as const, orderId: "o-00a1b2c3", totalCents: 4210, tipCents: 0 };
+  /** A cash settle whose answer the case holds. */
+  function hungCash() {
+    let answer!: (v: unknown) => void;
+    settleCash.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    return (v: unknown) => answer(v);
+  }
+  async function takeCashOnShown() {
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    fireEvent.click(within(settleSection).getAllByRole("button")[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () => {
+      fireEvent.click(
+        within(dialog)
+          .getAllByRole("button")
+          .find((b) => b.textContent?.startsWith("Take $"))!,
+      );
+    });
+  }
+
+  it("cash on Table 4 still out at the bound after a switch: 'we don't know' — the LATE ok retracts it, and focus on its View lands on the pane's heading", async () => {
+    answers[A] = ok(settleable(A, 4));
+    answers[B] = ok(settleable(B, 7));
+    const answer = hungCash();
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCashOnShown();
+    await tap(card(B)); // Table 4's detail (and its sheet) unmount mid-settle
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    expect(lostLine()?.textContent).toContain(unknownOn(4));
+    expect(paneSays()).toContain(unknownOn(4));
+    act(() => viewBtn().focus());
+    await act(async () => answer(OK));
+    await tick(0);
+    // MUTATION (p2h-int-a/pane-landed-unwired · pane-landed-unpassed): the split never retracts (or
+    // the pane never hands the detail the hand-up) — "we don't know if the payment on Table 4 went
+    // through — view it before you take payment again" stands over a payment that was recorded; red.
+    expect(lostLine()).toBeNull();
+    expect(paneSays()).not.toContain(unknownOn(4));
+    // Critic F2 — ANSWERED, never silently gone: "The payment on Table 4 went through", shown in
+    // quiet ink with no View (nothing to check) and SAID through the one region the warning was.
+    // MUTATION (p2h-int-a/f2-landed-retracts-silently): the warning just vanishes; red.
+    expect(landedLine()?.textContent).toContain(paidOn(4));
+    expect(within(landedLine()!).queryByRole("button")).toBeNull();
+    expect(paneSays()).toContain(paidOn(4));
+    // Said by Table 7's detail region (it is mounted) — in quiet ink, never the loss's warn.
+    // MUTATION (p2h-int-a/f2-resolved-notice-warn): "went through" in warn ink, read as a loss; red.
+    const said = [...pane().querySelectorAll('[role="status"]')].find((r) =>
+      r.textContent?.includes(paidOn(4)),
+    )!;
+    expect(said.querySelector<HTMLElement>('span[style*="--t2"]')).not.toBeNull();
+    expect(document.querySelector<HTMLElement>(".staff-split")!.dataset.pane).toBe("open");
+    // MUTATION (p2h-int-a/retract-focus-dropped): the View under the finger unmounts and focus
+    // falls to <body>, unsaid; red.
+    expect(document.activeElement).toBe(paneHeading());
+  });
+
+  it("a reader START still out at the bound after a switch: 'we don't know' — its LATE start retracts it (the reader is collecting)", async () => {
+    terminalReady = true;
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    answers[A] = ok(settleable(A, 4));
+    let answer!: (v: unknown) => void;
+    settleCard.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const settleSection = document.getElementById("settle-h")!.closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(settleSection).getAllByRole("button").at(-1)!);
+    });
+    await tap(card(B));
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    expect(lostLine()?.textContent).toContain(unknownOn(4));
+    await act(async () => answer({ ok: true, paymentIntentId: "pi_late", totalCents: 4210 }));
+    await tick(0);
+    // MUTATION (p2h-int-a/reader-landed-unreported, at the wiring): the late start hands nothing
+    // up — "we don't know" stands beside a reader that is collecting the card; red.
+    expect(lostLine()).toBeNull();
+    // Critic F2 — a reader START is not a payment that went through: never "went through" (the
+    // reader is still asking for the card; the bar's reader chip carries it and alerts its outcome).
+    // MUTATION (p2h-int-a/f2-reader-start-landed · f2-detail-started-as-paid): the pane says "The
+    // payment on Table 4 went through" over a card nobody has tapped yet; red.
+    expect(landedLine()).toBeNull();
+    expect(paneSays()).not.toContain(paidOn(4));
+  });
+
+  it("a landing on Table 4 never retracts Table 7's unknown — focus on its View stays; Table 7's own landing retracts it, focus to the floor's heading", async () => {
+    answers[A] = ok(settleable(A, 4));
+    answers[B] = ok(settleable(B, 7));
+    const answer4 = hungCash();
+    const answer7 = hungCash();
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCashOnShown(); // Table 4's settle: out
+    await tap(card(B));
+    await tick(0);
+    await takeCashOnShown(); // Table 7's settle: out too (neither has reached the bound yet)
+    // Back closes the pane (the sheet's scrim stops a tap, not the browser's Back).
+    await act(async () => {
+      window.history.replaceState(null, "", "/staff?floor=1");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await tick(0);
+    expect(document.getElementById("order-h")).toBeNull(); // nothing picked: both details gone
+    await tick(STAFF_HANG_MS);
+    // Both reported unknown at their bound; the newer (Table 7's) is the one the pane holds.
+    expect(lostLine()?.textContent).toContain(unknownOn(7));
+    act(() => viewBtn().focus());
+    const view7 = viewBtn();
+    await act(async () => answer4(OK));
+    await tick(0);
+    // MUTATION (p2h-int-a/landed-clears-another-table, at the wiring): Table 4's landing retracts
+    // Table 7's line — Table 7's payment, which may not have gone through, goes unsaid; red.
+    expect(lostLine()?.textContent).toContain(unknownOn(7));
+    // MUTATION (p2h-int-a/retract-focus-yanks-a-standing-line): the line stood, yet focus is
+    // pulled off its View to a heading; red.
+    expect(document.activeElement).toBe(view7);
+    await act(async () => answer7({ ...OK, orderId: "o-77" }));
+    await tick(0);
+    expect(lostLine()).toBeNull();
+    // Critic F2 — answered: the one line is now "The payment on Table 7 went through" (still the
+    // line above the floor below 64em, `data-pane="lost"`), said through the pane's region.
+    expect(landedLine()?.textContent).toContain(paidOn(7));
+    expect(paneSays()).toContain(paidOn(7));
+    expect(document.querySelector<HTMLElement>(".staff-split")!.dataset.pane).toBe("lost");
+    // MUTATION (p2h-int-a/retract-focus-to-pane-heading-always): nothing picked, the pane's heading
+    // is the empty state's — focus lands there, away from the floor the line sat above; red.
+    expect(document.activeElement).toBe(document.getElementById("floor-h"));
+  });
+
+  it("a RESOLVED line goes on the next pick — it was said; nothing on it is left to check (critic F2)", async () => {
+    answers[A] = ok(settleable(A, 4));
+    answers[B] = ok(settleable(B, 7));
+    const answer = hungCash();
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await takeCashOnShown();
+    await tap(card(B));
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    await act(async () => answer(OK));
+    await tick(0);
+    expect(landedLine()?.textContent).toContain(paidOn(4));
+    // Back closes the pane (the line stands, said), then Table 7 is picked again — a pick of a table
+    // that is NOT the one the line is about.
+    await act(async () => {
+      window.history.replaceState(null, "", "/staff?floor=1");
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await tick(0);
+    expect(landedLine()?.textContent).toContain(paidOn(4));
+    await tap(card(B));
+    await tick(0);
+    // MUTATION (p2h-int-a/f2-select-keeps-resolved): "went through" rides above every
+    // table opened after — read as news on each visit; red.
+    expect(landedLine()).toBeNull();
+    expect(paneSays()).not.toContain(paidOn(4));
+  });
+});
+
+// ── Phase 2h · integration (critic F1) ── a LINE EDIT on Table 4 still out at the bound after the pane
+// moved on. Its detail is gone, so the pane says it — and it used to say "didn't save" (WRITE_WAITING
+// mapped to the refusal's kind), then never took that back when the change saved late.
+describe("TablePane — a line edit still out when the pane left its table (Phase 2h · integration, critic F1)", () => {
+  const tableN = (n: number) => tf("en", "floor.table", { id: String(n) });
+  const lostLine = () => pane().querySelector<HTMLElement>(".staff-pane-lost");
+  const landedLine = () => pane().querySelector<HTMLElement>(".staff-pane-landed");
+  const paneSays = () =>
+    [...pane().querySelectorAll('[role="status"]')].map((r) => r.textContent).join(" | ");
+  async function plusOnFourThenShowSeven() {
+    let answer!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    await act(async () => {
+      fireEvent.click(pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!);
+    });
+    await tap(card(B)); // Table 4's detail and its rows unmount with the write out
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    return (v: unknown) => answer(v);
+  }
+
+  it("past the bound the pane says 'no answer yet — it may still be saved', never 'didn't save'; the LATE ok answers it: 'saved'", async () => {
+    const answer = await plusOnFourThenShowSeven();
+    const waiting = tf("en", "floor.pane.lostWriteWaiting", { x: tableN(4) });
+    // MUTATION (p2h-int-a/f1-waiting-said-as-lost · f1-detail-waiting-as-write): "A change on
+    // Table 4 didn't save" over a change that may still save — the cashier taps + again; red.
+    expect(lostLine()?.textContent).toContain(waiting);
+    expect(lostLine()?.textContent).not.toContain(
+      tf("en", "floor.pane.lostWrite", { x: tableN(4) }),
+    );
+    expect(paneSays()).toContain(waiting);
+    await act(async () => answer({ ok: true }));
+    await tick(0);
+    // MUTATION (p2h-int-a/f1-dead-detail-saved-unforwarded · f2-pane-how-dropped): the late save
+    // reaches only the dead detail's state — "no answer yet" stands over a change that saved; red.
+    const saved = tf("en", "floor.pane.landedWrite", { x: tableN(4) });
+    expect(lostLine()).toBeNull();
+    expect(landedLine()?.textContent).toContain(saved);
+    expect(paneSays()).toContain(saved);
+  });
+
+  it("two rows out: the FIRST late ok keeps 'no answer yet' — only the last one answers it", async () => {
+    answers[A] = ok(
+      detail(A, 4, { lines: [line("l-4", "Mohinga"), line("l-4b", "Tea")], itemCount: 2 }),
+    );
+    let answer1!: (v: unknown) => void;
+    let answer2!: (v: unknown) => void;
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (answer1 = r)));
+    staffSetQty.mockReturnValueOnce(new Promise((r) => (answer2 = r)));
+    mount();
+    await tick(0);
+    await tap(card(A));
+    await tick(0);
+    const plus = () => pane().querySelectorAll<HTMLButtonElement>(".mms-stepper-btn");
+    await act(async () => {
+      fireEvent.click(plus()[1]!);
+    });
+    await act(async () => {
+      fireEvent.click(plus()[3]!);
+    });
+    expect(staffSetQty).toHaveBeenCalledTimes(2);
+    await tap(card(B));
+    await tick(0);
+    await tick(STAFF_HANG_MS);
+    const waiting = tf("en", "floor.pane.lostWriteWaiting", { x: tableN(4) });
+    expect(lostLine()?.textContent).toContain(waiting);
+    await act(async () => answer1({ ok: true }));
+    await tick(0);
+    // MUTATION (p2h-int-a/f1-saved-while-others-wait): the first row's late ok says "The change on
+    // Table 4 saved" while the other row's change is still out — it may yet fail; red.
+    expect(lostLine()?.textContent).toContain(waiting);
+    expect(landedLine()).toBeNull();
+    await act(async () => answer2({ ok: true }));
+    await tick(0);
+    expect(landedLine()?.textContent).toContain(
+      tf("en", "floor.pane.landedWrite", { x: tableN(4) }),
+    );
+  });
+
+  it("a LATE refusal says 'didn't save' — and its waiting edge never answers that as saved", async () => {
+    const answer = await plusOnFourThenShowSeven();
+    await act(async () => answer({ ok: false, error: "That line just changed." }));
+    await tick(0);
+    // MUTATION (p2h-int-a/f1-saved-on-any-edge): the edge after the refusal turns "didn't save"
+    // into "saved" — a dish change that never saved reads as done; red.
+    expect(lostLine()?.textContent).toContain(tf("en", "floor.pane.lostWrite", { x: tableN(4) }));
+    expect(landedLine()).toBeNull();
   });
 });

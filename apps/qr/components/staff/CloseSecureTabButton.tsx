@@ -6,6 +6,7 @@ import { Button, Card, type ButtonVariant } from "@mms/ui";
 import { sx } from "@/lib/staff-labels";
 import { openQuote, quoteDrift, reconcileQuote, type SettleQuote } from "@/lib/register-math";
 import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
+import type { SettleOutcome } from "@/lib/floor-pane";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
@@ -91,8 +92,10 @@ export function CloseSecureTabButton({
   readsStarted?: () => number;
   /** Phase 2d · review fixes — every refusal (`refused`: nothing recorded) or unknown outcome (the
    *  answer never came) of this control's settle, as it lands. The page says it where this control
-   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it. */
-  onSettleOutcome?: (outcome: "refused" | "unknown") => void;
+   *  cannot: once the detail unmounted mid-settle, this control's own line is gone with it.
+   *  Phase 2h · integration — and `landed`: a LATE charge answering the attempt this control
+   *  reported `unknown` at the bound, so the page can retract what it said off that unknown. */
+  onSettleOutcome?: (outcome: SettleOutcome) => void;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -264,6 +267,9 @@ export function CloseSecureTabButton({
         if (land(late.value, quoted, basis, true)) {
           inFlight.current = true;
           setCharged(true);
+          // Phase 2h · integration — the charge WENT: the answer to the `unknown` handed up at the
+          // bound, so the page may retract what it said off it.
+          onSettleOutcome?.("landed");
         }
       });
     } finally {

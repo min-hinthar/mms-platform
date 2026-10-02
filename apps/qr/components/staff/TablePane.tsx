@@ -20,10 +20,12 @@ import {
   dropHandoffStash,
   liveTwinOf,
   lostKey,
+  lostResolved,
   paneEscapeCloses,
   paneFailKeys,
   paneStatusSays,
   readHandoffStash,
+  type LateAnswer,
   type LostKind,
 } from "@/lib/floor-pane";
 import { tf } from "@/lib/i18n/fill";
@@ -104,6 +106,7 @@ export function TablePane({
   onClose,
   onSelect,
   onLostWrite,
+  onLostLanded,
 }: {
   paneRef: RefObject<HTMLElement | null>;
   hydrated: boolean;
@@ -118,6 +121,9 @@ export function TablePane({
   onClose: (reason: CloseReason) => void;
   onSelect: (id: string, hint: TableHint) => void;
   onLostWrite: (sessionId: string, hint: TableHint, kind: LostKind) => void;
+  /** Phase 2h · integration — a payment (or line edit) reported unknown by a detail that unmounted
+   *  LANDED late (`how`: recorded, the reader started, or saved). */
+  onLostLanded: (sessionId: string, how: LateAnswer) => void;
 }) {
   const lang = useStaffLang();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -451,7 +457,15 @@ export function TablePane({
                   sessionId={cur.id}
                   terminalReady={terminalReady}
                   focusSettle={settleOnce === cur.id}
-                  paneNotice={lostLine}
+                  paneNotice={
+                    // Phase 2h · integration (critic F2) — a RESOLVED line ("…went through") is said
+                    // in the detail's region too, in quiet ink: the region's warn is for losses.
+                    lostWrite && lostResolved(lostWrite.kind) ? (
+                      <span style={{ color: "var(--t2)" }}>{lostLine}</span>
+                    ) : (
+                      lostLine
+                    )
+                  }
                   onClosed={(sid, verdict) => {
                     if (!acceptPaneRead(sid, selectedNow())) return;
                     focusWasInPane.current =
@@ -468,6 +482,7 @@ export function TablePane({
                     });
                   }}
                   onLostWrite={onLostWrite}
+                  onLostLanded={onLostLanded}
                 />
                 <SettleConsumed when={settleOnce === cur.id} done={onSettleConsumed} />
               </TableNavProvider>
@@ -581,9 +596,20 @@ function LostWrite({
 }: {
   line: ReactNode;
   lang: StaffLang;
-  lw: { sessionId: string; hint: TableHint };
+  lw: { sessionId: string; hint: TableHint; kind: LostKind };
   onSelect: (id: string, hint: TableHint) => void;
 }) {
+  // Phase 2h · integration (critic F2) — a late ok ANSWERED the line ("The payment on Table 4 went
+  // through"): quiet ink and a check, and no "View" — nothing on it is left to check. A different
+  // element, so a "View" the person was on leaves with the warning (the split re-homes focus).
+  if (lostResolved(lw.kind)) {
+    return (
+      <div className="staff-pane-landed">
+        <Icon name="check" size={16} aria-hidden />
+        <span aria-hidden="true">{line}</span>
+      </div>
+    );
+  }
   const name = lw.hint.counter
     ? ts(lang, "floor.counter")
     : tf(lang, "floor.table", { id: lw.hint.display });
