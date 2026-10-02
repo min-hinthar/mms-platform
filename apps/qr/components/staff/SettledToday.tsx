@@ -18,6 +18,7 @@ import {
   announceHandBacks,
   handBackKey,
   handBackSubjects,
+  nextHandBackExpiryMs,
   owedHandBacksNow,
   refundSheetAfterAnswer,
   rememberHandBack,
@@ -283,6 +284,18 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
       }),
     [repeek],
   );
+
+  // Codex r1 on #311 (P1) — the list on screen is re-read at the moment its first entry ends its
+  // shift, WHEREVER that entry is held. A memory entry's own timer already told this zone (above);
+  // an entry read back from the record had nothing, so a zone left mounted went on saying a
+  // hand-back past its one-shift life. Quietly: a re-read takes no focus and closes no sheet
+  // (`refocusBanner` is untouched), exactly like a memory entry aging out.
+  useEffect(() => {
+    const due = nextHandBackExpiryMs(owedBack, Date.now());
+    if (due === null) return;
+    const t = setTimeout(repeek, due);
+    return () => clearTimeout(t);
+  }, [owedBack, repeek]);
 
   /** [Handed back]: forget THAT entry (record and memory), say what is left, and put focus on it —
    *  or on the zone's heading when nothing is left to say. */

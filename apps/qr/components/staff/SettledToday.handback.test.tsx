@@ -384,6 +384,39 @@ describe("Phase 2i — the cash hand-back is kept until [Handed back]", () => {
     expect(document.activeElement).toBe(answer);
   });
 
+  it("Codex r1 on #311 — a hand-back read back from the RECORD stops being said at its shift's end, with the zone still mounted", async () => {
+    // MUTATION (p2i-handback/record-expiry-unscheduled): only a MEMORY entry's end re-reads the list
+    // — a record entry (a reload, a duplicated tab, an answer written while the zone was away) goes
+    // on saying its instruction past its one-shift life, for as long as the zone stays up; red.
+    vi.useFakeTimers();
+    const T0 = 1_800_000_000_000;
+    vi.setSystemTime(T0);
+    const tick = (ms: number) =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    window.sessionStorage.setItem(
+      HAND_BACK_KEY,
+      JSON.stringify([
+        { lineId: "line-1", cents: 1105, name: "Mohinga", code: "AA0001", at: T0 - 60 * 60_000 },
+        { lineId: "line-2", cents: 250, name: "Laphet", code: "AA0001", at: T0, doc: "another" },
+      ]),
+    );
+    mount(order());
+    await tick(0);
+    expect(screen.getAllByRole("button", { name: /^Handed back/ })).toHaveLength(2);
+    await tick(HAND_BACK_TTL_MS - 60 * 60_000 - 1);
+    expect(screen.getAllByRole("button", { name: /^Handed back/ })).toHaveLength(2);
+    await tick(1); // Mohinga's shift ends
+    expect(screen.getByRole("status").textContent).toBe(checkFor("$2.50", "Laphet"));
+    expect(screen.getAllByRole("button", { name: /^Handed back/ })).toHaveLength(1);
+    // Quietly: nothing took focus.
+    expect(document.activeElement).toBe(document.body);
+    await tick(60 * 60_000); // and Laphet's
+    expect(screen.getByRole("status").textContent).toBe("");
+    expect(screen.queryByRole("button", { name: /^Handed back/ })).toBeNull();
+  });
+
   it("critic F7 — an answer whose figure is no hand-back (zero) is said nowhere, even where storage refuses", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("quota");

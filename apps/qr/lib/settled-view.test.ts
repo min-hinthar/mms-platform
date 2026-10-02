@@ -22,6 +22,7 @@ import {
   ackHandBack,
   announceHandBacks,
   handBackSubjects,
+  nextHandBackExpiryMs,
   owedHandBacks,
   owedHandBacksNow,
   peekHandBacks,
@@ -503,6 +504,33 @@ describe("rememberHandBack / peekHandBacks / ackHandBack — Phase 2i (D5): a ca
     // MUTATION (p2i-handback/unkept-said-twice): the same line said from both sources; red.
     expect(owedHandBacks([a, b], [b2])).toEqual([a, b]);
     expect(owedHandBacks([], [])).toEqual([]);
+  });
+});
+
+describe("nextHandBackExpiryMs — Codex r1 on #311: when a shown list must be re-read", () => {
+  const at = (lineId: string, t: number): HandBack => ({
+    lineId,
+    cents: 100,
+    name: "Mohinga",
+    code: "AA0001",
+    at: t,
+  });
+  const T = 1_800_000_000_000;
+  it("nothing shown → nothing to schedule", () => {
+    expect(nextHandBackExpiryMs([], T)).toBeNull();
+  });
+  it("the EARLIEST entry's end, whatever the list order", () => {
+    // MUTATION (p2i-handback/expiry-latest): scheduled for the newest entry — the older one is still
+    // said as an instruction for up to a shift past its own; red.
+    const list = [at("b", T - 1_000), at("a", T - 60 * 60_000)];
+    expect(nextHandBackExpiryMs(list, T)).toBe(HAND_BACK_TTL_MS - 60 * 60_000);
+  });
+  it("an entry already past its shift → 0 (re-read now); a clock stepped back → never past one shift", () => {
+    expect(nextHandBackExpiryMs([at("a", T - HAND_BACK_TTL_MS - 5)], T)).toBe(0);
+    // MUTATION (p2i-handback/expiry-unclamped): an entry dated a month ahead (a clock corrected
+    // backwards) asks for a delay past setTimeout's 2^31−1 ms, which the browser fires AT ONCE —
+    // a re-read loop on every render; red.
+    expect(nextHandBackExpiryMs([at("a", T + 30 * 24 * 60 * 60_000)], T)).toBe(HAND_BACK_TTL_MS);
   });
 });
 

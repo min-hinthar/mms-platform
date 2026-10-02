@@ -266,6 +266,21 @@ function fresh(h: HandBack, now: number): boolean {
 }
 
 /**
+ * Milliseconds from `now` until the first of `list` ages out — when anything SHOWING the list must
+ * re-read it (null: nothing to wait for). Codex r1 on #311 (P1): memory entries had their own expiry
+ * timer, but an entry read back from the RECORD (a reload, a duplicated tab, an answer written while
+ * the zone was away) had none, so a zone left mounted went on saying it past its one-shift life. Both
+ * now ride this one figure. Clamped to [0, HAND_BACK_TTL_MS]: an entry dated ahead of the clock (the
+ * device's clock corrected backwards) would otherwise ask for a delay past setTimeout's 2^31−1 ms,
+ * which a browser fires at once — a re-read on every render.
+ */
+export function nextHandBackExpiryMs(list: readonly HandBack[], now: number): number | null {
+  if (list.length === 0) return null;
+  const due = Math.min(...list.map((h) => h.at)) + HAND_BACK_TTL_MS - now;
+  return Math.min(Math.max(0, due), HAND_BACK_TTL_MS);
+}
+
+/**
  * Phase 2h wrote `{ lineId, cents }` only. A tab holding one is exactly the tab the 2i rollout
  * reloads (D9), so such an entry is read as owed — with no dish or receipt (`name: ""`, said by
  * `handBackKey`'s dish-less sentence) and dated by the FIRST read that sees it, which writes it
@@ -357,14 +372,13 @@ function syncMemory(now: number): void {
       subject: "handBack",
       survives: false,
     });
-  const due = Math.min(...memory.map((h) => h.at)) + HAND_BACK_TTL_MS - now;
   expiry = setTimeout(
     () => {
       expiry = null;
       syncMemory(Date.now());
       tell("expired");
     },
-    Math.max(0, due),
+    nextHandBackExpiryMs(memory, now) ?? 0,
   );
 }
 
