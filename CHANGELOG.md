@@ -55,6 +55,11 @@ No money logic, no authority write, no migration.
   on `/` (D8 lights nothing); the cart-wins precedence (the header's pill carries the live order on
   /menu and /grocery — `AppHeader.tsx:41`). Filed: J26 (the "Leave this table" re-publish race,
   pre-existing) · J27 (the two door vocabularies; bare `/menu` in scango mode).
+- **Codex round 1 on 3b (two P2, one class, both verified and fixed):** a drain-then-push whose
+  `finally` fired after the diner had already left by another door — the Order tab's push (this bar
+  never unmounts: the push is now valid only while the route it was tapped on is still the route;
+  mutant `diner-tabs/stale-drain-push-yanks-the-diner`), the market's Check out (unmounted means void),
+  and the same W21 shape in `CartBar` since #191 (an `alive` ref; pinned in `CartBar.test.tsx`).
 - **Filed, re-lettered (`docs/PHASE3_JOURNEYS.md`):** 3c dine-in in two PRs (the Checkout half, then
   the table at Send) · 3d staff (the kitchen's pass at two distances; the counter's receipt stack) ·
   3e to-go + account (the Who/When slip, reward terms from config) · 3f the craft coherence pass;

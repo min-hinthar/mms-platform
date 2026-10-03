@@ -20,10 +20,10 @@ type Ctx = {
   settled: () => Promise<void>;
   items: CartItem[];
 };
-const ctx = vi.hoisted(() => ({ current: {} as Ctx }));
+const ctx = vi.hoisted(() => ({ current: {} as Ctx, push: vi.fn() }));
 vi.mock("@/components/TableCartProvider", () => ({ useCart: () => ctx.current }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ prefetch: () => {}, push: () => {} }) }));
-vi.mock("./nav/TransitionNav", () => ({ useJourneyRouter: () => ({ push: () => {} }) }));
+vi.mock("./nav/TransitionNav", () => ({ useJourneyRouter: () => ({ push: ctx.push }) }));
 
 const TOTALS: CartTotals = {
   subtotalCents: 1200,
@@ -94,5 +94,32 @@ describe("CartBar — the entrance belongs to the first CONFIRMED appearance", (
 
     render(<CartBar />);
     expect(sprung()).toBe(false);
+  });
+});
+
+describe("CartBar — W21's drain, cancelled by an unmount (Codex round 1 on 3b)", () => {
+  it("a tap whose drain is still pending when the bar unmounts (the diner left by another door) never pushes", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    ctx.push.mockReset();
+    ctx.current = { ...CONFIRMED, settled: () => pending };
+    const CartBar = await freshCartBar();
+    const { unmount } = render(<CartBar />);
+    document.querySelector("button")!.click();
+    unmount(); // the Menu tab, the header brand, Back — any navigation away while the write drains
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.push).not.toHaveBeenCalled();
+  });
+  it("…and an ordinary tap still pushes once the drain resolves", async () => {
+    ctx.push.mockReset();
+    ctx.current = CONFIRMED;
+    const CartBar = await freshCartBar();
+    render(<CartBar />);
+    document.querySelector("button")!.click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.push).toHaveBeenCalledWith("/cart?cart=cart-1");
   });
 });

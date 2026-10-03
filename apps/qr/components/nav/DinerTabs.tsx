@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Icon, type IconName } from "@mms/ui";
@@ -58,6 +58,14 @@ export function DinerTabs() {
   // (resolves at once where nothing is pending — the ordinary tap stays instant), then the journey
   // pushes. One navigation at a time while the drain runs; `aria-busy` narrates the rare beat.
   const [leaving, setLeaving] = useState(false);
+  // Where the diner is NOW, for the drain's continuation: this bar never unmounts, so a push queued
+  // behind a slow write would otherwise fire after the diner had already tapped Account, the header
+  // or Back — and yank them to the checkout (Codex round 1 on 3b). The push is valid only while the
+  // route it was tapped on is still the route.
+  const hereRef = useRef(here);
+  useEffect(() => {
+    hereRef.current = here;
+  }, [here]);
   // /account is the one diner route with no other subscriber to the live order (the header's pill
   // is off there), so this bar reads the status itself there — and retires a finished order.
   const { isDone } = useActiveOrderStatus(!hidden && pathname === "/account");
@@ -138,9 +146,11 @@ export function DinerTabs() {
                     e.preventDefault(); // the push below is the navigation
                     if (leaving) return;
                     setLeaving(true);
+                    const startedAt = here;
                     void drain().finally(() => {
                       setLeaving(false);
-                      journey.push(t.href);
+                      // A competing navigation during the drain wins: the queued push is dropped.
+                      if (hereRef.current === startedAt) journey.push(t.href);
                     });
                   }
                 : undefined

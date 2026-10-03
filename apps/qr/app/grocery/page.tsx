@@ -900,7 +900,9 @@ export default function Grocery() {
     leavingRef.current = true;
     void ledger.settled().finally(() => {
       leavingRef.current = false;
-      journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+      // The shopper may have taken the Menu or Account tab while the write drained: this page is then
+      // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b).
+      if (mountedRef.current) journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
     });
   }, [cartId, itemCount, lines.length, totalCents, journey, ledger]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.

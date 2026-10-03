@@ -169,6 +169,26 @@ describe("DinerTabs", () => {
       "/track?payment_intent=pi_1&redirect_status=succeeded&resume=1",
     );
   });
+  it("a competing navigation during the drain CANCELS the queued push — the diner is never yanked back (Codex round 1 on 3b)", async () => {
+    let release!: () => void;
+    drain.mockReturnValue(
+      new Promise<void>((r) => {
+        release = r;
+      }),
+    );
+    const { rerender } = render(<DinerTabs />);
+    fireEvent.click(screen.getByRole("link", { name: "Order — 2 items" }));
+    expect(drain).toHaveBeenCalledTimes(1);
+    // The diner taps Account (or the header, or Back) while the write still drains: the route moves.
+    pathname = "/account";
+    rerender(<DinerTabs />);
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(push).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("link", { name: "Order — 2 items" }).getAttribute("aria-busy"),
+    ).toBeNull();
+  });
   it("a modified click on the Order tab is the link it is — no drain, no push", () => {
     render(<DinerTabs />);
     const order = screen.getByRole("link", { name: "Order — 2 items" });

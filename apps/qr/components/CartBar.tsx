@@ -29,6 +29,17 @@ export function CartBar() {
   const { count, totals, cartId, settled, items } = useCart();
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
+  // Codex round 1 on 3b (#312) — the drain's continuation outlives this bar: a diner who taps "View
+  // order" and then leaves by another door (the Menu tab, the brand, Back) while a write still drains
+  // was yanked to the checkout when `settled()` resolved. Unmounted means the tap is void. Set in the
+  // effect BODY (StrictMode's simulated remount keeps the ref), cleared on unmount.
+  const alive = useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
   // the flag is already set renders without the entrance class.
   const [springIn] = useState(() => !cartBarSprung);
@@ -81,6 +92,7 @@ export function CartBar() {
         if (leaving) return;
         setLeaving(true);
         void settled().finally(() => {
+          if (!alive.current) return; // the bar is gone — the diner already left another way
           setLeaving(false);
           journey.push(href);
         });

@@ -24548,8 +24548,17 @@ const MUTANTS = [
     file: "apps/qr/components/nav/DinerTabs.tsx",
     suite: "components/nav/DinerTabs.test.tsx",
     why: "Codex round 3 on #312, P1 \u2014 CartBar's W21 rule on the one other door to /cart. The optimistic count shows the tab's badge while an add may still be in flight; navigating before the cart provider's lent `settled()` barrier resolves lets /cart's first read miss the item, or its create-intent lock refuse the write the toast just announced",
-    find: "                    void drain().finally(() => {\n                      setLeaving(false);\n                      journey.push(t.href);\n                    });",
-    replace: "                    setLeaving(false);\n                    journey.push(t.href);",
+    find: "                    void drain().finally(() => {\n                      setLeaving(false);\n                      // A competing navigation during the drain wins: the queued push is dropped.\n                      if (hereRef.current === startedAt) journey.push(t.href);\n                    });",
+    replace:
+      "                    setLeaving(false);\n                    if (hereRef.current === startedAt) journey.push(t.href);",
+  },
+  {
+    id: "diner-tabs/stale-drain-push-yanks-the-diner",
+    file: "apps/qr/components/nav/DinerTabs.tsx",
+    suite: "components/nav/DinerTabs.test.tsx",
+    why: "Codex round 1 on 3b (#312), P2 \u2014 this bar never unmounts, so a push queued behind a slow write fires after the diner has already tapped Account, the header or Back, and yanks them to the checkout. The push is valid only while the route it was tapped on is still the route",
+    find: "                      if (hereRef.current === startedAt) journey.push(t.href);",
+    replace: "                      journey.push(t.href);",
   },
 ];
 
