@@ -54,6 +54,24 @@ vi.mock("@/components/AccountFavorites", () => ({ AccountFavorites: slot("favori
 vi.mock("@/components/SoundToggle", () => ({ SoundToggle: slot("sound") }));
 vi.mock("@/components/PaperAmbient", () => ({ PaperAmbient: () => null }));
 vi.mock("@/components/MergeRedeemer", () => ({ MergeRedeemer: () => null }));
+vi.mock("@/components/AccountHelp", () => ({ AccountHelp: slot("help") }));
+// Phase 3a — the hub's tabs are client state over panels the SERVER renders in order; the stub
+// renders every panel in that order, which is exactly what the document-order assertions read.
+vi.mock("@/components/AccountHub", () => ({
+  AccountHub: ({
+    initial,
+    panels,
+  }: {
+    initial: string;
+    panels: Record<string, React.ReactNode>;
+  }) => (
+    <div data-panel={initial}>
+      {panels.orders}
+      {panels.rewards}
+      {panels.you}
+    </div>
+  ),
+}));
 vi.mock("@/components/nav/TransitionNav", () => ({
   TransitionLink: ({ href, children }: { href: string; children?: React.ReactNode }) => (
     <a href={href}>{children}</a>
@@ -64,6 +82,9 @@ vi.mock("@mms/ui", () => ({
 }));
 
 const { default: Account } = await import("./page");
+const params = (p: { tab?: string; resume?: string } = {}) => ({
+  searchParams: Promise.resolve(p),
+});
 
 const GUEST = {
   isUpgraded: false,
@@ -80,8 +101,8 @@ const GUEST = {
 const LIVE = [{ id: "o1" }];
 
 /** The page's content slots in document order; the W9c banner reads as "alert". */
-async function slots() {
-  const { container } = render(await Account());
+async function slots(p: { tab?: string; resume?: string } = {}) {
+  const { container } = render(await Account(params(p)));
   return [...container.querySelectorAll("[data-s], [role='alert']")].map(
     (el) => el.getAttribute("data-s") ?? "alert",
   );
@@ -103,17 +124,39 @@ afterEach(() => {
 });
 
 describe("/account — the order is the design", () => {
-  it("a healthy guest: now → you → what you own → the record → reference → settings", async () => {
-    // RED when history and details swap, or when sound moves.
+  it("a healthy guest: Orders (now → the record → hearts) · Rewards (summary → reference) · You (identity → settings → help)", async () => {
+    // RED when a card changes panel, or when the panels change order.
     expect(await slots()).toEqual([
       "live",
-      "identity",
-      "summary",
       "history",
       "favorites",
+      "summary",
       "details",
+      "identity",
       "sound",
+      "help",
     ]);
+  });
+
+  it("Phase 3a — opens on Orders by default, on the named panel, and on You for a lend-mode resume", async () => {
+    const panel = async (p: { tab?: string; resume?: string }) =>
+      render(await Account(params(p)))
+        .container.querySelector("[data-panel]")
+        ?.getAttribute("data-panel");
+    expect(await panel({})).toBe("orders");
+    cleanup();
+    expect(await panel({ tab: "rewards" })).toBe("rewards");
+    cleanup();
+    expect(await panel({ resume: "min@example.com" })).toBe("you");
+  });
+
+  it("Phase 3a — a guest gets the one-line save door on Orders; a member does not", async () => {
+    const { container } = render(await Account(params()));
+    expect(container.querySelector(".account-save-line")).not.toBeNull();
+    cleanup();
+    h.getRewardsState.mockResolvedValue({ ...GUEST, isUpgraded: true });
+    const member = render(await Account(params()));
+    expect(member.container.querySelector(".account-save-line")).toBeNull();
   });
 
   it("the healthy guest's chooser note is fed the real Stars (the live count comes from the client list)", async () => {
@@ -145,7 +188,15 @@ describe("W9c — a failed rewards read costs the Stars panel, never the history
   it("a GUEST still gets the save door after the alert — count-free, with the count-free note", async () => {
     h.getRewardsState.mockResolvedValue(null);
     h.getSessionKind.mockResolvedValue("anon");
-    expect(await slots()).toEqual(["live", "alert", "identity", "history", "favorites", "sound"]);
+    expect(await slots()).toEqual([
+      "live",
+      "alert",
+      "history",
+      "favorites",
+      "identity",
+      "sound",
+      "help",
+    ]);
     expect(h.upgradeProps).toHaveLength(1);
     expect(h.upgradeProps[0]?.stars).toBe(0);
     // Count-free: the failed read cannot claim a number of Stars.
@@ -155,13 +206,13 @@ describe("W9c — a failed rewards read costs the Stars panel, never the history
   it("a signed-in diner on the failed branch gets no identity card, as before", async () => {
     h.getRewardsState.mockResolvedValue(null);
     h.getSessionKind.mockResolvedValue("diner");
-    expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound"]);
+    expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound", "help"]);
   });
 
   it("a failed 'who is this?' resolves to no card — the page never throws", async () => {
     // RED when the await is unguarded (the page throws and the diner loses their receipts too).
     h.getRewardsState.mockResolvedValue(null);
     h.getSessionKind.mockRejectedValue(new Error("staff lookup failed"));
-    expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound"]);
+    expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound", "help"]);
   });
 });

@@ -61,15 +61,15 @@ const prompt = (o: Partial<{ receiptEmail: boolean }> = {}) => {
 const cta = () => screen.getByText("Save to an account").closest("a") as HTMLAnchorElement;
 
 describe("the save card — a door, not a second flow", () => {
-  it("the CTA is a SECONDARY link to /account", () => {
+  it("the CTA is a SECONDARY link to /account — the You panel, where the door is", () => {
     // RED when the variant flips to primary (a filled pill out-ranking status and proof) or the
     // href changes.
     render(prompt().ui);
-    expect(cta().getAttribute("href")).toBe("/account");
+    expect(cta().getAttribute("href")).toBe("/account?tab=you");
     expect(cta().classList.contains("ui-btn-secondary")).toBe(true);
     expect(cta().classList.contains("ui-btn-primary")).toBe(false);
     fireEvent.click(cta());
-    expect(h.navigate).toHaveBeenCalledWith("/account");
+    expect(h.navigate).toHaveBeenCalledWith("/account?tab=you");
   });
 
   it("adds no live region to /track", () => {

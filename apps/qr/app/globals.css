@@ -3512,6 +3512,63 @@ html[data-fx="off"] .pa-mid {
 
 /* Masthead — an editorial kicker + display title + a gold hairline that fades to nothing (a more refined
    rule than a flat line), setting the premium tone above the rich reward cards. */
+/* ── Phase 3a (D4) · the account hub's tabs ──────────────────────────────────────────────────────
+   Orders · Rewards · You (components/AccountHub.tsx; the panel decision in lib/account-hub.ts). The
+   menu's category-chip vocabulary (`.menu-tab`): the selected tab wears the lit-gold cap, the others
+   the vellum ghost. Three equal columns so the row never scrolls; 44px targets. */
+.account-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+}
+.account-tab {
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--t2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.account-tab-on {
+  background: var(--ac);
+  color: var(--oa);
+  border-color: var(--ac);
+  box-shadow: var(--sh-lift);
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-tab {
+    transition: none;
+  }
+}
+.account-panel:focus {
+  outline: none;
+}
+/* The guest's one-line save door on the Orders panel (the full card is on You). */
+.account-save-line {
+  margin: 0 0 var(--s4);
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+/* "Order again" on a history row — outside the receipt's <details>, right-aligned under it. */
+.history-again {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 var(--s2);
+  padding: 0 4px;
+  font-size: var(--fs-sm);
+}
+
 .account-masthead-rule {
   height: 1px;
   margin-top: var(--s1);
@@ -7643,6 +7700,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
   border-color: transparent;
@@ -10377,6 +10435,34 @@ html[data-fx="lite"] .mms-scrim {
    shared lit-cap rule above the KDS block — these five used to carry five inline `*On` objects
    (two accent fills, a 10% tint, a ring-and-wash, a partial cap), and an INLINE fill beats any
    class, so the rest declarations had to move here for the one rule to reach them at all. */
+/* ── Phase 3a (D5) · the counter home's zone strip ─────────────────────────────────────────────
+   A sticky row of chips under the staff bar (components/staff/CounterZoneStrip.tsx), one native
+   anchor per zone heading. Sits on --staff-bar-h (StaffBarNet's one publisher) so it rides the bar's
+   real height; opaque on the console ground so the zones scroll UNDER it; one plane below the bar
+   so the bar's rows (reader chip · new version · offline) still cover it. The lit chip is the shared
+   lit-gold cap (the `.staff-chip[aria-pressed]` rule above carries `[aria-current="location"]`). */
+.staff-zone-strip {
+  position: sticky;
+  top: var(--staff-bar-h, 76px);
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s5)) var(--s4);
+  padding: var(--s2) var(--s5);
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+}
+.staff-zone-strip::-webkit-scrollbar {
+  display: none;
+}
+.staff-zone-chip {
+  flex: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .staff-chip {
   display: inline-flex;
   align-items: center;

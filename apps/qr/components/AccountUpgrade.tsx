@@ -75,6 +75,11 @@ export function AccountUpgrade({
   // identity_already_exists path). `codeMode` then drives the verifyOtp type: an `email_change` upgrade
   // keeps this anon uid (Stars carry over); an `email` sign-in switches to the existing account.
   const [emailTaken, setEmailTaken] = useState(false);
+  // Phase 3a (D4) — the card's INTENT. A returning diner on a new phone had no visible "Sign in":
+  // the only door was headed "Save your Stars". `signin` re-words the card and sends the typed email
+  // straight down the sign-in path (`sendSignInCode`, the same recovery an already-registered
+  // address reaches after a failed save) — one press instead of two. The mechanics are unchanged.
+  const [intent, setIntent] = useState<"save" | "signin">("save");
   const [codeMode, setCodeMode] = useState<"email_change" | "email">("email_change");
   // K7: the email currently mid re-auth from a "Welcome back" chip / a `?resume=` return — shows a spinner on
   // that chip and drives the code-step label.
@@ -488,8 +493,8 @@ export function AccountUpgrade({
     setError(null);
     const supa = browserClient();
 
-    if (emailTaken) {
-      // RECOVERY: the diner TYPED an address that belongs to another account, so SIGN IN to it (updateUser
+    if (emailTaken || intent === "signin") {
+      // RECOVERY (or the stated intent): the diner TYPED an address that belongs to another account, so SIGN IN to it (updateUser
       // would just re-fail email_exists). This is a genuine guest saving their OWN Stars into a pre-existing
       // account → `bringStars: true` mints the K3b merge token so /account's MergeRedeemer carries this
       // device's Stars over. (A remembered-CHIP switch takes the `false` path instead — see selectIdentity.)
@@ -578,16 +583,22 @@ export function AccountUpgrade({
   return (
     <Card as="section" textured style={card} aria-labelledby="upgrade-h">
       <p className="eyebrow" style={{ margin: "0 0 6px" }}>
-        <span aria-hidden>✦ </span>Save your Stars
+        <span aria-hidden>✦ </span>
+        {intent === "signin" ? "Sign in" : "Save your Stars"}
       </p>
       <h2 id="upgrade-h" style={h2}>
-        Keep your rewards
+        {intent === "signin" ? "Welcome back" : "Keep your rewards"}
       </h2>
       {/* Name the stakes honestly (the confusion this fixes: seeing your Stars + a "save them" pitch reads
           as a contradiction unless it's clear they're DEVICE-BOUND and could be lost). Lead with the real
           count when there is one. */}
       <p style={sub}>
-        {stars > 0 ? (
+        {intent === "signin" ? (
+          <>
+            Enter the email on your Morning Star account, or continue with Google — your Stars and
+            past orders are there waiting.
+          </>
+        ) : stars > 0 ? (
           <>
             You’ve earned{" "}
             <strong>
@@ -603,6 +614,25 @@ export function AccountUpgrade({
           </>
         )}
       </p>
+
+      {/* Phase 3a — the intent switch, in words a returning diner reads before typing. Idle step only:
+          the code step belongs to whichever door sent the code. */}
+      {phase === "idle" && (
+        <button
+          type="button"
+          className="nav-link"
+          style={intentBtn}
+          onClick={() => {
+            setIntent(intent === "signin" ? "save" : "signin");
+            setError(null);
+            setEmailTaken(false);
+          }}
+        >
+          {intent === "signin"
+            ? "New here? Save this phone’s Stars instead"
+            : "Already have an account? Sign in"}
+        </button>
+      )}
 
       {/* K7: remembered-identity chips for a one-tap (merge-suppressed) return — renders null for a
           first-time guest with no history. Only on the idle step (the code step is mid-sign-in). */}
@@ -647,7 +677,11 @@ export function AccountUpgrade({
             style={primaryBtn}
           >
             <span style={ctaLabel}>
-              {busy ? "Sending…" : emailTaken ? "Send sign-in code" : "Email me a code"}
+              {busy
+                ? "Sending…"
+                : emailTaken || intent === "signin"
+                  ? "Send sign-in code"
+                  : "Email me a code"}
             </span>
           </button>
         </form>
@@ -797,6 +831,19 @@ export function AccountUpgrade({
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   padding: "var(--s5)",
+};
+const intentBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 44,
+  margin: "0 0 var(--s2)",
+  padding: 0,
+  border: 0,
+  background: "none",
+  font: "inherit",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--ac-strong)",
+  cursor: "pointer",
 };
 const h2: CSSProperties = {
   margin: "0 0 6px",
