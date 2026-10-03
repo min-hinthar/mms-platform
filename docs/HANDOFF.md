@@ -18,9 +18,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > a navigation STARTING, not committing — `lib/nav-epoch.ts`; the same window in the market's checkout;
 > the stored cart pointer bound to its door — `cartForDoor`) is fixed and answered** (the CHANGELOG
 > bullet is the list), then **round 3 (one P2: the route's own door is now remembered, not read
-> transiently) fixed on sight**. The per-head check needs its verdict on the round-3 head — WAIT for
-> "Codex has reviewed" it; from here findings are fix-on-sight or file to OPEN-ITEMS, then the merge is
-> the owner's go. After
+> transiently) fixed on sight**. ⚠️ **Codex's review credits ran out AGAIN on the round-3 head
+> (`2b7aa46`, 07:15 UTC — its own comment on #312 says so), so `codex-review` is red for want of a
+> reviewer, not a finding, and stays red until the owner adds credits and `@codex review` is re-asked.**
+> Every thread is answered and CI proper is green; the merge is the owner's click (the gate is not yet
+> in branch protection — C16). If credits return first: ask, WAIT for "Codex has reviewed" the head,
+> fix-on-sight or file to OPEN-ITEMS, then the owner's go. After
 > the merge: fetch `origin/main`, re-point the designated branch at it (`git checkout -B … origin/main`)
 > and start the next slice (3c-i) from there — the ritual in `docs/WORKFLOW.md`.
 >
