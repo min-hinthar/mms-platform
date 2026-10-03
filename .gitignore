@@ -27,3 +27,7 @@ apps/qr/public/sw.js.map
 
 # Adversarial-audit bundle (scripts/review-bundle.mjs) — regenerated on demand, never committed
 .review-bundle/
+
+# Agent worktrees (the Agent/Workflow tools check out branches here; their .test.ts files would
+# otherwise read as orphans to the local mirror of the orphan-suite guard).
+.claude/worktrees/

@@ -2,6 +2,7 @@
 import { useCallback, useEffect, type ComponentProps } from "react";
 import { usePathname } from "next/navigation";
 import { Link as VTLink, useTransitionRouter } from "next-view-transitions";
+import { navEpoch } from "@/lib/nav-epoch";
 
 /**
  * J1 continuity engine — the app's ONE navigation grammar (docs/JOURNEY_PLAN.md).
@@ -72,6 +73,8 @@ export function TransitionLink(props: ComponentProps<typeof VTLink>) {
         // unstamped transition source (the popstate handler restamps, but keep the invariant tight).
         if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
           stampDir(directionBetween(pathname, pathnameOf(String(href))));
+          // A navigation is STARTING (Codex round 2 on 3b): any push a drain has queued is now stale.
+          navEpoch.bump();
         }
         onClick?.(e);
       }}
@@ -87,6 +90,7 @@ export function useJourneyRouter() {
   const push = useCallback(
     (href: string) => {
       stampDir(directionBetween(pathname, pathnameOf(href)));
+      navEpoch.bump(); // a navigation is STARTING — before the router is asked (Codex round 2 on 3b)
       // Same-pathname → replace, mirroring TransitionLink: never stack a duplicate history entry
       // (the popstate-hang class — see the comment there).
       if (pathnameOf(href) === pathname) router.replace(href);
@@ -104,7 +108,10 @@ export function useJourneyRouter() {
  */
 export function NavDirectionSync() {
   useEffect(() => {
-    const onPop = () => stampDir("back");
+    const onPop = () => {
+      stampDir("back");
+      navEpoch.bump(); // Back is a navigation starting, too (Codex round 2 on 3b)
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);

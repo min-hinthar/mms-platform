@@ -8,6 +8,8 @@ import posthog from "posthog-js";
 // The doors are the front door of the house — a first impression, not a utility switch — so they carry
 // the menu's card language + a real Burmese line each (the app is bilingual everywhere). To-go's
 // now-vs-scheduled choice moved to checkout (W5e); the door no longer forks it up front.
+// Phase 3b (D9) — the face is EXPORTED: the DoorSheet ("Change order type") draws the same three
+// doors as rows, so the home and the sheet share one face as they share one table (`lib/doors.ts`).
 
 const tileStyle: CSSProperties = {
   display: "grid",
@@ -22,18 +24,27 @@ const tileStyle: CSSProperties = {
 
 /** The card interior shared by every door. `my` is the Burmese companion to the English name
  *  (lang="my" Padauk for correct SR pronunciation per WCAG 3.1.2 — the same bilingual idiom as the
- *  menu item rows). */
-function DoorFace({
+ *  menu item rows).
+ *
+ *  `current` (Phase 3b) — the face on the door the diner is ALREADY in, inside the sheet: it sits on
+ *  the lit-gold cap (`.door-sheet-current`, the `.checkout-pill-on` rule), so every ink inherits the
+ *  cap's `--oa` instead of painting `--t2`/`--ac` onto an accent fill (the ink follows the FILL —
+ *  DESIGN-LANGUAGE §2), and the chevron is dropped: a "there is more here" arrow on a row that goes
+ *  nowhere is a promise the row cannot keep. */
+export function DoorFace({
   emoji,
   name,
   my,
   description,
+  current = false,
 }: {
   emoji: string;
   name: string;
   my?: string;
   description: string;
+  current?: boolean;
 }) {
+  const ink = current ? "inherit" : "var(--t2)";
   return (
     <>
       <span aria-hidden className="door-tile" style={tileStyle}>
@@ -50,7 +61,7 @@ function DoorFace({
                 style={{
                   fontFamily: "var(--font-my)",
                   fontWeight: "var(--fw-semibold)",
-                  color: "var(--t2)",
+                  color: ink,
                 }}
               >
                 {my}
@@ -59,18 +70,20 @@ function DoorFace({
           ) : null}
         </b>
         <br />
-        <small style={{ color: "var(--t2)" }}>{description}</small>
+        <small style={{ color: ink }}>{description}</small>
       </span>
       {/* R1 — the three class hooks (`door-tile` · `door-body` · `door-arrow`) are what lets the
           tablet tier re-stack this row into a tile (emoji, then the words, the arrow at the foot)
           in CSS alone; on a phone they style nothing. */}
-      <span
-        aria-hidden
-        className="door-arrow"
-        style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
-      >
-        ›
-      </span>
+      {current ? null : (
+        <span
+          aria-hidden
+          className="door-arrow"
+          style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
+        >
+          ›
+        </span>
+      )}
     </>
   );
 }

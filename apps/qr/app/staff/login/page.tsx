@@ -13,6 +13,7 @@ import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { StaffLangSection, StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { readStaffLang } from "@/lib/staff-lang-server";
+import { readStaffDoor } from "@/lib/staff-door-server";
 
 export const metadata = { title: "Staff sign-in — Mandalay Morning Star" };
 
@@ -108,7 +109,10 @@ export default async function StaffLoginPage({
 
   // The signed-in state — the resolver's `me` arm carries the verified caller.
   const caller = state.caller;
-  const hasPin = await staffHasPin(caller.staffId);
+  // Phase 3a (D5) — the door, read only on the arm whose bar has an up-link (the form's bar is a
+  // static mark): a counter device returns to the counter in one tap, like Menu and Tips
+  // (Codex round 3 on #312 — the slice promised all three and wired two).
+  const [hasPin, door] = await Promise.all([staffHasPin(caller.staffId), readStaffDoor()]);
   // A6 — MANAGER and above see the roster. A server sees no zone rather than an "only managers"
   // dead end: on this screen there is nothing to explain — the card above is theirs.
   //
@@ -133,6 +137,12 @@ export default async function StaffLoginPage({
         titleNode={<span>{caller.displayName}</span>}
         after={<RoleBadge role={caller.role} />}
         lock={hasPin}
+        // Both arms literal (check:staff-lang rule 4d), as on Menu and Tips.
+        leading={
+          door === "counter"
+            ? { kind: "back", href: "/staff?floor=1", k: "floor.back" }
+            : { kind: "screens" }
+        }
       />
       <div className="staff-col entry-col">
         {/* ONE polite live region for the view (QA §A): the card and the roster each used to carry

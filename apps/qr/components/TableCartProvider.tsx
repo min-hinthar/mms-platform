@@ -13,6 +13,7 @@ import {
 import type { CartItem, CartTotals } from "@mms/db";
 import { Icon, Toast } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
+import { normalizePickupSlot } from "@/lib/pickup-slot";
 import {
   cartFreeze,
   classifyRefusedWrite,
@@ -51,12 +52,14 @@ import {
   type CartChange,
   type PresenceMember,
 } from "@/lib/realtime";
-import { PickupSlotSheet } from "./PickupSlotSheet";
 
 const NAME_KEY = "mms.name";
 
 type CartCtx = {
   cartId: string | null;
+  /** The door this provider was mounted for (dinein | pickup | scango) — the session's own, so the
+   *  wayfinding store can bind the published cart to it (Codex round 2 on 3b, #312). */
+  mode: string;
   loading: boolean;
   error: string | null;
   items: CartItem[];
@@ -149,9 +152,11 @@ type CartCtx = {
    *  A FUNCTION, not a value: the caller reads it in the same tick the refusal was published, before
    *  React has re-rendered, so state would still hold the previous value. */
   lastRefusalClause: () => string | null;
-  /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
+  /** Pickup mode only: the chosen slot (ISO instant), READ from the server view. Phase 3b · D10 —
+   *  this context carries no opener and mounts no picker: the When write has ONE owner,
+   *  `PickupWhenChoice` on /cart (token-gated, serialized, drained before create-intent). The menu's
+   *  greeting is a STATEMENT of this value, never a second writer of it. */
   pickupSlot: string | null;
-  openSlotSheet: () => void;
   /** Group cart (dine-in, M3·P3.1). `isGroup` gates presence/invite to dine-in (honesty: solo
    *  modes never show live presence). `members` is the live guest list; `me`/`role`/`joinCode`
    *  drive the guest list + invite sheet; `setName` renames the diner's own seat. */
@@ -244,7 +249,6 @@ export function TableCartProvider({
   });
   const cartId = session?.cartId ?? null;
   const isGroup = mode === "dinein";
-  const isPickup = mode === "pickup";
   const [items, setItems] = useState<CartItem[]>([]);
   const [totals, setTotals] = useState<CartTotals | null>(null);
   const [pickupSlot, setPickupSlot] = useState<string | null>(null);
@@ -256,7 +260,6 @@ export function TableCartProvider({
   // is the one that survives a thin read.
   const [mySeat, setMySeat] = useState<string | null>(null);
   const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
-  const [slotSheetOpen, setSlotSheetOpen] = useState(false);
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -398,7 +401,11 @@ export function TableCartProvider({
       if (!acceptView(viewSeqRef.current, seq)) return false;
       setItems(v.items);
       setTotals(v.totals);
-      setPickupSlot(v.pickupSlot);
+      // Phase 3b · D10 (blind pass, critical 1) — the ONE W19 reading: an ASAP snap (`pickup_slot` set
+      // for capacity, `fire_at` null) is NO slot. Checkout and app/cart already read the pair through
+      // `normalizePickupSlot`; reading the raw column here made the menu greeting say "Scheduled for
+      // <time>" for a time the diner never chose while /cart said ASAP for the same cart.
+      setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
       setLocked(v.locked);
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
@@ -501,10 +508,11 @@ export function TableCartProvider({
         // The duplicate was exactly the drift the helper's own comment warns about, and W9b needs one
         // place that also seeds the settle baseline.
         applyView(v, seq);
-        // W5e: no longer force-open the slot sheet at the menu. Pickup timing is now an explicit
-        // ASAP↔scheduled choice at CHECKOUT (ASAP is a first-class default — a null slot fires
-        // immediately at settlement), so a diner is never blocked behind "pick a time" before ordering.
-        // The slot sheet stays available on demand via `openSlotSheet` (e.g. a rail affordance).
+        // W5e: no slot sheet at the menu. Pickup timing is an explicit ASAP↔scheduled choice at
+        // CHECKOUT (ASAP is a first-class default — a null slot fires immediately at settlement), so
+        // a diner is never blocked behind "pick a time" before ordering. Phase 3b · D10 retired the
+        // on-demand opener too: the provider's own sheet mount wrote the pick into React state only,
+        // and the next view overwrote it — a thrown-away second writer. `pickupSlot` is read here.
       })
       .catch(() => {
         // Cart paid/closed between session mint and first load — leave the view empty (no throw).
@@ -1418,7 +1426,6 @@ export function TableCartProvider({
     [setItemQty, track],
   );
 
-  const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = Math.max(0, items.reduce((a, i) => a + i.qty, 0) + pendingDelta);
   /**
    * MEMOISED on primitives, because a fresh object here defeats the whole context memo below.
@@ -1558,6 +1565,7 @@ export function TableCartProvider({
   const ctxValue = useMemo(
     () => ({
       cartId,
+      mode,
       loading,
       error,
       items,
@@ -1571,7 +1579,6 @@ export function TableCartProvider({
       announce: flash,
       lastRefusalClause,
       pickupSlot,
-      openSlotSheet,
       isGroup,
       members,
       me,
@@ -1586,6 +1593,7 @@ export function TableCartProvider({
     }),
     [
       cartId,
+      mode,
       loading,
       error,
       items,
@@ -1599,7 +1607,6 @@ export function TableCartProvider({
       flash,
       lastRefusalClause,
       pickupSlot,
-      openSlotSheet,
       isGroup,
       members,
       me,
@@ -1673,14 +1680,6 @@ export function TableCartProvider({
             Try again
           </button>
         </p>
-      )}
-      {isPickup && cartId && (
-        <PickupSlotSheet
-          open={slotSheetOpen}
-          onOpenChange={setSlotSheetOpen}
-          cartId={cartId}
-          onChosen={(slot) => setPickupSlot(slot)} // slot is cart metadata — no items/totals refetch
-        />
       )}
       {/* Phase 0 — the ONE diner toast (`@mms/ui` Toast): always-mounted live region, docked on the
           published CTA band (`--cta-dock-h`, which CartBar writes) instead of the hard 84px that

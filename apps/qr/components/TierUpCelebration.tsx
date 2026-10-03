@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { tierMeta } from "@/lib/rewards-tiers";
+import { useAccountPanelVisible } from "./AccountPanelVisible";
 
 // Tier ladder rank (ascending). localStorage remembers the last tier the diner has SEEN celebrated, so the
 // moment only fires on a genuine climb — never on first sight, a revisit, or a (refund) downgrade.
@@ -14,7 +15,11 @@ const DISMISS_MS = 5200;
  * Tier-up celebration (R8) — a one-shot "you climbed a tier" moment on /account, ported from the delivery
  * app's pattern onto QR tokens. Fires ONLY on a strict upgrade vs the localStorage-remembered last-seen
  * rank (so a first-ever visit just records the baseline, and a revisit at the same tier stays silent);
- * one evaluation per mount (ref-guarded). Storage blocked (private mode) → it silently skips, never throws.
+ * one evaluation per mount (ref-guarded) — and only once the account panel it sits in is SHOWING
+ * (`useAccountPanelVisible`): the hub keeps the Rewards panel mounted but hidden under the default
+ * Orders panel, and an evaluation there wrote the baseline and ran the 5.2s dismissal where nobody
+ * could see it, consuming a real climb unseen (Codex round 4 on #312). Storage blocked (private mode)
+ * → it silently skips, never throws.
  *
  * The reveal is deferred to the next frame (rAF) so the setState is async (not a synchronous
  * setState-in-effect — lint-safe, matches the codebase's effect pattern) and the page paints before the
@@ -29,6 +34,7 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
   const { shouldAnimate } = useAnimationPreference();
   const tier = useDeviceTier();
   const celebrate = shouldAnimate && tier !== "low";
+  const visible = useAccountPanelVisible();
   const [show, setShow] = useState(false);
   const evaluated = useRef(false);
   const dismissRef = useRef<HTMLButtonElement>(null);
@@ -42,6 +48,9 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
   }, []);
 
   useEffect(() => {
+    // Not yet: the panel is hidden, so the one-shot is still owed — it evaluates on the render
+    // that shows the panel, and `evaluated` stays false until then.
+    if (!visible) return;
     if (evaluated.current) return;
     evaluated.current = true;
     // W9c — `RANK[tierId] ?? 0` silently ranks an UNKNOWN tier as the bottom of the ladder, and the
@@ -70,7 +79,7 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
       const id = requestAnimationFrame(() => setShow(true));
       return () => cancelAnimationFrame(id);
     }
-  }, [tierId]);
+  }, [tierId, visible]);
 
   // While shown: capture prior focus + move it into the dismiss button, wire Escape, and auto-dismiss.
   useEffect(() => {

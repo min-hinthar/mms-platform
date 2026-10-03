@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
+import { navEpoch } from "@/lib/nav-epoch";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
@@ -29,6 +30,17 @@ export function CartBar() {
   const { count, totals, cartId, settled, items } = useCart();
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
+  // Codex round 1 on 3b (#312) — the drain's continuation outlives this bar: a diner who taps "View
+  // order" and then leaves by another door (the Menu tab, the brand, Back) while a write still drains
+  // was yanked to the checkout when `settled()` resolved. Unmounted means the tap is void. Set in the
+  // effect BODY (StrictMode's simulated remount keeps the ref), cleared on unmount.
+  const alive = useRef(false);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
   // the flag is already set renders without the entrance class.
   const [springIn] = useState(() => !cartBarSprung);
@@ -80,8 +92,14 @@ export function CartBar() {
       onClick={() => {
         if (leaving) return;
         setLeaving(true);
+        // Codex round 2 on 3b: the unmount check sees a navigation only once it COMMITS; a tap on
+        // another door that merely STARTED one leaves this bar mounted for a beat. The epoch moves
+        // at the start.
+        const epoch = navEpoch.current();
         void settled().finally(() => {
+          if (!alive.current) return; // the bar is gone — the diner already left another way
           setLeaving(false);
+          if (navEpoch.current() !== epoch) return; // another navigation started first — it wins
           journey.push(href);
         });
       }}
@@ -94,8 +112,9 @@ export function CartBar() {
         position: "fixed",
         left: 12,
         right: 12,
-        // clear the iOS home-bar inset so the bar isn't half-hidden behind it (position, not padding)
-        bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+        // clear the iOS home-bar inset so the bar isn't half-hidden behind it (position, not padding);
+        // Phase 3a — and the diner tab bar beneath (`--tabs-h`, 0 where there is none).
+        bottom: "calc(var(--tabs-h, 0px) + 16px + env(safe-area-inset-bottom, 0px))",
         maxWidth: 416,
         margin: "0 auto",
         background: "var(--ac)",

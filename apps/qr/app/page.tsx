@@ -4,6 +4,7 @@ import { HomeHero } from "@/components/HomeHero";
 import { HomeResumeCard } from "@/components/HomeResumeCard";
 import { SessionUnavailableStrip } from "@/components/SessionUnavailableStrip";
 import { HomeSessionCard } from "@/components/HomeSessionCard";
+import { DOORS } from "@/lib/doors";
 
 // Entry — the house's three doors (K1, Journey II): Dine-in · To-go · Grocery. The internal mode
 // values (dinein|scango|pickup — a DB CHECK) do NOT migrate; presentation moves, plumbing stays.
@@ -46,37 +47,22 @@ export default function Entry() {
         className="home-doors"
         style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}
       >
-        {/* Indices continue HomeHero's stagger wave (40/100/160 → wordmark 90 → doors 210/280/350ms). */}
-        <ModeCard
-          mode="dinein"
-          door="dinein"
-          href="/dine-in"
-          emoji="🪑"
-          name="Dine-in"
-          my="ဆိုင်တွင်စားရန်"
-          description="Pick your table, invite friends, order together"
-          index={3}
-        />
-        <ModeCard
-          mode="pickup"
-          door="togo"
-          href="/menu?mode=pickup&door=togo"
-          emoji="🥡"
-          name="To-go"
-          my="ပါဆယ်ယူရန်"
-          description="Order ahead for pickup — now or scheduled"
-          index={4}
-        />
-        <ModeCard
-          mode="grocery"
-          door="grocery"
-          href="/grocery"
-          emoji="🛒"
-          name="Grocery"
-          my="ကုန်စုံဝယ်ရန်"
-          description="Browse the aisles or scan the code on each package as you shop"
-          index={5}
-        />
+        {/* Indices continue HomeHero's stagger wave (40/100/160 → wordmark 90 → doors 210/280/350ms).
+            Phase 3b (D9) — the three doors are `lib/doors.ts`'s ONE table, which the menu's
+            DoorSheet ("Change order type") renders too; a door typed here instead would drift. */}
+        {DOORS.map((d, i) => (
+          <ModeCard
+            key={d.mode}
+            mode={d.mode}
+            door={d.door}
+            href={d.href}
+            emoji={d.emoji}
+            name={d.name}
+            my={d.my}
+            description={d.description}
+            index={3 + i}
+          />
+        ))}
       </nav>
       <JoinTable />
     </main>

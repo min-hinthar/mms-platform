@@ -261,7 +261,10 @@ export function ResilienceShell() {
 
 const pill: CSSProperties = {
   position: "fixed",
-  bottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)",
+  // Phase 3a — above the diner tab bar (`--tabs-h`, 0 where none is drawn): at z 60 this pill sat
+  // directly over the Order and Track tabs while offline or mid-update, the moment a diner most
+  // needs them (Codex round 1 on #312, P1).
+  bottom: "calc(var(--tabs-h, 0px) + env(safe-area-inset-bottom, 0px) + 12px)",
   left: "50%",
   transform: "translateX(-50%)",
   zIndex: 60,

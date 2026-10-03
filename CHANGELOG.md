@@ -4,6 +4,216 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3b — three places, one order (2026-10-03)
+
+**The owner's ask, continued:** "more creative world-class design thinking overhauls." A twelve-agent
+panel (eight blind proposers · three judges · one synthesis — `docs/PHASE3B_DESIGN.md`, decisions
+D7–D12) read the as-built journeys after 3a and found the map itself was the next structural problem.
+No money logic, no authority write, no migration.
+
+- **The spine is three places, and the Order tab follows the order (D7 · D8).** 3a's Order and
+  Track were one object in two states — a dead tab at every moment, reproducible in two taps — so
+  the bar is **Menu · Order · Account**: `orderTab` in `lib/diner-tabs.ts` is a state machine (open
+  cart → live order's resume href with the dot → the bare `/cart`), named by the mode's noun and
+  wearing the receipt in every state. The threshold (`/`, `/dine-in`) lights nothing and its Menu tab
+  leads up to the doors — on `/dine-in` the lit tab's href was J15's code-free `/menu?mode=dinein`.
+  Three lib mutants (`diner-tabs/*`); `lib/diner-tabs.ts` joins the mutate set.
+- **The door is a moment (D9).** `DoorSheet` ("Change order type", v7.2's words) opens from every
+  menu's eyebrow and the market's, absorbing `TableOptions`: the current door wears the lit-gold cap
+  on one element, the other two are the home's exact links from the new `lib/doors.ts` `DOORS` (the
+  home renders the same table, so the two cannot disagree); dine-in's two exits under a hairline; the
+  honest sub-line "Each way of ordering has its own order." Pull-to-refresh and the scan stage's
+  camera hold both know the new sheet. Two K15 drafts (`changeOrderType` · `eachDoorOwnOrder`,
+  ledgered in OPEN-ITEMS K15). The dine-in door copy returns to v7.2's "Grab a table, invite friends,
+  order together".
+- **One owner per fact (D10 · D11).** The menu's `PickupSlotChip` and the provider's own
+  `PickupSlotSheet` mount retire — the pick was set into React state and overwritten by the next view,
+  a choice shown as kept and silently dropped; `PickupWhenChoice` on /cart is the only writer, and the
+  menu greeting is a statement of the cart's slot. `DEVICE_PHONE_KEY` joins the handover boundary
+  (`lib/device-session.ts`): the pickup phone was a bare literal in Checkout and survived "Order for a
+  friend" / "Switch account" (found independently by two proposers); one mutant, the one-source guard
+  on Checkout's literals.
+- **The paid headline speaks both tongues (D12 graft).** `PaySuccess` reads the dictionary's
+  `paidThankYou` pair (EN now v7.2's verbatim "Paid — thank you!", the Burmese beneath with
+  `lang="my"`); the voice rule stays §6 — English leads — until a native ear rules on the "peaks".
+- **The blind pass (three lenses: product truth · a11y · concurrency — REJECT on all three, 17
+  findings, 3 machine-refuted twice and confirmed, 14 hand-triaged; 14 acted on):** the provider read
+  the raw `pickup_slot` so the menu greeting said "Scheduled for <time>" for an ASAP snap that
+  /cart called ASAP — it reads the W19 `normalizePickupSlot` now (mutant
+  `pickup-slot/provider-reads-the-raw-column`); the lit door row lost its on-accent ink to
+  `.door-sheet-row { color: inherit }` 9,300 lines later at the same specificity (1.82:1 in Night) —
+  the link resets moved to `a.door-sheet-row` and the stylesheet guard now asserts the competing
+  property is ABSENT on every block that matches the div (LEARNINGS #200); a lit Order tab on `/track`
+  with a finished order linked to the empty slip — a lit tab with nothing to open is a self-link to
+  `here` (mutant `diner-tabs/lit-tab-with-nothing-opens-the-empty-slip`); the market's door sheet
+  closed on a door tap and released the camera hold while the stream still ran through the route
+  change — the sheet stays open until unmounted, and `check:scan-repeat` gained a third proposition
+  (every `*SheetOpen` state must reach `<ScanStage sheetOpen>`, parsed); the current row says
+  "you're here" in sr-only text beside its `aria-current`; the one-source guard on Checkout's keys is
+  an AST walk, not a grep (the grep form was beaten twice in one review); the paid pair gained its
+  separator; `ModeCard`'s dead `source` prop went. Justified, not changed: the Menu tab's self-link
+  on `/` (D8 lights nothing); the cart-wins precedence (the header's pill carries the live order on
+  /menu and /grocery — `AppHeader.tsx:41`). Filed: J26 (the "Leave this table" re-publish race,
+  pre-existing) · J27 (the two door vocabularies; bare `/menu` in scango mode).
+- **Codex round 1 on 3b (two P2, one class, both verified and fixed):** a drain-then-push whose
+  `finally` fired after the diner had already left by another door — the Order tab's push (this bar
+  never unmounts: the push is now valid only while the route it was tapped on is still the route;
+  mutant `diner-tabs/stale-drain-push-yanks-the-diner`), the market's Check out (unmounted means void),
+  and the same W21 shape in `CartBar` since #191 (an `alive` ref; pinned in `CartBar.test.tsx`).
+- **Codex round 2 on 3b (three P2, all verified and fixed):** (1) round 1's cancellation keyed on the
+  route COMMITTING, but `TransitionLink` starts the transition on the click and `usePathname()` moves a
+  beat later, so a drain resolving in that window still pushed — `lib/nav-epoch.ts` is the grammar's
+  synchronous "a navigation STARTED" counter, bumped by every door of the ONE grammar (`TransitionLink`'s
+  in-tab click, `useJourneyRouter().push` before the router is asked, popstate) and compared by every
+  drain continuation (the Order tab, `CartBar`, the market's Check out); mutants
+  `diner-tabs/stale-drain-push-ignores-a-started-navigation`, `transition-nav/*` ×3,
+  `nav-epoch/bump-never-moves`. (2) The market's checkout had the same window (same fix). (3) After a
+  door switch the store still offered the previous door's cart until the new door published its own, so
+  the Order tab on `/dine-in` opened the grocery basket — indefinitely when the session mint failed: the
+  pointer is now bound to its door (`mms.qr.activeCartMode` = `<cartId>:<mode>`, written by every
+  publisher — `CartPublisher` now passes the provider's `mode`, exposed on the cart context), and the
+  store offers a remembered cart only where `cartForDoor` agrees (`lib/order-noun.ts`; `tabsMode` names
+  the diner's door); a cart reached by URL and a pre-3b pointer are offered as before. `CART_DOORS` is the
+  ONE list of known doors. Mutants `order-noun/*` ×2, `active-order/*` ×3; **`TransitionNav.tsx` and
+  `ActiveOrderProvider.tsx` join the mutate set** (73 components), `nav-epoch.ts` and `order-noun.ts`
+  the lib bucket (170).
+- **Codex round 3 on 3b (one P2, verified and fixed on sight):** the route-implied door (`/dine-in` →
+  dinein, `/grocery` → scango) was read only as an argument to `cartForDoor` and never remembered, so a
+  diner who chose Dine-in and tapped Account before picking a table saw the grocery basket and "Market"
+  return on `/account`. The provider now persists a route's own door exactly like a `?mode=`
+  (`tabsMode(pathname, null)`); pinned in `ActiveOrderProvider.test.tsx` (red first), mutant
+  `active-order/route-door-is-transient`.
+- **Filed, re-lettered (`docs/PHASE3_JOURNEYS.md`):** 3c dine-in in two PRs (the Checkout half, then
+  the table at Send) · 3d staff (the kitchen's pass at two distances; the counter's receipt stack) ·
+  3e to-go + account (the Who/When slip, reward terms from config) · 3f the craft coherence pass;
+  the market parked until G1. DESIGN-LANGUAGE **§31**.
+
+### Phase 3a — the journeys: the diner spine, the account hub, the counter map (2026-10-03)
+
+**The owner's ask (2026-10-03):** Phases 1–2 "still do not feel like major overhauls … not intuitive:
+customer ordering dine-in to-go grocery flows, staff manager kitchen simplify, account page and
+features revamp." Four blind read-only audits of the as-built journeys found one shape under every
+surface — a long single scroll with no persistent map, and no answer to "where am I" without reading.
+The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11, delegated).
+
+- **The diner spine (D1 · D2).** v7.2's persistent bottom tab bar, never built until now:
+  **Menu · Order · Track · Account** on every diner route (`components/nav/DinerTabs.tsx`; the
+  decisions in `lib/diner-tabs.ts`, pinned). Menu carries the diner's mode (the market's first tab
+  IS the market); Order opens the published cart, named by `orderNoun`, claiming a count only where
+  `slotCount` allows; Track resumes the live order with its dot; Account carries the Star count. The
+  header keeps the brand and the live-order chip ONLY — its cart link and rewards chip retire into
+  the tabs, so the header stops appearing and vanishing by route. The bar is the same chrome pane as
+  the header (frosted under Night beside it), carries its own `view-transition-name`, and every
+  bottom dock stacks on `--tabs-h`: the cart bar, the market's CTA band, the toast, and the xl
+  pill's scroll reserve (the `@mms/ui` toast guard caught the last one). Labels are English (D2).
+- **The checkout shows its steps (D3).** A step rail under the heading — Order → Bill → Pay at a
+  table, Order → Pay for to-go, Basket → Pay in the market — reading the state Phase 1b keeps
+  (`lib/checkout-steps.ts`, pinned: exactly one step current, the pay step wins over the stage, the
+  split board draws no rail). **In the market the slip says "Your basket" (D6)** — `yourBasket`, a
+  K15 pair on the market's own noun — where it said "Your order" against every market surface.
+- **The account hub (D4).** Three panels addressed by `?tab=` — **Orders** (the live row, the
+  record, the hearts) · **Rewards** (the ring and today's coupons, the ladder, how it works) · **You**
+  (the save / sign-in door or the signed-in card, Sound, Help & contact from `lib/brand.ts`) —
+  flipped on the client with no refetch (`AccountHub`, WAI-ARIA tabs), decided by
+  `lib/account-hub.ts` (a lend-mode `?resume=` opens You). The save card gains **"Already have an
+  account? Sign in"**: a returning diner's typed email goes straight down the sign-in path, one press
+  instead of two. **"Order again" rides the collapsed history row** (v7.2's "Reorder ›"), outside
+  the receipt's disclosure. A guest sees one quiet save line on Orders. The door-picker back link
+  retires: the Menu tab carries the mode. `/track`'s rewards doors and the save prompt open their
+  panels.
+- **The counter map (D5).** The counter home keeps its one screen (the bell hears both boards) and
+  gains a sticky **zone strip** under the staff bar (`CounterZoneStrip`): one native anchor per zone
+  heading — Start · Tables & counter orders · Takeaway bags, plus Open requests · Today's takings ·
+  Today's payments & refunds for a manager — each chip in the heading's own words, the current zone
+  lit by the shared lit-gold cap (`lib/counter-zones.ts`, pinned). **"Up" from Menu and Tips returns
+  to the counter on a counter device** (`?floor=1`) instead of two taps through the doors; both arms
+  literal, so `check:staff-lang` rule 4d still resolves every way up. One K15 key, the strip's
+  landmark name.
+- **Proof:** `lib/diner-tabs.test.ts` (31) · `lib/checkout-steps.test.ts` (5) ·
+  `lib/account-hub.test.ts` (6) · `lib/counter-zones.test.ts` (5) · `CounterZoneStrip.test.tsx` (4) ·
+  `app/account/page.test.tsx` (+2, the order re-pinned by panel), each watched red first; the save
+  prompt and goodbye beat suites re-pinned to their panels. `check:style-literals` ratchet LOWERED
+  (a 10px literal left with the header's save chip). No SQL.
+- **The blind pre-PR review (three lenses, REJECT — four criticals, every finding verified against
+  source before it was touched):** the hub's re-seed guard compared the new `initial` to the old
+  one, so a navigation re-rendering with the SAME `initial` (arrive on `?tab=you`, tap Orders, tap
+  the save line) changed nothing — the panel is read from the URL now, written with a NULL state
+  (the one Next 16.2.9's patched `replaceState` syncs; its `__NA`-stamped state makes it bail), and
+  Arrow keys move focus without selecting (manual activation for real); the Track tab kept a dot
+  and an "in progress" name for a DONE order on `/account`, the one diner route with no owner
+  retiring it — the bar subscribes the status there alone (still one channel per route); both
+  Google redirects returned to `/account`, which the hub opens on Orders, so the OAuth bounce's
+  recovery copy and button rendered inside a hidden panel — `redirectTo` is `?tab=you` and
+  `?error_code=` / `?error=` open You; `.aisle-fan`'s bound now adds `--tabs-h`; reduced-motion and
+  print rules for the bar; the header's landmark says what it holds; the "Sign in" intent carries
+  this phone's Stars only when there are any and the card says so before the press. Guards: real
+  renders of `AccountHub` (5) and `DinerTabs` (5), each watched red against the pre-fix component;
+  `lib/counter-zone-ids.test.ts` PARSES the page's zone literals and the staff components' JSX
+  `id=` attributes (a transcribed id that stops resolving is red); the degenerate fixtures the
+  review named (`checkout-steps`' aborting loop, `counter-zones`' one-pair edge, the strip's
+  "first" with no headings in the DOM) replaced with ones the rule can fail.
+- **Codex round 1 (one P1, six P2 — every one verified, every one fixed):** the resilience pill
+  (offline · update ready, z 60) sat over the Order and Track tabs — its offset adds `--tabs-h`; the
+  zone strip's `#zone` jumps landed under the strip — the scroll reserve grows by its height (the
+  blind pass had it too); the checkout's step rail still named Order or Bill above the
+  counter-settled card — `settledClose` is a settled surface; the signed-in checkout's `WalletChip`
+  opened the hub's Orders default — it opens Rewards; `/dine-in` reasoned with the store's stale
+  mode (a market visit lit "Market" while picking a table) — `tabsMode` lets the route's own door
+  win on `/dine-in` and `/grocery`; the account skeleton still painted the old identity-card layout
+  — it models the hub (masthead → the three pills → the history card); the hub's tabs were buttons
+  with a `data-href` nobody could follow — they are real links to `?tab=`, intercepted on click,
+  Space selecting.
+- **Codex round 2 (one P1, two P2 — the last triaged round; every one verified, every one
+  fixed):** the sign-in intent gated the merge on the Star count, but `mms_merge_anon_rewards`
+  moves every order, the rewards row, favorites and feedback — the carry is ALWAYS secured and the
+  copy says "anything saved on this phone comes along"; Google under the sign-in intent now calls
+  the sign-in path directly (no `identity_already_exists` bounce for an existing member), labelled
+  "Sign in with Google"; the hub's `picked` fallback is spent once the URL catches up and dropped on
+  a new `initial`, so the Account tab's bare `/account` shows the default panel again.
+- **Codex round 3 (two P1, five P2 — fix-on-sight, every one verified in source first):** both
+  Google doors sent `redirectTo=/account?tab=you`, and Supabase glob-matches `redirectTo` against
+  the Redirect URL allow list (`lib/safe-next.ts`'s contract), so the query made the exact
+  `/account` entry miss and the sign-in fell back to the Site URL with the carry token unredeemed —
+  the doors send the BARE `/account` again and `accountPanel` opens You on the `?code=` of the
+  PKCE return, as it already did on the bounce; the Order tab navigated to /cart without CartBar's
+  W21 drain, so an add still in flight could be missed by /cart's first read or refused by its
+  lock — the cart provider lends the wayfinding store its `settled()` barrier while mounted
+  (`CartPublisher` → `registerDrain`) and the tab awaits `drain()` before the journey push
+  (`aria-busy` for the beat, modified clicks stay links); the zone strip's scroll reserve never won
+  the cascade — `:root:has(.staff-bar)` is declared later at the same specificity — so the strip
+  only publishes `--zone-strip-h` and the bar's two width rules add it
+  (`lib/scroll-padding-contract.test.ts` pins the home, the overscroll contract's shape); `/rewards`
+  redirected to the hub's Orders default — it names `?tab=rewards`; the signed-in Sign-in screen's
+  bar still led to the doors on a counter device — it reads the door like Menu and Tips; a carry
+  block raised under "Sign in" survived the switch back to Save, leaving the merge-suppressed
+  escape hatch under a card promising the uid-preserving flow — the switch drops it; pushing tab
+  taps onto history was declined with the reason on the thread (a same-pathname entry is the one
+  shape the navigation grammar forbids — the transition library's popstate handler hangs ~4s over
+  it). Three mutants: `account-upgrade/oauth-redirect-carries-a-query`,
+  `account-upgrade/intent-switch-keeps-a-stale-block`, `diner-tabs/order-tab-skips-the-drain`
+  (`nav/DinerTabs.tsx` joins the mutate set — the 71st component).
+- **Codex round 4 (one P1, one P2 — fix-on-sight, both verified in source first):** the market
+  publishes its cart through `usePublishCart` and never mounted `CartPublisher`, so round 3's drain
+  was a resolved no-op on `/grocery` — the surface whose adds take longest. `lib/write-ledger.ts`
+  is the in-flight ledger as a VALUE (TableCartProvider's W21 shape, pinned by its own suite); the
+  market holds one instance, tracks every `scanAdd` / `setQty` (the offline replay too), lends it
+  to the Order tab (`useRegisterDrain`) and awaits it from its own Check out, one navigation at a
+  time. And the hub's hidden Rewards panel still mounted `TierUpCelebration`, whose mount-time
+  evaluation wrote the tier baseline and ran its 5.2s dismissal where nobody could see it — a real
+  climb consumed unseen on every default Orders visit. `AccountPanelVisible` (a context the hub
+  provides around each panel, `true` by default outside it) tells the one-shot whether its panel is
+  showing, and it evaluates on the render that shows it (`TierUpCelebration.test.tsx`, red first).
+- **`verify:slice`:** a FULL run on `87ef64b` was stopped by the session at 149/2958 (all caught)
+  at ~10 mutants a minute in this container; the FILTERED run over every mutant on the four touched
+  target files (`Checkout.tsx` · `AccountUpgrade.tsx` · `globals.css` · `i18n/staff.ts`) — **72/72
+  caught, no orphans** — is what this PR carries, the HANDOFF precedent for a review round, then
+  `--only=account-upgrade` and `--only=diner-tabs` after round 3 (the counts are in the HANDOFF
+  block). One full run on the merge head is still owed.
+- **Filed, not built (3b–3e, `docs/PHASE3_JOURNEYS.md`):** the dine-in table bound at send time, one
+  verb per state, the bill readable during the undo window; the pickup time asked once; manual
+  barcode entry and "ask us" after a scan miss; KDS text size and sound as bar controls; Team out
+  from behind "Your PIN"; history past 20; receipt actions on a row.
+
 ### Phase 2i — staff screens take new builds without losing work (2026-10-02)
 
 Planned on the Phase 2h head (`17f1b1e`) from three designs, two critics and a Vercel read (owner

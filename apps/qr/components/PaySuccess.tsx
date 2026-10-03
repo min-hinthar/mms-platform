@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { haptic } from "@/lib/haptics";
+import { CART } from "@/lib/i18n/cart";
 import { chime } from "@/lib/diner-sound";
 import { rewardJustUnlocked } from "@/lib/rewards-progress";
 import { hasCelebrated, markCelebrated, safeSessionStorage } from "@/lib/celebration-latch";
@@ -158,7 +159,15 @@ export function PaySuccess({
         <path className="pay-success-check-mark" d="M15 27 l7.5 7.5 L37.5 19" />
       </svg>
       <h1 className="pay-success-title">
-        {awaitingCapture ? "Order sent — thank you!" : "Paid — thank you!"}
+        {awaitingCapture ? (
+          "Order sent — thank you!"
+        ) : (
+          // Phase 3b (D12 graft) — the dictionary's pair, English first, the Burmese beneath
+          // (`lang="my"`). The awaiting-capture arm keeps its English line; its Burmese is a 3f draft.
+          <>
+            {CART.paidThankYou.en} <span lang="my">{CART.paidThankYou.my}</span>
+          </>
+        )}
       </h1>
       {awaitingCapture && (
         <p className="pay-success-progress">

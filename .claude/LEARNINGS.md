@@ -3357,3 +3357,17 @@ unmocked copy (S1 measured it with `app-update`). To reset a COMPONENT's module 
 reset at load (`lib/test-resets.ts`) and have the setup run the registry — a module no case imported
 has nothing to reset. Prove each with an ordered pair of cases and delete the suite's own manual reset,
 or the suite hides the leak the setup is meant to stop.
+
+## #200
+
+**A later rule at the same specificity beats your declaration, and it happened twice in one day.** Phase
+3a's zone strip declared `scroll-padding-top` on `:root:has(.staff-zone-strip)` and lost to
+`:root:has(.staff-bar)` 2,700 lines later; Phase 3b's `.door-sheet-current { color: var(--oa) }` on the
+lit-cap rule lost its ink to `.door-sheet-row { color: inherit }` 9,300 lines later — body ink on gold at
+1.82:1, with a stylesheet guard GREEN because it asserted the declaration, not the cascade. `:has()`
+takes its argument's specificity, and a compound class on one element is two single-class rules racing
+by source order. Rules: (1) add the variable to the WINNING rule or put the declaration on a selector the
+other element cannot match (`a.door-sheet-row`), never on a shared class; (2) a CSS guard must look at
+every block that can match the element and assert the competing property is ABSENT there, not that the
+intended block declares it; (3) the blind pass found both, the author neither — read your new selector
+against every rule that already matches the same element before calling it done.

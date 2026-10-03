@@ -987,6 +987,9 @@ export const STAFF = {
   "floor.door.opening": { en: "Opening…", my: "ဖွင့်နေသည်…" },
   "floor.door.more": { en: "More", my: "နောက်ထပ်" },
   "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
+  // Phase 3a (D5) — the counter home's zone strip (its landmark name; the chips reuse the zone
+  // headings' own keys). Claude-authored draft, K15.
+  "floor.a11y.zones": { en: "Sections of this screen", my: "ဒီစခရင်ရဲ့ အပိုင်းများ" },
   // A4·2 — the one list holds tables AND counter orders; its name says so, like its heading.
   "floor.a11y.rows": { en: "Tables & counter orders", my: "စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ" },
   // A4·5 — the wall and the word-check sheet left this grid: the wall is a circle in the kitchen's

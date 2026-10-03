@@ -10,6 +10,11 @@
   /* Persistent app-header content height (excl. the notch inset, which the header adds as padding-top).
      The menu's sticky toolbar offsets its `top` by this so the two chrome layers never overlap. */
   --header-height: 56px;
+  /* Phase 3a (D1) — the diner spine's bottom half. 0 wherever the tab bar is not drawn (staff, the
+     wall TV, the kiosk); the bar's CONTENT height where it is (`:root:has(.diner-tabs)` below). Every
+     bottom dock (the cart bar, the market's CTA band, the toast) adds it to its own offset, and the
+     body reserves it so the last control on any page scrolls clear. */
+  --tabs-h: 0px;
   /* K7 lend mode: the "ordering for a friend" ribbon stacks below the header, so any OTHER sticky chrome
      pinned at the header offset (the menu toolbar, the cart alert) must drop by the ribbon's height or it
      paints over the ribbon. LendModeBanner sets this to its measured height while active, else 0. */
@@ -2061,6 +2066,13 @@ html[data-fx="off"] .pa-mid {
   font-size: var(--fs-h1);
   margin: 8px 0 0;
 }
+/* Phase 3b (D12 graft) — the paid headline speaks both tongues: the dictionary's `paidThankYou`
+   pair, English leading, the Burmese beneath (the goodbye beat's shape). */
+.pay-success-title [lang="my"] {
+  display: block;
+  font-size: var(--fs-h3);
+  margin-top: 2px;
+}
 .pay-success-stars {
   display: inline-block;
   margin-top: 10px;
@@ -2195,6 +2207,60 @@ html[data-fx="off"] .pa-mid {
   flex: 1;
   height: 1px;
   background: var(--bd);
+}
+
+/* ── Phase 3a (D3) · the checkout's step rail ───────────────────────────────────────────────────
+   Order → Bill → Pay at a table, Order → Pay (Basket → Pay) elsewhere — lib/checkout-steps.ts. One
+   row of numbered steps under the heading: done steps wear a check and --ok, the current one the
+   lit-gold cap vocabulary (--ac text, heavy), the next ones --t3. A hairline joins them. No motion:
+   the keyed step wrapper beneath already animates the view change. */
+.checkout-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: var(--s2) 0 var(--s4);
+  padding: 0;
+  list-style: none;
+}
+.checkout-steps-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--t3);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-snug);
+}
+.checkout-steps-item + .checkout-steps-item::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  background: var(--bd);
+}
+.checkout-steps-num {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  font-size: var(--fs-caption);
+  font-variant-numeric: tabular-nums;
+}
+.checkout-steps-item.is-current {
+  color: var(--ac-strong);
+}
+.checkout-steps-item.is-current .checkout-steps-num {
+  border-color: var(--ac);
+  background: var(--ac);
+  color: var(--oa);
+}
+.checkout-steps-item.is-done {
+  color: var(--ok);
+}
+.checkout-steps-item.is-done .checkout-steps-num {
+  border-color: var(--ok);
+  color: var(--ok);
 }
 
 .checkout-cta {
@@ -2668,8 +2734,13 @@ html[data-fx="off"] .pa-mid {
 /* Selected segment — a lit, lifted accent cap: SOLID --ac fill (keeps --oa cream text at ~4.8:1 AA — QR's
    --oa is cream, so a bright-gold tint UNDER the label would fail contrast, unlike the dark-ink menu tabs)
    with a sheen lip, an accent lift, and a warm gold HALO (a glow around the pill, never under the text).
-   The bg/shadow transition makes the light-up feel animated when the toggle flips. */
-.checkout-pill-on {
+   The bg/shadow transition makes the light-up feel animated when the toggle flips.
+   Phase 3b (D9) — `.door-sheet-current`, the door the diner is standing in inside the "Change order
+   type" sheet, rides THIS list and no other: the fill and the `--oa` ink come from here (ink follows
+   fill, never a second block), the ignition/bloom lists below stay the pills' own — a "you are here"
+   row is static, it was never chosen on this screen. */
+.checkout-pill-on,
+.door-sheet-current {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -3453,6 +3524,68 @@ html[data-fx="off"] .pa-mid {
 
 /* Masthead — an editorial kicker + display title + a gold hairline that fades to nothing (a more refined
    rule than a flat line), setting the premium tone above the rich reward cards. */
+/* ── Phase 3a (D4) · the account hub's tabs ──────────────────────────────────────────────────────
+   Orders · Rewards · You (components/AccountHub.tsx; the panel decision in lib/account-hub.ts). The
+   menu's category-chip vocabulary (`.menu-tab`): the selected tab wears the lit-gold cap, the others
+   the vellum ghost. Three equal columns so the row never scrolls; 44px targets. */
+.account-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s2);
+  margin: 0 0 var(--s5);
+}
+.account-tab {
+  /* A real link since Codex round 1 on #312 (the non-JS fallback): laid out as the pill it was. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  color: var(--t2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+}
+.account-tab-on {
+  background: var(--ac);
+  color: var(--oa);
+  border-color: var(--ac);
+  box-shadow: var(--sh-lift);
+}
+@media (prefers-reduced-motion: reduce) {
+  .account-tab {
+    transition: none;
+  }
+}
+.account-panel:focus {
+  outline: none;
+}
+/* The guest's one-line save door on the Orders panel (the full card is on You). */
+.account-save-line {
+  margin: 0 0 var(--s4);
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+/* "Order again" on a history row — outside the receipt's <details>, right-aligned under it. */
+.history-again {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 var(--s2);
+  padding: 0 4px;
+  font-size: var(--fs-sm);
+}
+
 .account-masthead-rule {
   height: 1px;
   margin-top: var(--s1);
@@ -4433,55 +4566,122 @@ html[data-fx="off"] .pa-mid {
   text-align: center;
 }
 /* Off-menu "back to cart" link — a quiet secondary. */
-.app-header-cart {
-  display: inline-flex;
+/* ── Phase 3a (D1) · the diner spine's bottom half — v7.2's persistent tab bar ───────────────────
+   Menu · Order · Track · Account on every diner route (components/nav/DinerTabs.tsx; decisions in
+   lib/diner-tabs.ts). The same chrome pane as the header (`--glass-chrome`, frosted under .dark
+   beside it in THE GLASS), the same z-plane (--z-toolbar: sheets, scrims and toasts paint above),
+   and its own view-transition-name so a route change moves the page UNDER it. Four equal columns,
+   each a 44px+ target; the lit tab is `aria-current="page"` and wears --ac-strong (bare --ac on the
+   chrome is pinned at AA by composite-contrast, --ac-strong is darker still). Tokens only. */
+:root:has(.diner-tabs) {
+  --tabs-h: 60px;
+}
+/* The body reserves the bar's height (plus the home-bar inset) so nothing a page ends with is
+   parked under it — the same reserve the staff column keeps for its thumb-zone pill. */
+:root:has(.diner-tabs) body {
+  padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+}
+.diner-tabs {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-toolbar);
+  display: grid;
+  /* Phase 3b (D7) — three places (Menu · Order · Account); each column ~146px at 440px. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  height: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+  padding: 0 var(--s2) env(safe-area-inset-bottom, 0px);
+  background-color: var(--glass-chrome);
+  border-top: 1px solid var(--frost-rim);
+  box-shadow: inset 0 1px 0 var(--frost-edge);
+}
+.diner-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: 2px;
   min-height: 44px;
-  padding: 0 10px;
-  border-radius: var(--r-full);
+  border-radius: var(--r-sm);
   color: var(--t2);
+  text-decoration: none;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-bold);
-  font-size: var(--fs-sm);
+  letter-spacing: var(--track-snug);
   transition:
     color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out);
 }
 @media (hover: hover) {
-  .app-header-cart:hover {
+  .diner-tab:hover {
     color: var(--tx);
     background: color-mix(in oklab, var(--tx) 5%, transparent);
   }
 }
-/* Rewards affordance — accent ✦ + Star count (bare --ac as TEXT sits on --pg = 4.67:1 AA, never a tint). */
-.app-header-rewards {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 44px;
-  padding: 0 10px;
-  border-radius: var(--r-full);
-  color: var(--ac);
-  font-weight: var(--fw-heavy);
-  font-size: var(--fs-label);
-  transition: background var(--dur-fast) var(--ease-out);
+.diner-tab:active {
+  transform: scale(0.97);
 }
-@media (hover: hover) {
-  .app-header-rewards:hover {
-    background: color-mix(in oklab, var(--ac) 8%, transparent);
+.diner-tab[aria-current="page"] {
+  color: var(--ac-strong);
+}
+.diner-tab-icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+}
+.diner-tab-label {
+  line-height: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .diner-tab {
+    transition: none;
+  }
+  .diner-tab:active {
+    transform: none;
   }
 }
-/* Anon "save your rewards" nudge — a solid accent chip (cream --oa on solid --ac = AA). */
-.app-header-save {
-  margin-left: 2px;
-  padding: 2px 7px;
+/* The receipt prints without the bar, and without the body's reserve for it. */
+@media print {
+  .diner-tabs {
+    display: none;
+  }
+  :root:has(.diner-tabs) body {
+    padding-bottom: 0;
+  }
+}
+/* The count: a quiet accent capsule off the icon's corner (cream --oa on solid --ac = AA). */
+.diner-tab-count {
+  position: absolute;
+  top: -6px;
+  left: 18px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: var(--r-full);
   background: var(--ac);
   color: var(--oa);
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: var(--fw-heavy);
-  letter-spacing: var(--track-snug);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
+/* The live dot: an order is in progress (the header's chip says what it is doing). */
+.diner-tab-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  box-shadow: 0 0 0 2px var(--glass-chrome-opaque);
+}
+
 /* When a live-order pill is present, compact the header on small phones so the row never overflows into a
    horizontal page scroll (no body overflow-x:hidden — that breaks sticky/dvh). Wordmark → mark-only under
    420px; drop the status word under 360px (the colored dot still conveys ready-ness). The ellipsis on
@@ -4746,6 +4946,9 @@ html[data-fx="off"] .pa-mid {
 @supports (view-transition-name: none) {
   .app-header {
     view-transition-name: app-header;
+  }
+  .diner-tabs {
+    view-transition-name: diner-tabs;
   }
   .vt-cart-total {
     view-transition-name: cart-total;
@@ -6193,7 +6396,8 @@ html[data-seen-surface] .mms-stagger {
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  /* Phase 3a — the dock sits ABOVE the diner tab bar (`--tabs-h`, 0 where there is none). */
+  bottom: calc(var(--tabs-h, 0px) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: var(--z-toolbar);
   max-width: 416px;
   margin: 0 auto;
@@ -6433,7 +6637,8 @@ html[data-seen-surface] .mms-stagger {
      `.app-header` and the checkout CTA (both var(--z-toolbar)) paint over any bleeding tick AND
      swallow its taps, so an overflowing tick can never steal the header's cart button or the CTA. */
   top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px);
-  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  /* Phase 3a — the band it is bounded against sits on the diner tab bar now (`--tabs-h`). */
+  bottom: calc(var(--tabs-h, 0px) + 84px + env(safe-area-inset-bottom, 0px));
   z-index: calc(var(--z-toolbar) - 1);
   display: flex;
   flex-direction: column;
@@ -7531,6 +7736,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
   border-color: transparent;
@@ -9334,7 +9540,8 @@ a .chrome-en {
    chromatic variation, not the mean, so a gold chip or a curry photo passing underneath is what
    makes 10% of backdrop read as glass at all. */
 .dark .app-header,
-.dark .menu-toolbar {
+.dark .menu-toolbar,
+.dark .diner-tabs {
   -webkit-backdrop-filter: var(--fx-glass-mid);
   backdrop-filter: var(--fx-glass-mid);
 }
@@ -9342,7 +9549,8 @@ a .chrome-en {
    and the AA bound above no longer holds. Opaque is the correct fallback, not a degraded one. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .dark .app-header,
-  .dark .menu-toolbar {
+  .dark .menu-toolbar,
+  .dark .diner-tabs {
     background-color: var(--sf);
   }
 }
@@ -10263,6 +10471,46 @@ html[data-fx="lite"] .mms-scrim {
    shared lit-cap rule above the KDS block — these five used to carry five inline `*On` objects
    (two accent fills, a 10% tint, a ring-and-wash, a partial cap), and an INLINE fill beats any
    class, so the rest declarations had to move here for the one rule to reach them at all. */
+/* ── Phase 3a (D5) · the counter home's zone strip ─────────────────────────────────────────────
+   A sticky row of chips under the staff bar (components/staff/CounterZoneStrip.tsx), one native
+   anchor per zone heading. Sits on --staff-bar-h (StaffBarNet's one publisher) so it rides the bar's
+   real height; opaque on the console ground so the zones scroll UNDER it; one plane below the bar
+   so the bar's rows (reader chip · new version · offline) still cover it. The lit chip is the shared
+   lit-gold cap (the `.staff-chip[aria-pressed]` rule above carries `[aria-current="location"]`). */
+:root:has(.staff-zone-strip) {
+  /* WCAG 2.4.11 — a #zone jump (or a focus scroll) must land BELOW the strip too, so the bar's
+     reserve grows by the strip's own height — 44px chip + 2×var(--s2) padding + the hairline.
+     PUBLISHED here, ADDED in the bar's `scroll-padding-top` rules (further down, with the widths):
+     a `scroll-padding-top` declared on this selector never won — `:root:has(.staff-bar)` is
+     declared later at the same specificity (`:has()` takes its argument's) and overwrote it on
+     every console page (Codex round 3 on #312). lib/scroll-padding-contract.test.ts pins the home. */
+  --zone-strip-h: calc(44px + 2 * var(--s2) + 1px);
+}
+.staff-zone-strip {
+  position: sticky;
+  top: var(--staff-bar-h, 76px);
+  z-index: calc(var(--z-toolbar) - 1);
+  display: flex;
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s5)) var(--s4);
+  padding: var(--s2) var(--s5);
+  overflow-x: auto;
+  /* The overscroll contract (lib/overscroll-contract.test.ts): a horizontal rail never hands its
+     overscroll to the page, so a flick at the strip's end does not navigate the tablet back. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  background: var(--pg);
+  border-bottom: 1px solid var(--bd);
+}
+.staff-zone-strip::-webkit-scrollbar {
+  display: none;
+}
+.staff-zone-chip {
+  flex: none;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .staff-chip {
   display: inline-flex;
   align-items: center;
@@ -11812,20 +12060,68 @@ html[data-fx="lite"] .mms-scrim {
     background: color-mix(in oklab, var(--ac) 8%, transparent);
   }
 }
-.table-options {
+/* Phase 3b (D9) — the door sheet ("Change order type") behind EVERY door eyebrow. One sub-line, the
+   three doors as rows wearing the home's own face, and — at a table only — the two exits under a
+   hairline. The current row's fill and ink are NOT here: `.door-sheet-current` rides the ONE
+   `.checkout-pill-on` lit-cap rule; this file only lays the rows out. Timing reads `--dur-fast`, which
+   tokens.css collapses to 0.01ms under reduced motion (the escort). */
+.door-sheet-sub {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.door-sheet-my {
+  font-family: var(--font-my);
+  font-weight: var(--fw-semibold);
+  color: var(--t2);
+}
+.door-sheet-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2);
+}
+.door-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  min-height: 44px;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-card);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+/* The LINK rows' resets live on the anchor alone (blind pass on 3b, critical 2): on the shared class
+   they sat ~9,300 lines after the lit-cap rule at the same specificity and took the current row's
+   on-accent ink with them — body ink on gold, 1.82:1 in Night. A div never matches `a.…`. */
+a.door-sheet-row {
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  a.door-sheet-row:hover {
+    background: color-mix(in oklab, var(--ac) 8%, transparent);
+  }
+}
+/* The table's two exits (Phase 1a's TableOptions, renamed): under a hairline, after the doors. */
+.door-sheet-exits {
   display: grid;
   gap: var(--s3);
+  margin-top: var(--s4);
+  padding-top: var(--s4);
   padding-bottom: var(--s2);
+  border-top: 1px solid var(--bd);
 }
-.table-options .ui-btn {
+.door-sheet-exits .ui-btn {
   justify-content: flex-start;
   text-align: left;
 }
-.table-options-label {
+.door-sheet-exits-label {
   display: grid;
   gap: 2px;
 }
-.table-options-note {
+.door-sheet-exits-note {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   letter-spacing: normal;
@@ -12985,12 +13281,14 @@ html[data-reloading] body::after {
    the moment before it hydrates. ⚠️ 76px / 128px are COMPUTED from this sheet (a Burmese title +
    echo: 10 + 39 + 14 + 10 + 1 on a tablet; the two-row phone bar adds the 8px gap + a 44px row),
    NOT measured on a device — OPEN-ITEMS row to measure. */
+/* `--zone-strip-h` is the counter home's sticky zone strip (Phase 3a, published where it is set);
+   0 on every other console page. It is added HERE, not on the strip's own selector — see there. */
 :root:has(.staff-bar) {
-  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--s2));
+  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--zone-strip-h, 0px) + var(--s2));
 }
 @media (max-width: 720px) {
   :root:has(.staff-bar) {
-    scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--s2));
+    scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--zone-strip-h, 0px) + var(--s2));
   }
 }
 /* The counter column's bottom reserve for the lane's thumb-zone Undo pill (`@mms/ui` Toast xl,

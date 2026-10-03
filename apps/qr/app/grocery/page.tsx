@@ -19,6 +19,7 @@ import {
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { ScanStage } from "@/components/grocery/ScanStage";
+import { DoorSheet } from "@/components/DoorSheet";
 import { ScanResult } from "@/components/grocery/ScanResult";
 import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
 import { fromCamera, slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
@@ -41,7 +42,9 @@ import { classifyScan } from "@/lib/scan-gate";
 import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
-import { usePublishCart } from "@/components/ActiveOrderProvider";
+import { usePublishCart, useRegisterDrain } from "@/components/ActiveOrderProvider";
+import { createWriteLedger } from "@/lib/write-ledger";
+import { navEpoch } from "@/lib/nav-epoch";
 import { scanBasketReady } from "@/lib/camera-state";
 
 // The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
@@ -141,6 +144,17 @@ export default function Grocery() {
   useEffect(() => {
     if (cartId) publishCart(cartId, confirmedQty, "scango");
   }, [cartId, confirmedQty, publishCart]);
+  // Codex round 4 on #312 (P1) — the market's in-flight write ledger (`lib/write-ledger.ts`, the
+  // shape TableCartProvider has carried since W21). Every `scanAdd` / `setQty` below is tracked;
+  // the Order tab drains it before leaving for /cart (`registerDrain`, withdrawn on unmount), and
+  // so does this page's own Check out — without it, an add still in flight at the tap could be
+  // missed by /cart's first read or refused by its create-intent lock. ONE instance per mount.
+  const [ledger] = useState(createWriteLedger);
+  const registerDrain = useRegisterDrain();
+  useEffect(() => {
+    registerDrain(ledger.settled);
+    return () => registerDrain(null);
+  }, [registerDrain, ledger]);
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
@@ -243,6 +257,10 @@ export default function Grocery() {
   // the terminal banner owns the story (`open` && !cartGone at the render site, no effect): a basket
   // that just finished must not keep a modal review of nothing on top of the recovery copy.
   const [basketOpen, setBasketOpen] = useState(false);
+  // Phase 3b (D9) — the door sheet behind the eyebrow. It covers the stage like the basket sheet
+  // does, so `ScanStage`'s `sheetOpen` reads it too: `decodeHold` treats ANY sheet over the camera
+  // as a hold, and a sighting through the scrim must not charge.
+  const [doorSheetOpen, setDoorSheetOpen] = useState(false);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -393,7 +411,7 @@ export default function Grocery() {
       flash(nextQty <= 0 ? `Removed ${line.name}` : `${line.name} × ${nextQty}`);
       let wrote = false;
       try {
-        await setQty(line.lineId, nextQty);
+        await ledger.track(setQty(line.lineId, nextQty));
         wrote = true;
       } catch {
         flash("Couldn’t update that — try again.");
@@ -427,7 +445,7 @@ export default function Grocery() {
       }
       setBusyLine(null);
     },
-    [cartId, busyLine, lines, flash, markCartAlive, markCartGone],
+    [cartId, busyLine, lines, flash, markCartAlive, markCartGone, ledger],
   );
 
   // W7b — the offline scan queue's page state: what's WAITING to sync for this cart. Queued scans
@@ -534,7 +552,7 @@ export default function Grocery() {
       const seq = ++reqSeq.current; // ticket at issue time — the response carries a server view
       let r;
       try {
-        r = await scanAdd(cartId, barcode, scanId);
+        r = await ledger.track(scanAdd(cartId, barcode, scanId));
       } catch {
         if (cartIdRef.current === cartId) {
           // W7b — the request RACED the radio dying: same license as the pre-flight (offline is
@@ -639,7 +657,17 @@ export default function Grocery() {
         void diagnose();
       }
     },
-    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose, queueOffline, noteOutcome],
+    [
+      cartId,
+      sessionError,
+      flash,
+      markCartAlive,
+      markCartGone,
+      diagnose,
+      queueOffline,
+      noteOutcome,
+      ledger,
+    ],
   );
 
   // W7b — the reconnect drain: strictly serialized FIFO through the SAME discipline as a live add
@@ -659,7 +687,7 @@ export default function Grocery() {
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
         const seq = ++reqSeq.current;
-        const r = await scanAdd(entry.cartId, entry.barcode, entry.scanId);
+        const r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
         if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;
         if (r.ok) {
           delivered += 1;
@@ -689,7 +717,7 @@ export default function Grocery() {
       drainingRef.current = false;
       syncPending();
     }
-  }, [cartId, flash, markCartAlive, markCartGone, syncPending]);
+  }, [cartId, flash, markCartAlive, markCartGone, syncPending, ledger]);
 
   useEffect(() => {
     const onOnline = () => void drainNow();
@@ -859,16 +887,29 @@ export default function Grocery() {
   useCtaDock(ctaBarRef, lines.length > 0 && Boolean(cartId));
   // W9d — ONE checkout path for the CTA pill and the basket sheet's button (same capture, same
   // journey cut) so the sheet can never drift into a second, differently-instrumented exit.
+  const leavingRef = useRef(false); // one navigation at a time while the drain runs (CartBar's rule)
   const checkout = useCallback(() => {
-    if (!cartId) return;
+    if (!cartId || leavingRef.current) return;
     posthog.capture("grocery_checkout_clicked", {
       cart_id: cartId,
       item_count: itemCount,
       unique_item_count: lines.length,
       total_cents: totalCents,
     });
-    journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
-  }, [cartId, itemCount, lines.length, totalCents, journey]);
+    // Drain in-flight adds and steppers BEFORE leaving (Codex round 4 on #312): `settled()` resolves
+    // at once when nothing is pending, so the ordinary tap stays instant.
+    leavingRef.current = true;
+    const epoch = navEpoch.current();
+    void ledger.settled().finally(() => {
+      leavingRef.current = false;
+      // The shopper may have taken the Menu or Account tab while the write drained: this page is then
+      // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b)
+      // — and the unmount lags the tap by the transition's commit, so the grammar's start signal
+      // (`navEpoch`, Codex round 2) is checked too.
+      if (mountedRef.current && navEpoch.current() === epoch)
+        journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+    });
+  }, [cartId, itemCount, lines.length, totalCents, journey, ledger]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
   // W4e — real basket savings vs the market compare-at. Routed through the SAME `saleInfo` floor the
@@ -888,13 +929,18 @@ export default function Grocery() {
           before the toolbar (~58px, down from ~170 — the sub and the exit tile are gone; the exit
           moved to the page foot, and the AppHeader brand still goes home). */}
       <header className="grocery-head">
-        {/* SR reads just "Grocery"; the bilingual flourish is decorative. */}
-        <p className="eyebrow">
-          Grocery{" "}
-          <span aria-hidden>
-            · <span lang="my">စျေး</span>
-          </span>
-        </p>
+        {/* Phase 3b (D9) — the eyebrow is the door's control here too: "Scan & go ⌄" opens the
+            same "Change order type" sheet as the menu (Grocery lit, the two food doors as links, no
+            table exits). SR reads the door's word; the bilingual flourish stays decorative. */}
+        <DoorSheet
+          mode="scango"
+          flourish={
+            <>
+              · <span lang="my">စျေး</span>
+            </>
+          }
+          onOpenChange={setDoorSheetOpen}
+        />
         <h1 className="grocery-title">Shop the market</h1>
       </header>
 
@@ -1164,7 +1210,7 @@ export default function Grocery() {
             <ScanStage
               onScan={onScan}
               cartReady={scanBasketReady({ cartId, hydrated })}
-              sheetOpen={basketOpen && !cartGone}
+              sheetOpen={(basketOpen && !cartGone) || doorSheetOpen}
               onSearch={focusSearch}
               result={
                 slot?.kind === "notice" ? (

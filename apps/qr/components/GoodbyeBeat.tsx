@@ -90,7 +90,7 @@ export function GoodbyeBeat({
           to this one) — the earner follows their Star + receipt; a split share-payer still has their
           own rewards to visit, just no claim about THIS order. Only once `door` says so (above). */}
       {door === "link" && (
-        <Link href="/account" className="nav-link">
+        <Link href="/account?tab=rewards" className="nav-link">
           {earned ? "See them in your rewards" : "View your rewards"}{" "}
           <span aria-hidden className="nav-arrow nav-arrow-fwd">
             →

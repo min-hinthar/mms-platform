@@ -19,6 +19,9 @@ export const CART = {
   // ── the two moments (W12) ──────────────────────────────────────────────────
   yourOrder: { en: "Your order", my: "သင့်အော်ဒါ" }, // shipped W12
   yourBill: { en: "Your bill", my: "သင့်ဘောက်ချာ" }, // shipped W12
+  // Phase 3a (D6) — the market's checkout heading: a basket is not an order (`orderNoun`). The noun
+  // is MARKET's K15-HIGH proposal (စျေးခြင်း, lib/i18n/market.ts); Claude-authored, pending Min's read.
+  yourBasket: { en: "Your basket", my: "သင့်စျေးခြင်း" },
   // EN values are the SHIPPED checkout copy verbatim (never reworded by translation plumbing).
   emptyCartTitle: { en: "Nothing added yet", my: "ဘာမှ မထည့်ရသေးပါ" },
   emptyCartSubMenu: {
@@ -115,7 +118,9 @@ export const CART = {
   processingPayment: { en: "Processing payment…", my: "ငွေချေနေပါတယ်…" }, // v7.2 EN; MY W18 register
   cardDeclined: { en: "Card declined", my: "ကတ်က အဆင်မပြေပါ" }, // v7.2 EN; MY W18 register
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
-  paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
+  // v7.2:468 verbatim EN ("Paid — thank you!"); the MY there reads "ရှင်းပြီး။ ကျေးဇူးပါ" — the
+  // shipped K15-era variant stays until the ledger's native round rules (Phase 3b, D12).
+  paidThankYou: { en: "Paid — thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" },
 
   // ── the pay form (Phase 1c) ────────────────────────────────────────────────
   // The wait, the reveal and the failure card around Stripe's card iframe (lib/pay-element.ts owns

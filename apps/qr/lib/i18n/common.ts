@@ -27,6 +27,14 @@ export const COMMON = {
   backToMarket: { en: "Back to the market", my: "စျေးသို့ ပြန်သွား" },
   browseMarket: { en: "Browse the market", my: "စျေး ကြည့်မယ်" },
   chooseHowOrdering: { en: "Choose how you’re ordering", my: "ဘယ်လို မှာယူမလဲ ရွေးပါ" }, // v7.2 root
+  // Phase 3b (D9) — the door sheet behind every door eyebrow. EN title verbatim from v7.2's
+  // changeMode sheet; its sub-line ("Your cart stays with you.") is FALSE here — each door mints
+  // its own cart — so the honest line below replaces it (the glossary noun အော်ဒါ).
+  changeOrderType: { en: "Change order type", my: "မှာယူပုံ ပြောင်းရန်" }, // K15 draft
+  eachDoorOwnOrder: {
+    en: "Each way of ordering has its own order.",
+    my: "မှာယူပုံတစ်ခုစီမှာ ကိုယ်ပိုင်အော်ဒါ ရှိပါတယ်။", // K15 draft
+  },
 
   // ── header / chrome ────────────────────────────────────────────────────────
   rewards: { en: "Rewards", my: "ဆုလာဘ်" }, // v7.2

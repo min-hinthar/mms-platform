@@ -75,6 +75,11 @@ export function AccountUpgrade({
   // identity_already_exists path). `codeMode` then drives the verifyOtp type: an `email_change` upgrade
   // keeps this anon uid (Stars carry over); an `email` sign-in switches to the existing account.
   const [emailTaken, setEmailTaken] = useState(false);
+  // Phase 3a (D4) — the card's INTENT. A returning diner on a new phone had no visible "Sign in":
+  // the only door was headed "Save your Stars". `signin` re-words the card and sends the typed email
+  // straight down the sign-in path (`sendSignInCode`, the same recovery an already-registered
+  // address reaches after a failed save) — one press instead of two. The mechanics are unchanged.
+  const [intent, setIntent] = useState<"save" | "signin">("save");
   const [codeMode, setCodeMode] = useState<"email_change" | "email">("email_change");
   // K7: the email currently mid re-auth from a "Welcome back" chip / a `?resume=` return — shows a spinner on
   // that chip and drives the code-step label.
@@ -226,6 +231,13 @@ export function AccountUpgrade({
     const { error: e4 } = await supa.auth
       .signInWithOAuth({
         provider: "google",
+        // Phase 3a — back to /account, where the YOU panel opens for a bounce (`?error_code=`) AND
+        // for the return (`?code=`, the PKCE exchange) — `accountPanel` reads both, so the recovery
+        // copy and button are never in a hidden panel (blind pass on #312, critical 3). ⚠️ The
+        // BARE path, no `?tab=`: Supabase glob-matches `redirectTo` against the Redirect URL allow
+        // list, and a query string makes the exact `/account` entry miss — the redirect then falls
+        // back to the Site URL, where nothing redeems the carry token just stashed (Codex round 3
+        // on #312, P1; the contract is `lib/safe-next.ts`'s).
         options: { redirectTo: `${window.location.origin}/account` },
       })
       .catch((e: unknown) => ({
@@ -488,11 +500,18 @@ export function AccountUpgrade({
     setError(null);
     const supa = browserClient();
 
-    if (emailTaken) {
-      // RECOVERY: the diner TYPED an address that belongs to another account, so SIGN IN to it (updateUser
+    if (emailTaken || intent === "signin") {
+      // RECOVERY (or the stated intent): the diner TYPED an address that belongs to another account, so SIGN IN to it (updateUser
       // would just re-fail email_exists). This is a genuine guest saving their OWN Stars into a pre-existing
       // account → `bringStars: true` mints the K3b merge token so /account's MergeRedeemer carries this
       // device's Stars over. (A remembered-CHIP switch takes the `false` path instead — see selectIdentity.)
+      // Phase 3a — the stated "Sign in" intent ALWAYS secures the carry, and the card's copy says so
+      // before the press (blind pass on #312: a merge the diner was not told about is the lend-mode
+      // sweep by another door). ⚠️ Never gate it on the Star count (Codex round 2 on #312, P1):
+      // `mms_merge_anon_rewards` moves every order (`earned_by`), the rewards row, favorites and
+      // feedback, and records the redirect an in-flight payment resolves through — a phone with zero
+      // paid Stars can still hold all of that, and a sign-in that skips the mint loses it for good.
+      // The lend-mode `?resume=` return is the one door that suppresses the carry, and it says why.
       await sendSignInCode(addr, true);
       setBusy(false);
       return;
@@ -557,7 +576,7 @@ export function AccountUpgrade({
     // session via a server-side staff check, so there's no pre-redirect marker write to fail (no orphan path).
     const { error: e3 } = await supa.auth.linkIdentity({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/account` },
+      options: { redirectTo: `${window.location.origin}/account` }, // BARE — the allow list (above)
     });
     if (e3) {
       setError(e3.message || "Couldn’t continue with Google — try again.");
@@ -578,16 +597,28 @@ export function AccountUpgrade({
   return (
     <Card as="section" textured style={card} aria-labelledby="upgrade-h">
       <p className="eyebrow" style={{ margin: "0 0 6px" }}>
-        <span aria-hidden>✦ </span>Save your Stars
+        <span aria-hidden>✦ </span>
+        {intent === "signin" ? "Sign in" : "Save your Stars"}
       </p>
       <h2 id="upgrade-h" style={h2}>
-        Keep your rewards
+        {intent === "signin" ? "Welcome back" : "Keep your rewards"}
       </h2>
       {/* Name the stakes honestly (the confusion this fixes: seeing your Stars + a "save them" pitch reads
           as a contradiction unless it's clear they're DEVICE-BOUND and could be lost). Lead with the real
           count when there is one. */}
       <p style={sub}>
-        {stars > 0 ? (
+        {intent === "signin" ? (
+          <>
+            Enter the email on your Morning Star account, or continue with Google — your Stars and
+            past orders are there waiting, and{" "}
+            <strong>
+              {stars > 0
+                ? `the ${stars} ${stars === 1 ? "Star" : "Stars"} and anything else saved on this phone`
+                : "anything saved on this phone"}
+            </strong>{" "}
+            come along.
+          </>
+        ) : stars > 0 ? (
           <>
             You’ve earned{" "}
             <strong>
@@ -603,6 +634,29 @@ export function AccountUpgrade({
           </>
         )}
       </p>
+
+      {/* Phase 3a — the intent switch, in words a returning diner reads before typing. Idle step only:
+          the code step belongs to whichever door sent the code. */}
+      {phase === "idle" && (
+        <button
+          type="button"
+          className="nav-link"
+          style={intentBtn}
+          onClick={() => {
+            setIntent(intent === "signin" ? "save" : "signin");
+            setError(null);
+            setEmailTaken(false);
+            // A block belongs to the intent that raised it as much as to its address: left in place,
+            // the Save card promised the uid-PRESERVING flow while the hatch beneath it still fired
+            // the merge-suppressed sign-in for the same email (Codex round 3 on #312, P2).
+            setCarryBlocked(null);
+          }}
+        >
+          {intent === "signin"
+            ? "New here? Save this phone’s Stars instead"
+            : "Already have an account? Sign in"}
+        </button>
+      )}
 
       {/* K7: remembered-identity chips for a one-tap (merge-suppressed) return — renders null for a
           first-time guest with no history. Only on the idle step (the code step is mid-sign-in). */}
@@ -647,7 +701,11 @@ export function AccountUpgrade({
             style={primaryBtn}
           >
             <span style={ctaLabel}>
-              {busy ? "Sending…" : emailTaken ? "Send sign-in code" : "Email me a code"}
+              {busy
+                ? "Sending…"
+                : emailTaken || intent === "signin"
+                  ? "Send sign-in code"
+                  : "Email me a code"}
             </span>
           </button>
         </form>
@@ -713,7 +771,12 @@ export function AccountUpgrade({
 
       <button
         type="button"
-        onClick={googleAction(callback) === "sign-in" ? signInGoogle : google}
+        // Phase 3a — the stated "Sign in" intent takes the sign-in call directly (Codex round 2 on
+        // #312): an existing Google member no longer rides the `identity_already_exists` bounce and
+        // its recovery round trip to reach the account the card just promised.
+        onClick={
+          intent === "signin" || googleAction(callback) === "sign-in" ? signInGoogle : google
+        }
         disabled={busy}
         className="account-oauth"
         style={googleBtn}
@@ -738,7 +801,7 @@ export function AccountUpgrade({
             d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
           />
         </svg>
-        {googleButtonLabel(callback)}
+        {intent === "signin" ? "Sign in with Google" : googleButtonLabel(callback)}
       </button>
 
       {/* A7b — the carry could not be secured, so nothing was started. This is the ONLY way past it, and
@@ -797,6 +860,19 @@ export function AccountUpgrade({
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const card: CSSProperties = {
   padding: "var(--s5)",
+};
+const intentBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 44,
+  margin: "0 0 var(--s2)",
+  padding: 0,
+  border: 0,
+  background: "none",
+  font: "inherit",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--ac-strong)",
+  cursor: "pointer",
 };
 const h2: CSSProperties = {
   margin: "0 0 6px",

@@ -4,7 +4,6 @@ import { Badge, DegradedStrip, Icon } from "@mms/ui";
 import { AddButton } from "@/components/AddButton";
 import { CartBar } from "@/components/CartBar";
 import { GuestList } from "@/components/GuestList";
-import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
@@ -13,12 +12,12 @@ import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
-import { ArrivalBeat, doorFor } from "./ArrivalBeat";
+import { ArrivalBeat } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
 import { PicksRow } from "./PicksRow";
-import { TableOptions } from "./TableOptions";
+import { DoorSheet } from "@/components/DoorSheet";
 import { useCart } from "@/components/TableCartProvider";
 import { PullToRefresh, type RefreshReason } from "@/components/PullToRefresh";
 import {
@@ -133,7 +132,8 @@ export function MenuBrowser({
   const [activeCat, setActiveCat] = useState<string | null>(null);
   // R6b: the item whose detail sheet is open (null = closed). Radix restores focus to the trigger row on close.
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
-  const [tableSheetOpen, setTableSheetOpen] = useState(false);
+  // Phase 3b (D9) — the door sheet is open on ANY door now, not only at a table.
+  const [doorSheetOpen, setDoorSheetOpen] = useState(false);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -194,7 +194,9 @@ export function MenuBrowser({
   // J5 — reorder-on-arrival (the /account "Order this again" path): once the session's cart exists,
   // run the earner-gated server reorder EXACTLY once, strip the param (so refresh/back can't double-
   // run it), announce the honest outcome through the provider's ONE live region, and re-sync the cart.
-  const { cartId, announce, refresh } = useCart();
+  // `tableNumber` (Phase 3b) is handed to the DoorSheet: the market mounts no cart provider, so the
+  // sheet cannot read it itself and the menu — which has it — passes it down.
+  const { cartId, announce, refresh, tableNumber } = useCart();
 
   // ── W22c — the refresh baseline, and the two facts it does NOT conflate ────────────────────────
   // `baseline.rows` is what the diner was last TOLD about, so a second pull reports what changed
@@ -625,20 +627,15 @@ export function MenuBrowser({
             propagation — so the pull would otherwise claim the sheet's own scroll. NOT suppressed
             while the catalog is stale: that says the LAST read failed, not the next one. */}
         <div className="menu-eyebrow-row">
-          {/* The same DOOR vocabulary as the arrival card below it — one map, so the masthead can
-              never contradict the greeting (the pass caught "TO-GO" over "SCAN & GO" on bare /menu,
-              whose default mode is scango and whose branch this ternary used to lack). */}
-          {/* Phase 1a — at a table the door eyebrow IS the table's control: the two exits the arrival
-              card used to show as tiles above the food live in its sheet now. */}
-          {mode === "dinein" ? (
-            <TableOptions label={doorFor(mode).label} onOpenChange={setTableSheetOpen} />
-          ) : (
-            <p className="eyebrow">{doorFor(mode).label}</p>
-          )}
+          {/* Phase 3b (D9) — the door eyebrow is ONE control on EVERY door: "Change order type"
+              (the DoorSheet), with the home's three doors as rows and, at a table, Phase 1a's two
+              exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
+              the sheet), so the masthead can never contradict the arrival line. */}
+          <DoorSheet mode={mode} tableNumber={tableNumber} onOpenChange={setDoorSheetOpen} />
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
-            disabled={!!sheetItem || tableSheetOpen}
+            disabled={!!sheetItem || doorSheetOpen}
           />
         </div>
         <h1 ref={menuHeadingRef} tabIndex={-1} className="menu-title" style={{ outline: "none" }}>
@@ -651,7 +648,6 @@ export function MenuBrowser({
             of the arrival beat, not a promotion. Renders nothing below the threshold. */}
         <YourUsual outcome={usual} />
         {mode === "dinein" && <GuestList />}
-        {mode === "pickup" && <PickupSlotChip />}
         {/* J3: the wait, narrated from real kitchen taps — renders only once something is with the
             kitchen (fired/cooking/served), i.e. exactly when a mid-meal diner is back here waiting. */}
         <MenuTimeline />

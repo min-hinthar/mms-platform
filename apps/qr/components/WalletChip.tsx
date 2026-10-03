@@ -25,7 +25,9 @@ export function WalletChip({
   const stars = badge.stars;
   return (
     <Link
-      href="/account"
+      // Phase 3a — a Stars control opens the hub's REWARDS panel, not its Orders default (Codex
+      // round 1 on #312).
+      href="/account?tab=rewards"
       className={`wallet-chip${className ? ` ${className}` : ""}`}
       style={
         {

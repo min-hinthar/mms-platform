@@ -51,3 +51,43 @@ export function decodeCartCount(raw: string | null, cartId: string | null): numb
 export function encodeCartCount(cartId: string, count: number): string {
   return `${cartId}:${count}`;
 }
+
+/** The doors a cart can belong to — the ONE list of modes the wayfinding store accepts (the
+ *  provider's `publishCart` and the stored `<cartId>:<mode>` pair both read it). */
+export const CART_DOORS: ReadonlySet<string> = new Set(["dinein", "pickup", "scango"]);
+
+/**
+ * Codex round 2 on 3b (#312) — the stored `<cartId>:<mode>` pair: the DOOR a remembered cart was
+ * published through. After a door switch the store still holds the previous door's pointer until the
+ * new door mints and publishes its own cart, so the Order tab on /dine-in (relabelled "Order" by the
+ * route) opened the grocery basket — and a failed session mint left that wrong link indefinitely. A
+ * door belongs to ONE cart id; anything malformed, for another cart, or naming a door this app does
+ * not know is unknown (null), never a guess.
+ */
+export function decodeCartMode(raw: string | null, cartId: string | null): string | null {
+  if (!raw || !cartId) return null;
+  const at = raw.lastIndexOf(":");
+  if (at <= 0 || raw.slice(0, at) !== cartId) return null;
+  const tail = raw.slice(at + 1);
+  return CART_DOORS.has(tail) ? tail : null;
+}
+
+export function encodeCartMode(cartId: string, mode: string): string {
+  return `${cartId}:${mode}`;
+}
+
+/**
+ * The cart the store may OFFER on the door the diner is standing in: the remembered one when its door
+ * is unknown (a pointer written before 3b), when the diner's door is unknown (the threshold), or when
+ * the two agree — and nothing when they differ. A cart reached by URL is explicit and never passes
+ * through here.
+ */
+export function cartForDoor(
+  cartId: string | null,
+  cartMode: string | null,
+  mode: string | null,
+): string | null {
+  if (!cartId) return null;
+  if (cartMode && mode && cartMode !== mode) return null;
+  return cartId;
+}

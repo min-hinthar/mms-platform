@@ -10,7 +10,15 @@ import {
   type ReactNode,
 } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { decodeCartCount, encodeCartCount } from "@/lib/order-noun";
+import {
+  CART_DOORS,
+  cartForDoor,
+  decodeCartCount,
+  decodeCartMode,
+  encodeCartCount,
+  encodeCartMode,
+} from "@/lib/order-noun";
+import { tabsMode } from "@/lib/diner-tabs";
 
 /**
  * Cross-route wayfinding memory (M-nav). QR screens are otherwise islands: `mode` is a URL param on `/menu`
@@ -50,13 +58,25 @@ type ActiveOrderCtx = {
   /** The published cart's item count; null when this device has not seen the cart's contents (a cart
    *  reached by URL) — the header then names the object without claiming a number. */
   cartCount: number | null;
+  /** Codex round 3 on #312 (P1) — CartBar's W21 rule for the one other door to /cart. The cart
+   *  provider is mounted only under the menu and the market, but the Order tab is mounted in the
+   *  root layout, so the provider LENDS the store its `settled()` barrier while it is mounted
+   *  (`CartPublisher`) and the tab awaits it before navigating: an add still in flight when the tab
+   *  is tapped could otherwise be missed by /cart's first read or refused by its create-intent
+   *  lock. Resolves at once on a route with no provider — nothing is pending there. */
+  drain: () => Promise<void>;
+  /** The cart provider's publisher registers its barrier on mount and withdraws it (`null`) on
+   *  unmount, so a torn-down menu's ledger is never awaited from another route. */
+  registerDrain: (fn: (() => Promise<void>) | null) => void;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
 const KEY_CART = "mms.qr.activeCart";
 const KEY_CART_COUNT = "mms.qr.activeCartCount";
+/** Codex round 2 on 3b — the DOOR the stored cart was published through (`<cartId>:<mode>`), so a
+ *  door switch stops offering the previous door's cart before the new door has minted its own. */
+const KEY_CART_MODE = "mms.qr.activeCartMode";
 const KEY_ORDER = "mms.qr.activeOrder";
-const KNOWN_MODES = new Set(["dinein", "pickup", "scango"]);
 const ORDER_TTL_MS = 4 * 60 * 60 * 1000; // 4h — a resumable order self-expires
 
 const Ctx = createContext<ActiveOrderCtx | null>(null);
@@ -67,6 +87,12 @@ const noop = () => {};
  *  best-effort wayfinding, never a reason to throw. */
 export function usePublishCart(): ActiveOrderCtx["publishCart"] {
   return useContext(Ctx)?.publishCart ?? noop;
+}
+
+/** Same best-effort shape for the barrier's registration (CartPublisher mounts under a menu that
+ *  Checkout's suites render bare). */
+export function useRegisterDrain(): ActiveOrderCtx["registerDrain"] {
+  return useContext(Ctx)?.registerDrain ?? noop;
 }
 
 export function useForgetCart(): ActiveOrderCtx["forgetCart"] {
@@ -103,6 +129,13 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const [cartCount, setCartCount] = useState<number | null>(null);
   const [order, setOrder] = useState<ActiveOrder | null>(null);
   const hydrated = useRef(false);
+  // The lent barrier (see `drain` on the context type). A ref, never state: registering it must not
+  // re-render every consumer of the store, and the tab reads it only inside a click.
+  const drainRef = useRef<(() => Promise<void>) | null>(null);
+  const registerDrain = useCallback((fn: (() => Promise<void>) | null) => {
+    drainRef.current = fn;
+  }, []);
+  const drain = useCallback(() => drainRef.current?.() ?? Promise.resolve(), []);
 
   // Runs on every route/param change: persist fresh URL signals, capture a new live order on the /track
   // success landing, and hydrate the stored order once. Reads are sync; state writes ride a single rAF.
@@ -113,15 +146,33 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     let nextMode: string | null = null;
     let nextCart: string | null = null;
     let nextCount: number | null = null;
+    // A route that IS a door (`/dine-in`, `/grocery` — `tabsMode` with no fallback) is the diner
+    // choosing that door, so it is remembered exactly like a `?mode=` (Codex round 3 on 3b): left as
+    // a transient reading, a diner who opened /dine-in with a grocery basket remembered and tapped
+    // Account before picking a table saw the basket and "Market" return on /account, where the route
+    // implies nothing and the stale stored door won.
+    const chosenMode = urlMode ?? tabsMode(pathname, null);
     try {
-      if (urlMode) localStorage.setItem(KEY_MODE, urlMode);
+      if (chosenMode) localStorage.setItem(KEY_MODE, chosenMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
-      nextMode = urlMode ?? localStorage.getItem(KEY_MODE);
+      nextMode = chosenMode ?? localStorage.getItem(KEY_MODE);
       nextCart = urlCart ?? localStorage.getItem(KEY_CART);
+      // The remembered cart is offered only on the door it was published through (Codex round 2 on
+      // 3b): the diner who leaves the market for /dine-in or the to-go menu stands in another door,
+      // and its Order tab must not open the grocery basket while that door's cart is still minting
+      // — or forever, if the mint fails. The door the diner is IN is the route's reading of the mode
+      // (`tabsMode`: /grocery is scango whatever is stored; /dine-in is dinein), the cart's is the
+      // stored pair. A cart reached by URL is explicit and never suppressed; a pointer written before
+      // 3b (no door) is offered as before. The pointer itself is left in storage — the door that
+      // owns it still does.
+      if (!urlCart) {
+        const door = decodeCartMode(localStorage.getItem(KEY_CART_MODE), nextCart);
+        nextCart = cartForDoor(nextCart, door, tabsMode(pathname, nextMode));
+      }
       // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.
       nextCount = decodeCartCount(localStorage.getItem(KEY_CART_COUNT), nextCart);
     } catch {
-      nextMode = urlMode;
+      nextMode = chosenMode;
       nextCart = urlCart;
     }
 
@@ -144,6 +195,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(KEY_ORDER, JSON.stringify(captured));
           localStorage.removeItem(KEY_CART); // the open cart is now a placed order
           localStorage.removeItem(KEY_CART_COUNT);
+          localStorage.removeItem(KEY_CART_MODE);
         } catch {
           /* private mode — the pill just won't persist across a reload */
         }
@@ -180,10 +232,16 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     // from the session (Checkout's split context). /grocery carries no `?mode=` in its URL, so the
     // URL-observed mode could still name a market basket "Your order" — or a stale `dinein` could
     // withhold its count as if it were a shared table cart.
-    const known = mode && KNOWN_MODES.has(mode) ? mode : null;
+    const known = mode && CART_DOORS.has(mode) ? mode : null;
     try {
       localStorage.setItem(KEY_CART, id);
       if (known) localStorage.setItem(KEY_MODE, known);
+      // The door travels with the id (Codex round 2 on 3b): a publisher that does not know its door
+      // leaves the pair alone rather than stamping a guess — and clears a pair for ANOTHER cart, so a
+      // stale door never binds to a new id.
+      if (known) localStorage.setItem(KEY_CART_MODE, encodeCartMode(id, known));
+      else if (decodeCartMode(localStorage.getItem(KEY_CART_MODE), id) === null)
+        localStorage.removeItem(KEY_CART_MODE);
       if (count === null) localStorage.removeItem(KEY_CART_COUNT);
       else localStorage.setItem(KEY_CART_COUNT, encodeCartCount(id, count));
     } catch {
@@ -200,6 +258,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     try {
       localStorage.removeItem(KEY_CART);
       localStorage.removeItem(KEY_CART_COUNT);
+      localStorage.removeItem(KEY_CART_MODE);
     } catch {
       /* ignore */
     }
@@ -210,8 +269,18 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart }),
-    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart],
+    () => ({
+      mode,
+      cartId,
+      cartCount,
+      order,
+      clearOrder,
+      publishCart,
+      forgetCart,
+      drain,
+      registerDrain,
+    }),
+    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart, drain, registerDrain],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

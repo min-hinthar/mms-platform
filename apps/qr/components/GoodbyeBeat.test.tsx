@@ -28,7 +28,8 @@ const GUEST_EARNER: RewardsProgress = {
   earnedThisOrder: true,
   isUpgraded: false,
 };
-const accountLink = (c: HTMLElement) => c.querySelector('a[href="/account"]');
+// Phase 3a — the rewards door opens the hub's Rewards panel.
+const accountLink = (c: HTMLElement) => c.querySelector('a[href="/account?tab=rewards"]');
 
 describe("GoodbyeBeat obeys the one-door decision", () => {
   it("'none' — the save card is the door: no link and no 'with your rewards' line", () => {

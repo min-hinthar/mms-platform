@@ -1568,7 +1568,7 @@ export function OrderTracker({
             card for a guest earner, else the goodbye beat's link) — one clear door, and never a link
             that vanishes underfoot when the progress poll resolves (focus would drop to <body>). */}
           {arrived && !justPaid && (
-            <Link href="/account" className="nav-link">
+            <Link href="/account?tab=rewards" className="nav-link">
               View your rewards{" "}
               <span aria-hidden className="nav-arrow nav-arrow-fwd">
                 →

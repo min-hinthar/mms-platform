@@ -1,5 +1,6 @@
 "use client";
 import { useCart } from "@/components/TableCartProvider";
+import { formatSlotLong } from "@/lib/pickupTime";
 import type { WelcomeBack } from "@/lib/rewards";
 
 /**
@@ -19,27 +20,16 @@ import type { WelcomeBack } from "@/lib/rewards";
  * Reduced motion inherits `.mms-stagger`'s existing gate. The Burmese greeting is REAL content (not
  * decoration): `lang="my"` for correct SR pronunciation (WCAG 3.1.2) + the Padauk face; the ✦ is
  * decorative and hidden. No live region — this is static place-setting, announced once in reading order.
+ *
+ * Phase 3b · D10 — one owner per fact. The pickup line is a STATEMENT, never a control: it used to
+ * say "Pick a time — we'll have it ready." beside a chip whose pick the provider wrote into React
+ * state only and the next server view overwrote. The When write has ONE owner — `PickupWhenChoice`
+ * on /cart — so this line reads the context's `pickupSlot` (the server view) and says what that
+ * owner recorded: no slot → an invitation to order; a slot (a diner back from checkout) → the time,
+ * through the ONE formatter (`formatSlotLong`), and where to change it. Like the party line, the
+ * scheduled statement wins the sub-line over welcome-back warmth: it is information the diner set.
+ * English-only beside the bilingual Mingalaba — a pre-existing gap, not new debt.
  */
-/**
- * The ONE door vocabulary (name-it-ONCE, applied to identity — see brand.ts/track-order.ts for the
- * rule). The adversarial pass on #239 caught the menu eyebrow speaking its own dialect: bare /menu
- * defaults to scango (page.tsx), whose branch the eyebrow's ternary lacked, so the masthead said
- * "TO-GO" over this card's "SCAN & GO" — two door claims on one screen. Both surfaces read this map
- * now, so a new mode that misses a branch falls back visibly to the same word everywhere instead of
- * silently disagreeing.
- */
-const DOOR = {
-  dinein: { glyph: "🍽", label: "At the table" },
-  pickup: { glyph: "🥡", label: "To go" },
-  scango: { glyph: "🛒", label: "Scan & go" },
-} as const;
-
-/** The door for a mode string, unknown modes falling back VISIBLY to scan & go — the same word on
- *  every surface beats a per-surface guess. */
-export function doorFor(mode: string): { glyph: string; label: string } {
-  return (DOOR as Record<string, { glyph: string; label: string }>)[mode] ?? DOOR.scango;
-}
-
 export function ArrivalBeat({
   mode,
   welcome = null,
@@ -47,15 +37,18 @@ export function ArrivalBeat({
   mode: string;
   welcome?: WelcomeBack | null;
 }) {
-  const { isGroup, members } = useCart();
+  const { isGroup, members, pickupSlot } = useCart();
   const party = isGroup && members.length > 1 ? members.length : 0;
+  const scheduled = mode === "pickup" && pickupSlot ? pickupSlot : null;
   const line =
     mode === "dinein"
       ? party > 0
         ? `${party} of you at the table — order together, pay together.`
         : "You’re at the table — order when you’re ready."
       : mode === "pickup"
-        ? "Pick a time — we’ll have it ready."
+        ? scheduled
+          ? `Scheduled for ${formatSlotLong(scheduled)} — change it at checkout.`
+          : "Order when you’re ready — we’ll pack it to go."
         : "Welcome in — pay right from your phone.";
 
   const name = welcome?.name?.trim() || null;
@@ -64,13 +57,15 @@ export function ArrivalBeat({
       ? `Welcome back — ${welcome.ordersThisMonth} orders with us this month.`
       : null;
   // The group party line always wins the one sub-line: it carries live coordination semantics
-  // ("order together, settle together"); warmth never displaces information.
-  const shown = mode === "dinein" && party > 0 ? line : (backLine ?? line);
+  // ("order together, settle together"); warmth never displaces information. D10 — the scheduled
+  // pickup statement wins for the same reason: a time the diner set at checkout, and the pointer back
+  // to it, is information; the welcome-back line returns on the next visit without a slot.
+  const shown = (mode === "dinein" && party > 0) || scheduled !== null ? line : (backLine ?? line);
 
   // Phase 1a — the beat is a LINE now, not a card. It was a textured card repeating the eyebrow's
   // door ("At the table" twice), the table number the guest list already shows, and two exit tiles
   // placed before any food — the first things a scanned guest could tap were ways to leave. The
-  // exits live in the table's own sheet (`TableOptions`, behind the dine-in eyebrow); the greeting
+  // exits live in the door sheet (`DoorSheet`, behind every door eyebrow since Phase 3b); the greeting
   // keeps its one job: say hello in both tongues and set the place in one sentence.
   return (
     <div className="menu-greet mms-stagger">

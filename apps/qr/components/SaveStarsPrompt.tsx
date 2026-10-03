@@ -132,7 +132,7 @@ export function SaveStarsPrompt({
             </span>
           </a>
         ) : (
-          <Link href="/account" className={buttonClass({ variant: "secondary" })}>
+          <Link href="/account?tab=you" className={buttonClass({ variant: "secondary" })}>
             {copy.cta}{" "}
             <span aria-hidden className="ui-btn-arrow-fwd">
               →

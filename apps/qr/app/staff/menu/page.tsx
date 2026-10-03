@@ -4,6 +4,7 @@ import { Icon } from "@mms/ui";
 import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
+import { readStaffDoor } from "@/lib/staff-door-server";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
@@ -51,7 +52,7 @@ export default async function StaffMenuPrices() {
   const canEditPrice = caller.role !== "server";
   // Read AFTER the gate: the unknowable-gate branch above renders `StaffOutageShell`, which carries
   // its own control, so the cookie is only needed on the path that renders this page's chrome.
-  const lang = await readStaffLang();
+  const [lang, door] = await Promise.all([readStaffLang(), readStaffDoor()]);
 
   const db = publicClient();
   const { data, error } = await db
@@ -80,6 +81,13 @@ export default async function StaffMenuPrices() {
       <StaffBar
         lang={lang}
         title={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
+        // Phase 3a (D5) — "up" from this screen is the COUNTER on a counter device (one tap back to
+        // work, not two through the doors); the doors everywhere else. Both arms literal (rule 4d).
+        leading={
+          door === "counter"
+            ? { kind: "back", href: "/staff?floor=1", k: "floor.back" }
+            : { kind: "screens" }
+        }
         // The word-check sheet, as a circle — named by sr-only text like the counter's approvals
         // circle (the sheet's own title, no arrow), and a real link, so it opens with JavaScript off.
         trailing={

@@ -11,6 +11,7 @@ import { SoundPrimer } from "@/components/SoundPrimer";
 import { MotionProvider } from "@/components/MotionProvider";
 import { ActiveOrderProvider } from "@/components/ActiveOrderProvider";
 import { AppHeader } from "@/components/AppHeader";
+import { DinerTabs } from "@/components/nav/DinerTabs";
 import { LendModeBanner } from "@/components/LendModeBanner";
 import { NavDirectionSync } from "@/components/nav/TransitionNav";
 import { SurfaceMemory } from "@/components/nav/SurfaceMemory";
@@ -164,6 +165,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   null off lend mode / on /staff. */}
               <LendModeBanner />
               {children}
+              {/* Phase 3a (D1) — the diner spine: v7.2's persistent bottom tab bar (Menu · Order ·
+                  Track · Account). Self-hides on /staff, /board, /kiosk and /kit. */}
+              <DinerTabs />
             </ActiveOrderProvider>
           </MotionProvider>
         </body>

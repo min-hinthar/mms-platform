@@ -13,6 +13,8 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
+// Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
+import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
 import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -96,6 +98,8 @@ import {
   type CheckoutStage,
 } from "@/lib/checkout-stage";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
+import { checkoutSteps } from "@/lib/checkout-steps";
+import { orderNoun } from "@/lib/order-noun";
 import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
 import { t, type DictKey } from "@/lib/i18n";
 
@@ -433,7 +437,7 @@ export function Checkout({
     // Hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): SSR and the first
     // client render agree, and the setState runs in a callback, never the effect body.
     void Promise.resolve()
-      .then(() => localStorage.getItem("mms.name")) // the group-cart display-name key (one identity)
+      .then(() => localStorage.getItem(DEVICE_NAME_KEY)) // the group-cart display-name key (one identity)
       .then((saved) => {
         if (active && saved) setFirstName(saved.slice(0, 40));
       })
@@ -450,7 +454,7 @@ export function Checkout({
     if (!isPickupMode) return;
     let active = true;
     void Promise.resolve()
-      .then(() => localStorage.getItem("mms.phone"))
+      .then(() => localStorage.getItem(DEVICE_PHONE_KEY))
       .then((saved) => {
         if (active && saved) setPhone(saved.slice(0, 20));
       })
@@ -1113,8 +1117,26 @@ export function Checkout({
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
+  // Phase 3a (D6) — in the market the thing on the slip is a BASKET (`orderNoun`), from the first
+  // scan to the pay step; it was "Your order" here while every market surface said basket.
   const headingKey: DictKey =
-    staged && viewKey !== "settle" && (onPay || stage === "bill") ? "yourBill" : "yourOrder";
+    staged && viewKey !== "settle" && (onPay || stage === "bill")
+      ? "yourBill"
+      : sessionMode === "scango"
+        ? "yourBasket"
+        : "yourOrder";
+  // Phase 3a (D3) — the step rail under the heading: Order → Bill → Pay at a table, Order → Pay
+  // (Basket → Pay) elsewhere; one step current. Decided in lib/checkout-steps.ts, drawn below.
+  // A counter-settled (or tablemate-settled) cart is a finished surface too: `CounterSettledCard`
+  // replaces the review controls, so a rail still naming Order or Bill as current above the paid
+  // confirmation was a stale claim (Codex round 1 on #312).
+  const steps = checkoutSteps({
+    staged,
+    stage,
+    step,
+    settle: viewKey === "settle" || settledClose !== null,
+    noun: orderNoun(sessionMode),
+  });
 
   // J4 (residual) — the freeze comes from ONE binding that mirrors the server's own predicate.
   //
@@ -1873,8 +1895,8 @@ export function Checkout({
       // for next time like the name; both writes are best-effort.
       const phoneOut = isPickupMode ? phone.trim().slice(0, 20) : "";
       try {
-        if (name) localStorage.setItem("mms.name", name);
-        if (phoneOut) localStorage.setItem("mms.phone", phoneOut);
+        if (name) localStorage.setItem(DEVICE_NAME_KEY, name);
+        if (phoneOut) localStorage.setItem(DEVICE_PHONE_KEY, phoneOut);
       } catch {
         /* private mode */
       }
@@ -2404,6 +2426,27 @@ export function Checkout({
         </h1>
         <WalletChip badge={rewardsBadge} />
       </div>
+      {steps.length > 0 && (
+        <ol className="checkout-steps" aria-label="Checkout steps">
+          {steps.map((st, i) => (
+            <li
+              key={st.key}
+              className={`checkout-steps-item is-${st.state}`}
+              aria-current={st.state === "current" ? "step" : undefined}
+            >
+              <span className="checkout-steps-num" aria-hidden>
+                {st.state === "done" ? "✓" : i + 1}
+              </span>
+              <span className="checkout-steps-label">
+                {st.label}
+                <span className="sr-only">
+                  {st.state === "done" ? " — done" : st.state === "next" ? " — next" : ""}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {/* R7b: keyed step wrapper — a CSS enter-slide replays on each view change (review ↔ pay ↔ settle).
           Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the

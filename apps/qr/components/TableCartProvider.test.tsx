@@ -34,10 +34,11 @@ import type { WriteResult } from "@/lib/write-outcome";
  *
  * ## The mocks, and why each is unavoidable
  *
- * THREE are hard import-time blockers: `server-only` throws from its main entry, and this module
- * reaches it three separate ways — `@/lib/cart` → `@mms/db/server`, `@/lib/members`, and
- * `./PickupSlotSheet` → `@/lib/pickup`. (42 existing node suites already stub `server-only` the
- * same way; here the whole modules are replaced, because the test drives them.)
+ * TWO are hard import-time blockers: `server-only` throws from its main entry, and this module
+ * reaches it two separate ways — `@/lib/cart` → `@mms/db/server` and `@/lib/members`. (42 existing
+ * node suites already stub `server-only` the same way; here the whole modules are replaced, because
+ * the test drives them.) A third, `./PickupSlotSheet` → `@/lib/pickup`, left with the provider's own
+ * sheet mount (Phase 3b · D10): the only importer of that sheet is now `PickupWhenChoice` on /cart.
  *
  * TWO are the seams the fixtures steer: `@/lib/useTableSession` supplies the session and the
  * `revalidate` whose call count proposition 4 asserts, and `@/lib/realtime` would otherwise open a
@@ -76,7 +77,6 @@ vi.mock("@/lib/cart", () => ({
   getCartView: h.getCartView,
 }));
 vi.mock("@/lib/members", () => ({ setDisplayName: vi.fn(async () => {}) }));
-vi.mock("./PickupSlotSheet", () => ({ PickupSlotSheet: () => null }));
 vi.mock("@/lib/useTableSession", () => ({
   useTableSession: () => ({
     session: h.session.current,
@@ -1190,5 +1190,41 @@ describe("Phase 1c — the one slot: quiet claims, named corrections, precedence
     await drainDeferredAnnounces();
 
     expect(spoken()).toBe(refusedWriteNotice(REFUSAL.peerLock));
+  });
+});
+
+describe("Phase 3b · D10 — the When write has ONE owner, and it is not this context", () => {
+  it("offers no slot opener: the menu's thrown-away pick is gone, so a reintroduced opener fails typecheck here", async () => {
+    // The provider used to mount `PickupSlotSheet` itself and hand an opener to the menu's
+    // chip; the chosen slot landed in React state only and the next `applyView` overwrote it — a
+    // second writer of one fact on a surface with no drain before create-intent (the W17 drift
+    // class). `pickupSlot` stays READ from the view (the greeting is a statement of it); the opener
+    // and the sheet mount left with the chip. `PickupWhenChoice` on /cart is the one writer.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.pickupSlot).toBeNull();
+    // @ts-expect-error — D10: the opener is no longer a member of the context; this line is RED at typecheck (and at runtime) the day someone adds it back
+    expect(ctl.openSlotSheet).toBeUndefined();
+  });
+  it("reads the slot through the ONE W19 normalization: an ASAP snap (pickup_slot set, fire_at null) is NO slot", async () => {
+    // Blind pass on 3b (critical 1): the ASAP arm of create-intent snaps `pickup_slot` for capacity
+    // with `fire_at = null`, and nothing on the back-out path clears it. Checkout and app/cart read the
+    // pair through `normalizePickupSlot`; this context read the raw column, so the menu greeting said
+    // "Scheduled for <time>" for a time the diner never chose while /cart said ASAP for the same cart.
+    const SLOT = "2026-10-03T19:30:00+00:00";
+    h.getCartView.mockResolvedValue(view({ pickupSlot: SLOT, fireAt: null }));
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.pickupSlot).toBeNull();
+  });
+  it("…and an intentional schedule (fire_at set) IS the slot", async () => {
+    const SLOT = "2026-10-03T19:30:00+00:00";
+    h.getCartView.mockResolvedValue(
+      view({ pickupSlot: SLOT, fireAt: "2026-10-03T19:10:00+00:00" }),
+    );
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.pickupSlot).toBe(SLOT);
   });
 });
