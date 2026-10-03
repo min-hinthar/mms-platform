@@ -146,10 +146,16 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     let nextMode: string | null = null;
     let nextCart: string | null = null;
     let nextCount: number | null = null;
+    // A route that IS a door (`/dine-in`, `/grocery` — `tabsMode` with no fallback) is the diner
+    // choosing that door, so it is remembered exactly like a `?mode=` (Codex round 3 on 3b): left as
+    // a transient reading, a diner who opened /dine-in with a grocery basket remembered and tapped
+    // Account before picking a table saw the basket and "Market" return on /account, where the route
+    // implies nothing and the stale stored door won.
+    const chosenMode = urlMode ?? tabsMode(pathname, null);
     try {
-      if (urlMode) localStorage.setItem(KEY_MODE, urlMode);
+      if (chosenMode) localStorage.setItem(KEY_MODE, chosenMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
-      nextMode = urlMode ?? localStorage.getItem(KEY_MODE);
+      nextMode = chosenMode ?? localStorage.getItem(KEY_MODE);
       nextCart = urlCart ?? localStorage.getItem(KEY_CART);
       // The remembered cart is offered only on the door it was published through (Codex round 2 on
       // 3b): the diner who leaves the market for /dine-in or the to-go menu stands in another door,
@@ -166,7 +172,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.
       nextCount = decodeCartCount(localStorage.getItem(KEY_CART_COUNT), nextCart);
     } catch {
-      nextMode = urlMode;
+      nextMode = chosenMode;
       nextCart = urlCart;
     }
 

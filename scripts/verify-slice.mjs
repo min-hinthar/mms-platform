@@ -24641,6 +24641,14 @@ const MUTANTS = [
     find: "      if (known) localStorage.setItem(KEY_CART_MODE, encodeCartMode(id, known));",
     replace: "      if (known) localStorage.removeItem(KEY_CART_MODE);",
   },
+  {
+    id: "active-order/route-door-is-transient",
+    file: "apps/qr/components/ActiveOrderProvider.tsx",
+    suite: "components/ActiveOrderProvider.test.tsx",
+    why: 'Codex round 3 on 3b (#312), P2 \u2014 /dine-in and /grocery ARE doors; read only as an argument to `cartForDoor` and never remembered, the stored door stayed the previous one, so a diner who chose Dine-in and tapped Account before picking a table saw the grocery basket and "Market" return on /account',
+    find: "    const chosenMode = urlMode ?? tabsMode(pathname, null);",
+    replace: "    const chosenMode = urlMode;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

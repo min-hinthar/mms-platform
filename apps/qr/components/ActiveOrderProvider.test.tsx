@@ -76,6 +76,33 @@ describe("ActiveOrderProvider — the cart pointer and its door", () => {
     expect(eye()).toBe("-|-|pickup");
     void r;
   });
+  it("the route's own door is REMEMBERED, so a neutral route after it keeps the choice (Codex round 3 on 3b)", async () => {
+    // A device with a grocery basket remembered opens /dine-in (the diner chose Dine-in) and taps
+    // Account before picking a table. The route implied `dinein` only while the diner stood on it;
+    // on /account the stale stored `scango` won, the basket came back and the Menu tab read Market.
+    localStorage.setItem("mms.qr.activeMode", "scango");
+    localStorage.setItem("mms.qr.activeCart", "A");
+    localStorage.setItem("mms.qr.activeCartMode", "A:scango");
+    localStorage.setItem("mms.qr.activeCartCount", "A:2");
+    pathname = "/dine-in";
+    render(
+      <ActiveOrderProvider>
+        <Eye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    expect(eye()).toBe("-|-|dinein");
+    expect(localStorage.getItem("mms.qr.activeMode")).toBe("dinein");
+    cleanup();
+    pathname = "/account"; // implies no door — the remembered one must be the diner's choice
+    render(
+      <ActiveOrderProvider>
+        <Eye />
+      </ActiveOrderProvider>,
+    );
+    await frames();
+    expect(eye()).toBe("-|-|dinein");
+  });
   it("a cart reached by URL is explicit and never suppressed; a pre-3b pointer with no door is offered as before", async () => {
     localStorage.setItem("mms.qr.activeMode", "scango");
     localStorage.setItem("mms.qr.activeCart", "A");

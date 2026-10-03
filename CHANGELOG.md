@@ -77,6 +77,12 @@ No money logic, no authority write, no migration.
   ONE list of known doors. Mutants `order-noun/*` ×2, `active-order/*` ×3; **`TransitionNav.tsx` and
   `ActiveOrderProvider.tsx` join the mutate set** (73 components), `nav-epoch.ts` and `order-noun.ts`
   the lib bucket (170).
+- **Codex round 3 on 3b (one P2, verified and fixed on sight):** the route-implied door (`/dine-in` →
+  dinein, `/grocery` → scango) was read only as an argument to `cartForDoor` and never remembered, so a
+  diner who chose Dine-in and tapped Account before picking a table saw the grocery basket and "Market"
+  return on `/account`. The provider now persists a route's own door exactly like a `?mode=`
+  (`tabsMode(pathname, null)`); pinned in `ActiveOrderProvider.test.tsx` (red first), mutant
+  `active-order/route-door-is-transient`.
 - **Filed, re-lettered (`docs/PHASE3_JOURNEYS.md`):** 3c dine-in in two PRs (the Checkout half, then
   the table at Send) · 3d staff (the kitchen's pass at two distances; the counter's receipt stack) ·
   3e to-go + account (the Who/When slip, reward terms from config) · 3f the craft coherence pass;
