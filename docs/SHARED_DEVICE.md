@@ -94,16 +94,17 @@ account, and the owner can never inherit the friend's Stars.
 
 ## Files
 
-| File                                        | Role                                                                          |
-| ------------------------------------------- | ----------------------------------------------------------------------------- |
-| `apps/qr/lib/deviceIdentity.ts`             | localStorage store — identities (hints, no tokens) + lend flag, all try/catch |
-| `apps/qr/components/WelcomeBackChooser.tsx` | remembered-identity chips + "Forget this device"                              |
-| `apps/qr/components/LendModeBanner.tsx`     | global lend ribbon + "Done — back to [owner]"                                 |
-| `apps/qr/components/RememberIdentity.tsx`   | records the signed-in identity hint + clears lend on any real sign-in         |
-| `apps/qr/components/AccountStatus.tsx`      | + Switch account · Order for a friend actions                                 |
-| `apps/qr/components/AccountUpgrade.tsx`     | integrates the chooser, fast re-auth, merge-suppression, `?resume=`           |
-| `apps/qr/app/layout.tsx`                    | mounts the global `LendModeBanner`                                            |
-| `apps/qr/app/globals.css`                   | chip + banner vocabulary                                                      |
+| File                                        | Role                                                                                                                                                           |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/qr/lib/deviceIdentity.ts`             | localStorage store — identities (hints, no tokens) + lend flag, all try/catch                                                                                  |
+| `apps/qr/components/WelcomeBackChooser.tsx` | remembered-identity chips + "Forget this device"                                                                                                               |
+| `apps/qr/components/LendModeBanner.tsx`     | global lend ribbon + "Done — back to [owner]"                                                                                                                  |
+| `apps/qr/components/RememberIdentity.tsx`   | records the signed-in identity hint + clears lend on any real sign-in                                                                                          |
+| `apps/qr/lib/device-session.ts`             | the handover boundary — `mms.name`, `mms.phone` (Phase 3b, D11) and every `mms.qr.*` pointer die on switch/lend; identities, lend flag and merge token survive |
+| `apps/qr/components/AccountStatus.tsx`      | + Switch account · Order for a friend actions                                                                                                                  |
+| `apps/qr/components/AccountUpgrade.tsx`     | integrates the chooser, fast re-auth, merge-suppression, `?resume=`                                                                                            |
+| `apps/qr/app/layout.tsx`                    | mounts the global `LendModeBanner`                                                                                                                             |
+| `apps/qr/app/globals.css`                   | chip + banner vocabulary                                                                                                                                       |
 
 ## Honest limits
 

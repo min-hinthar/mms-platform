@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { activeDinerTab, dinerTabs, dinerTabsHidden } from "./diner-tabs";
+import { activeDinerTab, dinerTabs, dinerTabsHidden, orderTab } from "./diner-tabs";
+import { liveOrderTrackHref } from "./live-order";
 
 /**
- * Phase 3a (D1) — the diner spine's DECISIONS, pure: where each tab goes, which one is lit, what
- * each may claim, and where the bar is not drawn at all.
+ * Phase 3a (D1) → 3b (D7 · D8) — the diner spine's DECISIONS, pure: three PLACES (Menu · Order ·
+ * Account), the Order tab a state machine that follows the order (open cart → live order → the bare
+ * slip), the threshold (`/`, `/dine-in`) lighting NOTHING and leading "up" to the doors, and where the
+ * bar is not drawn at all. Every rule here is watched red by flipping it.
  */
 const base = {
   pathname: "/menu",
@@ -13,6 +16,7 @@ const base = {
   order: null as { paymentIntent: string | null; cartId: string | null } | null,
   stars: 0 as number | null,
 };
+const live = { paymentIntent: "pi_1", cartId: "c9" };
 
 describe("dinerTabsHidden — the bar is diner chrome only", () => {
   it.each(["/staff", "/staff/kitchen", "/board", "/kiosk", "/kit"])("hides on %s", (p) => {
@@ -29,25 +33,58 @@ describe("dinerTabsHidden — the bar is diner chrome only", () => {
   });
 });
 
-describe("activeDinerTab — one lit tab per route", () => {
+describe("activeDinerTab — at most one lit tab per route, none on the threshold (D8)", () => {
   it.each([
-    ["/", "menu"],
-    ["/dine-in", "menu"],
     ["/menu", "menu"],
     ["/grocery", "menu"],
     ["/cart", "order"],
-    ["/track", "track"],
+    ["/track", "order"],
     ["/account", "account"],
     ["/rewards", "account"],
   ])("%s lights %s", (p, tab) => {
     expect(activeDinerTab(p)).toBe(tab);
+  });
+  it.each(["/", "/dine-in"])("%s is the threshold — before the map, nothing is lit", (p) => {
+    // On /dine-in the lit Menu tab's href was the code-free `/menu?mode=dinein` (J15's phantom table)
+    // offered as the current place (Phase 3b panel, diagnosis 1).
+    expect(activeDinerTab(p)).toBeNull();
   });
   it("lights nothing on a route the spine does not know", () => {
     expect(activeDinerTab("/not-found-ish")).toBeNull();
   });
 });
 
-describe("dinerTabs — hrefs and claims", () => {
+describe("orderTab — the Order tab follows the order (D7)", () => {
+  it("an open cart wins: its href and its count", () => {
+    expect(orderTab({ mode: "pickup", cartId: "c1", cartCount: 2, order: live })).toEqual({
+      href: "/cart?cart=c1",
+      badge: 2,
+    });
+  });
+  it("no cart but a live order: the order's own resume href, with the dot", () => {
+    expect(orderTab({ mode: "pickup", cartId: null, cartCount: null, order: live })).toEqual({
+      href: liveOrderTrackHref(live),
+      badge: "dot",
+    });
+  });
+  it("nothing: the bare /cart (its own honest slip), no claim", () => {
+    expect(orderTab({ mode: "pickup", cartId: null, cartCount: null, order: null })).toEqual({
+      href: "/cart",
+      badge: null,
+    });
+  });
+  it("a cart with no count claims nothing but still opens the cart", () => {
+    expect(orderTab({ mode: "pickup", cartId: "c1", cartCount: null, order: live })).toEqual({
+      href: "/cart?cart=c1",
+      badge: null,
+    });
+  });
+});
+
+describe("dinerTabs — three places, their hrefs and claims", () => {
+  it("is exactly Menu · Order · Account, in that order", () => {
+    expect(dinerTabs(base).map((t) => t.key)).toEqual(["menu", "order", "account"]);
+  });
   it("Menu carries the diner's mode; a known-empty mode goes to the door picker", () => {
     expect(dinerTabs({ ...base, mode: "dinein" })[0]).toMatchObject({
       key: "menu",
@@ -56,9 +93,18 @@ describe("dinerTabs — hrefs and claims", () => {
     });
     expect(dinerTabs({ ...base, mode: null })[0]).toMatchObject({ href: "/" });
   });
-  it("on /dine-in the route's door wins over a stale remembered mode (Codex round 1 on #312)", () => {
+  it.each(["/", "/dine-in"])(
+    "on the threshold (%s) the Menu tab leads UP to the doors — never to a menu the route has not entered",
+    (pathname) => {
+      const t = dinerTabs({ ...base, pathname, mode: "dinein", cartCount: 3 });
+      expect(t[0]).toMatchObject({ label: "Menu", href: "/", current: false });
+      expect(t[0]!.href).not.toMatch(/^\/menu\?mode=dinein/); // J15's phantom-table link, retired
+      expect(t.filter((x) => x.current)).toEqual([]);
+    },
+  );
+  it("on /dine-in the tabs still reason with the route's door, not a stale remembered mode (Codex round 1 on #312)", () => {
     const t = dinerTabs({ ...base, pathname: "/dine-in", mode: "scango", cartCount: 3 });
-    expect(t[0]).toMatchObject({ label: "Menu", href: "/menu?mode=dinein", current: true });
+    expect(t[0]!.label).toBe("Menu");
     expect(t[1]!.label).toBe("Order");
     expect(t[1]!.badge).toBeNull(); // a dine-in cart is shared: no count claimed
   });
@@ -73,39 +119,58 @@ describe("dinerTabs — hrefs and claims", () => {
       href: "/grocery",
     });
   });
-  it("Order opens the published cart, else the bare /cart (its own empty slip)", () => {
+  it("Order opens the published cart, else the live order, else the bare /cart", () => {
     expect(dinerTabs(base)[1]).toMatchObject({ key: "order", href: "/cart?cart=c1", badge: 2 });
+    expect(dinerTabs({ ...base, cartId: null, order: live })[1]).toMatchObject({
+      key: "order",
+      href: liveOrderTrackHref(live),
+      badge: "dot",
+    });
     expect(dinerTabs({ ...base, cartId: null })[1]).toMatchObject({ href: "/cart", badge: null });
   });
-  it("Order is named by the mode's noun", () => {
+  it("Order is named by the mode's noun in every state — a tab never changes shape under the thumb", () => {
     expect(dinerTabs({ ...base, mode: "scango" })[1]!.label).toBe("Basket");
-    expect(dinerTabs({ ...base, mode: "dinein" })[1]!.label).toBe("Order");
+    expect(dinerTabs({ ...base, mode: "scango", cartId: null, order: live })[1]!.label).toBe(
+      "Basket",
+    );
+    expect(dinerTabs({ ...base, mode: "dinein", cartId: null })[1]!.label).toBe("Order");
   });
   it("Order never claims a count for a SHARED dine-in cart, and never a zero", () => {
     expect(dinerTabs({ ...base, mode: "dinein" })[1]!.badge).toBeNull();
     expect(dinerTabs({ ...base, cartCount: 0 })[1]!.badge).toBeNull();
     expect(dinerTabs({ ...base, cartCount: null })[1]!.badge).toBeNull();
   });
-  it("Track resumes the live order when there is one, with its dot", () => {
-    const t = dinerTabs({ ...base, order: { paymentIntent: "pi_1", cartId: "c1" } })[2]!;
-    expect(t.key).toBe("track");
-    expect(t.href).toContain("payment_intent=pi_1");
-    expect(t.href).toContain("resume=1");
-    expect(t.badge).toBe("dot");
+  it("a LIT Order tab with nothing to open is a self-link to where you are — never the empty slip (blind pass on 3b)", () => {
+    // /track with a finished order: the cart pointer is gone and the tracker retired the order, so
+    // the state machine falls through to the bare /cart — a dead end offered as the current place.
+    const here = "/track?payment_intent=pi_1&redirect_status=succeeded&resume=1";
+    const t = dinerTabs({ ...base, pathname: "/track", here, cartId: null, order: null })[1]!;
+    expect(t).toMatchObject({ key: "order", current: true, href: here, badge: null });
+    // Unlit, the same state is still the bare slip — the rule is about the lit tab's claim.
+    expect(dinerTabs({ ...base, pathname: "/menu", here: "/menu", cartId: null })[1]!.href).toBe(
+      "/cart",
+    );
+    // Lit WITH something to open keeps opening it.
+    expect(dinerTabs({ ...base, pathname: "/track", here, cartId: "c1" })[1]!.href).toBe(
+      "/cart?cart=c1",
+    );
   });
-  it("Track with nothing live is the plain page (its own empty slip)", () => {
-    expect(dinerTabs(base)[2]).toMatchObject({ href: "/track", badge: null });
+  it("Order is lit on /cart AND on /track — one object, two states, one place", () => {
+    expect(dinerTabs({ ...base, pathname: "/cart" })[1]!.current).toBe(true);
+    expect(dinerTabs({ ...base, pathname: "/track", cartId: null, order: live })[1]!.current).toBe(
+      true,
+    );
   });
   it("Account carries the Star count only when there is one", () => {
-    expect(dinerTabs({ ...base, stars: 7 })[3]).toMatchObject({
+    expect(dinerTabs({ ...base, stars: 7 })[2]).toMatchObject({
       key: "account",
       href: "/account",
       badge: 7,
     });
-    expect(dinerTabs({ ...base, stars: 0 })[3]!.badge).toBeNull();
-    expect(dinerTabs({ ...base, stars: null })[3]!.badge).toBeNull();
+    expect(dinerTabs({ ...base, stars: 0 })[2]!.badge).toBeNull();
+    expect(dinerTabs({ ...base, stars: null })[2]!.badge).toBeNull();
   });
-  it("exactly one tab is current, and it matches activeDinerTab", () => {
+  it("exactly one tab is current where one is, and it matches activeDinerTab", () => {
     const tabs = dinerTabs({ ...base, pathname: "/cart" });
     expect(tabs.filter((t) => t.current).map((t) => t.key)).toEqual(["order"]);
   });

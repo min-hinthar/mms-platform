@@ -2066,6 +2066,13 @@ html[data-fx="off"] .pa-mid {
   font-size: var(--fs-h1);
   margin: 8px 0 0;
 }
+/* Phase 3b (D12 graft) — the paid headline speaks both tongues: the dictionary's `paidThankYou`
+   pair, English leading, the Burmese beneath (the goodbye beat's shape). */
+.pay-success-title [lang="my"] {
+  display: block;
+  font-size: var(--fs-h3);
+  margin-top: 2px;
+}
 .pay-success-stars {
   display: inline-block;
   margin-top: 10px;
@@ -2727,8 +2734,13 @@ html[data-fx="off"] .pa-mid {
 /* Selected segment — a lit, lifted accent cap: SOLID --ac fill (keeps --oa cream text at ~4.8:1 AA — QR's
    --oa is cream, so a bright-gold tint UNDER the label would fail contrast, unlike the dark-ink menu tabs)
    with a sheen lip, an accent lift, and a warm gold HALO (a glow around the pill, never under the text).
-   The bg/shadow transition makes the light-up feel animated when the toggle flips. */
-.checkout-pill-on {
+   The bg/shadow transition makes the light-up feel animated when the toggle flips.
+   Phase 3b (D9) — `.door-sheet-current`, the door the diner is standing in inside the "Change order
+   type" sheet, rides THIS list and no other: the fill and the `--oa` ink come from here (ink follows
+   fill, never a second block), the ignition/bloom lists below stay the pills' own — a "you are here"
+   row is static, it was never chosen on this screen. */
+.checkout-pill-on,
+.door-sheet-current {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -4576,7 +4588,8 @@ html[data-fx="off"] .pa-mid {
   bottom: 0;
   z-index: var(--z-toolbar);
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* Phase 3b (D7) — three places (Menu · Order · Account); each column ~146px at 440px. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   height: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
   padding: 0 var(--s2) env(safe-area-inset-bottom, 0px);
   background-color: var(--glass-chrome);
@@ -12047,20 +12060,68 @@ html[data-fx="lite"] .mms-scrim {
     background: color-mix(in oklab, var(--ac) 8%, transparent);
   }
 }
-.table-options {
+/* Phase 3b (D9) — the door sheet ("Change order type") behind EVERY door eyebrow. One sub-line, the
+   three doors as rows wearing the home's own face, and — at a table only — the two exits under a
+   hairline. The current row's fill and ink are NOT here: `.door-sheet-current` rides the ONE
+   `.checkout-pill-on` lit-cap rule; this file only lays the rows out. Timing reads `--dur-fast`, which
+   tokens.css collapses to 0.01ms under reduced motion (the escort). */
+.door-sheet-sub {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.door-sheet-my {
+  font-family: var(--font-my);
+  font-weight: var(--fw-semibold);
+  color: var(--t2);
+}
+.door-sheet-doors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2);
+}
+.door-sheet-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  min-height: 44px;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-card);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+/* The LINK rows' resets live on the anchor alone (blind pass on 3b, critical 2): on the shared class
+   they sat ~9,300 lines after the lit-cap rule at the same specificity and took the current row's
+   on-accent ink with them — body ink on gold, 1.82:1 in Night. A div never matches `a.…`. */
+a.door-sheet-row {
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  a.door-sheet-row:hover {
+    background: color-mix(in oklab, var(--ac) 8%, transparent);
+  }
+}
+/* The table's two exits (Phase 1a's TableOptions, renamed): under a hairline, after the doors. */
+.door-sheet-exits {
   display: grid;
   gap: var(--s3);
+  margin-top: var(--s4);
+  padding-top: var(--s4);
   padding-bottom: var(--s2);
+  border-top: 1px solid var(--bd);
 }
-.table-options .ui-btn {
+.door-sheet-exits .ui-btn {
   justify-content: flex-start;
   text-align: left;
 }
-.table-options-label {
+.door-sheet-exits-label {
   display: grid;
   gap: 2px;
 }
-.table-options-note {
+.door-sheet-exits-note {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   letter-spacing: normal;

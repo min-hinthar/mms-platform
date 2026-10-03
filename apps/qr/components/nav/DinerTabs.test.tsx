@@ -8,7 +8,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * dot and no resume href for an order the status hook reads as DONE on /account.
  */
 let pathname = "/menu";
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+let search = "";
+vi.mock("next/navigation", () => ({
+  usePathname: () => pathname,
+  useSearchParams: () => new URLSearchParams(search),
+}));
 const push = vi.fn();
 vi.mock("./TransitionNav", () => ({
   useJourneyRouter: () => ({ push }),
@@ -56,6 +60,7 @@ const { DinerTabs } = await import("./DinerTabs");
 
 beforeEach(() => {
   pathname = "/menu";
+  search = "";
   store.cartId = "c1";
   store.cartCount = 2;
   store.mode = "pickup";
@@ -70,18 +75,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("DinerTabs", () => {
-  it("four links, the current one marked, the claims in the names", async () => {
+  it("three links, the current one marked, the claims in the names (Phase 3b, D7)", async () => {
     render(<DinerTabs />);
     const links = screen.getAllByRole("link");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
       "/menu?mode=pickup",
       "/cart?cart=c1",
-      "/track",
       "/account",
     ]);
-    expect(links.map((a) => a.getAttribute("aria-current"))).toEqual(["page", null, null, null]);
+    expect(links.map((a) => a.getAttribute("aria-current"))).toEqual(["page", null, null]);
     expect(links[1]!.getAttribute("aria-label")).toBe("Order — 2 items");
-    await waitFor(() => expect(links[3]!.getAttribute("aria-label")).toBe("Account — 4 Stars"));
+    await waitFor(() => expect(links[2]!.getAttribute("aria-label")).toBe("Account — 4 Stars"));
+  });
+  it("with no cart the Order tab follows the live order — its resume href, its dot, the mode's noun", () => {
+    store.cartId = null;
+    store.cartCount = null;
+    store.order = { paymentIntent: "pi_1", cartId: "c1" };
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order — an order in progress" });
+    expect(order.getAttribute("href")).toContain("payment_intent=pi_1");
+    expect(order.getAttribute("data-tab")).toBe("order");
+    expect(screen.queryByRole("link", { name: /Track/ })).toBeNull();
+  });
+  it("on the threshold nothing is lit and the Menu tab leads up to the doors (D8)", () => {
+    pathname = "/dine-in";
+    render(<DinerTabs />);
+    const links = screen.getAllByRole("link");
+    expect(links.map((a) => a.getAttribute("aria-current"))).toEqual([null, null, null]);
+    expect(links[0]!.getAttribute("href")).toBe("/");
   });
   it("draws nothing on staff chrome, and opens no status subscription there", () => {
     pathname = "/staff/kitchen";
@@ -89,17 +110,19 @@ describe("DinerTabs", () => {
     expect(container.querySelector("nav")).toBeNull();
     expect(statusCalls.every((t) => t === false)).toBe(true);
   });
-  it("a live order lights Track's dot and resumes it; a DONE one on /account does neither", () => {
+  it("a live order lights the Order tab's dot and resumes it; a DONE one on /account does neither", () => {
+    store.cartId = null;
+    store.cartCount = null;
     store.order = { paymentIntent: "pi_1", cartId: "c1" };
     render(<DinerTabs />);
     expect(
-      screen.getByRole("link", { name: "Track — an order in progress" }).getAttribute("href"),
+      screen.getByRole("link", { name: "Order — an order in progress" }).getAttribute("href"),
     ).toContain("payment_intent=pi_1");
     cleanup();
     pathname = "/account";
     isDone = true;
     render(<DinerTabs />);
-    expect(screen.getByRole("link", { name: "Track" }).getAttribute("href")).toBe("/track");
+    expect(screen.getByRole("link", { name: "Order" }).getAttribute("href")).toBe("/cart");
     // On /account the bar is the one subscriber (the header's pill is off there).
     expect(statusCalls.at(-1)).toBe(true);
   });
@@ -132,6 +155,19 @@ describe("DinerTabs", () => {
     fireEvent.click(order);
     fireEvent.click(order);
     expect(drain).toHaveBeenCalledTimes(2);
+  });
+  it("on /track with nothing left to open, the lit Order tab is a self-link to the tracker's own URL (blind pass on 3b)", () => {
+    pathname = "/track";
+    search = "payment_intent=pi_1&redirect_status=succeeded&resume=1";
+    store.cartId = null;
+    store.cartCount = null;
+    store.order = null;
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order" });
+    expect(order.getAttribute("aria-current")).toBe("page");
+    expect(order.getAttribute("href")).toBe(
+      "/track?payment_intent=pi_1&redirect_status=succeeded&resume=1",
+    );
   });
   it("a modified click on the Order tab is the link it is — no drain, no push", () => {
     render(<DinerTabs />);

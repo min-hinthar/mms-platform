@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Icon, type IconName } from "@mms/ui";
 import { TransitionLink as Link, useJourneyRouter } from "./TransitionNav";
@@ -10,8 +10,10 @@ import { getRewardsBadge } from "@/lib/rewards";
 import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/diner-tabs";
 
 /**
- * Phase 3a (D1) — the diner spine: v7.2's persistent bottom tab bar, on every diner route.
- * Decisions live in `lib/diner-tabs.ts` (pure, pinned); this draws them.
+ * Phase 3a (D1) → 3b (D7 · D8) — the diner spine: a persistent bottom tab bar of three PLACES
+ * (Menu · Order · Account) on every diner route. Decisions live in `lib/diner-tabs.ts` (pure,
+ * pinned); this draws them. The Order tab follows the order (open cart → live order → the bare
+ * slip) and wears the receipt in every state; the threshold lights nothing.
  *
  * It is mounted ONCE in the root layout, like the header, and carries its own
  * `view-transition-name` so it never re-animates on a route change — the page moves under it. It
@@ -23,8 +25,8 @@ import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/di
  * so a route change never re-subscribes the auth listener. A transient failure leaves the plain
  * label.
  *
- * The Track dot is the wayfinding store's live order — and ONLY while it is live. The store keeps
- * an order until its owner on the route reads it terminal and retires it (`useActiveOrderStatus`
+ * The Order tab's dot is the wayfinding store's live order — and ONLY while it is live. The store
+ * keeps an order until its owner on the route reads it terminal and retires it (`useActiveOrderStatus`
  * in the header, the home card, the tracker), and /account had no owner: the header's pill is off
  * there, so a finished order lingered in the store and this bar kept a dot and an "in progress"
  * name for it (blind pass on #312, critical 2). The bar therefore subscribes on /account alone —
@@ -37,12 +39,15 @@ import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/di
 const ICON: Record<DinerTabKey, IconName> = {
   menu: "grid",
   order: "receipt",
-  track: "pin",
   account: "star",
 };
 
 export function DinerTabs() {
   const pathname = usePathname();
+  const params = useSearchParams();
+  const qs = params?.toString() ?? "";
+  // Where the diner IS, query included — a lit tab with nothing else to open links back here.
+  const here = pathname ? `${pathname}${qs ? `?${qs}` : ""}` : null;
   const hidden = dinerTabsHidden(pathname);
   const { cartId, cartCount, mode, order, drain } = useActiveOrder();
   const journey = useJourneyRouter();
@@ -97,6 +102,7 @@ export function DinerTabs() {
   if (hidden) return null;
   const tabs = dinerTabs({
     pathname,
+    here,
     mode,
     cartId,
     cartCount,

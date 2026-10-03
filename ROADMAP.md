@@ -433,14 +433,21 @@ the plan state.
         the live-order chip, the checkout's step rail, "Your basket" in the market; /account as three
         panels (Orders · Rewards · You) with a visible "Sign in", "Order again" on the row, Help &
         contact; the counter home's sticky zone strip and "up" to the counter from Menu and Tips.
-  - [ ] **3b — dine-in:** the table bound at SEND time (the picker as a sheet on first send), one verb
-        per state, the bill readable during the undo window, the per-line For here / To go behind ⋯.
-  - [ ] **3c — to-go + market:** the pickup time asked once; name + phone first with inline
-        validation; manual barcode entry + "ask us"; undo on remove; the exit-pass QR.
-  - [ ] **3d — staff:** KDS text size and sound as bar controls; Team out from behind "Your PIN"; the
-        walk-up sale in one screen; "Picked up" undo.
-  - [ ] **3e — account features:** history past 20; receipt actions on a row; a tappable favorite;
-        the pickup phone editable on You; the reward's amount, minimum and expiry read from config.
+  - [x] **3b — three places, one order** (2026-10-03, `docs/PHASE3B_DESIGN.md`, D7–D12): the spine as
+        Menu · Order · Account with the Order tab following the order; the threshold lights nothing;
+        the DoorSheet on every menu and the market; the menu's thrown-away pickup pick retired; the
+        pickup phone dies with the handover; the paid headline in both tongues.
+  - [ ] **3c — dine-in, two PRs:** the Checkout half (one hero verb per state, the undo lifted so the
+        bill is live during the grace, Pay stating its reason, the Total row, the line ⋯ sheet, the
+        table grid as a section of the DoorSheet); then the table bound at SEND time (authority).
+  - [ ] **3d — staff, two PRs:** the kitchen's pass at two distances (Aa + bell as bar circles, the
+        glance strip, "Late" in the badge); the counter's receipt stack, then the cash-sheet re-host.
+  - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the
+        ASAP chip in the one sheet, the counter pass; reward terms from config, LA coupon expiry, the
+        honest history foot, the receipt link on a row.
+  - [ ] **3f — the craft coherence pass, last:** bilingual empties through one `EmptyState`, the
+        `said-once` guard, one paper on `/` and `/dine-in`, the post-pay stack with the goodbye last.
+  - [ ] **market** — parked until G1's real UPCs (G24 · G20 · G7).
 - [ ] **Phase 4 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`

@@ -602,8 +602,9 @@ const UNGUARDED = [
   "grocery/GroceryItemSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
-  // Phase 1a — the table's exits: two navigations (and a device-local forget), no server write.
-  "menu/TableOptions.tsx",
+  // Phase 1a → 3b (D9) — the door sheet behind every door eyebrow, carrying the table's exits: three
+  // navigations (and a device-local forget), no server write. It absorbed `menu/TableOptions.tsx`.
+  "DoorSheet.tsx",
   // Phase 2b · kitchen — the KDS line's ⋯ sheet. Its 86 IS a write, but a reversible one (a 6s undo
   // in the bar, then /staff/menu) that resolves into the board: dismissing mid-write lands on the
   // busy ⋯ and the write finishes at board level (§16 — `busy` here is the documented anti-pattern).

@@ -19,6 +19,7 @@ import {
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { ScanStage } from "@/components/grocery/ScanStage";
+import { DoorSheet } from "@/components/DoorSheet";
 import { ScanResult } from "@/components/grocery/ScanResult";
 import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
 import { fromCamera, slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
@@ -255,6 +256,10 @@ export default function Grocery() {
   // the terminal banner owns the story (`open` && !cartGone at the render site, no effect): a basket
   // that just finished must not keep a modal review of nothing on top of the recovery copy.
   const [basketOpen, setBasketOpen] = useState(false);
+  // Phase 3b (D9) — the door sheet behind the eyebrow. It covers the stage like the basket sheet
+  // does, so `ScanStage`'s `sheetOpen` reads it too: `decodeHold` treats ANY sheet over the camera
+  // as a hold, and a sighting through the scrim must not charge.
+  const [doorSheetOpen, setDoorSheetOpen] = useState(false);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -917,13 +922,18 @@ export default function Grocery() {
           before the toolbar (~58px, down from ~170 — the sub and the exit tile are gone; the exit
           moved to the page foot, and the AppHeader brand still goes home). */}
       <header className="grocery-head">
-        {/* SR reads just "Grocery"; the bilingual flourish is decorative. */}
-        <p className="eyebrow">
-          Grocery{" "}
-          <span aria-hidden>
-            · <span lang="my">စျေး</span>
-          </span>
-        </p>
+        {/* Phase 3b (D9) — the eyebrow is the door's control here too: "Scan & go ⌄" opens the
+            same "Change order type" sheet as the menu (Grocery lit, the two food doors as links, no
+            table exits). SR reads the door's word; the bilingual flourish stays decorative. */}
+        <DoorSheet
+          mode="scango"
+          flourish={
+            <>
+              · <span lang="my">စျေး</span>
+            </>
+          }
+          onOpenChange={setDoorSheetOpen}
+        />
         <h1 className="grocery-title">Shop the market</h1>
       </header>
 
@@ -1193,7 +1203,7 @@ export default function Grocery() {
             <ScanStage
               onScan={onScan}
               cartReady={scanBasketReady({ cartId, hydrated })}
-              sheetOpen={basketOpen && !cartGone}
+              sheetOpen={(basketOpen && !cartGone) || doorSheetOpen}
               onSearch={focusSearch}
               result={
                 slot?.kind === "notice" ? (

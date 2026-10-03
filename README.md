@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open), then the polish plan's Phase 0 → 2 (the design system in code, the guest flow, the staff program) and **Phase 3a — the journeys** (v7.2's persistent diner tab bar, the checkout's step rail, the three-panel account hub, the counter's zone strip — `docs/PHASE3_JOURNEYS.md`) · **Gate:** 6242 qr tests + 287 ui tests · 2961 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open), then the polish plan's Phase 0 → 2 (the design system in code, the guest flow, the staff program) and **Phase 3a — the journeys** (v7.2's persistent diner tab bar, the checkout's step rail, the three-panel account hub, the counter's zone strip — `docs/PHASE3_JOURNEYS.md`) · **Gate:** 6286 qr tests + 287 ui tests · 2967 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,10 +152,10 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 2961 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 2967 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 244 money/authority modules it mutates IN PLACE
-                                       # (166 under apps/qr/lib, plus the create-share-intent, setup-intent,
+                                       # ⚠️ rewrites the 246 money/authority modules it mutates IN PLACE
+                                       # (168 under apps/qr/lib, plus the create-share-intent, setup-intent,
                                        # board and version routes, plus SEVENTY components, six of them hooks
                                        # — TableCartProvider.tsx, menu/YourUsual.tsx, staff/TicketText.tsx,
                                        # staff/Chrome.tsx, staff/StaffPromoControl.tsx, ReadyBoard.tsx,
@@ -195,7 +195,7 @@ pnpm verify:slice                      # the MECHANICAL money-path gate: coverag
                                        # stylesheet, apps/qr/app/globals.css,
                                        # the first staff PAGE, apps/qr/app/staff/table/[id]/page.tsx
                                        # (Phase 2g), and packages/db/src/schemas.ts:
-                                       # 166+4+70+1+1+1=243) and restores them.
+                                       # 168+4+71+1+1+1=246) and restores them.
                                        # ⚠️ That list is the operator's only record of what may be left
                                        # broken on disk by a killed run, so keep it measured, never
                                        # counted by eye — both parents of the #262 merge miscounted it. It

@@ -7,8 +7,13 @@
  * (`mms.qr.activeMode/activeCart/activeOrder`). A friend handed the phone could rejoin the owner's
  * table UNDER THE OWNER'S NAME — a clean auth session attached to a dirty device session.
  *
- * The rule: everything under the `mms.qr.` prefix plus `mms.name` is DEVICE-session state and dies
- * with the handover. Deliberately NOT cleared here (each has its own owner + lifecycle):
+ * The rule: everything under the `mms.qr.` prefix plus `mms.name` and `mms.phone` is DEVICE-session
+ * state and dies with the handover. Phase 3b (D11): the pickup PHONE was written and read by Checkout
+ * as a bare literal outside this boundary, so "Order for a friend" / "Switch account" left the
+ * owner's number pre-filled in the friend's pickup order (found independently by two proposers on the
+ * 3b panel). It is remembered per device until a profile column exists (a prod migration behind
+ * M125), and it dies here like the name. Deliberately NOT cleared here (each has its own owner +
+ * lifecycle):
  *  - `mms.identities` / `mms.lend` — deviceIdentity's re-auth chips + lend flag: the chips are the
  *    one-tap RETURN path (clearing them would defeat the switcher), and the lend flag is written
  *    AFTER the handover clear runs.
@@ -23,6 +28,8 @@
  */
 
 export const DEVICE_NAME_KEY = "mms.name";
+/** The pickup phone Checkout remembers for next time (D11) — named ONCE, read by Checkout. */
+export const DEVICE_PHONE_KEY = "mms.phone";
 export const DEVICE_SESSION_PREFIX = "mms.qr.";
 // (W16b: the W5 HANDOVER_EXEMPT set for mms.qr.locale is retired with the locale toggle — nothing
 // writes or reads that key anymore; a stale value on an old device now clears on handover, which
@@ -31,7 +38,9 @@ export const DEVICE_SESSION_PREFIX = "mms.qr.";
 /** Pure: which of these storage keys are device-session state? (Pinned red-first — the boundary
  *  between "dies with the handover" and "survives it" is the safety rule.) */
 export function deviceSessionKeys(allKeys: readonly string[]): string[] {
-  return allKeys.filter((k) => k === DEVICE_NAME_KEY || k.startsWith(DEVICE_SESSION_PREFIX));
+  return allKeys.filter(
+    (k) => k === DEVICE_NAME_KEY || k === DEVICE_PHONE_KEY || k.startsWith(DEVICE_SESSION_PREFIX),
+  );
 }
 
 type KeyEnumerableStorage = Pick<Storage, "length" | "key" | "removeItem">;

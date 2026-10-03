@@ -4,6 +4,62 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3b — three places, one order (2026-10-03)
+
+**The owner's ask, continued:** "more creative world-class design thinking overhauls." A twelve-agent
+panel (eight blind proposers · three judges · one synthesis — `docs/PHASE3B_DESIGN.md`, decisions
+D7–D12) read the as-built journeys after 3a and found the map itself was the next structural problem.
+No money logic, no authority write, no migration.
+
+- **The spine is three places, and the Order tab follows the order (D7 · D8).** 3a's Order and
+  Track were one object in two states — a dead tab at every moment, reproducible in two taps — so
+  the bar is **Menu · Order · Account**: `orderTab` in `lib/diner-tabs.ts` is a state machine (open
+  cart → live order's resume href with the dot → the bare `/cart`), named by the mode's noun and
+  wearing the receipt in every state. The threshold (`/`, `/dine-in`) lights nothing and its Menu tab
+  leads up to the doors — on `/dine-in` the lit tab's href was J15's code-free `/menu?mode=dinein`.
+  Three lib mutants (`diner-tabs/*`); `lib/diner-tabs.ts` joins the mutate set.
+- **The door is a moment (D9).** `DoorSheet` ("Change order type", v7.2's words) opens from every
+  menu's eyebrow and the market's, absorbing `TableOptions`: the current door wears the lit-gold cap
+  on one element, the other two are the home's exact links from the new `lib/doors.ts` `DOORS` (the
+  home renders the same table, so the two cannot disagree); dine-in's two exits under a hairline; the
+  honest sub-line "Each way of ordering has its own order." Pull-to-refresh and the scan stage's
+  camera hold both know the new sheet. Two K15 drafts (`changeOrderType` · `eachDoorOwnOrder`,
+  ledgered in OPEN-ITEMS K15). The dine-in door copy returns to v7.2's "Grab a table, invite friends,
+  order together".
+- **One owner per fact (D10 · D11).** The menu's `PickupSlotChip` and the provider's own
+  `PickupSlotSheet` mount retire — the pick was set into React state and overwritten by the next view,
+  a choice shown as kept and silently dropped; `PickupWhenChoice` on /cart is the only writer, and the
+  menu greeting is a statement of the cart's slot. `DEVICE_PHONE_KEY` joins the handover boundary
+  (`lib/device-session.ts`): the pickup phone was a bare literal in Checkout and survived "Order for a
+  friend" / "Switch account" (found independently by two proposers); one mutant, the one-source guard
+  on Checkout's literals.
+- **The paid headline speaks both tongues (D12 graft).** `PaySuccess` reads the dictionary's
+  `paidThankYou` pair (EN now v7.2's verbatim "Paid — thank you!", the Burmese beneath with
+  `lang="my"`); the voice rule stays §6 — English leads — until a native ear rules on the "peaks".
+- **The blind pass (three lenses: product truth · a11y · concurrency — REJECT on all three, 17
+  findings, 3 machine-refuted twice and confirmed, 14 hand-triaged; 14 acted on):** the provider read
+  the raw `pickup_slot` so the menu greeting said "Scheduled for <time>" for an ASAP snap that
+  /cart called ASAP — it reads the W19 `normalizePickupSlot` now (mutant
+  `pickup-slot/provider-reads-the-raw-column`); the lit door row lost its on-accent ink to
+  `.door-sheet-row { color: inherit }` 9,300 lines later at the same specificity (1.82:1 in Night) —
+  the link resets moved to `a.door-sheet-row` and the stylesheet guard now asserts the competing
+  property is ABSENT on every block that matches the div (LEARNINGS #200); a lit Order tab on `/track`
+  with a finished order linked to the empty slip — a lit tab with nothing to open is a self-link to
+  `here` (mutant `diner-tabs/lit-tab-with-nothing-opens-the-empty-slip`); the market's door sheet
+  closed on a door tap and released the camera hold while the stream still ran through the route
+  change — the sheet stays open until unmounted, and `check:scan-repeat` gained a third proposition
+  (every `*SheetOpen` state must reach `<ScanStage sheetOpen>`, parsed); the current row says
+  "you're here" in sr-only text beside its `aria-current`; the one-source guard on Checkout's keys is
+  an AST walk, not a grep (the grep form was beaten twice in one review); the paid pair gained its
+  separator; `ModeCard`'s dead `source` prop went. Justified, not changed: the Menu tab's self-link
+  on `/` (D8 lights nothing); the cart-wins precedence (the header's pill carries the live order on
+  /menu and /grocery — `AppHeader.tsx:41`). Filed: J26 (the "Leave this table" re-publish race,
+  pre-existing) · J27 (the two door vocabularies; bare `/menu` in scango mode).
+- **Filed, re-lettered (`docs/PHASE3_JOURNEYS.md`):** 3c dine-in in two PRs (the Checkout half, then
+  the table at Send) · 3d staff (the kitchen's pass at two distances; the counter's receipt stack) ·
+  3e to-go + account (the Who/When slip, reward terms from config) · 3f the craft coherence pass;
+  the market parked until G1. DESIGN-LANGUAGE **§31**.
+
 ### Phase 3a — the journeys: the diner spine, the account hub, the counter map (2026-10-03)
 
 **The owner's ask (2026-10-03):** Phases 1–2 "still do not feel like major overhauls … not intuitive:

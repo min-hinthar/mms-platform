@@ -1883,9 +1883,10 @@ Every interaction primitive lives in `@mms/ui` and is styled once in `packages/u
 Masthead → toolbar → picks → dishes, in that order, so the first category and the first Add land on
 a 390×844 opening screen.
 
-- **The masthead is three quiet lines**: the door eyebrow (at a table it is the table's CONTROL,
-  opening the exits sheet), the title "Menu" at `--fs-h1`, and one bilingual greeting line. No card,
-  no exit tiles before the food.
+- **The masthead is three quiet lines**: the door eyebrow (on EVERY door it is the door's CONTROL
+  since Phase 3b — it opens the "Change order type" sheet, §31; at a table that sheet also carries
+  the exits), the title "Menu" at `--fs-h1`, and one bilingual greeting line. No card, no exit tiles
+  before the food.
 - **The toolbar comes first** and stays sticky. Nothing that is not search, diet or navigation sits
   above it.
 - **Picks are ONE static row with lenses**, on the category rail's own pills (`.menu-tab-on` is the
@@ -2299,13 +2300,14 @@ Decided in `lib/diner-tabs.ts` · `lib/checkout-steps.ts` · `lib/account-hub.ts
 `CounterZoneStrip`. Contract: `docs/PHASE3_JOURNEYS.md`.
 
 - **The spine is two halves, and each carries only what the other cannot.** The header: the brand
-  and the live order's status at a glance. The tab bar: the four places — Menu · Order · Track ·
-  Account — always the same four, on every diner route. A tab never appears or disappears; only its
-  target and its claim change. Nothing else in the chrome names a destination.
+  and the live order's status at a glance. The tab bar: the places — Menu · Order · Account since
+  Phase 3b (§31; 3a drew four, with Track) — always the same, on every diner route. A tab never
+  appears or disappears; only its target and its claim change. Nothing else in the chrome names a
+  destination.
 - **What a tab may claim is the surface's own rule, re-read.** Order's count is `slotCount` (never a
-  shared dine-in cart's, never a zero, never without a cart id); Track's dot is the wayfinding
-  store's live order; Account's count is the rewards badge the header carried. No new fetch, no new
-  realtime channel.
+  shared dine-in cart's, never a zero, never without a cart id); its dot is the wayfinding store's
+  live order (§31 — the Order tab follows the order); Account's count is the rewards badge the header
+  carried. No new fetch, no new realtime channel.
 - **Chrome never re-animates.** The tab bar carries `view-transition-name: diner-tabs` beside the
   header's; the page moves under both. It is the header's pane (`--glass-chrome`, frosted under Night
   in the same selector list, opaque where filters are off), one plane with the header (`--z-toolbar`),
@@ -2332,3 +2334,40 @@ Decided in `lib/diner-tabs.ts` · `lib/checkout-steps.ts` · `lib/account-hub.ts
   `hashchange`, no focus — Codex round 1 on #283). The current zone is the last heading at or above
   the strip's edge, lit by the shared lit-gold cap through `[aria-current="location"]` on the same
   rule as every pressed staff chip. The zones stay one screen: the bell hears both boards.
+
+## 31 · A tab is a place, the door is a moment, one owner per fact (Phase 3b)
+
+Decided in `lib/diner-tabs.ts` (`orderTab` · `activeDinerTab` · `isThreshold`) · `lib/doors.ts` ·
+`lib/device-session.ts`; drawn by `DinerTabs`, `DoorSheet`, `ArrivalBeat`, `PaySuccess`. Contract:
+`docs/PHASE3B_DESIGN.md` (D7–D12).
+
+- **A tab is a PLACE a diner can always go — never a state that is sometimes empty.** 3a's Order and
+  Track were one object in two states: before paying, Track opened an empty slip; after paying, Order
+  opened "This order is complete" — at every moment one of them was a dead end, reproducible in two
+  taps. So the spine is three places, Menu · Order · Account, and the Order tab FOLLOWS the order: an
+  open cart (its href, `slotCount`'s badge) → else the live order (its resume href, the dot) → else the
+  bare `/cart`, whose own slip is honest. It wears the receipt and the mode's noun in every state — a
+  tab never changes shape under the thumb, only its claim. The cart wins over a paid order's dot: the
+  thing the diner can still change comes first; the header's chip still carries the order.
+- **The threshold is before the map.** `/` and `/dine-in` light NO tab, and there the Menu tab leads
+  UP to the doors — never to a menu the route has not entered: on `/dine-in` the lit tab's href was the
+  code-free `/menu?mode=dinein`, J15's phantom-table link, offered as the current place. The bar is
+  still drawn there (a returning diner on the front door needs Account in one tap; "a tab never
+  appears or disappears" stands).
+- **The door is a moment, and the eyebrow has ONE host.** Every menu's masthead eyebrow — and the
+  market's — opens the `DoorSheet` ("Change order type", v7.2's words): the current door wears the
+  existing lit-gold cap on ONE element (label and fill together, `aria-current="true"`, not a link),
+  the other two are the home's exact links read from `lib/doors.ts`' `DOORS`, so the home and the
+  sheet cannot disagree. Dine-in's two exits ride under a hairline. Its sub-line is honest — "Each way
+  of ordering has its own order." — because v7.2's "Your cart stays with you." is false here: each
+  door mints its own cart. The table grid (3c) lands as a SECTION of this sheet, never a second one.
+- **One owner per fact.** The pickup WHEN is written by the checkout's `PickupWhenChoice` alone — the
+  menu's chip and the provider's own sheet mount retired, because the menu pick was set into React
+  state and overwritten by the next view: a choice shown as kept and silently dropped, the §5 failure
+  in its purest form. The menu greeting is a statement of the cart's slot, never a control. Device
+  memory is named ONCE at the handover boundary (`DEVICE_NAME_KEY`, `DEVICE_PHONE_KEY`): the pickup
+  phone was a bare literal outside it and survived "Order for a friend".
+- **The voice rule stays §6 until a native ear rules.** English leads, Burmese is the accent: the paid
+  headline reads the dictionary's `paidThankYou` pair, EN first, `lang="my"` beneath. A proposed
+  "peaks rule" (Burmese leading at hello and thank-you) is a register bet, parked as a K15 question.
+  Every PR's Burmese drafts go into ONE K15 ledger row, reviewed one native round per phase.

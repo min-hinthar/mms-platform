@@ -13,6 +13,8 @@ import {
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
 import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
+// Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
+import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
 import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -435,7 +437,7 @@ export function Checkout({
     // Hydrate AFTER mount via a microtask (the TableCartProvider NAME_KEY pattern): SSR and the first
     // client render agree, and the setState runs in a callback, never the effect body.
     void Promise.resolve()
-      .then(() => localStorage.getItem("mms.name")) // the group-cart display-name key (one identity)
+      .then(() => localStorage.getItem(DEVICE_NAME_KEY)) // the group-cart display-name key (one identity)
       .then((saved) => {
         if (active && saved) setFirstName(saved.slice(0, 40));
       })
@@ -452,7 +454,7 @@ export function Checkout({
     if (!isPickupMode) return;
     let active = true;
     void Promise.resolve()
-      .then(() => localStorage.getItem("mms.phone"))
+      .then(() => localStorage.getItem(DEVICE_PHONE_KEY))
       .then((saved) => {
         if (active && saved) setPhone(saved.slice(0, 20));
       })
@@ -1893,8 +1895,8 @@ export function Checkout({
       // for next time like the name; both writes are best-effort.
       const phoneOut = isPickupMode ? phone.trim().slice(0, 20) : "";
       try {
-        if (name) localStorage.setItem("mms.name", name);
-        if (phoneOut) localStorage.setItem("mms.phone", phoneOut);
+        if (name) localStorage.setItem(DEVICE_NAME_KEY, name);
+        if (phoneOut) localStorage.setItem(DEVICE_PHONE_KEY, phoneOut);
       } catch {
         /* private mode */
       }

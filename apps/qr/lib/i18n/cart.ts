@@ -118,7 +118,9 @@ export const CART = {
   processingPayment: { en: "Processing payment…", my: "ငွေချေနေပါတယ်…" }, // v7.2 EN; MY W18 register
   cardDeclined: { en: "Card declined", my: "ကတ်က အဆင်မပြေပါ" }, // v7.2 EN; MY W18 register
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
-  paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
+  // v7.2:468 verbatim EN ("Paid — thank you!"); the MY there reads "ရှင်းပြီး။ ကျေးဇူးပါ" — the
+  // shipped K15-era variant stays until the ledger's native round rules (Phase 3b, D12).
+  paidThankYou: { en: "Paid — thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" },
 
   // ── the pay form (Phase 1c) ────────────────────────────────────────────────
   // The wait, the reveal and the failure card around Stripe's card iframe (lib/pay-element.ts owns

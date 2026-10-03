@@ -20,6 +20,7 @@ vi.mock("@mms/ui", () => ({
 vi.mock("./Confetti", () => ({ Confetti: () => <div data-testid="confetti" /> }));
 
 const { PaySuccess } = await import("./PaySuccess");
+const { CART } = await import("@/lib/i18n/cart");
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -93,5 +94,27 @@ describe("the latch waits for the money (manual capture)", () => {
     // Once it has rung, the payment IS celebrated: a later Back replays nothing.
     expect(visit("pi_M")).toBe(false);
     expect(h.chime.mock.calls.filter(([m]) => m === "paid")).toHaveLength(1);
+  });
+});
+
+describe("the paid headline (Phase 3b, D12 graft)", () => {
+  it("reads the dictionary's paidThankYou pair — English first, the Burmese beneath with its lang", () => {
+    const { container } = render(<PaySuccess starsEarned={1} celebrationKey="pi_H" />);
+    const h1 = container.querySelector("h1")!;
+    expect(CART.paidThankYou.en).toBe("Paid — thank you!"); // v7.2:468 verbatim
+    // A space between the two: the Burmese is a CSS block, and name-from-content may not insert one
+    // at a style boundary (blind pass on 3b).
+    expect(h1.textContent).toBe(`${CART.paidThankYou.en} ${CART.paidThankYou.my}`);
+    const my = h1.querySelectorAll('[lang="my"]');
+    expect(my).toHaveLength(1);
+    expect(my[0]!.textContent).toBe(CART.paidThankYou.my);
+  });
+  it("the awaiting-capture arm keeps its shipped English line", () => {
+    const { container } = render(
+      <PaySuccess starsEarned={1} celebrationKey="pi_H2" awaitingCapture />,
+    );
+    const h1 = container.querySelector("h1")!;
+    expect(h1.textContent).toBe("Order sent — thank you!");
+    expect(h1.querySelector('[lang="my"]')).toBeNull();
   });
 });

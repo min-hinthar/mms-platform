@@ -301,6 +301,58 @@ for (const st of liveStages) {
     );
 }
 
+// ── (3) Every sheet the page can open over the stage is a camera HOLD ────────────────────────────
+// Blind pass on Phase 3b (concurrency): the door sheet joined the basket sheet over the camera, and
+// `decodeHold` treats any sheet as a hold — but only if the page TELLS the stage. The invariant lived
+// in a comment and one `||`; a mutant dropping `|| doorSheetOpen` survived every suite (the page has
+// none, and it is outside the mutate set). So: every `useState` whose binding ends in `SheetOpen`
+// must be an identifier reachable inside the live stage's `sheetOpen` expression. Red-first: the
+// `||` deleted; the state renamed; the prop deleted. Parsed, never grepped — a mention in a comment
+// is not a reference.
+const sheetStates = [];
+walk(src, (n) => {
+  if (
+    ts.isVariableDeclaration(n) &&
+    ts.isArrayBindingPattern(n.name) &&
+    n.initializer &&
+    ts.isCallExpression(n.initializer) &&
+    ts.isIdentifier(n.initializer.expression) &&
+    n.initializer.expression.text === "useState"
+  ) {
+    const first = n.name.elements[0];
+    if (
+      first &&
+      ts.isBindingElement(first) &&
+      ts.isIdentifier(first.name) &&
+      /SheetOpen$/.test(first.name.text)
+    )
+      sheetStates.push(first.name.text);
+  }
+});
+if (!sheetStates.length)
+  fail(
+    `no \`*SheetOpen\` state in ${PAGE} — the camera-hold proposition has nothing to check; if the sheets were renamed, rename the rule.`,
+  );
+for (const st of liveStages) {
+  const attr = st.attributes.properties.find(
+    (a) => ts.isJsxAttribute(a) && a.name.getText(src) === "sheetOpen",
+  );
+  const init = attr?.initializer;
+  const expr = init && ts.isJsxExpression(init) ? init.expression : null;
+  const referenced = new Set();
+  if (expr)
+    walk(expr, (n) => {
+      if (ts.isIdentifier(n)) referenced.add(n.text);
+    });
+  const missing = sheetStates.filter((s) => !referenced.has(s));
+  if (!expr || missing.length)
+    fail(
+      `<ScanStage sheetOpen={…}> must reference every sheet state the page can open over the camera; missing: ${missing.join(", ") || "(no sheetOpen expression)"}.\n` +
+        "  decodeHold treats ANY sheet over the stage as a hold — a sheet the stage is not told about\n" +
+        "  lets a sighting through its scrim charge the basket.",
+    );
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -310,5 +362,5 @@ console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
     ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
-    ` ${liveStages.length} <ScanStage> holds on ${READY}()\x1b[0m`,
+    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheetStates.length} sheet state${sheetStates.length === 1 ? "" : "s"}\x1b[0m`,
 );
