@@ -96,6 +96,8 @@ import {
   type CheckoutStage,
 } from "@/lib/checkout-stage";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
+import { checkoutSteps } from "@/lib/checkout-steps";
+import { orderNoun } from "@/lib/order-noun";
 import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
 import { t, type DictKey } from "@/lib/i18n";
 
@@ -1113,8 +1115,23 @@ export function Checkout({
   // W12 — the heading names the MOMENT: "Your bill" once the diner is settling (bill stage + the
   // pay step it leads to), "Your order" everywhere else. Screen-reader users hear the moment change
   // (focus moves to this heading on every view flip).
+  // Phase 3a (D6) — in the market the thing on the slip is a BASKET (`orderNoun`), from the first
+  // scan to the pay step; it was "Your order" here while every market surface said basket.
   const headingKey: DictKey =
-    staged && viewKey !== "settle" && (onPay || stage === "bill") ? "yourBill" : "yourOrder";
+    staged && viewKey !== "settle" && (onPay || stage === "bill")
+      ? "yourBill"
+      : sessionMode === "scango"
+        ? "yourBasket"
+        : "yourOrder";
+  // Phase 3a (D3) — the step rail under the heading: Order → Bill → Pay at a table, Order → Pay
+  // (Basket → Pay) elsewhere; one step current. Decided in lib/checkout-steps.ts, drawn below.
+  const steps = checkoutSteps({
+    staged,
+    stage,
+    step,
+    settle: viewKey === "settle",
+    noun: orderNoun(sessionMode),
+  });
 
   // J4 (residual) — the freeze comes from ONE binding that mirrors the server's own predicate.
   //
@@ -2404,6 +2421,27 @@ export function Checkout({
         </h1>
         <WalletChip badge={rewardsBadge} />
       </div>
+      {steps.length > 0 && (
+        <ol className="checkout-steps" aria-label="Checkout steps">
+          {steps.map((st, i) => (
+            <li
+              key={st.key}
+              className={`checkout-steps-item is-${st.state}`}
+              aria-current={st.state === "current" ? "step" : undefined}
+            >
+              <span className="checkout-steps-num" aria-hidden>
+                {st.state === "done" ? "✓" : i + 1}
+              </span>
+              <span className="checkout-steps-label">
+                {st.label}
+                <span className="sr-only">
+                  {st.state === "done" ? " — done" : st.state === "next" ? " — next" : ""}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {/* R7b: keyed step wrapper — a CSS enter-slide replays on each view change (review ↔ pay ↔ settle).
           Keyed on the view so React remounts it (the animation replays); the <h1> above stays mounted as the

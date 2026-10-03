@@ -19,6 +19,9 @@ export const CART = {
   // ── the two moments (W12) ──────────────────────────────────────────────────
   yourOrder: { en: "Your order", my: "သင့်အော်ဒါ" }, // shipped W12
   yourBill: { en: "Your bill", my: "သင့်ဘောက်ချာ" }, // shipped W12
+  // Phase 3a (D6) — the market's checkout heading: a basket is not an order (`orderNoun`). The noun
+  // is MARKET's K15-HIGH proposal (စျေးခြင်း, lib/i18n/market.ts); Claude-authored, pending Min's read.
+  yourBasket: { en: "Your basket", my: "သင့်စျေးခြင်း" },
   // EN values are the SHIPPED checkout copy verbatim (never reworded by translation plumbing).
   emptyCartTitle: { en: "Nothing added yet", my: "ဘာမှ မထည့်ရသေးပါ" },
   emptyCartSubMenu: {

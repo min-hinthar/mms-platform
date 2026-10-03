@@ -94,8 +94,9 @@ export function CartBar() {
         position: "fixed",
         left: 12,
         right: 12,
-        // clear the iOS home-bar inset so the bar isn't half-hidden behind it (position, not padding)
-        bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
+        // clear the iOS home-bar inset so the bar isn't half-hidden behind it (position, not padding);
+        // Phase 3a — and the diner tab bar beneath (`--tabs-h`, 0 where there is none).
+        bottom: "calc(var(--tabs-h, 0px) + 16px + env(safe-area-inset-bottom, 0px))",
         maxWidth: 416,
         margin: "0 auto",
         background: "var(--ac)",

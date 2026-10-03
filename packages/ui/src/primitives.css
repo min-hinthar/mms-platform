@@ -167,7 +167,10 @@
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px));
+  /* Phase 3a — plus the diner tab bar beneath every dock (`--tabs-h`, 0 where the app draws none). */
+  bottom: calc(
+    var(--tabs-h, 0px) + var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px)
+  );
   z-index: var(--z-toast);
   display: flex;
   justify-content: center;
@@ -529,7 +532,8 @@
    pill, plus a gutter — only while one is showing, so the page's end is unchanged otherwise. */
 :root:has(.ui-toast-xl:not(.ui-toast-leaving)) {
   scroll-padding-bottom: calc(
-    var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px) + var(--tap-bump) + var(--s2)
+    var(--tabs-h, 0px) + var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px) +
+      var(--tap-bump) + var(--s2)
   );
 }
 /* The drain: the caller's REAL window (`--toast-drain`), emptied linearly along the pill's floor;

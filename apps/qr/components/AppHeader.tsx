@@ -4,28 +4,22 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 // J1: header navs ride the journey grammar (direction-stamped view transitions) — drop-in Link swap.
 import { TransitionLink as Link } from "./nav/TransitionNav";
-import { browserClient } from "@mms/db";
-import { Icon } from "@mms/ui";
-import { useActiveOrder } from "./ActiveOrderProvider";
 import { useActiveOrderStatus } from "./useActiveOrderStatus";
 import { useLiveOrders } from "@/lib/useLiveOrders";
 import { liveOrderTrackHref } from "@/lib/live-order";
-import { getRewardsBadge, type RewardsBadge } from "@/lib/rewards";
-import { WalletChip } from "./WalletChip";
 import { OrdersTray } from "./OrdersTray";
 import { LiveOrderRow } from "./LiveOrderRow";
 import { buildLiveOrderPanel } from "@/lib/live-order-panel";
-import { orderSlot, showOrderSlot, slotCount } from "@/lib/order-noun";
 
 /**
- * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
- * "your order" pill that resumes the live tracker, a rewards affordance (Star count + anon "save" nudge)→
- * account, and an off-menu "back to cart" link. Mounted once in the root layout (inside MotionProvider); it
- * early-returns on `/staff` (staff run their own console), mirroring AnonAuthGate's path-exclusion.
+ * Persistent top app-bar (M-nav) — brand→home and a contextual "your order" pill that resumes the live
+ * tracker. Mounted once in the root layout (inside MotionProvider); it early-returns on `/staff` (staff run
+ * their own console), mirroring AnonAuthGate's path-exclusion.
  *
- * Cart is a LINK, not a live counter: `useCart()`/TableCartProvider wrap only the menu subtree, so a
- * root-layout bar has no provider on `/cart`/`/track`/`/account`. The menu publishes its cart id to the store
- * (CartPublisher), so the link shows off-menu after any menu session (the bottom CartBar owns the live count).
+ * Phase 3a (D1) — the header is the TOP half of the diner spine now, and it carries only what the
+ * bottom half cannot: the live order's status at a glance. The cart link and the rewards chip (the
+ * Star count + anon "save" nudge) it carried until 3a moved into the Order and Account tabs of
+ * `components/nav/DinerTabs.tsx`, so the header stops appearing and vanishing by route.
  *
  * Live status (single-pay AND split-tender) comes from `useActiveOrderStatus`, which resolves the split order
  * id server-side. The hook subscribes only where the pill can show (`track`) — not on `/`/`/track`, where the
@@ -41,18 +35,16 @@ export function AppHeader() {
       pathname?.startsWith("/kiosk")) ??
     false;
 
-  const { cartId, cartCount, mode: activeMode } = useActiveOrder();
   // The order affordance is redundant where a dedicated surface already shows it: the homepage resume card
   // (`/`), the live tracker (`/track`), and the /account "Today" section — so hide it (and skip its fetch)
   // on all three.
   const track = !hidden && pathname !== "/" && pathname !== "/track" && pathname !== "/account";
   const { order, tracked, kind, statusWord, ready, isDone } = useActiveOrderStatus(track);
 
-  const [badge, setBadge] = useState<RewardsBadge | null>(null);
   const orderKey = order?.paymentIntent ?? order?.cartId ?? null;
   // K4 — the diner's LIVE orders (server-derived), refetched on visibility/focus + when the poke changes:
-  // a new order (orderKey) or an in-app navigation (pathname, matching the rewards badge's freshness). Only
-  // fetched where the pill can show (`track`); no new realtime channels.
+  // a new order (orderKey) or an in-app navigation (pathname). Only fetched where the pill can show
+  // (`track`); no new realtime channels.
   const { orders: liveOrders } = useLiveOrders(track, `${orderKey ?? ""}:${pathname ?? ""}`);
   const [trayOpen, setTrayOpen] = useState(false);
   // W22b — the single chip's disclosure. NOT a dialog: `aria-haspopup="dialog"` stays reserved for the
@@ -62,51 +54,6 @@ export function AppHeader() {
   const chipRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const brandRef = useRef<HTMLAnchorElement | null>(null);
-  // Refetch on mount, a new order (orderKey), and route change — the Star may be stamped by the webhook
-  // AFTER the diner leaves /track, so a route change back to /menu should refresh the count. Async setState
-  // (in .then) → lint-safe; a transient failure just leaves the plain "Rewards" label.
-  useEffect(() => {
-    if (hidden) return;
-    let active = true;
-    getRewardsBadge()
-      .then((b) => {
-        if (active) setBadge(b);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, [hidden, orderKey, pathname]);
-
-  // React to AUTH changes (anon→account upgrade): the header is mounted once in the root layout and
-  // `router.refresh()` re-runs only Server Components — NOT this client effect — so without this the "Save
-  // your Stars" nudge + Star count stay stale after sign-in until a full reload. Subscribe to the
-  // browserClient() singleton's auth events (it receives the ones AccountUpgrade fires) and refetch, so
-  // `isUpgraded` flips true and the nudge disappears the instant the account confirms. Mirrors useAnonSession.
-  useEffect(() => {
-    if (hidden) return;
-    let active = true;
-    const supa = browserClient();
-    const {
-      data: { subscription },
-    } = supa.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED") {
-        getRewardsBadge()
-          .then((b) => {
-            if (active) setBadge(b);
-          })
-          .catch(() => {});
-      }
-    });
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-    };
-  }, [hidden]);
-
-  // The order affordance is redundant on the homepage (the resume card lives there) and on /track (you're
-  // already watching it); `track` excludes both, so show it everywhere else while an order is live.
-  const onMenu = pathname === "/menu";
 
   // K4 — one affordance for however many orders are in flight:
   //  • ≥2 live  → a count-badged pill that opens the tray (it earns its ink only when it disambiguates).
@@ -141,17 +88,6 @@ export function AppHeader() {
     singleWord = serverSingle.statusWord;
     singleReady = serverSingle.togoStatus === "ready";
   }
-
-  // Cart affordance yields to ANY order pill (single or tray) — an order supersedes its now-placed cart.
-  // The count it may CLAIM: never for a shared dine-in cart (lib/order-noun.ts `slotCount`).
-  const claimedCount = slotCount(activeMode, cartCount);
-  const showCart =
-    showOrderSlot(cartId, claimedCount) &&
-    !showSingle &&
-    !showTray &&
-    !onMenu &&
-    pathname !== "/cart";
-  const slot = orderSlot(activeMode, claimedCount);
 
   // ── W22b · the chip's disclosure behaviour ─────────────────────────────────────────────────────
   // Panel content is built in `lib/live-order-panel.ts`. Since M46 a `.test.tsx` DOES run (jsdom,
@@ -224,11 +160,6 @@ export function AppHeader() {
   }, [chipOpen]);
 
   if (hidden) return null;
-
-  const anonWithStars = !!badge && !badge.isUpgraded && badge.stars > 0;
-  const rewardsAria = badge
-    ? `Rewards, ${badge.stars} ${badge.stars === 1 ? "Star" : "Stars"}${anonWithStars ? " — save them to an account" : ""}`
-    : "Rewards and account";
 
   return (
     <header className={`app-header${hasOrderPill ? " app-header--has-order" : ""}`}>
@@ -345,38 +276,6 @@ export function AppHeader() {
               {liveCount}
             </span>
           </button>
-        )}
-        {showCart && cartId && (
-          <Link
-            href={`/cart?cart=${encodeURIComponent(cartId)}`}
-            className="app-header-cart"
-            aria-label={slot.aria}
-          >
-            <Icon name="cart" size={18} />
-            <span>{slot.label}</span>
-            {claimedCount !== null && claimedCount > 0 && (
-              <span className="app-header-count" aria-hidden>
-                {claimedCount}
-              </span>
-            )}
-          </Link>
-        )}
-        {/* K3a: a SIGNED-IN diner gets the persistent tier-tinted wallet chip (recognition); an
-            anonymous diner keeps the quiet ✦ + count + "Save" nudge (the pitch, gated on !isUpgraded). */}
-        {badge?.isUpgraded ? (
-          <WalletChip badge={badge} />
-        ) : (
-          <Link href="/account" className="app-header-rewards" aria-label={rewardsAria}>
-            <span className="app-header-star" aria-hidden>
-              ✦
-            </span>
-            <span>{badge && badge.stars > 0 ? badge.stars : "Rewards"}</span>
-            {anonWithStars && (
-              <span className="app-header-save" aria-hidden>
-                Save
-              </span>
-            )}
-          </Link>
         )}
       </nav>
       {/* Radix portals the sheet to <body>; `open` folds to false when there's nothing to show, so a
