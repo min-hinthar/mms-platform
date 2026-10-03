@@ -79,6 +79,13 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   — it models the hub (masthead → the three pills → the history card); the hub's tabs were buttons
   with a `data-href` nobody could follow — they are real links to `?tab=`, intercepted on click,
   Space selecting.
+- **Codex round 2 (one P1, two P2 — the last triaged round; every one verified, every one
+  fixed):** the sign-in intent gated the merge on the Star count, but `mms_merge_anon_rewards`
+  moves every order, the rewards row, favorites and feedback — the carry is ALWAYS secured and the
+  copy says "anything saved on this phone comes along"; Google under the sign-in intent now calls
+  the sign-in path directly (no `identity_already_exists` bounce for an existing member), labelled
+  "Sign in with Google"; the hub's `picked` fallback is spent once the URL catches up and dropped on
+  a new `initial`, so the Account tab's bare `/account` shows the default panel again.
 - **`verify:slice`:** a FULL run on `87ef64b` was stopped by the session at 149/2958 (all caught)
   at ~10 mutants a minute in this container; the FILTERED run over every mutant on the four touched
   target files (`Checkout.tsx` · `AccountUpgrade.tsx` · `globals.css` · `i18n/staff.ts`) — **72/72

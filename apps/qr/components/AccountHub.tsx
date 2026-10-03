@@ -40,6 +40,17 @@ export function AccountHub({
   const params = useSearchParams();
   const fromUrl = params.get("tab");
   const [picked, setPicked] = useState<AccountPanelKey | null>(null);
+  // `picked` is a FALLBACK for a runtime whose `replaceState` is not patched; the URL is the
+  // truth. So it is spent the moment the URL catches up with it, and dropped when a new server
+  // render arrives with another `initial` — otherwise a later navigation to the bare `/account`
+  // (the Account tab) would re-render this same instance with no `?tab=` and still show the old
+  // panel while the address bar said otherwise (Codex round 2 on #312).
+  if (picked !== null && fromUrl === picked) setPicked(null);
+  const [seenInitial, setSeenInitial] = useState(initial);
+  if (seenInitial !== initial) {
+    setSeenInitial(initial);
+    setPicked(null);
+  }
   const current: AccountPanelKey = isAccountPanel(fromUrl) ? fromUrl : (picked ?? initial);
   const id = useId();
   const tabRefs = useRef<Partial<Record<AccountPanelKey, HTMLAnchorElement | null>>>({});

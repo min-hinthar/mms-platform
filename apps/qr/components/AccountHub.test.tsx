@@ -91,6 +91,27 @@ describe("AccountHub", () => {
     expect(shown()).toEqual(["you-panel"]);
   });
 
+  it("a bare /account navigation after a tap shows `initial` again — the fallback is spent once the URL caught up (Codex round 2)", () => {
+    const { rerender } = render(<AccountHub initial="orders" panels={panels} />);
+    fireEvent.click(tab("Rewards"));
+    expect(shown()).toEqual(["rewards-panel"]); // the fallback shows it first
+    params = new URLSearchParams("tab=rewards"); // then the router catches up
+    rerender(<AccountHub initial="orders" panels={panels} />);
+    expect(shown()).toEqual(["rewards-panel"]);
+    params = new URLSearchParams(); // the Account tab: same path, no ?tab=, the same initial
+    rerender(<AccountHub initial="orders" panels={panels} />);
+    expect(shown()).toEqual(["orders-panel"]);
+  });
+  it("a new server render with another `initial` drops a stale fallback", () => {
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => {
+      throw new Error("no history"); // the fallback is all that shows the panel
+    });
+    const { rerender } = render(<AccountHub initial="orders" panels={panels} />);
+    fireEvent.click(tab("You"));
+    expect(shown()).toEqual(["you-panel"]);
+    rerender(<AccountHub initial="rewards" panels={panels} />);
+    expect(shown()).toEqual(["rewards-panel"]);
+  });
   it("each tab is a real link to its panel's URL (the non-JS fallback), and Space selects", () => {
     render(<AccountHub initial="orders" panels={panels} />);
     expect(tab("Rewards").getAttribute("href")).toBe("/account?tab=rewards");

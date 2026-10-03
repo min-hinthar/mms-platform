@@ -258,7 +258,8 @@ describe("which call the button fires", () => {
 });
 
 describe("Phase 3a — the sign-in intent", () => {
-  it("sends the sign-in code on the FIRST press, and mints nothing for a phone with no Stars", async () => {
+  it("sends the sign-in code on the FIRST press — and secures the carry even with no Stars (the merge moves orders, favorites and feedback too)", async () => {
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
     auth.signInWithOtp.mockResolvedValue({ error: null });
     render(<AccountUpgrade stars={0} />);
     await flushFrames();
@@ -272,7 +273,21 @@ describe("Phase 3a — the sign-in intent", () => {
       options: { shouldCreateUser: false },
     });
     expect(auth.updateUser).not.toHaveBeenCalled(); // never the link-then-fail round trip
-    expect(mintMergeToken).not.toHaveBeenCalled(); // nothing on this phone to carry
+    // Codex round 2 on #312 (P1): zero paid Stars does not prove the phone holds nothing —
+    // `mms_merge_anon_rewards` moves every order, favorites and feedback. The carry is always secured.
+    expect(mintMergeToken).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/anything saved on this phone/i)).toBeTruthy();
+  });
+  it("Google under the sign-in intent SIGNS IN (signInWithOAuth), never the link-then-bounce path", async () => {
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOAuth.mockResolvedValue({ error: null });
+    render(<AccountUpgrade stars={2} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
+    expect(auth.linkIdentity).not.toHaveBeenCalled();
+    expect(mintMergeToken).toHaveBeenCalledTimes(1); // the carry is secured before the redirect
   });
   it("with Stars on this phone the card SAYS they come along, and the carry is secured first", async () => {
     mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
@@ -280,7 +295,7 @@ describe("Phase 3a — the sign-in intent", () => {
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
     fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
-    expect(screen.getByText(/on this phone come along/i)).toBeTruthy();
+    expect(screen.getByText(/3 Stars and anything else saved on this phone/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
     fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
     await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));

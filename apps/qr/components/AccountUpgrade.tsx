@@ -501,10 +501,14 @@ export function AccountUpgrade({
       // would just re-fail email_exists). This is a genuine guest saving their OWN Stars into a pre-existing
       // account → `bringStars: true` mints the K3b merge token so /account's MergeRedeemer carries this
       // device's Stars over. (A remembered-CHIP switch takes the `false` path instead — see selectIdentity.)
-      // Phase 3a — the stated "Sign in" intent carries this phone's Stars only when there ARE any
-      // (nothing to mint for a new phone), and the card's copy says so before the press (blind pass
-      // on #312): a merge the diner was not told about is the lend-mode sweep by another door.
-      await sendSignInCode(addr, emailTaken || stars > 0);
+      // Phase 3a — the stated "Sign in" intent ALWAYS secures the carry, and the card's copy says so
+      // before the press (blind pass on #312: a merge the diner was not told about is the lend-mode
+      // sweep by another door). ⚠️ Never gate it on the Star count (Codex round 2 on #312, P1):
+      // `mms_merge_anon_rewards` moves every order (`earned_by`), the rewards row, favorites and
+      // feedback, and records the redirect an in-flight payment resolves through — a phone with zero
+      // paid Stars can still hold all of that, and a sign-in that skips the mint loses it for good.
+      // The lend-mode `?resume=` return is the one door that suppresses the carry, and it says why.
+      await sendSignInCode(addr, true);
       setBusy(false);
       return;
     }
@@ -600,21 +604,16 @@ export function AccountUpgrade({
           count when there is one. */}
       <p style={sub}>
         {intent === "signin" ? (
-          stars > 0 ? (
-            <>
-              Enter the email on your Morning Star account, or continue with Google — your Stars and
-              past orders are there waiting, and the{" "}
-              <strong>
-                {stars} {stars === 1 ? "Star" : "Stars"}
-              </strong>{" "}
-              on this phone come along.
-            </>
-          ) : (
-            <>
-              Enter the email on your Morning Star account, or continue with Google — your Stars and
-              past orders are there waiting.
-            </>
-          )
+          <>
+            Enter the email on your Morning Star account, or continue with Google — your Stars and
+            past orders are there waiting, and{" "}
+            <strong>
+              {stars > 0
+                ? `the ${stars} ${stars === 1 ? "Star" : "Stars"} and anything else saved on this phone`
+                : "anything saved on this phone"}
+            </strong>{" "}
+            come along.
+          </>
         ) : stars > 0 ? (
           <>
             You’ve earned{" "}
@@ -764,7 +763,12 @@ export function AccountUpgrade({
 
       <button
         type="button"
-        onClick={googleAction(callback) === "sign-in" ? signInGoogle : google}
+        // Phase 3a — the stated "Sign in" intent takes the sign-in call directly (Codex round 2 on
+        // #312): an existing Google member no longer rides the `identity_already_exists` bounce and
+        // its recovery round trip to reach the account the card just promised.
+        onClick={
+          intent === "signin" || googleAction(callback) === "sign-in" ? signInGoogle : google
+        }
         disabled={busy}
         className="account-oauth"
         style={googleBtn}
@@ -789,7 +793,7 @@ export function AccountUpgrade({
             d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
           />
         </svg>
-        {googleButtonLabel(callback)}
+        {intent === "signin" ? "Sign in with Google" : googleButtonLabel(callback)}
       </button>
 
       {/* A7b — the carry could not be secured, so nothing was started. This is the ONLY way past it, and
