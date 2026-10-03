@@ -7,6 +7,7 @@ import {
   isAccountPanel,
   type AccountPanelKey,
 } from "@/lib/account-hub";
+import { AccountPanelVisible } from "./AccountPanelVisible";
 
 /**
  * Phase 3a (D4) — the hub's tabs. The three panels are rendered by the SERVER page (every read has
@@ -28,7 +29,10 @@ import {
  * scripts off — every panel is still reachable through a server render (Codex round 1 on #312:
  * a `data-href` on a button opened nothing); with scripts on, the click is intercepted and the
  * panel flips in place. The hidden panels stay in the DOM (`hidden`), so the page's document
- * order — the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open.
+ * order — the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open; and
+ * because React runs a hidden subtree's effects all the same, each panel is told whether it is
+ * the one showing (`AccountPanelVisible`), so a one-shot moment inside it — the tier-up
+ * celebration — evaluates only where it can be seen (Codex round 4 on #312).
  */
 export function AccountHub({
   initial,
@@ -132,7 +136,7 @@ export function AccountHub({
           tabIndex={-1}
           className="account-panel"
         >
-          {panels[p.key]}
+          <AccountPanelVisible value={current === p.key}>{panels[p.key]}</AccountPanelVisible>
         </section>
       ))}
     </>

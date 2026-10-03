@@ -118,6 +118,22 @@ describe("AccountHub", () => {
     fireEvent.keyDown(tab("Rewards"), { key: " " });
     expect(shown()).toEqual(["rewards-panel"]);
   });
+  it("each panel knows whether it is the one showing (Codex round 4: a hidden panel's one-shots wait)", async () => {
+    const { useAccountPanelVisible } = await import("./AccountPanelVisible");
+    const Eye = ({ id }: { id: string }) => (
+      <p data-eye={id}>{useAccountPanelVisible() ? "seen" : "hidden"}</p>
+    );
+    render(
+      <AccountHub
+        initial="orders"
+        panels={{ orders: <Eye id="o" />, rewards: <Eye id="r" />, you: <Eye id="y" /> }}
+      />,
+    );
+    const eye = (id: string) => document.querySelector(`[data-eye=${id}]`)!.textContent;
+    expect([eye("o"), eye("r"), eye("y")]).toEqual(["seen", "hidden", "hidden"]);
+    fireEvent.click(tab("Rewards"));
+    expect([eye("o"), eye("r"), eye("y")]).toEqual(["hidden", "seen", "hidden"]);
+  });
   it("a replaceState that throws still shows the picked panel", () => {
     vi.spyOn(window.history, "replaceState").mockImplementation(() => {
       throw new Error("no history");

@@ -108,6 +108,17 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   it). Three mutants: `account-upgrade/oauth-redirect-carries-a-query`,
   `account-upgrade/intent-switch-keeps-a-stale-block`, `diner-tabs/order-tab-skips-the-drain`
   (`nav/DinerTabs.tsx` joins the mutate set — the 71st component).
+- **Codex round 4 (one P1, one P2 — fix-on-sight, both verified in source first):** the market
+  publishes its cart through `usePublishCart` and never mounted `CartPublisher`, so round 3's drain
+  was a resolved no-op on `/grocery` — the surface whose adds take longest. `lib/write-ledger.ts`
+  is the in-flight ledger as a VALUE (TableCartProvider's W21 shape, pinned by its own suite); the
+  market holds one instance, tracks every `scanAdd` / `setQty` (the offline replay too), lends it
+  to the Order tab (`useRegisterDrain`) and awaits it from its own Check out, one navigation at a
+  time. And the hub's hidden Rewards panel still mounted `TierUpCelebration`, whose mount-time
+  evaluation wrote the tier baseline and ran its 5.2s dismissal where nobody could see it — a real
+  climb consumed unseen on every default Orders visit. `AccountPanelVisible` (a context the hub
+  provides around each panel, `true` by default outside it) tells the one-shot whether its panel is
+  showing, and it evaluates on the render that shows it (`TierUpCelebration.test.tsx`, red first).
 - **`verify:slice`:** a FULL run on `87ef64b` was stopped by the session at 149/2958 (all caught)
   at ~10 mutants a minute in this container; the FILTERED run over every mutant on the four touched
   target files (`Checkout.tsx` · `AccountUpgrade.tsx` · `globals.css` · `i18n/staff.ts`) — **72/72
