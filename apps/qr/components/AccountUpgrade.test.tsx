@@ -257,6 +257,45 @@ describe("which call the button fires", () => {
   });
 });
 
+describe("Phase 3a — the sign-in intent", () => {
+  it("sends the sign-in code on the FIRST press, and mints nothing for a phone with no Stars", async () => {
+    auth.signInWithOtp.mockResolvedValue({ error: null });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    expect(screen.getByRole("heading", { name: /Welcome back/i })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    expect(auth.signInWithOtp.mock.calls[0]?.[0]).toMatchObject({
+      email: "me@example.com",
+      options: { shouldCreateUser: false },
+    });
+    expect(auth.updateUser).not.toHaveBeenCalled(); // never the link-then-fail round trip
+    expect(mintMergeToken).not.toHaveBeenCalled(); // nothing on this phone to carry
+  });
+  it("with Stars on this phone the card SAYS they come along, and the carry is secured first", async () => {
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOtp.mockResolvedValue({ error: null });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    expect(screen.getByText(/on this phone come along/i)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    expect(mintMergeToken).toHaveBeenCalledTimes(1);
+  });
+  it("the switch is a round trip — back to the save card, copy and all", async () => {
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.click(screen.getByRole("button", { name: /New here\? Save this phone’s Stars/i }));
+    expect(screen.getByRole("heading", { name: /Keep your rewards/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Email me a code/i })).toBeTruthy();
+  });
+});
+
 describe("the automatic recovery", () => {
   it("completes the sign-in without a second press", async () => {
     params = new URLSearchParams(`error_code=${BOUNCE}`);

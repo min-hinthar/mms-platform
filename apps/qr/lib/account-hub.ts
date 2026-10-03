@@ -10,7 +10,11 @@
  *   You     — who this is (the save / sign-in door, or the signed-in card), settings, help & contact.
  *
  * Addressed by `?tab=`, never a hash: Next's loading boundary consumes a hash on the skeleton's
- * commit (the page's own note). A lend-mode `?resume=` return opens You, where the sign-in door is.
+ * commit (the page's own note). Two returns land on You without saying `tab`, because the thing
+ * they return TO is on You: a lend-mode `?resume=` (the sign-in door), and the OAuth bounce —
+ * Supabase sends `?error_code=…` (or `?error=…`) back to the Google button's `redirectTo`, and the
+ * recovery copy and its button render in the save card; a panel that hid them would strand the
+ * diner on Orders with no sign of what happened (blind pass on #312).
  */
 export type AccountPanelKey = "orders" | "rewards" | "you";
 
@@ -20,10 +24,19 @@ export const ACCOUNT_PANELS: { key: AccountPanelKey; label: string }[] = [
   { key: "you", label: "You" },
 ];
 
-export function accountPanel(params: { tab?: string; resume?: string }): AccountPanelKey {
-  if (params.tab === "orders" || params.tab === "rewards" || params.tab === "you")
-    return params.tab;
+export function isAccountPanel(x: string | null | undefined): x is AccountPanelKey {
+  return x === "orders" || x === "rewards" || x === "you";
+}
+
+export function accountPanel(params: {
+  tab?: string;
+  resume?: string;
+  error_code?: string;
+  error?: string;
+}): AccountPanelKey {
+  if (isAccountPanel(params.tab)) return params.tab;
   if (params.resume != null) return "you";
+  if (params.error_code != null || params.error != null) return "you";
   return "orders";
 }
 

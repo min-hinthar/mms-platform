@@ -45,12 +45,13 @@ describe("checkoutSteps", () => {
       [],
     );
   });
-  it("exactly one step is current whenever the rail is drawn", () => {
-    for (const staged of [true, false])
-      for (const stage of ["order", "bill"] as const)
-        for (const step of ["review", "pay"] as const) {
-          const r = checkoutSteps({ staged, stage, step, settle: false });
-          expect(r.filter((s) => s.state === "current")).toHaveLength(1);
-        }
+  const combos = [true, false].flatMap((staged) =>
+    (["order", "bill"] as const).flatMap((stage) =>
+      (["review", "pay"] as const).map((step) => ({ staged, stage, step })),
+    ),
+  );
+  it.each(combos)("exactly one step is current whenever the rail is drawn: %o", (c) => {
+    const r = checkoutSteps({ ...c, settle: false });
+    expect(r.filter((s) => s.state === "current")).toHaveLength(1);
   });
 });

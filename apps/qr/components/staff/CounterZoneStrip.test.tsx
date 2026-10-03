@@ -42,12 +42,32 @@ describe("CounterZoneStrip", () => {
     mount("my");
     expect(screen.getByRole("navigation", { name: STAFF["floor.a11y.zones"].my })).toBeTruthy();
   });
-  it("lights exactly one chip — the first, at the top of the page", () => {
+  it("lights exactly one chip — the zone whose heading has passed the strip's edge", () => {
+    // Real headings in the document, each with a stubbed rect (jsdom measures everything as 0,
+    // which would make every heading "arrived"): start-h scrolled off above, floor-h just under
+    // the strip, expo-h far below. The strip itself sits at the top (its rect is 0 → edge 8).
+    for (const [id, top] of [
+      ["start-h", -400],
+      ["floor-h", 4],
+      ["expo-h", 900],
+    ] as const) {
+      const h = document.createElement("h2");
+      h.id = id;
+      h.getBoundingClientRect = () =>
+        ({ top, bottom: top + 30, left: 0, right: 0, width: 0, height: 30 }) as DOMRect;
+      document.body.appendChild(h);
+    }
     mount("my");
     const current = screen.getAllByRole("link").filter((a) => a.getAttribute("aria-current"));
     expect(current).toHaveLength(1);
-    expect(current[0]!.getAttribute("href")).toBe("#start-h");
+    expect(current[0]!.getAttribute("href")).toBe("#floor-h");
     expect(current[0]!.getAttribute("aria-current")).toBe("location");
+    for (const id of ["start-h", "floor-h", "expo-h"]) document.getElementById(id)?.remove();
+  });
+  it("with no heading in the document yet, the first zone is current", () => {
+    mount("my");
+    const current = screen.getAllByRole("link").filter((a) => a.getAttribute("aria-current"));
+    expect(current.map((a) => a.getAttribute("href"))).toEqual(["#start-h"]);
   });
   it("draws nothing for no zones", () => {
     const { container } = render(

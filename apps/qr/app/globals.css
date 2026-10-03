@@ -4618,6 +4618,23 @@ html[data-fx="off"] .pa-mid {
 .diner-tab-label {
   line-height: 1;
 }
+@media (prefers-reduced-motion: reduce) {
+  .diner-tab {
+    transition: none;
+  }
+  .diner-tab:active {
+    transform: none;
+  }
+}
+/* The receipt prints without the bar, and without the body's reserve for it. */
+@media print {
+  .diner-tabs {
+    display: none;
+  }
+  :root:has(.diner-tabs) body {
+    padding-bottom: 0;
+  }
+}
 /* The count: a quiet accent capsule off the icon's corner (cream --oa on solid --ac = AA). */
 .diner-tab-count {
   position: absolute;
@@ -6602,7 +6619,8 @@ html[data-seen-surface] .mms-stagger {
      `.app-header` and the checkout CTA (both var(--z-toolbar)) paint over any bleeding tick AND
      swallow its taps, so an overflowing tick can never steal the header's cart button or the CTA. */
   top: calc(var(--header-height) + env(safe-area-inset-top, 0px) + 8px);
-  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  /* Phase 3a — the band it is bounded against sits on the diner tab bar now (`--tabs-h`). */
+  bottom: calc(var(--tabs-h, 0px) + 84px + env(safe-area-inset-bottom, 0px));
   z-index: calc(var(--z-toolbar) - 1);
   display: flex;
   flex-direction: column;
@@ -10441,6 +10459,12 @@ html[data-fx="lite"] .mms-scrim {
    real height; opaque on the console ground so the zones scroll UNDER it; one plane below the bar
    so the bar's rows (reader chip · new version · offline) still cover it. The lit chip is the shared
    lit-gold cap (the `.staff-chip[aria-pressed]` rule above carries `[aria-current="location"]`). */
+:root:has(.staff-zone-strip) {
+  /* WCAG 2.4.11 — a #zone jump (or a focus scroll) must land BELOW the strip too: the bar's reserve
+     (above) grows by the strip's own height — 44px chip + 2×var(--s2) padding + the hairline. */
+  --zone-strip-h: calc(44px + 2 * var(--s2) + 1px);
+  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--zone-strip-h) + var(--s2));
+}
 .staff-zone-strip {
   position: sticky;
   top: var(--staff-bar-h, 76px);

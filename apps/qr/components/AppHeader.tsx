@@ -176,7 +176,7 @@ export function AppHeader() {
         <span className="app-header-brand-word">Morning Star</span>
       </Link>
 
-      <nav className="app-header-actions" aria-label="Account and order">
+      <nav className="app-header-actions" aria-label="Your order">
         {showSingle && (
           // W22b — the chip is a DISCLOSURE, not a link: tapping it opens the order in place rather
           // than spending a navigation, which is what makes it feel ambient on an installed phone.

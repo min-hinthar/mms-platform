@@ -1,16 +1,31 @@
 "use client";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ACCOUNT_PANELS, accountPanelHref, type AccountPanelKey } from "@/lib/account-hub";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  ACCOUNT_PANELS,
+  accountPanelHref,
+  isAccountPanel,
+  type AccountPanelKey,
+} from "@/lib/account-hub";
 
 /**
  * Phase 3a (D4) — the hub's tabs. The three panels are rendered by the SERVER page (every read has
  * already happened); this only decides which one is showing. A tab tap is instant — no server
- * round-trip, no refetch of the five reads — and writes `?tab=` with `history.replaceState` so a
- * reload, a share and the browser's Back land where the diner was.
+ * round-trip, no refetch of the five reads.
  *
- * WAI-ARIA tabs, manual activation: Arrow keys move focus between tabs, Enter/Space (the click)
- * selects; Home/End jump. The hidden panels stay in the DOM (`hidden`), so the page's document
- * order — the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open.
+ * THE URL IS THE TRUTH, and it is written with a `null` state on purpose. Next 16.2.9 patches
+ * `history.replaceState` and syncs its canonical URL — the value `useSearchParams()` is built from —
+ * only for a state that does not carry its own `__NA` marker (the A7b note in AccountUpgrade). So a
+ * tap writes `?tab=` with `null` state, the router sees it, and `current` is READ BACK from the URL:
+ * the browser's Back, a reload, a share, and an in-page link to `?tab=you` (the Orders panel's save
+ * line, a server re-render with the SAME `initial`) all land on the panel the address bar names. A
+ * prop-change re-seed could not do that — it compared the new prop to the old prop, so a navigation
+ * that re-rendered with the same `initial` changed nothing (blind pass on #312, critical 1).
+ * `picked` is the fallback for a runtime whose `replaceState` is not patched; the URL wins over it.
+ *
+ * WAI-ARIA tabs, MANUAL activation: Arrow keys and Home/End move focus between tabs; Enter/Space
+ * (the click) selects. The hidden panels stay in the DOM (`hidden`), so the page's document order —
+ * the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open.
  */
 export function AccountHub({
   initial,
@@ -19,30 +34,28 @@ export function AccountHub({
   initial: AccountPanelKey;
   panels: Record<AccountPanelKey, ReactNode>;
 }) {
-  const [current, setCurrent] = useState<AccountPanelKey>(initial);
+  const params = useSearchParams();
+  const fromUrl = params.get("tab");
+  const [picked, setPicked] = useState<AccountPanelKey | null>(null);
+  const current: AccountPanelKey = isAccountPanel(fromUrl) ? fromUrl : (picked ?? initial);
   const id = useId();
   const tabRefs = useRef<Partial<Record<AccountPanelKey, HTMLButtonElement | null>>>({});
-  // A new server render (a sign-in that re-rendered the page onto ?tab=you) re-seeds the panel.
-  const [seed, setSeed] = useState(initial);
-  if (seed !== initial) {
-    setSeed(initial);
-    setCurrent(initial);
-  }
 
-  useEffect(() => {
+  const select = (key: AccountPanelKey) => {
+    setPicked(key);
     try {
       const url = new URL(window.location.href);
-      if (url.searchParams.get("tab") === current) return;
-      url.searchParams.set("tab", current);
-      window.history.replaceState(window.history.state, "", url.toString());
+      url.searchParams.set("tab", key);
+      // `null` state — see the docblock: the state Next stamps carries `__NA`, which makes it bail.
+      window.history.replaceState(null, "", url.toString());
     } catch {
-      // Deliberate: the URL is a convenience (reload / share); the panel is already showing.
+      // Deliberate: the URL is a convenience (reload / share / Back); `picked` already shows the panel.
     }
-  }, [current]);
+  };
 
   const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     const keys = ACCOUNT_PANELS.map((p) => p.key);
-    const at = keys.indexOf(current);
+    const at = keys.indexOf((e.currentTarget.dataset.tab as AccountPanelKey) ?? current);
     let next: AccountPanelKey | null = null;
     if (e.key === "ArrowRight") next = keys[(at + 1) % keys.length] ?? null;
     else if (e.key === "ArrowLeft") next = keys[(at - 1 + keys.length) % keys.length] ?? null;
@@ -50,8 +63,7 @@ export function AccountHub({
     else if (e.key === "End") next = keys[keys.length - 1] ?? null;
     if (!next) return;
     e.preventDefault();
-    setCurrent(next);
-    tabRefs.current[next]?.focus();
+    tabRefs.current[next]?.focus(); // focus only — Enter/Space selects (manual activation)
   };
 
   return (
@@ -70,10 +82,11 @@ export function AccountHub({
             ref={(el) => {
               tabRefs.current[p.key] = el;
             }}
-            onClick={() => setCurrent(p.key)}
+            onClick={() => select(p.key)}
             onKeyDown={onKey}
-            // A real destination too, for the rare non-JS read of the page (the tab is a button
-            // because a link would spend a navigation; the href is the same panel by URL).
+            data-tab={p.key}
+            // The same panel by URL, for the record (a tab is a button because a link would spend a
+            // navigation and refetch the page's five reads).
             data-href={accountPanelHref(p.key)}
           >
             {p.label}

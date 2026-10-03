@@ -82,7 +82,7 @@ vi.mock("@mms/ui", () => ({
 }));
 
 const { default: Account } = await import("./page");
-const params = (p: { tab?: string; resume?: string } = {}) => ({
+const params = (p: { tab?: string; resume?: string; error_code?: string } = {}) => ({
   searchParams: Promise.resolve(p),
 });
 
@@ -101,7 +101,7 @@ const GUEST = {
 const LIVE = [{ id: "o1" }];
 
 /** The page's content slots in document order; the W9c banner reads as "alert". */
-async function slots(p: { tab?: string; resume?: string } = {}) {
+async function slots(p: { tab?: string; resume?: string; error_code?: string } = {}) {
   const { container } = render(await Account(params(p)));
   return [...container.querySelectorAll("[data-s], [role='alert']")].map(
     (el) => el.getAttribute("data-s") ?? "alert",
@@ -139,7 +139,7 @@ describe("/account — the order is the design", () => {
   });
 
   it("Phase 3a — opens on Orders by default, on the named panel, and on You for a lend-mode resume", async () => {
-    const panel = async (p: { tab?: string; resume?: string }) =>
+    const panel = async (p: { tab?: string; resume?: string; error_code?: string }) =>
       render(await Account(params(p)))
         .container.querySelector("[data-panel]")
         ?.getAttribute("data-panel");
@@ -148,6 +148,8 @@ describe("/account — the order is the design", () => {
     expect(await panel({ tab: "rewards" })).toBe("rewards");
     cleanup();
     expect(await panel({ resume: "min@example.com" })).toBe("you");
+    cleanup();
+    expect(await panel({ error_code: "identity_already_exists" })).toBe("you");
   });
 
   it("Phase 3a — a guest gets the one-line save door on Orders; a member does not", async () => {

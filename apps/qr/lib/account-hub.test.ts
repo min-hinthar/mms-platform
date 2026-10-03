@@ -24,6 +24,13 @@ describe("accountPanel", () => {
     // An explicit tab still wins — the diner said where they want to be.
     expect(accountPanel({ resume: "min@example.com", tab: "orders" })).toBe("orders");
   });
+  it("the OAuth bounce lands on You, where the save card's recovery copy and button are", () => {
+    // Supabase returns to the Google button's redirectTo with ?error_code=… (or ?error=…); the
+    // recovery renders inside AccountUpgrade, which is on You (blind pass on #312, critical 3).
+    expect(accountPanel({ error_code: "identity_already_exists" })).toBe("you");
+    expect(accountPanel({ error: "access_denied" })).toBe("you");
+    expect(accountPanel({ error_code: "x", tab: "rewards" })).toBe("rewards");
+  });
   it("the panel list is the three, in display order", () => {
     expect(ACCOUNT_PANELS.map((p) => p.key)).toEqual(["orders", "rewards", "you"]);
   });

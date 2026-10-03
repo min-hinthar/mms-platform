@@ -26,8 +26,12 @@ export type CounterZone = { id: string; k: StaffKey };
 
 export function CounterZoneStrip({ lang, zones }: { lang: StaffLang; zones: CounterZone[] }) {
   const [current, setCurrent] = useState<string | null>(null);
+  // The page hands a fresh array on every server re-render (each poll's `router.refresh()`); the
+  // effect re-arms only when the SET of zones changes.
+  const zoneKey = zones.map((z) => z.id).join(" ");
 
   useEffect(() => {
+    const targets = zoneKey ? zoneKey.split(" ") : [];
     if (typeof window === "undefined") return;
     let ticking = false;
     const read = () => {
@@ -35,9 +39,9 @@ export function CounterZoneStrip({ lang, zones }: { lang: StaffLang; zones: Coun
       // The strip's bottom edge is where a heading "arrives": the bar above it is sticky too.
       const strip = document.querySelector<HTMLElement>(".staff-zone-strip");
       const edge = strip ? strip.getBoundingClientRect().bottom + 8 : 120;
-      const tops = zones.map((z) => {
-        const el = document.getElementById(z.id);
-        return { id: z.id, top: el ? el.getBoundingClientRect().top : Number.POSITIVE_INFINITY };
+      const tops = targets.map((id) => {
+        const el = document.getElementById(id);
+        return { id, top: el ? el.getBoundingClientRect().top : Number.POSITIVE_INFINITY };
       });
       setCurrent(currentZone(tops, edge));
     };
@@ -53,7 +57,7 @@ export function CounterZoneStrip({ lang, zones }: { lang: StaffLang; zones: Coun
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [zones]);
+  }, [zoneKey]);
 
   if (zones.length === 0) return null;
   return (

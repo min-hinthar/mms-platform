@@ -231,7 +231,10 @@ export function AccountUpgrade({
     const { error: e4 } = await supa.auth
       .signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${window.location.origin}/account` },
+        // Phase 3a — back to the YOU panel, where this card renders; a bounce (`?error_code=`)
+        // lands there too (`accountPanel`), so the recovery copy and button are never in a hidden
+        // panel (blind pass on #312, critical 3).
+        options: { redirectTo: `${window.location.origin}/account?tab=you` },
       })
       .catch((e: unknown) => ({
         error: { message: e instanceof Error ? e.message : "Couldn’t reach Google — try again." },
@@ -498,7 +501,10 @@ export function AccountUpgrade({
       // would just re-fail email_exists). This is a genuine guest saving their OWN Stars into a pre-existing
       // account → `bringStars: true` mints the K3b merge token so /account's MergeRedeemer carries this
       // device's Stars over. (A remembered-CHIP switch takes the `false` path instead — see selectIdentity.)
-      await sendSignInCode(addr, true);
+      // Phase 3a — the stated "Sign in" intent carries this phone's Stars only when there ARE any
+      // (nothing to mint for a new phone), and the card's copy says so before the press (blind pass
+      // on #312): a merge the diner was not told about is the lend-mode sweep by another door.
+      await sendSignInCode(addr, emailTaken || stars > 0);
       setBusy(false);
       return;
     }
@@ -562,7 +568,7 @@ export function AccountUpgrade({
     // session via a server-side staff check, so there's no pre-redirect marker write to fail (no orphan path).
     const { error: e3 } = await supa.auth.linkIdentity({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/account` },
+      options: { redirectTo: `${window.location.origin}/account?tab=you` }, // the You panel (above)
     });
     if (e3) {
       setError(e3.message || "Couldn’t continue with Google — try again.");
@@ -594,10 +600,21 @@ export function AccountUpgrade({
           count when there is one. */}
       <p style={sub}>
         {intent === "signin" ? (
-          <>
-            Enter the email on your Morning Star account, or continue with Google — your Stars and
-            past orders are there waiting.
-          </>
+          stars > 0 ? (
+            <>
+              Enter the email on your Morning Star account, or continue with Google — your Stars and
+              past orders are there waiting, and the{" "}
+              <strong>
+                {stars} {stars === 1 ? "Star" : "Stars"}
+              </strong>{" "}
+              on this phone come along.
+            </>
+          ) : (
+            <>
+              Enter the email on your Morning Star account, or continue with Google — your Stars and
+              past orders are there waiting.
+            </>
+          )
         ) : stars > 0 ? (
           <>
             You’ve earned{" "}

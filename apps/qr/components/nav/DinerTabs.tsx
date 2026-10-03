@@ -5,6 +5,7 @@ import { browserClient } from "@mms/db";
 import { Icon, type IconName } from "@mms/ui";
 import { TransitionLink as Link } from "./TransitionNav";
 import { useActiveOrder } from "../ActiveOrderProvider";
+import { useActiveOrderStatus } from "../useActiveOrderStatus";
 import { getRewardsBadge } from "@/lib/rewards";
 import { dinerTabs, dinerTabsHidden, type DinerTabKey } from "@/lib/diner-tabs";
 
@@ -16,9 +17,18 @@ import { dinerTabs, dinerTabsHidden, type DinerTabKey } from "@/lib/diner-tabs";
  * `view-transition-name` so it never re-animates on a route change — the page moves under it. It
  * self-hides where the chrome is not the diner's (staff · the wall TV · the kiosk · the kit).
  *
- * The Star count is the rewards badge the header carried until 3a: fetched on mount, on a route
- * change (the webhook may stamp a Star after the diner leaves /track) and on an auth change (the
- * anon→account upgrade flips it without a full reload). A transient failure leaves the plain label.
+ * The Star count is the rewards badge the header carried until 3a: fetched on mount and on a route
+ * change (the webhook may stamp a Star after the diner leaves /track), and again on an auth change
+ * (the anon→account upgrade flips it without a full reload) — two effects, as the header had them,
+ * so a route change never re-subscribes the auth listener. A transient failure leaves the plain
+ * label.
+ *
+ * The Track dot is the wayfinding store's live order — and ONLY while it is live. The store keeps
+ * an order until its owner on the route reads it terminal and retires it (`useActiveOrderStatus`
+ * in the header, the home card, the tracker), and /account had no owner: the header's pill is off
+ * there, so a finished order lingered in the store and this bar kept a dot and an "in progress"
+ * name for it (blind pass on #312, critical 2). The bar therefore subscribes on /account alone —
+ * still one realtime channel per route — and trusts the store's owner everywhere else.
  *
  * Labels are English (D2): four 12px labels at a 44px target cannot carry a stacked Burmese pair;
  * every surface under a tab stays bilingual. `aria-current="page"` is the lit tab's one claim; the
@@ -35,32 +45,46 @@ export function DinerTabs() {
   const pathname = usePathname();
   const hidden = dinerTabsHidden(pathname);
   const { cartId, cartCount, mode, order } = useActiveOrder();
+  // /account is the one diner route with no other subscriber to the live order (the header's pill
+  // is off there), so this bar reads the status itself there — and retires a finished order.
+  const { isDone } = useActiveOrderStatus(!hidden && pathname === "/account");
+  const live = order && !isDone ? order : null;
   const [stars, setStars] = useState<number | null>(null);
 
+  // The count: on mount and on a route change (a Star may be stamped after the diner leaves /track).
   useEffect(() => {
     if (hidden) return;
     let active = true;
-    const refresh = () => {
-      getRewardsBadge()
-        .then((b) => {
-          if (active) setStars(b ? b.stars : null);
-        })
-        .catch(() => {});
+    getRewardsBadge()
+      .then((b) => {
+        if (active) setStars(b ? b.stars : null);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
     };
-    refresh();
+  }, [hidden, pathname]);
+
+  // The count, again, on an auth change — the upgrade flips it without a full reload.
+  useEffect(() => {
+    if (hidden) return;
+    let active = true;
     const supa = browserClient();
     const {
       data: { subscription },
     } = supa.auth.onAuthStateChange((event) => {
       if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "TOKEN_REFRESHED")
-        refresh();
+        getRewardsBadge()
+          .then((b) => {
+            if (active) setStars(b ? b.stars : null);
+          })
+          .catch(() => {});
     });
     return () => {
       active = false;
       subscription.unsubscribe();
     };
-    // `pathname` is a deliberate re-fetch poke (a route change may follow a stamped Star).
-  }, [hidden, pathname]);
+  }, [hidden]);
 
   if (hidden) return null;
   const tabs = dinerTabs({
@@ -68,7 +92,7 @@ export function DinerTabs() {
     mode,
     cartId,
     cartCount,
-    order: order ? { paymentIntent: order.paymentIntent, cartId: order.cartId } : null,
+    order: live ? { paymentIntent: live.paymentIntent, cartId: live.cartId } : null,
     stars,
   });
 
@@ -90,10 +114,10 @@ export function DinerTabs() {
             className="diner-tab"
             aria-current={t.current ? "page" : undefined}
             aria-label={spoken}
-            // In the market the first tab wears the bag, not the grid.
             data-tab={t.key}
           >
             <span className="diner-tab-icon" aria-hidden>
+              {/* In the market the first tab wears the bag, not the grid. */}
               <Icon name={t.key === "menu" && mode === "scango" ? "bag" : ICON[t.key]} size={22} />
               {t.badge === "dot" && <span className="diner-tab-dot" />}
               {typeof t.badge === "number" && (

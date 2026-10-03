@@ -10,6 +10,11 @@ describe("currentZone — the last heading at or above the strip's edge", () => 
   it("lights the zone whose heading has passed the edge, not the next one coming", () => {
     expect(currentZone(tops, 120)).toBe("floor-h");
   });
+  it("the LAST heading at or above the edge wins, not the first (two have passed)", () => {
+    // start-h and floor-h are both above the edge; floor-h is the zone the reader is in.
+    expect(currentZone(tops, 120)).toBe("floor-h");
+    expect(currentZone([...tops, { id: "appr-h", top: 100 }], 120)).toBe("appr-h");
+  });
   it("a heading exactly ON the edge counts as arrived", () => {
     expect(currentZone(tops, 60)).toBe("floor-h");
     expect(currentZone(tops, 59)).toBe("start-h");
