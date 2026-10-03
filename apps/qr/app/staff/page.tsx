@@ -28,6 +28,7 @@ import { approvalsHref, moreTiles } from "@/lib/staff-more";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
 import { CounterSplit } from "@/components/staff/CounterSplit";
+import { CounterZoneStrip, type CounterZone } from "@/components/staff/CounterZoneStrip";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
@@ -227,6 +228,19 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     ? expo.queue
     : { tickets: [], unpaid: [], serverNow: new Date().toISOString() };
 
+  // Phase 3a (D5) — the zone strip's entries: the zones this render will actually draw, each by
+  // its heading's id and the heading's own dictionary key (one name per thing). The manager rails
+  // join only when the rails render; the takings only when the read came back (an outage draws a
+  // note with no heading to land on).
+  const zones: CounterZone[] = [
+    { id: "start-h", k: "floor.zone.start" },
+    { id: "floor-h", k: "floor.tables.title" },
+    { id: "expo-h", k: "expo.title" },
+    ...(rails ? [{ id: "appr-h", k: "table.appr.open" } as const] : []),
+    ...(day.ok ? [{ id: "day-cash-h", k: "reg.day.title" } as const] : []),
+    ...(rails ? [{ id: "settled-h", k: "floor.settled.head" } as const] : []),
+  ];
+
   return (
     <main className="staff-main">
       {/* A4·2 — the two live boards report their feed to the bar's help door through this
@@ -239,6 +253,8 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             around the boards (the bell's seam: no second provider, no remount on rotation). */}
         <CounterSplit terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}>
           {greeting}
+          {/* Phase 3a (D5) — the map: one tap to any zone of this one screen. */}
+          <CounterZoneStrip lang={lang} zones={zones} />
           {/* Phase 2d · floor — ONE mint lock for every start on this screen: Walk-up and Phone
               order in zone 1 and every free table on the strip in zone 2 (`CounterMint.tsx`). */}
           <CounterMintProvider>

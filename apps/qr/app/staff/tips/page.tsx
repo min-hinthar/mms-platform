@@ -10,6 +10,7 @@ import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
+import { readStaffDoor } from "@/lib/staff-door-server";
 import { plural, tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -72,7 +73,7 @@ export default async function StaffTipsPage() {
       })
     : null;
 
-  const lang = await readStaffLang();
+  const [lang, door] = await Promise.all([readStaffLang(), readStaffDoor()]);
   const { report, names, scope } = res;
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
   // W21d (Codex P2 on #186) — when the (deliberately non-fatal) name lookup fails, fall back to
@@ -87,7 +88,17 @@ export default async function StaffTipsPage() {
 
   return (
     <main className="staff-main">
-      <StaffBar lang={lang} title="floor.tips.title" lock={hasPin} />
+      <StaffBar
+        lang={lang}
+        title="floor.tips.title"
+        // Phase 3a (D5) — "up" is the counter on a counter device, the doors elsewhere (rule 4d).
+        leading={
+          door === "counter"
+            ? { kind: "back", href: "/staff?floor=1", k: "floor.back" }
+            : { kind: "screens" }
+        }
+        lock={hasPin}
+      />
       <div className="staff-col" style={wrap}>
         {/* TWO keys, not one merged paragraph: the honesty sentence is shared by both scopes, and
           folding it into each scope key would duplicate a sentence K15 then has to correct twice.
