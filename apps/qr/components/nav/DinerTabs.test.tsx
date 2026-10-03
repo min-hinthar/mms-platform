@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -9,7 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 let pathname = "/menu";
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+const push = vi.fn();
 vi.mock("./TransitionNav", () => ({
+  useJourneyRouter: () => ({ push }),
   TransitionLink: ({
     href,
     children,
@@ -24,11 +26,13 @@ vi.mock("./TransitionNav", () => ({
     </a>
   ),
 }));
+const drain = vi.fn<() => Promise<void>>();
 const store = {
   cartId: "c1" as string | null,
   cartCount: 2 as number | null,
   mode: "pickup" as string | null,
   order: null as { paymentIntent: string | null; cartId: string | null } | null,
+  drain: () => drain(),
 };
 vi.mock("../ActiveOrderProvider", () => ({ useActiveOrder: () => store }));
 let isDone = false;
@@ -59,6 +63,9 @@ beforeEach(() => {
   isDone = false;
   statusCalls.length = 0;
   badge.mockResolvedValue({ stars: 4, tierId: "new", isUpgraded: false });
+  push.mockReset();
+  drain.mockReset();
+  drain.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
 
@@ -99,6 +106,39 @@ describe("DinerTabs", () => {
   it("subscribes to the status only on /account — one channel per route", () => {
     render(<DinerTabs />);
     expect(statusCalls.every((t) => t === false)).toBe(true);
+  });
+  it("the Order tab DRAINS the cart's in-flight writes before it navigates (Codex round 3)", async () => {
+    // CartBar's W21 rule, on the one other door to /cart: an add still in flight when the tab is
+    // tapped could be missed by /cart's first read or refused by its create-intent lock. The link
+    // is intercepted, the barrier awaited, and only then does the journey push.
+    let release!: () => void;
+    drain.mockReturnValue(
+      new Promise<void>((r) => {
+        release = r;
+      }),
+    );
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order — 2 items" });
+    const ev = fireEvent.click(order);
+    expect(ev).toBe(false); // the link's own navigation is cancelled — the push is the navigation
+    expect(drain).toHaveBeenCalledTimes(1);
+    expect(push).not.toHaveBeenCalled();
+    await waitFor(() => expect(order.getAttribute("aria-busy")).toBe("true"));
+    release();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/cart?cart=c1"));
+    expect(order.getAttribute("aria-busy")).toBeNull();
+    // A second tap during the drain is one navigation, not two.
+    drain.mockReturnValue(new Promise<void>(() => {}));
+    fireEvent.click(order);
+    fireEvent.click(order);
+    expect(drain).toHaveBeenCalledTimes(2);
+  });
+  it("a modified click on the Order tab is the link it is — no drain, no push", () => {
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order — 2 items" });
+    expect(fireEvent.click(order, { metaKey: true })).toBe(true);
+    expect(drain).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
   });
   it("a failed badge read leaves the plain Account label", async () => {
     badge.mockRejectedValue(new Error("down"));

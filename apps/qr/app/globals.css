@@ -10465,10 +10465,13 @@ html[data-fx="lite"] .mms-scrim {
    so the bar's rows (reader chip · new version · offline) still cover it. The lit chip is the shared
    lit-gold cap (the `.staff-chip[aria-pressed]` rule above carries `[aria-current="location"]`). */
 :root:has(.staff-zone-strip) {
-  /* WCAG 2.4.11 — a #zone jump (or a focus scroll) must land BELOW the strip too: the bar's reserve
-     (above) grows by the strip's own height — 44px chip + 2×var(--s2) padding + the hairline. */
+  /* WCAG 2.4.11 — a #zone jump (or a focus scroll) must land BELOW the strip too, so the bar's
+     reserve grows by the strip's own height — 44px chip + 2×var(--s2) padding + the hairline.
+     PUBLISHED here, ADDED in the bar's `scroll-padding-top` rules (further down, with the widths):
+     a `scroll-padding-top` declared on this selector never won — `:root:has(.staff-bar)` is
+     declared later at the same specificity (`:has()` takes its argument's) and overwrote it on
+     every console page (Codex round 3 on #312). lib/scroll-padding-contract.test.ts pins the home. */
   --zone-strip-h: calc(44px + 2 * var(--s2) + 1px);
-  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--zone-strip-h) + var(--s2));
 }
 .staff-zone-strip {
   position: sticky;
@@ -13217,12 +13220,14 @@ html[data-reloading] body::after {
    the moment before it hydrates. ⚠️ 76px / 128px are COMPUTED from this sheet (a Burmese title +
    echo: 10 + 39 + 14 + 10 + 1 on a tablet; the two-row phone bar adds the 8px gap + a 44px row),
    NOT measured on a device — OPEN-ITEMS row to measure. */
+/* `--zone-strip-h` is the counter home's sticky zone strip (Phase 3a, published where it is set);
+   0 on every other console page. It is added HERE, not on the strip's own selector — see there. */
 :root:has(.staff-bar) {
-  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--s2));
+  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--zone-strip-h, 0px) + var(--s2));
 }
 @media (max-width: 720px) {
   :root:has(.staff-bar) {
-    scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--s2));
+    scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--zone-strip-h, 0px) + var(--s2));
   }
 }
 /* The counter column's bottom reserve for the lane's thumb-zone Undo pill (`@mms/ui` Toast xl,

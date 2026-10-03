@@ -19,12 +19,19 @@ export function CartPublisher() {
   // Codex round 2: and the CONFIRMED lines, never `count` — that one carries `pendingDelta`, so a tap
   // followed by an instant navigation left a refused edit's optimistic number in storage with no
   // mounted provider to correct it. `items` is written only from a server view (`applyView`).
-  const { cartId, items, totals } = useCart();
-  const { publishCart } = useActiveOrder();
+  const { cartId, items, totals, settled } = useCart();
+  const { publishCart, registerDrain } = useActiveOrder();
   const known = totals !== null;
   const confirmed = items.reduce((n, i) => n + i.qty, 0);
   useEffect(() => {
     if (cartId) publishCart(cartId, known ? confirmed : null);
   }, [cartId, confirmed, known, publishCart]);
+  // Codex round 3 on #312 (P1) — lend the store this provider's `settled()` barrier while mounted,
+  // so the root layout's Order tab can drain in-flight writes before it leaves for /cart exactly as
+  // CartBar does (W21). Withdrawn on unmount: another route has nothing of this ledger to await.
+  useEffect(() => {
+    registerDrain(settled);
+    return () => registerDrain(null);
+  }, [registerDrain, settled]);
   return null;
 }

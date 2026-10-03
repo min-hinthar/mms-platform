@@ -45,7 +45,13 @@ export const metadata: Metadata = { title: "Rewards & account · Morning Star" }
 export default async function Account({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; resume?: string; error_code?: string; error?: string }>;
+  searchParams: Promise<{
+    tab?: string;
+    resume?: string;
+    error_code?: string;
+    error?: string;
+    code?: string; // the OAuth return (PKCE) — lands on You, like the bounce (lib/account-hub.ts)
+  }>;
 }) {
   const [params] = await Promise.all([searchParams, ensureProfile()]);
   const panel = accountPanel(params);

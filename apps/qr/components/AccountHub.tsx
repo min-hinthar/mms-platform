@@ -61,6 +61,12 @@ export function AccountHub({
       const url = new URL(window.location.href);
       url.searchParams.set("tab", key);
       // `null` state — see the docblock: the state Next stamps carries `__NA`, which makes it bail.
+      // REPLACE, never push (Codex round 3 on #312 asked): the tabs are peers of ONE screen, and a
+      // same-pathname history entry is the one shape this app's navigation grammar forbids — the
+      // transition library's popstate handler keys on [pathname, hash] and hangs ~4s on the next
+      // browser-back over such an entry (TransitionNav's same-path rule). Back leaves the hub, as
+      // the diner tab bar's own taps do; the URL still names the panel for a reload, a share and a
+      // return from a deeper route.
       window.history.replaceState(null, "", url.toString());
     } catch {
       // Deliberate: the URL is a convenience (reload / share / Back); `picked` already shows the panel.

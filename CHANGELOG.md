@@ -86,11 +86,34 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   the sign-in path directly (no `identity_already_exists` bounce for an existing member), labelled
   "Sign in with Google"; the hub's `picked` fallback is spent once the URL catches up and dropped on
   a new `initial`, so the Account tab's bare `/account` shows the default panel again.
+- **Codex round 3 (two P1, five P2 — fix-on-sight, every one verified in source first):** both
+  Google doors sent `redirectTo=/account?tab=you`, and Supabase glob-matches `redirectTo` against
+  the Redirect URL allow list (`lib/safe-next.ts`'s contract), so the query made the exact
+  `/account` entry miss and the sign-in fell back to the Site URL with the carry token unredeemed —
+  the doors send the BARE `/account` again and `accountPanel` opens You on the `?code=` of the
+  PKCE return, as it already did on the bounce; the Order tab navigated to /cart without CartBar's
+  W21 drain, so an add still in flight could be missed by /cart's first read or refused by its
+  lock — the cart provider lends the wayfinding store its `settled()` barrier while mounted
+  (`CartPublisher` → `registerDrain`) and the tab awaits `drain()` before the journey push
+  (`aria-busy` for the beat, modified clicks stay links); the zone strip's scroll reserve never won
+  the cascade — `:root:has(.staff-bar)` is declared later at the same specificity — so the strip
+  only publishes `--zone-strip-h` and the bar's two width rules add it
+  (`lib/scroll-padding-contract.test.ts` pins the home, the overscroll contract's shape); `/rewards`
+  redirected to the hub's Orders default — it names `?tab=rewards`; the signed-in Sign-in screen's
+  bar still led to the doors on a counter device — it reads the door like Menu and Tips; a carry
+  block raised under "Sign in" survived the switch back to Save, leaving the merge-suppressed
+  escape hatch under a card promising the uid-preserving flow — the switch drops it; pushing tab
+  taps onto history was declined with the reason on the thread (a same-pathname entry is the one
+  shape the navigation grammar forbids — the transition library's popstate handler hangs ~4s over
+  it). Three mutants: `account-upgrade/oauth-redirect-carries-a-query`,
+  `account-upgrade/intent-switch-keeps-a-stale-block`, `diner-tabs/order-tab-skips-the-drain`
+  (`nav/DinerTabs.tsx` joins the mutate set — the 71st component).
 - **`verify:slice`:** a FULL run on `87ef64b` was stopped by the session at 149/2958 (all caught)
   at ~10 mutants a minute in this container; the FILTERED run over every mutant on the four touched
   target files (`Checkout.tsx` · `AccountUpgrade.tsx` · `globals.css` · `i18n/staff.ts`) — **72/72
-  caught, no orphans** — is what this PR carries, the HANDOFF precedent for a review round. One full
-  run on the merge head is still owed.
+  caught, no orphans** — is what this PR carries, the HANDOFF precedent for a review round, then
+  `--only=account-upgrade` and `--only=diner-tabs` after round 3 (the counts are in the HANDOFF
+  block). One full run on the merge head is still owed.
 - **Filed, not built (3b–3e, `docs/PHASE3_JOURNEYS.md`):** the dine-in table bound at send time, one
   verb per state, the bill readable during the undo window; the pickup time asked once; manual
   barcode entry and "ask us" after a scan miss; KDS text size and sound as bar controls; Team out

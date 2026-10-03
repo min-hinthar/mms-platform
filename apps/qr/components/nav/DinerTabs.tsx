@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { Icon, type IconName } from "@mms/ui";
-import { TransitionLink as Link } from "./TransitionNav";
+import { TransitionLink as Link, useJourneyRouter } from "./TransitionNav";
 import { useActiveOrder } from "../ActiveOrderProvider";
 import { useActiveOrderStatus } from "../useActiveOrderStatus";
 import { getRewardsBadge } from "@/lib/rewards";
@@ -44,7 +44,15 @@ const ICON: Record<DinerTabKey, IconName> = {
 export function DinerTabs() {
   const pathname = usePathname();
   const hidden = dinerTabsHidden(pathname);
-  const { cartId, cartCount, mode, order } = useActiveOrder();
+  const { cartId, cartCount, mode, order, drain } = useActiveOrder();
+  const journey = useJourneyRouter();
+  // Codex round 3 on #312 (P1) — the Order tab is the one door to /cart beside CartBar, and it gets
+  // CartBar's W21 rule: an add may still be in flight when the tab is tapped (the optimistic count
+  // shows before the write lands), and /cart's first read or its create-intent lock could miss or
+  // refuse it. The click is intercepted, the cart provider's lent `settled()` barrier awaited
+  // (resolves at once where nothing is pending — the ordinary tap stays instant), then the journey
+  // pushes. One navigation at a time while the drain runs; `aria-busy` narrates the rare beat.
+  const [leaving, setLeaving] = useState(false);
   // /account is the one diner route with no other subscriber to the live order (the header's pill
   // is off there), so this bar reads the status itself there — and retires a finished order.
   const { isDone } = useActiveOrderStatus(!hidden && pathname === "/account");
@@ -114,7 +122,23 @@ export function DinerTabs() {
             className="diner-tab"
             aria-current={t.current ? "page" : undefined}
             aria-label={spoken}
+            aria-busy={t.key === "order" && leaving ? true : undefined}
             data-tab={t.key}
+            onClick={
+              t.key === "order"
+                ? (e) => {
+                    // A modified or middle click opens the link as the link it is.
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+                    e.preventDefault(); // the push below is the navigation
+                    if (leaving) return;
+                    setLeaving(true);
+                    void drain().finally(() => {
+                      setLeaving(false);
+                      journey.push(t.href);
+                    });
+                  }
+                : undefined
+            }
           >
             <span className="diner-tab-icon" aria-hidden>
               {/* In the market the first tab wears the bag, not the grid. */}

@@ -50,6 +50,16 @@ type ActiveOrderCtx = {
   /** The published cart's item count; null when this device has not seen the cart's contents (a cart
    *  reached by URL) — the header then names the object without claiming a number. */
   cartCount: number | null;
+  /** Codex round 3 on #312 (P1) — CartBar's W21 rule for the one other door to /cart. The cart
+   *  provider is mounted only under the menu and the market, but the Order tab is mounted in the
+   *  root layout, so the provider LENDS the store its `settled()` barrier while it is mounted
+   *  (`CartPublisher`) and the tab awaits it before navigating: an add still in flight when the tab
+   *  is tapped could otherwise be missed by /cart's first read or refused by its create-intent
+   *  lock. Resolves at once on a route with no provider — nothing is pending there. */
+  drain: () => Promise<void>;
+  /** The cart provider's publisher registers its barrier on mount and withdraws it (`null`) on
+   *  unmount, so a torn-down menu's ledger is never awaited from another route. */
+  registerDrain: (fn: (() => Promise<void>) | null) => void;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
@@ -67,6 +77,12 @@ const noop = () => {};
  *  best-effort wayfinding, never a reason to throw. */
 export function usePublishCart(): ActiveOrderCtx["publishCart"] {
   return useContext(Ctx)?.publishCart ?? noop;
+}
+
+/** Same best-effort shape for the barrier's registration (CartPublisher mounts under a menu that
+ *  Checkout's suites render bare). */
+export function useRegisterDrain(): ActiveOrderCtx["registerDrain"] {
+  return useContext(Ctx)?.registerDrain ?? noop;
 }
 
 export function useForgetCart(): ActiveOrderCtx["forgetCart"] {
@@ -103,6 +119,13 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const [cartCount, setCartCount] = useState<number | null>(null);
   const [order, setOrder] = useState<ActiveOrder | null>(null);
   const hydrated = useRef(false);
+  // The lent barrier (see `drain` on the context type). A ref, never state: registering it must not
+  // re-render every consumer of the store, and the tab reads it only inside a click.
+  const drainRef = useRef<(() => Promise<void>) | null>(null);
+  const registerDrain = useCallback((fn: (() => Promise<void>) | null) => {
+    drainRef.current = fn;
+  }, []);
+  const drain = useCallback(() => drainRef.current?.() ?? Promise.resolve(), []);
 
   // Runs on every route/param change: persist fresh URL signals, capture a new live order on the /track
   // success landing, and hydrate the stored order once. Reads are sync; state writes ride a single rAF.
@@ -210,8 +233,18 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart }),
-    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart],
+    () => ({
+      mode,
+      cartId,
+      cartCount,
+      order,
+      clearOrder,
+      publishCart,
+      forgetCart,
+      drain,
+      registerDrain,
+    }),
+    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart, drain, registerDrain],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

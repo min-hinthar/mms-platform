@@ -13,6 +13,9 @@ vi.mock("@/lib/staff", () => ({
 vi.mock("@/lib/staff-lock", () => ({ isConsoleLocked: async () => lockedNow }));
 vi.mock("@/lib/staff-pin", () => ({ staffHasPin: async () => true }));
 vi.mock("@/lib/staff-lang-server", () => ({ readStaffLang: async () => "en" }));
+// Phase 3a (D5, Codex round 3 on #312) — the signed-in Sign-in screen reads the door for its up-link.
+let door: "counter" | "kitchen" | null = null;
+vi.mock("@/lib/staff-door-server", () => ({ readStaffDoor: async () => door }));
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
 vi.mock("@/lib/staff-pin-actions", () => ({
   lockConsole: vi.fn(),
@@ -72,6 +75,7 @@ afterEach(cleanup);
 beforeEach(() => {
   auth.mockReset();
   lockedNow = false;
+  door = null;
 });
 
 describe("P2e — the front doors keep the pill; the Profile carries the card", () => {
@@ -104,6 +108,20 @@ describe("P2e — the front doors keep the pill; the Profile carries the card", 
     expect(card.contains(document.activeElement)).toBe(false);
   });
 
+  it("/staff/login signed IN: 'up' is the counter on a counter device, the Screens circle elsewhere", async () => {
+    // Phase 3a (D5) promised the counter-aware up-link on Menu, Tips AND Sign-in; Codex round 3 on
+    // #312 found the third unwired. Same two literal arms as the other two (rule 4d).
+    auth.mockResolvedValue({ kind: "staff", caller });
+    door = "counter";
+    let c = mount(await LoginPage({ searchParams: Promise.resolve({}) }));
+    expect(c.querySelector(".staff-bar a.staff-back")?.getAttribute("href")).toBe("/staff?floor=1");
+    expect(c.querySelector(".staff-bar a.staff-circ[href='/staff?doors=1']")).toBeNull();
+    cleanup();
+    door = null;
+    c = mount(await LoginPage({ searchParams: Promise.resolve({}) }));
+    expect(c.querySelector(".staff-bar a.staff-back")).toBeNull();
+    expect(c.querySelector(".staff-bar a.staff-circ")?.getAttribute("href")).toBe("/staff?doors=1");
+  });
   it("?show=lang lands focus on the PRESSED mode (a query param — never a #hash, §26)", async () => {
     auth.mockResolvedValue({ kind: "staff", caller });
     mount(await LoginPage({ searchParams: Promise.resolve({ show: "lang" }) }));

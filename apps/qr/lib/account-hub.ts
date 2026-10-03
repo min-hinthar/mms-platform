@@ -10,11 +10,16 @@
  *   You     — who this is (the save / sign-in door, or the signed-in card), settings, help & contact.
  *
  * Addressed by `?tab=`, never a hash: Next's loading boundary consumes a hash on the skeleton's
- * commit (the page's own note). Two returns land on You without saying `tab`, because the thing
- * they return TO is on You: a lend-mode `?resume=` (the sign-in door), and the OAuth bounce —
+ * commit (the page's own note). Three returns land on You without saying `tab`, because the thing
+ * they return TO is on You: a lend-mode `?resume=` (the sign-in door), the OAuth bounce —
  * Supabase sends `?error_code=…` (or `?error=…`) back to the Google button's `redirectTo`, and the
  * recovery copy and its button render in the save card; a panel that hid them would strand the
- * diner on Orders with no sign of what happened (blind pass on #312).
+ * diner on Orders with no sign of what happened (blind pass on #312) — and the OAuth RETURN, the
+ * `?code=` of the PKCE exchange (`@supabase/ssr` hardcodes that flow). The Google doors cannot ask
+ * for the panel themselves: Supabase glob-matches `redirectTo` against the project's Redirect URL
+ * allow list (`lib/safe-next.ts`), so `/account?tab=you` misses the exact `/account` entry and
+ * falls back to the Site URL — the carry token then rides to a page with no redeemer (Codex round 3
+ * on #312, P1). They send the bare `/account`; this reads what Supabase appends.
  */
 export type AccountPanelKey = "orders" | "rewards" | "you";
 
@@ -33,10 +38,12 @@ export function accountPanel(params: {
   resume?: string;
   error_code?: string;
   error?: string;
+  code?: string;
 }): AccountPanelKey {
   if (isAccountPanel(params.tab)) return params.tab;
   if (params.resume != null) return "you";
   if (params.error_code != null || params.error != null) return "you";
+  if (params.code != null) return "you";
   return "orders";
 }
 

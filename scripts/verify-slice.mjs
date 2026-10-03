@@ -5794,6 +5794,24 @@ const MUTANTS = [
       '      const outcome = await mintMergeToken();\n      if (outcome.kind === "minted") stashMergeToken(outcome.token);\n      // Read the stash BACK',
   },
   {
+    id: "account-upgrade/oauth-redirect-carries-a-query",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 3 on #312, P1. Supabase glob-matches `redirectTo` against the project's Redirect URL allow list (`lib/safe-next.ts`), so a query string makes the exact `/account` entry MISS and the redirect silently falls back to the Site URL \u2014 where nothing redeems the carry token stashed a moment earlier. The panel is chosen from the `?code=` Supabase appends, never asked for in the URL",
+    find: "        options: { redirectTo: `${window.location.origin}/account` },\n      })\n      .catch(",
+    replace:
+      "        options: { redirectTo: `${window.location.origin}/account?tab=you` },\n      })\n      .catch(",
+  },
+  {
+    id: "account-upgrade/intent-switch-keeps-a-stale-block",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 3 on #312, P2. A block raised under the Sign in intent names the address, and switching back to Save leaves the address in the field \u2014 so `blockStillApplies` keeps the escape hatch alive under a card that now promises the uid-PRESERVING flow, and pressing it abandons the anonymous data by the merge-suppressed sign-in the Save card never offered",
+    find: "            // the merge-suppressed sign-in for the same email (Codex round 3 on #312, P2).\n            setCarryBlocked(null);\n",
+    replace:
+      "            // the merge-suppressed sign-in for the same email (Codex round 3 on #312, P2).\n",
+  },
+  {
     id: "oauth/lend-resume-loses-to-auto-recovery",
     file: "apps/qr/lib/oauth-callback.ts",
     suite: "lib/oauth-callback.test.ts",
@@ -24474,6 +24492,14 @@ const MUTANTS = [
     why: "Codex r2 on #311 — a value typed and not saved holds the reload for a new version (a `draft` hold), focused or not; unheld, the automatic reload erases it once the person taps away",
     find: '  useReloadHold("unsent", "draft", "helpReport", draftHeld(text, ""));\n',
     replace: "",
+  },
+  {
+    id: "diner-tabs/order-tab-skips-the-drain",
+    file: "apps/qr/components/nav/DinerTabs.tsx",
+    suite: "components/nav/DinerTabs.test.tsx",
+    why: "Codex round 3 on #312, P1 \u2014 CartBar's W21 rule on the one other door to /cart. The optimistic count shows the tab's badge while an add may still be in flight; navigating before the cart provider's lent `settled()` barrier resolves lets /cart's first read miss the item, or its create-intent lock refuse the write the toast just announced",
+    find: "                    void drain().finally(() => {\n                      setLeaving(false);\n                      journey.push(t.href);\n                    });",
+    replace: "                    setLeaving(false);\n                    journey.push(t.href);",
   },
 ];
 

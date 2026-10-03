@@ -31,6 +31,14 @@ describe("accountPanel", () => {
     expect(accountPanel({ error: "access_denied" })).toBe("you");
     expect(accountPanel({ error_code: "x", tab: "rewards" })).toBe("rewards");
   });
+  it("the OAuth RETURN (?code=, the PKCE exchange) lands on You too — the redirectTo stays bare", () => {
+    // Codex round 3 on #312 (P1): Supabase glob-matches `redirectTo` against the Redirect URL
+    // allow list, so `/account?tab=you` MISSES an exact `/account` entry and falls back to the Site
+    // URL. The Google doors therefore send the bare `/account`, and the panel is chosen here from
+    // the `?code=` Supabase appends on the way back — the same way its error bounce is.
+    expect(accountPanel({ code: "pkce-abc" })).toBe("you");
+    expect(accountPanel({ code: "pkce-abc", tab: "orders" })).toBe("orders");
+  });
   it("the panel list is the three, in display order", () => {
     expect(ACCOUNT_PANELS.map((p) => p.key)).toEqual(["orders", "rewards", "you"]);
   });

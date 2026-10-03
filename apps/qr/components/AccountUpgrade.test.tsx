@@ -288,6 +288,38 @@ describe("Phase 3a — the sign-in intent", () => {
     await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
     expect(auth.linkIdentity).not.toHaveBeenCalled();
     expect(mintMergeToken).toHaveBeenCalledTimes(1); // the carry is secured before the redirect
+    // Codex round 3 on #312 (P1): the allow list holds the BARE `/account`; a query string makes
+    // the glob miss and Supabase falls back to the Site URL, stranding the carry token unredeemed.
+    expect(auth.signInWithOAuth.mock.calls[0]?.[0]?.options?.redirectTo).toBe(
+      `${window.location.origin}/account`,
+    );
+  });
+  it("Google under the SAVE intent links the identity — to the same bare `/account`", async () => {
+    auth.linkIdentity.mockResolvedValue({ error: null });
+    render(<AccountUpgrade stars={2} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/i }));
+    await waitFor(() => expect(auth.linkIdentity).toHaveBeenCalledTimes(1));
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
+    expect(auth.linkIdentity.mock.calls[0]?.[0]?.options?.redirectTo).toBe(
+      `${window.location.origin}/account`,
+    );
+  });
+  it("switching back to Save DROPS a block raised under Sign in — the escape hatch never outlives the intent", async () => {
+    // Codex round 3 on #312 (P2): a failed mint under Sign in raised `carryBlocked` for this
+    // address; switching to Save re-worded the card as the uid-PRESERVING flow while the hatch —
+    // "leave this device's Stars behind" — still fired the merge-suppressed sign-in.
+    mintMergeToken.mockResolvedValue({ kind: "failed" });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await screen.findByRole("button", { name: /leave this device’s Stars behind/i });
+    fireEvent.click(screen.getByRole("button", { name: /New here\? Save this phone’s Stars/i }));
+    expect(screen.queryByRole("button", { name: /leave this device’s Stars behind/i })).toBeNull();
+    expect(screen.getByRole("status").textContent).not.toContain("Stars ready");
+    expect(auth.signInWithOtp).not.toHaveBeenCalled();
   });
   it("with Stars on this phone the card SAYS they come along, and the carry is secured first", async () => {
     mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });

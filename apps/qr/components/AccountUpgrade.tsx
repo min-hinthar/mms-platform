@@ -231,10 +231,14 @@ export function AccountUpgrade({
     const { error: e4 } = await supa.auth
       .signInWithOAuth({
         provider: "google",
-        // Phase 3a — back to the YOU panel, where this card renders; a bounce (`?error_code=`)
-        // lands there too (`accountPanel`), so the recovery copy and button are never in a hidden
-        // panel (blind pass on #312, critical 3).
-        options: { redirectTo: `${window.location.origin}/account?tab=you` },
+        // Phase 3a — back to /account, where the YOU panel opens for a bounce (`?error_code=`) AND
+        // for the return (`?code=`, the PKCE exchange) — `accountPanel` reads both, so the recovery
+        // copy and button are never in a hidden panel (blind pass on #312, critical 3). ⚠️ The
+        // BARE path, no `?tab=`: Supabase glob-matches `redirectTo` against the Redirect URL allow
+        // list, and a query string makes the exact `/account` entry miss — the redirect then falls
+        // back to the Site URL, where nothing redeems the carry token just stashed (Codex round 3
+        // on #312, P1; the contract is `lib/safe-next.ts`'s).
+        options: { redirectTo: `${window.location.origin}/account` },
       })
       .catch((e: unknown) => ({
         error: { message: e instanceof Error ? e.message : "Couldn’t reach Google — try again." },
@@ -572,7 +576,7 @@ export function AccountUpgrade({
     // session via a server-side staff check, so there's no pre-redirect marker write to fail (no orphan path).
     const { error: e3 } = await supa.auth.linkIdentity({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/account?tab=you` }, // the You panel (above)
+      options: { redirectTo: `${window.location.origin}/account` }, // BARE — the allow list (above)
     });
     if (e3) {
       setError(e3.message || "Couldn’t continue with Google — try again.");
@@ -642,6 +646,10 @@ export function AccountUpgrade({
             setIntent(intent === "signin" ? "save" : "signin");
             setError(null);
             setEmailTaken(false);
+            // A block belongs to the intent that raised it as much as to its address: left in place,
+            // the Save card promised the uid-PRESERVING flow while the hatch beneath it still fired
+            // the merge-suppressed sign-in for the same email (Codex round 3 on #312, P2).
+            setCarryBlocked(null);
           }}
         >
           {intent === "signin"
