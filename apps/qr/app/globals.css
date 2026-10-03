@@ -10450,6 +10450,9 @@ html[data-fx="lite"] .mms-scrim {
   margin: 0 calc(-1 * var(--s5)) var(--s4);
   padding: var(--s2) var(--s5);
   overflow-x: auto;
+  /* The overscroll contract (lib/overscroll-contract.test.ts): a horizontal rail never hands its
+     overscroll to the page, so a flick at the strip's end does not navigate the tablet back. */
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   background: var(--pg);
   border-bottom: 1px solid var(--bd);

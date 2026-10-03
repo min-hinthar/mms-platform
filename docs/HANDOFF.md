@@ -5,7 +5,52 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-02 · Phase 3 — production signals · Phase 2i MERGED as PR #311 · no branch in flight)
+> ## ⏭️ NEXT SESSION — start here (2026-10-03 · Phase 3a — the journeys is ON THE PR · 3b–3e filed · production signals is now Phase 4)
+>
+> **Where things stand.** The owner said (2026-10-03) Phases 1–2 "still do not feel like major
+> overhauls … not intuitive: customer ordering dine-in to-go grocery flows, staff manager kitchen
+> simplify, account page and features revamp." This session ran four blind read-only audits of the
+> as-built journeys (diner dine-in + to-go · grocery · staff · account), found ONE shape under every
+> surface — a long single scroll with no persistent map — and wrote the contract
+> (`docs/PHASE3_JOURNEYS.md`, owner decision 11, delegated). **3a is built on
+> `claude/ui-ux-design-improvements-l2b0c0`** (four commits: the contract · the diner spine · the
+> account hub · the counter map), and the CHANGELOG entry is the as-built. **Production signals moved
+> to Phase 4** in `ROADMAP.md`; its plan below (the block this one supersedes) is unchanged.
+>
+> **What 3a is:** v7.2's persistent **Menu · Order · Track · Account** tab bar on every diner route
+> (`components/nav/DinerTabs.tsx`, decided in `lib/diner-tabs.ts`), the header down to the brand and
+> the live-order chip, the checkout's step rail (`lib/checkout-steps.ts`), "Your basket" in the market;
+> `/account` as three panels (`AccountHub`, `lib/account-hub.ts`) with a visible "Sign in", "Order
+> again" on the row, Help & contact from `lib/brand.ts`; the counter home's sticky zone strip
+> (`CounterZoneStrip`, `lib/counter-zones.ts`) and "up" to the counter from Menu and Tips. Every
+> bottom dock stacks on `--tabs-h` — DESIGN-LANGUAGE §30 is the rule.
+>
+> **To finish the PR (the ritual, `docs/WORKFLOW.md` §Review):** the full gate ran green here
+> (`pnpm turbo lint typecheck build test`, the fast-lane guards, `check:docs`); **one full
+> `pnpm verify:slice` on the merge head is still owed** if the session ran out before it — one run
+> per checkout, no commit while it is live. Then `pnpm review:bundle` → `adversarial-auditor` (≤3
+> lenses: product truth · a11y · concurrency on the tab bar's store reads), the draft PR,
+> `@codex review` in its own comment, two triaged rounds, mark ready, WAIT for `codex-review` on the
+> merge head, merge on the owner's go. **Preview smoke (nobody here has a browser):** 390×844 every
+> diner route with the tab bar — the cart bar and the market band above it, a toast above both,
+> nothing parked under it at the page's end; Night's frost on the bar; `/account?tab=you` after a
+> lend-mode resume; the counter home's strip on the 15.6" tablet at split width.
+>
+> **What is NOT in 3a and why (filed, each with its evidence):** J22–J25 (dine-in's table-before-menu
+> and two-verb model, the pickup time asked three times, the tab labels' Burmese pair) · K38–K40
+> (KDS text size / sound as bar controls, the walk-up sale's bounce home, Team behind "Your PIN", the
+> six-name counter vocabulary) · G24 (manual barcode entry and "ask us" after a miss, undo on remove,
+> the exit-pass QR — gated on G1). The audits' full findings are in the PR's description and the
+> session's design doc; craft findings below their structural ones were deliberately not swept into
+> OPEN-ITEMS as rows (the registry already holds 148+ open rows; the structural ones gate the arc).
+>
+> **The three decisions a reviewer will ask about:** (D2) tab labels are English — four 12px labels at
+> a 44px target cannot carry a stacked Burmese pair; (D5) the counter home stays ONE screen with a map
+> rather than splitting into screens — the bell hears both boards (owner decision 5c) and the split
+> pane and mint lock wrap them; (D4) the guest's save door moved to the You panel with a one-line door
+> on Orders — the five surfaces that send a guest to save now link `?tab=you`.
+
+> ## ✅ (superseded 2026-10-03) NEXT SESSION as of (2026-10-02 · Phase 3 — production signals · Phase 2i MERGED as PR #311 · no branch in flight)
 >
 > **Where things stand.** The Phase 2 staff program (2a–2i) is on `main`. Phase 2i (#311) was
 > squash-merged on the owner's go on 2026-10-02; the block below this one is its summary and the
@@ -177,7 +222,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
 > **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6134 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6187 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ✅ Phase 2i — staff screens take new builds without losing work — MERGED (PR #311, 2026-10-02, on the owner's go)
 >
@@ -238,7 +283,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
 > **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6134 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6187 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-10-01 · Phase 2g — the counter screen keeps its promises — on branch `claude/inspiring-cori-4rf37k`, PR #309)
 >
@@ -277,7 +322,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
 > **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6134 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6187 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-30 · Phase 2f — counter orders cook before they're paid — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -455,7 +500,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
 > **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6134 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
+> · 6187 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
 > `verify:slice` run with the gate at this head is not recorded here. `--no-gate --only=` runs: the
 > build's `p2f-lib/` + `p2f-ui/` 84 of 84 caught on the merged tree at the integration (the four
 > `p2f-ui/floor-detail/*` had first run against a local stub in the ui worktree); the review areas'
@@ -545,7 +590,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >   page it opens — or it is red.
 >
 > **Gate today:** 2958 `verify:slice` mutants · 243 target modules (166 `apps/qr/lib`, 4 API routes,
-> **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6134 qr tests + 287 ui tests · `check:docs`
+> **70** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6187 qr tests + 287 ui tests · `check:docs`
 > clean · `check:mutant-anchors` clean. The full 1446-mutant `verify:slice` run with the gate at this
 > head is not recorded here; the lang branch's `--no-gate --only=p2e-lang` run killed all 49
 > mutants it added, and each review area's `--no-gate --only=p2e-rev/` run caught all of its own
@@ -1592,8 +1637,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **2958 `verify:slice` mutants** · **240 target modules** (166 under `apps/qr/lib`, 4 API routes,
-> 68 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6134 + 287 today)** ·
-> 100 tracked docs files ·
+> 68 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6187 + 287 today)** ·
+> 101 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -2061,7 +2106,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (2958 today)**, **1372 qr + 138 ui tests at the time (6134 + 287 today)**, 69 target modules at the time (166 under `apps/qr/lib` today, 243 in all), 97 local
+> **334 mutants at the time (2958 today)**, **1372 qr + 138 ui tests at the time (6187 + 287 today)**, 69 target modules at the time (166 under `apps/qr/lib` today, 243 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2953,7 +2998,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 2958 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 6134 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 2958 `verify:slice` mutants green · `pnpm check:docs` clean (101 files, 6187 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

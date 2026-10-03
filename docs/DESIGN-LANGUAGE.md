@@ -2291,3 +2291,44 @@ readTicket)` settles it on a read with a LATER ticket; a read already in the air
   rows-only card when a tender was entered, and it leaves when the next round's cart opens
   (`handoffStillCurrent`). The `Handoff` shape lives in `lib/register-ui.ts`, not the component.
 - **"Change" is အကြွေ everywhere.** ပြန်အမ်း is the console's refund verb.
+
+## 30 · The diner spine, the account hub, the counter map (Phase 3a)
+
+Decided in `lib/diner-tabs.ts` · `lib/checkout-steps.ts` · `lib/account-hub.ts` ·
+`lib/counter-zones.ts`; drawn by `DinerTabs`, the checkout's step rail, `AccountHub`,
+`CounterZoneStrip`. Contract: `docs/PHASE3_JOURNEYS.md`.
+
+- **The spine is two halves, and each carries only what the other cannot.** The header: the brand
+  and the live order's status at a glance. The tab bar: the four places — Menu · Order · Track ·
+  Account — always the same four, on every diner route. A tab never appears or disappears; only its
+  target and its claim change. Nothing else in the chrome names a destination.
+- **What a tab may claim is the surface's own rule, re-read.** Order's count is `slotCount` (never a
+  shared dine-in cart's, never a zero, never without a cart id); Track's dot is the wayfinding
+  store's live order; Account's count is the rewards badge the header carried. No new fetch, no new
+  realtime channel.
+- **Chrome never re-animates.** The tab bar carries `view-transition-name: diner-tabs` beside the
+  header's; the page moves under both. It is the header's pane (`--glass-chrome`, frosted under Night
+  in the same selector list, opaque where filters are off), one plane with the header (`--z-toolbar`),
+  so sheets, scrims and toasts paint above it.
+- **Every bottom dock stacks on `--tabs-h`.** 0 wherever the bar is not drawn (`:root:has(.diner-tabs)`
+  sets it), the bar's content height where it is. The cart bar, the market's CTA band, the toast and
+  the xl pill's scroll reserve each ADD it to their own offset; the body reserves it so a page's last
+  control scrolls clear. A dock that hard-codes its bottom will sit under the bar — that is the
+  `@mms/ui` toast guard's job to notice, and it did.
+- **Labels are English (D2).** Four 12px labels at a 44px target cannot carry a stacked Burmese pair;
+  every surface under a tab stays bilingual; the Burmese four are a K15 row, not an invention here.
+- **The checkout names its step.** The rail reads the state Phase 1b keeps; it is a claim, so exactly
+  one step is current, the pay step wins over the stage, and the split board (its own surface) draws
+  none. The first step is the mode's noun: Order at a table and to-go, Basket in the market — the same
+  noun the heading now uses (`yourBasket`, D6).
+- **The hub's panels are the design, as the page's order was.** Orders · Rewards · You, in that
+  order, rendered whole by the server and flipped on the client (`hidden`, never unmounted), so the
+  document order a test reads is the order a screen reader walks. Addressed by `?tab=`, never a hash.
+  The one door five surfaces send a guest through to SAVE is on You, so Orders carries a one-line
+  door to it; the save card's intent switch re-words the card and sends a typed email straight down
+  the sign-in path — the mechanics are untouched.
+- **The counter map is anchors, not routes.** One chip per zone HEADING, in the heading's own
+  dictionary key (one name per thing); a native fragment, never a `<Link>` to a same-page hash (no
+  `hashchange`, no focus — Codex round 1 on #283). The current zone is the last heading at or above
+  the strip's edge, lit by the shared lit-gold cap through `[aria-current="location"]` on the same
+  rule as every pressed staff chip. The zones stay one screen: the bell hears both boards.

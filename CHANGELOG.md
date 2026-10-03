@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3a — the journeys: the diner spine, the account hub, the counter map (2026-10-03)
+
+**The owner's ask (2026-10-03):** Phases 1–2 "still do not feel like major overhauls … not intuitive:
+customer ordering dine-in to-go grocery flows, staff manager kitchen simplify, account page and
+features revamp." Four blind read-only audits of the as-built journeys found one shape under every
+surface — a long single scroll with no persistent map, and no answer to "where am I" without reading.
+The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11, delegated).
+
+- **The diner spine (D1 · D2).** v7.2's persistent bottom tab bar, never built until now:
+  **Menu · Order · Track · Account** on every diner route (`components/nav/DinerTabs.tsx`; the
+  decisions in `lib/diner-tabs.ts`, pinned). Menu carries the diner's mode (the market's first tab
+  IS the market); Order opens the published cart, named by `orderNoun`, claiming a count only where
+  `slotCount` allows; Track resumes the live order with its dot; Account carries the Star count. The
+  header keeps the brand and the live-order chip ONLY — its cart link and rewards chip retire into
+  the tabs, so the header stops appearing and vanishing by route. The bar is the same chrome pane as
+  the header (frosted under Night beside it), carries its own `view-transition-name`, and every
+  bottom dock stacks on `--tabs-h`: the cart bar, the market's CTA band, the toast, and the xl
+  pill's scroll reserve (the `@mms/ui` toast guard caught the last one). Labels are English (D2).
+- **The checkout shows its steps (D3).** A step rail under the heading — Order → Bill → Pay at a
+  table, Order → Pay for to-go, Basket → Pay in the market — reading the state Phase 1b keeps
+  (`lib/checkout-steps.ts`, pinned: exactly one step current, the pay step wins over the stage, the
+  split board draws no rail). **In the market the slip says "Your basket" (D6)** — `yourBasket`, a
+  K15 pair on the market's own noun — where it said "Your order" against every market surface.
+- **The account hub (D4).** Three panels addressed by `?tab=` — **Orders** (the live row, the
+  record, the hearts) · **Rewards** (the ring and today's coupons, the ladder, how it works) · **You**
+  (the save / sign-in door or the signed-in card, Sound, Help & contact from `lib/brand.ts`) —
+  flipped on the client with no refetch (`AccountHub`, WAI-ARIA tabs), decided by
+  `lib/account-hub.ts` (a lend-mode `?resume=` opens You). The save card gains **"Already have an
+  account? Sign in"**: a returning diner's typed email goes straight down the sign-in path, one press
+  instead of two. **"Order again" rides the collapsed history row** (v7.2's "Reorder ›"), outside
+  the receipt's disclosure. A guest sees one quiet save line on Orders. The door-picker back link
+  retires: the Menu tab carries the mode. `/track`'s rewards doors and the save prompt open their
+  panels.
+- **The counter map (D5).** The counter home keeps its one screen (the bell hears both boards) and
+  gains a sticky **zone strip** under the staff bar (`CounterZoneStrip`): one native anchor per zone
+  heading — Start · Tables & counter orders · Takeaway bags, plus Open requests · Today's takings ·
+  Today's payments & refunds for a manager — each chip in the heading's own words, the current zone
+  lit by the shared lit-gold cap (`lib/counter-zones.ts`, pinned). **"Up" from Menu and Tips returns
+  to the counter on a counter device** (`?floor=1`) instead of two taps through the doors; both arms
+  literal, so `check:staff-lang` rule 4d still resolves every way up. One K15 key, the strip's
+  landmark name.
+- **Proof:** `lib/diner-tabs.test.ts` (31) · `lib/checkout-steps.test.ts` (5) ·
+  `lib/account-hub.test.ts` (6) · `lib/counter-zones.test.ts` (5) · `CounterZoneStrip.test.tsx` (4) ·
+  `app/account/page.test.tsx` (+2, the order re-pinned by panel), each watched red first; the save
+  prompt and goodbye beat suites re-pinned to their panels. `check:style-literals` ratchet LOWERED
+  (a 10px literal left with the header's save chip). No SQL.
+- **Filed, not built (3b–3e, `docs/PHASE3_JOURNEYS.md`):** the dine-in table bound at send time, one
+  verb per state, the bill readable during the undo window; the pickup time asked once; manual
+  barcode entry and "ask us" after a scan miss; KDS text size and sound as bar controls; Team out
+  from behind "Your PIN"; history past 20; receipt actions on a row.
+
 ### Phase 2i — staff screens take new builds without losing work (2026-10-02)
 
 Planned on the Phase 2h head (`17f1b1e`) from three designs, two critics and a Vercel read (owner

@@ -425,7 +425,23 @@ the plan state.
         countdown with Not now and never on a sound-live board unless retired; lane picks resume on
         the next load (else "mark these again"); the cash hand-back kept until Handed back, naming
         the dish. No SQL.
-- [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
+- [ ] **Phase 3 — the journeys.** Owner's ask 2026-10-03: Phases 1–2 "still do not feel like major
+      overhauls … not intuitive." Four blind audits found one shape under every surface — a long single
+      scroll with no persistent map. The contract: `docs/PHASE3_JOURNEYS.md` (owner decision 11).
+  - [x] **3a — the diner spine · the account hub · the counter map** (2026-10-03): v7.2's persistent
+        Menu · Order · Track · Account tab bar on every diner route, the header down to the brand and
+        the live-order chip, the checkout's step rail, "Your basket" in the market; /account as three
+        panels (Orders · Rewards · You) with a visible "Sign in", "Order again" on the row, Help &
+        contact; the counter home's sticky zone strip and "up" to the counter from Menu and Tips.
+  - [ ] **3b — dine-in:** the table bound at SEND time (the picker as a sheet on first send), one verb
+        per state, the bill readable during the undo window, the per-line For here / To go behind ⋯.
+  - [ ] **3c — to-go + market:** the pickup time asked once; name + phone first with inline
+        validation; manual barcode entry + "ask us"; undo on remove; the exit-pass QR.
+  - [ ] **3d — staff:** KDS text size and sound as bar controls; Team out from behind "Your PIN"; the
+        walk-up sale in one screen; "Picked up" undo.
+  - [ ] **3e — account features:** history past 20; receipt actions on a row; a tappable favorite;
+        the pickup phone editable on You; the reward's amount, minimum and expiry read from config.
+- [ ] **Phase 4 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
 
