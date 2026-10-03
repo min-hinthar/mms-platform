@@ -7,7 +7,7 @@ import { TransitionLink as Link } from "./TransitionNav";
 import { useActiveOrder } from "../ActiveOrderProvider";
 import { useActiveOrderStatus } from "../useActiveOrderStatus";
 import { getRewardsBadge } from "@/lib/rewards";
-import { dinerTabs, dinerTabsHidden, type DinerTabKey } from "@/lib/diner-tabs";
+import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/diner-tabs";
 
 /**
  * Phase 3a (D1) — the diner spine: v7.2's persistent bottom tab bar, on every diner route.
@@ -118,7 +118,12 @@ export function DinerTabs() {
           >
             <span className="diner-tab-icon" aria-hidden>
               {/* In the market the first tab wears the bag, not the grid. */}
-              <Icon name={t.key === "menu" && mode === "scango" ? "bag" : ICON[t.key]} size={22} />
+              <Icon
+                name={
+                  t.key === "menu" && tabsMode(pathname, mode) === "scango" ? "bag" : ICON[t.key]
+                }
+                size={22}
+              />
               {t.badge === "dot" && <span className="diner-tab-dot" />}
               {typeof t.badge === "number" && (
                 <span className="diner-tab-count">{t.badge > 99 ? "99+" : t.badge}</span>

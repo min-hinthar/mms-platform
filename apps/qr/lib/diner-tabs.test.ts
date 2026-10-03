@@ -56,6 +56,17 @@ describe("dinerTabs — hrefs and claims", () => {
     });
     expect(dinerTabs({ ...base, mode: null })[0]).toMatchObject({ href: "/" });
   });
+  it("on /dine-in the route's door wins over a stale remembered mode (Codex round 1 on #312)", () => {
+    const t = dinerTabs({ ...base, pathname: "/dine-in", mode: "scango", cartCount: 3 });
+    expect(t[0]).toMatchObject({ label: "Menu", href: "/menu?mode=dinein", current: true });
+    expect(t[1]!.label).toBe("Order");
+    expect(t[1]!.badge).toBeNull(); // a dine-in cart is shared: no count claimed
+  });
+  it("on /grocery the route is the market whatever the store remembers", () => {
+    const t = dinerTabs({ ...base, pathname: "/grocery", mode: "dinein" });
+    expect(t[0]).toMatchObject({ label: "Market", href: "/grocery", current: true });
+    expect(t[1]!.label).toBe("Basket");
+  });
   it("in the market the first tab IS the market", () => {
     expect(dinerTabs({ ...base, mode: "scango" })[0]).toMatchObject({
       label: "Market",

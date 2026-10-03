@@ -15,20 +15,20 @@ function Line({ box, bar, width }: { box: string; bar: string; width: number | s
 }
 
 /**
- * Instant skeleton for /account (Phase 1c · account-star): masthead → identity card → Stars ring card →
- * history rows — the page's own order when NOTHING IS LIVE, which is the common case.
+ * Instant skeleton for /account (Phase 3a · the hub): masthead → the three tabs → the Orders panel's
+ * history card — the page's own order on the common cold visit (no `?tab=`, nothing live).
  *
- * ⚠️ The match holds only when nothing is live. A live order adds its "Your live orders" section ABOVE
- * the identity card, so that visit shifts by one section on the swap. A placeholder for it here would
- * move the far more common no-order visit instead — a skeleton that guesses at data it does not have
- * is a guess wearing recognition’s clothes (§14). The optional recognition line ("Mingalaba, …") likewise
- * adds a line the skeleton cannot know about.
+ * ⚠️ The match holds only for that visit. A live order adds "Your live orders" ABOVE the history, a
+ * guest adds the one-line save door, and `?tab=rewards` / `?tab=you` open a different panel — a
+ * placeholder for any of those here would move the far more common visit instead (§14: a skeleton
+ * that guesses at data it does not have is a guess wearing recognition’s clothes). The optional
+ * recognition line ("Mingalaba, …") likewise adds a line the skeleton cannot know about.
  *
  * The masthead is modelled line for line (kicker, title, Burmese line, the two-line lede at phone
  * width, the gold rule) because the old single 30px bar under-stood a ~180px block and the whole page
- * jumped on the swap. The heights here are DERIVED from the type/spacing tokens, not measured on a
- * device — the preview measurement (390×844 · 375×667 · 320) is an open item. The tier row is gone:
- * the ladder now sits far below the fold (RewardsDetails), not under the ring.
+ * jumped on the swap; the tab row is three 44px pills in the hub's own grid (`.account-tabs`); the
+ * history card is the W14 row shape. The heights are DERIVED from the type/spacing tokens, not
+ * measured on a device — the preview measurement (390×844 · 375×667 · 320) is an open item.
  *
  * Decorative + one sr-only cue.
  */
@@ -50,42 +50,36 @@ export default function AccountLoading() {
           {/* The gold rule: 1px, margin-top --s1 (`.account-masthead-rule`). */}
           <div style={{ height: 1, marginTop: "var(--s1)" }} />
         </div>
-        {/* W14 — the identity card (avatar + name/tenure lines + action row). */}
-        <div className="card" style={{ padding: "var(--s5)", marginBottom: "var(--s4)" }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-            <Skeleton circle height={48} />
-            <div style={{ flex: 1 }}>
-              <Skeleton width="45%" height={16} style={{ marginBottom: 7 }} />
-              <Skeleton width="60%" height={11} />
-            </div>
-          </div>
-          <Skeleton width="70%" height={26} radius={999} />
-        </div>
-        {/* The Stars card: its heading, the 148px ring, the caption. */}
+        {/* Phase 3a — the hub's tab row: three pills, the hub's own grid and gap. */}
         <div
-          className="card"
           style={{
-            padding: "var(--s5)",
-            marginBottom: "var(--s4)",
             display: "grid",
-            placeItems: "center",
-            gap: 12,
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: "var(--s2)",
+            margin: "0 0 var(--s5)",
           }}
         >
-          <Skeleton width={48} height={11} style={{ justifySelf: "start" }} />
-          <Skeleton circle height={148} />
-          <Skeleton width={140} height={14} />
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} height={44} radius={999} />
+          ))}
         </div>
-        {/* History rows — the W14 shape: 44px lead thumb + two text lines. */}
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{ display: "flex", gap: 11, alignItems: "center", marginBottom: 12 }}>
-            <Skeleton width={44} height={44} radius={10} />
-            <div style={{ flex: 1 }}>
-              <Skeleton width="55%" height={14} style={{ marginBottom: 7 }} />
-              <Skeleton width="35%" height={11} />
+        {/* The Orders panel's history card: its uppercase heading, then the rows. */}
+        <div className="card" style={{ padding: "var(--s5)", marginBottom: "var(--s4)" }}>
+          <Skeleton width={110} height={11} style={{ marginBottom: 12 }} />
+          {/* History rows — the W14 shape: 44px lead thumb + two text lines. */}
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={{ display: "flex", gap: 11, alignItems: "center", marginBottom: 12 }}
+            >
+              <Skeleton width={44} height={44} radius={10} />
+              <div style={{ flex: 1 }}>
+                <Skeleton width="55%" height={14} style={{ marginBottom: 7 }} />
+                <Skeleton width="35%" height={11} />
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </main>
   );

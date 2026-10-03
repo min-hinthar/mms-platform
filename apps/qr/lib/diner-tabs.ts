@@ -63,6 +63,18 @@ export function activeDinerTab(pathname: string | null): DinerTabKey | null {
   }
 }
 
+/**
+ * The mode the tabs REASON with: the route's own door where the route IS a door, else the
+ * wayfinding store's remembered mode. `/dine-in` and `/grocery` carry no `?mode=` for the store
+ * to read, so after a market visit a diner choosing Dine-in saw the first tab lit as "Market"
+ * (→ /grocery) and the Order tab named "Basket" while picking a table (Codex round 1 on #312).
+ */
+export function tabsMode(pathname: string | null, mode: string | null): string | null {
+  if (pathname === "/dine-in") return "dinein";
+  if (pathname === "/grocery") return "scango";
+  return mode;
+}
+
 export function dinerTabs(s: {
   pathname: string | null;
   mode: string | null;
@@ -72,18 +84,19 @@ export function dinerTabs(s: {
   stars: number | null;
 }): DinerTab[] {
   const active = activeDinerTab(s.pathname);
-  const count = slotCount(s.mode, s.cartCount);
+  const mode = tabsMode(s.pathname, s.mode);
+  const count = slotCount(mode, s.cartCount);
   return [
     {
       key: "menu",
-      label: s.mode === "scango" ? "Market" : "Menu",
-      href: menuHref(s.mode),
+      label: mode === "scango" ? "Market" : "Menu",
+      href: menuHref(mode),
       badge: null,
       current: active === "menu",
     },
     {
       key: "order",
-      label: orderNoun(s.mode),
+      label: orderNoun(mode),
       href: s.cartId ? `/cart?cart=${encodeURIComponent(s.cartId)}` : "/cart",
       // A count belongs to ONE cart id (`decodeCartCount`); with no cart there is nothing to count.
       badge: s.cartId && count !== null && count > 0 ? count : null,

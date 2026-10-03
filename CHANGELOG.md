@@ -50,6 +50,40 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   `app/account/page.test.tsx` (+2, the order re-pinned by panel), each watched red first; the save
   prompt and goodbye beat suites re-pinned to their panels. `check:style-literals` ratchet LOWERED
   (a 10px literal left with the header's save chip). No SQL.
+- **The blind pre-PR review (three lenses, REJECT — four criticals, every finding verified against
+  source before it was touched):** the hub's re-seed guard compared the new `initial` to the old
+  one, so a navigation re-rendering with the SAME `initial` (arrive on `?tab=you`, tap Orders, tap
+  the save line) changed nothing — the panel is read from the URL now, written with a NULL state
+  (the one Next 16.2.9's patched `replaceState` syncs; its `__NA`-stamped state makes it bail), and
+  Arrow keys move focus without selecting (manual activation for real); the Track tab kept a dot
+  and an "in progress" name for a DONE order on `/account`, the one diner route with no owner
+  retiring it — the bar subscribes the status there alone (still one channel per route); both
+  Google redirects returned to `/account`, which the hub opens on Orders, so the OAuth bounce's
+  recovery copy and button rendered inside a hidden panel — `redirectTo` is `?tab=you` and
+  `?error_code=` / `?error=` open You; `.aisle-fan`'s bound now adds `--tabs-h`; reduced-motion and
+  print rules for the bar; the header's landmark says what it holds; the "Sign in" intent carries
+  this phone's Stars only when there are any and the card says so before the press. Guards: real
+  renders of `AccountHub` (5) and `DinerTabs` (5), each watched red against the pre-fix component;
+  `lib/counter-zone-ids.test.ts` PARSES the page's zone literals and the staff components' JSX
+  `id=` attributes (a transcribed id that stops resolving is red); the degenerate fixtures the
+  review named (`checkout-steps`' aborting loop, `counter-zones`' one-pair edge, the strip's
+  "first" with no headings in the DOM) replaced with ones the rule can fail.
+- **Codex round 1 (one P1, six P2 — every one verified, every one fixed):** the resilience pill
+  (offline · update ready, z 60) sat over the Order and Track tabs — its offset adds `--tabs-h`; the
+  zone strip's `#zone` jumps landed under the strip — the scroll reserve grows by its height (the
+  blind pass had it too); the checkout's step rail still named Order or Bill above the
+  counter-settled card — `settledClose` is a settled surface; the signed-in checkout's `WalletChip`
+  opened the hub's Orders default — it opens Rewards; `/dine-in` reasoned with the store's stale
+  mode (a market visit lit "Market" while picking a table) — `tabsMode` lets the route's own door
+  win on `/dine-in` and `/grocery`; the account skeleton still painted the old identity-card layout
+  — it models the hub (masthead → the three pills → the history card); the hub's tabs were buttons
+  with a `data-href` nobody could follow — they are real links to `?tab=`, intercepted on click,
+  Space selecting.
+- **`verify:slice`:** a FULL run on `87ef64b` was stopped by the session at 149/2958 (all caught)
+  at ~10 mutants a minute in this container; the FILTERED run over every mutant on the four touched
+  target files (`Checkout.tsx` · `AccountUpgrade.tsx` · `globals.css` · `i18n/staff.ts`) — **72/72
+  caught, no orphans** — is what this PR carries, the HANDOFF precedent for a review round. One full
+  run on the merge head is still owed.
 - **Filed, not built (3b–3e, `docs/PHASE3_JOURNEYS.md`):** the dine-in table bound at send time, one
   verb per state, the bill readable during the undo window; the pickup time asked once; manual
   barcode entry and "ask us" after a scan miss; KDS text size and sound as bar controls; Team out

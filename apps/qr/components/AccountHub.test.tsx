@@ -91,6 +91,12 @@ describe("AccountHub", () => {
     expect(shown()).toEqual(["you-panel"]);
   });
 
+  it("each tab is a real link to its panel's URL (the non-JS fallback), and Space selects", () => {
+    render(<AccountHub initial="orders" panels={panels} />);
+    expect(tab("Rewards").getAttribute("href")).toBe("/account?tab=rewards");
+    fireEvent.keyDown(tab("Rewards"), { key: " " });
+    expect(shown()).toEqual(["rewards-panel"]);
+  });
   it("a replaceState that throws still shows the picked panel", () => {
     vi.spyOn(window.history, "replaceState").mockImplementation(() => {
       throw new Error("no history");

@@ -1125,11 +1125,14 @@ export function Checkout({
         : "yourOrder";
   // Phase 3a (D3) — the step rail under the heading: Order → Bill → Pay at a table, Order → Pay
   // (Basket → Pay) elsewhere; one step current. Decided in lib/checkout-steps.ts, drawn below.
+  // A counter-settled (or tablemate-settled) cart is a finished surface too: `CounterSettledCard`
+  // replaces the review controls, so a rail still naming Order or Bill as current above the paid
+  // confirmation was a stale claim (Codex round 1 on #312).
   const steps = checkoutSteps({
     staged,
     stage,
     step,
-    settle: viewKey === "settle",
+    settle: viewKey === "settle" || settledClose !== null,
     noun: orderNoun(sessionMode),
   });
 

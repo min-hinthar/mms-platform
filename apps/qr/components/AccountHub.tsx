@@ -24,8 +24,11 @@ import {
  * `picked` is the fallback for a runtime whose `replaceState` is not patched; the URL wins over it.
  *
  * WAI-ARIA tabs, MANUAL activation: Arrow keys and Home/End move focus between tabs; Enter/Space
- * (the click) selects. The hidden panels stay in the DOM (`hidden`), so the page's document order —
- * the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open.
+ * selects. Each tab is a REAL LINK to its panel's URL (`?tab=`), so before hydration — or with
+ * scripts off — every panel is still reachable through a server render (Codex round 1 on #312:
+ * a `data-href` on a button opened nothing); with scripts on, the click is intercepted and the
+ * panel flips in place. The hidden panels stay in the DOM (`hidden`), so the page's document
+ * order — the thing `app/account/page.test.tsx` pins — is unchanged by which panel is open.
  */
 export function AccountHub({
   initial,
@@ -39,7 +42,7 @@ export function AccountHub({
   const [picked, setPicked] = useState<AccountPanelKey | null>(null);
   const current: AccountPanelKey = isAccountPanel(fromUrl) ? fromUrl : (picked ?? initial);
   const id = useId();
-  const tabRefs = useRef<Partial<Record<AccountPanelKey, HTMLButtonElement | null>>>({});
+  const tabRefs = useRef<Partial<Record<AccountPanelKey, HTMLAnchorElement | null>>>({});
 
   const select = (key: AccountPanelKey) => {
     setPicked(key);
@@ -53,9 +56,16 @@ export function AccountHub({
     }
   };
 
-  const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+  const onKey = (e: KeyboardEvent<HTMLAnchorElement>) => {
     const keys = ACCOUNT_PANELS.map((p) => p.key);
-    const at = keys.indexOf((e.currentTarget.dataset.tab as AccountPanelKey) ?? current);
+    const here = (e.currentTarget.dataset.tab as AccountPanelKey) ?? current;
+    if (e.key === " ") {
+      // A link has no Space activation of its own; a tab does.
+      e.preventDefault();
+      select(here);
+      return;
+    }
+    const at = keys.indexOf(here);
     let next: AccountPanelKey | null = null;
     if (e.key === "ArrowRight") next = keys[(at + 1) % keys.length] ?? null;
     else if (e.key === "ArrowLeft") next = keys[(at - 1 + keys.length) % keys.length] ?? null;
@@ -70,10 +80,10 @@ export function AccountHub({
     <>
       <div role="tablist" aria-label="Account sections" className="account-tabs">
         {ACCOUNT_PANELS.map((p) => (
-          <button
+          <a
             key={p.key}
-            type="button"
             role="tab"
+            href={accountPanelHref(p.key)}
             id={`${id}-tab-${p.key}`}
             aria-selected={current === p.key}
             aria-controls={`${id}-panel-${p.key}`}
@@ -82,15 +92,17 @@ export function AccountHub({
             ref={(el) => {
               tabRefs.current[p.key] = el;
             }}
-            onClick={() => select(p.key)}
+            onClick={(e) => {
+              // Modified clicks (new tab, middle click) behave as the link they are.
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault(); // never a navigation: the panel flips in place
+              select(p.key);
+            }}
             onKeyDown={onKey}
             data-tab={p.key}
-            // The same panel by URL, for the record (a tab is a button because a link would spend a
-            // navigation and refetch the page's five reads).
-            data-href={accountPanelHref(p.key)}
           >
             {p.label}
-          </button>
+          </a>
         ))}
       </div>
       {ACCOUNT_PANELS.map((p) => (

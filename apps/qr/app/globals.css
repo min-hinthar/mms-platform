@@ -3523,6 +3523,11 @@ html[data-fx="off"] .pa-mid {
   margin: 0 0 var(--s5);
 }
 .account-tab {
+  /* A real link since Codex round 1 on #312 (the non-JS fallback): laid out as the pill it was. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   min-height: 44px;
   padding: 0 var(--s3);
   border-radius: var(--r-full);
