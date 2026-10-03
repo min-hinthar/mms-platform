@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
+import { navEpoch } from "@/lib/nav-epoch";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
@@ -91,9 +92,14 @@ export function CartBar() {
       onClick={() => {
         if (leaving) return;
         setLeaving(true);
+        // Codex round 2 on 3b: the unmount check sees a navigation only once it COMMITS; a tap on
+        // another door that merely STARTED one leaves this bar mounted for a beat. The epoch moves
+        // at the start.
+        const epoch = navEpoch.current();
         void settled().finally(() => {
           if (!alive.current) return; // the bar is gone — the diner already left another way
           setLeaving(false);
+          if (navEpoch.current() !== epoch) return; // another navigation started first — it wins
           journey.push(href);
         });
       }}

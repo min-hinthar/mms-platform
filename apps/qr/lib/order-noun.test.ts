@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  cartForDoor,
   decodeCartCount,
+  decodeCartMode,
   encodeCartCount,
+  encodeCartMode,
   orderNoun,
   orderSlot,
   showOrderSlot,
@@ -59,5 +62,28 @@ describe("the stored count belongs to one cart, and a shared cart never claims o
     expect(slotCount("pickup", 0)).toBe(0);
     expect(slotCount("scango", 2)).toBe(2);
     expect(showOrderSlot("c", slotCount("dinein", 0))).toBe(true);
+  });
+});
+
+describe("the remembered cart is bound to its door (Codex round 2 on 3b)", () => {
+  it("the stored `<cartId>:<mode>` pair belongs to ONE cart id; anything else is unknown", () => {
+    expect(decodeCartMode(encodeCartMode("cart-a", "scango"), "cart-a")).toBe("scango");
+    expect(decodeCartMode(encodeCartMode("cart-a", "scango"), "cart-b")).toBeNull();
+    expect(decodeCartMode(null, "cart-a")).toBeNull();
+    expect(decodeCartMode("cart-a:", "cart-a")).toBeNull();
+    expect(decodeCartMode("cart-a:nonsense", "cart-a")).toBeNull(); // not a door this app knows
+    expect(decodeCartMode(encodeCartMode("cart-a", "dinein"), null)).toBeNull();
+  });
+  it("a cart from ANOTHER door is not offered on this one — the To-go tab never opens the grocery basket", () => {
+    // After switching doors the store still holds the previous door's pointer until the new door
+    // publishes its own cart (a slow or failed session mint keeps it indefinitely).
+    expect(cartForDoor("cart-a", "scango", "dinein")).toBeNull();
+    expect(cartForDoor("cart-a", "scango", "pickup")).toBeNull();
+    expect(cartForDoor("cart-a", "scango", "scango")).toBe("cart-a");
+  });
+  it("an unknown door on either side keeps the pointer — the home and an old device behave as before", () => {
+    expect(cartForDoor("cart-a", null, "dinein")).toBe("cart-a"); // a pointer written before 3b
+    expect(cartForDoor("cart-a", "scango", null)).toBe("cart-a"); // the threshold has no door
+    expect(cartForDoor(null, "scango", "scango")).toBeNull();
   });
 });

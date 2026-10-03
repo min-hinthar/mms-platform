@@ -123,3 +123,24 @@ describe("CartBar — W21's drain, cancelled by an unmount (Codex round 1 on 3b)
     expect(ctx.push).toHaveBeenCalledWith("/cart?cart=cart-1");
   });
 });
+
+describe("CartBar — a navigation that merely STARTED during the drain cancels the push (Codex round 2 on 3b)", () => {
+  it("drops the push when the epoch moved, even while the bar is still mounted", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((r) => {
+      release = r;
+    });
+    ctx.push.mockReset();
+    ctx.current = { ...CONFIRMED, settled: () => pending };
+    const CartBar = await freshCartBar();
+    // AFTER the reset: `freshCartBar` wipes the module registry, so the bar's `nav-epoch` is a new
+    // instance — the handle must come from the same registry or the bump lands on a stale counter.
+    const { navEpoch } = await import("@/lib/nav-epoch");
+    render(<CartBar />);
+    document.querySelector("button")!.click();
+    navEpoch.bump(); // another door of the grammar started a navigation; nothing has committed yet
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(ctx.push).not.toHaveBeenCalled();
+  });
+});

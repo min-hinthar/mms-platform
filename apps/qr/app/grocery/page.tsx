@@ -44,6 +44,7 @@ import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 import { usePublishCart, useRegisterDrain } from "@/components/ActiveOrderProvider";
 import { createWriteLedger } from "@/lib/write-ledger";
+import { navEpoch } from "@/lib/nav-epoch";
 import { scanBasketReady } from "@/lib/camera-state";
 
 // The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
@@ -898,11 +899,15 @@ export default function Grocery() {
     // Drain in-flight adds and steppers BEFORE leaving (Codex round 4 on #312): `settled()` resolves
     // at once when nothing is pending, so the ordinary tap stays instant.
     leavingRef.current = true;
+    const epoch = navEpoch.current();
     void ledger.settled().finally(() => {
       leavingRef.current = false;
       // The shopper may have taken the Menu or Account tab while the write drained: this page is then
-      // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b).
-      if (mountedRef.current) journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
+      // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b)
+      // — and the unmount lags the tap by the transition's commit, so the grammar's start signal
+      // (`navEpoch`, Codex round 2) is checked too.
+      if (mountedRef.current && navEpoch.current() === epoch)
+        journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
     });
   }, [cartId, itemCount, lines.length, totalCents, journey, ledger]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.

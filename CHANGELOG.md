@@ -60,6 +60,23 @@ No money logic, no authority write, no migration.
   never unmounts: the push is now valid only while the route it was tapped on is still the route;
   mutant `diner-tabs/stale-drain-push-yanks-the-diner`), the market's Check out (unmounted means void),
   and the same W21 shape in `CartBar` since #191 (an `alive` ref; pinned in `CartBar.test.tsx`).
+- **Codex round 2 on 3b (three P2, all verified and fixed):** (1) round 1's cancellation keyed on the
+  route COMMITTING, but `TransitionLink` starts the transition on the click and `usePathname()` moves a
+  beat later, so a drain resolving in that window still pushed — `lib/nav-epoch.ts` is the grammar's
+  synchronous "a navigation STARTED" counter, bumped by every door of the ONE grammar (`TransitionLink`'s
+  in-tab click, `useJourneyRouter().push` before the router is asked, popstate) and compared by every
+  drain continuation (the Order tab, `CartBar`, the market's Check out); mutants
+  `diner-tabs/stale-drain-push-ignores-a-started-navigation`, `transition-nav/*` ×3,
+  `nav-epoch/bump-never-moves`. (2) The market's checkout had the same window (same fix). (3) After a
+  door switch the store still offered the previous door's cart until the new door published its own, so
+  the Order tab on `/dine-in` opened the grocery basket — indefinitely when the session mint failed: the
+  pointer is now bound to its door (`mms.qr.activeCartMode` = `<cartId>:<mode>`, written by every
+  publisher — `CartPublisher` now passes the provider's `mode`, exposed on the cart context), and the
+  store offers a remembered cart only where `cartForDoor` agrees (`lib/order-noun.ts`; `tabsMode` names
+  the diner's door); a cart reached by URL and a pre-3b pointer are offered as before. `CART_DOORS` is the
+  ONE list of known doors. Mutants `order-noun/*` ×2, `active-order/*` ×3; **`TransitionNav.tsx` and
+  `ActiveOrderProvider.tsx` join the mutate set** (73 components), `nav-epoch.ts` and `order-noun.ts`
+  the lib bucket (170).
 - **Filed, re-lettered (`docs/PHASE3_JOURNEYS.md`):** 3c dine-in in two PRs (the Checkout half, then
   the table at Send) · 3d staff (the kitchen's pass at two distances; the counter's receipt stack) ·
   3e to-go + account (the Who/When slip, reward terms from config) · 3f the craft coherence pass;

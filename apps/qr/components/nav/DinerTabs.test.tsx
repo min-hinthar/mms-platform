@@ -189,6 +189,23 @@ describe("DinerTabs", () => {
       screen.getByRole("link", { name: "Order — 2 items" }).getAttribute("aria-busy"),
     ).toBeNull();
   });
+  it("a navigation that merely STARTED during the drain cancels the push — before any route commits (Codex round 2 on 3b)", async () => {
+    // `hereRef` moves only when `usePathname()` commits; TransitionLink starts the transition router
+    // on the click. In that window the route is unchanged and the old guard let the push through.
+    const { navEpoch } = await import("@/lib/nav-epoch");
+    let release!: () => void;
+    drain.mockReturnValue(
+      new Promise<void>((r) => {
+        release = r;
+      }),
+    );
+    render(<DinerTabs />);
+    fireEvent.click(screen.getByRole("link", { name: "Order — 2 items" }));
+    navEpoch.bump(); // the header brand, a TransitionLink elsewhere, Back — any navigation starting
+    release();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(push).not.toHaveBeenCalled();
+  });
   it("a modified click on the Order tab is the link it is — no drain, no push", () => {
     render(<DinerTabs />);
     const order = screen.getByRole("link", { name: "Order — 2 items" });

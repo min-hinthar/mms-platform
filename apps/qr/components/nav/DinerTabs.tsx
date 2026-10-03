@@ -8,6 +8,7 @@ import { useActiveOrder } from "../ActiveOrderProvider";
 import { useActiveOrderStatus } from "../useActiveOrderStatus";
 import { getRewardsBadge } from "@/lib/rewards";
 import { dinerTabs, dinerTabsHidden, tabsMode, type DinerTabKey } from "@/lib/diner-tabs";
+import { navEpoch } from "@/lib/nav-epoch";
 
 /**
  * Phase 3a (D1) → 3b (D7 · D8) — the diner spine: a persistent bottom tab bar of three PLACES
@@ -61,7 +62,9 @@ export function DinerTabs() {
   // Where the diner is NOW, for the drain's continuation: this bar never unmounts, so a push queued
   // behind a slow write would otherwise fire after the diner had already tapped Account, the header
   // or Back — and yank them to the checkout (Codex round 1 on 3b). The push is valid only while the
-  // route it was tapped on is still the route.
+  // route it was tapped on is still the route — AND while no other navigation has STARTED since the
+  // tap (Codex round 2): the route commits a beat after a TransitionLink click starts the transition,
+  // and a drain resolving in that window must not push. `navEpoch` is the grammar's start signal.
   const hereRef = useRef(here);
   useEffect(() => {
     hereRef.current = here;
@@ -147,10 +150,13 @@ export function DinerTabs() {
                     if (leaving) return;
                     setLeaving(true);
                     const startedAt = here;
+                    const epoch = navEpoch.current();
                     void drain().finally(() => {
                       setLeaving(false);
-                      // A competing navigation during the drain wins: the queued push is dropped.
-                      if (hereRef.current === startedAt) journey.push(t.href);
+                      // A competing navigation during the drain wins: the queued push is dropped —
+                      // whether it has committed (the route moved) or merely started (the epoch moved).
+                      if (navEpoch.current() === epoch && hereRef.current === startedAt)
+                        journey.push(t.href);
                     });
                   }
                 : undefined

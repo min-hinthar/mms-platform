@@ -57,6 +57,9 @@ const NAME_KEY = "mms.name";
 
 type CartCtx = {
   cartId: string | null;
+  /** The door this provider was mounted for (dinein | pickup | scango) — the session's own, so the
+   *  wayfinding store can bind the published cart to it (Codex round 2 on 3b, #312). */
+  mode: string;
   loading: boolean;
   error: string | null;
   items: CartItem[];
@@ -1562,6 +1565,7 @@ export function TableCartProvider({
   const ctxValue = useMemo(
     () => ({
       cartId,
+      mode,
       loading,
       error,
       items,
@@ -1589,6 +1593,7 @@ export function TableCartProvider({
     }),
     [
       cartId,
+      mode,
       loading,
       error,
       items,
