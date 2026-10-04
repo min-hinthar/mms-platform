@@ -47,9 +47,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > evidence (the touched families through `verify:slice --only=` on `8624af0`: `undo-grace` 7 ·
 > `checkout-verb` 9 · `checkout/` 12 caught, none surviving). Round 4+ is fix-on-sight or filed. ⚠️ **CODEX'S QUOTA LAPSED AND RETURNED (2026-10-04):** the app answered the `8624af0` push at 08:41 UTC with
 > "You have reached your Codex usage limits for code reviews" (so `codex-review` sat red with no review to
-> give), then reviewed `1dd68b4` on its own at 09:16 UTC — round 4 above. If the limit message comes back:
-> do NOT re-ask Codex; say so once on the PR and leave the merge call to the owner (C16 is unwired, the
-> button is live). The PR waits on events only. **Where it lands:** if #313 is still open when 3c-i pushes, it
+> give), then reviewed `1dd68b4` on its own at 09:16 UTC — round 4 above — and `6fcdf8f` and `3e26f4f`
+> (rounds 5 and 6). **It LAPSED AGAIN at 10:23 UTC**, answering the `3f20910` push and the `@codex review`
+> ask with the same limit message, so `codex-review` is red on the tip with no review to give; the standing
+> PR comment says so and names the owner's two options (add credits and ask, or merge on the evidence —
+> C16 is unwired, the button is live). Do NOT re-ask Codex until the quota is back. The PR waits on events
+> only. **Where it lands:** if #313 is still open when 3c-i pushes, it
 > stacks onto the same branch and #313 is re-stated (the #312 precedent — the owner merges stacked
 > PRs); if #313 merged first, `git fetch origin main && git checkout -B
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
