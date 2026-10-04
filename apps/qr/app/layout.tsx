@@ -166,7 +166,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <LendModeBanner />
               {children}
               {/* Phase 3a (D1) — the diner spine: v7.2's persistent bottom tab bar (Menu · Order ·
-                  Track · Account). Self-hides on /staff, /board, /kiosk and /kit. */}
+                  Account — 3b/D7 folded Track into the Order tab). Self-hides on /staff, /board,
+                  /kiosk and /kit. */}
               <DinerTabs />
             </ActiveOrderProvider>
           </MotionProvider>

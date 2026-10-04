@@ -334,6 +334,11 @@
   /* Bottom-dock height, so the ambient's pause coin clears the CartBar. Surfaces with a bottom CTA
      set it; at the 0px default the coin would sit under the bar. */
   --cta-dock-h: 0px;
+  /* The diner tab bar's height — PUBLISHED by the app that draws one (apps/qr sets 60px under
+     `:root:has(.diner-tabs)`); 0 everywhere else. Declared here because `primitives.css` reads it
+     (the toast's dock and scroll reserve), and a package must own every token it reads (deep pass
+     on #312). */
+  --tabs-h: 0px;
 
   /* ── MOMENTS — one-shot blooms ────────────────────────────────────────────────────────────────
      `filter: drop-shadow()` replaces the box-shadow halo the app has been faking glow with: it

@@ -47,7 +47,7 @@ STRUCTURE problem, and no amount of per-screen craft moves it. Phase 3 changes t
   The door-picker back link retires: the Menu tab is the way back, and it carries the mode.
 - **D5 — the counter home keeps one screen, gains a map.** A sticky zone strip under the staff bar
   (Start · Tables · Bags · [Requests · Takings · Settled] for a manager) jumps to each zone by its
-  existing anchor; the current zone is lit by an IntersectionObserver. Splitting the zones into
+  existing anchor; the current zone is lit by a scroll/resize read (rAF-throttled, passive) of each heading's top against the strip's bottom edge — `lib/counter-zones.ts#currentZone` decides, the strip measures. Splitting the zones into
   screens was rejected for 3a: the counter bell hears BOTH boards (owner decision 5c), the split pane
   and the mint lock wrap them, and unmounting any of it is a Phase-2-sized change. The strip turns a
   4–6 screen scroll into one tap, with no board unmounted. The up-link from Menu, Tips and Sign-in

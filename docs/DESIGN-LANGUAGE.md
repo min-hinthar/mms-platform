@@ -2317,8 +2317,9 @@ Decided in `lib/diner-tabs.ts` · `lib/checkout-steps.ts` · `lib/account-hub.ts
   the xl pill's scroll reserve each ADD it to their own offset; the body reserves it so a page's last
   control scrolls clear. A dock that hard-codes its bottom will sit under the bar — that is the
   `@mms/ui` toast guard's job to notice, and it did.
-- **Labels are English (D2).** Four 12px labels at a 44px target cannot carry a stacked Burmese pair;
-  every surface under a tab stays bilingual; the Burmese four are a K15 row, not an invention here.
+- **Labels are English (D2).** 3a's four 12px labels at a 44px target could not carry a stacked
+  Burmese pair; at three places (§31, _amended by D7_) the pair is feasible and is a K15 row, not
+  drafted here; every surface under a tab stays bilingual.
 - **The checkout names its step.** The rail reads the state Phase 1b keeps; it is a claim, so exactly
   one step is current, the pay step wins over the stage, and the split board (its own surface) draws
   none. The first step is the mode's noun: Order at a table and to-go, Basket in the market — the same

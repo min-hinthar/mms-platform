@@ -43,7 +43,7 @@ No money logic, no authority write, no migration.
   `pickup-slot/provider-reads-the-raw-column`); the lit door row lost its on-accent ink to
   `.door-sheet-row { color: inherit }` 9,300 lines later at the same specificity (1.82:1 in Night) —
   the link resets moved to `a.door-sheet-row` and the stylesheet guard now asserts the competing
-  property is ABSENT on every block that matches the div (LEARNINGS #200); a lit Order tab on `/track`
+  property is ABSENT on every block that matches the div (LEARNINGS #215); a lit Order tab on `/track`
   with a finished order linked to the empty slip — a lit tab with nothing to open is a self-link to
   `here` (mutant `diner-tabs/lit-tab-with-nothing-opens-the-empty-slip`); the market's door sheet
   closed on a door tap and released the camera hold while the stream still ran through the route
@@ -129,8 +129,9 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   to the counter on a counter device** (`?floor=1`) instead of two taps through the doors; both arms
   literal, so `check:staff-lang` rule 4d still resolves every way up. One K15 key, the strip's
   landmark name.
-- **Proof:** `lib/diner-tabs.test.ts` (31) · `lib/checkout-steps.test.ts` (5) ·
-  `lib/account-hub.test.ts` (6) · `lib/counter-zones.test.ts` (5) · `CounterZoneStrip.test.tsx` (4) ·
+- **Proof:** `lib/diner-tabs.test.ts` (42) · `lib/checkout-steps.test.ts` (12) ·
+  `lib/account-hub.test.ts` (8) · `lib/counter-zones.test.ts` (8) · `CounterZoneStrip.test.tsx` (9 — counts
+  re-measured with `vitest list` after the review rounds and 3b grew the same suites; deep pass on #312) ·
   `app/account/page.test.tsx` (+2, the order re-pinned by panel), each watched red first; the save
   prompt and goodbye beat suites re-pinned to their panels. `check:style-literals` ratchet LOWERED
   (a 10px literal left with the header's save chip). No SQL.

@@ -4567,12 +4567,13 @@ html[data-fx="off"] .pa-mid {
 }
 /* Off-menu "back to cart" link — a quiet secondary. */
 /* ── Phase 3a (D1) · the diner spine's bottom half — v7.2's persistent tab bar ───────────────────
-   Menu · Order · Track · Account on every diner route (components/nav/DinerTabs.tsx; decisions in
-   lib/diner-tabs.ts). The same chrome pane as the header (`--glass-chrome`, frosted under .dark
-   beside it in THE GLASS), the same z-plane (--z-toolbar: sheets, scrims and toasts paint above),
-   and its own view-transition-name so a route change moves the page UNDER it. Four equal columns,
-   each a 44px+ target; the lit tab is `aria-current="page"` and wears --ac-strong (bare --ac on the
-   chrome is pinned at AA by composite-contrast, --ac-strong is darker still). Tokens only. */
+   Menu · Order · Account on every diner route (components/nav/DinerTabs.tsx; decisions in
+   lib/diner-tabs.ts; 3b/D7 folded Track into the Order tab). The same chrome pane as the header
+   (`--glass-chrome`, frosted under .dark beside it in THE GLASS), the same z-plane (--z-toolbar:
+   sheets, scrims and toasts paint above), and its own view-transition-name so a route change moves
+   the page UNDER it. Three equal columns, each a 44px+ target; the lit tab is `aria-current="page"`
+   and wears --ac-strong (darker than --ac in light; in Night it aliases --ac, so the lit tab rides
+   the composite-contrast bound exactly). Tokens only. */
 :root:has(.diner-tabs) {
   --tabs-h: 60px;
 }
@@ -4580,6 +4581,13 @@ html[data-fx="off"] .pa-mid {
    parked under it — the same reserve the staff column keeps for its thumb-zone pill. */
 :root:has(.diner-tabs) body {
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+}
+/* …and the SCROLL reserve (deep pass on #312): the body padding protects only the document's end. A
+   focus scroll or `scrollIntoView` lands its target flush with the viewport's bottom — under the bar
+   (WCAG 2.4.11) — unless the root reserves the height here too, as the top chrome does with
+   `scroll-padding-top`. Pinned by lib/scroll-padding-contract.test.ts. */
+:root:has(.diner-tabs) {
+  scroll-padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px) + var(--s2));
 }
 .diner-tabs {
   position: fixed;
@@ -4651,6 +4659,9 @@ html[data-fx="off"] .pa-mid {
   }
   :root:has(.diner-tabs) body {
     padding-bottom: 0;
+  }
+  :root:has(.diner-tabs) {
+    scroll-padding-bottom: 0;
   }
 }
 /* The count: a quiet accent capsule off the icon's corner (cream --oa on solid --ac = AA). */
@@ -4900,8 +4911,6 @@ html[data-fx="off"] .pa-mid {
 
 @media (prefers-reduced-motion: reduce) {
   .app-header-order,
-  .app-header-cart,
-  .app-header-rewards,
   .home-resume,
   .home-resume-arrow,
   .live-order-row,

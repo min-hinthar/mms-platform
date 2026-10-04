@@ -3358,7 +3358,7 @@ reset at load (`lib/test-resets.ts`) and have the setup run the registry — a m
 has nothing to reset. Prove each with an ordered pair of cases and delete the suite's own manual reset,
 or the suite hides the leak the setup is meant to stop.
 
-## #200
+## #215
 
 **A later rule at the same specificity beats your declaration, and it happened twice in one day.** Phase
 3a's zone strip declared `scroll-padding-top` on `:root:has(.staff-zone-strip)` and lost to

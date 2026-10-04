@@ -269,8 +269,18 @@ describe("DoorSheet — the stylesheet", () => {
     // lit-cap rule at the SAME specificity, so the current row — which carries both classes — painted
     // body ink on gold (1.82:1 in Night). The link-only resets belong on `a.door-sheet-row`, which a
     // div never matches. Candidates selected by what they DECLARE, comments already stripped.
-    const bare = blocks.filter((b) => b.selectors.includes(".door-sheet-row"));
+    // Any selector that can MATCH the div (deep pass on #312): the bare class, a compound
+    // (`.door-sheet-doors .door-sheet-row`), a pseudo-class (`.door-sheet-row:hover`) — never the
+    // anchor-only `a.door-sheet-row`, which a div cannot match. String equality admitted only the
+    // first, so a later "reset" in either other shape re-broke the lit row's ink with this green.
+    const divMatching = (sel: string) =>
+      /(^|[\s>+~])\.door-sheet-row(?![\w-])/.test(sel) && !/(^|[\s>+~])a\.door-sheet-row/.test(sel);
+    const bare = blocks.filter((b) => b.selectors.some(divMatching));
     expect(bare.length).toBeGreaterThanOrEqual(1);
+    expect(divMatching(".door-sheet-row:hover")).toBe(true);
+    expect(divMatching(".door-sheet-doors .door-sheet-row")).toBe(true);
+    expect(divMatching("a.door-sheet-row")).toBe(false);
+    expect(divMatching(".door-sheet-row-extra")).toBe(false);
     for (const b of bare) {
       expect(b.body).not.toMatch(/(^|[;\s])color\s*:/);
       expect(b.body).not.toMatch(/(^|[;\s])text-decoration\s*:/);
