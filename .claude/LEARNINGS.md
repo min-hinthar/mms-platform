@@ -3420,3 +3420,21 @@ a `Promise<void>` that resolves either way erases the distinction at the type le
 a write barrier is a REFUSAL to proceed, narrated through the view's existing live region, never a
 release; (3) any fix that trades liveness for money-safety on a charge path is a money-path change and
 gets the money lens, whatever bug it started as.
+
+## #220
+
+**`check:docs` counts TRACKED docs files — run it after `git add`, never before.** The 3c-i design doc was
+checked clean while still untracked (102 files measured), committed and pushed; CI measured 103 while
+HANDOFF said 102, and `check:docs` — step ONE of the lane under `bash -e` — stopped the whole `build`
+job on a docs-only commit (`4d57ecf`, 2026-10-04). A new `.md` changes the count the moment it is
+staged, so the pre-push check is `git add … && pnpm check:docs`, in that order.
+
+## #221
+
+**Run the suites of the files you IMPORT, not only the files you edited.** `cbfd1ca` changed
+`CartPublisher` to lend the provider's bounded `drain` instead of the bare `settled()`; its own suite,
+`CartPublisher.test.tsx`, still handed the mock a `settled` and was never run — the author ran nine
+suites for nine edited files and CI ran the 390th. Before any push: `grep -rl "<ComponentName>"
+apps/qr --include=*.test.tsx --include=*.test.ts` for every touched module, and when in doubt the full
+`pnpm exec vitest run` (100 s locally) — it is what CI runs, and it is cheaper than a red head mid-
+review.
