@@ -3501,4 +3501,22 @@ never share a tick. Mutate the `setState`, not the ref.
 (`http://localhost:3023`) and HANDOFF (`curl "localhost:3023/…"`), and sat there through a push:
 `check:docs` measures the counts it KNOWS and nothing else, and the blind pass found it, not a guard.
 Replace a count with its CONTEXT (`3000 mutations`, `(3000 today)`), then `git grep` the bare number
-before committing — and when the sweep is `sed`, read its diff, not its exit code.
+before committing — and when the sweep is `sed`, read its diff, not its exit code. **It happened AGAIN
+the same session, four commits after this entry was written:** `3030 → 3031` rewrote the migration
+timestamp `20260623030000` to `…031000` in CHANGELOG and HANDOFF, and three historical "N → M" sentences
+with it. A bare count is never a safe search key. Replace the LIVE-COUNT PHRASES (`N qr tests`,
+`N verify:slice mutants`, `(N today)`), and before committing run the set check that would have caught
+both: every 14-digit timestamp the docs cite must exist as a file prefix under `supabase/migrations/`.
+
+## #228
+
+**A gate on a landed-but-unapplied write waits on the READ, never on the clock — and a bounded retry
+that gives up is a clock (Codex rounds 3–5 on #313, 2026-10-04).** The undo window closed on the
+server's answer (round 3: the re-sync had not applied), then on a re-sync that RESOLVED "failed"
+(round 3: `refresh` swallows), then — after a bounded retry released `pending` — on the grace deadline
+passing mid-outage (round 5): each time Pay went live over drafts the server had restored, and only
+create-intent's refusal stood between the diner and a failed charge. Three rounds for one rule: the
+state that gates money moves when a view the screen can keep has APPLIED. A retry that stops is a
+deadline in disguise; keep the gate shut and keep asking (bounded by the window's own lifetime —
+unmount or a new window — not by a count), release the CHAIN so drains never wait on an outage, and
+say what is happening. Sibling of #219.

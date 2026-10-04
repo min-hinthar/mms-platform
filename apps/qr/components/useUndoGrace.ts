@@ -78,15 +78,17 @@ export type UndoGrace = {
 export const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
 
 /**
- * Codex round 3 on #313 — the undo LANDED but no re-read could show it. The window stays open (Pay
- * held for its remaining seconds), `pending` releases, and this is said: every mutation on the screen
- * re-fetches, so "your next tap" is a promise the code keeps. EN-only (J29 ledger).
+ * Codex rounds 3–5 on #313 — the undo LANDED but no re-read has shown it yet. The window stays open,
+ * `pending` stays TRUE (the Undo reads "Bringing it back…", Pay and the counter door stay held, the
+ * tick cannot close the window even past its deadline) and the read is retried in the background until
+ * one applies — then "Brought back" and the close. "Taking a moment" is what the code does. EN-only
+ * (J29 ledger).
  */
 /** The undo landed and the view shows it. Said once per landed undo — on the answer, or on the later
  *  tap whose read finally applied. */
 export const BROUGHT_BACK_NOTE = "Brought back to your order — change it and send again.";
 export const RESYNC_FAILED_NOTE =
-  "Brought back to your order — couldn’t refresh the list just now; it updates on your next tap.";
+  "Brought back to your order — the list is taking a moment to refresh.";
 /** A failed re-sync is retried this many times in all, this far apart, with the gate still shut. */
 export const RESYNC_ATTEMPTS = 3;
 export const RESYNC_RETRY_MS = 750;
@@ -144,6 +146,9 @@ export function useUndoGrace(opts?: {
   // #313): a later tap for it owes only the READ. A second `undoFire` finds nothing in grace and
   // answers `expired` — "already with the kitchen" over dishes that are drafts.
   const restoredRef = useRef<string | null>(null);
+  // The background read retry for a landed-but-unapplied undo (Codex round 5): cleared on a new
+  // window and on unmount.
+  const resyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const undoBtn = useRef<HTMLButtonElement | null>(null);
   const undoBtnRef = useCallback((el: HTMLButtonElement | null) => {
     undoBtn.current = el;
@@ -164,6 +169,43 @@ export function useUndoGrace(opts?: {
     optsRef.current?.say?.(m);
   }, []);
 
+  /**
+   * Codex round 5 on #313 — a landed undo whose reads keep failing is RETRIED IN THE BACKGROUND, with
+   * the gate shut, until one applies. Releasing `pending` after the bounded attempts let the tick
+   * close the window as "elapsed" the moment the deadline passed — over a view that still showed the
+   * lines fired, so Pay went live over drafts the server had restored and create-intent refused it.
+   * The state that gates money waits on the READ, never on the clock (LEARNINGS #219, #228). Stops
+   * on its own when the window is superseded (`open`) or the hook unmounts.
+   */
+  const retryRead = useCallback(
+    function retry(target: string) {
+      resyncTimer.current = setTimeout(async () => {
+        resyncTimer.current = null;
+        if (restoredRef.current !== target || deadlineRef.current === null) return;
+        let applied = false;
+        try {
+          applied = (await optsRef.current?.onChanged?.()) !== "failed";
+        } catch {
+          // The read's failure is its own; the next attempt asks again.
+        }
+        if (restoredRef.current !== target) return; // superseded while the read was out
+        if (!applied) return retry(target);
+        restoredRef.current = null;
+        say({ kind: "ok", text: BROUGHT_BACK_NOTE }); // the read finally shows it
+        setDeadline(null, "undone");
+        pendingRef.current = false;
+        setPending(false);
+      }, RESYNC_RETRY_MS);
+    },
+    [say, setDeadline],
+  );
+  useEffect(
+    () => () => {
+      if (resyncTimer.current) clearTimeout(resyncTimer.current);
+    },
+    [],
+  );
+
   // Drive the countdown while a window is open, and close it (drop the Undo affordance — the lines
   // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
   // callback, not the effect body, so it doesn't trigger a synchronous mid-render setState.
@@ -179,8 +221,14 @@ export function useUndoGrace(opts?: {
       setNowMs(now);
       // Phase 2a · send — `graceRemainingSec` is the ONE client reading of the window (lib/send-grace).
       // Never while an undo is still answering or re-syncing: the window ends on the read that shows
-      // the truth, not on the clock (the close edge is the undo's own, above).
-      if (graceRemainingSec(deadlineMs, now) === 0 && !pendingRef.current)
+      // the truth, not on the clock (the close edge is the undo's own, above). And never over a
+      // window ANOTHER path has just closed (`deadlineRef` null, this interval not yet torn down by
+      // the re-render): a tick there would rewrite `closedBy` from "undone" to "elapsed".
+      if (
+        deadlineRef.current !== null &&
+        graceRemainingSec(deadlineMs, now) === 0 &&
+        !pendingRef.current
+      )
         setDeadline(null, "elapsed");
     }, 250);
     return () => clearInterval(timer);
@@ -195,7 +243,12 @@ export function useUndoGrace(opts?: {
       // avoids a first-paint flash. null ⇒ no window (still sent). The server re-checks fire_at on
       // undo regardless, so the countdown is advisory.
       setNowMs(receiptMs);
-      restoredRef.current = null; // a new send, a new batch — nothing landed for it yet
+      // A new send, a new batch — nothing landed for it yet; a background retry for the old one stops.
+      restoredRef.current = null;
+      if (resyncTimer.current) clearTimeout(resyncTimer.current);
+      resyncTimer.current = null;
+      pendingRef.current = false;
+      setPending(false);
       batchRef.current = res.undoBatch;
       setBatch(res.undoBatch);
       setClosedBy(null);
@@ -261,9 +314,10 @@ export function useUndoGrace(opts?: {
         // that answer left the old fired lines on screen under "Brought back", with Pay live (no
         // drafts in view, no grace) until create-intent refused the drafts the undo had restored. A
         // failed read is retried, bounded, with the gate still shut; if none lands the window stays
-        // OPEN for its remaining seconds, `pending` releases so the Undo is not wedged, and the
-        // sentence says what happened. `expired` closes regardless: the kitchen has the lines, and
-        // an Undo that can never land is the defect `expired-keeps-the-window` pins.
+        // OPEN and `pending` STAYS TRUE (round 5: releasing it let the tick close an expired deadline
+        // over the stale view), the sentence says what happened, and `retryRead` keeps asking in the
+        // background until a read applies. `expired` closes regardless: the kitchen has the lines,
+        // and an Undo that can never land is the defect `expired-keeps-the-window` pins.
         let applied = false;
         for (let attempt = 0; attempt < RESYNC_ATTEMPTS && !applied; attempt++) {
           if (attempt > 0) await new Promise((r) => setTimeout(r, RESYNC_RETRY_MS));
@@ -275,20 +329,26 @@ export function useUndoGrace(opts?: {
           }
         }
         if (close === "expired" || (close && applied)) {
-          if (alreadyLanded) say({ kind: "ok", text: BROUGHT_BACK_NOTE }); // the read finally shows it
+          // The read finally shows it — unless the background retry got there first and already said so.
+          if (alreadyLanded && restoredRef.current === target)
+            say({ kind: "ok", text: BROUGHT_BACK_NOTE });
           restoredRef.current = null;
           setDeadline(null, close);
+          pendingRef.current = false;
+          setPending(false);
         } else if (close) {
           restoredRef.current = target; // landed; only the read is owed from here
           say({ kind: "err", text: RESYNC_FAILED_NOTE });
+          retryRead(target);
+        } else {
+          pendingRef.current = false;
+          setPending(false);
         }
-        pendingRef.current = false;
-        setPending(false);
       });
       graceWrites.current = write;
       return write;
     },
-    [say, setDeadline],
+    [say, setDeadline, retryRead],
   );
 
   // Open while the window still has time OR an undo is still settling against it (the deadline may

@@ -106,9 +106,9 @@ label`); the hero keeps its text as its name. (5) The prep line said "Tap ⋯" �
   hook closed the undo window on that answer and left the old fired lines on screen under "Brought
   back", with Pay live (no drafts in view, no grace) until create-intent refused the drafts the undo had
   restored. The window now closes only on a re-sync that APPLIED; a failed read is retried (three
-  attempts, 750 ms apart) with the gate still shut; if none lands the window stays open for its
-  remaining seconds, `pending` releases (no wedge) and `RESYNC_FAILED_NOTE` says so; `expired` closes
-  regardless (`undo-grace/failed-re-sync-closes-the-window`). (2) The hero Total door read "View bill &
+  attempts, 750 ms apart) with the gate still shut; if none lands the window stays open and
+  `RESYNC_FAILED_NOTE` says so (round 5 below says what holds it); `expired` closes regardless
+  (`undo-grace/failed-re-sync-closes-the-window`). (2) The hero Total door read "View bill &
   pay" over a STANDING counter ask, whose card hides Pay on the Bill it opens: `billDoorLabel(block,
 counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkout names the door ONCE
   (`doorLabel` — `checkout/door-ignores-the-counter-ask`). 3026 → 3029 mutants; the new note is on
@@ -120,11 +120,24 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   (`restoredRef`); a later tap for it retries only the READ and closes as `undone` once a view
   applies, saying "Brought back" then; a new window forgets it
   (`undo-grace/second-tap-re-fires-a-landed-undo`). 3029 → 3030 mutants.
+- **Codex round 5 on #313 (one P2, real, fixed red-first).** Round 3 released `pending` after the bounded
+  re-sync attempts, so a landed undo whose reads kept failing PAST the grace deadline let the tick close
+  the window as "elapsed" over a view that still showed the lines fired — Pay live over drafts the
+  server had restored, refused at create-intent. Now a landed-but-unapplied undo keeps `pending` TRUE
+  (the Undo reads "Bringing it back…", Pay and the counter door stay held, the tick cannot close the
+  window, `isOpen()` is true) and the hook retries the READ in the background every 750 ms until one
+  applies — then "Brought back" and the close as `undone`; a new window or an unmount stops the retry.
+  The chain itself is released after the bounded attempts, so Pay's drain never waits on an outage.
+  The tick also refuses to rewrite a window another path has just closed (`deadlineRef` null, interval
+  not yet torn down — a race the fake-timer test surfaced). `RESYNC_FAILED_NOTE` now reads "Brought back
+  to your order — the list is taking a moment to refresh." (J29 ledger). Mutant
+  `undo-grace/landed-undo-released-at-the-deadline`; `tick-closes-a-window-mid-undo` re-anchored.
+  3030 → 3031 mutants. LEARNINGS #228.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 by round 4 (3030 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 (3031 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6450 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6451 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts

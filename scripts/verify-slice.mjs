@@ -24798,8 +24798,8 @@ const MUTANTS = [
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
     why: "Blind pass on 3c-i (concurrency) — the deadline can pass while an undo is still answering; a tick that closes the window as 'elapsed' then has the Bill say 'Ready to pay.' over an undo about to put the dishes back. The window ends on the read that shows the truth, never on the clock while a write is out",
-    find: "      if (graceRemainingSec(deadlineMs, now) === 0 && !pendingRef.current)\n",
-    replace: "      if (graceRemainingSec(deadlineMs, now) === 0)\n",
+    find: "        graceRemainingSec(deadlineMs, now) === 0 &&\n        !pendingRef.current\n      )\n",
+    replace: "        graceRemainingSec(deadlineMs, now) === 0\n      )\n",
   },
   {
     id: "undo-grace/failed-re-sync-closes-the-window",
@@ -24816,6 +24816,15 @@ const MUTANTS = [
     why: "Codex round 4 on #313 (P2) — after an undo LANDED but every re-sync failed, the window stays open with Undo live; a second tap that re-fires finds nothing in grace, `undoFire` answers `expired`, and the hook says 'already with the kitchen' and closes as expired over dishes that are drafts. The landed batch is remembered; a later tap retries only the read",
     find: "        const alreadyLanded = restoredRef.current === target;\n",
     replace: "        const alreadyLanded = false;\n",
+  },
+  {
+    id: "undo-grace/landed-undo-released-at-the-deadline",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 5 on #313 (P2) — a landed undo whose reads kept failing had `pending` released after the bounded attempts, so once the grace deadline passed the tick closed the window as 'elapsed' over a view that still showed the lines fired: Pay live over drafts the server had restored, refused at create-intent. The state that gates money waits on the READ, never on the clock",
+    find: '          say({ kind: "err", text: RESYNC_FAILED_NOTE });\n          retryRead(target);\n',
+    replace:
+      '          say({ kind: "err", text: RESYNC_FAILED_NOTE });\n          retryRead(target);\n          pendingRef.current = false;\n          setPending(false);\n',
   },
   {
     id: "checkout/pay-re-entered-during-the-drain",
