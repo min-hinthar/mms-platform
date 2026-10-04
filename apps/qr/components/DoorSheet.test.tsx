@@ -6,6 +6,8 @@ import path from "node:path";
 import { DOORS, currentDoor } from "@/lib/doors";
 import { t } from "@/lib/i18n";
 import { menuHref } from "@/lib/menu-href";
+import { dineInMenuHref } from "@/lib/table-pick";
+import type { DineInTable } from "@/lib/tables";
 
 /**
  * Phase 3b (D9) — the door is a moment, and the eyebrow has ONE host. Every door eyebrow opens the
@@ -14,6 +16,9 @@ import { menuHref } from "@/lib/menu-href";
  * exits only at a table. The v7.2 sub-line "Your cart stays with you." is FALSE here (each door
  * mints its own cart) and is refused by name.
  */
+// 3c-i (D18): the grid inside the sheet routes through the journey router and reads the peek — both
+// mocked so the suite stays a DOM suite (the real peek pulls the browser Supabase client in).
+const grid = vi.hoisted(() => ({ push: vi.fn(), peek: [] as unknown[] }));
 vi.mock("@/components/nav/TransitionNav", () => ({
   TransitionLink: ({
     href,
@@ -28,7 +33,9 @@ vi.mock("@/components/nav/TransitionNav", () => ({
       {children}
     </a>
   ),
+  useJourneyRouter: () => ({ push: grid.push }),
 }));
+vi.mock("@/lib/useSessionPeek", () => ({ useSessionPeek: () => grid.peek }));
 const capture = vi.fn();
 vi.mock("posthog-js", () => ({ default: { capture: (...a: unknown[]) => capture(...a) } }));
 const forgetDinein = vi.fn();
@@ -58,6 +65,8 @@ beforeEach(() => {
   capture.mockReset();
   forgetDinein.mockReset();
   forgetCart.mockReset();
+  grid.push.mockReset();
+  grid.peek = [];
 });
 afterEach(cleanup);
 
@@ -228,6 +237,157 @@ describe("DoorSheet — the sheet", () => {
   });
 });
 
+/**
+ * Phase 3c-i (D18) — the table grid is a SECTION of this sheet, offered only OFF a dine-in session
+ * (`tableGridOffered`): a `?table=N` claim mints a NEW session, so a grid at a live table would orphan
+ * this phone's drafts. The Dine-in ROW stays the home's exact link; the chips are the grid's own
+ * buttons. A seated chip opens an INLINE form (never a second sheet — D9); `mode_selected` fires on
+ * the chip tap, the door actually entered, never on open.
+ */
+describe("DoorSheet — the table grid section (3c-i)", () => {
+  const TABLES: DineInTable[] = [
+    { tableNumber: 2, occupied: false },
+    { tableNumber: 5, occupied: true },
+  ];
+  const section = (dialog: HTMLElement) => {
+    const h3 = within(dialog).queryByRole("heading", { level: 3, name: /Pick your table/ });
+    if (!h3) return null;
+    return dialog.querySelector<HTMLElement>(`section[aria-labelledby="${h3.id}"]`);
+  };
+
+  it("to-go with `tables`: ONE section headed 'Pick your table' (v7.2:495, both tongues) between the doors and the sheet's end; still ONE dialog", () => {
+    render(<DoorSheet mode="pickup" tables={TABLES} />);
+    const dialog = open();
+    const sec = section(dialog)!;
+    expect(sec).not.toBeNull();
+    expect(dialog.querySelectorAll("section")).toHaveLength(1);
+    const h3 = within(dialog).getByRole("heading", { level: 3 });
+    expect(h3.id).toBe(sec.getAttribute("aria-labelledby"));
+    expect(text(h3)).toContain(t("en", "pickYourTable"));
+    expect(h3.querySelector('[lang="my"]')?.textContent).toBe(t("my", "pickYourTable"));
+    // The shipped sub-line (TablePicker.tsx:57), EN-only — the heading carries the pair.
+    expect(text(sec)).toContain("Scan your table’s sticker, or pick your number.");
+    // Placed AFTER the doors list, inside the dialog.
+    const doors = dialog.querySelector(".door-sheet-doors")!;
+    expect(doors.compareDocumentPosition(sec) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    // The grid itself, with its K2 name; nothing in the sheet staggers (DOM, not just source).
+    expect(within(sec).getByRole("list", { name: "Choose your table" })).toBeTruthy();
+    expect(dialog.querySelector(".mms-stagger")).toBeNull();
+    for (const b of within(sec).getAllByRole("button"))
+      expect((b as HTMLElement).style.animationDelay).toBe("");
+    // The doors are still exactly the two links the home has — a chip is a button, never a door.
+    expect(hrefsOf(dialog)).toEqual(otherDoors("pickup"));
+    // No live region arrived with the section.
+    expect(dialog.querySelector("[aria-live], [role='status'], [role='alert']")).toBeNull();
+  });
+
+  it("an OPEN chip pushes the one builder's claim href, records the door ENTERED, and leaves the sheet open", () => {
+    const onOpenChange = vi.fn();
+    render(<DoorSheet mode="pickup" tables={TABLES} onOpenChange={onOpenChange} />);
+    const dialog = open();
+    // Opening the sheet — and revealing the section — captured nothing.
+    expect(capture).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Table 2,/ }));
+    expect(grid.push).toHaveBeenCalledTimes(1);
+    expect(grid.push).toHaveBeenCalledWith(dineInMenuHref({ table: 2 }));
+    expect(capture).toHaveBeenCalledWith("mode_selected", {
+      mode: "dinein",
+      door: "dinein",
+      source: "sheet",
+    });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+  });
+
+  it("a SEATED chip reveals the INLINE join form (no second dialog), focus lands on the code input; Join pushes the upper-cased join href", () => {
+    render(<DoorSheet mode="pickup" tables={TABLES} />);
+    const dialog = open();
+    const seated = within(dialog).getByRole("button", { name: /^Table 5,/ });
+    expect(dialog.querySelector("form")).toBeNull();
+    fireEvent.click(seated);
+    expect(grid.push).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalledWith("mode_selected", expect.anything());
+    const form = dialog.querySelector("form")!;
+    expect(form).not.toBeNull();
+    expect(form.className.split(/\s+/)).toContain("mms-rise");
+    const title = within(form).getByRole("heading", { name: "Join Table 5" });
+    expect(form.getAttribute("aria-labelledby")).toBe(title.id);
+    expect(text(form)).toContain(
+      "Someone is already sitting at Table 5. Enter the table code they share (or scan the table’s sticker) to order together.",
+    );
+    const input = within(form).getByLabelText("Table code") as HTMLInputElement;
+    expect(document.activeElement).toBe(input);
+    expect(input.getAttribute("placeholder")).toBe("e.g. WXYZ1234");
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    // Join refuses an empty code without vanishing or going native-disabled.
+    const join = within(form).getByRole("button", { name: "Join" });
+    expect(join.hasAttribute("disabled")).toBe(false);
+    expect(join.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.submit(form);
+    expect(grid.push).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: " wxyz1234 " } });
+    expect(join.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.submit(form);
+    expect(grid.push).toHaveBeenCalledWith(dineInMenuHref({ join: "WXYZ1234" }));
+    expect(capture).toHaveBeenCalledWith("mode_selected", {
+      mode: "dinein",
+      door: "dinein",
+      source: "sheet",
+    });
+  });
+
+  it("tapping the same seated chip again collapses the form and returns focus to the chip", () => {
+    render(<DoorSheet mode="pickup" tables={TABLES} />);
+    const dialog = open();
+    const seated = within(dialog).getByRole("button", { name: /^Table 5,/ });
+    fireEvent.click(seated);
+    expect(dialog.querySelector("form")).not.toBeNull();
+    fireEvent.click(seated);
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(document.activeElement).toBe(seated);
+  });
+
+  it("at a dine-in session — numbered AND numberless — NO section even with `tables`: the lit row and the two exits exactly as today", () => {
+    for (const tableNumber of [7, null]) {
+      cleanup();
+      render(<DoorSheet mode="dinein" tableNumber={tableNumber} tables={TABLES} />);
+      const dialog = open();
+      expect(section(dialog)).toBeNull();
+      expect(dialog.querySelector("section")).toBeNull();
+      expect(within(dialog).queryByText(/Pick your table/)).toBeNull();
+      expect(within(dialog).queryByRole("list", { name: "Choose your table" })).toBeNull();
+      expect(dialog.querySelector('[aria-current="true"]')).not.toBeNull();
+      expect(hrefsOf(dialog).slice(0, 2)).toEqual(otherDoors("dinein"));
+      expect(hrefsOf(dialog)).toHaveLength(4);
+      expect(within(dialog).getByRole("link", { name: /Leave this table/ })).toBeTruthy();
+    }
+  });
+
+  it("to-go without `tables`, and the market (which passes none in 3c-i), render no section", () => {
+    render(<DoorSheet mode="pickup" />);
+    expect(open().querySelector("section")).toBeNull();
+    cleanup();
+    render(<DoorSheet mode="scango" />);
+    expect(open().querySelector("section")).toBeNull();
+  });
+
+  it("an EMPTY registry on the to-go menu stays honest — the shipped line, and a host-start that enters the door", () => {
+    render(<DoorSheet mode="pickup" tables={[]} />);
+    const dialog = open();
+    const sec = section(dialog)!;
+    expect(text(sec)).toContain(
+      "Couldn’t load the tables. Scan your table’s sticker, or start without a number.",
+    );
+    fireEvent.click(within(sec).getByRole("button", { name: "start without a number" }));
+    expect(grid.push).toHaveBeenCalledWith(dineInMenuHref({}));
+    expect(capture).toHaveBeenCalledWith("mode_selected", {
+      mode: "dinein",
+      door: "dinein",
+      source: "sheet",
+    });
+  });
+});
+
 describe("DoorSheet — the stylesheet", () => {
   /** Every rule block as { selectors, body }. Splitting on `}` leaves a media head attached to the
    *  first block inside it; the selector is the last line before `{`, which is the rule's own. */
@@ -294,6 +454,18 @@ describe("DoorSheet — the stylesheet", () => {
     expect(row?.body).toMatch(/min-height:\s*44px\s*;/);
     const src = readFileSync(path.join(COMPONENTS, "DoorSheet.tsx"), "utf8");
     expect(src).not.toMatch(/mms-stagger/);
+  });
+
+  it("3c-i: `.table-chip.is-mine` is AVAILABILITY (the clay wash), never selection — it rides no lit-cap list", () => {
+    // The current door is the ONE lit-gold cap in this sheet. A "Your table" chip that joined the
+    // `.checkout-pill-on` list would put two selected things on one surface (DESIGN-LANGUAGE §2).
+    const cap = blocks.filter((b) => b.selectors.includes(".checkout-pill-on"));
+    expect(cap.length).toBeGreaterThanOrEqual(1);
+    for (const b of cap) expect(b.selectors.some((s) => /is-mine/.test(s))).toBe(false);
+    const mine = blocks.filter((b) => b.selectors.includes(".table-chip.is-mine"));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.selectors).not.toContain(".checkout-pill-on");
+    expect(mine[0]!.selectors).not.toContain(".door-sheet-current");
   });
 
   it("the table's exits kept their rules under the sheet's name — nothing left under the old one", () => {

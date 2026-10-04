@@ -35,6 +35,9 @@ export const COMMON = {
     en: "Each way of ordering has its own order.",
     my: "မှာယူပုံတစ်ခုစီမှာ ကိုယ်ပိုင်အော်ဒါ ရှိပါတယ်။", // K15 draft
   },
+  // Phase 3c-i (D18) — the table grid's section heading inside the door sheet, offered only OFF a
+  // dine-in session. Both tongues verbatim from v7.2's openTable sheet (line 495).
+  pickYourTable: { en: "Pick your table", my: "စားပွဲ ရွေး" }, // v7.2
 
   // ── header / chrome ────────────────────────────────────────────────────────
   rewards: { en: "Rewards", my: "ဆုလာဘ်" }, // v7.2

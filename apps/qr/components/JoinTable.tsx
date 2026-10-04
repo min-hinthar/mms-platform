@@ -2,6 +2,7 @@
 import { useId, useState, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav"; // J1: home→menu is a FORWARD cut
+import { dineInMenuHref } from "@/lib/table-pick"; // 3c-i: the ONE dine-in menu href builder
 
 /**
  * Entry-screen "join a table" path (M3·P3.1 host-invite fallback). A guest who was given a code but
@@ -25,7 +26,7 @@ export function JoinTable() {
     // detached node and `document.activeElement` falls back to <body> (WCAG 2.4.3). Closing first
     // returns focus to the live trigger while it still exists.
     setOpen(false);
-    router.push(`/menu?mode=dinein&door=dinein&j=${encodeURIComponent(c)}`);
+    router.push(dineInMenuHref({ join: c }));
   }
 
   return (
