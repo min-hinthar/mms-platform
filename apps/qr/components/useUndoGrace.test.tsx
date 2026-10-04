@@ -510,6 +510,36 @@ describe("useUndoGrace — the window", () => {
     expect(onChanged).toHaveBeenCalledTimes(4);
   });
 
+  it("an undo whose FOREGROUND read is out at unmount neither keeps reading nor revives the background retry (Codex round 8 on #313)", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: true });
+    const inFlight = deferred<string>();
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockImplementationOnce(() => inFlight.promise) // attempt 1 — out when the diner leaves
+      .mockResolvedValue("failed"); // every later ask — the outage goes on
+    const { result, unmount } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    unmount(); // the diner navigates away while the first re-sync is out
+    inFlight.resolve("failed");
+    await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 6);
+    await undoPromise;
+    // MUTATION (undo-grace/unmounted-undo-keeps-reading): the bounded loop runs its remaining
+    // attempts against a screen nobody has — two more reads; red here (3 calls).
+    // MUTATION (undo-grace/unmounted-undo-revives-the-retry): the close block writes the target back
+    // and arms `retryRead` from the dead hook — round 7's cleanup undone by the continuation it could
+    // not cancel, the abandoned checkout polling every 750 ms through the outage; red here (many calls).
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
   it("the 250 ms tick closes the window when it elapses, and is cleared on unmount", () => {
     vi.useFakeTimers();
     const { result, unmount } = renderHook(() => useUndoGrace());

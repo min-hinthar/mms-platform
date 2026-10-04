@@ -24789,9 +24789,9 @@ const MUTANTS = [
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
     why: "Blind pass on 3c-i (all three lenses, CRITICAL) — the window closed and `pending` cleared on the server's ANSWER, before the re-sync landed: one render with the window shut, nothing pending and the lines still `fired` — Pay live over drafts the undo had just returned, the counter door live, 'Brought back' beside 'with the kitchen' — for the whole round trip of the read. The state that gates money moves only when the view can keep it",
-    find: "        let applied = false;\n        for (let attempt = 0;",
+    find: "        let applied = false;\n        for (\n",
     replace:
-      "        if (close) setDeadline(null, close);\n        pendingRef.current = false;\n        setPending(false);\n        let applied = false;\n        for (let attempt = 0;",
+      "        if (close) setDeadline(null, close);\n        pendingRef.current = false;\n        setPending(false);\n        let applied = false;\n        for (\n",
   },
   {
     id: "undo-grace/tick-closes-a-window-mid-undo",
@@ -24839,8 +24839,25 @@ const MUTANTS = [
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
     why: "Codex round 7 on #313 (P2) — the unmount cleanup cleared `resyncTimer`, which the callback had already nulled before awaiting the read, and left the retry TARGET standing; a read that failed after unmount re-armed `retry` from a hook nobody renders, so an abandoned checkout polled its cart every 750 ms for as long as an outage lasted. Cancellation is the target the continuation checks, not a timer handle",
-    find: "      restoredRef.current = null;\n      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    },\n    [],\n",
-    replace: "      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    },\n    [],\n",
+    find: "      restoredRef.current = null;\n      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    };\n  }, []);\n",
+    replace:
+      "      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    };\n  }, []);\n",
+  },
+  {
+    id: "undo-grace/unmounted-undo-keeps-reading",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 8 on #313 (P2) — the bounded re-sync loop kept asking after the hook unmounted: two more reads against a screen nobody has. The loop's condition reads the mounted flag after every await",
+    find: "          attempt < RESYNC_ATTEMPTS && !applied && mountedRef.current;\n",
+    replace: "          attempt < RESYNC_ATTEMPTS && !applied;\n",
+  },
+  {
+    id: "undo-grace/unmounted-undo-revives-the-retry",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 8 on #313 (P2) — round 7 cleared the retry TARGET at unmount, but the undo's own continuation, still running, wrote it back and armed `retryRead` from the dead hook, reviving the 750 ms polling for the length of an outage. After an unmount the continuation says, closes and arms nothing",
+    find: "        // waits on a screen nobody has.\n        if (!mountedRef.current) return;\n",
+    replace: "        // waits on a screen nobody has.\n",
   },
   {
     id: "checkout/pay-re-entered-during-the-drain",

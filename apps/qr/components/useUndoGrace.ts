@@ -161,6 +161,10 @@ export function useUndoGrace(opts?: {
   // The background read retry for a landed-but-unapplied undo (Codex round 5): cleared on a new
   // window and on unmount.
   const resyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Codex round 8 on #313 — the undo's continuation outlives the hook (a Server Action and up to three
+  // reads are out when the diner leaves). Cancellation is this flag, read after every await: an
+  // unmounted hook says nothing, closes nothing and ARMS nothing.
+  const mountedRef = useRef(true);
   const undoBtn = useRef<HTMLButtonElement | null>(null);
   const undoBtnRef = useCallback((el: HTMLButtonElement | null) => {
     undoBtn.current = el;
@@ -211,8 +215,10 @@ export function useUndoGrace(opts?: {
     },
     [say, setDeadline],
   );
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true; // StrictMode runs effect → cleanup → effect; the hook ends mounted
+    return () => {
+      mountedRef.current = false;
       // Codex round 7 on #313 — a timer cleared here is not a read cancelled: the callback nulls
       // `resyncTimer` BEFORE it awaits, so a read that is out at unmount resolves afterwards and
       // `retry` would re-arm from a hook nobody renders (the abandoned checkout polling its cart every
@@ -220,9 +226,8 @@ export function useUndoGrace(opts?: {
       // checks before it goes on.
       restoredRef.current = null;
       if (resyncTimer.current) clearTimeout(resyncTimer.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
   // Drive the countdown while a window is open, and close it (drop the Undo affordance — the lines
   // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
@@ -337,7 +342,11 @@ export function useUndoGrace(opts?: {
         // background until a read applies. `expired` closes regardless: the kitchen has the lines,
         // and an Undo that can never land is the defect `expired-keeps-the-window` pins.
         let applied = false;
-        for (let attempt = 0; attempt < RESYNC_ATTEMPTS && !applied; attempt++) {
+        for (
+          let attempt = 0;
+          attempt < RESYNC_ATTEMPTS && !applied && mountedRef.current;
+          attempt++
+        ) {
           if (attempt > 0) await new Promise((r) => setTimeout(r, RESYNC_RETRY_MS));
           try {
             const r = await optsRef.current?.onChanged?.();
@@ -346,6 +355,11 @@ export function useUndoGrace(opts?: {
             // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
           }
         }
+        // Codex round 8 on #313 — the continuation outlives the hook: after an unmount nothing here may
+        // be said, closed or ARMED (this block wrote the retry target back and revived the background
+        // retry that round 7's cleanup had just cancelled). The chain still settles, so a drain never
+        // waits on a screen nobody has.
+        if (!mountedRef.current) return;
         if (close === "expired" || (close && applied)) {
           // The read finally shows it — unless the background retry got there first and already said so.
           if (alreadyLanded && restoredRef.current === target)
