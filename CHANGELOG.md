@@ -153,7 +153,10 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
   (`viewBill`, `payOpensAfterUndo`), ledgered in the K15 row. Filed: M258 · M259 · J30 · J31 · J32; the
-  blind pass's verdict is on the PR.
+  blind pass's verdict is on the PR. **The full `verify:slice` (every mutant, CI's gate skipped) passed on the
+  final code head on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min**; five attempts died
+  first, two with the container on an idle wait and two beside a vitest fleet (HANDOFF has the history,
+  LEARNINGS #229 the escort rule).
 
 ### Deep pass on #312 — the blind review the merge did not wait for (2026-10-04)
 

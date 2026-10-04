@@ -58,10 +58,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
 > PR, `@codex review`.
 >
-> **The owed full `verify:slice` — SIXTH attempt, live as of 10:48 UTC 2026-10-04, in
-> `.claude/worktrees/vs-full3` on the branch tip `88e3961`, ESCORTED by a harness-tracked background
-> Bash (`while kill -0 <pid>; do sleep 30; done`, the tool's 2 h ceiling, re-armed on expiry) so the
-> container is not reclaimed under it.** The history matters more than the count: attempt 1
+> **The owed full `verify:slice` — DONE on the SIXTH attempt: `✓ verify:slice passed — 3033 mutants
+> caught, no orphans`, 10:48 → 14:31 UTC 2026-10-04 (3 h 43 min, ~14 mutants/min after the baseline
+> suites), in `.claude/worktrees/vs-full3` on `88e3961` (code-identical to the tip `18ee021`), detached
+> and ESCORTED by two harness-tracked background Bash waits (`while kill -0 <pid>; do sleep 30; done` at
+> the tool's 2 h ceiling — the first expired at 1707 caught with the pid alive and was re-armed once;
+> the second saw the exit). Log `scratchpad/vs-full3.log`; the worktree is removed, the tree clean.**
+> The history matters more than the count: attempt 1
 > (`vs-full`, 03:50) was killed at 116 min by the tool's 2 h ceiling; attempt 2 (`vs-full2`, `fdeb7b4`,
 > `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55, at 2,375 caught, no survivor, no
 > stale, no final verdict (log `scratchpad/vs-full2.log`); attempt 3 (`vs-full3`, `f89aeb4`, 09:04) died
@@ -83,8 +86,9 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commi
 > `pnpm install --offline --frozen-lockfile` in the worktree once, then from the worktree
 > `setsid nohup pnpm verify:slice --no-gate > <scratchpad>/vs-full3.log 2>&1 < /dev/null &`, take the
 > node pid from `ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'`, then arm the escort.
-> Throughput measured on attempt 4: 307 caught in ~31 min including the baseline suites, so the 3033 run
-> is 3–4 h — longer than the tool's ceiling, which is why the run is detached and the escort is re-armed.
+> Throughput measured on attempt 4: 307 caught in ~31 min including the baseline suites; attempt 6
+> measured the whole run at 3 h 43 min for 3033 — longer than the tool's ceiling, which is why the run
+> is detached and the escort is re-armed (once was enough).
 > Progress is `grep -c caught`; the summary prints at the END. Read the tail for caught / SURVIVED /
 > STALE and the orphan verdict, record it here, then `git worktree remove --force .claude/worktrees/vs-full3`.
 > If it died again: the worktree may hold a live mutant — `git checkout -- .` or remove with `--force`,
