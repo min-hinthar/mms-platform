@@ -3534,3 +3534,16 @@ job THIS session started and reads a log tail on wake; it is not the parked-PR p
 PR still waits on events only. Before relying on a detached run, check `/proc/uptime` on every resume:
 a young uptime means every detached process is gone, and a worktree it was mutating may hold a live
 mutant (`git status` it; `git checkout -- .`).
+
+## #230
+
+**A check whose verdict is piped through `tail` reports `tail`'s exit code, and a backticked span must
+not cross a line break inside a blockquote (#313's docs push `c8b2677`, 2026-10-04).** `prettier --check
+… | tail -1 && git commit … && git push` pushed an unformatted HANDOFF: the pipe's status is the last
+command's, so `[warn] Code style issues` scrolled past and the chain went on — CI's `format:check` is
+step two of the fast lane and would have reddened `build`. Put the check FIRST on its own line and test
+`$?`, or `set -o pipefail`; never let a gate's output be the thing that decides whether the gate passed.
+The drift itself was prettier's: an inline code span that wraps across two `> ` lines makes it drop the
+marker from the continuation (a lazy line — renders, but the doc's own guard will not know), so keep a
+code span on one line, re-wrapping the prose around it. Sibling of the table rule in `check:docs`
+("prettier INTRODUCES breaks").
