@@ -144,17 +144,25 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   followed `frozen` alone): they are unavailable while `busy` too
   (`line-sheet/pills-live-under-a-held-send`; `pills-live-under-a-freeze` re-anchored). 3031 → 3033
   mutants.
+- **Codex round 7 on #313 (one P2, real, fixed red-first in ONE small commit under the round-3+ rule;
+  Codex's quota returned at 14:48 UTC and it reviewed `5c6f78b`).** The background retry's unmount cleanup
+  cleared `resyncTimer`, which the callback had already nulled before awaiting the read, and left the
+  retry TARGET standing: a read that failed after the diner navigated away re-armed `retry` from a hook
+  nobody renders, so the abandoned checkout polled its cart every 750 ms for the length of an outage.
+  The cleanup clears `restoredRef` too — cancellation is the target every continuation checks, not a
+  timer handle (`undo-grace/unmounted-hook-keeps-polling`). 3033 → 3034 mutants. LEARNINGS #231.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 (3033 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 and +1 by round 7 (3034 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6453 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6454 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
   (`viewBill`, `payOpensAfterUndo`), ledgered in the K15 row. Filed: M258 · M259 · J30 · J31 · J32; the
   blind pass's verdict is on the PR. **The full `verify:slice` (every mutant, CI's gate skipped) passed on the
-  final code head on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min**; five attempts died
+  code head `7092fe7` on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min; round 7's one-line fix
+  `7bd2f06` came after it, its `undo-grace` family re-run through `--only=` (11 caught)**; five attempts died
   first, two with the container on an idle wait and two beside a vitest fleet (HANDOFF has the history,
   LEARNINGS #229 the escort rule).
 

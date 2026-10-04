@@ -3547,3 +3547,15 @@ The drift itself was prettier's: an inline code span that wraps across two `> ` 
 marker from the continuation (a lazy line — renders, but the doc's own guard will not know), so keep a
 code span on one line, re-wrapping the prose around it. Sibling of the table rule in `check:docs`
 ("prettier INTRODUCES breaks").
+
+## #231
+
+**`clearTimeout` in a cleanup is not cancellation once the callback is mid-await — cancel through the
+TARGET the continuation checks (Codex round 7 on #313, 2026-10-04).** `retryRead`'s timer callback
+nulled its own handle, then awaited the read; the unmount cleanup found nothing to clear, the read failed
+after the diner had left, and the continuation re-armed the timer from a hook nobody rendered — an
+abandoned checkout polling its cart every 750 ms for the length of an outage. Every continuation already
+re-checked `restoredRef.current === target` after its await, so the cleanup had only to clear the target,
+as `open()` already did for a superseded window. Rule: a cleanup for an async loop invalidates the thing
+the loop checks after each await; clearing the handle stops only the step that has not started. Test it
+with a read that is OUT at unmount (a deferred promise), resolve it afterwards, and count the calls.
