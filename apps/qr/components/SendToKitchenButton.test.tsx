@@ -1,62 +1,154 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { UndoGrace } from "./useUndoGrace";
 
 /**
  * Phase 1b — Send to kitchen is ONE tap (the W16c confirm is retired; the server-clocked undo is the
- * safety net). What this pins is the wiring nothing else can see: the tap reaches the server, the
- * success line carries the owner's own Burmese, and a frozen cart is refused at the door.
+ * safety net). Phase 3c-i (D15) — the control is CONTROLLED and presentational: the undo window is
+ * Checkout's (`useUndoGrace`), and every outcome sentence leaves through `onMessage` to the view's
+ * one live region. What this pins is the wiring nothing else can see: the tap reaches the server,
+ * the success line carries the owner's own Burmese, a frozen cart is refused at the door, the window
+ * opens from the server's receipt, and the Undo is never drawn as the filled hero.
  */
 const h = vi.hoisted(() => ({ sendToKitchen: vi.fn(), undoFire: vi.fn() }));
 vi.mock("@/lib/cart", () => ({ sendToKitchen: h.sendToKitchen, undoFire: h.undoFire }));
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 
 const { SendToKitchenButton } = await import("./SendToKitchenButton");
+const { FROZEN_NOTE } = await import("./useUndoGrace");
 
 afterEach(() => {
   cleanup();
   h.sendToKitchen.mockReset();
 });
 
-const mount = (frozen = false) =>
+/** A hand-built grace — the hook's shape, with every write a spy. */
+function grace(over: Partial<UndoGrace> = {}): UndoGrace {
+  return {
+    deadlineMs: null,
+    batch: null,
+    remaining: 0,
+    pending: false,
+    message: null,
+    closedBy: null,
+    graceWrites: { current: Promise.resolve() },
+    undoBtnRef: () => {},
+    open: vi.fn(),
+    undo: vi.fn(() => Promise.resolve()),
+    isOpen: () => false,
+    ...over,
+  };
+}
+
+const mount = (p: {
+  verb: "send" | "undo" | "bill";
+  frozen?: boolean;
+  grace?: UndoGrace;
+  onMessage?: (text: string, my?: string) => void;
+  draftCount?: number;
+}) => {
+  const g = p.grace ?? grace();
+  const onMessage = p.onMessage ?? vi.fn();
   render(
     <SendToKitchenButton
       cartId="cart-1"
-      hasDraft
-      draftCount={3}
-      frozen={frozen}
+      verb={p.verb}
+      grace={g}
+      draftCount={p.draftCount ?? 3}
+      frozen={p.frozen ?? false}
+      onMessage={onMessage}
       onChanged={() => {}}
     />,
   );
+  return { g, onMessage };
+};
 
 describe("Phase 1b — one tap sends", () => {
-  it("sends on the FIRST tap and says so in both tongues", async () => {
+  it("sends on the FIRST tap, says so in both tongues, and opens the window from the receipt", async () => {
     // MUTATION: restore a confirm step (the tap opens a question instead of sending) — the server
     // is never reached by one tap; red.
-    h.sendToKitchen.mockResolvedValue({
+    const res = {
       ok: true,
       fired: 3,
-      undoUntil: null,
-      serverNow: new Date().toISOString(),
-      undoBatch: null,
-    });
-    mount();
+      undoUntil: "2026-10-04T12:00:10.000Z",
+      serverNow: "2026-10-04T12:00:00.000Z",
+      undoBatch: "batch-1",
+    };
+    h.sendToKitchen.mockResolvedValue(res);
+    const { g, onMessage } = mount({ verb: "send" });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
     });
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
-    const status = screen.getByRole("status");
-    expect(status.textContent).toContain("Sent to the kitchen — 3 items on the way.");
     // MUTATION: drop the `my` half of the outcome — the owner's own words vanish; red.
-    expect(status.textContent).toContain("Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ");
+    expect(onMessage).toHaveBeenCalledWith(
+      "Sent to the kitchen — 3 items on the way.",
+      "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ",
+    );
+    // MUTATION: never hand the receipt to the grace — no window ever opens; red.
+    expect(g.open).toHaveBeenCalledWith(res, expect.any(Number));
+    // No private live region: the ONE region is the view's (QA §A:25).
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("a frozen cart is refused at the door — nothing reaches the server", async () => {
-    mount(true);
+    const { onMessage } = mount({ verb: "send", frozen: true });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
     });
     expect(h.sendToKitchen).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("locked");
+    expect(onMessage).toHaveBeenCalledWith(FROZEN_NOTE);
+  });
+});
+
+describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never the hero", () => {
+  it("Undo is never the filled hero, counts down the grace's seconds, and targets the grace's batch", async () => {
+    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 });
+    mount({ verb: "undo", grace: g });
+    const undo = screen.getByRole("button", { name: "Undo — 7s" });
+    // MUTATION (send-button/undo-is-rendered-as-the-hero): Undo gets `.checkout-cta` — reversing
+    // becomes the filled verb; red.
+    expect(undo.classList.contains("checkout-cta")).toBe(false);
+    expect(undo.classList.contains("checkout-outline-btn")).toBe(true);
+    // aria-disabled, never native: the window parks focus on this very button.
+    expect(undo.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(undo);
+    });
+    expect(g.undo).toHaveBeenCalledWith("cart-1", false);
+    expect(screen.queryByRole("button", { name: /Send to kitchen/i })).toBeNull();
+  });
+
+  it("a frozen Undo stays reachable (aria-disabled) and hands the freeze to the grace, which refuses", async () => {
+    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 });
+    mount({ verb: "undo", grace: g, frozen: true });
+    const undo = screen.getByRole("button", { name: "Undo — 7s" });
+    expect(undo.getAttribute("aria-disabled")).toBe("true");
+    expect(undo.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(undo);
+    });
+    expect(g.undo).toHaveBeenCalledWith("cart-1", true);
+  });
+
+  it("an undo in flight reads 'Bringing it back…'", () => {
+    mount({
+      verb: "undo",
+      grace: grace({ deadlineMs: Date.now() + 7_000, remaining: 7, pending: true }),
+    });
+    expect(screen.getByRole("button", { name: "Bringing it back…" })).toBeTruthy();
+  });
+
+  it("verb 'bill' with nothing left to send is the quiet confirmation, never a button", () => {
+    mount({ verb: "bill", draftCount: 0 });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.body.textContent).toContain("Your order’s with the kitchen.");
+  });
+
+  it("verb 'bill' with drafts (a guest, a hostless table) draws nothing — the hero is the door", () => {
+    mount({ verb: "bill", draftCount: 2 });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.body.textContent).not.toContain("with the kitchen");
   });
 });

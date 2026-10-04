@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useState, useTransition, type CSSProperties } from "react";
 import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
-import { sendToKitchen, undoFire } from "@/lib/cart";
+import { sendToKitchen } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
-import { sentCopy, TABLE_STARTER_MID } from "@/lib/confirm-copy";
-import { graceDeadlineMs, graceRemainingSec } from "@/lib/send-grace";
+import { sentCopy } from "@/lib/confirm-copy";
+import { FROZEN_NOTE, reasonCopy, type UndoGrace } from "./useUndoGrace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
 // example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
@@ -19,37 +19,34 @@ const T = (k: DictKey) => t("en", k);
  *
  * S2.2: the fire stamps fire_at = now() + 10s, so the lines are 'fired' (the diner cart swaps their
  * steppers for "Sent to kitchen" chips immediately) but stay INVISIBLE to the KDS until the grace
- * passes. During that window the button becomes "Sent ✓ — Undo (Ns)": tapping Undo runs the grace-gated
+ * passes. During that window the control becomes "Undo — Ns": tapping Undo runs the grace-gated
  * mms_undo_fire (a clean fired→draft the kitchen never saw). The countdown is SERVER-clocked — it counts
  * down to the deadline the server returned, and Undo itself re-checks the grace, so a drifted client
  * clock can't extend the window (the server answers `expired` → "ask a server").
- */
-/**
- * What this control says when a frozen tap arrives — naming THIS control, never the lock's holder.
  *
- * ⚠️ An earlier draft echoed Checkout's `freezeNotice` through a `frozenNote` prop. Two defects,
- * both caught pre-merge: (1) `frozenNote` carries the SUPPRESSED freeze while `frozen` carries the
- * RAW one, so `frozen && frozenNote === null` is reachable in exactly one state — the viewer's own
- * in-flight `create-intent` — and the `??` fallback would have blamed a peer in the one window
- * where the code knows the holder is the reader (the M116 fabricated-diagnosis class); and (2)
- * setting the region to the string it already holds is a no-op React bails on, so nothing is
- * announced. A sentence about this control is true under every freeze and differs from the bar's.
+ * Phase 3c-i (D13 · D15) — CONTROLLED and presentational. The window (`deadlineMs`, `batch`, the tick,
+ * `pending`, the serialized `graceWrites`) is Checkout's `useUndoGrace`, so a stage flip no longer
+ * destroys the only UI that can recall the send; `verb` is `orderStageHero`'s decision (lib/
+ * checkout-verb) — this component draws exactly what it is told: the filled Send, the outline Undo
+ * (REVERSING IS NEVER THE HERO), or the quiet "with the kitchen" line. Every outcome sentence leaves
+ * through `onMessage` to the view's ONE live region — the private `role="status"` this component
+ * carried was the second polite region on the Order stage (QA §A:25).
  */
-const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
-
 export function SendToKitchenButton({
   cartId,
-  hasDraft,
+  verb,
+  grace,
   draftCount = 0,
-  primary = false,
   frozen,
-  onUndoWindowChange,
+  onMessage,
   onChanged,
 }: {
   cartId: string;
-  /** Any line still 'draft' (i.e. there's something to send). When false and no undo window is open,
-   *  everything's already with the kitchen, so we show a quiet confirmation instead of a dead button. */
-  hasDraft: boolean;
+  /** `orderStageHero(...)` — send (the filled hero) · undo (the outline, during the grace) · bill
+   *  (nothing to send here: the door is the hero; with no drafts left, the quiet confirmation). */
+  verb: "send" | "undo" | "bill";
+  /** Checkout's undo window (`useUndoGrace`). */
+  grace: UndoGrace;
   /** W12 — the CTA carries what it sends ("Send to kitchen · 3 items"). 0 hides the count. */
   draftCount?: number;
   /**
@@ -59,91 +56,26 @@ export function SendToKitchenButton({
    * ⚠️ THIS GATES THE UNDO TOO, and that is the honest reading rather than a harsh one. `undoFire`
    * refuses under the same predicate, so a freeze landing mid-grace has ALREADY taken the undo away
    * server-side; leaving the button live would only spend the diner's last seconds on a tap that
-   * cannot land. What the gate must NOT do is shorten the window — see `undoUntil` below.
+   * cannot land. What the gate must NOT do is shorten the window — the hook keeps it open.
    */
   frozen: boolean;
-  /** W12 — the Order moment's hero action: render as the filled `.checkout-cta` (shine sweep and
-   *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
-   *  never the hero). */
-  primary?: boolean;
-  /** W12 — mirrors the undo-grace window up to the parent: while open, the Order moment's
-   *  View-bill door refuses (flipping stages unmounts this component and destroys the only UI
-   *  that can recall the send). Reset to false on close AND on unmount, so a settle/lock flip
-   *  that unmounts mid-grace can never leave the parent stuck refusing. */
-  onUndoWindowChange?: (open: boolean) => void;
-  /** Re-sync the parent cart after a send/undo (solo dine-in isn't on the group realtime channel). */
+  /** Every outcome sentence (EN, and the owner's MY where one exists) → the view's one region. */
+  onMessage: (text: string, my?: string) => void;
+  /** Re-sync the parent cart after a send (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
 }) {
   const [pending, startTransition] = useTransition();
-  // `my` — the Burmese half of an outcome line, where one exists (the send's success line carries the
-  // owner's own words; see lib/confirm-copy `sentCopy`).
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string; my?: string } | null>(null);
-  // Phase 1b (owner, 2026-09-23: "Drop both") — the W16c confirm step is RETIRED: one tap sends.
-  // The server-clocked undo below is the safety net for a mis-tap AND a changed mind, the way a
-  // sent email offers Undo instead of asking "are you sure?" first — and a table that orders in
-  // rounds paid for that second tap on every round.
-  // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
-  // re-renders each second.
-  const [undoUntil, setUndoUntil] = useState<number | null>(null);
-  // The fire_batch the server handed back for THIS send — undo targets exactly it (S4-audit P1-3), so the
-  // host's Undo never claws back a guest's make-it-now line that shares the grace window.
-  const [undoBatch, setUndoBatch] = useState<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const undoBtnRef = useRef<HTMLButtonElement>(null);
   // W22a — the paper-beat ceremony counter: bumped once per SUCCESSFUL send; the beat glyph is
   // keyed by it so a second send this session replays the beat (a bare boolean wouldn't). 0 = no
   // send yet, nothing rendered. Decorative only — the live region says it in words.
   const [sendBeat, setSendBeat] = useState(0);
 
-  // Drive the countdown while an undo window is open, and close it (drop the Undo affordance — the lines
-  // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
-  // callback, not the effect body, so it doesn't trigger a synchronous mid-render setState.
-  useEffect(() => {
-    if (undoUntil === null) return;
-    // The Send button just unmounted in favour of the Undo button — land focus on Undo so a keyboard/SR
-    // host can reverse the send without hunting for it (B4: move focus predictably on the state change).
-    undoBtnRef.current?.focus();
-    timer.current = setInterval(() => {
-      const now = Date.now();
-      setNowMs(now);
-      if (now >= undoUntil) setUndoUntil(null); // window elapsed → cleanup below clears the interval
-    }, 250);
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-      timer.current = null;
-    };
-  }, [undoUntil]);
-
-  // Phase 2a · send — the one client reading of the grace (lib/send-grace.ts), shared with the staff Send.
-  const remaining = graceRemainingSec(undoUntil, nowMs);
-
-  // W12 — window state up to the parent (see the prop doc). The unmount cleanup is the stuck-open
-  // guard: a settling/lock view flip can unmount this component while the grace is live.
-  useEffect(() => {
-    onUndoWindowChange?.(undoUntil !== null);
-  }, [undoUntil, onUndoWindowChange]);
-  useEffect(() => () => onUndoWindowChange?.(false), [onUndoWindowChange]);
-
-  // ⚠️ CLEAR THE FREEZE REFUSAL WHEN THE FREEZE LIFTS. `msg` outlives the condition that produced
-  // it: a peer takes the lock, the diner taps Send and gets FROZEN_NOTE, the peer reopens, the bar
-  // disappears and the CTA lights up again — and this component's `--warn` line was still sitting
-  // under it saying the order is locked. Two contradictory statements about the same fact, one of
-  // them false. Only this one message is cleared: a send/undo outcome is a report about something
-  // that happened and stays until the next action replaces it.
-  const wasFrozen = useRef(frozen);
-  useEffect(() => {
-    if (wasFrozen.current && !frozen) setMsg((m) => (m?.text === FROZEN_NOTE ? null : m));
-    wasFrozen.current = frozen;
-  }, [frozen]);
-
   const send = () => {
     if (frozen) {
       // Refuse at the DOOR, and say why rather than dying quietly — this is the one control the diner came here to press.
-      setMsg({ kind: "err", text: FROZEN_NOTE });
+      onMessage(FROZEN_NOTE);
       return;
     }
-    setMsg(null);
     startTransition(async () => {
       try {
         const res = await sendToKitchen(cartId);
@@ -154,66 +86,19 @@ export function SendToKitchenButton({
           // recoverable problem into a public one — the whole table looks over.
           chime("sent");
           const sent = sentCopy(res.fired);
-          setMsg({ kind: "ok", text: sent.en, my: sent.my });
-          // Open the undo window for the server-MEASURED grace, counted from THIS client's receipt:
-          // graceMs = undoUntil(server) − serverNow(server), then a client-local deadline of
-          // now()+graceMs. Using the measured DURATION (not the absolute server timestamp) keeps the
-          // count immune to client-clock skew, and re-seeding `nowMs` to the same instant avoids a
-          // first-paint flash. null undoUntil ⇒ no window shown (still sent). The server re-checks
-          // fire_at on undo regardless, so the countdown is advisory. Phase 2a · send — the
-          // arithmetic is `graceDeadlineMs` (lib/send-grace.ts), byte-equivalent to the inline copy
-          // it replaced: it opens the window only with BOTH a positive grace and a batch to target.
-          const startNow = Date.now();
-          setNowMs(startNow);
-          setUndoBatch(res.undoBatch);
-          setUndoUntil(graceDeadlineMs(res, startNow));
+          onMessage(sent.en, sent.my);
+          // Open the undo window for the server-MEASURED grace, counted from THIS client's receipt
+          // (`graceDeadlineMs` inside the hook): immune to client-clock skew; null undoUntil or no
+          // batch ⇒ no window (still sent). The server re-checks fire_at on undo regardless.
+          grace.open(res, Date.now());
           setSendBeat((n) => n + 1); // W22a — one paper beat per successful send
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {
-          setMsg({ kind: "err", text: reasonCopy[res.reason] });
+          onMessage(reasonCopy[res.reason]);
         }
       } catch {
         // assertCartMember (not a member / session closed) throws; Next redacts the message in prod.
-        setMsg({ kind: "err", text: "Couldn’t send that just now — please try again." });
-      }
-    });
-  };
-
-  const undo = () => {
-    // The window only opens with a batch id (see send()); guard so undo always targets a concrete batch.
-    if (undoBatch === null) return;
-    if (frozen) {
-      // ⚠️ The window is NOT closed here. `undoUntil` is mirrored to the parent via
-      // `onUndoWindowChange` and gates Checkout's View-bill door, so ending it early would both
-      // forfeit an undo the SQL would still honour once the lock clears AND un-refuse that door.
-      // The countdown keeps running; only the tap is refused, and it says why.
-      setMsg({ kind: "err", text: FROZEN_NOTE });
-      return;
-    }
-    setMsg(null);
-    startTransition(async () => {
-      try {
-        const res = await undoFire(cartId, undoBatch);
-        if (res.ok) {
-          setMsg({ kind: "ok", text: "Brought back to your order — change it and send again." });
-          setUndoUntil(null); // the batch is back in draft → close the window
-        } else if (res.reason === "expired") {
-          // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
-          setMsg({
-            kind: "ok",
-            text: "That’s already with the kitchen — ask a server to change it.",
-          });
-          setUndoUntil(null);
-        } else {
-          // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still be in
-          // grace — keep the window open so the host can retry; it expires on its own when the grace ends.
-          setMsg({ kind: "err", text: reasonCopy[res.reason] });
-        }
-      } catch {
-        // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
-        setMsg({ kind: "err", text: "Couldn’t undo that just now — please try again." });
-      } finally {
-        onChanged(); // re-sync regardless — reveals the true state after a send/undo
+        onMessage("Couldn’t send that just now — please try again.");
       }
     });
   };
@@ -222,7 +107,7 @@ export function SendToKitchenButton({
     // position:relative hosts the W22a paper beat (an absolute glyph lifting off the control row).
     <div style={{ marginTop: 12, position: "relative" }}>
       {/* W22a — the send ceremony: a small receipt lifts off toward the kitchen and fades. Keyed
-          per successful send so a later send replays it; aria-hidden (the live region below says
+          per successful send so a later send replays it; aria-hidden (the view's live region says
           "Sent to the kitchen…" in words); display:none under reduced motion (a static lingering
           glyph would be noise, not a fallback). */}
       {sendBeat > 0 && (
@@ -230,33 +115,35 @@ export function SendToKitchenButton({
           <Icon name="receipt" size={22} />
         </span>
       )}
-      {remaining > 0 ? (
+      {verb === "undo" ? (
         // The undo window: "Undo — Ns" counting down the server-measured grace. The changing count lives
-        // in the BUTTON label (not the live region), so it isn't re-announced every second.
+        // in the BUTTON label (never a live region), so it isn't re-announced every second.
         // W22a `.mms-settle` — the control that replaces Send drops in with a soft settle (RM: instant).
         <button
-          ref={undoBtnRef}
+          // The hook's callback ref, called from OURS at commit: `ref={grace.undoBtnRef}` would make the
+          // React Compiler lint read every `grace.*` in this render as a ref access.
+          ref={(el) => grace.undoBtnRef(el)}
           type="button"
-          onClick={undo}
-          disabled={pending}
+          onClick={() => void grace.undo(cartId, frozen)}
+          disabled={grace.pending}
           /* T9 — `aria-disabled`, never native, for the FREEZE: the grace effect parks focus on this
              very button when the window opens, so a native disable would drop it to <body>
              mid-window (WCAG 2.4.3). `disabled` stays `{pending}` — the user's own in-flight tap. */
           aria-disabled={frozen || undefined}
-          aria-busy={pending}
+          aria-busy={grace.pending}
           className="checkout-outline-btn mms-settle"
           // 0.55 is Checkout's own frozen dim (it is what every gated control on that screen uses).
           // Unlike `.checkout-pill`, these two classes carry NO `[aria-disabled]` rule, so without
           // this the freeze would be announced to a screen reader and invisible to everyone else.
           style={{
             ...btn,
-            opacity: pending ? 0.7 : frozen ? 0.55 : 1,
-            cursor: pending || frozen ? "default" : "pointer",
+            opacity: grace.pending ? 0.7 : frozen ? 0.55 : 1,
+            cursor: grace.pending || frozen ? "default" : "pointer",
           }}
         >
-          {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
+          {grace.pending ? "Bringing it back…" : `Undo — ${grace.remaining}s`}
         </button>
-      ) : hasDraft ? (
+      ) : verb === "send" ? (
         <button
           type="button"
           // One tap sends (Phase 1b). `send()` refuses at the door under a freeze and says why.
@@ -264,20 +151,12 @@ export function SendToKitchenButton({
           disabled={pending}
           aria-disabled={frozen || undefined}
           aria-busy={pending}
-          className={primary ? "checkout-cta" : "checkout-outline-btn"}
-          // ⚠️ Inline styles outrank the class: when primary, the outline look's background/color/
-          // border must NOT ride along or they'd blank the .checkout-cta gradient under the label.
+          className="checkout-cta"
+          // ⚠️ Inline styles outrank the class: the outline look's background/color/border must NOT
+          // ride along or they'd blank the .checkout-cta gradient under the label.
           style={{
-            ...(primary
-              ? {
-                  width: "100%",
-                  minHeight: 50,
-                  borderRadius: 12,
-                  border: "none",
-                  fontWeight: "var(--fw-heavy)",
-                  fontSize: "var(--fs-body)",
-                }
-              : btn),
+            ...btn,
+            border: "none",
             opacity: pending ? 0.7 : frozen ? 0.55 : 1,
             cursor: pending || frozen ? "default" : "pointer",
           }}
@@ -308,7 +187,9 @@ export function SendToKitchenButton({
             </span>
           </span>
         </button>
-      ) : (
+      ) : draftCount === 0 ? (
+        // Everything's already with the kitchen (and no window is open): a quiet confirmation
+        // instead of a dead button. With drafts left, the Order stage's hero is the Total door.
         <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", textAlign: "center" }}>
           {T("orderWithKitchen")}
           <span
@@ -324,54 +205,10 @@ export function SendToKitchenButton({
             {t("my", "orderWithKitchen")}
           </span>
         </p>
-      )}
-      {/* The ONE live region for the send/undo flow — discrete event messages only (never the ticking
-          count), so a SR hears "Sent…" / "Brought back…" once, not every second. */}
-      <p
-        role="status"
-        aria-atomic="true"
-        style={{
-          minHeight: 16,
-          margin: "8px 0 0",
-          fontSize: "var(--fs-sm)",
-          color: msg?.kind === "err" ? "var(--warn)" : "var(--t2)",
-        }}
-      >
-        {msg?.text ?? ""}
-        {msg?.my && (
-          <span lang="my" style={{ display: "block", fontFamily: "var(--font-my)" }}>
-            {msg.my}
-          </span>
-        )}
-      </p>
+      ) : null}
     </div>
   );
 }
-
-const reasonCopy: Record<
-  "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error",
-  string
-> = {
-  not_host: `Ask ${TABLE_STARTER_MID} to send the order to the kitchen.`,
-  // ⚠️ THE SAME STRING AS THE CLIENT-SIDE REFUSAL, DELIBERATELY (Codex round 2 on #247). This is
-  // the RACED path: the tap started while the cart was editable and the server took the lock before
-  // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
-  // checking out", which is the peer claim the whole copy change removed — and the lock can be
-  // self-held (two tabs on one device) or unattributable, so that sentence is a diagnosis the code
-  // never established. Naming it ONCE also means the unfreeze effect above, which clears messages
-  // equal to FROZEN_NOTE, clears this one too instead of leaving it stale after the lock lifts.
-  // ⚠️ NOT `FROZEN_NOTE` (Codex round 5 on #247, correcting round 2). This is the RACED path — the
-  // tap started editable and the server met the lock — so `frozen` is false here by construction
-  // and the lock may already have lifted by the time this renders. Round 2 unified the two strings
-  // so the unfreeze effect would clear this one too; that only works while an unfreeze EDGE is
-  // still coming, and on a lock that took and released mid-request it already went by. A sentence
-  // that makes no claim about the lock needs no edge and cannot go stale.
-  locked: "That didn’t go through — please try again.",
-  settling: "Your table is paying — you can’t send while everyone pays.",
-  nothing: "Everything’s already with the kitchen.",
-  rate_limited: "One moment — too many taps. Try again in a few seconds.",
-  error: "Couldn’t send that just now — please try again.",
-};
 
 // W19 — surface colors moved to `.checkout-outline-btn` (a class so :hover/:active press states
 // can exist — inline styles beat pseudo-classes); this keeps only layout.

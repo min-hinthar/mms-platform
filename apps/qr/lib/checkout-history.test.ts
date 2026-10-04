@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { hashFor, normalizeHash, onHistoryPop } from "./checkout-history";
 
 const at = (o: Partial<Parameters<typeof onHistoryPop>[0]>) =>
-  onHistoryPop({ hash: "", stage: "order", step: "review", busy: false, canBill: true, ...o });
+  onHistoryPop({ hash: "", stage: "order", step: "review", busy: false, ...o });
 
 describe("checkout history — Back walks the checkout's own steps", () => {
   it("each step has its own entry", () => {
@@ -29,9 +29,10 @@ describe("checkout history — Back walks the checkout's own steps", () => {
     expect(at({ stage: "bill", hash: "" })).toBe("toOrder");
   });
 
-  it("Forward into Bill honours the Bill door; Forward into Pay cannot be replayed", () => {
-    // MUTATION: ignore `canBill` — Forward walks past the undo window the View-bill button refuses; red.
-    expect(at({ hash: "#bill", canBill: false })).toBe("restore");
+  it("Forward into Bill from Order is ALWAYS toBill (3c-i); Forward into Pay cannot be replayed", () => {
+    // MUTATION (checkout-history/forward-into-bill-refused): `toBill` → `restore` — the Bill is
+    // readable during the send's undo window (only Pay waits), so a Forward refused here puts the
+    // URL back on a screen the in-page door would happily open; red.
     expect(at({ hash: "#bill" })).toBe("toBill");
     expect(at({ hash: "#pay" })).toBe("restore");
   });

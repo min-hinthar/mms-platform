@@ -31,14 +31,15 @@ export type PopAction =
   | "none"
   /** Bill → Order (Back from the Bill stage). */
   | "toOrder"
-  /** Order → Bill (the Forward button), only when the Bill door is open. */
+  /** Order → Bill (the Forward button). The Bill is readable during the send’s undo window (3c-i);
+   *  only Pay waits — so a Forward into it is always honoured. */
   | "toBill"
   /** Leave the pay step through `editOrder` — the SAME path as the in-page control, so the
    *  pay-window lock is released, never stranded. */
   | "leavePay"
   /** Refuse, and put the URL back where the screen is: a charge is in flight (leaving would release
    *  the lock under a live PaymentIntent), or the target cannot be entered from history (Pay needs
-   *  a fresh intent; Bill is shut during the send's undo window). */
+   *  a fresh intent). */
   | "restore";
 
 export function onHistoryPop(s: {
@@ -47,14 +48,12 @@ export function onHistoryPop(s: {
   step: "review" | "pay";
   /** A PaymentIntent confirm is in flight, or a leave is already running. */
   busy: boolean;
-  /** The Bill door is open (the View-bill button's own gate — false during the undo window). */
-  canBill: boolean;
 }): PopAction {
   if (s.step === "pay") {
     if (s.hash === "#pay") return "none";
     return s.busy ? "restore" : "leavePay";
   }
   if (s.hash === "#pay") return "restore";
-  if (s.hash === "#bill") return s.stage === "bill" ? "none" : s.canBill ? "toBill" : "restore";
+  if (s.hash === "#bill") return s.stage === "bill" ? "none" : "toBill";
   return s.stage === "bill" ? "toOrder" : "none";
 }
