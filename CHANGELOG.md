@@ -4,6 +4,65 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Deep pass on #312 — the blind review the merge did not wait for (2026-10-04)
+
+**The owner's ask:** "deep pass, merge all, continue good work." #312 (3a + 3b) merged by the owner's
+click while the pass ran; its findings therefore describe `main`, and this PR carries the fixes. The
+pass: 11 blind `adversarial-auditor` lenses over the full 96-file diff (surface × lens), a coverage
+critic over the 53 files no auditor anchored, then 2–3 perspective-diverse refuters per finding
+(mechanism · scope-vs-base · impact) — 103 agents, 53 confirmed, 4 refuted, 0 disputed. Every fix
+below was pinned red-first; 17 new mutants, 5 re-anchored; four modules joined the mutate set.
+
+- **Wayfinding (HIGH ×3).** A remembered dine-in door with no cart leads Menu to the PICKER, never the
+  code-free `/menu?mode=dinein` J15 retired; a LIT Account tab is a self-link (the Rewards panel no
+  longer flips to Orders under its own tab); on a NEUTRAL route a live cart's door is the diner's door
+  (a glance at the table picker no longer orphans three items behind "No order on this device yet" —
+  an empty cart is not an order, so the door chosen last stands); a pre-3b pointer learns its door
+  from the mode the device remembered. `TransitionLink` bumps the epoch AFTER the consumer's handler
+  and only when the click was not taken over — the Order tab's impatient second tap cancelled its
+  first; popstate bumps only when the ROUTE moved (an aisle shelf closing is not a navigation). The
+  drain a navigation awaits is bounded (`bounded(p, DRAIN_MAX_MS)`, 8 s): a hung Server Action left
+  the Order tab, CartBar and the market's Check out `aria-busy` and dead. LendModeBanner pushes
+  through the journey router.
+- **Menu + checkout (HIGH, money semantics).** The menu page keys `<TableCartProvider>` on the door:
+  the DoorSheet's To-go row from a table is a same-pathname `/menu`, and Next kept the provider alive
+  with the table's session under `mode="pickup"` — every Add from the "To go" menu landed on the
+  shared table bill (`lib/menu-remounts-per-door.test.ts` parses the page for the key). The
+  counter-settled step-rail suppression gained its test and mutant (deleting it was green); the EMPTY
+  market slip is still "Your basket"; the rail is an explicit `role="list"`; a lapsed pickup slot is
+  not stated as the plan (`slotIsPast`); the market's Check out narrates its drain.
+  `check-scan-repeat` rule (3) rewritten: the population is what the page DECLARES (every `<…Sheet>`'s
+  `open={…}`, or the state its `onOpenChange` setter writes) and `sheetOpen` must be an `||` over
+  exactly those — the suffix rule never saw `basketOpen`, and `||`→`&&` passed green.
+- **The counter map.** The Tables chip's anchor was `FLOOR_HASH`, the split pane's close sentinel (a
+  tap closed the open table's pane); zones anchor on their own wrappers (`#floor-zone`, `#appr-zone`
+  — the rails zone starts at the refunds strip), `ZoneFocus` takes a `focus` target. The strip never
+  reads a hidden column, lights the last present zone at the end of a scrollable page, lights a
+  tapped chip at once, and keeps the lit chip inside its own viewport. `start-h` and `day-cash-h`
+  are focusable. `floor.back` reads "← Counter" (the screen it lands on never said "Floor").
+- **The account hub (HIGH, security).** "Use a different email" on the code step clears the stashed
+  24h merge proof (the next non-anonymous sign-in on the phone redeemed this diner's carry); an
+  unknown address gets a sentence, not GoTrue's refusal; both URL strips leave `?tab=you` so the
+  post-sign-in refresh lands where the diner was; a signed-in diner on the failed-read branch is told
+  why the identity card is missing; the tier-up baseline key moves inside the handover boundary and a
+  panel hidden mid-celebration dismisses without yanking focus; a fresh tab wins over a stale URL
+  when replaceState throws; the social links say "(opens in a new tab)"; the header's "Your order"
+  landmark renders only with something in it.
+- **Guards and docs.** `:root:has(.diner-tabs) { scroll-padding-bottom }` (a focus scroll landed its
+  target under the bar); `--tabs-h` declared in `tokens.css` (a package owns every token it reads);
+  the scroll-padding contract reads the cascade (LAST declaration, duplicates refused, the shorthand
+  and logical alias seen); the DoorSheet bare-row guard matches selector semantics; `check:docs`
+  requires unique `## #N` LEARNINGS keys (the arc's second `## #200` is #215) and measures the bare
+  "N target modules" form; the zone-anchor guard binds to the page's imports and counts only
+  intrinsic ids; two test files' teardown and mock shapes fixed (the `tierMeta` mock rendered
+  "undefined · undefined"; a fresh `URLSearchParams` per render masked two mutants); the CHANGELOG
+  proof counts re-measured (none of the five matched); stale four-tab comments and the
+  IntersectionObserver claim corrected.
+- **Filed, not fixed:** J28 (five device checks only execution settles) · J29 (two copy-fidelity
+  decisions for the owner) · the `MONEY_MARKERS` policy question for the step rail. Refuted (4):
+  the loading skeleton's "rewards" announcement, a vacuous ArrivalBeat assertion, the strip's
+  uncancelled rAF, a counter-zones test title.
+
 ### Phase 3b — three places, one order (2026-10-03)
 
 **The owner's ask, continued:** "more creative world-class design thinking overhauls." A twelve-agent

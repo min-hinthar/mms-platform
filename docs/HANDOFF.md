@@ -1,11 +1,41 @@
-# Session Handoff — MMS Platform (2026-10-02)
+# Session Handoff — MMS Platform (2026-10-04)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-03 · Phase 3b — three places, one order is BUILT on the branch · 3a is #312 awaiting the owner's merge click · 3c–3f filed)
+> ## ⏭️ NEXT SESSION — start here (2026-10-04 · #312 MERGED · the deep-pass fixes are the open PR · then 3c-i)
+>
+> **Where things stand.** The owner merged #312 (3a + 3b) at 21:23 UTC on 2026-10-03 with a merge
+> commit (`201d8ab`), while the blind deep pass the owner asked for ("deep pass, merge all, continue
+> good work") was still running. Its findings therefore describe `main`: 53 confirmed (7 HIGH/critical
+> by the auditors, every one downgraded or confirmed by three refuters), 4 refuted, 0 disputed. **All
+> 53 are fixed on the designated branch, re-pointed at the merged main, in five commits**
+> (`fe49703` wayfinding · `38da397` menu + checkout · `066dfe8` the counter map · `a6ceaa3` the account
+> hub · `9fd4200` guards + docs) — the CHANGELOG entry "Deep pass on #312" is the list, each pinned
+> red-first, 17 new mutants (every family run through `verify:slice --only=`, all caught). The PR is
+> OPEN as a draft: run the ritual (`@codex review` on the draft; mark ready; WAIT for "Codex has
+> reviewed" the head; rounds 1–2 triaged, round 3+ fix-on-sight or file; the merge is the owner's go).
+> ⚠️ Codex's review credits were exhausted on 2026-10-03 — if its reply is still the usage-limit
+> notice, the gate stays red for want of a reviewer, which is the owner's to lift.
+>
+> **What the pass taught (LEARNINGS #216–#217):** run the blind pass on the FULL PR diff before the
+> merge, not per slice — the cross-slice findings (a persisted door orphaning a live cart; a same-
+> pathname door switch keeping the table's cart alive) were invisible to any one slice's pass. And a
+> `useSearchParams` mock that hands out a fresh object per render re-runs route effects per render and
+> masks mutants — one URLSearchParams per URL, as Next hands it out.
+>
+> **Still owed:** one FULL `verify:slice` on a merge head (every filtered family is caught; the whole
+> run — hours at ~10 mutants/minute — has not been watched to the end since 3a); the device checks in
+> OPEN-ITEMS J28; the owner's two copy calls in J29; the `MONEY_MARKERS` policy question (Proof /
+> test coverage). Then **3c-i** (`docs/PHASE3_JOURNEYS.md`: one hero verb per state, the undo lifted so
+> the bill is live during the grace, Pay stating its reason, the Total row, the line ⋯ sheet, the
+> table grid as a SECTION of the DoorSheet — J22 · J23), designed by a panel and built in worktrees as
+> 3b was. After this PR merges: `git fetch origin main && git checkout -B
+claude/ui-ux-design-improvements-l2b0c0 origin/main`.
+>
+> ## ✅ (superseded 2026-10-04) NEXT SESSION as of (2026-10-03 · Phase 3b — three places, one order is BUILT on the branch · 3a is #312 awaiting the owner's merge click · 3c–3f filed)
 >
 > **Where things stand.** 3a (#312, head `8d04419`) is complete: four Codex rounds fixed and answered,
 > CI green on the head, the owner said "Merge" — but Codex ran out of review credits on the final head

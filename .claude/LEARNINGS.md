@@ -3371,3 +3371,23 @@ other element cannot match (`a.door-sheet-row`), never on a shared class; (2) a 
 every block that can match the element and assert the competing property is ABSENT there, not that the
 intended block declares it; (3) the blind pass found both, the author neither — read your new selector
 against every rule that already matches the same element before calling it done.
+
+## #216
+
+**Run the blind pass on the FULL PR diff before the merge, not per slice.** The deep pass on #312
+(3a + 3b, 96 files) confirmed 53 findings in code every per-slice pass had passed, and the worst were
+CROSS-slice: Codex round 3's "persist the picker's door" (3b) orphaned every live pickup or market cart
+on neutral routes, and 3b's DoorSheet linked a same-pathname `/menu?mode=pickup` that kept 3a's
+`TableCartProvider` alive with the table's session — adds from the "To go" menu landed on the shared
+table bill. Neither slice's pass could see the other's assumption. A pass over the merge head is the
+only one that reads the whole contract — and it is what the owner asked for after the fact.
+
+## #217
+
+**A `useSearchParams` mock that hands out a fresh object per render re-runs every `[searchParams]`
+effect per render — and masks mutants.** `ActiveOrderProvider.test` mocked `useSearchParams: () => new
+URLSearchParams(search)`; the provider's route effect therefore ran on every setState, and its new
+back-fill re-stamped a door the mutant had made the publisher forget, so
+`active-order/publish-forgets-the-door` SURVIVED with the suite green. Next hands out ONE
+URLSearchParams per URL; the mock must too (a cache keyed on the search string). The same shape hides
+in any mock that returns a new object from a hook used as an effect dependency.
