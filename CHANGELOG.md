@@ -63,6 +63,31 @@ below was pinned red-first; 17 new mutants, 5 re-anchored; four modules joined t
   the loading skeleton's "rewards" announcement, a vacuous ArrivalBeat assertion, the strip's
   uncancelled rAF, a counter-zones test title.
 
+- **Codex round 1 on #313 (one P1, four P2 — each verified against source, fixed red-first; the P1 was
+  a defect the deep pass itself wrote in).** (P1) `bounded()` resolved void at its deadline and every
+  caller read that as settlement, so the Order tab, CartBar and the market's Check out navigated after
+  eight seconds with the write still in flight — the W21 race under a new name. A drain now answers
+  `"settled" | "timed-out"` (`lib/write-ledger.ts`); the LENDER bounds it (the cart provider's new
+  `drain`, the market's own over its ledger) and speaks `DRAIN_TIMED_OUT_NOTICE` through the toast it
+  already owns; every door treats `"timed-out"` as a refusal to leave — busy cleared, the tab live for
+  a retry, nothing charged before the write is known (`write-ledger/deadline-reads-as-settled`,
+  `diner-tabs/timed-out-drain-still-pushes`, `cart-provider/timed-out-drain-stays-silent`). (P2) The
+  menu keyed its provider on `mode:code`, and `code` is the `?t=`/`?j=` credential `useTableSession`
+  strips after the mint — the next `router.refresh()` (pull-to-refresh) remounted and re-minted a door
+  that had not moved; the key is `mode` alone and the guard refuses any other identifier. (P2) The deep
+  pass's back-fill guessed a pre-3b pointer's door from the remembered MODE, which is not its
+  provenance (the old store rewrote the mode on every `/menu?mode=` visit and kept the pointer) — a
+  wrong pair offers the cart on the wrong door AND suppresses it on its real one; the back-fill is
+  gone, a legacy pointer stays unbound until its own publish binds it (its mutant retired with the
+  code). (P2) GoTrue answers `otp_disabled` both for the unknown-address refusal and for OTP switched
+  off in the project's Auth settings; keyed on the code, every existing diner was told "we couldn't
+  find you" during an outage — the message decides now, the outage gets its own sentence
+  (`account-upgrade/config-outage-called-no-account`). (P2) `slotIsPast` ran in render only, so a menu
+  left open across the slot's instant kept stating it; `nextSlotCheck` (`lib/pickup-slot.ts`, capped
+  so a far slot re-arms) drives a re-render at the boundary (`slot-boundary-uncapped`,
+  `slot-at-now-still-waits`). The two new sentences are English-only (the M80/M213 class; J29 notes
+  them). Mutants 2994 → 2999.
+
 ### Phase 3b — three places, one order (2026-10-03)
 
 **The owner's ask, continued:** "more creative world-class design thinking overhauls." A twelve-agent

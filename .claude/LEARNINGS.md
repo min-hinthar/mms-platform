@@ -3404,3 +3404,19 @@ being right slowly. The rule now: the in-session pass covers the FULL PR diff (#
 Codex is the second reviewer; and only a RED Codex round earns a further adversarial pass — one more
 capped pass over the files Codex named, never a fleet. "Deep pass" in an owner's message means the
 whole diff, not a bigger panel.
+
+## #219
+
+**A deadline on a barrier is not a settlement — and a liveness fix on a money path is a money change.**
+The deep pass on #312 fixed a real stuck tab (a hung Server Action behind `settled()` left the Order tab
+`aria-busy` forever) with `bounded()`: resolve when the barrier settles OR after 8 s. It resolved `void`
+either way, so every caller navigated at the deadline with the write still in flight — the exact W21
+race (/cart's first read misses the add; its create-intent lock refuses it) the barrier exists to
+prevent, reintroduced by the fix and passed by eleven auditors, a coverage critic and three refuters,
+because all of them were reading for "does the tab come back", not "what is charged". Codex round 1 on
+#313 caught it in one line. Rules: (1) when you bound an await, the timeout branch must carry a
+DIFFERENT value from the success branch (`"settled" | "timed-out"`) and every caller must handle it —
+a `Promise<void>` that resolves either way erases the distinction at the type level; (2) a timeout on
+a write barrier is a REFUSAL to proceed, narrated through the view's existing live region, never a
+release; (3) any fix that trades liveness for money-safety on a charge path is a money-path change and
+gets the money lens, whatever bug it started as.
