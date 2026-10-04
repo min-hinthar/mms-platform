@@ -412,6 +412,50 @@ describe("useUndoGrace — the window", () => {
     expect(h.undoFire).toHaveBeenLastCalledWith("cart-1", "batch-2");
   });
 
+  it("an `overtaken` re-sync is NOT an applied one — the watermark can advance without a view reaching the screen (`confirmedWrite`), so the gate holds until a read APPLIES (Codex round 6 on #313)", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: true });
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("overtaken")
+      .mockResolvedValueOnce("overtaken")
+      .mockResolvedValueOnce("applied");
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    // MUTATION (undo-grace/overtaken-read-counts-as-applied): `!== "failed"` — the gate opens on a
+    // read that never reached the screen while the view still shows the lines fired; red here.
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.pending).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 2 + 10);
+      await undoPromise;
+    });
+    expect(onChanged).toHaveBeenCalledTimes(3);
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("undone");
+    expect(result.current.pending).toBe(false);
+    // A host whose `onChanged` returns no outcome at all still counts as applied (the contract).
+    const silent = vi.fn(() => undefined);
+    const { result: r2 } = renderHook(() => useUndoGrace({ onChanged: silent }));
+    act(() => r2.current.open(receipt(), Date.now()));
+    let p2!: Promise<void>;
+    act(() => {
+      p2 = r2.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await p2;
+    });
+    expect(r2.current.closedBy).toBe("undone");
+  });
+
   it("`expired` closes the window even when the re-sync fails — an Undo over lines the kitchen has can never land", async () => {
     vi.useFakeTimers();
     h.undoFire.mockResolvedValue({ ok: false, reason: "expired" });

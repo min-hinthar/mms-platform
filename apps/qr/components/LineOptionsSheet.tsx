@@ -114,13 +114,15 @@ export function LineOptionsSheet({
                 data-ful-line={line.id}
                 data-ful-val={f}
                 aria-pressed={on}
-                aria-disabled={frozen || undefined}
+                // Unavailable under a freeze AND while "Send to kitchen now" is held (Codex round 6
+                // on #313): the handler already refused the tap; the control must SAY so too.
+                aria-disabled={frozen || busy || undefined}
                 onClick={() => {
                   if (frozen || busy) return;
                   onChoose(f);
                 }}
                 className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
-                style={frozen ? { opacity: 0.55 } : undefined}
+                style={frozen || busy ? { opacity: 0.55 } : undefined}
               >
                 {f === "dinein" ? "For here" : "To go"}
               </button>

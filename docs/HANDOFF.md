@@ -38,8 +38,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > the landed batch and retries only the read (`undo-grace/second-tap-re-fires-a-landed-undo`). Then **round 5** (on `6fcdf8f`): one P2, fixed — a landed undo whose reads kept failing
 > PAST the deadline had `pending` released, so the tick closed the window as elapsed over the stale view;
 > `pending` now holds and the hook retries the read in the background until one applies
-> (`undo-grace/landed-undo-released-at-the-deadline`). Rounds 3–5 are three fix-on-sight commits on a
-> converging loop; from here anything that is not a one-commit fix is FILED, not fixed. The round-3
+> (`undo-grace/landed-undo-released-at-the-deadline`). Then **round 6** (on `3e26f4f`): two P2, fixed — an `overtaken` re-sync counted as applied
+> (the watermark advances without a view on `confirmedWrite`; now only `"applied"` or no outcome opens the
+> gate — `viewApplied`), and the ⋯ sheet's pills read live while a send-now was held (`aria-disabled` +
+> dim follow `busy` too). Rounds 3–6 are FOUR fix-on-sight commits on a converging loop, each finding
+> smaller than the last; **round 6 is the LAST fix-on-sight round from this session** — from here anything
+> that is not a P1 is FILED to OPEN-ITEMS, not fixed, and the PR merges on the owner's call. The round-3
 > evidence (the touched families through `verify:slice --only=` on `8624af0`: `undo-grace` 7 ·
 > `checkout-verb` 9 · `checkout/` 12 caught, none surviving). Round 4+ is fix-on-sight or filed. ⚠️ **CODEX'S QUOTA LAPSED AND RETURNED (2026-10-04):** the app answered the `8624af0` push at 08:41 UTC with
 > "You have reached your Codex usage limits for code reviews" (so `codex-review` sat red with no review to
@@ -391,9 +395,9 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 > - **QR prod migrations:** one file at a time via the Supabase MCP `apply_migration`, verified;
 >   never `db push` (M125).
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6451 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6453 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ✅ Phase 2i — staff screens take new builds without losing work — MERGED (PR #311, 2026-10-02, on the owner's go)
 >
@@ -452,9 +456,9 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 > reviewed" the merge head → triage (round 3+: fix-on-sight only) → merge on the owner's go. **Then
 > Phase 2i** (P2bi — needs the Skew Protection answer), **then Phase 3 — production signals.**
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6451 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6453 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-10-01 · Phase 2g — the counter screen keeps its promises — on branch `claude/inspiring-cori-4rf37k`, PR #309)
 >
@@ -491,9 +495,9 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 > row that refuses with a named reason, idle auto-apply — and the Skew Protection question for the
 > owner. **Then Phase 3 — production signals** (photos, live Stripe keys, RUM).
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6451 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6453 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-30 · Phase 2f — counter orders cook before they're paid — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -669,9 +673,9 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > `FloorDetailLive.tsx`, `CounterSplit.tsx`. **Then Phase 3 — production signals** (photos, live
 > Stripe keys, RUM).
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6451 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
+> · 6453 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
 > `verify:slice` run with the gate at this head is not recorded here. `--no-gate --only=` runs: the
 > build's `p2f-lib/` + `p2f-ui/` 84 of 84 caught on the merged tree at the integration (the four
 > `p2f-ui/floor-detail/*` had first run against a local stub in the ui worktree); the review areas'
@@ -760,8 +764,8 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >   that reaches a control, or leads up to one — rule 4d resolves the `href` (and `paneHref`) to the
 >   page it opens — or it is red.
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
-> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6451 qr tests + 287 ui tests · `check:docs`
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6453 qr tests + 287 ui tests · `check:docs`
 > clean · `check:mutant-anchors` clean. The full 1446-mutant `verify:slice` run with the gate at this
 > head is not recorded here; the lang branch's `--no-gate --only=p2e-lang` run killed all 49
 > mutants it added, and each review area's `--no-gate --only=p2e-rev/` run caught all of its own
@@ -823,7 +827,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > mutate set unchanged (180); no new words. Filed **M238** (the line read in ONE statement — a prod
 > migration, the RPC drafted in the row) and **P2eq–P2es**; P2em narrowed.
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-25 · Phase 2c — the order pad, the register's cash moment and the settle gate — on branch `claude/inspiring-cori-4rf37k`)
@@ -856,7 +860,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > P2ck changed; new **P2cv–P2db** (two med: an add racing the settle freeze — a migration — and a
 > hung `settleCash` trapping the cash sheet); 6 more Burmese keys (4 K15-HIGH) + one re-draft on K15.
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
@@ -1090,7 +1094,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -1167,7 +1171,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 3031 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **Gate today:** 3033 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
 > **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
@@ -1807,8 +1811,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **3031 `verify:slice` mutants** · **258 target modules** (175 under `apps/qr/lib`, 4 API routes,
-> 76 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6451 + 287 today)** ·
+> **3033 `verify:slice` mutants** · **258 target modules** (175 under `apps/qr/lib`, 4 API routes,
+> 76 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6453 + 287 today)** ·
 > 103 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -2277,7 +2281,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (3031 today)**, **1372 qr + 138 ui tests at the time (6451 + 287 today)**, 69 target modules at the time (175 under `apps/qr/lib` today, 258 in all), 97 local
+> **334 mutants at the time (3033 today)**, **1372 qr + 138 ui tests at the time (6453 + 287 today)**, 69 target modules at the time (175 under `apps/qr/lib` today, 258 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -3169,7 +3173,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 3031 `verify:slice` mutants green · `pnpm check:docs` clean (103 files, 6451 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3033 `verify:slice` mutants green · `pnpm check:docs` clean (103 files, 6453 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3891,7 +3895,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (3031 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (3033 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

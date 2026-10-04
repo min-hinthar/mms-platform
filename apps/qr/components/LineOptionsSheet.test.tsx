@@ -128,6 +128,30 @@ describe("LineOptionsSheet — where the dish goes", () => {
     expect(within(dialog).getByRole("button", { name: /Send to kitchen now/i })).toBeTruthy();
   });
 
+  it("while 'Send to kitchen now' is held, the pills are UNAVAILABLE too — aria-disabled, dimmed, a tap reaches nothing (Codex round 6 on #313)", async () => {
+    const fire = deferred<void>();
+    const onMakeNow = vi.fn(() => fire.promise);
+    const { dialog, onChoose } = mount({ line: { ...LINE, fulfillment: "togo" }, onMakeNow });
+    const forHere = within(dialog).getByRole("button", { name: "For here" });
+    expect(forHere.getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: /Send to kitchen now/i }));
+    });
+    // MUTATION (line-sheet/pills-live-under-a-held-send): `busy` dropped from the pills' unavailable
+    // state — a control advertised as live that silently discards the tap; red.
+    expect(forHere.getAttribute("aria-disabled")).toBe("true");
+    expect(forHere.hasAttribute("disabled")).toBe(false);
+    expect((forHere as HTMLElement).style.opacity).toBe("0.55");
+    fireEvent.click(forHere);
+    expect(onChoose).not.toHaveBeenCalled();
+    await act(async () => {
+      fire.resolve();
+      await fire.promise;
+    });
+    expect(forHere.getAttribute("aria-disabled")).toBeNull();
+    expect((forHere as HTMLElement).style.opacity).toBe("");
+  });
+
   it("the sheet's region carries the view's sentence", () => {
     const { dialog } = mount({
       notice: "That didn’t go through — the order’s locked while someone checks out",

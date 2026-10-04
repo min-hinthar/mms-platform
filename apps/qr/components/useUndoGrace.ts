@@ -91,6 +91,17 @@ export const RESYNC_FAILED_NOTE =
   "Brought back to your order — the list is taking a moment to refresh.";
 /** A failed re-sync is retried this many times in all, this far apart, with the gate still shut. */
 export const RESYNC_ATTEMPTS = 3;
+
+/**
+ * Did the host's re-sync put a view ON THE SCREEN? Only `readTicketed`'s `"applied"` says so — an
+ * `"overtaken"` read reached the server but lost the screen, and the watermark it lost to can have
+ * advanced WITHOUT a view (`confirmedWrite`: a counter ask during the re-sync), so the lines may still
+ * read `fired` (Codex round 6 on #313). A host whose `onChanged` returns nothing counts as applied —
+ * the contract for callers that do not report.
+ */
+export function viewApplied(outcome: unknown): boolean {
+  return outcome === undefined || outcome === "applied";
+}
 export const RESYNC_RETRY_MS = 750;
 
 export const reasonCopy: Record<
@@ -122,8 +133,9 @@ export function useUndoGrace(opts?: {
   /** Every outcome sentence, as it is decided — Checkout routes it to the view's one region. */
   say?: (m: GraceMessage) => void;
   /** Re-sync after every server attempt; a returned promise rides the write chain. A resolved
-   *  `"failed"` (Checkout's `refresh` — `readTicketed`'s outcome) means NO view was applied: the
-   *  hook retries and never closes the window on it. Any other value, or none, counts as applied. */
+   *  `"failed"` OR `"overtaken"` (Checkout's `refresh` — `readTicketed`'s outcome) means NO view
+   *  reached the screen: the hook retries and never closes the window on it. `"applied"`, or no
+   *  outcome at all, counts as applied (`viewApplied`). */
   onChanged?: () => void | Promise<unknown>;
 }): UndoGrace {
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the
@@ -184,7 +196,7 @@ export function useUndoGrace(opts?: {
         if (restoredRef.current !== target || deadlineRef.current === null) return;
         let applied = false;
         try {
-          applied = (await optsRef.current?.onChanged?.()) !== "failed";
+          applied = viewApplied(await optsRef.current?.onChanged?.());
         } catch {
           // The read's failure is its own; the next attempt asks again.
         }
@@ -323,7 +335,7 @@ export function useUndoGrace(opts?: {
           if (attempt > 0) await new Promise((r) => setTimeout(r, RESYNC_RETRY_MS));
           try {
             const r = await optsRef.current?.onChanged?.();
-            applied = r !== "failed";
+            applied = viewApplied(r);
           } catch {
             // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
           }

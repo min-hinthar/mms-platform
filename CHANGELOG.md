@@ -133,11 +133,22 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   to your order — the list is taking a moment to refresh." (J29 ledger). Mutant
   `undo-grace/landed-undo-released-at-the-deadline`; `tick-closes-a-window-mid-undo` re-anchored.
   3030 → 3031 mutants. LEARNINGS #228.
+- **Codex round 6 on #313 (two P2, both real, both fixed red-first — the last fix-on-sight round from
+  this session; the loop converges and does not terminate, so anything further that is not a P1 is
+  FILED).** (1) `readTicketed` answers `"overtaken"` for a read that reached the server but lost the
+  screen, and the watermark it lost to can advance WITHOUT a view (`confirmedWrite` — a counter ask
+  mid re-sync); the hook counted anything but `"failed"` as applied and opened the gate over lines that
+  still read fired. ONE predicate, `viewApplied` — `"applied"` or no outcome — in both the bounded loop
+  and the background retry (`undo-grace/overtaken-read-counts-as-applied`). (2) The ⋯ sheet's pills
+  discarded taps while "Send to kitchen now" was held but read live (`aria-disabled` and the dim
+  followed `frozen` alone): they are unavailable while `busy` too
+  (`line-sheet/pills-live-under-a-held-send`; `pills-live-under-a-freeze` re-anchored). 3031 → 3033
+  mutants.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 (3031 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 (3033 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6451 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6453 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
