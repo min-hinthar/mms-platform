@@ -58,9 +58,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
 > PR, `@codex review`.
 >
-> **The owed full `verify:slice` — DONE on the SIXTH attempt: `✓ verify:slice passed — 3033 mutants
-> caught, no orphans`, 10:48 → 14:31 UTC 2026-10-04 (3 h 43 min, ~14 mutants/min after the baseline
-> suites), in `.claude/worktrees/vs-full3` on `88e3961` (code-identical to the tip `18ee021`), detached
+> **The owed full `verify:slice` — DONE on the SIXTH attempt; the summary line reads
+> `✓ verify:slice passed — 3033 mutants caught, no orphans`. 10:48 → 14:31 UTC 2026-10-04 (3 h 43 min,
+> ~14 mutants/min after the baseline suites), in `.claude/worktrees/vs-full3` on `88e3961`
+> (code-identical to the tip `18ee021`), detached
 > and ESCORTED by two harness-tracked background Bash waits (`while kill -0 <pid>; do sleep 30; done` at
 > the tool's 2 h ceiling — the first expired at 1707 caught with the pid alive and was re-armed once;
 > the second saw the exit). Log `scratchpad/vs-full3.log`; the worktree is removed, the tree clean.**
