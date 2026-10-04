@@ -3065,7 +3065,9 @@ export function Checkout({
                       >
                         Made fresh when you check out — usually ready in about {prepMinutes} min.
                         {/* Names the control VERBATIM — moves with the button label (W19). */}
-                        {isDineIn ? " Want it sooner? Tap “Send to kitchen now.”" : ""}
+                        {isDineIn
+                          ? " Want it sooner? Tap ⋯ on the dish, then “Send to kitchen now.”"
+                          : ""}
                       </p>
                     )}
                   <ul
