@@ -19,6 +19,7 @@ import {
   encodeCartMode,
 } from "@/lib/order-noun";
 import { tabsMode } from "@/lib/diner-tabs";
+import { bounded } from "@/lib/write-ledger";
 
 /**
  * Cross-route wayfinding memory (M-nav). QR screens are otherwise islands: `mode` is a URL param on `/menu`
@@ -135,7 +136,9 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const registerDrain = useCallback((fn: (() => Promise<void>) | null) => {
     drainRef.current = fn;
   }, []);
-  const drain = useCallback(() => drainRef.current?.() ?? Promise.resolve(), []);
+  // Bounded (deep pass on #312): a hung Server Action behind the barrier left the Order tab
+  // `aria-busy` and dead for as long as the request hung; after the deadline the navigation goes.
+  const drain = useCallback(() => bounded(drainRef.current?.() ?? Promise.resolve()), []);
 
   // Runs on every route/param change: persist fresh URL signals, capture a new live order on the /track
   // success landing, and hydrate the stored order once. Reads are sync; state writes ride a single rAF.
@@ -151,12 +154,26 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     // a transient reading, a diner who opened /dine-in with a grocery basket remembered and tapped
     // Account before picking a table saw the basket and "Market" return on /account, where the route
     // implies nothing and the stale stored door won.
-    const chosenMode = urlMode ?? tabsMode(pathname, null);
+    const routeDoor = tabsMode(pathname, null);
+    const chosenMode = urlMode ?? routeDoor;
     try {
+      // A pointer written before 3b has no `<cartId>:<mode>` pair, so `cartForDoor` offered it on
+      // every door — the defect the pair exists to end, live on every already-deployed device until
+      // that cart was republished. It learns its door ONCE here, from the mode the device remembered
+      // BEFORE this run overwrites it (deep pass on #312).
+      const prevMode = localStorage.getItem(KEY_MODE);
+      const storedCart = localStorage.getItem(KEY_CART);
+      if (
+        storedCart &&
+        prevMode &&
+        CART_DOORS.has(prevMode) &&
+        decodeCartMode(localStorage.getItem(KEY_CART_MODE), storedCart) === null
+      )
+        localStorage.setItem(KEY_CART_MODE, encodeCartMode(storedCart, prevMode));
       if (chosenMode) localStorage.setItem(KEY_MODE, chosenMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
       nextMode = chosenMode ?? localStorage.getItem(KEY_MODE);
-      nextCart = urlCart ?? localStorage.getItem(KEY_CART);
+      nextCart = urlCart ?? storedCart;
       // The remembered cart is offered only on the door it was published through (Codex round 2 on
       // 3b): the diner who leaves the market for /dine-in or the to-go menu stands in another door,
       // and its Order tab must not open the grocery basket while that door's cart is still minting
@@ -167,6 +184,15 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       // owns it still does.
       if (!urlCart) {
         const door = decodeCartMode(localStorage.getItem(KEY_CART_MODE), nextCart);
+        // On a NEUTRAL route (one that is no door and names no `?mode=`) a LIVE remembered cart —
+        // something in it, or a count this device cannot know — is the diner's order, and its door
+        // is the diner's door: a glance at the table picker must not orphan three items behind "No
+        // order on this device yet". An EMPTY cart is not an order, so the door chosen last stands
+        // (deep pass on #312).
+        if (!chosenMode && door && nextCart) {
+          const liveCount = decodeCartCount(localStorage.getItem(KEY_CART_COUNT), nextCart);
+          if (liveCount !== 0) nextMode = door;
+        }
         nextCart = cartForDoor(nextCart, door, tabsMode(pathname, nextMode));
       }
       // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.

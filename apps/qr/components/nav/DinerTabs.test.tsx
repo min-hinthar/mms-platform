@@ -14,22 +14,39 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(search),
 }));
 const push = vi.fn();
-vi.mock("./TransitionNav", () => ({
-  useJourneyRouter: () => ({ push }),
-  TransitionLink: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string;
-    children?: React.ReactNode;
-    [k: string]: unknown;
-  }) => (
-    <a href={href} {...(rest as object)}>
-      {children}
-    </a>
-  ),
-}));
+vi.mock("./TransitionNav", async () => {
+  // The mock keeps the ONE rule of the real grammar that this bar's drain depends on: an in-tab click
+  // bumps the epoch AFTER the consumer's handler ran and only if that handler did not take the
+  // navigation over (deep pass on #312 — a bare `<a>` here let a double tap pass while the shipped
+  // bar navigated zero times).
+  const { navEpoch } = await vi.importActual<typeof import("@/lib/nav-epoch")>("@/lib/nav-epoch");
+  return {
+    useJourneyRouter: () => ({ push }),
+    TransitionLink: ({
+      href,
+      children,
+      onClick,
+      ...rest
+    }: {
+      href: string;
+      children?: React.ReactNode;
+      onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+      [k: string]: unknown;
+    }) => (
+      <a
+        href={href}
+        {...(rest as object)}
+        onClick={(e) => {
+          onClick?.(e);
+          const inTab = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+          if (inTab && !e.defaultPrevented) navEpoch.bump();
+        }}
+      >
+        {children}
+      </a>
+    ),
+  };
+});
 const drain = vi.fn<() => Promise<void>>();
 const store = {
   cartId: "c1" as string | null,
@@ -150,11 +167,21 @@ describe("DinerTabs", () => {
     release();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/cart?cart=c1"));
     expect(order.getAttribute("aria-busy")).toBeNull();
-    // A second tap during the drain is one navigation, not two.
-    drain.mockReturnValue(new Promise<void>(() => {}));
+    // A second tap during the drain is ONE navigation, not two — and not zero: the impatient
+    // re-tap must neither start a second drain nor cancel the first (deep pass on #312).
+    push.mockClear();
+    let release2!: () => void;
+    drain.mockReturnValue(
+      new Promise<void>((r) => {
+        release2 = r;
+      }),
+    );
     fireEvent.click(order);
     fireEvent.click(order);
     expect(drain).toHaveBeenCalledTimes(2);
+    release2();
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith("/cart?cart=c1");
   });
   it("on /track with nothing left to open, the lit Order tab is a self-link to the tracker's own URL (blind pass on 3b)", () => {
     pathname = "/track";

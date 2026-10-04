@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
 import { navEpoch } from "@/lib/nav-epoch";
+import { bounded } from "@/lib/write-ledger";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
@@ -96,7 +97,7 @@ export function CartBar() {
         // another door that merely STARTED one leaves this bar mounted for a beat. The epoch moves
         // at the start.
         const epoch = navEpoch.current();
-        void settled().finally(() => {
+        void bounded(settled()).finally(() => {
           if (!alive.current) return; // the bar is gone — the diner already left another way
           setLeaving(false);
           if (navEpoch.current() !== epoch) return; // another navigation started first — it wins

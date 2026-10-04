@@ -129,8 +129,15 @@ export function dinerTabs(s: {
     {
       key: "menu",
       label: mode === "scango" ? "Market" : "Menu",
-      // On the threshold, "up" is the doors (D8) — the route has entered no menu to return to.
-      href: isThreshold(s.pathname) ? "/" : menuHref(mode),
+      // On the threshold, "up" is the doors (D8) — the route has entered no menu to return to. A
+      // remembered dine-in door with NO cart published through it means no table was entered yet, so
+      // Menu leads to the picker — never the code-free `/menu?mode=dinein`, the numberless host-start
+      // J15 retired (deep pass on #312).
+      href: isThreshold(s.pathname)
+        ? "/"
+        : mode === "dinein" && !s.cartId
+          ? "/dine-in"
+          : menuHref(mode),
       badge: null,
       current: active === "menu",
     },
@@ -145,7 +152,9 @@ export function dinerTabs(s: {
     {
       key: "account",
       label: "Account",
-      href: "/account",
+      // The same rule as Order's: a LIT tab's href is where you are, query included — the bare
+      // `/account` would re-render the hub on its default panel under a tab that said "you are here".
+      href: active === "account" ? (s.here ?? "/account") : "/account",
       badge: s.stars !== null && s.stars > 0 ? s.stars : null,
       current: active === "account",
     },

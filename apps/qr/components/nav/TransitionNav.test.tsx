@@ -12,7 +12,11 @@ import { navEpoch } from "@/lib/nav-epoch";
 const pathname = "/menu";
 const routerPush = vi.fn();
 const routerReplace = vi.fn();
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
+let search = "";
+vi.mock("next/navigation", () => ({
+  usePathname: () => pathname,
+  useSearchParams: () => new URLSearchParams(search),
+}));
 vi.mock("next-view-transitions", () => ({
   Link: ({
     href,
@@ -64,9 +68,27 @@ describe("the navigation grammar bumps the epoch when a navigation STARTS", () =
     expect(routerPush).toHaveBeenCalledWith("/cart");
     expect(seenAtPush).toBe(a + 1); // the bump is synchronous and precedes the push
   });
-  it("the browser's Back (popstate) bumps", () => {
+  it("a click whose handler takes the navigation over (preventDefault) does NOT bump — the Order tab's own second tap must not cancel its first (deep pass on #312)", () => {
+    render(
+      <TransitionLink href="/cart" onClick={(e) => e.preventDefault()}>
+        Order
+      </TransitionLink>,
+    );
+    const a = navEpoch.current();
+    fireEvent.click(screen.getByRole("link"));
+    expect(navEpoch.current()).toBe(a);
+  });
+  it("the browser's Back (popstate) bumps when the ROUTE moved — not for a hash-only history walk (deep pass on #312)", () => {
+    search = "";
+    window.history.replaceState(null, "", "/menu");
     render(<NavDirectionSync />);
     const a = navEpoch.current();
+    // An aisle shelf closing: `history.back()` over a `#aisle-*` entry — same pathname, same search.
+    window.history.replaceState(null, "", "/menu#aisle-noodles");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(navEpoch.current()).toBe(a);
+    // A real Back: the location's path or query changed.
+    window.history.replaceState(null, "", "/cart");
     window.dispatchEvent(new PopStateEvent("popstate"));
     expect(navEpoch.current()).toBe(a + 1);
   });

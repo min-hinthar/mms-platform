@@ -38,3 +38,25 @@ export function createWriteLedger(): WriteLedger {
     size: () => inflight.size,
   };
 }
+
+/**
+ * The deadline on a drain a NAVIGATION awaits (deep pass on #312). A `settled()` barrier is only as
+ * finite as the slowest write behind it, and a `"use server"` action on a dying mobile radio can hang
+ * for as long as the OS keeps the socket half-open — minutes. Behind the Order tab, CartBar and the
+ * market's Check out that meant `aria-busy` forever and every further tap swallowed. After the
+ * deadline the navigation goes: a write hung this long is dead, and /cart's own read is the truth.
+ */
+export const DRAIN_MAX_MS = 8000;
+
+/** Resolve when `p` settles or when `ms` has passed — whichever first. Never rejects: a drain's
+ *  outcome is not the caller's error, and the write keeps its own promise. */
+export function bounded(p: Promise<unknown>, ms: number = DRAIN_MAX_MS): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    p.then(done, done);
+  });
+}

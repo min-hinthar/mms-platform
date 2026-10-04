@@ -43,7 +43,7 @@ import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 import { usePublishCart, useRegisterDrain } from "@/components/ActiveOrderProvider";
-import { createWriteLedger } from "@/lib/write-ledger";
+import { bounded, createWriteLedger } from "@/lib/write-ledger";
 import { navEpoch } from "@/lib/nav-epoch";
 import { scanBasketReady } from "@/lib/camera-state";
 
@@ -900,7 +900,7 @@ export default function Grocery() {
     // at once when nothing is pending, so the ordinary tap stays instant.
     leavingRef.current = true;
     const epoch = navEpoch.current();
-    void ledger.settled().finally(() => {
+    void bounded(ledger.settled()).finally(() => {
       leavingRef.current = false;
       // The shopper may have taken the Menu or Account tab while the write drained: this page is then
       // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b)
