@@ -2372,3 +2372,41 @@ Decided in `lib/diner-tabs.ts` (`orderTab` · `activeDinerTab` · `isThreshold`)
   headline reads the dictionary's `paidThankYou` pair, EN first, `lang="my"` beneath. A proposed
   "peaks rule" (Burmese leading at hello and thank-you) is a register bet, parked as a K15 question.
   Every PR's Burmese drafts go into ONE K15 ledger row, reviewed one native round per phase.
+
+## 32 · One hero verb per state; the bill is readable, only money waits; a grid is offered only off the table (Phase 3c-i)
+
+Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLabel` · `payBlockCopy`),
+`components/useUndoGrace.ts` (the grace as a value Checkout owns) and `lib/table-pick.ts`
+(`tableGridOffered` · `tableChipAction` · `dineInMenuHref`); drawn by `Checkout`, a controlled
+`SendToKitchenButton`, `LineOptionsSheet`, `TableGrid` inside `DoorSheet`. Contract:
+`docs/PHASE3C_DESIGN.md` (D13–D20).
+
+- **One hero verb per state — and reversing is never the hero.** The Order stage draws exactly one
+  filled `.checkout-cta` or none: Send while the host still has drafts; the outline Undo alone during
+  the grace; the receipt's Total door once everything is with the kitchen. Two verbs side by side with
+  no state between them (J23's "Send to kitchen" beside "View bill & pay") is the shape this rule
+  forbids, and so is a filled Send on the Bill beside a dimmed Pay.
+- **The bill is readable; only money waits.** The undo grace used to live in the Send button's own
+  state, so a stage flip destroyed it and Checkout locked the Bill door for ten seconds to protect it.
+  The grace is Checkout's now; the Total door is always open (reading is not a write); Pay is the one
+  control that waits, `aria-disabled` with its reason beside it, and `continueToPayment` drains the
+  grace's writes, re-decides on the view that won, and only then mints. Forward into the Bill is always
+  honoured.
+- **Pay keeps its name and states its one reason.** The label is always `Pay · $X`; the reason rides a
+  static `aria-describedby` sentence and is re-said on every blocked tap. Precedence is peer > unsent >
+  grace: a tablemate's lock is the widest fact, and the Send still owed outranks the grace it would
+  reopen — a reason that names the wrong next action is a promise the code does not keep.
+- **The receipt foot IS the door, named once.** `orderTotalCents` is one binding (W17) read by the Total
+  door and the Bill hero; the door's name says what the next screen will allow — "View bill" while Pay
+  is held, "View bill & pay" only when nothing holds it. Phrasing content inside a `<button>`, never a
+  `<dl>`. A line is a receipt row: the per-line choices live behind one ⋯ sheet, subject-keyed, closing
+  itself when the line stops being draft; a fire is one-way for the guest who tapped it, so the sheet
+  is GUARDED (busy while the write runs), never excused as reversible; the lit-gold cap stays on the
+  pills alone.
+- **A grid is offered only OFF the table.** A `?table=N` claim deliberately does not reuse the
+  persisted code and MINTS a new session (`useTableSession`), so a table grid at a live dine-in session
+  would promise a table change and deliver a new order over this phone's drafts. `tableGridOffered` is
+  the rule, its mutant the guard; the DoorSheet on the to-go menu hosts the grid as a SECTION ("Pick
+  your table / စားပွဲ ရွေး", v7.2's words) with the join form inline — never a second sheet — and
+  `mode_selected` fires on the taps that enter the door, never on a section revealed or a seated chip's
+  code ask.

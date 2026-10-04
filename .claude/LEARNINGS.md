@@ -3438,3 +3438,43 @@ suites for nine edited files and CI ran the 390th. Before any push: `grep -rl "<
 apps/qr --include=*.test.tsx --include=*.test.ts` for every touched module, and when in doubt the full
 `pnpm exec vitest run` (100 s locally) — it is what CI runs, and it is cheaper than a red head mid-
 review.
+
+## #222
+
+**A mutant on an UNREACHABLE clause survives — re-aim at the clause that does the work, never delete
+it.** 3c-i's brief asked for `checkout/line-sheet-offered-on-a-fired-line` as "drop `lineState ===
+"draft"` from the ⋯ gate"; the builder watched it SURVIVE: `canMutateLine` already returns false for
+every non-draft line when the actor is a diner, so no input reaches the clause. The W17 rule ("a guard
+that cannot be reached is decorative") cuts both ways — the mutant proved the clause decorative, and
+the behaviour the brief cared about (no ⋯ on a fired line, none on a tablemate's) lives in `canEdit`.
+Re-aimed there with a guest fixture, it went red. A surviving mutant is information about the CODE's
+structure; read it before touching the fixture.
+
+## #223
+
+**A brief's `file:line` citation is a claim to verify, not a fact — including the lead's.** The 3c-i
+doors brief cited a `.table-start-plain` rule at `globals.css:7252-7349`; no such rule exists anywhere
+(the class is a hook on the button, styled by an inline object), and the Checkout brief's test-file
+line numbers were off by a few lines at the base. Both builders verified every citation against source
+before acting and reported the misses as deviations — which is the only reason nothing was built on
+them. The panel that writes a brief reads one checkout; the builder reads another; the citation is the
+hand-off's weakest link, so the brief must say "verify each line" and the builder must.
+
+## #224
+
+**Concurrent Bash calls share one working directory — a `cd` into a subdirectory in one call moves the
+others.** A test run that did `cd ../../packages/ui` at its end moved a parallel fast-lane loop into
+`packages/ui`, where every `pnpm -s check:*` failed with exit 1 and empty output and `node
+scripts/check-test-env.mjs` printed a Node version banner. The loop's leading `cd /home/user/mms-platform
+&&` did not save it. Run subdirectory commands in a subshell — `(cd apps/qr && …)` — and never trust an
+all-red fast lane that produced no text: re-run it alone before reading anything into it.
+
+## #225
+
+**A tool that reads a child process's whole output has a buffer, and a growing suite will cross it.**
+`check-docs.mjs` ran `vitest list` through `execFileSync` with the 1 MB default `maxBuffer`; at 6437
+long-named cases the list crossed it and the check died with ENOBUFS, dumping the list to stderr.
+`check:docs` is step ONE of the lane under `bash -e`, so this would have reddened `build` on the first
+push that grew the suite past the line, with a stack trace that looks nothing like "docs". Size every
+`execFileSync`/`execSync` buffer for the output it can grow to (64 MB here), and read an unfamiliar
+`child_process` stack trace as "too much output" before anything else.

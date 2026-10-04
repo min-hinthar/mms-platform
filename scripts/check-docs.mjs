@@ -473,6 +473,10 @@ export function measure(root) {
       cwd: path.join(root, dir),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      // 3c-i: the qr list crossed execFileSync's 1 MB default (6437 long-named cases) and the check
+      // died with ENOBUFS — step ONE of the lane, so a growing suite would have reddened `build` on
+      // its own. Sized far past any suite this repo will carry.
+      maxBuffer: 64 * 1024 * 1024,
     })
       .split("\n")
       .filter((l) => l.includes(" > ")).length;

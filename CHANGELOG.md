@@ -4,6 +4,70 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3c-i — the bill is a receipt you can read (2026-10-04)
+
+**The owner's ask:** "continue good work" after 3b. The dine-in `/cart` audit (`docs/PHASE3_JOURNEYS.md`,
+J23) found two verbs side by side with no state between them, a ten-second undo that locked the Bill
+door, a Pay button that renamed itself to its refusal, and a table picker that was a second route.
+Contract: `docs/PHASE3C_DESIGN.md` (D13–D20), written by a nine-agent panel (two mappers · four blind
+proposers · two judges · one synthesizer; both judges chose the hero-verb design independently). Built
+as two disjoint worktree slices by two engineers, red-first, squashed by the lead (0db85c3 · 595c605 · e5b249f).
+
+- **One hero verb per state (D13, `lib/checkout-verb.ts`).** `orderStageHero` → `send` (the host with
+  drafts) · `undo` (the grace — reversing is never the hero) · `bill` (everything sent; a guest with
+  drafts; a hostless table). The Order stage draws exactly one `.checkout-cta` or none; the three ad-hoc
+  gates and the class ternary collapsed into one call (`checkout/two-heroes-on-the-order-stage`).
+- **The grace lives in Checkout; the bill is readable; only Pay waits (D15, `components/useUndoGrace.ts`).**
+  The undo window used to be `SendToKitchenButton` state, so a stage flip destroyed it and the Bill door
+  was shut for ten seconds. The hook owns the deadline, the batch, the 250 ms tick and `graceWrites` (a
+  serialized chain that never rejects); `SendToKitchenButton` is controlled and presentational and LOST
+  its private `role=status` — one live region per view, the double region finding 3 named. `reasonCopy`
+  and `FROZEN_NOTE` moved into the hook (a hook importing a component inverts the dependency).
+- **Pay keeps its name and states its one reason (D16).** `payBlock` → `peer` > `unsent` > `grace` (the
+  Send still owed outranks the grace it would reopen — a judge's mustNot on the inverted order); the
+  label is always `Pay · $X`, the reason rides a static `aria-describedby` sentence and is re-said on
+  every blocked tap; `continueToPayment` drains `graceWrites`, re-decides on the view that WON, then
+  mints (`checkout/pay-mints-over-an-in-flight-undo`, `checkout/pay-decides-before-the-drain`). "Ready
+  to pay." is said once, only when the grace ELAPSED with nothing else holding Pay.
+- **The receipt foot IS the door, named once (D14).** `orderTotalCents` is the one binding the Total door
+  and the Bill hero read (`checkout/total-door-drops-the-previewed-tip`); the door's name is "View bill"
+  while Pay is held and "View bill & pay" only when nothing holds it (`billDoorLabel`); phrasing content
+  in a `<button>`, never a `<dl>`; `.checkout-viewbill` retired in every reference (six in
+  `globals.css`, one in Checkout — measured). The door sits under the dishes and above the verb, v7.2's
+  Total → CTA order.
+- **The line is a receipt row (D17, `components/LineOptionsSheet.tsx`).** For here / To go and "Send to
+  kitchen now" live behind a 44px ⋯ in ONE subject-keyed sheet that closes when the line stops being
+  draft; `makeNow` is no longer optimistic — a fire is one-way for the guest who tapped it, so the sheet
+  awaits it bounded with `busy` and joins `sheet-busy-callers`' GUARDED list. The to-go prep line now
+  says "Tap ⋯ on the dish, then “Send to kitchen now.”" (it named a control no longer on the card).
+- **The grid is a SECTION, offered only OFF the table (D18, `lib/table-pick.ts`).** `tableGridOffered`
+  (a `?table=N` claim mints a NEW session — `useTableSession.ts:147-150` — so a grid at a live table
+  would orphan this phone's drafts), `tableChipAction` (mine beats seated), `dineInMenuHref` (the four
+  hand-built hrefs, byte-identical). `TableGrid` extracted verbatim; `TablePicker` keeps its join Sheet
+  (`/dine-in` unchanged); the DoorSheet on the to-go menu renders "Pick your table / စားပွဲ ရွေး"
+  (v7.2:495) with an INLINE join form (`Field` + one Join; `aria-disabled`, never native; focus → the
+  code input; reset on the next OPEN); `mode_selected` fires on the taps that ENTER the door (claim ·
+  resume · host-start · Join), never on open or on a seated chip's reveal; `table_picked` carries
+  `source`. The market gets no grid in 3c-i (J30).
+- **Forward into Bill is always honoured (D19).** `onHistoryPop` lost `canBill`;
+  `checkout-history/forward-into-bill-refused` REPLACES the stale `forward-walks-past-the-undo-window`.
+- **The SQL hole is FILED, not built (D20 → M258).** `mms_undo_fire` has no `locked` guard in any
+  redefinition; the one-phone case is closed by the drain, the two-device race needs a prod migration.
+- **Builders' deviations, accepted by the lead:** the briefed ⋯-gate mutant (drop `lineState === "draft"`)
+  SURVIVED — `canMutateLine` subsumes it for a diner — so it is re-aimed at `canEdit`, the clause that
+  does the work (LEARNINGS #222); `undoBtnRef` is a callback ref (the React Compiler lint read a
+  RefObject's every `grace.*` as a ref access); `payOpensAfterUndo` joins `CART_MONEY_KEYS`; the brief's
+  `.table-start-plain` rule citation was wrong (no such rule exists — LEARNINGS #223).
+- **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
+  re-anchored + 1 replaced (2999 → 3023 over 258 files: lib 175 · components 76 — measured), every
+  touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
+  surviving or stale, the tree clean after each; full qr suite 6437 + 287 ui; `check:mutant-anchors` ·
+  the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
+  `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
+  growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
+  (`viewBill`, `payOpensAfterUndo`), ledgered in the K15 row. Filed: M258 · M259 · J30 · J31 · J32; the
+  blind pass's verdict is on the PR.
+
 ### Deep pass on #312 — the blind review the merge did not wait for (2026-10-04)
 
 **The owner's ask:** "deep pass, merge all, continue good work." #312 (3a + 3b) merged by the owner's

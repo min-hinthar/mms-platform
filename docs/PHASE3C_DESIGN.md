@@ -1,5 +1,17 @@
 # Phase 3c-i — the bill is a receipt you can read (2026-10-04)
 
+> **BUILT 2026-10-04** — Slice A `0db85c3` · Slice B `595c605` · the lead's integration `e5b249f`; the
+> CHANGELOG entry "Phase 3c-i" is the record. Builders' deviations the lead accepted as refinements of
+> this contract: `makeNow` is no longer optimistic (a fire is one-way — the ⋯ sheet awaits it bounded,
+> `busy` raised, GUARDED in `sheet-busy-callers`); the ⋯-gate mutant is aimed at `canEdit` (the briefed
+> `lineState` clause is unreachable for a diner — `canMutateLine` subsumes it, LEARNINGS #222);
+> `undoBtnRef` is a callback ref; `reasonCopy`/`FROZEN_NOTE` live in the hook; `payOpensAfterUndo` joins
+> `CART_MONEY_KEYS`; "Ready to pay." is spoken only when the grace ELAPSED with nothing else holding
+> Pay; `mode_selected` fires on the taps that ENTER the door (claim · resume · host-start · Join), not on
+> a seated chip's code ask; the inline join form is `Field` + one Join (`aria-disabled`, reset on the
+> next OPEN); `.table-start-plain` has no CSS rule (the brief's citation was wrong, LEARNINGS #223).
+> Filed from the build: M258 (D20) · M259 · J30 · J31 · J32.
+
 **The brief.** Four blind proposals and two judges read the as-built dine-in `/cart` after 3b; both
 judges chose the same proposal independently and named the same grafts. This PR ships the dine-in
 CHECKOUT half of row 3c (`docs/PHASE3_JOURNEYS.md`; OPEN-ITEMS J22 · J23): one hero verb per state,
