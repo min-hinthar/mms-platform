@@ -87,6 +87,15 @@ below was pinned red-first; 17 new mutants, 5 re-anchored; four modules joined t
   so a far slot re-arms) drives a re-render at the boundary (`slot-boundary-uncapped`,
   `slot-at-now-still-waits`). The two new sentences are English-only (the M80/M213 class; J29 notes
   them). Mutants 2994 → 2999.
+- **Codex round 2 on #313 (one P2, one P3 — both verified and fixed, red-first).** (P2) On a table or
+  invite URL (`/menu?mode=dinein&t=…`) the cart is null until the mint lands and `CartPublisher`
+  publishes, and the deep pass's picker fallback turned the CURRENT Menu tab into `/dine-in` for
+  exactly that window — a re-tap abandoned the scanned flow. A lit Menu tab is now a self-link to where
+  you are (the Order and Account rule), the picker fallback holds off the menu
+  (`diner-tabs/lit-menu-tab-leaves-the-join`). (P3) The You panel's degraded line was gated on
+  `kind !== "anon"`, and `kind` is null when BOTH reads fail — an anonymous diner was promised a name and
+  an account switcher the server never established; the signed-in sentence now needs a positively known
+  diner or staff member, and the unknown case gets the Orders panel's neutral form. Mutants 2999 → 3000.
 
 ### Phase 3b — three places, one order (2026-10-03)
 
