@@ -24,7 +24,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > merge, not per slice — the cross-slice findings (a persisted door orphaning a live cart; a same-
 > pathname door switch keeping the table's cart alive) were invisible to any one slice's pass. And a
 > `useSearchParams` mock that hands out a fresh object per render re-runs route effects per render and
-> masks mutants — one URLSearchParams per URL, as Next hands it out.
+> masks mutants — one URLSearchParams per URL, as Next hands it out. **And the owner's verdict on the
+> pass itself (2026-10-04, LEARNINGS #218): "pass should never be that deep, codex level adversarial
+> review is fine if codex red" — the full diff, at the HARD CAP; a further adversarial round only when
+> Codex comes back red.** 3c-i's review runs that way.
 >
 > **Still owed:** one FULL `verify:slice` on a merge head (every filtered family is caught; the whole
 > run — hours at ~10 mutants/minute — has not been watched to the end since 3a); the device checks in

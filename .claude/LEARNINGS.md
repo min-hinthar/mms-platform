@@ -3380,7 +3380,8 @@ CROSS-slice: Codex round 3's "persist the picker's door" (3b) orphaned every liv
 on neutral routes, and 3b's DoorSheet linked a same-pathname `/menu?mode=pickup` that kept 3a's
 `TableCartProvider` alive with the table's session — adds from the "To go" menu landed on the shared
 table bill. Neither slice's pass could see the other's assumption. A pass over the merge head is the
-only one that reads the whole contract — and it is what the owner asked for after the fact.
+only one that reads the whole contract. ⚠️ This is a rule about SCOPE, not depth: the pass that found
+them ran 103 agents, and the owner's verdict on it is #218 — the full diff, at the HARD CAP.
 
 ## #217
 
@@ -3391,3 +3392,15 @@ back-fill re-stamped a door the mutant had made the publisher forget, so
 `active-order/publish-forgets-the-door` SURVIVED with the suite green. Next hands out ONE
 URLSearchParams per URL; the mock must too (a cache keyed on the search string). The same shape hides
 in any mock that returns a new object from a hook used as an effect dependency.
+
+## #218
+
+**The review pass is capped, and the owner has now said so twice (2026-08-05, 2026-10-04: "pass should
+never be that deep, codex level adversarial review is fine if codex red").** The deep pass on #312 ran
+11 auditors + a coverage critic + 2–3 refuters per finding — 103 agents — and hit the weekly token
+limit with four refuters unrun. It found 53 real things, and that is not the point: the HARD CAP in
+CLAUDE.md (one pass · ≤3 lenses · ≤10 agents · ~15 min) is a budget the owner set over the cost of
+being right slowly. The rule now: the in-session pass covers the FULL PR diff (#216) at the cap;
+Codex is the second reviewer; and only a RED Codex round earns a further adversarial pass — one more
+capped pass over the files Codex named, never a fleet. "Deep pass" in an owner's message means the
+whole diff, not a bigger panel.
