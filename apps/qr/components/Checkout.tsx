@@ -544,6 +544,14 @@ export function Checkout({
   // boolean, so every CTA site below is untouched.
   const [payRequest, setPayRequest] = useState<{ freezeAtStart: CartFreeze } | null>(null);
   const loadingPay = payRequest !== null;
+  // Phase 3c-i (blind pass · concurrency) — the Pay door closes AT THE TAP. `loadingPay` lights only
+  // once create-intent is in flight, AFTER `continueToPayment`'s drain and decision; a second tap
+  // landing during that `await` ran a second drain, a second decision and a second mint. This is the
+  // state for the window before `loadingPay`: set synchronously in the handler (React flushes a
+  // discrete event's state before the next event is processed, so the button is `disabled` for the
+  // second tap) and cleared in the `finally` every exit shares. `payBusy` is what the button wears.
+  const [payDraining, setPayDraining] = useState(false);
+  const payBusy = loadingPay || payDraining;
 
   /**
    * Fold ONE server view into the screen — the ten setters, plus the ref the refusal latch reads.
@@ -1736,17 +1744,37 @@ export function Checkout({
   // refresh() re-syncs so the line shows its state chip (the ⋯ drops away once fired). Refusals are
   // handled exactly as on the toggle — see its comment for why only `busy` may be diagnosed (M230).
   //
-  // Phase 3c-i (D17) — NOT optimistic, and it RETURNS its promise: a fire is one-way for the guest who
-  // tapped it, so the ⋯ sheet awaits this BOUNDED (`boundWrite`, M82) with the sheet busy, and the
-  // chip changes only when the server's answer has landed in `refresh()`. Outside any transition —
-  // a transition's pending would hold the sheet's lock for as long as the raw action stays out.
-  async function makeNow(id: string): Promise<void> {
+  // Phase 3c-i (D17) — NOT optimistic, and it RETURNS THE RAW WRITE: a fire is one-way for the guest
+  // who tapped it, so the ⋯ sheet awaits what this returns BOUNDED (`boundWrite`, M82) with the sheet
+  // busy. The bound is on `makeItNow` ALONE (blind pass · concurrency): the ledger tracks whatever
+  // promise it is handed as a WRITE, and a composite of write + diagnosis read + re-sync kept a
+  // "write" young or stalled for as long as a READ took. The follow-through — the M230 diagnosis on
+  // a `busy` refusal, the watermark on an accept, the re-sync that drops the ⋯ once the line is
+  // fired — rides `settleMakeNow` beside it, off the bounded promise. One flight per line: a second
+  // tap while the first is still settling re-bounds the SAME write and fires nothing. Outside any
+  // transition — a transition's pending would hold the sheet's lock for as long as the raw stays out.
+  const makeNowInFlight = useRef(new Map<string, ReturnType<typeof makeItNow>>());
+  function makeNow(id: string): ReturnType<typeof makeItNow> {
+    const live = makeNowInFlight.current.get(id);
+    if (live) return live;
     const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
+    const action = makeItNow(id);
+    makeNowInFlight.current.set(id, action);
+    void settleMakeNow(id, gesture, action).finally(() => {
+      makeNowInFlight.current.delete(id);
+    });
+    return action;
+  }
+  async function settleMakeNow(
+    id: string,
+    gesture: number,
+    action: ReturnType<typeof makeItNow>,
+  ): Promise<void> {
     // `accepted` and `refused` are separate for the same reason as the toggle above.
     let accepted = false;
     let refused = false;
     try {
-      const r = await makeItNow(id);
+      const r = await action;
       accepted = r.ok;
       refused = !r.ok && r.reason === "busy";
     } catch {
@@ -1890,6 +1918,18 @@ export function Checkout({
   }
 
   async function continueToPayment() {
+    // ONE tap at a time — see `payDraining`. The door is state, not a ref: a ref alone would be
+    // invisible to the button, and the button is what the second tap meets.
+    setPayDraining(true);
+    try {
+      await payFlow();
+    } finally {
+      setPayDraining(false);
+    }
+  }
+
+  /** The flow itself: gate → DRAIN → DECIDE → MINT. Entered only through `continueToPayment`. */
+  async function payFlow() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
     // W21 — the pickup contact gate, locally first (same pure predicate create-intent runs, so
@@ -1925,7 +1965,17 @@ export function Checkout({
         undoInFlight: false,
       });
       if (after !== null) {
-        sayRefusal(payBlockCopy(after, { lockedByName, canSend: canSendToKitchen, hostName }));
+        // The peer's NAME from the same facts as the verdict (`f.lockedBy`), never this render's
+        // `lockedByName`: the decision is post-drain, and a lock that arrived during the drain has
+        // no name on the render that started it — "Waiting for Someone" beside a lock the view can
+        // name (blind pass · product truth).
+        const peer =
+          after === "peer"
+            ? (splitContext?.members.find((m) => m.seat === f.lockedBy)?.name ?? null)
+            : null;
+        sayRefusal(
+          payBlockCopy(after, { lockedByName: peer, canSend: canSendToKitchen, hostName }),
+        );
         return;
       }
     }
@@ -2349,20 +2399,30 @@ export function Checkout({
    * mounted: the dimmed Pay lighting up is otherwise silent to a reader parked on it. Only for an
    * ELAPSED window — an undo or an `expired` answer speaks for itself in the same commit, and the
    * undo's re-sync may put drafts back — and only when nothing else still blocks Pay (a guest's new
-   * drafts, a tablemate's lock): the sentence is a claim the next tap must keep.
+   * drafts, a tablemate's lock, a standing counter ask): the sentence is a claim the next tap must
+   * keep. The same edge is where the Undo unmounts, so it also puts lost focus back on the <h1>.
    */
   const prevGraceOpen = useRef(graceOpen);
   useEffect(() => {
     const was = prevGraceOpen.current;
     prevGraceOpen.current = graceOpen;
     if (!was || graceOpen) return;
+    // The Undo this window rendered has just unmounted (on either stage: the Order's hero changed, or
+    // the Bill's Undo went). A reader parked on it is on <body> now — land on the <h1>, the screen's
+    // one focus home (B4), and only when focus was in fact lost: never stolen from a control the
+    // diner moved to (blind pass · a11y).
+    if (focusWasLost()) headingRef.current?.focus();
     if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || block !== null) return;
+    // A standing counter ask is the Bill's hero already (`counterAsk` hides Pay): "Ready to pay." over
+    // it says the opposite of what the screen shows (blind pass · product truth).
+    if (counterAt != null) return;
     // Through a frame, like every other announcement on this screen: a synchronous `setState` in an
     // effect body is a cascading render the React Compiler lint rejects, and the region must be on
     // screen before its text changes.
     const frame = requestAnimationFrame(() => sayRefusal("Ready to pay."));
     return () => cancelAnimationFrame(frame);
-    // `sayRefusal`, `block`, `stage` and `onPay` are this render's; the edge is keyed on the window.
+    // `sayRefusal`, `block`, `stage`, `onPay` and `counterAt` are this render's; the edge is keyed on
+    // the window.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graceOpen]);
 
@@ -3064,9 +3124,11 @@ export function Checkout({
                         }}
                       >
                         Made fresh when you check out — usually ready in about {prepMinutes} min.
-                        {/* Names the control VERBATIM — moves with the button label (W19). */}
+                        {/* Names BOTH controls VERBATIM — the ⋯'s accessible name ("More for …") and
+                            the sheet's action; each moves with its label (W19). A reader hears
+                            "More", never a glyph. */}
                         {isDineIn
-                          ? " Want it sooner? Tap ⋯ on the dish, then “Send to kitchen now.”"
+                          ? " Want it sooner? Open “More” (⋯) on the dish, then tap “Send to kitchen now.”"
                           : ""}
                       </p>
                     )}
@@ -3155,7 +3217,8 @@ export function Checkout({
             {/* Phase 3c-i (D15) — the send's undo window follows the diner onto the Bill: ONE Undo
                 control at a time (the stages never co-render), above the receipt, so a flip
                 mid-grace keeps the undo without a second home. Focus is NOT stolen here — the <h1>
-                owns the flip; the hook parks focus on Undo only when the window OPENS. */}
+                owns the flip; the hook parks focus on Undo only when the window OPENS, and the grace
+                effect hands lost focus back to the <h1> when this Undo unmounts under a reader. */}
             {!settledClose && staged && stage === "bill" && graceOpen && (
               <SendToKitchenButton
                 cartId={cartId}
@@ -3693,8 +3756,9 @@ export function Checkout({
             {/* Phase 3c-i (D14) — the receipt foot IS the door. Under the dishes sits ONE 44px
                 button of PHRASING content only — "Total" / "Estimated total" (while a tip is
                 previewed) + MY + the amount + an aria-hidden arrow, never a <dl> — whose name is
-                `billDoorLabel(block) · $X`: "View bill · $X" while Pay is held, "View bill & pay · $X"
-                only when nothing blocks it (the door never promises a verb the next screen refuses).
+                `billDoorLabel(block) · $X` as the hero ("View bill & pay · $X" only when nothing blocks
+                Pay — the door never promises a verb the next screen refuses) and, quiet, its VISIBLE
+                label first — "Total · $X — View bill" (label in name, WCAG 2.5.3).
                 ALWAYS enabled — reading a bill is not a write, so no refusal and no "Hold on": the
                 send's undo window keeps its Undo on the Bill too (D15). While the bill is the hero
                 (`hero === "bill"`: everything sent, a guest with drafts, a hostless table) the SAME
@@ -3707,7 +3771,15 @@ export function Checkout({
                 <button
                   type="button"
                   onClick={goBill}
-                  aria-label={`${T(billDoorLabel(block))} · ${ctaTotal}`}
+                  // Label in name (WCAG 2.5.3 — blind pass · a11y): the QUIET door shows "Total · $X" (or
+                  // "Estimated total") and used to be named "View bill · $X" alone, so a voice user
+                  // saying the visible words missed it. Its name opens with the visible label and ends
+                  // with the verb; the hero's visible text IS the verb, so its name is its text.
+                  aria-label={
+                    hero === "bill"
+                      ? `${T(billDoorLabel(block))} · ${ctaTotal}`
+                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(billDoorLabel(block))}`
+                  }
                   className={`checkout-total-door${hero === "bill" ? " checkout-cta" : ""}`}
                 >
                   {hero === "bill" ? (
@@ -3819,8 +3891,8 @@ export function Checkout({
                     }
                     void continueToPayment();
                   }}
-                  disabled={loadingPay}
-                  aria-busy={loadingPay}
+                  disabled={payBusy}
+                  aria-busy={payBusy}
                   className="checkout-cta"
                   style={{
                     width: "100%",
@@ -3830,8 +3902,8 @@ export function Checkout({
                     border: "none",
                     fontWeight: "var(--fw-heavy)",
                     fontSize: "var(--fs-body)",
-                    cursor: loadingPay || block ? "default" : "pointer",
-                    opacity: loadingPay ? 0.7 : block ? 0.55 : 1,
+                    cursor: payBusy || block ? "default" : "pointer",
+                    opacity: payBusy ? 0.7 : block ? 0.55 : 1,
                   }}
                 >
                   {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the

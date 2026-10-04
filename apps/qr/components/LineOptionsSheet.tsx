@@ -56,7 +56,9 @@ export function LineOptionsSheet({
   /** A destination chosen — the parent closes the sheet and runs its optimistic toggle. */
   onChoose: (ful: "dinein" | "togo") => void;
   /** The raw fire, as the parent runs it (write → re-sync, or diagnosis). Awaited BOUNDED here. */
-  onMakeNow: () => Promise<void>;
+  /** The RAW `makeItNow` write — what `boundWrite` tracks and bounds; its answer is the parent's to
+   *  read (the sheet only waits), so the type is deliberately opaque. */
+  onMakeNow: () => Promise<unknown>;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
   const [busy, setBusy] = useState(false);

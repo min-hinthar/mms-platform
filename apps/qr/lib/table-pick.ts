@@ -5,13 +5,17 @@ import { currentDoor } from "./doors";
  * ONCE. Pure: every rule here is a value a test can falsify, and the components (`TableGrid`,
  * `DoorSheet`, `TablePicker`, `HomeSessionCard`, `JoinTable`) only wire these answers to the DOM.
  *
- * WHY THE GRID IS OFFERED ONLY OFF A DINE-IN SESSION (`tableGridOffered`). A `?table=N` claim
- * deliberately does NOT reuse the persisted dine-in code — `useTableSession.ts` sends the table
- * number and skips `resolveQrCode` ("on a fresh picker CLAIM (`?table=N`) … DON'T reuse a stale
- * persisted token") — and so MINTS a new session. A grid inside the sheet at a live dine-in
- * session, numbered or numberless, would therefore offer every chip as a way to orphan this phone's
- * drafts on the table it is sitting at. "Wrong table?" FROM a table is 3c-ii's `bindTable`, not a
- * second claim. The rule lives here, with a mutant, because a docblock cannot guard it.
+ * WHY THE GRID IS OFFERED ONLY OFF THE DINE-IN MENU (`tableGridOffered`). The rule reads the MENU's
+ * mode — the door this sheet is open on — not the phone's sessions. A `?table=N` claim deliberately
+ * does NOT reuse the persisted dine-in code — `useTableSession.ts` sends the table number and skips
+ * `resolveQrCode` ("on a fresh picker CLAIM (`?table=N`) … DON'T reuse a stale persisted token") —
+ * and so MINTS a new session. A grid inside the sheet ON the dine-in menu, numbered or numberless,
+ * would therefore offer every chip as a way to orphan this phone's drafts on the table it is
+ * sitting at. "Wrong table?" FROM a table is 3c-ii's `bindTable`, not a second claim. What the rule
+ * does NOT do (OPEN-ITEMS J33): a phone with a live dine-in session browsing the TO-GO menu is
+ * offered the grid and may claim another table — exactly the two taps `/dine-in` already allows it;
+ * closing that needs the session, which is 3c-ii's. The rule lives here, with a mutant, because a
+ * docblock cannot guard it.
  *
  * `doors.ts` stays verify:slice-exempt (a static table, no branch): the branch is HERE.
  */
@@ -94,4 +98,7 @@ export const JOIN_COPY = {
   label: "Table code",
   placeholder: "e.g. WXYZ1234",
   button: "Join",
+  /** The empty submit's refusal — on the FIELD (`aria-invalid` + the note), never silent (blind pass
+   *  on 3c-i · a11y: an `aria-disabled` Join still submits on Enter, and said nothing). */
+  missing: "Enter the table code to join.",
 } as const;

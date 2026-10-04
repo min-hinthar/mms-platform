@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 
 /**
  * Phase 3c-i (D15) — the send's undo window, lifted out of the leaf into a hook Checkout owns, so a
@@ -171,6 +171,67 @@ describe("useUndoGrace — the window", () => {
     expect(result.current.message?.text).toBe("Couldn’t undo that just now — please try again.");
     // Uncertain outcome: the window is left to expire on its own.
     expect(result.current.deadlineMs).not.toBeNull();
+  });
+
+  it("the window and `pending` stay until the re-sync LANDS — the answer is said at once, the state that gates Pay moves with the view", async () => {
+    h.undoFire.mockResolvedValue({ ok: true });
+    const sync = deferred<void>();
+    const onChanged = vi.fn(() => sync.promise);
+    const say = vi.fn();
+    const { result } = renderHook(() => useUndoGrace({ onChanged, say }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    // The server has answered — the sentence is out and the re-read has been asked — but the read
+    // has not landed.
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(say).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Brought back to your order — change it and send again." }),
+    );
+    // MUTATION (undo-grace/window-closes-before-the-re-sync): close and clear on the ANSWER — a
+    // render with the window shut, nothing pending and the lines still `fired`: Pay live over
+    // drafts the undo has just returned, for the whole round trip of the read; red.
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.pending).toBe(true);
+    expect(result.current.isOpen()).toBe(true);
+    expect(result.current.closedBy).toBeNull();
+    await act(async () => {
+      sync.resolve();
+      await undoPromise;
+    });
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.pending).toBe(false);
+    expect(result.current.closedBy).toBe("undone");
+  });
+
+  it("the tick never closes a window whose undo is still answering — the window ends on the read, not the clock", async () => {
+    vi.useFakeTimers();
+    const fire = deferred<{ ok: true }>();
+    h.undoFire.mockReturnValueOnce(fire.promise);
+    const { result } = renderHook(() => useUndoGrace());
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    // Past the deadline while the undo is in flight.
+    act(() => {
+      vi.advanceTimersByTime(10_500);
+    });
+    // MUTATION (undo-grace/tick-closes-a-window-mid-undo): the tick closes it as "elapsed" — the
+    // Bill says "Ready to pay." over an undo that is about to put the dishes back; red.
+    expect(result.current.remaining).toBe(0);
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.isOpen()).toBe(true);
+    expect(result.current.closedBy).toBeNull();
+    await act(async () => {
+      fire.resolve({ ok: true });
+      await undoPromise;
+    });
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("undone");
   });
 
   it("the 250 ms tick closes the window when it elapses, and is cleared on unmount", () => {

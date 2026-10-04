@@ -36,7 +36,8 @@ import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
  *    (blind pass on #300): otherwise the header kept offering "Your order" for the table just left.
  *
  * Phase 3c-i (D18) — THE TABLE GRID IS A SECTION OF THIS SHEET, never a second one. When the host
- * passes `tables` and `tableGridOffered(mode)` holds — i.e. OFF a dine-in session — a "Pick your
+ * passes `tables` and `tableGridOffered(mode)` holds — i.e. OFF the dine-in MENU (the rule reads this
+ * sheet's door, not the phone's sessions — J33 names what that leaves open) — a "Pick your
  * table" section (v7.2's words, both tongues) follows the doors list: the K2 `TableGrid` with the
  * sheet's own motion (no stagger), and, under a tapped SEATED chip, an INLINE join form (D9: never a
  * nested sheet; the dialog count stays one) that arrives with `mms-rise` and takes focus on its code
@@ -46,7 +47,11 @@ import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
  * grid at a live table, numbered or numberless, would orphan this phone's drafts; "wrong table?" from
  * a table is 3c-ii's `bindTable`. `mode_selected` fires on the CHIP TAP — the door actually
  * entered — never on open or on the section's reveal, and a chip tap never closes the sheet (the
- * shipped concurrency rule: the market's camera hold; the per-door remount unmounts it). The market
+ * shipped concurrency rule: the market's camera hold; the per-door remount unmounts it). An EMPTY
+ * Join is refused ON THE FIELD (`JOIN_COPY.missing`, `aria-invalid`, focus back on the input) — an
+ * `aria-disabled` button still submits on Enter, and used to say nothing; the seated chip is a
+ * DISCLOSURE here (`aria-expanded` / `aria-controls` → the form), which `/dine-in`'s dialog-opening
+ * chip is not (blind pass on 3c-i · a11y). The market
  * passes no `tables` yet: it is a client page and the read is service-role, RSC-only — a
  * member-gated `/api/tables` is filed, not built here.
  *
@@ -79,16 +84,19 @@ export function DoorSheet({
   // 3c-i — the seated table whose code is being asked for, inline under the grid (null = no ask).
   const [joinNum, setJoinNum] = useState<number | null>(null);
   const [code, setCode] = useState("");
-  const chipRef = useRef<HTMLButtonElement | null>(null);
+  // The empty submit's refusal, on the field; cleared by typing, by a re-target and on the next open.
+  const [joinError, setJoinError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const tablesTitleId = useId();
   const joinTitleId = useId();
+  const joinFormId = useId();
   const router = useJourneyRouter();
   const setOpen = (next: boolean) => {
     // A reset "on close" would be visible for the whole exit slide (§16) — reset on the next open.
     if (next) {
       setJoinNum(null);
       setCode("");
+      setJoinError(null);
     }
     setOpenState(next);
     onOpenChange?.(next);
@@ -117,14 +125,19 @@ export function DoorSheet({
       chip.focus();
       return;
     }
-    chipRef.current = chip;
     setCode("");
+    setJoinError(null);
     setJoinNum(n);
   };
   const submitJoin = (e: FormEvent) => {
     e.preventDefault();
     const c = code.trim().toUpperCase(); // tokens are 8-char uppercase — normalize like JoinTable
-    if (!c) return;
+    if (!c) {
+      // Said on the field and focus goes back to it — a refusal a reader can find (QA §A).
+      setJoinError(JOIN_COPY.missing);
+      inputRef.current?.focus();
+      return;
+    }
     enterDinein();
     // The sheet stays open through the navigation (the per-door remount unmounts it).
     router.push(dineInMenuHref({ join: c }));
@@ -231,11 +244,14 @@ export function DoorSheet({
               source="sheet"
               onJoin={onJoin}
               onEnter={enterDinein}
+              expandedTable={joinNum}
+              controls={joinFormId}
             />
             {joinNum != null && (
               // The seated-table ask, INLINE (never a nested sheet). Arrives with `mms-rise` — RM-none
               // in globals.css — and the Field is the app's one field.
               <form
+                id={joinFormId}
                 aria-labelledby={joinTitleId}
                 className="mms-rise"
                 style={joinForm}
@@ -247,13 +263,16 @@ export function DoorSheet({
                 <p className="door-sheet-sub" style={flush}>
                   {JOIN_COPY.body(joinNum)}
                 </p>
-                <Field label={JOIN_COPY.label}>
+                <Field label={JOIN_COPY.label} error={joinError}>
                   {(control) => (
                     <input
                       {...control}
                       ref={inputRef}
                       value={code}
-                      onChange={(e) => setCode(e.target.value)}
+                      onChange={(e) => {
+                        setCode(e.target.value);
+                        setJoinError(null);
+                      }}
                       autoCapitalize="characters"
                       autoCorrect="off"
                       spellCheck={false}
@@ -264,7 +283,8 @@ export function DoorSheet({
                   )}
                 </Field>
                 {/* A refusal that stays reachable: `aria-disabled`, never native `disabled` — the
-                    submit guard above is the enforcement; an empty code goes nowhere. */}
+                    submit guard above is the enforcement; an empty code goes nowhere, and SAYS so on
+                    the field (Enter in the input submits past any disabled look). */}
                 <button
                   type="submit"
                   className={buttonClass({ variant: "primary", size: "lg", block: true })}

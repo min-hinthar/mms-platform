@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open), then the polish plan's Phase 0 → 2 (the design system in code, the guest flow, the staff program) and **Phase 3a — the journeys** (v7.2's persistent diner tab bar, the checkout's step rail, the three-panel account hub, the counter's zone strip — `docs/PHASE3_JOURNEYS.md`) · **Gate:** 6437 qr tests + 287 ui tests · 3023 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open), then the polish plan's Phase 0 → 2 (the design system in code, the guest flow, the staff program) and **Phase 3a — the journeys** (v7.2's persistent diner tab bar, the checkout's step rail, the three-panel account hub, the counter's zone strip — `docs/PHASE3_JOURNEYS.md`) · **Gate:** 6444 qr tests + 287 ui tests · 3026 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -145,18 +145,18 @@ corepack enable && corepack prepare pnpm@11.7.0 --activate
 pnpm install
 cp .env.example apps/qr/.env.local           # fill in Supabase / Stripe / PostHog (see below)
 supabase db push                              # or paste supabase/migrations/*.sql then supabase/seed.sql in the SQL editor
-pnpm dev                                       # apps/qr on http://localhost:3023
+pnpm dev                                       # apps/qr on http://localhost:3000
 ```
 
 The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 3023 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 3026 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
                                        # ⚠️ rewrites the 258 money/authority modules it mutates IN PLACE
                                        # (175 under apps/qr/lib, plus the create-share-intent, setup-intent,
-                                       # board and version routes, plus SEVENTY-THREE components, six of them hooks
+                                       # board and version routes, plus SEVENTY-SIX components, seven of them hooks
                                        # — TableCartProvider.tsx, menu/YourUsual.tsx, staff/TicketText.tsx,
                                        # staff/Chrome.tsx, staff/StaffPromoControl.tsx, ReadyBoard.tsx,
                                        # MergeRedeemer.tsx, staff/TableCard.tsx, AccountUpgrade.tsx,
@@ -190,7 +190,11 @@ pnpm verify:slice                      # the MECHANICAL money-path gate: coverag
                                        # staff/AppUpdateWatch.tsx, staff/StaffBarUpdate.tsx and
                                        # staff/StaffBar.tsx (Phase 2i · streams), then
                                        # staff/MenuPriceEditor.tsx and staff/TeamManager.tsx
-                                       # (Codex r2 on #311 — their `draft` holds) —
+                                       # (Codex r2 on #311 — their `draft` holds), then
+                                       # nav/DinerTabs.tsx, nav/TransitionNav.tsx and
+                                       # ActiveOrderProvider.tsx (Phase 3a/3b), then
+                                       # SendToKitchenButton.tsx, LineOptionsSheet.tsx and a seventh
+                                       # hook, useUndoGrace.ts (Phase 3c-i) —
                                        # plus the first
                                        # stylesheet, apps/qr/app/globals.css,
                                        # the first staff PAGE, apps/qr/app/staff/table/[id]/page.tsx

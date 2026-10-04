@@ -87,8 +87,8 @@ export const reasonCopy: Record<
   // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
   // checking out", which is the peer claim the whole copy change removed — and the lock can be
   // self-held (two tabs on one device) or unattributable, so that sentence is a diagnosis the code
-  // never established. Naming it ONCE also means the unfreeze effect above, which clears messages
-  // equal to FROZEN_NOTE, clears this one too instead of leaving it stale after the lock lifts.
+  // never established. Naming it ONCE also means Checkout's lock-edge announcement, which rewrites
+  // the view's region when the freeze lifts, replaces this one too instead of leaving it stale.
   // ⚠️ NOT `FROZEN_NOTE` (Codex round 5 on #247, correcting round 2). This is the RACED path — the
   // tap started editable and the server met the lock — so `frozen` is false here by construction
   // and the lock may already have lifted by the time this renders. Round 2 unified the two strings
@@ -119,6 +119,8 @@ export function useUndoGrace(opts?: {
   const batchRef = useRef<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [pending, setPending] = useState(false);
+  // Mirrors `pending` for the tick and `isOpen`, which read after an await (state would be a render late).
+  const pendingRef = useRef(false);
   const [message, setMessage] = useState<GraceMessage | null>(null);
   const [closedBy, setClosedBy] = useState<GraceClose | null>(null);
   const graceWrites = useRef<Promise<void>>(Promise.resolve());
@@ -148,14 +150,18 @@ export function useUndoGrace(opts?: {
   useEffect(() => {
     if (deadlineMs === null) return;
     // The Send control just gave way to Undo — land focus on it so a keyboard/SR host can reverse
-    // the send without hunting for it (B4). On the Bill the <h1> owns the flip; this fires only on
-    // the OPEN edge, which happens on the Order stage.
+    // the send without hunting for it (B4). This fires on the OPEN edge, wherever the Undo is
+    // mounted: on the Order stage normally, on the Bill when the send's answer lands after a flip.
+    // Stage flips themselves are the <h1>'s (Checkout).
     undoBtn.current?.focus();
     const timer = setInterval(() => {
       const now = Date.now();
       setNowMs(now);
       // Phase 2a · send — `graceRemainingSec` is the ONE client reading of the window (lib/send-grace).
-      if (graceRemainingSec(deadlineMs, now) === 0) setDeadline(null, "elapsed");
+      // Never while an undo is still answering or re-syncing: the window ends on the read that shows
+      // the truth, not on the clock (the close edge is the undo's own, above).
+      if (graceRemainingSec(deadlineMs, now) === 0 && !pendingRef.current)
+        setDeadline(null, "elapsed");
     }, 250);
     return () => clearInterval(timer);
   }, [deadlineMs, setDeadline]);
@@ -189,22 +195,30 @@ export function useUndoGrace(opts?: {
         say({ kind: "err", text: FROZEN_NOTE });
         return Promise.resolve();
       }
+      pendingRef.current = true;
       setPending(true);
       // Chained after any write already in flight; the attempt owns its errors, so the chain can
       // never reject — which is what lets Pay `await` it without a try.
       const write = graceWrites.current.then(async () => {
+        // ⚠️ The window CLOSES only after the re-sync below has landed (blind pass on 3c-i, all
+        // three lenses). Closing it on the server's answer left a render in which the window was
+        // shut, nothing was pending and the lines still read `fired` — Pay live over drafts the undo
+        // had just returned, the counter door live, "Brought back" beside "with the kitchen" — for
+        // the whole round trip of the read. The answer is SAID at once (it is true); the state that
+        // gates money moves only when the view can keep it.
+        let close: GraceClose | null = null;
         try {
           const res = await undoFire(cartId, target);
           if (res.ok) {
             say({ kind: "ok", text: "Brought back to your order — change it and send again." });
-            setDeadline(null, "undone"); // the batch is back in draft → close the window
+            close = "undone"; // the batch is back in draft → the window closes once the view says so
           } else if (res.reason === "expired") {
             // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
             say({
               kind: "ok",
               text: "That’s already with the kitchen — ask a server to change it.",
             });
-            setDeadline(null, "expired");
+            close = "expired";
           } else {
             // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still
             // be in grace — keep the window open so the host can retry; it expires on its own.
@@ -213,8 +227,6 @@ export function useUndoGrace(opts?: {
         } catch {
           // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
           say({ kind: "err", text: "Couldn’t undo that just now — please try again." });
-        } finally {
-          setPending(false);
         }
         try {
           // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that
@@ -223,6 +235,9 @@ export function useUndoGrace(opts?: {
         } catch {
           // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
         }
+        if (close) setDeadline(null, close);
+        pendingRef.current = false;
+        setPending(false);
       });
       graceWrites.current = write;
       return write;
@@ -230,7 +245,14 @@ export function useUndoGrace(opts?: {
     [say, setDeadline],
   );
 
-  const isOpen = useCallback(() => graceRemainingSec(deadlineRef.current, Date.now()) > 0, []);
+  // Open while the window still has time OR an undo is still settling against it (the deadline may
+  // pass mid-answer; the window ends on the re-sync, not the clock).
+  const isOpen = useCallback(
+    () =>
+      deadlineRef.current !== null &&
+      (graceRemainingSec(deadlineRef.current, Date.now()) > 0 || pendingRef.current),
+    [],
+  );
 
   return {
     deadlineMs,

@@ -69,7 +69,8 @@ tipPreviewCents` is the ONE binding (W17); it replaces the inline sums at `:2354
   `Estimated total` (while a tip is previewed) + MY + the amount + an `aria-hidden` arrow, never a `<dl>`
   — whose `aria-label` is `billDoorLabel(payBlock) · $X`: **"View bill · $X" while Pay is held, "View bill
   & pay · $X" only when `payBlock === null`** (P4's graft: the door never promises a verb the next screen
-  refuses). While `hero === "bill"` the SAME element wears `.checkout-cta` and reads that label visibly.
+  refuses). _BUILT (blind pass):_ that is the HERO's name, whose visible text it is; the QUIET door shows
+  "Total · $X" and is named "Total · $X — View bill" — label in name (WCAG 2.5.3). While `hero === "bill"` the SAME element wears `.checkout-cta` and reads that label visibly.
   `.vt-cart-total` moves onto it (one per view — the Bill's hero total keeps its own; the two never
   co-render). `.checkout-viewbill` is retired in every reference (measure with `grep -c`, never count by eye). _Law:_ amounts server-derived, a
   PREVIEW labelled as one, never a second computation. _It is NOT_ a second amount beside a link.
@@ -154,7 +155,7 @@ blind pass: **money semantics · concurrency · a11y**.
   `lib/checkout-history.ts` and its test; `lib/i18n/cart.ts`; `app/globals.css` (⚠ mutate set — commit
   before any run, never during).
 - **States (dine-in; settle · pay · settled · counter-ask views unchanged):** ORDER·drafts·host → hero
-  Send (`Send to kitchen · N items`), Total door reads "View bill · $X"; ORDER·grace → Undo (outline,
+  Send (`Send to kitchen · N items`), Total door named "Total · $X — View bill"; ORDER·grace → Undo (outline,
   focus on it), Total door LIVE; ORDER·sent → the door is the filled hero "View bill & pay · $X →";
   ORDER·guest with drafts → filled door "View bill · $X" + `hostSendsCopy`; ORDER·frozen → Send/Undo
   refuse at the door (FROZEN_NOTE), the Total door stays live. BILL·payable → `Pay · $X →`; BILL·peer →
@@ -200,8 +201,12 @@ blind pass: **money semantics · concurrency · a11y**.
   `checkout-verb/door-promises-pay-while-held` (`billDoorLabel` ignores the block) ·
   `checkout-verb/guest-unsent-copy-orders-the-guest-to-send`; `undo-grace/frozen-tap-closes-the-window` ·
   `undo-grace/undo-write-not-chained` · `undo-grace/expired-keeps-the-window` ·
-  `undo-grace/interval-survives-unmount`; `checkout/pay-mints-over-an-in-flight-undo` (the `await`
-  dropped) · `checkout/pay-decides-before-the-drain` · `checkout/total-door-drops-the-previewed-tip` ·
+  `undo-grace/interval-survives-unmount` · `undo-grace/window-closes-before-the-re-sync` ·
+  `undo-grace/tick-closes-a-window-mid-undo` (the blind pass); `checkout/pay-re-entered-during-the-drain`
+  · `checkout/ready-to-pay-over-a-counter-ask` · `checkout/door-name-drops-its-visible-label` (the blind
+  pass — and the two drain mutants it designed, `pay-mints-over-an-in-flight-undo` ·
+  `pay-decides-before-the-drain`, are RETIRED: the state they falsified is unreachable once the window
+  outlives the re-sync; CHANGELOG says why) · `checkout/total-door-drops-the-previewed-tip` ·
   `checkout/two-heroes-on-the-order-stage` · `checkout/line-sheet-offered-on-a-fired-line`;
   `send-button/undo-is-rendered-as-the-hero`; `line-sheet/pills-live-under-a-freeze`;
   `checkout-history/forward-into-bill-refused` (REPLACES `:302`). Run `check:mutant-anchors` first —

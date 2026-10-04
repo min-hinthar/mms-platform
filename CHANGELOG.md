@@ -27,11 +27,14 @@ as two disjoint worktree slices by two engineers, red-first, squashed by the lea
   Send still owed outranks the grace it would reopen — a judge's mustNot on the inverted order); the
   label is always `Pay · $X`, the reason rides a static `aria-describedby` sentence and is re-said on
   every blocked tap; `continueToPayment` drains `graceWrites`, re-decides on the view that WON, then
-  mints (`checkout/pay-mints-over-an-in-flight-undo`, `checkout/pay-decides-before-the-drain`). "Ready
-  to pay." is said once, only when the grace ELAPSED with nothing else holding Pay.
+  mints (the belt behind the braces — the blind-pass bullet below says why its two mutants are
+  retired). "Ready to pay." is said once, only when the grace ELAPSED with nothing else holding Pay,
+  and never over a standing counter ask.
 - **The receipt foot IS the door, named once (D14).** `orderTotalCents` is the one binding the Total door
-  and the Bill hero read (`checkout/total-door-drops-the-previewed-tip`); the door's name is "View bill"
-  while Pay is held and "View bill & pay" only when nothing holds it (`billDoorLabel`); phrasing content
+  and the Bill hero read (`checkout/total-door-drops-the-previewed-tip`); the door says "View bill" while
+  Pay is held and "View bill & pay" only when nothing holds it (`billDoorLabel`) — as the hero that IS
+  its name; quiet, its name opens with the visible label, "Total · $X — View bill" (WCAG 2.5.3, the
+  blind pass; `checkout/door-name-drops-its-visible-label`); phrasing content
   in a `<button>`, never a `<dl>`; `.checkout-viewbill` retired in every reference (six in
   `globals.css`, one in Checkout — measured). The door sits under the dishes and above the verb, v7.2's
   Total → CTA order.
@@ -39,7 +42,8 @@ as two disjoint worktree slices by two engineers, red-first, squashed by the lea
   kitchen now" live behind a 44px ⋯ in ONE subject-keyed sheet that closes when the line stops being
   draft; `makeNow` is no longer optimistic — a fire is one-way for the guest who tapped it, so the sheet
   awaits it bounded with `busy` and joins `sheet-busy-callers`' GUARDED list. The to-go prep line now
-  says "Tap ⋯ on the dish, then “Send to kitchen now.”" (it named a control no longer on the card).
+  says "Open “More” (⋯) on the dish, then tap “Send to kitchen now.”" (it named a control no longer on
+  the card; the ⋯ by its spoken name — the blind pass).
 - **The grid is a SECTION, offered only OFF the table (D18, `lib/table-pick.ts`).** `tableGridOffered`
   (a `?table=N` claim mints a NEW session — `useTableSession.ts:147-150` — so a grid at a live table
   would orphan this phone's drafts), `tableChipAction` (mine beats seated), `dineInMenuHref` (the four
@@ -58,10 +62,50 @@ as two disjoint worktree slices by two engineers, red-first, squashed by the lea
   does the work (LEARNINGS #222); `undoBtnRef` is a callback ref (the React Compiler lint read a
   RefObject's every `grace.*` as a ref access); `payOpensAfterUndo` joins `CART_MONEY_KEYS`; the brief's
   `.table-start-plain` rule citation was wrong (no such rule exists — LEARNINGS #223).
+- **The blind pass (capped — three `adversarial-auditor` agents, one each on money · concurrency ·
+  a11y, handed `.review-bundle/` and nothing else; REJECT on all three), every confirmed finding
+  verified against source and fixed red-first:** (1) `useUndoGrace` closed its window and cleared
+  `pending` on the server's ANSWER, before the re-sync landed — one render with the window shut,
+  nothing pending and the lines still `fired`: Pay live over drafts the undo had just returned, the
+  counter door live, "Brought back" beside "with the kitchen". The window now closes AFTER the
+  re-sync, the tick never closes it while an undo is out, `isOpen()` counts a pending undo
+  (`undo-grace/window-closes-before-the-re-sync` · `undo-grace/tick-closes-a-window-mid-undo`); this
+  one fix closed the counter-door finding too (pending ⇒ `grace` ⇒ the door is disabled). (2) The Pay
+  door closes AT THE TAP: `loadingPay` lit only after the drain's `await`, so a second tap ran a second
+  drain, decision and mint — `payDraining` is set synchronously and the button wears it (`disabled` +
+  `aria-busy`; `checkout/pay-re-entered-during-the-drain`). **Two mutants RETIRED, not kept to
+  survive:** `checkout/pay-mints-over-an-in-flight-undo` and `checkout/pay-decides-before-the-drain`
+  falsified the drain in a state (window closed, chain still out) that fix (1) made unreachable — the
+  tap is refused at `blockCopy` for as long as `graceWrites` can be non-trivially pending — so each
+  would SURVIVE; the drain stays as code, the mutants go (LEARNINGS #226). (3) "Ready to pay." was
+  announced over a standing counter ask, whose card hides Pay (`checkout/ready-to-pay-over-a-counter-
+ask`); the same close edge now hands LOST focus to the <h1> — the Undo unmounted under a reader on
+  both stages. (4) The quiet Total door SHOWED "Total · $X" and was NAMED "View bill · $X" — label not
+  in name (WCAG 2.5.3): the name is "Total · $X — View bill" (`checkout/door-name-drops-its-visible-
+label`); the hero keeps its text as its name. (5) The prep line said "Tap ⋯" — a glyph a reader does
+  not speak; it names "More". (6) An empty Join submitted silently (an `aria-disabled` button still
+  submits on Enter): refused ON THE FIELD — `JOIN_COPY.missing`, `aria-invalid`, focus back on the
+  input, cleared by typing — and the seated chip is a DISCLOSURE in the sheet (`aria-expanded` /
+  `aria-controls` → the form; `/dine-in`'s dialog-opening chip stays plain). (7) `tableGridOffered`'s
+  docblocks claimed a phone-SESSION rule; the code reads the MENU's mode — reworded, and what that
+  leaves open is J33. (8) `table-pick.test`'s source scan of TablePicker (a guard a comment satisfies —
+  LEARNINGS #60) is gone: TablePicker now READS `JOIN_COPY`. (9) The ⋯ sheet bounded a COMPOSITE
+  (write + diagnosis read + re-sync), so the ledger kept a "write" young or stalled for as long as a
+  read took: `makeNow` returns the RAW `makeItNow`, `settleMakeNow` rides beside it, one flight per
+  line. (10) The drain's peer refusal named this render's `lockedByName` — null for a lock that arrived
+  during the drain — so it read "Waiting for Someone": the name comes from `f.lockedBy`, the facts the
+  verdict used. (11) `getDineInTables` issued its two reads serially — `Promise.all`. (12) The
+  `3000 → 3023` count sweep had rewritten the dev PORT in README and HANDOFF (`localhost:3023`), and
+  README's component enumeration was six names and two phases stale (3a/3b's three, 3c-i's three) —
+  both repaired by measurement. Filed: J33 (the to-go sheet lets a seated phone claim another table —
+  3c-ii's bind) · J34 (the grace tick re-renders Checkout; `sayRefusal` clears a pay error) · J35
+  (`SplitSection`'s parked settlement door has no grace gate) · J36 (the ⋯ sheet mirrors the global
+  `status`); J29 and M258 amended.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced (2999 → 3023 over 258 files: lib 175 · components 76 — measured), every
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass (3026 over 258
+  files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6437 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6444 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts

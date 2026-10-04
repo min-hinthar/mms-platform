@@ -2188,7 +2188,7 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     window.history.replaceState(null, "", "/cart?cart=cart-1");
     // One dish still a draft (the quiet door, the Send hero), one with the kitchen.
     mount({ splitContext: HOST, initialItems: [ITEM, { ...ITEM_B, lineState: "fired" }] });
-    fireEvent.click(screen.getByRole("button", { name: "View bill · $12.00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Total · $12.00 — View bill" }));
     await press(/20%/);
     const heroFigure = document.querySelector(".vt-cart-total")!.textContent;
     expect(heroFigure).toBe("14.4"); // $12.00 + 20% = $14.40 (NumberFlow is mocked to the raw value)
@@ -2199,7 +2199,10 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     });
     // The Order stage: the quiet door (Send is the hero), named with the SAME figure and labelled
     // as the preview it is.
-    const door = await screen.findByRole("button", { name: "View bill · $14.40" });
+    // …its NAME opens with that visible label (WCAG 2.5.3) and ends with the verb.
+    const door = await screen.findByRole("button", {
+      name: "Estimated total · $14.40 — View bill",
+    });
     // MUTATION (checkout/total-door-drops-the-previewed-tip): the door reads `totals.totalCents` —
     // $12.00 beside a Bill that says $14.40, the price jumping between two adjacent taps; red.
     expect(door.textContent).toContain("Estimated total");
@@ -2213,7 +2216,9 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     // MUTATION (checkout-verb/door-promises-pay-while-held): "View bill & pay" over a Bill whose
     // Pay is dimmed for the unsent dish; red.
-    const door = screen.getByRole("button", { name: "View bill · $12.00" });
+    // MUTATION (checkout/door-name-drops-its-visible-label): named "View bill · $12.00" while it
+    // SHOWS "Total · $12.00" — label not in name (WCAG 2.5.3); red.
+    const door = screen.getByRole("button", { name: "Total · $12.00 — View bill" });
     expect(door.textContent).toContain("Total");
     expect(door.textContent).not.toContain("Estimated");
     expect(door.querySelector("dl")).toBeNull();

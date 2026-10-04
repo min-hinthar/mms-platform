@@ -161,6 +161,45 @@ describe("TableGrid — what a tap does", () => {
   });
 });
 
+describe("TableGrid — the seated chip as a DISCLOSURE, only for a host that reveals the join inline", () => {
+  it("with `expandedTable`, every SEATED chip wears aria-expanded and the open one controls the form; mine and open chips never do", () => {
+    const { rerender } = render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="sheet"
+        onJoin={() => {}}
+        expandedTable={null}
+        controls="join-form"
+      />,
+    );
+    expect(chip(5).getAttribute("aria-expanded")).toBe("false");
+    expect(chip(5).hasAttribute("aria-controls")).toBe(false);
+    expect(chip(3).hasAttribute("aria-expanded")).toBe(false); // mine — a resume, not a disclosure
+    expect(chip(8).hasAttribute("aria-expanded")).toBe(false); // open — a claim
+    rerender(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="sheet"
+        onJoin={() => {}}
+        expandedTable={5}
+        controls="join-form"
+      />,
+    );
+    expect(chip(5).getAttribute("aria-expanded")).toBe("true");
+    expect(chip(5).getAttribute("aria-controls")).toBe("join-form");
+    expect(chip(3).hasAttribute("aria-controls")).toBe(false);
+  });
+  it("without it (the /dine-in page opens a dialog), no chip claims to be a disclosure", () => {
+    render(<TableGrid tables={TABLES} stagger source="page" onJoin={() => {}} />);
+    for (const n of [3, 5, 8]) {
+      expect(chip(n).hasAttribute("aria-expanded")).toBe(false);
+      expect(chip(n).hasAttribute("aria-controls")).toBe(false);
+    }
+  });
+});
+
 describe("TableGrid — the stagger is the PAGE's premiere, never the sheet's", () => {
   it("stagger={false} renders no mms-stagger and no animationDelay anywhere", () => {
     const { container } = render(

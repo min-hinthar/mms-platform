@@ -304,11 +304,22 @@ describe("DoorSheet — the table grid section (3c-i)", () => {
     const dialog = open();
     const seated = within(dialog).getByRole("button", { name: /^Table 5,/ });
     expect(dialog.querySelector("form")).toBeNull();
+    // The seated chip is a DISCLOSURE here (it reveals the inline ask); the open chip is not.
+    expect(seated.getAttribute("aria-expanded")).toBe("false");
+    expect(seated.hasAttribute("aria-controls")).toBe(false);
+    expect(
+      within(dialog)
+        .getByRole("button", { name: /^Table 2,/ })
+        .hasAttribute("aria-expanded"),
+    ).toBe(false);
     fireEvent.click(seated);
     expect(grid.push).not.toHaveBeenCalled();
     expect(capture).not.toHaveBeenCalledWith("mode_selected", expect.anything());
     const form = dialog.querySelector("form")!;
     expect(form).not.toBeNull();
+    expect(seated.getAttribute("aria-expanded")).toBe("true");
+    expect(form.id).not.toBe("");
+    expect(seated.getAttribute("aria-controls")).toBe(form.id);
     expect(form.className.split(/\s+/)).toContain("mms-rise");
     const title = within(form).getByRole("heading", { name: "Join Table 5" });
     expect(form.getAttribute("aria-labelledby")).toBe(title.id);
@@ -323,9 +334,20 @@ describe("DoorSheet — the table grid section (3c-i)", () => {
     const join = within(form).getByRole("button", { name: "Join" });
     expect(join.hasAttribute("disabled")).toBe(false);
     expect(join.getAttribute("aria-disabled")).toBe("true");
+    expect(input.getAttribute("aria-invalid")).toBeNull();
+    join.focus();
     fireEvent.submit(form);
     expect(grid.push).not.toHaveBeenCalled();
+    // …and SAYS so, on the field: `aria-invalid`, the note, focus back on the input. An empty submit
+    // used to go nowhere silently (Enter in the input submits past the aria-disabled look).
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(text(form)).toContain("Enter the table code to join.");
+    expect(input.getAttribute("aria-describedby")).toBe(form.querySelector(".ui-field-error")!.id);
+    expect(document.activeElement).toBe(input);
     fireEvent.change(input, { target: { value: " wxyz1234 " } });
+    // Typing clears the refusal.
+    expect(input.getAttribute("aria-invalid")).toBeNull();
+    expect(text(form)).not.toContain("Enter the table code to join.");
     expect(join.getAttribute("aria-disabled")).toBeNull();
     fireEvent.submit(form);
     expect(grid.push).toHaveBeenCalledWith(dineInMenuHref({ join: "WXYZ1234" }));
@@ -342,9 +364,15 @@ describe("DoorSheet — the table grid section (3c-i)", () => {
     const seated = within(dialog).getByRole("button", { name: /^Table 5,/ });
     fireEvent.click(seated);
     expect(dialog.querySelector("form")).not.toBeNull();
+    // A refusal left on the field does not survive the collapse and re-reveal.
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(text(dialog)).toContain("Enter the table code to join.");
     fireEvent.click(seated);
     expect(dialog.querySelector("form")).toBeNull();
+    expect(seated.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(seated);
+    fireEvent.click(seated);
+    expect(text(dialog)).not.toContain("Enter the table code to join.");
   });
 
   it("at a dine-in session — numbered AND numberless — NO section even with `tables`: the lit row and the two exits exactly as today", () => {

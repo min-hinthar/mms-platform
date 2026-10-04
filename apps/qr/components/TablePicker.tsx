@@ -4,7 +4,7 @@ import { Sheet } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav"; // J1: dine-in→menu is a FORWARD cut
 import { TableGrid } from "./TableGrid";
 import type { DineInTable } from "@/lib/tables";
-import { dineInMenuHref } from "@/lib/table-pick";
+import { JOIN_COPY, dineInMenuHref } from "@/lib/table-pick";
 
 /**
  * K2 (Journey II) — the dine-in table picker: the "can't scan the sticker" fallback. The page shell
@@ -16,7 +16,8 @@ import { dineInMenuHref } from "@/lib/table-pick";
  * picker; the physical sticker scan is the code-free path, and the mint's race guards refuse a claim
  * that lost to a concurrent seat). Occupancy is advisory — the server re-checks at mint. /dine-in's
  * behaviour and presentation did not change with the extraction: the grid still cascades once
- * (`stagger`), the join is still a Sheet here.
+ * (`stagger`), the join is still a Sheet here — its words are `JOIN_COPY`'s (lib/table-pick), the
+ * ONE source the DoorSheet's inline form reads too, so the two can never drift apart.
  */
 export function TablePicker({ tables }: { tables: DineInTable[] }) {
   const router = useJourneyRouter();
@@ -57,7 +58,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
       <Sheet
         open={seatedNum != null}
         onOpenChange={(o) => !o && setSeatedNum(null)}
-        title={seatedNum != null ? `Join Table ${seatedNum}` : "Join a table"}
+        title={JOIN_COPY.title(seatedNum)}
       >
         <p
           style={{
@@ -67,8 +68,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
             margin: "0 0 12px",
           }}
         >
-          Someone is already sitting at Table {seatedNum}. Enter the table code they share (or scan
-          the table’s sticker) to order together.
+          {seatedNum != null ? JOIN_COPY.body(seatedNum) : ""}
         </p>
         <form onSubmit={submitJoin}>
           <label
@@ -80,7 +80,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
               marginBottom: 6,
             }}
           >
-            Table code
+            {JOIN_COPY.label}
           </label>
           <div style={{ display: "flex", gap: 8 }}>
             <input
@@ -93,11 +93,11 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
               maxLength={40}
               // A synthetic example, NOT any seeded token — a real token in a "use client" bundle is a
               // live join credential shipped to every browser + git (adversarial catch).
-              placeholder="e.g. WXYZ1234"
+              placeholder={JOIN_COPY.placeholder}
               style={input}
             />
             <button type="submit" disabled={!code.trim()} style={joinBtn}>
-              Join
+              {JOIN_COPY.button}
             </button>
           </div>
         </form>

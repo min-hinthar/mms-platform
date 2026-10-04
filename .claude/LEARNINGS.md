@@ -3478,3 +3478,27 @@ long-named cases the list crossed it and the check died with ENOBUFS, dumping th
 push that grew the suite past the line, with a stack trace that looks nothing like "docs". Size every
 `execFileSync`/`execSync` buffer for the output it can grow to (64 MB here), and read an unfamiliar
 `child_process` stack trace as "too much output" before anything else.
+
+## #226
+
+**A mutant whose SCENARIO a fix removed is RETIRED with its reason — never kept to survive, never
+"made reachable" by weakening the fix (3c-i blind pass, 2026-10-04).** `checkout/pay-mints-over-an-in-flight-undo` and `checkout/pay-decides-before-the-drain` falsified Pay's
+drain in exactly one state: the undo window CLOSED while its chain was still out. The blind pass's fix
+(the window outlives the re-sync; `pending` holds Pay) made that state unreachable — the tap is refused
+at `blockCopy` for as long as `graceWrites` can be non-trivially pending — so both would SURVIVE. W17's
+"make the rule reachable, never delete the mutant" is about a FIXTURE that cannot reach a live rule
+(the 15/20/30 ladder under a 50% cap). A rule with no reachable violation keeps its code (belt behind
+braces) and loses its mutant, with the reason in CHANGELOG. Related, same session: a RE-ENTRANCY door is
+falsifiable only as STATE the control wears — a synchronous `setState` in the handler makes the button
+`disabled` before the next discrete event is processed (React flushes a click's updates at the end of
+the click) — a ref-only guard passes every DOM test with or without it, because two `fireEvent.click`s
+never share a tick. Mutate the `setState`, not the ref.
+
+## #227
+
+**A global count sweep rewrites every other number that happens to equal it (2026-10-04).**
+`3000 → 3023` to refresh the mutant total also rewrote the dev PORT in README
+(`http://localhost:3023`) and HANDOFF (`curl "localhost:3023/…"`), and sat there through a push:
+`check:docs` measures the counts it KNOWS and nothing else, and the blind pass found it, not a guard.
+Replace a count with its CONTEXT (`3000 mutations`, `(3000 today)`), then `git grep` the bare number
+before committing — and when the sweep is `sed`, read its diff, not its exit code.

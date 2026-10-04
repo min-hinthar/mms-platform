@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   JOIN_COPY,
@@ -115,15 +113,13 @@ describe("JOIN_COPY — the inline form's words, named once (TablePicker.tsx:136
     expect(JOIN_COPY.label).toBe("Table code");
     expect(JOIN_COPY.placeholder).toBe("e.g. WXYZ1234");
     expect(JOIN_COPY.button).toBe("Join");
+    // The empty submit's refusal, on the field (blind pass on 3c-i).
+    expect(JOIN_COPY.missing).toBe("Enter the table code to join.");
   });
   it("the placeholder is SYNTHETIC — never an 8-char token shape a seeded table could carry", () => {
     // A real token in a "use client" bundle is a live join credential shipped to every browser.
     expect(JOIN_COPY.placeholder.startsWith("e.g. ")).toBe(true);
   });
-  it("TablePicker's own (byte-identical) Sheet still carries the same words — the two cannot drift apart silently", () => {
-    const src = readFileSync(path.join(__dirname, "..", "components", "TablePicker.tsx"), "utf8");
-    expect(src).toContain(`placeholder="${JOIN_COPY.placeholder}"`);
-    expect(src).toContain(`>\n            ${JOIN_COPY.label}\n`);
-    expect(src).toContain("`Join Table ${seatedNum}`");
-  });
+  // TablePicker's Sheet READS these (it imports `JOIN_COPY`), so there is no second copy to drift —
+  // the source scan that used to stand here was a guard a comment could satisfy (LEARNINGS #60).
 });

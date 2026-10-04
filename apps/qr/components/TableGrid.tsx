@@ -27,6 +27,8 @@ export function TableGrid({
   source,
   onJoin,
   onEnter,
+  expandedTable,
+  controls,
 }: {
   tables: DineInTable[];
   /** `true` on /dine-in keeps the K2 cascade (`mms-stagger` + per-chip delay); `false` inside the
@@ -39,6 +41,12 @@ export function TableGrid({
   onJoin: (tableNumber: number, chip: HTMLButtonElement) => void;
   /** Called immediately before each navigation into the dine-in door (claim · resume · host-start). */
   onEnter?: () => void;
+  /** A host that reveals the join INLINE (the DoorSheet) says so on the chip: the seated table whose
+   *  ask is open, or null for none — every SEATED chip then wears `aria-expanded`, and the open one
+   *  `aria-controls` → `controls` (the form's id). Omit it when the join opens a dialog instead
+   *  (/dine-in's Sheet): a chip that opens a dialog is not a disclosure (blind pass on 3c-i · a11y). */
+  expandedTable?: number | null;
+  controls?: string;
 }) {
   const router = useJourneyRouter();
   // W5a — is one of these "seated" tables OURS? A swipe-back diner re-entering the picker used to
@@ -105,6 +113,14 @@ export function TableGrid({
                   stagger ? ({ animationDelay: `calc(${i} * 40ms)` } as CSSProperties) : undefined
                 }
                 aria-label={tableChipLabel(t.tableNumber, action)}
+                aria-expanded={
+                  action === "join" && expandedTable !== undefined
+                    ? expandedTable === t.tableNumber
+                    : undefined
+                }
+                aria-controls={
+                  action === "join" && expandedTable === t.tableNumber ? controls : undefined
+                }
                 onClick={(e: MouseEvent<HTMLButtonElement>) =>
                   action === "join"
                     ? askCode(t.tableNumber, e.currentTarget)
