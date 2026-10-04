@@ -3520,3 +3520,17 @@ state that gates money moves when a view the screen can keep has APPLIED. A retr
 deadline in disguise; keep the gate shut and keep asking (bounded by the window's own lifetime —
 unmount or a new window — not by a count), release the CHAIN so drains never wait on an outage, and
 say what is happening. Sibling of #219.
+
+## #229
+
+**A detached process does not outlive the container, and an idle cloud session loses its container
+(the full `verify:slice` on #313, attempts 2 and 5, 2026-10-04).** `setsid nohup` survives the tool's
+shell and the 2 h Bash ceiling — it does not survive the container being reclaimed, which happened
+~20 minutes after a turn ended to wait on PR events (uptime read 183 s on the resume; the log's last
+write was the baseline suites). A job longer than a turn needs a HARNESS-TRACKED escort: one background
+Bash `while kill -0 <pid>; do sleep 30; done` at the ceiling, re-armed on expiry while the pid lives,
+so the harness holds the container and wakes the session once when the job exits. The escort waits on a
+job THIS session started and reads a log tail on wake; it is not the parked-PR poll #114 forbids — a
+PR still waits on events only. Before relying on a detached run, check `/proc/uptime` on every resume:
+a young uptime means every detached process is gone, and a worktree it was mutating may hold a live
+mutant (`git status` it; `git checkout -- .`).

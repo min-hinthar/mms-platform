@@ -58,20 +58,34 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
 > PR, `@codex review`.
 >
-> **The owed full `verify:slice` — FIFTH attempt, live as of ~10:15 UTC 2026-10-04, in
-> `.claude/worktrees/vs-full3` on the merge head.** The history matters more than the count: attempt 1
+> **The owed full `verify:slice` — SIXTH attempt, live as of 10:48 UTC 2026-10-04, in
+> `.claude/worktrees/vs-full3` on the branch tip `88e3961`, ESCORTED by a harness-tracked background
+> Bash (`while kill -0 <pid>; do sleep 30; done`, the tool's 2 h ceiling, re-armed on expiry) so the
+> container is not reclaimed under it.** The history matters more than the count: attempt 1
 > (`vs-full`, 03:50) was killed at 116 min by the tool's 2 h ceiling; attempt 2 (`vs-full2`, `fdeb7b4`,
 > `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55, at 2,375 caught, no survivor, no
 > stale, no final verdict (log `scratchpad/vs-full2.log`); attempt 3 (`vs-full3`, `f89aeb4`, 09:04) died
 > within minutes at the BASELINE SUITES while a full vitest run ran in the main checkout; attempt 4
 > (`vs-full3`, `6fcdf8f`, `setsid -f`, 09:33) died at ~10:04 at 307 caught, no survivor, while the
-> round-6 suites and `check:docs` ran in the main checkout (log `vs-full3.log.attempt4-died-307`). ⚠️
-> **THE DETACHED RUN DIES WHENEVER A VITEST FLEET RUNS BESIDE IT IN THE MAIN CHECKOUT** (twice, same
-> shape; the container's memory is the suspect). So: launch it LAST, when nothing else will run, and run
-> NO vitest (suites, `verify:slice --only=`, even `check:docs`'s `vitest list`) in the main checkout while
-> it lives. Launch: `pnpm install --offline --frozen-lockfile` in the worktree once, then from the worktree
-> `setsid -f nohup pnpm verify:slice --no-gate > scratchpad/vs-full3.log 2>&1 < /dev/null`. Progress is
-> `grep -c caught`; the summary prints at the END; hours are normal. Read the tail for caught / SURVIVED /
+> round-6 suites and `check:docs` ran in the main checkout (log `vs-full3.log.attempt4-died-307`);
+> attempt 5 (`vs-full3`, `3f20910`, 10:15, launched LAST with nothing beside it) DIED WITH THE CONTAINER
+> at the baseline suites — the log's last write is 10:23:29 and the container's uptime read 183 s at
+> 10:46, i.e. the session's idle wait on PR events let the container be reclaimed about twenty minutes
+> after the turn ended (log `vs-full3.log.attempt5-died-container`; the worktree came back CLEAN, no
+> mutant on disk). ⚠️ Two causes, both now seen twice: **THE DETACHED RUN DIES WHENEVER A VITEST FLEET
+> RUNS BESIDE IT IN THE MAIN CHECKOUT** (attempts 3–4; the container's memory is the suspect), and **A
+> DETACHED PROCESS DOES NOT OUTLIVE THE CONTAINER, WHICH AN IDLE SESSION LOSES** (attempts 2 and 5 —
+> LEARNINGS #229). So: launch it LAST, when nothing else will run; run NO vitest (suites,
+> `verify:slice --only=`, even `check:docs`'s `vitest list`) in the main checkout while it lives; and
+> escort it with ONE harness-tracked background Bash that waits on its pid at the 2 h ceiling, re-armed
+> when it expires with the pid still alive — that escort is not a PR poll (#114 stands; it wakes once per
+> two hours for a job this session started, and its wake reads a log tail). Launch:
+> `pnpm install --offline --frozen-lockfile` in the worktree once, then from the worktree
+> `setsid nohup pnpm verify:slice --no-gate > <scratchpad>/vs-full3.log 2>&1 < /dev/null &`, take the
+> node pid from `ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'`, then arm the escort.
+> Throughput measured on attempt 4: 307 caught in ~31 min including the baseline suites, so the 3033 run
+> is 3–4 h — longer than the tool's ceiling, which is why the run is detached and the escort is re-armed.
+> Progress is `grep -c caught`; the summary prints at the END. Read the tail for caught / SURVIVED /
 > STALE and the orphan verdict, record it here, then `git worktree remove --force .claude/worktrees/vs-full3`.
 > If it died again: the worktree may hold a live mutant — `git checkout -- .` or remove with `--force`,
 > never commit from it — and the run is owed once more.
