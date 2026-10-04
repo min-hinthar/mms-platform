@@ -24673,8 +24673,17 @@ const MUTANTS = [
     file: "apps/qr/lib/diner-tabs.ts",
     suite: "lib/diner-tabs.test.ts",
     why: "Deep pass on #312 \u2014 a remembered dine-in door with no cart published through it means no table was entered; without this arm the Menu tab links the code-free `/menu?mode=dinein`, the numberless host-start J15 retired, from /account, /cart and /track",
-    find: '      href: isThreshold(s.pathname)\n        ? "/"\n        : mode === "dinein" && !s.cartId\n          ? "/dine-in"\n          : menuHref(mode),',
-    replace: '      href: isThreshold(s.pathname) ? "/" : menuHref(mode),',
+    find: '      href: isThreshold(s.pathname)\n        ? "/"\n        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : mode === "dinein" && !s.cartId\n            ? "/dine-in"\n            : menuHref(mode),',
+    replace:
+      '      href: isThreshold(s.pathname)\n        ? "/"\n        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : menuHref(mode),',
+  },
+  {
+    id: "diner-tabs/lit-menu-tab-leaves-the-join",
+    file: "apps/qr/lib/diner-tabs.ts",
+    suite: "lib/diner-tabs.test.ts",
+    why: "Codex round 2 on #313 (P2) \u2014 on a table or invite URL the cart is null until the mint lands, and the picker fallback turned the CURRENT Menu tab into a door out of the join flow for exactly that window; a lit tab is a self-link to where you are, or the scanned sticker's diner re-taps into the table picker",
+    find: '        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : mode === "dinein" && !s.cartId',
+    replace: '        : mode === "dinein" && !s.cartId',
   },
   {
     id: "diner-tabs/lit-account-tab-flips-the-panel",

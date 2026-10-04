@@ -94,6 +94,9 @@ afterEach(cleanup);
 
 describe("DinerTabs", () => {
   it("three links, the current one marked, the claims in the names (Phase 3b, D7)", async () => {
+    // The menu URL always carries its mode (`menuHref`); a lit Menu tab is a self-link to where you
+    // are (Codex round 2 on #313), so the fixture names the real route, not a bare `/menu`.
+    search = "mode=pickup";
     render(<DinerTabs />);
     const links = screen.getAllByRole("link");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([

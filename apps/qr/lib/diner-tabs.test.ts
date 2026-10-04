@@ -191,6 +191,24 @@ describe("dinerTabs — three places, their hrefs and claims", () => {
     // Other doors keep their menu whether or not a cart exists: nothing to enter first.
     expect(dinerTabs({ ...base, mode: "pickup", cartId: null })[0]?.href).toBe("/menu?mode=pickup");
   });
+  it("a LIT Menu tab is a self-link to where you are — on a table or invite URL the picker fallback never fires while the mint still runs (Codex round 2 on #313)", () => {
+    // `/menu?mode=dinein&t=…`: cartId is null until useTableSession mints and CartPublisher publishes;
+    // in that window the current tab's href was `/dine-in`, so a re-tap abandoned the scanned flow.
+    const here = "/menu?mode=dinein&t=TBL7";
+    expect(
+      dinerTabs({ ...base, pathname: "/menu", here, mode: "dinein", cartId: null })[0],
+    ).toMatchObject({ key: "menu", current: true, href: here });
+    // Off the menu the picker rule stands: a remembered dine-in door with no cart leads to /dine-in.
+    expect(
+      dinerTabs({
+        ...base,
+        pathname: "/account",
+        here: "/account",
+        mode: "dinein",
+        cartId: null,
+      })[0]?.href,
+    ).toBe("/dine-in");
+  });
   it("a LIT Account tab is a self-link to where you are — the Rewards panel stays put (deep pass on #312)", () => {
     const base = { mode: "pickup", cartId: null, cartCount: null, order: null, stars: null };
     expect(

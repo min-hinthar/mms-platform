@@ -132,12 +132,17 @@ export function dinerTabs(s: {
       // On the threshold, "up" is the doors (D8) — the route has entered no menu to return to. A
       // remembered dine-in door with NO cart published through it means no table was entered yet, so
       // Menu leads to the picker — never the code-free `/menu?mode=dinein`, the numberless host-start
-      // J15 retired (deep pass on #312).
+      // J15 retired (deep pass on #312). A LIT Menu tab is a self-link to where you are, the Order
+      // and Account rule (Codex round 2 on #313): on a table or invite URL (`/menu?mode=dinein&t=…`)
+      // the cart is null until the mint lands and CartPublisher publishes, and the picker fallback
+      // turned the CURRENT tab into a door out of the join flow for exactly that window.
       href: isThreshold(s.pathname)
         ? "/"
-        : mode === "dinein" && !s.cartId
-          ? "/dine-in"
-          : menuHref(mode),
+        : active === "menu"
+          ? (s.here ?? menuHref(mode))
+          : mode === "dinein" && !s.cartId
+            ? "/dine-in"
+            : menuHref(mode),
       badge: null,
       current: active === "menu",
     },
