@@ -113,11 +113,18 @@ label`); the hero keeps its text as its name. (5) The prep line said "Tap ⋯" �
 counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkout names the door ONCE
   (`doorLabel` — `checkout/door-ignores-the-counter-ask`). 3026 → 3029 mutants; the new note is on
   J29's ledger.
+- **Codex round 4 on #313 (one P2, real, fixed red-first).** After an undo LANDED but every re-sync
+  failed, the window stayed open with Undo live — and a second tap re-fired: `mms_undo_fire` found
+  nothing in grace, `undoFire` answered `expired`, and the hook said "already with the kitchen" and
+  closed as expired over dishes that were drafts. The hook now remembers the landed batch
+  (`restoredRef`); a later tap for it retries only the READ and closes as `undone` once a view
+  applies, saying "Brought back" then; a new window forgets it
+  (`undo-grace/second-tap-re-fires-a-landed-undo`). 3029 → 3030 mutants.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 (3029 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 by round 4 (3030 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6449 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6450 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts

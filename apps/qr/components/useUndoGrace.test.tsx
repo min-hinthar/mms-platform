@@ -300,6 +300,63 @@ describe("useUndoGrace — the window", () => {
     expect(say).toHaveBeenLastCalledWith({ kind: "err", text: RESYNC_FAILED_NOTE });
   });
 
+  it("a second Undo tap after a LANDED undo whose re-syncs all failed retries only the READ — never re-fires (a re-fire finds nothing in grace and reads `expired` over dishes that are drafts)", async () => {
+    vi.useFakeTimers();
+    h.undoFire
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, reason: "expired" }); // what a re-fire WOULD get
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("applied");
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 3);
+      await first;
+    });
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.message).toEqual({ kind: "err", text: RESYNC_FAILED_NOTE });
+    // The diner follows the note and taps Undo again.
+    let second!: Promise<void>;
+    act(() => {
+      second = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS);
+      await second;
+    });
+    // MUTATION (undo-grace/second-tap-re-fires-a-landed-undo): `undoFire` runs again, finds nothing
+    // in grace, answers `expired` — "already with the kitchen" said and the window closed as expired
+    // over dishes that are drafts; red here (called twice, closedBy expired).
+    expect(h.undoFire).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(4);
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("undone");
+    expect(result.current.message).toEqual({
+      kind: "ok",
+      text: "Brought back to your order — change it and send again.",
+    });
+    // A NEW window (a new send, a new batch) forgets the landed undo: its Undo fires.
+    h.undoFire.mockResolvedValueOnce({ ok: true });
+    act(() => result.current.open(receipt({ undoBatch: "batch-2" }), Date.now()));
+    let third!: Promise<void>;
+    act(() => {
+      third = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await third;
+    });
+    expect(h.undoFire).toHaveBeenCalledTimes(2);
+    expect(h.undoFire).toHaveBeenLastCalledWith("cart-1", "batch-2");
+  });
+
   it("`expired` closes the window even when the re-sync fails — an Undo over lines the kitchen has can never land", async () => {
     vi.useFakeTimers();
     h.undoFire.mockResolvedValue({ ok: false, reason: "expired" });

@@ -82,6 +82,9 @@ export const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
  * held for its remaining seconds), `pending` releases, and this is said: every mutation on the screen
  * re-fetches, so "your next tap" is a promise the code keeps. EN-only (J29 ledger).
  */
+/** The undo landed and the view shows it. Said once per landed undo — on the answer, or on the later
+ *  tap whose read finally applied. */
+export const BROUGHT_BACK_NOTE = "Brought back to your order — change it and send again.";
 export const RESYNC_FAILED_NOTE =
   "Brought back to your order — couldn’t refresh the list just now; it updates on your next tap.";
 /** A failed re-sync is retried this many times in all, this far apart, with the gate still shut. */
@@ -137,6 +140,10 @@ export function useUndoGrace(opts?: {
   const [message, setMessage] = useState<GraceMessage | null>(null);
   const [closedBy, setClosedBy] = useState<GraceClose | null>(null);
   const graceWrites = useRef<Promise<void>>(Promise.resolve());
+  // The batch whose undo LANDED on the server but whose re-sync never applied (Codex round 4 on
+  // #313): a later tap for it owes only the READ. A second `undoFire` finds nothing in grace and
+  // answers `expired` — "already with the kitchen" over dishes that are drafts.
+  const restoredRef = useRef<string | null>(null);
   const undoBtn = useRef<HTMLButtonElement | null>(null);
   const undoBtnRef = useCallback((el: HTMLButtonElement | null) => {
     undoBtn.current = el;
@@ -188,6 +195,7 @@ export function useUndoGrace(opts?: {
       // avoids a first-paint flash. null ⇒ no window (still sent). The server re-checks fire_at on
       // undo regardless, so the countdown is advisory.
       setNowMs(receiptMs);
+      restoredRef.current = null; // a new send, a new batch — nothing landed for it yet
       batchRef.current = res.undoBatch;
       setBatch(res.undoBatch);
       setClosedBy(null);
@@ -220,27 +228,32 @@ export function useUndoGrace(opts?: {
         // the whole round trip of the read. The answer is SAID at once (it is true); the state that
         // gates money moves only when the view can keep it.
         let close: GraceClose | null = null;
-        try {
-          const res = await undoFire(cartId, target);
-          if (res.ok) {
-            say({ kind: "ok", text: "Brought back to your order — change it and send again." });
-            close = "undone"; // the batch is back in draft → the window closes once the view says so
-          } else if (res.reason === "expired") {
-            // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
-            say({
-              kind: "ok",
-              text: "That’s already with the kitchen — ask a server to change it.",
-            });
-            close = "expired";
-          } else {
-            // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still
-            // be in grace — keep the window open so the host can retry; it expires on its own.
-            say({ kind: "err", text: reasonCopy[res.reason] });
+        // Codex round 4 on #313 — the undo for THIS batch already landed on an earlier tap and only
+        // its re-sync failed: the write is not repeated (it would read `expired`), the read is.
+        const alreadyLanded = restoredRef.current === target;
+        if (alreadyLanded) close = "undone";
+        else
+          try {
+            const res = await undoFire(cartId, target);
+            if (res.ok) {
+              say({ kind: "ok", text: BROUGHT_BACK_NOTE });
+              close = "undone"; // the batch is back in draft → the window closes once the view says so
+            } else if (res.reason === "expired") {
+              // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
+              say({
+                kind: "ok",
+                text: "That’s already with the kitchen — ask a server to change it.",
+              });
+              close = "expired";
+            } else {
+              // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still
+              // be in grace — keep the window open so the host can retry; it expires on its own.
+              say({ kind: "err", text: reasonCopy[res.reason] });
+            }
+          } catch {
+            // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
+            say({ kind: "err", text: "Couldn’t undo that just now — please try again." });
           }
-        } catch {
-          // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
-          say({ kind: "err", text: "Couldn’t undo that just now — please try again." });
-        }
         // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that
         // resolved before this read landed would decide Pay against a view the undo has outdated.
         // ⚠️ AND THE WINDOW CLOSES ONLY ON A RE-SYNC THAT APPLIED (Codex round 3 on #313). Checkout's
@@ -261,8 +274,14 @@ export function useUndoGrace(opts?: {
             // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
           }
         }
-        if (close === "expired" || (close && applied)) setDeadline(null, close);
-        else if (close) say({ kind: "err", text: RESYNC_FAILED_NOTE });
+        if (close === "expired" || (close && applied)) {
+          if (alreadyLanded) say({ kind: "ok", text: BROUGHT_BACK_NOTE }); // the read finally shows it
+          restoredRef.current = null;
+          setDeadline(null, close);
+        } else if (close) {
+          restoredRef.current = target; // landed; only the read is owed from here
+          say({ kind: "err", text: RESYNC_FAILED_NOTE });
+        }
         pendingRef.current = false;
         setPending(false);
       });

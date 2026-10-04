@@ -24810,6 +24810,14 @@ const MUTANTS = [
     replace: "            applied = true;\n",
   },
   {
+    id: "undo-grace/second-tap-re-fires-a-landed-undo",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 4 on #313 (P2) — after an undo LANDED but every re-sync failed, the window stays open with Undo live; a second tap that re-fires finds nothing in grace, `undoFire` answers `expired`, and the hook says 'already with the kitchen' and closes as expired over dishes that are drafts. The landed batch is remembered; a later tap retries only the read",
+    find: "        const alreadyLanded = restoredRef.current === target;\n",
+    replace: "        const alreadyLanded = false;\n",
+  },
+  {
     id: "checkout/pay-re-entered-during-the-drain",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.grace.test.tsx",
