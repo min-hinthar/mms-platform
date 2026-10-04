@@ -21,9 +21,9 @@ import { t } from "./i18n";
  *    or an undo still in flight) is this device's courtesy — the undo may put lines back.
  *    `unsentBlocks` is `payBlockedByUnsent(...)` PASSED IN by the caller, never restated here: its
  *    rule and its mutants live in `checkout-stage.ts`.
- *  - `billDoorLabel` — the Order stage's Total door promises "& pay" only when nothing blocks Pay;
- *    otherwise it is a door to a bill you can READ ("View bill"). The door never promises a verb the
- *    next screen refuses.
+ *  - `billDoorLabel` — the Order stage's Total door promises "& pay" only when nothing blocks Pay and
+ *    no counter ask stands; otherwise it is a door to a bill you can READ ("View bill"). The door
+ *    never promises a verb the next screen refuses or does not offer.
  *
  * Imports only copy — `TABLE_STARTER` (the role sentence for a host the table cannot name) and the
  * dictionary — no React, no DOM, so `verify:slice` falsifies each arm with one input.
@@ -62,9 +62,17 @@ export function payBlock(s: {
   return null;
 }
 
-/** The i18n key the Order stage's Total door is named by. */
-export function billDoorLabel(block: PayBlock | null): "viewBillAndPay" | "viewBill" {
-  return block === null ? "viewBillAndPay" : "viewBill";
+/**
+ * The i18n key the Order stage's Total door is named by. A standing counter ask (`counterAsk`) hides
+ * Pay behind the counter card on the Bill (`showPayControls`), so the door may not promise "& pay"
+ * over it either — a diner who asked for the counter and walked back to the order would be led to a
+ * Bill with no Pay on it (Codex round 3 on #313).
+ */
+export function billDoorLabel(
+  block: PayBlock | null,
+  counterAsk = false,
+): "viewBillAndPay" | "viewBill" {
+  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";
 }
 
 /**

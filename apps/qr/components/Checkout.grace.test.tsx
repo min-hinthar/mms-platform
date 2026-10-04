@@ -449,4 +449,30 @@ describe("Phase 3c-i (D13 · D14) — one hero per state, one morph target per v
     expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
     expect(document.body.textContent).toContain("Your order’s with the kitchen.");
   });
+
+  it("everything sent under a STANDING counter ask: the hero door reads 'View bill' — the Bill it opens has no Pay (Codex round 3 on #313)", async () => {
+    const asked = "2026-10-04T11:59:00.000Z";
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: asked }));
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    render(
+      <Checkout
+        cartId={CART}
+        initialItems={[FIRED]}
+        initialTotals={TOTALS}
+        initialMySeat={MY_SEAT}
+        initialCounterRequestedAt={asked}
+        splitContext={HOST}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: /^Pay · / })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Back to your order/i }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // MUTATION (checkout/door-ignores-the-counter-ask): `billDoorLabel(block)` alone — "View bill &
+    // pay · $12.00" promising a verb the next screen does not offer; red.
+    const door = await screen.findByRole("button", { name: "View bill · $12.00" });
+    expect(door.classList.contains("checkout-cta")).toBe(true);
+    expect(screen.queryByRole("button", { name: /View bill & pay/ })).toBeNull();
+  });
 });

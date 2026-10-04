@@ -2389,6 +2389,9 @@ export function Checkout({
     graceOpen,
     undoInFlight: grace.pending,
   });
+  // The Total door's ONE name key: never "& pay" while Pay is held, nor over a standing counter ask —
+  // the Bill it opens hides Pay behind the counter card then (Codex round 3 on #313).
+  const doorLabel = billDoorLabel(block, counterAt != null);
   const payReasonId = "pay-reason";
   const blockCopy = block
     ? payBlockCopy(block, { lockedByName, canSend: canSendToKitchen, hostName })
@@ -3777,14 +3780,14 @@ export function Checkout({
                   // with the verb; the hero's visible text IS the verb, so its name is its text.
                   aria-label={
                     hero === "bill"
-                      ? `${T(billDoorLabel(block))} · ${ctaTotal}`
-                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(billDoorLabel(block))}`
+                      ? `${T(doorLabel)} · ${ctaTotal}`
+                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(doorLabel)}`
                   }
                   className={`checkout-total-door${hero === "bill" ? " checkout-cta" : ""}`}
                 >
                   {hero === "bill" ? (
                     <span style={{ position: "relative", zIndex: 1 }}>
-                      {T(billDoorLabel(block))} ·{" "}
+                      {T(doorLabel)} ·{" "}
                       <span className="vt-cart-total">
                         <NumberFlow
                           value={orderTotalCents / 100}
@@ -3796,7 +3799,7 @@ export function Checkout({
                       </span>
                       {/* W16b — the MY line rides under the EN+amount line; the $ amount stays on
                           the EN line only (the Latin-digits money rule). */}
-                      <My k={billDoorLabel(block)} color="inherit" />
+                      <My k={doorLabel} color="inherit" />
                     </span>
                   ) : (
                     <>

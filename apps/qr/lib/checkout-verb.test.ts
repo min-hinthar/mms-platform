@@ -73,6 +73,13 @@ describe("billDoorLabel — the door never promises a verb the next screen refus
     expect(billDoorLabel("unsent")).toBe("viewBill");
     expect(billDoorLabel("grace")).toBe("viewBill");
   });
+  it("a standing counter ask hides Pay behind the counter card — the door may not promise '& pay' over it either (Codex round 3 on #313)", () => {
+    // MUTATION (checkout-verb/door-promises-pay-under-a-counter-ask): the ask ignored — "View bill
+    // & pay" leads to a Bill with no Pay on it; red.
+    expect(billDoorLabel(null, true)).toBe("viewBill");
+    expect(billDoorLabel(null, false)).toBe("viewBillAndPay");
+    expect(billDoorLabel("unsent", true)).toBe("viewBill");
+  });
 });
 
 describe("payBlockCopy — one sentence per state", () => {

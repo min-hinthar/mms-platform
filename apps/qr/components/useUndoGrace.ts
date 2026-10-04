@@ -77,6 +77,17 @@ export type UndoGrace = {
  */
 export const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
 
+/**
+ * Codex round 3 on #313 — the undo LANDED but no re-read could show it. The window stays open (Pay
+ * held for its remaining seconds), `pending` releases, and this is said: every mutation on the screen
+ * re-fetches, so "your next tap" is a promise the code keeps. EN-only (J29 ledger).
+ */
+export const RESYNC_FAILED_NOTE =
+  "Brought back to your order — couldn’t refresh the list just now; it updates on your next tap.";
+/** A failed re-sync is retried this many times in all, this far apart, with the gate still shut. */
+export const RESYNC_ATTEMPTS = 3;
+export const RESYNC_RETRY_MS = 750;
+
 export const reasonCopy: Record<
   "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error",
   string
@@ -105,7 +116,9 @@ export const reasonCopy: Record<
 export function useUndoGrace(opts?: {
   /** Every outcome sentence, as it is decided — Checkout routes it to the view's one region. */
   say?: (m: GraceMessage) => void;
-  /** Re-sync after every server attempt; a returned promise rides the write chain. */
+  /** Re-sync after every server attempt; a returned promise rides the write chain. A resolved
+   *  `"failed"` (Checkout's `refresh` — `readTicketed`'s outcome) means NO view was applied: the
+   *  hook retries and never closes the window on it. Any other value, or none, counts as applied. */
   onChanged?: () => void | Promise<unknown>;
 }): UndoGrace {
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the
@@ -228,14 +241,28 @@ export function useUndoGrace(opts?: {
           // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
           say({ kind: "err", text: "Couldn’t undo that just now — please try again." });
         }
-        try {
-          // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that
-          // resolved before this read landed would decide Pay against a view the undo has outdated.
-          await optsRef.current?.onChanged?.();
-        } catch {
-          // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
+        // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that
+        // resolved before this read landed would decide Pay against a view the undo has outdated.
+        // ⚠️ AND THE WINDOW CLOSES ONLY ON A RE-SYNC THAT APPLIED (Codex round 3 on #313). Checkout's
+        // `refresh` RESOLVES "failed" on a read that never landed — it does not throw — so a close on
+        // that answer left the old fired lines on screen under "Brought back", with Pay live (no
+        // drafts in view, no grace) until create-intent refused the drafts the undo had restored. A
+        // failed read is retried, bounded, with the gate still shut; if none lands the window stays
+        // OPEN for its remaining seconds, `pending` releases so the Undo is not wedged, and the
+        // sentence says what happened. `expired` closes regardless: the kitchen has the lines, and
+        // an Undo that can never land is the defect `expired-keeps-the-window` pins.
+        let applied = false;
+        for (let attempt = 0; attempt < RESYNC_ATTEMPTS && !applied; attempt++) {
+          if (attempt > 0) await new Promise((r) => setTimeout(r, RESYNC_RETRY_MS));
+          try {
+            const r = await optsRef.current?.onChanged?.();
+            applied = r !== "failed";
+          } catch {
+            // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.
+          }
         }
-        if (close) setDeadline(null, close);
+        if (close === "expired" || (close && applied)) setDeadline(null, close);
+        else if (close) say({ kind: "err", text: RESYNC_FAILED_NOTE });
         pendingRef.current = false;
         setPending(false);
       });

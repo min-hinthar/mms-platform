@@ -101,11 +101,23 @@ label`); the hero keeps its text as its name. (5) The prep line said "Tap ⋯" �
   3c-ii's bind) · J34 (the grace tick re-renders Checkout; `sayRefusal` clears a pay error) · J35
   (`SplitSection`'s parked settlement door has no grace gate) · J36 (the ⋯ sheet mirrors the global
   `status`); J29 and M258 amended.
+- **Codex round 3 on #313 — the first round on the 3c-i stack (two P2, both real, both fixed red-first).**
+  (1) Checkout's `refresh` RESOLVES `"failed"` on a read that never landed — it does not throw — so the
+  hook closed the undo window on that answer and left the old fired lines on screen under "Brought
+  back", with Pay live (no drafts in view, no grace) until create-intent refused the drafts the undo had
+  restored. The window now closes only on a re-sync that APPLIED; a failed read is retried (three
+  attempts, 750 ms apart) with the gate still shut; if none lands the window stays open for its
+  remaining seconds, `pending` releases (no wedge) and `RESYNC_FAILED_NOTE` says so; `expired` closes
+  regardless (`undo-grace/failed-re-sync-closes-the-window`). (2) The hero Total door read "View bill &
+  pay" over a STANDING counter ask, whose card hides Pay on the Bill it opens: `billDoorLabel(block,
+counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkout names the door ONCE
+  (`doorLabel` — `checkout/door-ignores-the-counter-ask`). 3026 → 3029 mutants; the new note is on
+  J29's ledger.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass (3026 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 (3029 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6444 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6449 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts

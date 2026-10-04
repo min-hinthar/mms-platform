@@ -24732,8 +24732,16 @@ const MUTANTS = [
     file: "apps/qr/lib/checkout-verb.ts",
     suite: "lib/checkout-verb.test.ts",
     why: "3c-i (D14, P4's graft) — the Total door's name says what the next screen allows; 'View bill & pay' while Pay is held promises a verb the Bill refuses on arrival",
-    find: '  return block === null ? "viewBillAndPay" : "viewBill";',
+    find: '  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";',
     replace: '  return "viewBillAndPay";',
+  },
+  {
+    id: "checkout-verb/door-promises-pay-under-a-counter-ask",
+    file: "apps/qr/lib/checkout-verb.ts",
+    suite: "lib/checkout-verb.test.ts",
+    why: "Codex round 3 on #313 (P2) — a standing counter ask hides Pay behind the counter card on the Bill; a door reading 'View bill & pay' over it promises a verb the next screen does not offer",
+    find: '  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";',
+    replace: '  return block === null ? "viewBillAndPay" : "viewBill";',
   },
   {
     id: "checkout-verb/guest-unsent-copy-orders-the-guest-to-send",
@@ -24781,9 +24789,9 @@ const MUTANTS = [
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
     why: "Blind pass on 3c-i (all three lenses, CRITICAL) — the window closed and `pending` cleared on the server's ANSWER, before the re-sync landed: one render with the window shut, nothing pending and the lines still `fired` — Pay live over drafts the undo had just returned, the counter door live, 'Brought back' beside 'with the kitchen' — for the whole round trip of the read. The state that gates money moves only when the view can keep it",
-    find: "        try {\n          // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that\n          // resolved before this read landed would decide Pay against a view the undo has outdated.\n          await optsRef.current?.onChanged?.();\n        } catch {\n          // The re-sync's failure is its own (refresh swallows and probes); the chain stays whole.\n        }\n        if (close) setDeadline(null, close);\n        pendingRef.current = false;\n        setPending(false);\n",
+    find: "        let applied = false;\n        for (let attempt = 0;",
     replace:
-      "        if (close) setDeadline(null, close);\n        pendingRef.current = false;\n        setPending(false);\n        try {\n          await optsRef.current?.onChanged?.();\n        } catch {\n          // mutant\n        }\n",
+      "        if (close) setDeadline(null, close);\n        pendingRef.current = false;\n        setPending(false);\n        let applied = false;\n        for (let attempt = 0;",
   },
   {
     id: "undo-grace/tick-closes-a-window-mid-undo",
@@ -24792,6 +24800,14 @@ const MUTANTS = [
     why: "Blind pass on 3c-i (concurrency) — the deadline can pass while an undo is still answering; a tick that closes the window as 'elapsed' then has the Bill say 'Ready to pay.' over an undo about to put the dishes back. The window ends on the read that shows the truth, never on the clock while a write is out",
     find: "      if (graceRemainingSec(deadlineMs, now) === 0 && !pendingRef.current)\n",
     replace: "      if (graceRemainingSec(deadlineMs, now) === 0)\n",
+  },
+  {
+    id: "undo-grace/failed-re-sync-closes-the-window",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 3 on #313 (P2) — Checkout's `refresh` RESOLVES 'failed' on a read that never landed, it does not throw; a window closed on that answer leaves the old fired lines on screen under 'Brought back', with Pay live (no drafts in view, no grace) until create-intent refuses the drafts the undo restored. A failed read is not an applied one",
+    find: '            applied = r !== "failed";\n',
+    replace: "            applied = true;\n",
   },
   {
     id: "checkout/pay-re-entered-during-the-drain",
@@ -24814,8 +24830,16 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "Blind pass on 3c-i (a11y, CRITICAL — WCAG 2.5.3 label in name) — the quiet door SHOWS 'Total · $X' and was NAMED 'View bill · $X' alone; a voice-control user saying the visible words could not open it. The name opens with the visible label and ends with the verb",
-    find: '                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(billDoorLabel(block))}`\n',
-    replace: "                      : `${T(billDoorLabel(block))} · ${ctaTotal}`\n",
+    find: '                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(doorLabel)}`\n',
+    replace: "                      : `${T(doorLabel)} · ${ctaTotal}`\n",
+  },
+  {
+    id: "checkout/door-ignores-the-counter-ask",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.grace.test.tsx",
+    why: "Codex round 3 on #313 (P2) — the rule is lib's, the WIRING is here: a door that does not hand the standing counter ask to `billDoorLabel` reads 'View bill & pay' from 'Back to your order' and opens a Bill whose Pay the counter card has replaced",
+    find: "  const doorLabel = billDoorLabel(block, counterAt != null);\n",
+    replace: "  const doorLabel = billDoorLabel(block);\n",
   },
   {
     id: "checkout/total-door-drops-the-previewed-tip",

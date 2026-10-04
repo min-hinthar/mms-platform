@@ -11,7 +11,8 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 const h = vi.hoisted(() => ({ undoFire: vi.fn() }));
 vi.mock("@/lib/cart", () => ({ undoFire: h.undoFire, sendToKitchen: vi.fn() }));
 
-const { useUndoGrace, FROZEN_NOTE, reasonCopy } = await import("./useUndoGrace");
+const { useUndoGrace, FROZEN_NOTE, RESYNC_FAILED_NOTE, RESYNC_RETRY_MS, reasonCopy } =
+  await import("./useUndoGrace");
 
 afterEach(() => {
   cleanup();
@@ -232,6 +233,89 @@ describe("useUndoGrace — the window", () => {
     });
     expect(result.current.deadlineMs).toBeNull();
     expect(result.current.closedBy).toBe("undone");
+  });
+
+  it('a re-sync that answers "failed" is retried with the gate still shut; the window closes on the attempt that APPLIES', async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: true });
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("applied");
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    // The server said ok and the first re-read FAILED (Checkout's `refresh` RESOLVES "failed", it
+    // does not throw): nothing closes, nothing releases.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    // MUTATION (undo-grace/failed-re-sync-closes-the-window): a failed read counts as applied — the
+    // window shuts over the old fired lines under "Brought back", Pay live with no drafts in view
+    // and no grace, until create-intent refuses the drafts the undo restored; red here.
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.pending).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(2);
+    expect(result.current.deadlineMs).not.toBeNull();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS);
+      await undoPromise;
+    });
+    expect(onChanged).toHaveBeenCalledTimes(3);
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("undone");
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("when every re-sync fails the window stays OPEN, `pending` releases (no wedge) and the sentence says the list did not refresh", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: true });
+    const onChanged = vi.fn(() => Promise.resolve("failed"));
+    const say = vi.fn();
+    const { result } = renderHook(() => useUndoGrace({ onChanged, say }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 3);
+      await undoPromise;
+    });
+    expect(onChanged).toHaveBeenCalledTimes(3);
+    // The undo LANDED (the server said so) but the screen could not show it: the gate stays shut
+    // for the window's remaining seconds, the Undo is not wedged, and the diner is told.
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.closedBy).toBeNull();
+    expect(result.current.pending).toBe(false);
+    expect(result.current.message).toEqual({ kind: "err", text: RESYNC_FAILED_NOTE });
+    expect(say).toHaveBeenLastCalledWith({ kind: "err", text: RESYNC_FAILED_NOTE });
+  });
+
+  it("`expired` closes the window even when the re-sync fails — an Undo over lines the kitchen has can never land", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: false, reason: "expired" });
+    const onChanged = vi.fn(() => Promise.resolve("failed"));
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 3);
+      await undoPromise;
+    });
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("expired");
   });
 
   it("the 250 ms tick closes the window when it elapses, and is cleared on unmount", () => {
