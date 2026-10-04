@@ -29,3 +29,15 @@ export function sameSlot(a: string | null | undefined, b: string | null | undefi
   const tb = new Date(b).getTime();
   return Number.isFinite(ta) && ta === tb;
 }
+
+/**
+ * Deep pass on #312 — a scheduled slot whose instant has passed is not a plan: a to-go diner who
+ * scheduled on /cart, left without paying and came back inside the session TTL still carries the
+ * instant on the cart, and the kitchen cannot honour it. A surface that STATES the schedule (the
+ * menu greeting) asks this first. `now` is a parameter so the rule is falsified by a value.
+ */
+export function slotIsPast(iso: string | null | undefined, now: number = Date.now()): boolean {
+  if (iso == null) return false;
+  const t = new Date(iso).getTime();
+  return Number.isFinite(t) && t <= now;
+}

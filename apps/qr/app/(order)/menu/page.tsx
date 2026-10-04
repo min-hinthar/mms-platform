@@ -152,6 +152,13 @@ export default async function Menu({
 
   return (
     <TableCartProvider
+      // A new door is a NEW provider — its own mint, its own cart (deep pass on #312, HIGH): the
+      // DoorSheet's To-go row from a table is a same-pathname `/menu?mode=pickup`, and without the
+      // key Next kept this tree alive with the table's session under `mode="pickup"`, so every Add
+      // from the "To go" menu landed on the shared table bill. `useTableSession` says it: a runtime
+      // mode change no-ops — remount the route to switch modes. Pinned by
+      // lib/menu-remounts-per-door.test.ts.
+      key={`${mode}:${code ?? ""}`}
       mode={mode}
       code={code}
       joinOnly={joinOnly}

@@ -887,9 +887,12 @@ export default function Grocery() {
   useCtaDock(ctaBarRef, lines.length > 0 && Boolean(cartId));
   // W9d — ONE checkout path for the CTA pill and the basket sheet's button (same capture, same
   // journey cut) so the sheet can never drift into a second, differently-instrumented exit.
-  const leavingRef = useRef(false); // one navigation at a time while the drain runs (CartBar's rule)
+  // One navigation at a time while the drain runs (CartBar's rule) — as STATE, not a ref: the beat
+  // between the tap and the push is narrated (`aria-busy` on both Check out buttons), and a second
+  // tap during it is seen to be swallowed rather than silently (deep pass on #312).
+  const [leaving, setLeaving] = useState(false);
   const checkout = useCallback(() => {
-    if (!cartId || leavingRef.current) return;
+    if (!cartId || leaving) return;
     posthog.capture("grocery_checkout_clicked", {
       cart_id: cartId,
       item_count: itemCount,
@@ -898,10 +901,10 @@ export default function Grocery() {
     });
     // Drain in-flight adds and steppers BEFORE leaving (Codex round 4 on #312): `settled()` resolves
     // at once when nothing is pending, so the ordinary tap stays instant.
-    leavingRef.current = true;
+    setLeaving(true);
     const epoch = navEpoch.current();
     void bounded(ledger.settled()).finally(() => {
-      leavingRef.current = false;
+      setLeaving(false);
       // The shopper may have taken the Menu or Account tab while the write drained: this page is then
       // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b)
       // — and the unmount lags the tap by the transition's commit, so the grammar's start signal
@@ -909,7 +912,7 @@ export default function Grocery() {
       if (mountedRef.current && navEpoch.current() === epoch)
         journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
     });
-  }, [cartId, itemCount, lines.length, totalCents, journey, ledger]);
+  }, [cartId, itemCount, lines.length, totalCents, journey, ledger, leaving]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
   // W4e — real basket savings vs the market compare-at. Routed through the SAME `saleInfo` floor the
@@ -1470,6 +1473,7 @@ export default function Grocery() {
             aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, subtotal $${(
               totalCents / 100
             ).toFixed(2)} before tax`}
+            aria-busy={leaving || undefined}
             onClick={checkout}
           >
             <span>
@@ -1500,6 +1504,7 @@ export default function Grocery() {
           itemCount={itemCount}
           onStep={stepQty}
           onCheckout={checkout}
+          checkingOut={leaving}
           onCloseAutoFocus={(e) => {
             // Override the Sheet's default opener-restore (W9e): the default is fine while the
             // trigger lives, but THIS sheet's trigger (the CTA bar) can unmount while it is open

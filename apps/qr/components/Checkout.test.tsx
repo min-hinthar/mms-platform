@@ -522,6 +522,29 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     );
   });
 
+  it("a counter-settled cart retires the step rail with the review controls — no stale Order/Bill under the paid card (deep pass on #312)", async () => {
+    // Codex round 1 on #312 made `settledClose` a settled surface for the rail; nothing pinned it,
+    // so the clause could be deleted with every suite green. Before the settle the rail is drawn
+    // (and is an explicit `role="list"` — WebKit drops the implicit role under `list-style: none`).
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: null, tender: "counter" });
+    mount({ splitContext: DINE_IN });
+    const rail = screen.getByRole("list", { name: "Checkout steps" });
+    expect(rail.getAttribute("role")).toBe("list");
+    await addOne();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull());
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {
+    mount({ initialItems: [], splitContext: { ...PICKUP, mode: "scango" } as typeof PICKUP });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Your basket");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).not.toContain("Your order");
+  });
+
   it("says nothing when the re-read shows the write actually LANDED", async () => {
     // A rejected Server Action never proved the mutation failed: `setQty`'s `if (!affected) throw`
     // sits after the RPC and discards its `{ error }`, and a response can be lost after the

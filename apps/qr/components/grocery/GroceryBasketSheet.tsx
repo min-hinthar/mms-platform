@@ -29,6 +29,7 @@ export function GroceryBasketSheet({
   itemCount,
   onStep,
   onCheckout,
+  checkingOut = false,
   onCloseAutoFocus,
 }: {
   open: boolean;
@@ -43,6 +44,9 @@ export function GroceryBasketSheet({
   itemCount: number;
   onStep: (line: GroceryLine, nextQty: number) => void;
   onCheckout: () => void;
+  /** The page's drain beat (its writes settling before the checkout push) — narrated on this
+   *  button too, so a tap here during it reads as accepted, not ignored (deep pass on #312). */
+  checkingOut?: boolean;
   /** Forwarded to the Sheet — the page redirects Radix's close-restore when this sheet's own
    *  trigger (the CTA bar) has unmounted (zero lines / terminal basket). */
   onCloseAutoFocus?: (event: Event) => void;
@@ -160,6 +164,7 @@ export function GroceryBasketSheet({
                 aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, subtotal $${(
                   totalCents / 100
                 ).toFixed(2)} before tax`}
+                aria-busy={checkingOut || undefined}
                 onClick={onCheckout}
               >
                 <span>

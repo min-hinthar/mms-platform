@@ -11,9 +11,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  */
 let pathname = "/";
 let search = "";
+// One URLSearchParams per URL, as Next hands it out: a fresh object per render would re-run the
+// provider's route effect on every render, which is not production's shape — and it masked a
+// mutant (the back-fill re-stamping a door the publisher had failed to record).
+const paramsCache = new Map<string, URLSearchParams>();
+const paramsFor = (s: string) => {
+  let p = paramsCache.get(s);
+  if (!p) {
+    p = new URLSearchParams(s);
+    paramsCache.set(s, p);
+  }
+  return p;
+};
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
-  useSearchParams: () => new URLSearchParams(search),
+  useSearchParams: () => paramsFor(search),
 }));
 
 const { ActiveOrderProvider, useActiveOrder } = await import("./ActiveOrderProvider");
@@ -163,9 +175,11 @@ describe("ActiveOrderProvider — the cart pointer and its door", () => {
     await frames();
     expect(eye()).toMatch(/^A\|/); // no door recorded → the old behaviour
     cleanup();
-    // The diner's remembered door DIFFERS from the cart's: only the URL's say-so keeps it offered.
+    // The diner's remembered door DIFFERS from the cart's, and the cart is EMPTY (so the live-cart
+    // rule does not rescue it): only the URL's say-so keeps it offered.
     localStorage.setItem("mms.qr.activeMode", "dinein");
     localStorage.setItem("mms.qr.activeCartMode", "A:scango");
+    localStorage.setItem("mms.qr.activeCartCount", "A:0");
     pathname = "/cart";
     search = "cart=A";
     render(

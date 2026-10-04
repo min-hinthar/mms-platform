@@ -63,6 +63,14 @@ describe("D10 — the pickup greeting is a statement, not a control", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("a slot already GONE is not stated as the plan — the greeting invites the order instead (deep pass on #312)", () => {
+    // Scheduled on /cart, left without paying, back on the menu after the slot inside the session
+    // TTL: the cart still carries the instant; the kitchen cannot honour it.
+    ctx.current = { ...solo, pickupSlot: "2001-01-01T12:00:00.000Z" };
+    render(<ArrivalBeat mode="pickup" />);
+    expect(line()).toBe("Order when you’re ready — we’ll pack it to go.");
+  });
+
   it("the scheduled statement wins the one sub-line over the welcome-back warmth, as the party line does", () => {
     // The file's own doctrine: warmth never displaces information. A slot the diner set at checkout
     // is information (and its "change it at checkout" pointer is the only way back to it from here).

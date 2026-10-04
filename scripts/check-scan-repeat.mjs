@@ -305,11 +305,28 @@ for (const st of liveStages) {
 // Blind pass on Phase 3b (concurrency): the door sheet joined the basket sheet over the camera, and
 // `decodeHold` treats any sheet as a hold — but only if the page TELLS the stage. The invariant lived
 // in a comment and one `||`; a mutant dropping `|| doorSheetOpen` survived every suite (the page has
-// none, and it is outside the mutate set). So: every `useState` whose binding ends in `SheetOpen`
-// must be an identifier reachable inside the live stage's `sheetOpen` expression. Red-first: the
-// `||` deleted; the state renamed; the prop deleted. Parsed, never grepped — a mention in a comment
-// is not a reference.
-const sheetStates = [];
+// none, and it is outside the mutate set).
+//
+// Deep pass on #312 rewrote the matcher (LEARNINGS #60 — guards parse, never scan): the first draft
+// found sheets by a NAME suffix (`/SheetOpen$/`) and asserted identifier PRESENCE in `sheetOpen`. So
+// the basket sheet — `basketOpen`, the original camera hold — was never in the population, and
+// `(basketOpen && !cartGone) && doorSheetOpen` (both sheets required at once, a state the UI cannot
+// reach) or `|| (false && doorSheetOpen)` passed green. Now the population is what the page DECLARES:
+// every JSX element whose tag ends in `Sheet` opens on its `open={…}` expression, and the stage must
+// be told EXACTLY that — `sheetOpen` is a top-level `||` of disjuncts and every sheet's `open`
+// expression is one of them, structurally (printed text, parentheses stripped). A sheet with no
+// `open=`, or a `sheetOpen` that is not a disjunction over those expressions, is refused — never
+// resolved by position or by guessing. Red-first: `||` → `&&`; a `false && x` disjunct; the basket's
+// disjunct deleted; a sheet renamed.
+const unwrap = (n) => {
+  while (ts.isParenthesizedExpression(n)) n = n.expression;
+  return n;
+};
+const printed = (n) => unwrap(n).getText(src).replace(/\s+/g, " ").trim();
+// Every `useState` pair on the page: a sheet that OWNS its open state (the DoorSheet) reports it
+// through `onOpenChange={setX}`, so its condition from the page's side is the state that setter
+// writes. Found by the setter, never by the state's name.
+const statePairs = new Map(); // setter → state
 walk(src, (n) => {
   if (
     ts.isVariableDeclaration(n) &&
@@ -319,37 +336,80 @@ walk(src, (n) => {
     ts.isIdentifier(n.initializer.expression) &&
     n.initializer.expression.text === "useState"
   ) {
-    const first = n.name.elements[0];
+    const [st, set] = n.name.elements;
     if (
-      first &&
-      ts.isBindingElement(first) &&
-      ts.isIdentifier(first.name) &&
-      /SheetOpen$/.test(first.name.text)
+      st &&
+      set &&
+      ts.isBindingElement(st) &&
+      ts.isBindingElement(set) &&
+      ts.isIdentifier(st.name) &&
+      ts.isIdentifier(set.name)
     )
-      sheetStates.push(first.name.text);
+      statePairs.set(set.name.text, st.name.text);
   }
 });
-if (!sheetStates.length)
+const sheets = []; // { tag, open }
+walk(src, (n) => {
+  if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
+  const tag = n.tagName.getText(src);
+  if (!/Sheet$/.test(tag)) return;
+  const attrExpr = (name) => {
+    const attr = n.attributes.properties.find(
+      (a) => ts.isJsxAttribute(a) && a.name.getText(src) === name,
+    );
+    const init = attr?.initializer;
+    return init && ts.isJsxExpression(init) ? init.expression : null;
+  };
+  const open = attrExpr("open");
+  if (open) {
+    sheets.push({ tag, open: printed(open) });
+    return;
+  }
+  const report = attrExpr("onOpenChange");
+  if (!report) {
+    fail(
+      `<${tag}> in ${PAGE} has neither \`open={…}\` nor \`onOpenChange={…}\` — a sheet whose condition the guard cannot read cannot be shown to be a camera hold.`,
+    );
+    return;
+  }
+  const states = new Set();
+  walk(report, (m) => {
+    if (ts.isIdentifier(m) && statePairs.has(m.text)) states.add(statePairs.get(m.text));
+  });
+  if (states.size !== 1)
+    fail(
+      `<${tag}> in ${PAGE} reports its open state through \`onOpenChange\`, but that expression writes ${states.size} page state(s) (${[...states].join(", ") || "none"}) — exactly one is the sheet's condition; ambiguity is refused.`,
+    );
+  else sheets.push({ tag, open: [...states][0] });
+});
+if (!sheets.length)
   fail(
-    `no \`*SheetOpen\` state in ${PAGE} — the camera-hold proposition has nothing to check; if the sheets were renamed, rename the rule.`,
+    `no \`<…Sheet open={…}>\` in ${PAGE} — the camera-hold proposition has nothing to check; if the sheets were renamed, rename the rule.`,
   );
+const disjuncts = (n, out = []) => {
+  n = unwrap(n);
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+    disjuncts(n.left, out);
+    disjuncts(n.right, out);
+  } else out.push(printed(n));
+  return out;
+};
 for (const st of liveStages) {
   const attr = st.attributes.properties.find(
     (a) => ts.isJsxAttribute(a) && a.name.getText(src) === "sheetOpen",
   );
   const init = attr?.initializer;
   const expr = init && ts.isJsxExpression(init) ? init.expression : null;
-  const referenced = new Set();
-  if (expr)
-    walk(expr, (n) => {
-      if (ts.isIdentifier(n)) referenced.add(n.text);
-    });
-  const missing = sheetStates.filter((s) => !referenced.has(s));
+  const told = new Set(expr ? disjuncts(expr) : []);
+  const missing = sheets.filter((sh) => !told.has(sh.open));
   if (!expr || missing.length)
     fail(
-      `<ScanStage sheetOpen={…}> must reference every sheet state the page can open over the camera; missing: ${missing.join(", ") || "(no sheetOpen expression)"}.\n` +
+      `<ScanStage sheetOpen={…}> must be an \`||\` over EXACTLY each sheet's own \`open\` expression; not told: ${
+        missing.map((m) => `<${m.tag} open={${m.open}}>`).join(", ") || "(no sheetOpen expression)"
+      }.\n` +
         "  decodeHold treats ANY sheet over the stage as a hold — a sheet the stage is not told about\n" +
-        "  lets a sighting through its scrim charge the basket.",
+        "  (or is told about only together with another, or behind a dead `false &&`) lets a sighting\n" +
+        "  through its scrim charge the basket.",
     );
 }
 
@@ -362,5 +422,5 @@ console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
     ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
-    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheetStates.length} sheet state${sheetStates.length === 1 ? "" : "s"}\x1b[0m`,
+    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")})\x1b[0m`,
 );

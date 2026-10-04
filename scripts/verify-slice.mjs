@@ -24706,6 +24706,30 @@ const MUTANTS = [
     find: "    const timer = setTimeout(resolve, ms);",
     replace: "    const timer = setTimeout(() => undefined, ms);",
   },
+  {
+    id: "checkout/empty-basket-called-an-order",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: 'Deep pass on #312 \u2014 D6 names the market\'s object a basket from the first scan, but the empty-slip early return hard-coded "Your order": the heading a screen reader is moved to when the last line goes flipped nouns on the same screen',
+    find: '    const emptyHeadingKey: DictKey = sessionMode === "scango" ? "yourBasket" : "yourOrder";',
+    replace: '    const emptyHeadingKey: DictKey = "yourOrder";',
+  },
+  {
+    id: "checkout/settled-rail-still-names-a-step",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Deep pass on #312 \u2014 Codex round 1's fix (a counter- or tablemate-settled cart retires the step rail with the review controls) shipped with no test and no mutant; deleting the clause left every suite green while CounterSettledCard sat under a rail still naming Order or Bill as current",
+    find: '    settle: viewKey === "settle" || settledClose !== null,',
+    replace: '    settle: viewKey === "settle",',
+  },
+  {
+    id: "pickup-slot/past-slot-reads-as-a-plan",
+    file: "apps/qr/lib/pickup-slot.ts",
+    suite: "lib/pickup-slot.test.ts",
+    why: "Deep pass on #312 \u2014 a scheduled slot whose instant has passed is not a plan the kitchen can honour; without the rule the menu greeting states yesterday's 6:30 PM as what will happen, on a surface that calls itself a statement of what the owner recorded",
+    find: "  return Number.isFinite(t) && t <= now;",
+    replace: "  return false;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

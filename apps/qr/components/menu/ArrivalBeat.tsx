@@ -1,5 +1,6 @@
 "use client";
 import { useCart } from "@/components/TableCartProvider";
+import { slotIsPast } from "@/lib/pickup-slot";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { WelcomeBack } from "@/lib/rewards";
 
@@ -39,7 +40,9 @@ export function ArrivalBeat({
 }) {
   const { isGroup, members, pickupSlot } = useCart();
   const party = isGroup && members.length > 1 ? members.length : 0;
-  const scheduled = mode === "pickup" && pickupSlot ? pickupSlot : null;
+  // A slot already gone is not stated as the plan (deep pass on #312): the greeting falls back to
+  // the invitation, and checkout's own When choice is where the diner picks again.
+  const scheduled = mode === "pickup" && pickupSlot && !slotIsPast(pickupSlot) ? pickupSlot : null;
   const line =
     mode === "dinein"
       ? party > 0

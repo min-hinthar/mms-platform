@@ -2251,13 +2251,17 @@ export function Checkout({
     // basket is not waiting on a dish.
     const backHref = menuHref(sessionMode);
     const backLabel = menuLinkText(sessionMode, "browse");
+    // D6's noun holds for the EMPTY slip too: the market's object is a basket from the first scan,
+    // and the screen that said "Your basket" a moment ago must not say "Your order" the instant the
+    // last line goes — least of all as the heading a screen reader is moved to (deep pass on #312).
+    const emptyHeadingKey: DictKey = sessionMode === "scango" ? "yourBasket" : "yourOrder";
     return (
       <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
         {/* Phase 1c — the landing target when the LAST line is removed (the view swaps here), so a
             screen reader hears "Your order", then the empty state, instead of losing focus to <body>. */}
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
-          {T("yourOrder")}
-          <My k="yourOrder" size="var(--fs-sm)" />
+          {T(emptyHeadingKey)}
+          <My k={emptyHeadingKey} size="var(--fs-sm)" />
         </h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
@@ -2427,7 +2431,7 @@ export function Checkout({
         <WalletChip badge={rewardsBadge} />
       </div>
       {steps.length > 0 && (
-        <ol className="checkout-steps" aria-label="Checkout steps">
+        <ol role="list" className="checkout-steps" aria-label="Checkout steps">
           {steps.map((st, i) => (
             <li
               key={st.key}
