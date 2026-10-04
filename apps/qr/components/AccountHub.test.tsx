@@ -85,10 +85,28 @@ describe("AccountHub", () => {
     expect(document.activeElement).toBe(tab("You"));
     fireEvent.keyDown(tab("You"), { key: "ArrowRight" });
     expect(document.activeElement).toBe(tab("Orders")); // wraps
+    // jsdom does not run an anchor's native Enter activation, so pin the half the component owns:
+    // Enter must reach the link untouched (not preventDefault'd by `onKey`) — the browser then
+    // clicks it, which is the click below (deep pass on #312: the old comment called it a button).
+    expect(fireEvent.keyDown(tab("You"), { key: "Enter" })).toBe(true);
     act(() => {
-      fireEvent.click(tab("You")); // Enter/Space on a button is its click
+      fireEvent.click(tab("You"));
     });
     expect(shown()).toEqual(["you-panel"]);
+  });
+
+  it("a fresh tap wins over a STALE URL when the history write cannot sync it (deep pass on #312)", () => {
+    // Arrived on `/account?tab=rewards` (the /rewards redirect) in a runtime whose replaceState
+    // throws: `fromUrl` stays "rewards", so a tap on Orders set `picked` and changed nothing.
+    params = new URLSearchParams("tab=rewards");
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    render(<AccountHub initial="rewards" panels={panels} />);
+    expect(shown()).toEqual(["rewards-panel"]);
+    fireEvent.click(tab("Orders"));
+    expect(shown()).toEqual(["orders-panel"]);
+    expect(tab("Orders").getAttribute("aria-selected")).toBe("true");
   });
 
   it("a bare /account navigation after a tap shows `initial` again — the fallback is spent once the URL caught up (Codex round 2)", () => {

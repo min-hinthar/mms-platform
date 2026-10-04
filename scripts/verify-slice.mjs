@@ -5857,8 +5857,9 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: 'BLIND PASS, CRITICAL. The invariant "a stashed merge proof must never outlive its redirect" is stated in three places and was enforced in two: the Google branch clears, `AccountStatus.toGuest()` clears, and this one did not. The mint succeeded and stashed; the send then failed — Supabase rate-limits OTP per address, so this is an ordinary evening — and the token lives 24h. `MergeRedeemer` redeems it on ANY later non-anonymous sign-in on this device, handing the next person this diner\'s orders and Stars under the words "Your Stars followed you"',
-    find: '        clearMergeToken();\n        setError(e0.message || "Couldn’t send the sign-in code — try again.");',
-    replace: '        setError(e0.message || "Couldn’t send the sign-in code — try again.");',
+    find: '        // address, so "the send failed and they gave up" is an ordinary evening, not a rare edge.\n        clearMergeToken();',
+    replace:
+      '        // address, so "the send failed and they gave up" is an ordinary evening, not a rare edge.',
   },
   {
     id: "account-upgrade/otp-rejection-wedges-every-door",
@@ -24737,6 +24738,42 @@ const MUTANTS = [
     why: 'Deep pass on #312 \u2014 on a quiet floor the last zones fit in one viewport and their headings never climb to the strip\'s edge; without the end-of-page rule a tapped "Takeaway bags" chip stayed unlit and "Start an order" kept aria-current while the manager read the bags',
     find: "    if (last) return last.id;",
     replace: "    if (last) void last;",
+  },
+  {
+    id: "account-upgrade/back-out-keeps-the-carry-proof",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Deep pass on #312 (HIGH, security) \u2014 the code step mints a 24h merge proof bound to this anonymous uid; the e0 and e4 paths clear it and 'Use a different email' did not, so the next non-anonymous sign-in on the phone (a staff member via /staff/auth/callback, then /account) redeemed this diner's carry",
+    find: "              // Backing out abandons whatever sign-in minted the carry proof (deep pass on #312):\n              // the stash is unbound exactly as on the e0/e4 paths. Unconditional is safe \u2014 the\n              // upgrade (email_change) path never mints, and the next door re-mints its own.\n              clearMergeToken();",
+    replace:
+      "              // Backing out abandons whatever sign-in minted the carry proof (deep pass on #312):\n              // the stash is unbound exactly as on the e0/e4 paths. Unconditional is safe \u2014 the\n              // upgrade (email_change) path never mints, and the next door re-mints its own.",
+  },
+  {
+    id: "account-upgrade/unknown-address-shows-gotrues-words",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Deep pass on #312 \u2014 the first-press Sign in door made GoTrue's `shouldCreateUser: false` refusal reachable by a typed, never-vetted address, and the live region read the gateway's own 'Signups not allowed for otp' to the diner",
+    find: '        setError(\n          noAccount\n            ? "We couldn\u2019t find a Morning Star account for that email. Check the spelling, or save your Stars to start one."\n            : e0.message || "Couldn\u2019t send the sign-in code \u2014 try again.",\n        );',
+    replace:
+      '        setError(e0.message || "Couldn\u2019t send the sign-in code \u2014 try again.");',
+  },
+  {
+    id: "account-upgrade/bounce-strip-forgets-the-panel",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Deep pass on #312 \u2014 the OAuth bounce lands on You, the strip rewrote the URL to the bare /account, and the post-sign-in router.refresh() re-requested that canonical URL: the hub flipped to Orders the moment the account confirmed",
+    find: '    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.\n    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");',
+    replace:
+      "    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed\n    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL \u2014 without\n    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.",
+  },
+  {
+    id: "account-upgrade/resume-strip-forgets-the-panel",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Deep pass on #312 \u2014 the lend-mode return (`?resume=`) lands on You by the same page rule, and its strip had the same hole as the bounce strip's",
+    find: '        // \u2026and keep the panel the lend return implied, for the same reason as the bounce strip above.\n        if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");',
+    replace:
+      "        // \u2026and keep the panel the lend return implied, for the same reason as the bounce strip above.",
   },
 ];
 

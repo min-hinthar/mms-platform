@@ -176,6 +176,15 @@ export default async function Account({
   const you = (
     <>
       {identity && <div style={{ marginBottom: "var(--s4)" }}>{identity}</div>}
+      {/* Deep pass on #312 — a signed-in diner on the failed-read branch has no identity card (and
+          no Switch account / lend door with it); the only explanation sat in the Orders panel. Say
+          so here, as a plain line — never a second alert (one live region per view). */}
+      {!state && kind !== "anon" && (
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 var(--s4)" }}>
+          We couldn’t load your account details just now — your name, Stars and the account switcher
+          will be back here once we can reach them again.
+        </p>
+      )}
       {/* W22f: the ONE place sound can be switched on. */}
       <SoundToggle />
       {/* Phase 3a — help & contact, from lib/brand.ts (no hours: none exist anywhere). */}

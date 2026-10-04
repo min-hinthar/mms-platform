@@ -185,6 +185,31 @@ describe("the bounce survives the URL cleanup", () => {
     expect(screen.getByRole("button", { name: /Sign in with Google/i })).toBeTruthy();
   });
 
+  it("the bounce strip leaves the URL naming the You panel, so the post-sign-in refresh lands there (deep pass on #312)", async () => {
+    // `router.refresh()` re-requests the router's canonical URL; a strip to the bare `/account`
+    // meant `accountPanel({})` answered Orders the moment the account confirmed.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    window.sessionStorage.setItem("mms.oauth_recovered", "1");
+    window.history.replaceState(null, "", `/account?error_code=${BOUNCE}`);
+    replaceStateCalls.length = 0;
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    const stripped = replaceStateCalls.find((u) => !u.includes("error_code"));
+    expect(stripped).toBeDefined();
+    expect(new URL(stripped!, "http://localhost").searchParams.get("tab")).toBe("you");
+  });
+
+  it("the lend-return strip keeps the You panel in the URL the same way", async () => {
+    params = new URLSearchParams("resume=owner%40x.com");
+    window.history.replaceState(null, "", "/account?resume=owner%40x.com");
+    replaceStateCalls.length = 0;
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    const stripped = replaceStateCalls.find((u) => !u.includes("resume"));
+    expect(stripped).toBeDefined();
+    expect(new URL(stripped!, "http://localhost").searchParams.get("tab")).toBe("you");
+  });
+
   it("shows the ordinary card when there was no bounce at all", async () => {
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
@@ -277,6 +302,39 @@ describe("Phase 3a — the sign-in intent", () => {
     // `mms_merge_anon_rewards` moves every order, favorites and feedback. The carry is always secured.
     expect(mintMergeToken).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/anything saved on this phone/i)).toBeTruthy();
+  });
+  it("backing out with 'Use a different email' abandons the sign-in — and its carry proof goes with it (deep pass on #312)", async () => {
+    // The code step minted and stashed a 24h merge proof bound to this anonymous uid. The e0 and e4
+    // paths clear it; the back-out did not, so the next NON-anonymous sign-in on the phone (a staff
+    // member through /staff/auth/callback, then /account) would redeem this diner's carry.
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOtp.mockResolvedValue({ error: null });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    const back = await screen.findByRole("button", { name: /Use a different email/i });
+    expect(stored).toBe("tok");
+    fireEvent.click(back);
+    await waitFor(() => expect(stored).toBeNull());
+  });
+  it("an address with no account gets a sentence, not GoTrue's refusal (deep pass on #312)", async () => {
+    // `shouldCreateUser: false` refuses an unregistered address; the first-press Sign in door made
+    // that refusal reachable by a typed, never-vetted address, and the card showed the gateway's
+    // own words.
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOtp.mockResolvedValue({
+      error: { message: "Signups not allowed for otp", code: "otp_disabled" },
+    });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "nobody@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await screen.findByText(/couldn’t find a Morning Star account for that email/i);
+    expect(screen.queryByText(/Signups not allowed/i)).toBeNull();
+    await waitFor(() => expect(stored).toBeNull()); // and the proof went with the failed send
   });
   it("Google under the sign-in intent SIGNS IN (signInWithOAuth), never the link-then-bounce path", async () => {
     mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
