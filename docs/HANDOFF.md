@@ -45,14 +45,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
 > PR, `@codex review`.
 >
-> **The owed full `verify:slice`:** the first attempt (worktree `vs-full`, 03:50 UTC) was killed at
-> 116 min by the tool's 2 h ceiling mid-mutation — the run prints per-mutant verdicts only at the END, so
-> hours of "empty output" are NORMAL for a full run, not a stall. Relaunched DETACHED at 05:48 UTC in
-> worktree `.claude/worktrees/vs-full2` at `fdeb7b4` (`setsid nohup pnpm verify:slice --no-gate`, the
-> gate being CI's green `build` on that head), log at the session scratchpad `vs-full2.log`; it does NOT
-> include the 3c-i mutants (those ran filtered). Read the log's tail for caught / SURVIVED / STALE and
-> the orphan verdict, record it here, then `git worktree remove --force .claude/worktrees/vs-full2`. If
-> the container died with it, the full run is owed again — start it detached FIRST, on the merge head.
+> **The owed full `verify:slice` — THIRD attempt, live as of 09:04 UTC 2026-10-04.** The first (worktree
+> `vs-full`, 03:50 UTC) was killed at 116 min by the tool's 2 h ceiling; the second (`vs-full2`, 05:48 UTC,
+> `fdeb7b4`, detached with `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55 UTC —
+> its log (`scratchpad/vs-full2.log`) stops at 2,375 caught with NO survivor, NO stale and no final
+> verdict, and the worktree was left holding a live mutant (`staff/ExpoBoard.tsx`), removed with
+> `git worktree remove --force`. The third runs in `.claude/worktrees/vs-full3` at **`f89aeb4`** (the
+> merge head; `pnpm install --offline --frozen-lockfile` in the worktree, then
+> `setsid nohup pnpm verify:slice --no-gate > scratchpad/vs-full3.log`). The run prints per-mutant
+> verdicts progressively (`grep -c caught` is its progress) and the summary at the END; hours of
+> runtime are NORMAL. Read the tail for caught / SURVIVED / STALE and the orphan verdict, record it
+> here, then `git worktree remove --force .claude/worktrees/vs-full3`. If the container died again:
+> the worktree may hold a live mutant — remove it with `--force`, never commit from it — and the run
+> is owed once more, started the same way on the merge head FIRST.
 >
 > **Still owed:** J28's device checks (+ J32's keyboard-inset tap on the inline join form); J29's copy
 > calls; the `MONEY_MARKERS` policy row; J30's TTFB measurement on the to-go menu preview; J34's Profiler
