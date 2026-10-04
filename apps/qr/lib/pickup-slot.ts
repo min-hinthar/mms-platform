@@ -41,3 +41,23 @@ export function slotIsPast(iso: string | null | undefined, now: number = Date.no
   const t = new Date(iso).getTime();
   return Number.isFinite(t) && t <= now;
 }
+
+/**
+ * Codex round 1 on #313 — a statement of the slot is only as fresh as its last render, and nothing
+ * re-renders a menu left open across the slot's instant: the greeting stated an expired slot as the
+ * plan until some unrelated state moved. This is the ONE rule for "when must the surface look
+ * again": the ms until the instant passes — capped, so a far slot re-arms rather than arming one
+ * long timer (a tab asleep for an hour should re-check on waking anyway) — or `null` when there is
+ * nothing to wait for: no slot, garbage, or an instant already gone (`slotIsPast` answers those).
+ */
+export const SLOT_RECHECK_MAX_MS = 60 * 60 * 1000;
+export function nextSlotCheck(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+  cap: number = SLOT_RECHECK_MAX_MS,
+): number | null {
+  if (iso == null) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t) || t <= now) return null;
+  return Math.min(t - now, cap);
+}

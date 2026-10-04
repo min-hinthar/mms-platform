@@ -182,13 +182,20 @@ export function AccountUpgrade({
         // Deep pass on #312 — `shouldCreateUser: false` refuses an address with no account, and the
         // first-press Sign in door made that refusal reachable by a typed, never-vetted address. The
         // gateway's own words ("Signups not allowed for otp") are not a sentence for a diner.
-        const noAccount =
-          (e0 as { code?: string }).code === "otp_disabled" ||
-          /signups? not allowed/i.test(e0.message ?? "");
+        // Codex round 1 on #313 — and the CODE is not the discriminator: GoTrue answers `otp_disabled`
+        // both for that refusal and for OTP sign-in switched off in the project's Auth settings, so
+        // keying on the code told every EXISTING account "we couldn't find you" during an outage and
+        // sent them off to create a second one. The message decides; the configuration case gets a
+        // sentence of its own; `signup_disabled`'s "…for this instance" is neither.
+        const gotrueCode = (e0 as { code?: string }).code;
+        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");
+        const otpOff = !noAccount && gotrueCode === "otp_disabled";
         setError(
           noAccount
             ? "We couldn’t find a Morning Star account for that email. Check the spelling, or save your Stars to start one."
-            : e0.message || "Couldn’t send the sign-in code — try again.",
+            : otpOff
+              ? "Email sign-in isn’t available right now — try again in a little while."
+              : e0.message || "Couldn’t send the sign-in code — try again.",
         );
         signInStarting.current = false;
         return false;

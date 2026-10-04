@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { NumberFlow } from "@mms/ui";
 import { useJourneyRouter } from "./nav/TransitionNav";
 import { navEpoch } from "@/lib/nav-epoch";
-import { bounded } from "@/lib/write-ledger";
 import { useCart } from "./TableCartProvider";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 
@@ -28,7 +27,7 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId, settled, items } = useCart();
+  const { count, totals, cartId, drain, items } = useCart();
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
   // Codex round 1 on 3b (#312) — the drain's continuation outlives this bar: a diner who taps "View
@@ -97,9 +96,12 @@ export function CartBar() {
         // another door that merely STARTED one leaves this bar mounted for a beat. The epoch moves
         // at the start.
         const epoch = navEpoch.current();
-        void bounded(settled()).finally(() => {
+        void drain().then((outcome) => {
           if (!alive.current) return; // the bar is gone — the diner already left another way
           setLeaving(false);
+          // Codex round 1 on #313 (P1): a drain past its deadline is a REFUSAL to leave, not a
+          // release — the provider has said the change is still saving; the bar is live for a retry.
+          if (outcome === "timed-out") return;
           if (navEpoch.current() !== epoch) return; // another navigation started first — it wins
           journey.push(href);
         });

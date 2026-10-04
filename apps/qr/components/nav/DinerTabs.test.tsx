@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DrainOutcome } from "@/lib/write-ledger";
 
 /**
  * Phase 3a (D1) — the tab bar rendered for real: four links, the lit one `aria-current="page"`, the
@@ -47,7 +48,7 @@ vi.mock("./TransitionNav", async () => {
     ),
   };
 });
-const drain = vi.fn<() => Promise<void>>();
+const drain = vi.fn<() => Promise<DrainOutcome>>();
 const store = {
   cartId: "c1" as string | null,
   cartCount: 2 as number | null,
@@ -87,7 +88,7 @@ beforeEach(() => {
   badge.mockResolvedValue({ stars: 4, tierId: "new", isUpgraded: false });
   push.mockReset();
   drain.mockReset();
-  drain.mockResolvedValue(undefined);
+  drain.mockResolvedValue("settled");
 });
 afterEach(cleanup);
 
@@ -153,8 +154,8 @@ describe("DinerTabs", () => {
     // is intercepted, the barrier awaited, and only then does the journey push.
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     render(<DinerTabs />);
@@ -172,8 +173,8 @@ describe("DinerTabs", () => {
     push.mockClear();
     let release2!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release2 = r;
+      new Promise<DrainOutcome>((r) => {
+        release2 = () => r("settled");
       }),
     );
     fireEvent.click(order);
@@ -199,8 +200,8 @@ describe("DinerTabs", () => {
   it("a competing navigation during the drain CANCELS the queued push — the diner is never yanked back (Codex round 1 on 3b)", async () => {
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     const { rerender } = render(<DinerTabs />);
@@ -222,8 +223,8 @@ describe("DinerTabs", () => {
     const { navEpoch } = await import("@/lib/nav-epoch");
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     render(<DinerTabs />);
@@ -232,6 +233,20 @@ describe("DinerTabs", () => {
     release();
     await new Promise((r) => setTimeout(r, 10));
     expect(push).not.toHaveBeenCalled();
+  });
+  it("a drain past its deadline does NOT navigate — the lender has said the change is still saving, and the tab is live for a retry (Codex round 1 on #313, P1)", async () => {
+    // Elapsed time does not settle a write. Pushing on the deadline put the diner on /cart while the
+    // add was still in flight — missed by its first read, or refused by the lock it took.
+    drain.mockResolvedValue("timed-out");
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order — 2 items" });
+    fireEvent.click(order);
+    expect(order.getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => expect(order.getAttribute("aria-busy")).toBeNull());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(order); // the retry re-awaits — a second drain, never a swallowed tap
+    expect(drain).toHaveBeenCalledTimes(2);
   });
   it("a modified click on the Order tab is the link it is — no drain, no push", () => {
     render(<DinerTabs />);

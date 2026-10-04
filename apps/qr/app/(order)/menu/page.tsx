@@ -156,9 +156,12 @@ export default async function Menu({
       // DoorSheet's To-go row from a table is a same-pathname `/menu?mode=pickup`, and without the
       // key Next kept this tree alive with the table's session under `mode="pickup"`, so every Add
       // from the "To go" menu landed on the shared table bill. `useTableSession` says it: a runtime
-      // mode change no-ops — remount the route to switch modes. Pinned by
+      // mode change no-ops — remount the route to switch modes. The DOOR and nothing else (Codex
+      // round 1 on #313): `code` is the `?t=`/`?j=` credential `useTableSession` strips from the URL
+      // after the mint, so a key carrying it changed on the next `router.refresh()` (the menu's
+      // pull-to-refresh) and remounted — and re-minted — a tree whose door had not moved. Pinned by
       // lib/menu-remounts-per-door.test.ts.
-      key={`${mode}:${code ?? ""}`}
+      key={mode}
       mode={mode}
       code={code}
       joinOnly={joinOnly}

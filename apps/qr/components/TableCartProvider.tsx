@@ -14,6 +14,7 @@ import type { CartItem, CartTotals } from "@mms/db";
 import { Icon, Toast } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
+import { bounded, DRAIN_TIMED_OUT_NOTICE, type DrainOutcome } from "@/lib/write-ledger";
 import {
   cartFreeze,
   classifyRefusedWrite,
@@ -110,6 +111,12 @@ type CartCtx = {
    *  and racing it to /cart could mint a PaymentIntent that locks the cart BEFORE the add lands —
    *  refusing an item the toast just announced. Resolves immediately when nothing is in flight. */
   settled: () => Promise<void>;
+  /** Codex round 1 on #313 (P1) — the drain a NAVIGATION awaits: `settled()` under `DRAIN_MAX_MS`,
+   *  answering how it ended. A `"timed-out"` drain has already spoken (`DRAIN_TIMED_OUT_NOTICE`,
+   *  through this view's one live region) and the caller must NOT leave: a write past the deadline is
+   *  slow, not dead, and /cart's first read or its create-intent lock would miss or refuse it. Lent to
+   *  the root layout's Order tab (`CartPublisher` → `registerDrain`) and used by CartBar. */
+  drain: () => Promise<DrainOutcome>;
   /** W9a: re-run the session mint IN PLACE (keeps the in-memory join code). The dine-in join-failure
    *  retry MUST use this rather than `window.location.reload()` — a reload arrives with the join code
    *  already stripped from the URL, so the mint is no longer join-only and provisions a phantom table. */
@@ -640,6 +647,16 @@ export function TableCartProvider({
     },
     [],
   );
+  // Codex round 1 on #313 (P1) — the drain a navigation awaits, with its deadline's meaning fixed
+  // HERE, where the toast lives: a write past `DRAIN_MAX_MS` is slow, not dead, so a `"timed-out"`
+  // drain says so (a correction — it retracts the tap's promise to move on) and the caller must not
+  // leave. The market's page carries the same shape over its own ledger and toast.
+  const drain = useCallback(async (): Promise<DrainOutcome> => {
+    const outcome = await bounded(settled());
+    if (outcome === "timed-out")
+      flash(DRAIN_TIMED_OUT_NOTICE, 3000, undefined, { kind: "correction" });
+    return outcome;
+  }, [settled, flash]);
   // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
   // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
   // Say so once, through the SAME single live region every notice uses (microtask-deferred, the
@@ -1574,6 +1591,7 @@ export function TableCartProvider({
       add: trackedAdd,
       setItemQty: trackedSetItemQty,
       settled,
+      drain,
       refresh,
       revalidate,
       announce: flash,
@@ -1602,6 +1620,7 @@ export function TableCartProvider({
       trackedAdd,
       trackedSetItemQty,
       settled,
+      drain,
       refresh,
       revalidate,
       flash,

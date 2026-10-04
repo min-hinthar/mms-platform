@@ -21,19 +21,21 @@ export function CartPublisher() {
   // mounted provider to correct it. `items` is written only from a server view (`applyView`).
   // Codex round 2 on 3b (#312): and the DOOR — the provider's `mode` is the session's, so the store
   // can bind the pointer to the door it belongs to and stop offering it from another door.
-  const { cartId, items, totals, settled, mode } = useCart();
+  const { cartId, items, totals, drain, mode } = useCart();
   const { publishCart, registerDrain } = useActiveOrder();
   const known = totals !== null;
   const confirmed = items.reduce((n, i) => n + i.qty, 0);
   useEffect(() => {
     if (cartId) publishCart(cartId, known ? confirmed : null, mode);
   }, [cartId, confirmed, known, mode, publishCart]);
-  // Codex round 3 on #312 (P1) — lend the store this provider's `settled()` barrier while mounted,
-  // so the root layout's Order tab can drain in-flight writes before it leaves for /cart exactly as
-  // CartBar does (W21). Withdrawn on unmount: another route has nothing of this ledger to await.
+  // Codex round 3 on #312 (P1) — lend the store this provider's drain while mounted, so the root
+  // layout's Order tab can drain in-flight writes before it leaves for /cart exactly as CartBar does
+  // (W21). Codex round 1 on #313 (P1): the provider's `drain`, not the bare `settled()` — it is
+  // bounded, and a timeout is spoken through the provider's own toast and answered as `"timed-out"`
+  // so the tab refuses to leave. Withdrawn on unmount: another route has nothing of this ledger to await.
   useEffect(() => {
-    registerDrain(settled);
+    registerDrain(drain);
     return () => registerDrain(null);
-  }, [registerDrain, settled]);
+  }, [registerDrain, drain]);
   return null;
 }

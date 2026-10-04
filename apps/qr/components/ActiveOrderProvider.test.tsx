@@ -13,7 +13,7 @@ let pathname = "/";
 let search = "";
 // One URLSearchParams per URL, as Next hands it out: a fresh object per render would re-run the
 // provider's route effect on every render, which is not production's shape — and it masked a
-// mutant (the back-fill re-stamping a door the publisher had failed to record).
+// mutant (a since-removed back-fill re-stamping a door the publisher had failed to record).
 const paramsCache = new Map<string, URLSearchParams>();
 const paramsFor = (s: string) => {
   let p = paramsCache.get(s);
@@ -148,10 +148,13 @@ describe("ActiveOrderProvider — the cart pointer and its door", () => {
     await frames();
     expect(eye()).toBe("-|-|dinein");
   });
-  it("a pre-3b pointer learns its door from the mode the device remembered — the deployed devices get the fix too (deep pass on #312)", async () => {
-    // Written before 3b: a cart id and a mode, no `<cartId>:<mode>` pair. Judged by the remembered
-    // mode once, before this run overwrites it, so the grocery basket is withheld on /dine-in.
-    localStorage.setItem("mms.qr.activeMode", "scango");
+  it("a pre-3b pointer is NOT guessed a door from the remembered mode — it stays unbound, offered as before, until its own cart publishes (Codex round 1 on #313)", async () => {
+    // The old store rewrote the mode on every `/menu?mode=` visit but kept the cart pointer until
+    // another cart published, so `activeMode=pickup` beside a DINE-IN cart is an ordinary legacy
+    // state (a door changed while the new mint failed). The deep pass on #312 back-filled the pair
+    // from that mode; binding "A" to pickup would have offered the table's cart on the to-go menu
+    // and suppressed it at the table — for good. No provenance, no pair.
+    localStorage.setItem("mms.qr.activeMode", "pickup");
     localStorage.setItem("mms.qr.activeCart", "A");
     localStorage.setItem("mms.qr.activeCartCount", "A:2");
     pathname = "/dine-in";
@@ -161,8 +164,8 @@ describe("ActiveOrderProvider — the cart pointer and its door", () => {
       </ActiveOrderProvider>,
     );
     await frames();
-    expect(localStorage.getItem("mms.qr.activeCartMode")).toBe("A:scango");
-    expect(eye()).toBe("-|-|dinein");
+    expect(localStorage.getItem("mms.qr.activeCartMode")).toBeNull();
+    expect(eye()).toBe("A|2|dinein"); // the pre-3b behaviour, until its publish binds it
   });
   it("a cart reached by URL is explicit and never suppressed; a pre-3b pointer with no door AND no remembered mode is offered as before", async () => {
     localStorage.setItem("mms.qr.activeCart", "A");

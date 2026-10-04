@@ -43,7 +43,12 @@ import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 import { usePublishCart, useRegisterDrain } from "@/components/ActiveOrderProvider";
-import { bounded, createWriteLedger } from "@/lib/write-ledger";
+import {
+  bounded,
+  createWriteLedger,
+  DRAIN_TIMED_OUT_NOTICE,
+  type DrainOutcome,
+} from "@/lib/write-ledger";
 import { navEpoch } from "@/lib/nav-epoch";
 import { scanBasketReady } from "@/lib/camera-state";
 
@@ -150,11 +155,7 @@ export default function Grocery() {
   // so does this page's own Check out — without it, an add still in flight at the tap could be
   // missed by /cart's first read or refused by its create-intent lock. ONE instance per mount.
   const [ledger] = useState(createWriteLedger);
-  const registerDrain = useRegisterDrain();
-  useEffect(() => {
-    registerDrain(ledger.settled);
-    return () => registerDrain(null);
-  }, [registerDrain, ledger]);
+  const registerDrain = useRegisterDrain(); // lent below, once `flash` exists to explain a timeout
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);
@@ -272,6 +273,20 @@ export default function Grocery() {
     setToast({ key: toastSeq.current, text: msg });
     toastTimer.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
+  // Codex round 1 on #313 (P1) — the drain a navigation awaits, bounded, with its deadline's meaning
+  // fixed where the toast lives (the cart provider's `drain` is the same shape): a write past
+  // `DRAIN_MAX_MS` is slow, not dead, so a `"timed-out"` drain says so here and the caller must not
+  // leave — /cart's first read or its create-intent lock would miss or refuse the add the toast just
+  // announced. Lent to the Order tab (`registerDrain`, withdrawn on unmount) and used by Check out.
+  const drain = useCallback(async (): Promise<DrainOutcome> => {
+    const outcome = await bounded(ledger.settled());
+    if (outcome === "timed-out") flash(DRAIN_TIMED_OUT_NOTICE);
+    return outcome;
+  }, [ledger, flash]);
+  useEffect(() => {
+    registerDrain(drain);
+    return () => registerDrain(null);
+  }, [registerDrain, drain]);
   useEffect(
     () => () => {
       if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
@@ -903,8 +918,11 @@ export default function Grocery() {
     // at once when nothing is pending, so the ordinary tap stays instant.
     setLeaving(true);
     const epoch = navEpoch.current();
-    void bounded(ledger.settled()).finally(() => {
+    void drain().then((outcome) => {
       setLeaving(false);
+      // A drain past its deadline is a refusal to leave (Codex round 1 on #313, P1): `drain` has
+      // said the change is still saving; the buttons are live again for a retry.
+      if (outcome === "timed-out") return;
       // The shopper may have taken the Menu or Account tab while the write drained: this page is then
       // unmounted and the queued push must not override their newer destination (Codex round 1 on 3b)
       // — and the unmount lags the tap by the transition's commit, so the grammar's start signal
@@ -912,7 +930,7 @@ export default function Grocery() {
       if (mountedRef.current && navEpoch.current() === epoch)
         journey.push(`/cart?cart=${encodeURIComponent(cartId)}`);
     });
-  }, [cartId, itemCount, lines.length, totalCents, journey, ledger, leaving]);
+  }, [cartId, itemCount, lines.length, totalCents, journey, drain, leaving]);
   // Display-only, like totalCents — the EBT flags rode in on the server's own cart view.
   const ebtCents = lines.reduce((a, l) => a + (l.ebt ? l.unitPriceCents * l.qty : 0), 0);
   // W4e — real basket savings vs the market compare-at. Routed through the SAME `saleInfo` floor the

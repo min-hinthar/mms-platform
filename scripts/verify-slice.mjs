@@ -24549,7 +24549,7 @@ const MUTANTS = [
     file: "apps/qr/components/nav/DinerTabs.tsx",
     suite: "components/nav/DinerTabs.test.tsx",
     why: "Codex round 3 on #312, P1 \u2014 CartBar's W21 rule on the one other door to /cart. The optimistic count shows the tab's badge while an add may still be in flight; navigating before the cart provider's lent `settled()` barrier resolves lets /cart's first read miss the item, or its create-intent lock refuse the write the toast just announced",
-    find: "                    void drain().finally(() => {\n                      setLeaving(false);\n                      // A competing navigation during the drain wins: the queued push is dropped \u2014\n                      // whether it has committed (the route moved) or merely started (the epoch moved).\n                      if (navEpoch.current() === epoch && hereRef.current === startedAt)\n                        journey.push(t.href);\n                    });",
+    find: '                    void drain().then((outcome) => {\n                      setLeaving(false);\n                      // Codex round 1 on #313 (P1): a drain past its deadline is a REFUSAL to leave —\n                      // the lender has said the change is still saving; the tab is live for a retry.\n                      if (outcome === "timed-out") return;\n                      // A competing navigation during the drain wins: the queued push is dropped —\n                      // whether it has committed (the route moved) or merely started (the epoch moved).\n                      if (navEpoch.current() === epoch && hereRef.current === startedAt)\n                        journey.push(t.href);\n                    });',
     replace:
       "                    setLeaving(false);\n                    if (navEpoch.current() === epoch && hereRef.current === startedAt)\n                      journey.push(t.href);",
   },
@@ -24568,6 +24568,23 @@ const MUTANTS = [
     why: "Codex round 2 on 3b (#312), P2 \u2014 the route check sees a competing navigation only once it COMMITS, but `TransitionLink` starts the transition router on the click and `usePathname()` moves a beat later, so a drain resolving in that window still pushed. The grammar's start signal (`navEpoch`) closes the window; without it the yank is back for every tap that lands mid-transition",
     find: "                      if (navEpoch.current() === epoch && hereRef.current === startedAt)\n                        journey.push(t.href);",
     replace: "                      if (hereRef.current === startedAt) journey.push(t.href);",
+  },
+  {
+    id: "diner-tabs/timed-out-drain-still-pushes",
+    file: "apps/qr/components/nav/DinerTabs.tsx",
+    suite: "components/nav/DinerTabs.test.tsx",
+    why: "Codex round 1 on #313 (P1) \u2014 the lender answers `timed-out` and has told the diner the change is still saving; a tab that pushes anyway puts them on /cart while the add is in flight, to be missed by its first read or refused by the create-intent lock",
+    find: '                      if (outcome === "timed-out") return;',
+    replace: "                      void outcome;",
+  },
+  {
+    id: "cart-provider/timed-out-drain-stays-silent",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "Codex round 1 on #313 (P1) \u2014 a drain that times out is a refusal to leave, and a refusal nobody hears is a dead tap: the busy state clears and nothing happens. The notice is the whole difference between 'still saving' and 'broken'",
+    find: '    if (outcome === "timed-out")\n      flash(DRAIN_TIMED_OUT_NOTICE, 3000, undefined, { kind: "correction" });',
+    replace:
+      '    if (outcome === "settled")\n      flash(DRAIN_TIMED_OUT_NOTICE, 3000, undefined, { kind: "correction" });',
   },
   {
     id: "transition-nav/link-click-does-not-start-an-epoch",
@@ -24676,14 +24693,6 @@ const MUTANTS = [
     replace: "        void door;",
   },
   {
-    id: "active-order/pre-3b-pointer-never-learns-its-door",
-    file: "apps/qr/components/ActiveOrderProvider.tsx",
-    suite: "components/ActiveOrderProvider.test.tsx",
-    why: "Deep pass on #312 \u2014 a pointer written before 3b has no door pair, so `cartForDoor` offered it on every door: the defect the pair fixes stayed live on every deployed device until that cart was republished. It learns its door once, from the mode remembered before this run overwrites it",
-    find: "      if (\n        storedCart &&\n        prevMode &&\n        CART_DOORS.has(prevMode) &&\n        decodeCartMode(localStorage.getItem(KEY_CART_MODE), storedCart) === null\n      )\n        localStorage.setItem(KEY_CART_MODE, encodeCartMode(storedCart, prevMode));",
-    replace: "      void prevMode;",
-  },
-  {
     id: "transition-nav/bumps-a-cancelled-click",
     file: "apps/qr/components/nav/TransitionNav.tsx",
     suite: "components/nav/TransitionNav.test.tsx",
@@ -24704,8 +24713,16 @@ const MUTANTS = [
     file: "apps/qr/lib/write-ledger.ts",
     suite: "lib/write-ledger.test.ts",
     why: "Deep pass on #312 \u2014 the barrier a navigation awaits is only as finite as the slowest write behind it; a hung Server Action on a dying radio left the Order tab aria-busy and every further tap swallowed for as long as the socket stayed half-open. The deadline is the whole rule",
-    find: "    const timer = setTimeout(resolve, ms);",
+    find: '    const timer = setTimeout(() => resolve("timed-out"), ms);',
     replace: "    const timer = setTimeout(() => undefined, ms);",
+  },
+  {
+    id: "write-ledger/deadline-reads-as-settled",
+    file: "apps/qr/lib/write-ledger.ts",
+    suite: "lib/write-ledger.test.ts",
+    why: "Codex round 1 on #313 (P1) \u2014 elapsed time does not settle a write; a deadline that answers `settled` sends the diner to /cart while the add is still in flight, to be missed by its first read or refused by the create-intent lock it just took \u2014 the W21 race under a new name",
+    find: '    const timer = setTimeout(() => resolve("timed-out"), ms);',
+    replace: '    const timer = setTimeout(() => resolve("settled"), ms);',
   },
   {
     id: "checkout/empty-basket-called-an-order",
@@ -24732,6 +24749,22 @@ const MUTANTS = [
     replace: "  return false;",
   },
   {
+    id: "pickup-slot/slot-boundary-uncapped",
+    file: "apps/qr/lib/pickup-slot.ts",
+    suite: "lib/pickup-slot.test.ts",
+    why: "Codex round 1 on #313 \u2014 the re-check is CAPPED so a far slot re-arms: one long timer is slept through by a backgrounded tab and overflows past ~24.8 days; uncapped, the greeting's re-read is a promise the timer cannot keep",
+    find: "  return Math.min(t - now, cap);",
+    replace: "  return t - now;",
+  },
+  {
+    id: "pickup-slot/slot-at-now-still-waits",
+    file: "apps/qr/lib/pickup-slot.ts",
+    suite: "lib/pickup-slot.test.ts",
+    why: "Codex round 1 on #313 \u2014 an instant AT now is already past for `slotIsPast` (`t <= now`); a boundary rule that still arms a zero-wait timer for it disagrees with the rule it exists to serve, and the two drift apart on the exact instant",
+    find: "  if (!Number.isFinite(t) || t <= now) return null;",
+    replace: "  if (!Number.isFinite(t) || t < now) return null;",
+  },
+  {
     id: "counter-zones/end-of-page-never-lights-the-last-zone",
     file: "apps/qr/lib/counter-zones.ts",
     suite: "lib/counter-zones.test.ts",
@@ -24753,9 +24786,18 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "Deep pass on #312 \u2014 the first-press Sign in door made GoTrue's `shouldCreateUser: false` refusal reachable by a typed, never-vetted address, and the live region read the gateway's own 'Signups not allowed for otp' to the diner",
-    find: '        setError(\n          noAccount\n            ? "We couldn\u2019t find a Morning Star account for that email. Check the spelling, or save your Stars to start one."\n            : e0.message || "Couldn\u2019t send the sign-in code \u2014 try again.",\n        );',
+    find: '        setError(\n          noAccount\n            ? "We couldn\u2019t find a Morning Star account for that email. Check the spelling, or save your Stars to start one."\n            : otpOff\n              ? "Email sign-in isn\u2019t available right now \u2014 try again in a little while."\n              : e0.message || "Couldn\u2019t send the sign-in code \u2014 try again.",\n        );',
     replace:
       '        setError(e0.message || "Couldn\u2019t send the sign-in code \u2014 try again.");',
+  },
+  {
+    id: "account-upgrade/config-outage-called-no-account",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "Codex round 1 on #313 \u2014 GoTrue answers `otp_disabled` both for the unknown-address refusal and for OTP sign-in switched off in the project's settings; keyed on the code, every EXISTING account was told 'we couldn\u2019t find you' during an outage and sent off to start a second one",
+    find: '        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");',
+    replace:
+      '        const noAccount =\n          gotrueCode === "otp_disabled" || /signups? not allowed for otp/i.test(e0.message ?? "");',
   },
   {
     id: "account-upgrade/bounce-strip-forgets-the-panel",

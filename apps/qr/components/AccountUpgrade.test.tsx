@@ -336,6 +336,37 @@ describe("Phase 3a — the sign-in intent", () => {
     expect(screen.queryByText(/Signups not allowed/i)).toBeNull();
     await waitFor(() => expect(stored).toBeNull()); // and the proof went with the failed send
   });
+  it("OTP switched off at the Auth server is a service notice, never 'no account' — an existing diner is not sent to start a second one (Codex round 1 on #313)", async () => {
+    // GoTrue answers `otp_disabled` for BOTH the unknown-address refusal and OTP sign-in disabled in
+    // the project's settings; only the message tells them apart.
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOtp.mockResolvedValue({
+      error: { message: "Email logins are disabled", code: "otp_disabled" },
+    });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "min@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await screen.findByText(/Email sign-in isn’t available right now/i);
+    expect(screen.queryByText(/couldn’t find a Morning Star account/i)).toBeNull();
+    expect(screen.queryByText(/Email logins are disabled/i)).toBeNull();
+  });
+
+  it("signups disabled for the whole project is not 'no account' either — the message rule is exact", async () => {
+    mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
+    auth.signInWithOtp.mockResolvedValue({
+      error: { message: "Signups not allowed for this instance", code: "signup_disabled" },
+    });
+    render(<AccountUpgrade stars={0} />);
+    await flushFrames();
+    fireEvent.click(screen.getByRole("button", { name: /Already have an account\? Sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "min@example.com" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await screen.findByText(/Signups not allowed for this instance/i);
+    expect(screen.queryByText(/couldn’t find a Morning Star account/i)).toBeNull();
+  });
+
   it("Google under the sign-in intent SIGNS IN (signInWithOAuth), never the link-then-bounce path", async () => {
     mintMergeToken.mockResolvedValue({ kind: "minted", token: "tok" });
     auth.signInWithOAuth.mockResolvedValue({ error: null });

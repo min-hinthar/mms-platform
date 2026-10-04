@@ -152,8 +152,11 @@ export function DinerTabs() {
                     setLeaving(true);
                     const startedAt = here;
                     const epoch = navEpoch.current();
-                    void drain().finally(() => {
+                    void drain().then((outcome) => {
                       setLeaving(false);
+                      // Codex round 1 on #313 (P1): a drain past its deadline is a REFUSAL to leave —
+                      // the lender has said the change is still saving; the tab is live for a retry.
+                      if (outcome === "timed-out") return;
                       // A competing navigation during the drain wins: the queued push is dropped —
                       // whether it has committed (the route moved) or merely started (the epoch moved).
                       if (navEpoch.current() === epoch && hereRef.current === startedAt)

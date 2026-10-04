@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PresenceMember } from "@/lib/realtime";
 import type { WelcomeBack } from "@/lib/rewards";
 import { formatSlotLong } from "@/lib/pickupTime";
+import { SLOT_RECHECK_MAX_MS } from "@/lib/pickup-slot";
 
 /**
  * Phase 3b · D10 — one owner per fact. The menu's pickup greeting used to say "Pick a time — we'll
@@ -69,6 +70,46 @@ describe("D10 — the pickup greeting is a statement, not a control", () => {
     ctx.current = { ...solo, pickupSlot: "2001-01-01T12:00:00.000Z" };
     render(<ArrivalBeat mode="pickup" />);
     expect(line()).toBe("Order when you’re ready — we’ll pack it to go.");
+  });
+
+  it("the statement is re-read when the slot's instant PASSES — a menu left open does not keep stating a gone slot (Codex round 1 on #313)", async () => {
+    // `slotIsPast` ran in render only; nothing re-rendered a menu left open across the boundary.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse("2031-03-15T18:00:00.000Z"));
+      ctx.current = { ...solo, pickupSlot: "2031-03-15T18:30:00.000Z" };
+      render(<ArrivalBeat mode="pickup" />);
+      expect(line()).toMatch(/^Scheduled for /);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30 * 60 * 1000 - 1);
+      });
+      expect(line()).toMatch(/^Scheduled for /); // not a beat early
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2);
+      });
+      expect(line()).toBe("Order when you’re ready — we’ll pack it to go.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a far slot re-arms past the cap rather than trusting one long timer", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse("2031-03-15T18:00:00.000Z"));
+      ctx.current = { ...solo, pickupSlot: "2031-03-15T21:00:00.000Z" }; // three hours out
+      render(<ArrivalBeat mode="pickup" />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(SLOT_RECHECK_MAX_MS + 1); // the first timer fired; still ahead
+      });
+      expect(line()).toMatch(/^Scheduled for /);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000); // past the instant, through the re-arms
+      });
+      expect(line()).toBe("Order when you’re ready — we’ll pack it to go.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("the scheduled statement wins the one sub-line over the welcome-back warmth, as the party line does", () => {
