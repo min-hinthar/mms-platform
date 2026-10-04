@@ -24730,6 +24730,14 @@ const MUTANTS = [
     find: "  return Number.isFinite(t) && t <= now;",
     replace: "  return false;",
   },
+  {
+    id: "counter-zones/end-of-page-never-lights-the-last-zone",
+    file: "apps/qr/lib/counter-zones.ts",
+    suite: "lib/counter-zones.test.ts",
+    why: 'Deep pass on #312 \u2014 on a quiet floor the last zones fit in one viewport and their headings never climb to the strip\'s edge; without the end-of-page rule a tapped "Takeaway bags" chip stayed unlit and "Start an order" kept aria-current while the manager read the bags',
+    find: "    if (last) return last.id;",
+    replace: "    if (last) void last;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

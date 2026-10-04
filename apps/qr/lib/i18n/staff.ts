@@ -357,7 +357,11 @@ export const STAFF = {
   // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
   // per-key native check: the kitchen's only exit and one link in a console header may want
   // different wording, and one key would force them to move together.
-  "floor.back": { en: "← Floor", my: "← ခန်းမ" },
+  // Deep pass on #312: the link's destination is the counter home, whose bar title and tab title
+  // read `floor.door.counter` ("Counter & tables") — the control said "Floor", a word the screen it
+  // lands on never shows, so a new hire had no way to learn they were one place. The MY word is the
+  // first word of `floor.door.counter`'s own: no new vocabulary.
+  "floor.back": { en: "← Counter", my: "← ကောင်တာ" },
   "floor.hi": { en: "Hi, {x}", my: "မင်္ဂလာပါ {x}" },
   // A4·2 — the counter's one screen: the Start zone's visible heading (its region name is
   // `reg.a11y.start`, the same words), the channel chip on a counter order's card, and its status.

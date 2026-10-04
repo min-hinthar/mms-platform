@@ -301,11 +301,15 @@ export function ApprovalsBoard({
   // jumps to it on the same page; the heading takes focus both ways (`useZoneFocus`, the one copy
   // of the rule since A4·5). The catch-all above keeps its ref: it fires on a bump, not a hash.
   useZoneFocus("appr-h");
+  useZoneFocus("appr-zone", "appr-h"); // the strip's chip lands on the wrapper; focus goes to the heading
 
   const count = snap.length;
 
   return (
-    <>
+    // The zone's ANCHOR (the strip's `#appr-zone` chip): the rails zone begins at the refunds strip,
+    // not at the approvals heading below it (deep pass on #312). Focusable for the fragment jump,
+    // named by the heading it groups.
+    <div id="appr-zone">
       {/* The strip keeps its own region above the queue's, exactly as the page laid it out. */}
       <RefundsNeededStrip
         lang={lang}
@@ -383,7 +387,7 @@ export function ApprovalsBoard({
           />
         )}
       </section>
-    </>
+    </div>
   );
 }
 

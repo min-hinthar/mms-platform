@@ -29,6 +29,7 @@ import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
 import { CounterSplit } from "@/components/staff/CounterSplit";
 import { CounterZoneStrip, type CounterZone } from "@/components/staff/CounterZoneStrip";
+import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
@@ -234,9 +235,13 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // note with no heading to land on).
   const zones: CounterZone[] = [
     { id: "start-h", k: "floor.zone.start" },
-    { id: "floor-h", k: "floor.tables.title" },
+    // `#floor-h` is `FLOOR_HASH`, the split pane's CLOSE sentinel: a chip to it closed the open
+    // table's pane at tablet width (deep pass on #312). The zone's anchor is its own wrapper.
+    { id: "floor-zone", k: "floor.tables.title" },
     { id: "expo-h", k: "expo.title" },
-    ...(rails ? [{ id: "appr-h", k: "table.appr.open" } as const] : []),
+    // The rails zone's anchor is its wrapper, which starts at the REFUNDS strip — `#appr-h` sits
+    // below it, so the chip lit "Takeaway bags" while a manager read money owed back (deep pass).
+    ...(rails ? [{ id: "appr-zone", k: "table.appr.open" } as const] : []),
     ...(day.ok ? [{ id: "day-cash-h", k: "reg.day.title" } as const] : []),
     ...(rails ? [{ id: "settled-h", k: "floor.settled.head" } as const] : []),
   ];
@@ -261,7 +266,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
             {/* 1 · START — the counter's orders (Walk-up · Phone order); a TABLE starts from the
               strip in zone 2. The zone's region is `RegisterStart`'s own, named by this heading. */}
             <div className="staff-zone">
-              <h2 id="start-h" className="staff-zone-head">
+              <h2 id="start-h" className="staff-zone-head" tabIndex={-1}>
                 <Chrome lang={lang} k="floor.zone.start" />
               </h2>
               <p style={sub}>
@@ -272,7 +277,10 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
 
             {/* 2 · TABLES & COUNTER ORDERS — the strip (the room's map and its one-tap start), then
               one list keyed by session; the board owns its heading. */}
-            <FloorBoard initial={floor.snapshot} />
+            <div id="floor-zone">
+              <ZoneFocus id="floor-zone" focus="floor-h" />
+              <FloorBoard initial={floor.snapshot} />
+            </div>
           </CounterMintProvider>
 
           {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}

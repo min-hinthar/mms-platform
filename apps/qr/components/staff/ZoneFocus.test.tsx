@@ -48,6 +48,19 @@ describe("ZoneFocus", () => {
     expect(document.activeElement).toBe(h2);
   });
 
+  it("a zone anchored by a WRAPPER (its heading's id is the pane's close sentinel) still lands focus on the named heading (deep pass on #312)", async () => {
+    render(
+      <div id="z-wrap">
+        <ZoneFocus id="z-wrap" focus="z-h" />
+        <h2 id="z-h" tabIndex={-1}>
+          Zone
+        </h2>
+      </div>,
+    );
+    await jump("#z-wrap");
+    expect(document.activeElement).toBe(document.getElementById("z-h"));
+  });
+
   it("does NOT steal focus when the page was opened without the fragment", () => {
     render(<Zone />);
     expect(document.activeElement).toBe(document.body);
