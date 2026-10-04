@@ -151,18 +151,29 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   nobody renders, so the abandoned checkout polled its cart every 750 ms for the length of an outage.
   The cleanup clears `restoredRef` too — cancellation is the target every continuation checks, not a
   timer handle (`undo-grace/unmounted-hook-keeps-polling`). 3033 → 3034 mutants. LEARNINGS #231.
+- **Codex round 8 on #313 (two P2 — one fixed, one FILED).** (1) Fixed, red-first, one small commit:
+  round 7's cleanup cleared the retry TARGET, but the undo's own continuation — a Server Action and up
+  to three reads out when the diner leaves — wrote it back and armed `retryRead` from the dead hook,
+  reviving the polling. Cancellation is now `mountedRef`, read after every await: the bounded loop stops
+  at it and the close block says, closes and arms nothing (`undo-grace/unmounted-undo-keeps-reading` ·
+  `undo-grace/unmounted-undo-revives-the-retry`; two mutants re-anchored to prettier's shape). 3034 →
+  3036 mutants. (2) Filed as **J37**: a thrown `undoFire` whose un-fire COMMITTED leaves `close` null,
+  and in an outage the final branch releases `pending`, so the tick can close the window over the stale
+  view — Pay live over drafts, refused at create-intent. The honest fix holds the gate as for a landed
+  undo and needs `undoFire` idempotent on an already-un-fired batch (a re-tap reads `expired` today) —
+  a lib/SQL change, so it is filed, not fixed on sight.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
-  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 and +1 by round 7 (3034 over 258
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 and +1 by round 7 and +2 by round 8 (3036 over 258
   files: lib 175 · components 76 — measured), every
   touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
-  surviving or stale, the tree clean after each; full qr suite 6454 + 287 ui; `check:mutant-anchors` ·
+  surviving or stale, the tree clean after each; full qr suite 6455 + 287 ui; `check:mutant-anchors` ·
   the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
   `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
   growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
   (`viewBill`, `payOpensAfterUndo`), ledgered in the K15 row. Filed: M258 · M259 · J30 · J31 · J32; the
   blind pass's verdict is on the PR. **The full `verify:slice` (every mutant, CI's gate skipped) passed on the
-  code head `7092fe7` on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min; round 7's one-line fix
-  `7bd2f06` came after it, its `undo-grace` family re-run through `--only=` (11 caught)**; five attempts died
+  code head `7092fe7` on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min; rounds 7 and 8's fixes
+  (`7bd2f06` · `3bdc324`) came after it, the `undo-grace` family re-run through `--only=` (13 caught)**; five attempts died
   first, two with the container on an idle wait and two beside a vitest fleet (HANDOFF has the history,
   LEARNINGS #229 the escort rule).
 

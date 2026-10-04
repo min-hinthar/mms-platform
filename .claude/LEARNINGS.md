@@ -3559,3 +3559,8 @@ re-checked `restoredRef.current === target` after its await, so the cleanup had 
 as `open()` already did for a superseded window. Rule: a cleanup for an async loop invalidates the thing
 the loop checks after each await; clearing the handle stops only the step that has not started. Test it
 with a read that is OUT at unmount (a deferred promise), resolve it afterwards, and count the calls.
+**And the target alone was not enough (round 8, the same day):** the undo's OWN continuation — a Server
+Action and up to three reads out at unmount — wrote the target back and re-armed the retry. A target is
+state the continuation itself mutates; the cancellation that holds is a flag only the lifecycle writes
+(`mountedRef`, set in the mount effect so StrictMode's effect → cleanup → effect ends mounted), read
+after EVERY await, and the continuation says, closes and arms nothing once it reads false.
