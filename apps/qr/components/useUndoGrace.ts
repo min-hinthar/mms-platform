@@ -213,6 +213,12 @@ export function useUndoGrace(opts?: {
   );
   useEffect(
     () => () => {
+      // Codex round 7 on #313 — a timer cleared here is not a read cancelled: the callback nulls
+      // `resyncTimer` BEFORE it awaits, so a read that is out at unmount resolves afterwards and
+      // `retry` would re-arm from a hook nobody renders (the abandoned checkout polling its cart every
+      // 750 ms for the length of an outage). Cancellation is the TARGET, which every continuation
+      // checks before it goes on.
+      restoredRef.current = null;
       if (resyncTimer.current) clearTimeout(resyncTimer.current);
     },
     [],

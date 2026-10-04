@@ -24835,6 +24835,14 @@ const MUTANTS = [
       '          say({ kind: "err", text: RESYNC_FAILED_NOTE });\n          retryRead(target);\n          pendingRef.current = false;\n          setPending(false);\n',
   },
   {
+    id: "undo-grace/unmounted-hook-keeps-polling",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "Codex round 7 on #313 (P2) — the unmount cleanup cleared `resyncTimer`, which the callback had already nulled before awaiting the read, and left the retry TARGET standing; a read that failed after unmount re-armed `retry` from a hook nobody renders, so an abandoned checkout polled its cart every 750 ms for as long as an outage lasted. Cancellation is the target the continuation checks, not a timer handle",
+    find: "      restoredRef.current = null;\n      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    },\n    [],\n",
+    replace: "      if (resyncTimer.current) clearTimeout(resyncTimer.current);\n    },\n    [],\n",
+  },
+  {
     id: "checkout/pay-re-entered-during-the-drain",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.grace.test.tsx",

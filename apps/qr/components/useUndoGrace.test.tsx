@@ -474,6 +474,42 @@ describe("useUndoGrace — the window", () => {
     expect(result.current.closedBy).toBe("expired");
   });
 
+  it("an unmounted hook stops asking — a read that was OUT at unmount must not re-arm the background retry when it fails (Codex round 7 on #313)", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockResolvedValue({ ok: true });
+    const inFlight = deferred<string>();
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockImplementationOnce(() => inFlight.promise) // the read that is out when the diner leaves
+      .mockResolvedValue("failed"); // what any later ask gets — the outage goes on
+    const { result, unmount } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 2 + 10);
+      await undoPromise;
+    });
+    // The bounded attempts failed; the background retry fired once and its read is now OUT.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS + 10);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(4);
+    unmount(); // the diner navigates away mid-read
+    inFlight.resolve("failed");
+    await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 4);
+    // MUTATION (undo-grace/unmounted-hook-keeps-polling): the cleanup clears a timer the callback had
+    // already nulled before awaiting, and leaves the retry TARGET standing — the failed read re-arms
+    // `retry` from a hook nobody renders, and the abandoned checkout polls its cart every 750 ms for
+    // as long as the outage lasts; red here (a fifth call and more).
+    expect(onChanged).toHaveBeenCalledTimes(4);
+  });
+
   it("the 250 ms tick closes the window when it elapses, and is cleared on unmount", () => {
     vi.useFakeTimers();
     const { result, unmount } = renderHook(() => useUndoGrace());
