@@ -3564,3 +3564,15 @@ Action and up to three reads out at unmount — wrote the target back and re-arm
 state the continuation itself mutates; the cancellation that holds is a flag only the lifecycle writes
 (`mountedRef`, set in the mount effect so StrictMode's effect → cleanup → effect ends mounted), read
 after EVERY await, and the continuation says, closes and arms nothing once it reads false.
+
+## #232
+
+**A focus assertion that follows a DOM-only `waitFor` races the passive effect that lands the focus —
+wait for the focus itself (CI on #313's `1c128cf`, 2026-10-04).** The grace's close edge removes the
+Undo in one commit and lands `<h1>` focus in a `useEffect` keyed on the window closing; the test waited
+for the Undo to vanish, then read `document.activeElement` synchronously. Locally the effect had always
+run; on the runner `waitFor`'s observer fired between the commit and the effect flush, and the
+assertion saw `<body>` — a test red on a product behaviour that was correct. Anything a passive effect
+produces (focus, an announcement, a scroll) is asserted inside its own `waitFor`; a wait on the DOM
+proves only the commit. The repo's "a failing test is never a flake" stands: the race was the test's
+own, and the fix is the test's — the product landing stayed as it was.

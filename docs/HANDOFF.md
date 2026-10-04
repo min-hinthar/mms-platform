@@ -52,7 +52,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > after every await — `undo-grace/unmounted-undo-keeps-reading` · `unmounted-undo-revives-the-retry`; 3036
 > mutants) and one FILED (**J37**: a thrown `undoFire` whose un-fire committed releases the gate on the
 > clock in an outage; the honest fix needs `undoFire` idempotent on an already-un-fired batch — lib/SQL).
-> Rounds 3–8 are SIX fix-on-sight commits on a converging loop, each finding smaller than the last;
+> Codex reviewed `1c128cf` CLEAN at 15:27 (the gate's `codex-review` green at 15:28 — the first clean
+> verdict on the 3c-i stack), but CI `build` went RED on it: a timing race in the focus hand-off case of
+> `Checkout.grace.test.tsx`, green locally, red on the runner — the assertion waited for the DOM, the
+> `<h1>` landing is a passive effect after it; it now waits for the focus (LEARNINGS #232), and the fix
+> head needs its own Codex round. Rounds 3–8 are SIX fix-on-sight commits on a converging loop, each
+> finding smaller than the last;
 > **from here anything that is not a P1, or not a one-line fix inside the mechanism this PR built, is
 > FILED to OPEN-ITEMS**, and the PR merges on the owner's call. The round-3
 > evidence (the touched families through `verify:slice --only=` on `8624af0`: `undo-grace` 7 ·

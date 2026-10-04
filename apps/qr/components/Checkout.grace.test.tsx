@@ -348,8 +348,11 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
       timeout: 3000,
     });
     // MUTATION: drop the `focusWasLost()` landing — the Undo unmounted under the reader and focus
-    // sits on <body>; red.
-    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+    // sits on <body>; red. The landing is a passive effect that FOLLOWS the commit removing the Undo,
+    // so it is awaited on its own: a DOM-only wait resolved between the two on CI (1c128cf).
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 })),
+    );
     cleanup();
 
     h.getCartView.mockResolvedValue(view());
@@ -365,7 +368,9 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /Bringing it back|^Undo — / })).toBeNull(),
     );
-    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 })),
+    );
   });
 
   it('"Ready to pay." is said once when the window ELAPSES on the Bill with nothing else holding Pay', async () => {

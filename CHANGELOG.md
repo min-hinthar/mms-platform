@@ -161,7 +161,10 @@ counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkou
   and in an outage the final branch releases `pending`, so the tick can close the window over the stale
   view — Pay live over drafts, refused at create-intent. The honest fix holds the gate as for a landed
   undo and needs `undoFire` idempotent on an already-un-fired batch (a re-tap reads `expired` today) —
-  a lib/SQL change, so it is filed, not fixed on sight.
+  a lib/SQL change, so it is filed, not fixed on sight. CI on `1c128cf` then caught a timing race in
+  the focus hand-off case of `Checkout.grace.test.tsx` (green locally, red on the runner): the `<h1>`
+  landing is a passive effect that follows the commit removing the Undo, and the assertion waited only
+  for the DOM — it now waits for the focus (LEARNINGS #232). Codex had reviewed `1c128cf` clean.
 - **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
   re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 and +1 by round 7 and +2 by round 8 (3036 over 258
   files: lib 175 · components 76 — measured), every
