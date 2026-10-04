@@ -5,17 +5,17 @@ import { cleanup, render } from "@testing-library/react";
 const h = vi.hoisted(() => ({
   publishCart: vi.fn(),
   registerDrain: vi.fn(),
-  settled: vi.fn(() => Promise.resolve()),
+  drain: vi.fn(async () => "settled" as const),
   cart: {
     cartId: "cart-1" as string | null,
     items: [] as { qty: number }[],
     count: 0,
     totals: null as object | null,
-    settled: undefined as unknown as () => Promise<void>,
+    drain: undefined as unknown as () => Promise<"settled" | "timed-out">,
     mode: "pickup" as string,
   },
 }));
-h.cart.settled = h.settled;
+h.cart.drain = h.drain;
 vi.mock("./TableCartProvider", () => ({ useCart: () => h.cart }));
 vi.mock("./ActiveOrderProvider", () => ({
   useActiveOrder: () => ({ publishCart: h.publishCart, registerDrain: h.registerDrain }),
@@ -29,18 +29,20 @@ afterEach(() => {
   h.registerDrain.mockReset();
 });
 
-describe("Codex round 3 on #312 — the publisher lends the store the cart's settled() barrier", () => {
-  it("registers settled() while mounted and withdraws it on unmount", () => {
+describe("Codex round 3 on #312 — the publisher lends the store the cart's drain", () => {
+  it("registers the provider's BOUNDED drain (never the bare settled() barrier — Codex round 1 on #313) while mounted, and withdraws it on unmount", () => {
+    // The provider's `drain` answers `settled | timed-out` and speaks a timeout through its own
+    // toast; lending the bare barrier would let the Order tab navigate on the deadline again.
     h.cart = {
       cartId: "cart-1",
       items: [],
       count: 0,
       totals: null,
-      settled: h.settled,
+      drain: h.drain,
       mode: "pickup",
     };
     const { unmount } = render(<CartPublisher />);
-    expect(h.registerDrain).toHaveBeenLastCalledWith(h.settled);
+    expect(h.registerDrain).toHaveBeenLastCalledWith(h.drain);
     unmount();
     // Withdrawn, so a tab on a route with no cart provider never awaits a torn-down menu's ledger.
     expect(h.registerDrain).toHaveBeenLastCalledWith(null);
@@ -56,7 +58,7 @@ describe("#300 — the menu publishes a count only once it has SEEN the cart", (
       items: [],
       count: 0,
       totals: null,
-      settled: h.settled,
+      drain: h.drain,
       mode: "pickup",
     };
     render(<CartPublisher />);
@@ -72,7 +74,7 @@ describe("#300 — the menu publishes a count only once it has SEEN the cart", (
       items: [{ qty: 1 }, { qty: 2 }],
       count: 5,
       totals: { totalCents: 4200 },
-      settled: h.settled,
+      drain: h.drain,
       mode: "dinein",
     };
     render(<CartPublisher />);
