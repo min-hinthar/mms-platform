@@ -55,19 +55,23 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
 > PR, `@codex review`.
 >
-> **The owed full `verify:slice` — THIRD attempt, live as of 09:04 UTC 2026-10-04.** The first (worktree
-> `vs-full`, 03:50 UTC) was killed at 116 min by the tool's 2 h ceiling; the second (`vs-full2`, 05:48 UTC,
-> `fdeb7b4`, detached with `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55 UTC —
-> its log (`scratchpad/vs-full2.log`) stops at 2,375 caught with NO survivor, NO stale and no final
-> verdict, and the worktree was left holding a live mutant (`staff/ExpoBoard.tsx`), removed with
-> `git worktree remove --force`. The third runs in `.claude/worktrees/vs-full3` at **`f89aeb4`** (the
-> merge head; `pnpm install --offline --frozen-lockfile` in the worktree, then
-> `setsid nohup pnpm verify:slice --no-gate > scratchpad/vs-full3.log`). The run prints per-mutant
-> verdicts progressively (`grep -c caught` is its progress) and the summary at the END; hours of
-> runtime are NORMAL. Read the tail for caught / SURVIVED / STALE and the orphan verdict, record it
-> here, then `git worktree remove --force .claude/worktrees/vs-full3`. If the container died again:
-> the worktree may hold a live mutant — remove it with `--force`, never commit from it — and the run
-> is owed once more, started the same way on the merge head FIRST.
+> **The owed full `verify:slice` — FIFTH attempt, live as of ~10:15 UTC 2026-10-04, in
+> `.claude/worktrees/vs-full3` on the merge head.** The history matters more than the count: attempt 1
+> (`vs-full`, 03:50) was killed at 116 min by the tool's 2 h ceiling; attempt 2 (`vs-full2`, `fdeb7b4`,
+> `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55, at 2,375 caught, no survivor, no
+> stale, no final verdict (log `scratchpad/vs-full2.log`); attempt 3 (`vs-full3`, `f89aeb4`, 09:04) died
+> within minutes at the BASELINE SUITES while a full vitest run ran in the main checkout; attempt 4
+> (`vs-full3`, `6fcdf8f`, `setsid -f`, 09:33) died at ~10:04 at 307 caught, no survivor, while the
+> round-6 suites and `check:docs` ran in the main checkout (log `vs-full3.log.attempt4-died-307`). ⚠️
+> **THE DETACHED RUN DIES WHENEVER A VITEST FLEET RUNS BESIDE IT IN THE MAIN CHECKOUT** (twice, same
+> shape; the container's memory is the suspect). So: launch it LAST, when nothing else will run, and run
+> NO vitest (suites, `verify:slice --only=`, even `check:docs`'s `vitest list`) in the main checkout while
+> it lives. Launch: `pnpm install --offline --frozen-lockfile` in the worktree once, then from the worktree
+> `setsid -f nohup pnpm verify:slice --no-gate > scratchpad/vs-full3.log 2>&1 < /dev/null`. Progress is
+> `grep -c caught`; the summary prints at the END; hours are normal. Read the tail for caught / SURVIVED /
+> STALE and the orphan verdict, record it here, then `git worktree remove --force .claude/worktrees/vs-full3`.
+> If it died again: the worktree may hold a live mutant — `git checkout -- .` or remove with `--force`,
+> never commit from it — and the run is owed once more.
 >
 > **Still owed:** J28's device checks (+ J32's keyboard-inset tap on the inline join form); J29's copy
 > calls; the `MONEY_MARKERS` policy row; J30's TTFB measurement on the to-go menu preview; J34's Profiler
