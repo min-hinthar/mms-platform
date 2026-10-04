@@ -33,7 +33,13 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > real, both fixed red-first in the commit after it — the window closes only on an APPLIED re-sync (a
 > `"failed"` read is retried with the gate shut, then the window stays open and the note is said), and the
 > door never promises "& pay" over a standing counter ask (`billDoorLabel(block, counterAsk)`). 3029
-> mutants after it. Round 4+ is fix-on-sight or filed. **Where it lands:** if #313 is still open when 3c-i pushes, it
+> mutants after it (the touched families through `verify:slice --only=` on `8624af0`: `undo-grace` 7 ·
+> `checkout-verb` 9 · `checkout/` 12 caught, none surviving). Round 4+ is fix-on-sight or filed. ⚠️ **CODEX
+> IS OUT OF REVIEW QUOTA (2026-10-04 08:41 UTC):** the app answered the `8624af0` push with "You have
+> reached your Codex usage limits for code reviews", so `codex-review` stays RED on that head until the
+> owner adds credits / upgrades and comments `@codex review` — or decides to merge on the in-session
+> evidence (C16 is unwired, the button is live; the call is the owner's). Do NOT re-ask Codex until the
+> quota is back; the PR waits on events only. **Where it lands:** if #313 is still open when 3c-i pushes, it
 > stacks onto the same branch and #313 is re-stated (the #312 precedent — the owner merges stacked
 > PRs); if #313 merged first, `git fetch origin main && git checkout -B
 claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
