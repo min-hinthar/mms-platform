@@ -25532,9 +25532,9 @@ const MUTANTS = [
     file: "apps/qr/components/TableBindSheet.tsx",
     suite: "components/Checkout.bind.test.tsx",
     why: "3c-ii (D27, the one law both judges wrote first) — the sheet reports ok before the server answers: the host sends the order while the bind is still out, so a `seated` or `unavailable` answer arrives after the kitchen already has a ticket for a table this session was never bound to",
-    find: "      out = await boundWrite(bindTable(cartId, n));",
+    find: "      out = await boundWrite(onClaim(n));",
     replace:
-      '      out = { kind: "answer", value: { ok: true, tableNumber: n, already: false } };\n      void boundWrite(bindTable(cartId, n));',
+      '      out = { kind: "answer", value: { ok: true, tableNumber: n, already: false } };\n      void boundWrite(onClaim(n));',
   },
   {
     id: "checkout-bind/ask-is-a-second-hero",
@@ -25560,6 +25560,14 @@ const MUTANTS = [
     suite: "components/Checkout.bind.test.tsx",
     why: "3c-ii (D30) — `applyCartView` never writes the number: a tablemate's bind (or the re-sync after this phone's own send) leaves the bill on its page-load null, the eyebrow never names the table, and the next Send asks a question the session has already answered",
     find: "    if (v.tableNumber != null) setTableNumber(v.tableNumber);\n",
+    replace: "",
+  },
+  {
+    id: "checkout-bind/frozen-chip-binds",
+    file: "apps/qr/components/TableBindSheet.tsx",
+    suite: "components/TableBindSheet.test.tsx",
+    why: "3c-ii · T9 (check:child-freeze on the integration gate) — a tablemate's checkout can lock the cart while the Send-time sheet is up; without the gate a chip tap reaches `bindTable`, which refuses on the raw lock, and the diner hears the RACED sentence over a freeze the client already knew. The refusal precedes the write and says FROZEN_NOTE",
+    find: "    if (frozen) {\n      // T9 — the lock landed while the ask was up: refuse BEFORE the write, and say so.\n      onFrozen(FROZEN_NOTE);\n      return;\n    }\n",
     replace: "",
   },
   {

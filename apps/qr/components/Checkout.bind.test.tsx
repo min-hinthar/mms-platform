@@ -365,6 +365,24 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     expect(h.bindTable).not.toHaveBeenCalled();
   });
 
+  it("a freeze that lands WHILE the ask is up: the chip is refused with FROZEN_NOTE before any bind, the sheet stays open, and the sentence reaches the region after the close", async () => {
+    mount();
+    const dialog = await askTable();
+    // A tablemate's checkout locks the cart while the sheet is open (the J3 re-read carries it).
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    await syncFromServer();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(h.bindTable).not.toHaveBeenCalled();
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(within(dialog).getByText(FROZEN_NOTE)).toBeTruthy();
+    expect(regionText()).not.toContain(FROZEN_NOTE); // stashed while the modal is up
+    await dismiss(dialog);
+    await waitFor(() => expect(regionText()).toContain(FROZEN_NOTE));
+  });
+
   it("a BOUND table (7) and an EMPTY registry never ask — the send goes straight to the server", async () => {
     mount({ initialTableNumber: 7 });
     expect(screen.getByText("Table 7")).toBeTruthy();

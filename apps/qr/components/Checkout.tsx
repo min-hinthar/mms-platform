@@ -105,7 +105,7 @@ import {
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
 import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "@/lib/checkout-verb";
-import type { BindTableResult } from "@/lib/bind-table";
+import { bindTable, type BindTableResult } from "@/lib/bind-table";
 import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
@@ -968,6 +968,12 @@ export function Checkout({
     setSentAnyway(true);
     setBindOpen(false);
     sendHandle.current?.send({ tableAnswered: true });
+  };
+  // T9 — a chip tapped under a freeze that landed while the sheet was up: seen in the sheet, said
+  // through the region once it has closed (the same stash every in-sheet sentence rides).
+  const onBindFrozen = (frozenNote: string) => {
+    stashed.current = { text: frozenNote };
+    setBindNote(frozenNote);
   };
   const onBindClosed = () => {
     sheetUp.current = false;
@@ -3956,10 +3962,12 @@ export function Checkout({
               <TableBindSheet
                 open={bindOpen}
                 onOpenChange={setBindOpen}
-                cartId={cartId}
+                onClaim={(n) => bindTable(cartId, n)}
                 tables={tables}
                 draftQty={kitchenDraftQty}
+                frozen={editsFrozen}
                 note={bindNote}
+                onFrozen={onBindFrozen}
                 onOutcome={onBindOutcome}
                 onSendAnyway={onSendAnyway}
                 onClosed={onBindClosed}

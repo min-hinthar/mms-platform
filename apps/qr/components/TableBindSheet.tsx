@@ -3,10 +3,11 @@ import { useRef, useState } from "react";
 import { Sheet } from "@mms/ui";
 import { TableSection } from "@/components/TableSection";
 import { BIND_COPY } from "@/lib/bind-copy";
-import { bindTable, type BindTableResult } from "@/lib/bind-table";
+import type { BindTableResult } from "@/lib/bind-table";
 import { boundWrite, type Bounded } from "@/lib/bounded-write";
 import { t } from "@/lib/i18n";
 import type { DineInTable } from "@/lib/tables";
+import { FROZEN_NOTE } from "./useUndoGrace";
 
 /**
  * Phase 3c-ii (D27 · D28) — the Send-time table sheet. The first Send on an UNBOUND dine-in session
@@ -23,8 +24,10 @@ import type { DineInTable } from "@/lib/tables";
  * its K15 draft): the DoorSheet's "scan your sticker" is REFUSED here, since a `?t=` from /cart
  * drops the persisted key (`useTableSession`) and mints a second session.
  *
- * THE BIND (M82 · `busy`): `claim` raises `binding`, awaits `boundWrite(bindTable(cartId, n))` —
- * the contract's STAFF_HANG_MS bound, never a raw action — and clears it in a `finally`, so every
+ * THE BIND (M82 · `busy`): `claim` raises `binding`, awaits `boundWrite(onClaim(n))` — the HOST's
+ * `bindTable(cartId, n)`, the 3c-i shape (`LineOptionsSheet`'s `onMakeNow`: the host owns the
+ * mutation call, the sheet owns the bounded await) — the contract's STAFF_HANG_MS bound, never a
+ * raw action — and clears it in a `finally`, so every
  * exit is refused only while the write can still be out (`lib/sheet-busy-callers.test.ts` parses
  * this shape). A write still out at the bound reads as `error` to the host ("couldn't send that just
  * now"); its late answer is deliberately not applied — the next Send asks again and the bind answers
@@ -45,21 +48,35 @@ import type { DineInTable } from "@/lib/tables";
  * edge (a bind landed, or "Send anyway") the Send node has given way to the Undo (or is disabled
  * mid-send) and the host focuses the control that replaced it; on a dismissal (Esc · ✕ · scrim) —
  * which calls nothing and keeps every draft — it focuses the Send again.
+ *
+ * T9 — THE FREEZE THAT LANDS WHILE THE ASK IS UP. The Send's gate refused a frozen tap before any
+ * sheet opened; a tablemate's checkout can lock the cart while this sheet is open, and `bindTable`
+ * refuses on the raw lock. So `claim` reads Checkout's `editsFrozen` (threaded, never re-derived)
+ * and refuses BEFORE the write with `FROZEN_NOTE` — the sentence the client already knows, not the
+ * raced one the server would answer — through `onFrozen`, which the host shows here and says
+ * through its region after the close (`scripts/check-child-freeze.mjs` parses this shape).
  */
 export function TableBindSheet({
   open,
   onOpenChange,
-  cartId,
+  onClaim,
   tables,
   draftQty,
+  frozen,
   note,
+  onFrozen,
   onOutcome,
   onSendAnyway,
   onClosed,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  cartId: string;
+  /** The host's `bindTable(cartId, n)` — the RAW action; this sheet bounds it (`boundWrite`). */
+  onClaim: (n: number) => Promise<BindTableResult>;
+  /** T9 — Checkout's `editsFrozen`, threaded: a chip tap under a freeze is refused before the bind. */
+  frozen: boolean;
+  /** A frozen chip tap's sentence (`FROZEN_NOTE`): shown here by the host, said after the close. */
+  onFrozen: (sentence: string) => void;
   /** The registered dine-in tables (number + occupancy; tokens stripped server-side). */
   tables: DineInTable[];
   /** The cart's dine-in draft units — the drafts note under a seated table's join form. */
@@ -87,11 +104,16 @@ export function TableBindSheet({
   const closedBy = useRef<"send" | null>(null);
 
   async function claim(n: number) {
+    if (frozen) {
+      // T9 — the lock landed while the ask was up: refuse BEFORE the write, and say so.
+      onFrozen(FROZEN_NOTE);
+      return;
+    }
     closedBy.current = null;
     setBinding(true);
     let out: Bounded<BindTableResult> | undefined;
     try {
-      out = await boundWrite(bindTable(cartId, n));
+      out = await boundWrite(onClaim(n));
     } finally {
       setBinding(false);
     }

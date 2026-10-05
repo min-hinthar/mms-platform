@@ -30,6 +30,7 @@ vi.mock("@/lib/useSessionPeek", () => ({
 vi.mock("@/components/nav/TransitionNav", () => ({ useJourneyRouter: () => ({ push: vi.fn() }) }));
 
 const { TableBindSheet } = await import("./TableBindSheet");
+const { FROZEN_NOTE } = await import("./useUndoGrace");
 
 const TABLES: DineInTable[] = [
   { tableNumber: 2, occupied: false },
@@ -51,6 +52,8 @@ function deferred<T>() {
 /** What Checkout does with the sheet: owns `open` and the visible note, confirms on ok. */
 function Host(props: {
   draftQty?: number;
+  frozen?: boolean;
+  onFrozen?: (sentence: string) => void;
   onOutcome: (r: BindTableResult) => void;
   onSendAnyway: () => void;
   onClosed: (e: { sent: boolean }) => void;
@@ -70,9 +73,14 @@ function Host(props: {
       <TableBindSheet
         open={open}
         onOpenChange={setOpen}
-        cartId={CART}
+        onClaim={(n) => h.bindTable(CART, n)}
         tables={TABLES}
         draftQty={props.draftQty ?? 2}
+        frozen={props.frozen ?? false}
+        onFrozen={(s) => {
+          props.onFrozen?.(s);
+          setNote(s);
+        }}
         note={note}
         onOutcome={(r) => {
           props.onOutcome(r);
@@ -284,6 +292,24 @@ describe("TableBindSheet — a chip binds, bounded, and reports only the confirm
 });
 
 describe("TableBindSheet — the escape and the dismissal", () => {
+  it("a chip tapped while the cart is FROZEN never reaches `bindTable`: the sheet says FROZEN_NOTE through the host and stays open (T9 — the freeze that lands while the ask is up)", async () => {
+    const s = spies();
+    const onFrozen = vi.fn();
+    render(<Host {...s} frozen onFrozen={onFrozen} />);
+    openSheet();
+    await act(async () => {
+      fireEvent.click(chip(2));
+    });
+    // MUTATION (checkout-bind/frozen-chip-binds): the `if (frozen)` gate dropped — the tap reaches
+    // the server, which refuses on the raw lock, and the sheet says the RACED sentence over a
+    // freeze the client already knew; red here (bindTable called, FROZEN_NOTE never said).
+    expect(h.bindTable).not.toHaveBeenCalled();
+    expect(onFrozen).toHaveBeenCalledWith(FROZEN_NOTE);
+    expect(s.onOutcome).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(text(screen.getByRole("dialog"))).toContain(FROZEN_NOTE);
+  });
+
   it("'Send anyway' hands the send to the host and closes as a SEND edge; no bind is attempted", async () => {
     const s = spies();
     render(<Host {...s} />);
