@@ -103,6 +103,16 @@ const COUNT_RULES = [
   // two lines from an already-rotted claim. The lesson is the guard's own: a narrow rule set must
   // still cover every phrasing the docs actually use, or the doc drifts in the gap.
   { re: /(\d+)\s+semantic\s+mutations?/gi, key: "mutants", label: "verify:slice mutants" },
+  // Deep pass on #312 — the bare "N target modules" form: HANDOFF's "measured, not transcribed" gate
+  // line said "240 target modules (170 under apps/qr/lib, 68 components …)" — arithmetic that
+  // cannot be true — and only the "under apps/qr/lib" half of it was guarded.
+  // The historical "N target modules at the time (M … today)" form keeps its N exempt — M is the
+  // "N in all" rule's to measure.
+  {
+    re: /(\d+)\s+target\s+modules(?!\s+at\s+the\s+time)/gi,
+    key: "modules",
+    label: "verify:slice target modules",
+  },
   // M108 review (blind pass): the same hole one phrasing over. CLAUDE.md's command block said
   // "gate + 197 mutations + orphan check" — no "semantic", so no rule matched, and the count sat
   // stale while the line two below it was kept current. Requires nearby verify:slice/gate context so
@@ -434,12 +444,39 @@ export function countFailures(text, truth, name = "<doc>") {
 }
 
 /** Measure, never assume: `vitest list` enumerates without executing, so this costs ~10s, not a run. */
+/**
+ * Deep pass on #312 — `## #N` headings in LEARNINGS are its citation keys (CLAUDE.md and the
+ * CHANGELOG say "LEARNINGS #60"); a second `## #200` was appended after #214, so every citation of
+ * that number resolved to two lessons. Keys are unique; the next free one is named in the failure.
+ */
+export function headingFailures(text, name = "<doc>") {
+  const seen = new Map();
+  const dupes = [];
+  let max = 0;
+  text.split("\n").forEach((line, i) => {
+    const m = /^## #(\d+)\b/.exec(line);
+    if (!m) return;
+    const n = Number(m[1]);
+    max = Math.max(max, n);
+    if (seen.has(n)) dupes.push({ n, line: i + 1, first: seen.get(n) });
+    else seen.set(n, i + 1);
+  });
+  return dupes.map(
+    (d) =>
+      `${name}:${d.line} — duplicate heading \`## #${d.n}\` (first at :${d.first}); the next free number is #${max + 1}`,
+  );
+}
+
 export function measure(root) {
   const list = (dir) =>
     execFileSync("npx", ["vitest", "list"], {
       cwd: path.join(root, dir),
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      // 3c-i: the qr list crossed execFileSync's 1 MB default (6437 long-named cases) and the check
+      // died with ENOBUFS — step ONE of the lane, so a growing suite would have reddened `build` on
+      // its own. Sized far past any suite this repo will carry.
+      maxBuffer: 64 * 1024 * 1024,
     })
       .split("\n")
       .filter((l) => l.includes(" > ")).length;
@@ -505,6 +542,8 @@ function main() {
   const failures = [];
   for (const rel of docs)
     failures.push(...tableFailures(readFileSync(path.join(ROOT, rel), "utf8"), rel));
+  for (const rel of docs.filter((f) => /LEARNINGS\.md$/.test(f)))
+    failures.push(...headingFailures(readFileSync(path.join(ROOT, rel), "utf8"), rel));
   /** `files` is the length of the ONE list above, never a second `ls-files`: the count this script
    *  PRINTS and the count it CHECKS must be the same number or the guard can pass while the banner
    *  lies (the "name it ONCE" rule, applied to a count rather than an amount). */

@@ -4,6 +4,275 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3c-i — the bill is a receipt you can read (2026-10-04)
+
+**The owner's ask:** "continue good work" after 3b. The dine-in `/cart` audit (`docs/PHASE3_JOURNEYS.md`,
+J23) found two verbs side by side with no state between them, a ten-second undo that locked the Bill
+door, a Pay button that renamed itself to its refusal, and a table picker that was a second route.
+Contract: `docs/PHASE3C_DESIGN.md` (D13–D20), written by a nine-agent panel (two mappers · four blind
+proposers · two judges · one synthesizer; both judges chose the hero-verb design independently). Built
+as two disjoint worktree slices by two engineers, red-first, squashed by the lead (0db85c3 · 595c605 · e5b249f).
+
+- **One hero verb per state (D13, `lib/checkout-verb.ts`).** `orderStageHero` → `send` (the host with
+  drafts) · `undo` (the grace — reversing is never the hero) · `bill` (everything sent; a guest with
+  drafts; a hostless table). The Order stage draws exactly one `.checkout-cta` or none; the three ad-hoc
+  gates and the class ternary collapsed into one call (`checkout/two-heroes-on-the-order-stage`).
+- **The grace lives in Checkout; the bill is readable; only Pay waits (D15, `components/useUndoGrace.ts`).**
+  The undo window used to be `SendToKitchenButton` state, so a stage flip destroyed it and the Bill door
+  was shut for ten seconds. The hook owns the deadline, the batch, the 250 ms tick and `graceWrites` (a
+  serialized chain that never rejects); `SendToKitchenButton` is controlled and presentational and LOST
+  its private `role=status` — one live region per view, the double region finding 3 named. `reasonCopy`
+  and `FROZEN_NOTE` moved into the hook (a hook importing a component inverts the dependency).
+- **Pay keeps its name and states its one reason (D16).** `payBlock` → `peer` > `unsent` > `grace` (the
+  Send still owed outranks the grace it would reopen — a judge's mustNot on the inverted order); the
+  label is always `Pay · $X`, the reason rides a static `aria-describedby` sentence and is re-said on
+  every blocked tap; `continueToPayment` drains `graceWrites`, re-decides on the view that WON, then
+  mints (the belt behind the braces — the blind-pass bullet below says why its two mutants are
+  retired). "Ready to pay." is said once, only when the grace ELAPSED with nothing else holding Pay,
+  and never over a standing counter ask.
+- **The receipt foot IS the door, named once (D14).** `orderTotalCents` is the one binding the Total door
+  and the Bill hero read (`checkout/total-door-drops-the-previewed-tip`); the door says "View bill" while
+  Pay is held and "View bill & pay" only when nothing holds it (`billDoorLabel`) — as the hero that IS
+  its name; quiet, its name opens with the visible label, "Total · $X — View bill" (WCAG 2.5.3, the
+  blind pass; `checkout/door-name-drops-its-visible-label`); phrasing content
+  in a `<button>`, never a `<dl>`; `.checkout-viewbill` retired in every reference (six in
+  `globals.css`, one in Checkout — measured). The door sits under the dishes and above the verb, v7.2's
+  Total → CTA order.
+- **The line is a receipt row (D17, `components/LineOptionsSheet.tsx`).** For here / To go and "Send to
+  kitchen now" live behind a 44px ⋯ in ONE subject-keyed sheet that closes when the line stops being
+  draft; `makeNow` is no longer optimistic — a fire is one-way for the guest who tapped it, so the sheet
+  awaits it bounded with `busy` and joins `sheet-busy-callers`' GUARDED list. The to-go prep line now
+  says "Open “More” (⋯) on the dish, then tap “Send to kitchen now.”" (it named a control no longer on
+  the card; the ⋯ by its spoken name — the blind pass).
+- **The grid is a SECTION, offered only OFF the table (D18, `lib/table-pick.ts`).** `tableGridOffered`
+  (a `?table=N` claim mints a NEW session — `useTableSession.ts:147-150` — so a grid at a live table
+  would orphan this phone's drafts), `tableChipAction` (mine beats seated), `dineInMenuHref` (the four
+  hand-built hrefs, byte-identical). `TableGrid` extracted verbatim; `TablePicker` keeps its join Sheet
+  (`/dine-in` unchanged); the DoorSheet on the to-go menu renders "Pick your table / စားပွဲ ရွေး"
+  (v7.2:495) with an INLINE join form (`Field` + one Join; `aria-disabled`, never native; focus → the
+  code input; reset on the next OPEN); `mode_selected` fires on the taps that ENTER the door (claim ·
+  resume · host-start · Join), never on open or on a seated chip's reveal; `table_picked` carries
+  `source`. The market gets no grid in 3c-i (J30).
+- **Forward into Bill is always honoured (D19).** `onHistoryPop` lost `canBill`;
+  `checkout-history/forward-into-bill-refused` REPLACES the stale `forward-walks-past-the-undo-window`.
+- **The SQL hole is FILED, not built (D20 → M258).** `mms_undo_fire` has no `locked` guard in any
+  redefinition; the one-phone case is closed by the drain, the two-device race needs a prod migration.
+- **Builders' deviations, accepted by the lead:** the briefed ⋯-gate mutant (drop `lineState === "draft"`)
+  SURVIVED — `canMutateLine` subsumes it for a diner — so it is re-aimed at `canEdit`, the clause that
+  does the work (LEARNINGS #222); `undoBtnRef` is a callback ref (the React Compiler lint read a
+  RefObject's every `grace.*` as a ref access); `payOpensAfterUndo` joins `CART_MONEY_KEYS`; the brief's
+  `.table-start-plain` rule citation was wrong (no such rule exists — LEARNINGS #223).
+- **The blind pass (capped — three `adversarial-auditor` agents, one each on money · concurrency ·
+  a11y, handed `.review-bundle/` and nothing else; REJECT on all three), every confirmed finding
+  verified against source and fixed red-first:** (1) `useUndoGrace` closed its window and cleared
+  `pending` on the server's ANSWER, before the re-sync landed — one render with the window shut,
+  nothing pending and the lines still `fired`: Pay live over drafts the undo had just returned, the
+  counter door live, "Brought back" beside "with the kitchen". The window now closes AFTER the
+  re-sync, the tick never closes it while an undo is out, `isOpen()` counts a pending undo
+  (`undo-grace/window-closes-before-the-re-sync` · `undo-grace/tick-closes-a-window-mid-undo`); this
+  one fix closed the counter-door finding too (pending ⇒ `grace` ⇒ the door is disabled). (2) The Pay
+  door closes AT THE TAP: `loadingPay` lit only after the drain's `await`, so a second tap ran a second
+  drain, decision and mint — `payDraining` is set synchronously and the button wears it (`disabled` +
+  `aria-busy`; `checkout/pay-re-entered-during-the-drain`). **Two mutants RETIRED, not kept to
+  survive:** `checkout/pay-mints-over-an-in-flight-undo` and `checkout/pay-decides-before-the-drain`
+  falsified the drain in a state (window closed, chain still out) that fix (1) made unreachable — the
+  tap is refused at `blockCopy` for as long as `graceWrites` can be non-trivially pending — so each
+  would SURVIVE; the drain stays as code, the mutants go (LEARNINGS #226). (3) "Ready to pay." was
+  announced over a standing counter ask, whose card hides Pay (`checkout/ready-to-pay-over-a-counter-
+ask`); the same close edge now hands LOST focus to the <h1> — the Undo unmounted under a reader on
+  both stages. (4) The quiet Total door SHOWED "Total · $X" and was NAMED "View bill · $X" — label not
+  in name (WCAG 2.5.3): the name is "Total · $X — View bill" (`checkout/door-name-drops-its-visible-
+label`); the hero keeps its text as its name. (5) The prep line said "Tap ⋯" — a glyph a reader does
+  not speak; it names "More". (6) An empty Join submitted silently (an `aria-disabled` button still
+  submits on Enter): refused ON THE FIELD — `JOIN_COPY.missing`, `aria-invalid`, focus back on the
+  input, cleared by typing — and the seated chip is a DISCLOSURE in the sheet (`aria-expanded` /
+  `aria-controls` → the form; `/dine-in`'s dialog-opening chip stays plain). (7) `tableGridOffered`'s
+  docblocks claimed a phone-SESSION rule; the code reads the MENU's mode — reworded, and what that
+  leaves open is J33. (8) `table-pick.test`'s source scan of TablePicker (a guard a comment satisfies —
+  LEARNINGS #60) is gone: TablePicker now READS `JOIN_COPY`. (9) The ⋯ sheet bounded a COMPOSITE
+  (write + diagnosis read + re-sync), so the ledger kept a "write" young or stalled for as long as a
+  read took: `makeNow` returns the RAW `makeItNow`, `settleMakeNow` rides beside it, one flight per
+  line. (10) The drain's peer refusal named this render's `lockedByName` — null for a lock that arrived
+  during the drain — so it read "Waiting for Someone": the name comes from `f.lockedBy`, the facts the
+  verdict used. (11) `getDineInTables` issued its two reads serially — `Promise.all`. (12) The
+  `3000 → 3023` count sweep had rewritten the dev PORT in README and HANDOFF (`localhost:3023`), and
+  README's component enumeration was six names and two phases stale (3a/3b's three, 3c-i's three) —
+  both repaired by measurement. Filed: J33 (the to-go sheet lets a seated phone claim another table —
+  3c-ii's bind) · J34 (the grace tick re-renders Checkout; `sayRefusal` clears a pay error) · J35
+  (`SplitSection`'s parked settlement door has no grace gate) · J36 (the ⋯ sheet mirrors the global
+  `status`); J29 and M258 amended.
+- **Codex round 3 on #313 — the first round on the 3c-i stack (two P2, both real, both fixed red-first).**
+  (1) Checkout's `refresh` RESOLVES `"failed"` on a read that never landed — it does not throw — so the
+  hook closed the undo window on that answer and left the old fired lines on screen under "Brought
+  back", with Pay live (no drafts in view, no grace) until create-intent refused the drafts the undo had
+  restored. The window now closes only on a re-sync that APPLIED; a failed read is retried (three
+  attempts, 750 ms apart) with the gate still shut; if none lands the window stays open and
+  `RESYNC_FAILED_NOTE` says so (round 5 below says what holds it); `expired` closes regardless
+  (`undo-grace/failed-re-sync-closes-the-window`). (2) The hero Total door read "View bill &
+  pay" over a STANDING counter ask, whose card hides Pay on the Bill it opens: `billDoorLabel(block,
+counterAsk)` (`checkout-verb/door-promises-pay-under-a-counter-ask`) and Checkout names the door ONCE
+  (`doorLabel` — `checkout/door-ignores-the-counter-ask`). 3026 → 3029 mutants; the new note is on
+  J29's ledger.
+- **Codex round 4 on #313 (one P2, real, fixed red-first).** After an undo LANDED but every re-sync
+  failed, the window stayed open with Undo live — and a second tap re-fired: `mms_undo_fire` found
+  nothing in grace, `undoFire` answered `expired`, and the hook said "already with the kitchen" and
+  closed as expired over dishes that were drafts. The hook now remembers the landed batch
+  (`restoredRef`); a later tap for it retries only the READ and closes as `undone` once a view
+  applies, saying "Brought back" then; a new window forgets it
+  (`undo-grace/second-tap-re-fires-a-landed-undo`). 3029 → 3030 mutants.
+- **Codex round 5 on #313 (one P2, real, fixed red-first).** Round 3 released `pending` after the bounded
+  re-sync attempts, so a landed undo whose reads kept failing PAST the grace deadline let the tick close
+  the window as "elapsed" over a view that still showed the lines fired — Pay live over drafts the
+  server had restored, refused at create-intent. Now a landed-but-unapplied undo keeps `pending` TRUE
+  (the Undo reads "Bringing it back…", Pay and the counter door stay held, the tick cannot close the
+  window, `isOpen()` is true) and the hook retries the READ in the background every 750 ms until one
+  applies — then "Brought back" and the close as `undone`; a new window or an unmount stops the retry.
+  The chain itself is released after the bounded attempts, so Pay's drain never waits on an outage.
+  The tick also refuses to rewrite a window another path has just closed (`deadlineRef` null, interval
+  not yet torn down — a race the fake-timer test surfaced). `RESYNC_FAILED_NOTE` now reads "Brought back
+  to your order — the list is taking a moment to refresh." (J29 ledger). Mutant
+  `undo-grace/landed-undo-released-at-the-deadline`; `tick-closes-a-window-mid-undo` re-anchored.
+  3030 → 3031 mutants. LEARNINGS #228.
+- **Codex round 6 on #313 (two P2, both real, both fixed red-first — the last fix-on-sight round from
+  this session; the loop converges and does not terminate, so anything further that is not a P1 is
+  FILED).** (1) `readTicketed` answers `"overtaken"` for a read that reached the server but lost the
+  screen, and the watermark it lost to can advance WITHOUT a view (`confirmedWrite` — a counter ask
+  mid re-sync); the hook counted anything but `"failed"` as applied and opened the gate over lines that
+  still read fired. ONE predicate, `viewApplied` — `"applied"` or no outcome — in both the bounded loop
+  and the background retry (`undo-grace/overtaken-read-counts-as-applied`). (2) The ⋯ sheet's pills
+  discarded taps while "Send to kitchen now" was held but read live (`aria-disabled` and the dim
+  followed `frozen` alone): they are unavailable while `busy` too
+  (`line-sheet/pills-live-under-a-held-send`; `pills-live-under-a-freeze` re-anchored). 3031 → 3033
+  mutants.
+- **Codex round 7 on #313 (one P2, real, fixed red-first in ONE small commit under the round-3+ rule;
+  Codex's quota returned at 14:48 UTC and it reviewed `5c6f78b`).** The background retry's unmount cleanup
+  cleared `resyncTimer`, which the callback had already nulled before awaiting the read, and left the
+  retry TARGET standing: a read that failed after the diner navigated away re-armed `retry` from a hook
+  nobody renders, so the abandoned checkout polled its cart every 750 ms for the length of an outage.
+  The cleanup clears `restoredRef` too — cancellation is the target every continuation checks, not a
+  timer handle (`undo-grace/unmounted-hook-keeps-polling`). 3033 → 3034 mutants. LEARNINGS #231.
+- **Codex round 8 on #313 (two P2 — one fixed, one FILED).** (1) Fixed, red-first, one small commit:
+  round 7's cleanup cleared the retry TARGET, but the undo's own continuation — a Server Action and up
+  to three reads out when the diner leaves — wrote it back and armed `retryRead` from the dead hook,
+  reviving the polling. Cancellation is now `mountedRef`, read after every await: the bounded loop stops
+  at it and the close block says, closes and arms nothing (`undo-grace/unmounted-undo-keeps-reading` ·
+  `undo-grace/unmounted-undo-revives-the-retry`; two mutants re-anchored to prettier's shape). 3034 →
+  3036 mutants. (2) Filed as **J37**: a thrown `undoFire` whose un-fire COMMITTED leaves `close` null,
+  and in an outage the final branch releases `pending`, so the tick can close the window over the stale
+  view — Pay live over drafts, refused at create-intent. The honest fix holds the gate as for a landed
+  undo and needs `undoFire` idempotent on an already-un-fired batch (a re-tap reads `expired` today) —
+  a lib/SQL change, so it is filed, not fixed on sight. CI on `1c128cf` then caught a timing race in
+  the focus hand-off case of `Checkout.grace.test.tsx` (green locally, red on the runner): the `<h1>`
+  landing is a passive effect that follows the commit removing the Undo, and the assertion waited only
+  for the DOM — it now waits for the focus (LEARNINGS #232). Codex had reviewed `1c128cf` clean.
+- **Proof:** every new test watched RED against the pre-change code, then green. 24 new mutants + 5
+  re-anchored + 1 replaced by the slices (2999 → 3023), then +5 −2 by the blind pass and +3 by Codex round 3 and +1 each by rounds 4 and 5 and +2 by round 6 and +1 by round 7 and +2 by round 8 (3036 over 258
+  files: lib 175 · components 76 — measured), every
+  touched family run through `verify:slice --only=` on the integrated head — 70 mutants caught, none
+  surviving or stale, the tree clean after each; full qr suite 6455 + 287 ui; `check:mutant-anchors` ·
+  the fast lane · lint · typecheck clean. `check:docs` itself needed a fix: `vitest list` crossed
+  `execFileSync`'s 1 MB default buffer at 6437 cases and died with ENOBUFS (step ONE of the lane — a
+  growing suite would have reddened `build` by itself); `maxBuffer` is now 64 MB. Two K15 drafts
+  (`viewBill`, `payOpensAfterUndo`), ledgered in the K15 row. Filed: M258 · M259 · J30 · J31 · J32; the
+  blind pass's verdict is on the PR. **The full `verify:slice` (every mutant, CI's gate skipped) passed on the
+  code head `7092fe7` on its SIXTH attempt — 3033 caught, no orphans, 3 h 43 min; rounds 7 and 8's fixes
+  (`7bd2f06` · `3bdc324`) came after it, the `undo-grace` family re-run through `--only=` (13 caught)**; five attempts died
+  first, two with the container on an idle wait and two beside a vitest fleet (HANDOFF has the history,
+  LEARNINGS #229 the escort rule).
+
+### Deep pass on #312 — the blind review the merge did not wait for (2026-10-04)
+
+**The owner's ask:** "deep pass, merge all, continue good work." #312 (3a + 3b) merged by the owner's
+click while the pass ran; its findings therefore describe `main`, and this PR carries the fixes. The
+pass: 11 blind `adversarial-auditor` lenses over the full 96-file diff (surface × lens), a coverage
+critic over the 53 files no auditor anchored, then 2–3 perspective-diverse refuters per finding
+(mechanism · scope-vs-base · impact) — 103 agents, 53 confirmed, 4 refuted, 0 disputed. Every fix
+below was pinned red-first; 17 new mutants, 5 re-anchored; four modules joined the mutate set.
+
+- **Wayfinding (HIGH ×3).** A remembered dine-in door with no cart leads Menu to the PICKER, never the
+  code-free `/menu?mode=dinein` J15 retired; a LIT Account tab is a self-link (the Rewards panel no
+  longer flips to Orders under its own tab); on a NEUTRAL route a live cart's door is the diner's door
+  (a glance at the table picker no longer orphans three items behind "No order on this device yet" —
+  an empty cart is not an order, so the door chosen last stands); a pre-3b pointer learns its door
+  from the mode the device remembered. `TransitionLink` bumps the epoch AFTER the consumer's handler
+  and only when the click was not taken over — the Order tab's impatient second tap cancelled its
+  first; popstate bumps only when the ROUTE moved (an aisle shelf closing is not a navigation). The
+  drain a navigation awaits is bounded (`bounded(p, DRAIN_MAX_MS)`, 8 s): a hung Server Action left
+  the Order tab, CartBar and the market's Check out `aria-busy` and dead. LendModeBanner pushes
+  through the journey router.
+- **Menu + checkout (HIGH, money semantics).** The menu page keys `<TableCartProvider>` on the door:
+  the DoorSheet's To-go row from a table is a same-pathname `/menu`, and Next kept the provider alive
+  with the table's session under `mode="pickup"` — every Add from the "To go" menu landed on the
+  shared table bill (`lib/menu-remounts-per-door.test.ts` parses the page for the key). The
+  counter-settled step-rail suppression gained its test and mutant (deleting it was green); the EMPTY
+  market slip is still "Your basket"; the rail is an explicit `role="list"`; a lapsed pickup slot is
+  not stated as the plan (`slotIsPast`); the market's Check out narrates its drain.
+  `check-scan-repeat` rule (3) rewritten: the population is what the page DECLARES (every `<…Sheet>`'s
+  `open={…}`, or the state its `onOpenChange` setter writes) and `sheetOpen` must be an `||` over
+  exactly those — the suffix rule never saw `basketOpen`, and `||`→`&&` passed green.
+- **The counter map.** The Tables chip's anchor was `FLOOR_HASH`, the split pane's close sentinel (a
+  tap closed the open table's pane); zones anchor on their own wrappers (`#floor-zone`, `#appr-zone`
+  — the rails zone starts at the refunds strip), `ZoneFocus` takes a `focus` target. The strip never
+  reads a hidden column, lights the last present zone at the end of a scrollable page, lights a
+  tapped chip at once, and keeps the lit chip inside its own viewport. `start-h` and `day-cash-h`
+  are focusable. `floor.back` reads "← Counter" (the screen it lands on never said "Floor").
+- **The account hub (HIGH, security).** "Use a different email" on the code step clears the stashed
+  24h merge proof (the next non-anonymous sign-in on the phone redeemed this diner's carry); an
+  unknown address gets a sentence, not GoTrue's refusal; both URL strips leave `?tab=you` so the
+  post-sign-in refresh lands where the diner was; a signed-in diner on the failed-read branch is told
+  why the identity card is missing; the tier-up baseline key moves inside the handover boundary and a
+  panel hidden mid-celebration dismisses without yanking focus; a fresh tab wins over a stale URL
+  when replaceState throws; the social links say "(opens in a new tab)"; the header's "Your order"
+  landmark renders only with something in it.
+- **Guards and docs.** `:root:has(.diner-tabs) { scroll-padding-bottom }` (a focus scroll landed its
+  target under the bar); `--tabs-h` declared in `tokens.css` (a package owns every token it reads);
+  the scroll-padding contract reads the cascade (LAST declaration, duplicates refused, the shorthand
+  and logical alias seen); the DoorSheet bare-row guard matches selector semantics; `check:docs`
+  requires unique `## #N` LEARNINGS keys (the arc's second `## #200` is #215) and measures the bare
+  "N target modules" form; the zone-anchor guard binds to the page's imports and counts only
+  intrinsic ids; two test files' teardown and mock shapes fixed (the `tierMeta` mock rendered
+  "undefined · undefined"; a fresh `URLSearchParams` per render masked two mutants); the CHANGELOG
+  proof counts re-measured (none of the five matched); stale four-tab comments and the
+  IntersectionObserver claim corrected.
+- **Filed, not fixed:** J28 (five device checks only execution settles) · J29 (two copy-fidelity
+  decisions for the owner) · the `MONEY_MARKERS` policy question for the step rail. Refuted (4):
+  the loading skeleton's "rewards" announcement, a vacuous ArrivalBeat assertion, the strip's
+  uncancelled rAF, a counter-zones test title.
+
+- **Codex round 1 on #313 (one P1, four P2 — each verified against source, fixed red-first; the P1 was
+  a defect the deep pass itself wrote in).** (P1) `bounded()` resolved void at its deadline and every
+  caller read that as settlement, so the Order tab, CartBar and the market's Check out navigated after
+  eight seconds with the write still in flight — the W21 race under a new name. A drain now answers
+  `"settled" | "timed-out"` (`lib/write-ledger.ts`); the LENDER bounds it (the cart provider's new
+  `drain`, the market's own over its ledger) and speaks `DRAIN_TIMED_OUT_NOTICE` through the toast it
+  already owns; every door treats `"timed-out"` as a refusal to leave — busy cleared, the tab live for
+  a retry, nothing charged before the write is known (`write-ledger/deadline-reads-as-settled`,
+  `diner-tabs/timed-out-drain-still-pushes`, `cart-provider/timed-out-drain-stays-silent`). (P2) The
+  menu keyed its provider on `mode:code`, and `code` is the `?t=`/`?j=` credential `useTableSession`
+  strips after the mint — the next `router.refresh()` (pull-to-refresh) remounted and re-minted a door
+  that had not moved; the key is `mode` alone and the guard refuses any other identifier. (P2) The deep
+  pass's back-fill guessed a pre-3b pointer's door from the remembered MODE, which is not its
+  provenance (the old store rewrote the mode on every `/menu?mode=` visit and kept the pointer) — a
+  wrong pair offers the cart on the wrong door AND suppresses it on its real one; the back-fill is
+  gone, a legacy pointer stays unbound until its own publish binds it (its mutant retired with the
+  code). (P2) GoTrue answers `otp_disabled` both for the unknown-address refusal and for OTP switched
+  off in the project's Auth settings; keyed on the code, every existing diner was told "we couldn't
+  find you" during an outage — the message decides now, the outage gets its own sentence
+  (`account-upgrade/config-outage-called-no-account`). (P2) `slotIsPast` ran in render only, so a menu
+  left open across the slot's instant kept stating it; `nextSlotCheck` (`lib/pickup-slot.ts`, capped
+  so a far slot re-arms) drives a re-render at the boundary (`slot-boundary-uncapped`,
+  `slot-at-now-still-waits`). The two new sentences are English-only (the M80/M213 class; J29 notes
+  them). Mutants 2994 → 2999.
+- **Codex round 2 on #313 (one P2, one P3 — both verified and fixed, red-first).** (P2) On a table or
+  invite URL (`/menu?mode=dinein&t=…`) the cart is null until the mint lands and `CartPublisher`
+  publishes, and the deep pass's picker fallback turned the CURRENT Menu tab into `/dine-in` for
+  exactly that window — a re-tap abandoned the scanned flow. A lit Menu tab is now a self-link to where
+  you are (the Order and Account rule), the picker fallback holds off the menu
+  (`diner-tabs/lit-menu-tab-leaves-the-join`). (P3) The You panel's degraded line was gated on
+  `kind !== "anon"`, and `kind` is null when BOTH reads fail — an anonymous diner was promised a name and
+  an account switcher the server never established; the signed-in sentence now needs a positively known
+  diner or staff member, and the unknown case gets the Orders panel's neutral form. Mutants 2999 → 3000.
+
 ### Phase 3b — three places, one order (2026-10-03)
 
 **The owner's ask, continued:** "more creative world-class design thinking overhauls." A twelve-agent
@@ -43,7 +312,7 @@ No money logic, no authority write, no migration.
   `pickup-slot/provider-reads-the-raw-column`); the lit door row lost its on-accent ink to
   `.door-sheet-row { color: inherit }` 9,300 lines later at the same specificity (1.82:1 in Night) —
   the link resets moved to `a.door-sheet-row` and the stylesheet guard now asserts the competing
-  property is ABSENT on every block that matches the div (LEARNINGS #200); a lit Order tab on `/track`
+  property is ABSENT on every block that matches the div (LEARNINGS #215); a lit Order tab on `/track`
   with a finished order linked to the empty slip — a lit tab with nothing to open is a self-link to
   `here` (mutant `diner-tabs/lit-tab-with-nothing-opens-the-empty-slip`); the market's door sheet
   closed on a door tap and released the camera hold while the stream still ran through the route
@@ -129,8 +398,9 @@ The contract and the audit digest: `docs/PHASE3_JOURNEYS.md` (owner decision 11,
   to the counter on a counter device** (`?floor=1`) instead of two taps through the doors; both arms
   literal, so `check:staff-lang` rule 4d still resolves every way up. One K15 key, the strip's
   landmark name.
-- **Proof:** `lib/diner-tabs.test.ts` (31) · `lib/checkout-steps.test.ts` (5) ·
-  `lib/account-hub.test.ts` (6) · `lib/counter-zones.test.ts` (5) · `CounterZoneStrip.test.tsx` (4) ·
+- **Proof:** `lib/diner-tabs.test.ts` (42) · `lib/checkout-steps.test.ts` (12) ·
+  `lib/account-hub.test.ts` (8) · `lib/counter-zones.test.ts` (8) · `CounterZoneStrip.test.tsx` (9 — counts
+  re-measured with `vitest list` after the review rounds and 3b grew the same suites; deep pass on #312) ·
   `app/account/page.test.tsx` (+2, the order re-pinned by panel), each watched red first; the save
   prompt and goodbye beat suites re-pinned to their panels. `check:style-literals` ratchet LOWERED
   (a 10px literal left with the header's save chip). No SQL.

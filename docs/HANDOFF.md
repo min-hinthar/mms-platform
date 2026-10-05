@@ -1,11 +1,164 @@
-# Session Handoff — MMS Platform (2026-10-02)
+# Session Handoff — MMS Platform (2026-10-04)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-03 · Phase 3b — three places, one order is BUILT on the branch · 3a is #312 awaiting the owner's merge click · 3c–3f filed)
+> ## ⏭️ NEXT SESSION — start here (2026-10-04 · #313 green + Codex-reviewed, waiting on the owner's merge · 3c-i BUILT and integrated on the branch)
+>
+> **Where things stand.** `#313` (the deep pass on #312 + Codex rounds 1–2, + the 3c-i design contract)
+> is **green and Codex-reviewed at `fdeb7b4`** — every check passed on that head and the `codex-review`
+> summary names it; both triaged rounds are fixed and answered; the merge is the owner's click. The
+> session marked it ready and said so once on the PR; per LEARNINGS #114 it waits on EVENTS only.
+> Round 3+ findings are fix-on-sight or filed.
+>
+> **3c-i is BUILT** (`docs/PHASE3C_DESIGN.md`, D13–D20) — two worktree slices squashed onto the branch
+> (`0db85c3` the bill as a receipt · `595c605` the grid as a section) plus the lead's integration
+> (`e5b249f`: 24 mutants, 5 re-anchored, 1 replaced; the ⋯ sheet in `sheet-busy-callers`' GUARDED list;
+> the prep line points at the ⋯) and these docs. Gate on the integrated head: full qr suite 6451 + 287
+> ui, lint/typecheck clean, the fast lane clean, `check:mutant-anchors` clean (3031 over 258 files —
+> MEASURED), every new/re-anchored mutant family run through `verify:slice --only=` (70 caught, none
+> surviving or stale), `check:docs` fixed for the suite's size (`maxBuffer`). **The capped blind pass
+> RAN** (three `adversarial-auditor` agents — money · concurrency · a11y — REJECT on all three; the
+> verdict is a comment on #313) **and its confirmed findings are FIXED on the branch, red-first:** the
+> hook closes its window only AFTER the re-sync (the root of three findings — Pay/counter live over
+> drafts an undo had just returned); the Pay door closes AT THE TAP (`payDraining`); "Ready to pay."
+> never over a counter ask; the Undo's unmount hands lost focus to the <h1>; the quiet Total door's
+> name opens with its visible label (WCAG 2.5.3); the empty Join says why on the field; the seated chip
+> is a disclosure; the ⋯ sheet bounds the RAW `makeItNow`; `getDineInTables` reads in parallel; the
+> `3000 → 3023` count sweep had rewritten the dev PORT in README and here (`localhost:3023`) — repaired.
+> Mutants 3023 → 3026 (+5, −2 RETIRED as unreachable — CHANGELOG says why; LEARNINGS #226). Filed
+> J33–J36; J29 and M258 amended. **Codex round 3 on `3e4f593` (the stack's first round):** two P2, both
+> real, both fixed red-first in the commit after it — the window closes only on an APPLIED re-sync (a
+> `"failed"` read is retried with the gate shut, then the window stays open and the note is said), and the
+> door never promises "& pay" over a standing counter ask (`billDoorLabel(block, counterAsk)`). 3029
+> mutants after it — then **round 4** (Codex's quota CAME BACK at 09:16 UTC and it reviewed `1dd68b4`): one P2,
+> fixed — a second Undo tap after a landed-but-unsynced undo re-fired and read `expired`; the hook remembers
+> the landed batch and retries only the read (`undo-grace/second-tap-re-fires-a-landed-undo`). Then **round 5** (on `6fcdf8f`): one P2, fixed — a landed undo whose reads kept failing
+> PAST the deadline had `pending` released, so the tick closed the window as elapsed over the stale view;
+> `pending` now holds and the hook retries the read in the background until one applies
+> (`undo-grace/landed-undo-released-at-the-deadline`). Then **round 6** (on `3e26f4f`): two P2, fixed — an `overtaken` re-sync counted as applied
+> (the watermark advances without a view on `confirmedWrite`; now only `"applied"` or no outcome opens the
+> gate — `viewApplied`), and the ⋯ sheet's pills read live while a send-now was held (`aria-disabled` +
+> dim follow `busy` too). Then **round 7** (Codex's quota RETURNED at 14:48 UTC and it reviewed the tip
+> `5c6f78b`): one P2, real, fixed in ONE small commit (`7bd2f06`) under the round-3+ rule even though round 6
+> had been called the last — the background retry's unmount cleanup cleared a timer the callback had already
+> nulled before its await, so a read that failed after the diner had LEFT re-armed the retry from a hook
+> nobody renders (an abandoned checkout polling its cart every 750 ms through an outage); the cleanup clears
+> the TARGET too (`undo-grace/unmounted-hook-keeps-polling`; LEARNINGS #231). Then **round 8** (on
+> `1e1dfe5`): two P2 — one FIXED (`3bdc324`: round 7's target clear was undone by the undo's own
+> continuation, which wrote the target back and re-armed the retry; cancellation is now `mountedRef`, read
+> after every await — `undo-grace/unmounted-undo-keeps-reading` · `unmounted-undo-revives-the-retry`; 3036
+> mutants) and one FILED (**J37**: a thrown `undoFire` whose un-fire committed releases the gate on the
+> clock in an outage; the honest fix needs `undoFire` idempotent on an already-un-fired batch — lib/SQL).
+> Codex reviewed `1c128cf` CLEAN at 15:27 (the gate's `codex-review` green at 15:28 — the first clean
+> verdict on the 3c-i stack), but CI `build` went RED on it: a timing race in the focus hand-off case of
+> `Checkout.grace.test.tsx`, green locally, red on the runner — the assertion waited for the DOM, the
+> `<h1>` landing is a passive effect after it; it now waits for the focus (LEARNINGS #232), and the fix
+> head needs its own Codex round. Rounds 3–8 are SIX fix-on-sight commits on a converging loop, each
+> finding smaller than the last;
+> **from here anything that is not a P1, or not a one-line fix inside the mechanism this PR built, is
+> FILED to OPEN-ITEMS**, and the PR merges on the owner's call. The round-3
+> evidence (the touched families through `verify:slice --only=` on `8624af0`: `undo-grace` 7 ·
+> `checkout-verb` 9 · `checkout/` 12 caught, none surviving). Round 4+ is fix-on-sight or filed. ⚠️ **CODEX'S QUOTA LAPSED AND RETURNED (2026-10-04):** the app answered the `8624af0` push at 08:41 UTC with
+> "You have reached your Codex usage limits for code reviews" (so `codex-review` sat red with no review to
+> give), then reviewed `1dd68b4` on its own at 09:16 UTC — round 4 above — and `6fcdf8f` and `3e26f4f`
+> (rounds 5 and 6). **It LAPSED AGAIN at 10:23 UTC**, answering the `3f20910` push and the `@codex review`
+> ask with the same limit message, and every docs-only push after it the same way, until **it RETURNED at
+> 14:48 UTC and reviewed `5c6f78b`** (round 7 above), then `1e1dfe5` at 15:11 (round 8). Each fix push is
+> a new head, so `codex-review` is red again until Codex reports on it; the standing PR comment names the state and the
+> owner's options (wait for the round, or merge on the evidence — C16 is unwired, the button is live). If the
+> quota lapses again, do NOT re-ask until it is back. The PR waits on events only. **Where it lands:** if #313 is still open when 3c-i pushes, it
+> stacks onto the same branch and #313 is re-stated (the #312 precedent — the owner merges stacked
+> PRs); if #313 merged first, `git fetch origin main && git checkout -B
+claude/ui-ux-design-improvements-l2b0c0 origin/main`, cherry-pick the 3c-i commits, push, fresh draft
+> PR, `@codex review`.
+>
+> **The owed full `verify:slice` — DONE on the SIXTH attempt; the summary line reads
+> `✓ verify:slice passed — 3033 mutants caught, no orphans`. 10:48 → 14:31 UTC 2026-10-04 (3 h 43 min,
+> ~14 mutants/min after the baseline suites), in `.claude/worktrees/vs-full3` on `88e3961` (the code
+> head `7092fe7`; rounds 7–8's fixes `7bd2f06` · `3bdc324` came AFTER it, the `undo-grace` family re-run
+> through `--only=` — 13 caught), detached
+> and ESCORTED by two harness-tracked background Bash waits (`while kill -0 <pid>; do sleep 30; done` at
+> the tool's 2 h ceiling — the first expired at 1707 caught with the pid alive and was re-armed once;
+> the second saw the exit). Log `scratchpad/vs-full3.log`; the worktree is removed, the tree clean.**
+> The history matters more than the count: attempt 1
+> (`vs-full`, 03:50) was killed at 116 min by the tool's 2 h ceiling; attempt 2 (`vs-full2`, `fdeb7b4`,
+> `setsid nohup`) DIED WITH THE CONTAINER on a session resume at ~08:55, at 2,375 caught, no survivor, no
+> stale, no final verdict (log `scratchpad/vs-full2.log`); attempt 3 (`vs-full3`, `f89aeb4`, 09:04) died
+> within minutes at the BASELINE SUITES while a full vitest run ran in the main checkout; attempt 4
+> (`vs-full3`, `6fcdf8f`, `setsid -f`, 09:33) died at ~10:04 at 307 caught, no survivor, while the
+> round-6 suites and `check:docs` ran in the main checkout (log `vs-full3.log.attempt4-died-307`);
+> attempt 5 (`vs-full3`, `3f20910`, 10:15, launched LAST with nothing beside it) DIED WITH THE CONTAINER
+> at the baseline suites — the log's last write is 10:23:29 and the container's uptime read 183 s at
+> 10:46, i.e. the session's idle wait on PR events let the container be reclaimed about twenty minutes
+> after the turn ended (log `vs-full3.log.attempt5-died-container`; the worktree came back CLEAN, no
+> mutant on disk). ⚠️ Two causes, both now seen twice: **THE DETACHED RUN DIES WHENEVER A VITEST FLEET
+> RUNS BESIDE IT IN THE MAIN CHECKOUT** (attempts 3–4; the container's memory is the suspect), and **A
+> DETACHED PROCESS DOES NOT OUTLIVE THE CONTAINER, WHICH AN IDLE SESSION LOSES** (attempts 2 and 5 —
+> LEARNINGS #229). So: launch it LAST, when nothing else will run; run NO vitest (suites,
+> `verify:slice --only=`, even `check:docs`'s `vitest list`) in the main checkout while it lives; and
+> escort it with ONE harness-tracked background Bash that waits on its pid at the 2 h ceiling, re-armed
+> when it expires with the pid still alive — that escort is not a PR poll (#114 stands; it wakes once per
+> two hours for a job this session started, and its wake reads a log tail). Launch:
+> `pnpm install --offline --frozen-lockfile` in the worktree once, then from the worktree
+> `setsid nohup pnpm verify:slice --no-gate > <scratchpad>/vs-full3.log 2>&1 < /dev/null &`, take the
+> node pid from `ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'`, then arm the escort.
+> Throughput measured on attempt 4: 307 caught in ~31 min including the baseline suites; attempt 6
+> measured the whole run at 3 h 43 min for 3033 — longer than the tool's ceiling, which is why the run
+> is detached and the escort is re-armed (once was enough).
+> Progress is `grep -c caught`; the summary prints at the END. Read the tail for caught / SURVIVED /
+> STALE and the orphan verdict, record it here, then `git worktree remove --force .claude/worktrees/vs-full3`.
+> If it died again: the worktree may hold a live mutant — `git checkout -- .` or remove with `--force`,
+> never commit from it — and the run is owed once more.
+>
+> **Still owed:** J37 (the uncertain-undo gate + an idempotent `undoFire`); J28's device checks (+ J32's
+> keyboard-inset tap on the inline join form); J29's copy calls; the `MONEY_MARKERS` policy row; J30's TTFB measurement on the to-go menu preview; J34's Profiler
+> read of the grace tick; **3c-ii** (the table bound at SEND — `seatedSessionFor`, the CAS bind, the
+> register refusal, and J33: a phone at a live table claiming ANOTHER table from the to-go sheet — and
+> the `mms_undo_fire` `locked` guard, M258, a prod migration behind M125); then 3d (staff) per
+> `docs/PHASE3_JOURNEYS.md`.
+> LEARNINGS #218 governs every review from here: the full diff, at the HARD CAP; a further adversarial
+> round only when Codex is red.
+>
+> ## ✅ (superseded 2026-10-04, later the same day) NEXT SESSION as of (2026-10-04 · #312 MERGED · the deep-pass fixes are the open PR · then 3c-i)
+>
+> **Where things stand.** The owner merged #312 (3a + 3b) at 21:23 UTC on 2026-10-03 with a merge
+> commit (`201d8ab`), while the blind deep pass the owner asked for ("deep pass, merge all, continue
+> good work") was still running. Its findings therefore describe `main`: 53 confirmed (7 HIGH/critical
+> by the auditors, every one downgraded or confirmed by three refuters), 4 refuted, 0 disputed. **All
+> 53 are fixed on the designated branch, re-pointed at the merged main, in five commits**
+> (`fe49703` wayfinding · `38da397` menu + checkout · `066dfe8` the counter map · `a6ceaa3` the account
+> hub · `9fd4200` guards + docs) — the CHANGELOG entry "Deep pass on #312" is the list, each pinned
+> red-first, 17 new mutants (every family run through `verify:slice --only=`, all caught). The PR is
+> OPEN as a draft. **Codex round 1 landed (one P1, four P2) and is fixed on the branch** — the
+> CHANGELOG's round-1 bullet is the list; the P1 (`bounded()`'s deadline read as settlement) was a
+> defect the deep pass itself introduced, and LEARNINGS #219 is its lesson. **Round 2 (one P2 — the lit
+> Menu tab on a table URL led to the picker while the mint ran; one P3 — an unknown session kind got
+> signed-in copy) is fixed on the branch too.** Both triaged rounds are spent: from here, round 3+ is
+> fix-on-sight or file; the PR is marked ready; WAIT for "Codex has reviewed" the merge head; the merge
+> is the owner's go. Codex's credits came back on 2026-10-04.
+>
+> **What the pass taught (LEARNINGS #216–#217):** run the blind pass on the FULL PR diff before the
+> merge, not per slice — the cross-slice findings (a persisted door orphaning a live cart; a same-
+> pathname door switch keeping the table's cart alive) were invisible to any one slice's pass. And a
+> `useSearchParams` mock that hands out a fresh object per render re-runs route effects per render and
+> masks mutants — one URLSearchParams per URL, as Next hands it out. **And the owner's verdict on the
+> pass itself (2026-10-04, LEARNINGS #218): "pass should never be that deep, codex level adversarial
+> review is fine if codex red" — the full diff, at the HARD CAP; a further adversarial round only when
+> Codex comes back red.** 3c-i's review runs that way.
+>
+> **Still owed:** one FULL `verify:slice` on a merge head (every filtered family is caught; the whole
+> run — hours at ~10 mutants/minute — has not been watched to the end since 3a); the device checks in
+> OPEN-ITEMS J28; the owner's two copy calls in J29; the `MONEY_MARKERS` policy question (Proof /
+> test coverage). Then **3c-i** (`docs/PHASE3_JOURNEYS.md`: one hero verb per state, the undo lifted so
+> the bill is live during the grace, Pay stating its reason, the Total row, the line ⋯ sheet, the
+> table grid as a SECTION of the DoorSheet — J22 · J23), designed by a panel and built in worktrees as
+> 3b was. After this PR merges: `git fetch origin main && git checkout -B
+claude/ui-ux-design-improvements-l2b0c0 origin/main`.
+>
+> ## ✅ (superseded 2026-10-04) NEXT SESSION as of (2026-10-03 · Phase 3b — three places, one order is BUILT on the branch · 3a is #312 awaiting the owner's merge click · 3c–3f filed)
 >
 > **Where things stand.** 3a (#312, head `8d04419`) is complete: four Codex rounds fixed and answered,
 > CI green on the head, the owner said "Merge" — but Codex ran out of review credits on the final head
@@ -39,7 +192,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **The blind pass ran** (`pnpm review:bundle --base 8d04419` → three `adversarial-auditor` lenses +
 > two refuters per top finding, 9 agents): REJECT ×3, 17 findings, 14 acted on, 2 justified, 1 filed as
-> pre-existing (J26) — the CHANGELOG bullet is the list; LEARNINGS **#200** is the lesson (a later
+> pre-existing (J26) — the CHANGELOG bullet is the list; LEARNINGS **#215** is the lesson (a later
 > same-specificity rule beat a declaration twice in one day). Post the verdict as a PR comment.
 >
 > **Owed before the PR is marked ready:** the D7 dead-tab demonstration in the PR body (two taps on any
@@ -286,9 +439,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **QR prod migrations:** one file at a time via the Supabase MCP `apply_migration`, verified;
 >   never `db push` (M125).
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6304 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
+> · 6455 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ✅ Phase 2i — staff screens take new builds without losing work — MERGED (PR #311, 2026-10-02, on the owner's go)
 >
@@ -347,9 +500,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > reviewed" the merge head → triage (round 3+: fix-on-sight only) → merge on the owner's go. **Then
 > Phase 2i** (P2bi — needs the Skew Protection answer), **then Phase 3 — production signals.**
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6304 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
+> · 6455 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-10-01 · Phase 2g — the counter screen keeps its promises — on branch `claude/inspiring-cori-4rf37k`, PR #309)
 >
@@ -386,9 +539,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > row that refuses with a named reason, idle auto-apply — and the Skew Protection question for the
 > owner. **Then Phase 3 — production signals** (photos, live Stripe keys, RUM).
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6304 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
+> · 6455 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-30 · Phase 2f — counter orders cook before they're paid — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -564,9 +717,9 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > `FloorDetailLive.tsx`, `CounterSplit.tsx`. **Then Phase 3 — production signals** (photos, live
 > Stripe keys, RUM).
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6304 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
+> · 6455 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
 > `verify:slice` run with the gate at this head is not recorded here. `--no-gate --only=` runs: the
 > build's `p2f-lib/` + `p2f-ui/` 84 of 84 caught on the merged tree at the integration (the four
 > `p2f-ui/floor-detail/*` had first run against a local stub in the ui worktree); the review areas'
@@ -655,8 +808,8 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >   that reaches a control, or leads up to one — rule 4d resolves the `href` (and `paneHref`) to the
 >   page it opens — or it is red.
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6304 qr tests + 287 ui tests · `check:docs`
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6455 qr tests + 287 ui tests · `check:docs`
 > clean · `check:mutant-anchors` clean. The full 1446-mutant `verify:slice` run with the gate at this
 > head is not recorded here; the lang branch's `--no-gate --only=p2e-lang` run killed all 49
 > mutants it added, and each review area's `--no-gate --only=p2e-rev/` run caught all of its own
@@ -718,8 +871,8 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > mutate set unchanged (180); no new words. Filed **M238** (the line read in ONE statement — a prod
 > migration, the RPC drafted in the row) and **P2eq–P2es**; P2em narrowed.
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · `check:docs` clean.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-25 · Phase 2c — the order pad, the register's cash moment and the settle gate — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -751,8 +904,8 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 > P2ck changed; new **P2cv–P2db** (two med: an add racing the settle freeze — a migration — and a
 > hung `settleCash` trapping the cash sheet); 6 more Burmese keys (4 K15-HIGH) + one re-draft on K15.
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -985,8 +1138,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
 > is the reusable lesson.** Codex round 1 and the blind pass independently found that the new
@@ -1062,8 +1215,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 2979 `verify:slice` mutants · 250 target modules (170 `apps/qr/lib`, 4 API routes,
-> **73** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
+> **Gate today:** 3036 `verify:slice` mutants · 258 target modules (175 `apps/qr/lib`, 4 API routes,
+> **76** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
 > message, twice). So #290's only independent review was the in-session blind pass, and the override
@@ -1702,9 +1855,9 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **2979 `verify:slice` mutants** · **240 target modules** (170 under `apps/qr/lib`, 4 API routes,
-> 68 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6304 + 287 today)** ·
-> 102 tracked docs files ·
+> **3036 `verify:slice` mutants** · **258 target modules** (175 under `apps/qr/lib`, 4 API routes,
+> 76 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6455 + 287 today)** ·
+> 103 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -2172,7 +2325,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (2979 today)**, **1372 qr + 138 ui tests at the time (6304 + 287 today)**, 69 target modules at the time (170 under `apps/qr/lib` today, 250 in all), 97 local
+> **334 mutants at the time (3036 today)**, **1372 qr + 138 ui tests at the time (6455 + 287 today)**, 69 target modules at the time (175 under `apps/qr/lib` today, 258 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2242,7 +2395,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 > ### ⚠️ A NEAR-MISS WORTH MORE THAN THE SLICE: `pnpm format` DURING a live `verify:slice`
 >
 > `CLAUDE.md` warns never to COMMIT while a run is live. The real hazard is wider — **any write to the
-> 67 target modules**. Running `pnpm format` mid-run left `view-seq.ts` on disk as a mutant
+> 67 target modules at the time**. Running `pnpm format` mid-run left `view-seq.ts` on disk as a mutant
 > (`readReachedServer` returning `o === "applied"`). Caught by `git status`, killed, restored,
 > re-run clean; the reported 319 is from a watched run on a clean tree. If a doc edit or a formatter
 > is going to touch the tree, do it BEFORE starting the run — and `git status` after every run, not
@@ -3064,7 +3217,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 2979 `verify:slice` mutants green · `pnpm check:docs` clean (102 files, 6304 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3036 `verify:slice` mutants green · `pnpm check:docs` clean (103 files, 6455 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3786,7 +3939,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (2979 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (3036 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

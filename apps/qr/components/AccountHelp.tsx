@@ -51,10 +51,12 @@ export function AccountHelp() {
           <span style={rowText}>
             <a href={BRAND_INSTAGRAM} className="nav-link" rel="noopener" target="_blank">
               Instagram
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>
             {" · "}
             <a href={BRAND_FACEBOOK} className="nav-link" rel="noopener" target="_blank">
               Facebook
+              <span className="sr-only"> (opens in a new tab)</span>
             </a>
           </span>
         </li>

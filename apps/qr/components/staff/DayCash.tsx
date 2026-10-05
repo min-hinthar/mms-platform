@@ -29,7 +29,7 @@ export function DayCash({ lang, day }: { lang: StaffLang; day: DayCashResult }) 
       {/* echo={false}: this heading IS the section's accessible name, and an aria-labelledby name
           is the target's FULL text — an English echo would make the region announce both scripts
           concatenated. */}
-      <h2 id="day-cash-h" className="staff-zone-head">
+      <h2 id="day-cash-h" className="staff-zone-head" tabIndex={-1}>
         <Chrome lang={lang} k="reg.day.title" />
       </h2>
       <dl style={dayGrid}>

@@ -12,6 +12,8 @@ import { OutageRefresh } from "@/components/OutageRefresh";
 import { readLastGoodCatalog, storeLastGoodCatalog } from "@/lib/menu/catalog-cache";
 import { getYourUsual } from "@/lib/menu/your-usual-read";
 import { safeImageUrl } from "@/lib/media-url";
+import { getDineInTables } from "@/lib/tables";
+import { tableGridOffered } from "@/lib/table-pick";
 
 // RSC menu — reads the catalog (`menu_items`) server-side with the ANON/publishable key (gated by
 // public-read RLS, least privilege). Fetches the fields the R6 browse layer needs (name EN/MY,
@@ -57,6 +59,12 @@ export default async function Menu({
   // a broken greeting or missing hearts must never take the menu down).
   const welcomeP = getWelcomeBack();
   const heartedP = getFavoriteIds();
+  // Phase 3c-i (D18) — the DoorSheet's "Pick your table" section, offered ONLY off a dine-in session
+  // (the to-go menu): a `?table=N` claim mints a NEW session, so a grid at a live table would orphan
+  // this phone's drafts (lib/table-pick.ts). Read here, in the RSC, through the service client so the
+  // sticker tokens stay server-side (lib/tables.ts strips `qr_code`); a failed read is [] and the
+  // section degrades to "scan your sticker". Started beside the recognition reads, awaited with them.
+  const tablesP = tableGridOffered(mode) ? getDineInTables() : Promise.resolve(undefined);
   const { data, error: catalogErr } = await db
     .from("menu_items")
     .select(
@@ -133,6 +141,7 @@ export default async function Menu({
   const favorites = popularIds.slice(0, POS_BADGE_MAX).map((id) => ({ id }));
   const welcome = await welcomeP;
   const heartedIds = await heartedP;
+  const tables = await tablesP;
   // W22e — recognition, decided server-side against TODAY's catalog so a sold-out or discontinued
   // dish can never be offered (the rules live in lib/menu/your-usual.ts). Resolves to `none` for
   // first-timers, for anyone below the threshold, and for every failure path — the card simply is
@@ -152,6 +161,16 @@ export default async function Menu({
 
   return (
     <TableCartProvider
+      // A new door is a NEW provider — its own mint, its own cart (deep pass on #312, HIGH): the
+      // DoorSheet's To-go row from a table is a same-pathname `/menu?mode=pickup`, and without the
+      // key Next kept this tree alive with the table's session under `mode="pickup"`, so every Add
+      // from the "To go" menu landed on the shared table bill. `useTableSession` says it: a runtime
+      // mode change no-ops — remount the route to switch modes. The DOOR and nothing else (Codex
+      // round 1 on #313): `code` is the `?t=`/`?j=` credential `useTableSession` strips from the URL
+      // after the mint, so a key carrying it changed on the next `router.refresh()` (the menu's
+      // pull-to-refresh) and remounted — and re-minted — a tree whose door had not moved. Pinned by
+      // lib/menu-remounts-per-door.test.ts.
+      key={mode}
       mode={mode}
       code={code}
       joinOnly={joinOnly}
@@ -171,6 +190,7 @@ export default async function Menu({
         usual={usual}
         reorderId={reorder ?? null}
         catalogStale={catalogStale}
+        tables={tables}
         // W22c — the ONLY proof available that a `router.refresh()` produced a new server render:
         // `router.refresh()` returns void and cannot report failure, so the pull compares this
         // stamp before and after. Never rendered — a visible "as of 6:41pm" would be a NEW promise,

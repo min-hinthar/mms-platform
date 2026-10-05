@@ -15,20 +15,23 @@ import { useEffect } from "react";
  * reach across that boundary), and `<ZoneFocus>` is the hook as an element for that case. The
  * heading carries `tabIndex={-1}` and the id; nothing else is asked of it.
  */
-export function useZoneFocus(id: string) {
+export function useZoneFocus(id: string, focusId: string = id) {
   useEffect(() => {
     const take = () => {
       if (window.location.hash === `#${id}`)
-        document.getElementById(id)?.focus({ preventScroll: true });
+        document.getElementById(focusId)?.focus({ preventScroll: true });
     };
     take();
     window.addEventListener("hashchange", take);
     return () => window.removeEventListener("hashchange", take);
-  }, [id]);
+  }, [id, focusId]);
 }
 
-/** The hook as an element, for a zone rendered by a Server Component. Renders nothing. */
-export function ZoneFocus({ id }: { id: string }) {
-  useZoneFocus(id);
+/** The hook as an element, for a zone rendered by a Server Component. Renders nothing. `focus` is
+ *  the element that TAKES the focus when it differs from the fragment's target (deep pass on #312):
+ *  a zone whose anchor is a wrapper — because its heading's id is the split pane's close sentinel,
+ *  or sits below a strip that belongs to the zone — still lands focus on the named heading. */
+export function ZoneFocus({ id, focus }: { id: string; focus?: string }) {
+  useZoneFocus(id, focus ?? id);
   return null;
 }

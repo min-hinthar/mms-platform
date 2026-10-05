@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { useJourneyRouter } from "@/components/nav/TransitionNav";
 import { readLend, LEND_CHANGE_EVENT, type LendState } from "@/lib/deviceIdentity";
 
 /**
@@ -19,7 +20,10 @@ import { readLend, LEND_CHANGE_EVENT, type LendState } from "@/lib/deviceIdentit
  */
 export function LendModeBanner() {
   const pathname = usePathname();
-  const router = useRouter();
+  // The grammar's door, not the plain router (deep pass on #312): a push that does not bump the
+  // navigation epoch reopens the window in which a pending Order-tab drain yanks the owner to the
+  // friend's checkout instead of their resume screen.
+  const journey = useJourneyRouter();
   const [lend, setLend] = useState<LendState | null>(null);
   const ref = useRef<HTMLElement>(null);
 
@@ -83,7 +87,7 @@ export function LendModeBanner() {
       <button
         type="button"
         className="lend-banner-back"
-        onClick={() => router.push(`/account?resume=${encodeURIComponent(lend.ownerEmail)}`)}
+        onClick={() => journey.push(`/account?resume=${encodeURIComponent(lend.ownerEmail)}`)}
       >
         Done — back to {owner}
       </button>

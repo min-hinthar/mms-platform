@@ -1,5 +1,7 @@
 "use client";
+import { useEffect, useState } from "react";
 import { useCart } from "@/components/TableCartProvider";
+import { nextSlotCheck, slotIsPast } from "@/lib/pickup-slot";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { WelcomeBack } from "@/lib/rewards";
 
@@ -39,7 +41,28 @@ export function ArrivalBeat({
 }) {
   const { isGroup, members, pickupSlot } = useCart();
   const party = isGroup && members.length > 1 ? members.length : 0;
-  const scheduled = mode === "pickup" && pickupSlot ? pickupSlot : null;
+  // A slot already gone is not stated as the plan (deep pass on #312): the greeting falls back to
+  // the invitation, and checkout's own When choice is where the diner picks again.
+  // Codex round 1 on #313 — and the statement is re-read when the instant PASSES: `slotIsPast` is
+  // evaluated in render, and a menu left open across the boundary had nothing to re-render it, so the
+  // expired slot stood as the plan until some unrelated state moved. `nextSlotCheck` is the one rule
+  // for when to look again (capped, so a far slot re-arms); the tick is the re-render.
+  const slot = mode === "pickup" ? pickupSlot : null;
+  const [, tick] = useState(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      const wait = nextSlotCheck(slot);
+      if (wait === null) return;
+      timer = setTimeout(() => {
+        tick((n) => n + 1);
+        arm();
+      }, wait);
+    };
+    arm();
+    return () => clearTimeout(timer);
+  }, [slot]);
+  const scheduled = slot && !slotIsPast(slot) ? slot : null;
   const line =
     mode === "dinein"
       ? party > 0

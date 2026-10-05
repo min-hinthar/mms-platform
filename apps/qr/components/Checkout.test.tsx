@@ -266,6 +266,19 @@ async function press(name: string | RegExp) {
   });
 }
 
+/** Phase 3c-i (D17) — open the ⋯ sheet for a dish (the one line's by default). */
+async function openLineSheet(name = ITEM.name) {
+  await press(`More for ${name}`);
+  await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+}
+
+/** Phase 3c-i (D16) — the sentence the Pay button is `aria-describedby`, or null when Pay is live. */
+function payReason(): string | null {
+  const pay = screen.getByRole("button", { name: /^Pay( the whole order)? · / });
+  const id = pay.getAttribute("aria-describedby");
+  return id ? (document.getElementById(id)?.textContent ?? null) : null;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.getCartView.mockResolvedValue(view());
@@ -469,6 +482,7 @@ describe("M230's half — the two pills beside the stepper share the same window
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "busy" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });
+    await openLineSheet();
     await press("To go");
     await waitFor(() =>
       expect(regionText()).toContain(
@@ -484,6 +498,7 @@ describe("M230's half — the two pills beside the stepper share the same window
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });
+    await openLineSheet();
     await press("To go");
     await settle();
     expect(regionText()).not.toContain("didn’t go through");
@@ -494,6 +509,7 @@ describe("M230's half — the two pills beside the stepper share the same window
     h.makeItNow.mockResolvedValueOnce({ ok: false, reason: "busy" });
     h.getCartView.mockResolvedValue(view({ settling: true }));
     mount({ splitContext: DINE_IN, initialItems: [{ ...ITEM, fulfillment: "togo" }] });
+    await openLineSheet();
     await press(/Send to kitchen now/i);
     await waitFor(() =>
       expect(regionText()).toContain(
@@ -520,6 +536,29 @@ describe("what a REFUSAL still owes beyond the sentence", () => {
     await waitFor(() =>
       expect(h.push).toHaveBeenCalledWith(`/track?cart=${encodeURIComponent(CART)}&paid=1`),
     );
+  });
+
+  it("a counter-settled cart retires the step rail with the review controls — no stale Order/Bill under the paid card (deep pass on #312)", async () => {
+    // Codex round 1 on #312 made `settledClose` a settled surface for the rail; nothing pinned it,
+    // so the clause could be deleted with every suite green. Before the settle the rail is drawn
+    // (and is an explicit `role="list"` — WebKit drops the implicit role under `list-style: none`).
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: null, tender: "counter" });
+    mount({ splitContext: DINE_IN });
+    const rail = screen.getByRole("list", { name: "Checkout steps" });
+    expect(rail.getAttribute("role")).toBe("list");
+    await addOne();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Checkout steps" })).toBeNull());
+    expect(h.push).not.toHaveBeenCalled();
+  });
+
+  it('an EMPTY market basket is still a basket — the heading does not flip to "Your order" when the last line goes (deep pass on #312)', () => {
+    mount({ initialItems: [], splitContext: { ...PICKUP, mode: "scango" } as typeof PICKUP });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Your basket");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).not.toContain("Your order");
   });
 
   it("says nothing when the re-read shows the write actually LANDED", async () => {
@@ -876,6 +915,7 @@ describe("Codex round 3 — an OLDER edit's success cannot retire a NEWER refusa
 
     // `not_yours` is undiagnosable, so the toggle stays silent (M230) — but silent is not accepted.
     h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    await openLineSheet();
     await press("To go");
     await settle();
     expect(regionText()).toContain("couldn’t confirm");
@@ -893,6 +933,7 @@ describe("Codex round 3 — an OLDER edit's success cannot retire a NEWER refusa
     expect(regionText()).toContain("couldn’t confirm");
 
     h.makeItNow.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    await openLineSheet();
     await press(/Send to kitchen now/i);
     await settle();
     expect(regionText()).toContain("couldn’t confirm");
@@ -1385,12 +1426,17 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     window.history.replaceState(null, "", "/cart?cart=cart-1");
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const pay = screen.getByRole("button", { name: /Send everything to the kitchen first/i });
+    // Phase 3c-i (D16) — Pay KEEPS ITS NAME; the reason is the line it is described by.
+    const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
     expect(pay.getAttribute("aria-disabled")).toBe("true");
+    expect(pay.hasAttribute("disabled")).toBe(false);
+    expect(payReason()).toBe(
+      "Send everything to the kitchen first — then the bill is ready to pay.",
+    );
     fireEvent.click(pay);
     expect(fetchSpy).not.toHaveBeenCalled();
-    // The click's own answer, not just the note that was there before it.
-    expect(document.body.textContent).toContain(
+    // The click's own answer in the region, not just the line that was there before it.
+    expect(regionText()).toContain(
       "Send everything to the kitchen first — then the bill is ready to pay.",
     );
     expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
@@ -1542,9 +1588,10 @@ describe("Phase 1b — the pay gate needs someone who can send", () => {
       initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
     });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    expect(
-      screen.queryByRole("button", { name: /Send everything to the kitchen first/i }),
-    ).toBeNull();
+    const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
+    expect(pay.getAttribute("aria-disabled")).toBeNull();
+    expect(pay.getAttribute("aria-describedby")).toBeNull();
+    expect(payReason()).toBeNull();
     expect(document.body.textContent).not.toContain("sends the table’s order");
   });
 });
@@ -1686,8 +1733,8 @@ describe("Phase 1c — a removed line leaves in place", () => {
   it("a ghost never writes, even where `inert` is not honoured", async () => {
     // jsdom does not honour `inert` (nor `pointer-events`), which makes it exactly the old engine
     // this guard exists for: Safari before 15.5 would let a keyboard reach the fading controls. A
-    // dine-in to-go line carries all three writers — the stepper, the for-here/to-go pills and
-    // "Send to kitchen now" — so pressing every button in its ghost exercises every guard.
+    // dine-in to-go line carries the stepper and (3c-i) the ⋯ that opens the For here / To go ·
+    // "Send to kitchen now" sheet — so pressing every button in its ghost exercises every guard.
     const A = { ...ITEM, fulfillment: "togo" as const };
     const B = { ...ITEM_B, fulfillment: "togo" as const };
     truth([B]);
@@ -1695,12 +1742,14 @@ describe("Phase 1c — a removed line leaves in place", () => {
     await press("Remove Mohinga");
     h.setQty.mockClear();
     const inGhost = Array.from(ghosts()[0]!.querySelectorAll("button"));
-    expect(inGhost.length).toBeGreaterThanOrEqual(5); // −, +, For here, To go, Send to kitchen now
+    expect(inGhost.length).toBeGreaterThanOrEqual(3); // −, +, ⋯
     await act(async () => {
       inGhost.forEach((btn) => btn.click());
     });
-    // MUTATION: drop any one `leaving` guard — a deleted line writes again, red.
+    // MUTATION: drop any one `leaving` guard — a deleted line writes again (or opens a sheet over a
+    // dish that is gone), red.
     expect(h.setQty).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.setLineFulfillment).not.toHaveBeenCalled();
     expect(h.makeItNow).not.toHaveBeenCalled();
   });
@@ -2053,7 +2102,7 @@ describe("a refused tap re-says its reason on every tap (review open question)",
   it("the Pay button's own blocked tap re-says too — the same region, the same rule", async () => {
     mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
-    const pay = screen.getByRole("button", { name: /Send everything to the kitchen first/i });
+    const pay = screen.getByRole("button", { name: /^Pay · \$12\.00/ });
     const said = "Send everything to the kitchen first — then the bill is ready to pay.";
     await act(async () => {
       fireEvent.click(pay);
@@ -2067,5 +2116,188 @@ describe("a refused tap re-says its reason on every tap (review open question)",
     expect(w.changes()).toBeGreaterThan(0);
     expect(w.region.textContent).toBe(said);
     w.stop();
+  });
+});
+
+// ── Phase 3c-i — the bill as a receipt (D13 · D14 · D16 · D17) ──
+describe("Phase 3c-i (D16) — Pay keeps its name and states its ONE reason", () => {
+  const TABLE = (role: "host" | "guest") => ({
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: role,
+    members: [
+      { seat: PEER_SEAT, name: "Aung", role: "host" as const },
+      { seat: MY_SEAT, name: "Me", role: "guest" as const },
+    ],
+    tableNumber: 7,
+  });
+
+  it("a GUEST with unsent dishes is told WHO sends — the reason, never the label", () => {
+    mount({ splitContext: TABLE("guest"), initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    // A table of two: the label is "Pay the whole order · $X" — and still never the refusal.
+    const pay = screen.getByRole("button", { name: /^Pay the whole order · \$12\.00/ });
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
+    // MUTATION (checkout-verb/guest-unsent-copy-orders-the-guest-to-send): the host's sentence for
+    // every role — a guest is told to send what only Aung can; red.
+    expect(payReason()).toBe("Aung sends them — then the bill is ready to pay.");
+    fireEvent.click(pay);
+    expect(regionText()).toContain("Aung sends them — then the bill is ready to pay.");
+  });
+
+  it("a tablemate's lock is the reason 'Waiting for {name} to finish' — the label is still 'Pay ·', and every tap re-says it", async () => {
+    mount({
+      splitContext: {
+        ...TABLE("host"),
+        myRole: "host",
+        members: [
+          { seat: MY_SEAT, name: "Me", role: "host" as const },
+          { seat: PEER_SEAT, name: "Tin", role: "guest" as const },
+        ],
+      },
+      initialItems: [{ ...ITEM, lineState: "fired" }],
+      initialLocked: true,
+      initialLockedBy: PEER_SEAT,
+    });
+    const pay = screen.getByRole("button", { name: /^Pay the whole order · \$12\.00/ });
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
+    expect(pay.hasAttribute("disabled")).toBe(false);
+    // MUTATION (checkout-verb/peer-lock-dropped-from-pay): the peer arm deleted — Pay reads live
+    // under a lock create-intent refuses with 409; red.
+    expect(payReason()).toBe("Waiting for Tin to finish");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    await act(async () => {
+      fireEvent.click(pay);
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(regionText()).toContain("Waiting for Tin to finish");
+    fetchSpy.mockRestore();
+  });
+});
+
+describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+
+  it("with a tip previewed, the door's figure, its name and the Bill's hero total agree — a tip-less second sum separates", async () => {
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    // One dish still a draft (the quiet door, the Send hero), one with the kitchen.
+    mount({ splitContext: HOST, initialItems: [ITEM, { ...ITEM_B, lineState: "fired" }] });
+    fireEvent.click(screen.getByRole("button", { name: "Total · $12.00 — View bill" }));
+    await press(/20%/);
+    const heroFigure = document.querySelector(".vt-cart-total")!.textContent;
+    expect(heroFigure).toBe("14.4"); // $12.00 + 20% = $14.40 (NumberFlow is mocked to the raw value)
+    expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Back to your order/i }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    // The Order stage: the quiet door (Send is the hero), named with the SAME figure and labelled
+    // as the preview it is.
+    // …its NAME opens with that visible label (WCAG 2.5.3) and ends with the verb.
+    const door = await screen.findByRole("button", {
+      name: "Estimated total · $14.40 — View bill",
+    });
+    // MUTATION (checkout/total-door-drops-the-previewed-tip): the door reads `totals.totalCents` —
+    // $12.00 beside a Bill that says $14.40, the price jumping between two adjacent taps; red.
+    expect(door.textContent).toContain("Estimated total");
+    expect(door.textContent).toContain("14.4");
+    expect(door.classList.contains("checkout-cta")).toBe(false);
+    expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
+    expect(door.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("the door reads 'Total' while no tip is previewed, and 'View bill' (not '& pay') while Pay is held", () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    // MUTATION (checkout-verb/door-promises-pay-while-held): "View bill & pay" over a Bill whose
+    // Pay is dimmed for the unsent dish; red.
+    // MUTATION (checkout/door-name-drops-its-visible-label): named "View bill · $12.00" while it
+    // SHOWS "Total · $12.00" — label not in name (WCAG 2.5.3); red.
+    const door = screen.getByRole("button", { name: "Total · $12.00 — View bill" });
+    expect(door.textContent).toContain("Total");
+    expect(door.textContent).not.toContain("Estimated");
+    expect(door.querySelector("dl")).toBeNull();
+    expect(door.classList.contains("checkout-cta")).toBe(false);
+    expect(document.body.textContent).toContain("1 item not sent yet");
+  });
+});
+
+describe("Phase 3c-i (D17) — the line is a receipt row; its choices live behind ⋯", () => {
+  const GROCERY: CartItem = { ...ITEM_B, fulfillment: "grocery" };
+
+  it("⋯ renders only on a draft, editable dine-in food line", () => {
+    // A GUEST at a table of two: Mohinga is THEIR line (editable), Ohn No is the host's draft (a
+    // guest may not move another seat's dish), and the rest are with the kitchen or not food.
+    mount({
+      splitContext: { ...DINE_IN, myRole: "guest" } as typeof DINE_IN,
+      initialItems: [
+        { ...ITEM, bySeat: MY_SEAT },
+        { ...ITEM_B, bySeat: PEER_SEAT },
+        { ...ITEM_C, lineState: "served" },
+        { ...ITEM_C, id: "line-fired", name: "Fired", lineState: "fired" },
+        { ...ITEM_C, id: "line-comped", name: "Comped", lineState: "fired", comped: true },
+        GROCERY,
+      ],
+    });
+    // MUTATION (checkout/line-sheet-offered-on-a-fired-line): the gate drops `canEdit` — the
+    // permission (`canMutateLine`: a diner edits DRAFT lines only, a guest only their own), so a ⋯
+    // appears on a dish the kitchen already has, or on a tablemate's, opening a sheet whose every
+    // write the server refuses; red.
+    expect(screen.getAllByRole("button", { name: /^More for /i })).toHaveLength(1);
+    const more = screen.getByRole("button", { name: "More for Mohinga" });
+    expect(more.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(more.classList.contains("checkout-pill-on")).toBe(false);
+    // Nothing of the old card controls remains on the card.
+    expect(screen.queryByRole("group", { name: /Where .* goes/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Send to kitchen now/i })).toBeNull();
+  });
+
+  it("no ⋯ on a pickup cart — the sheet's choices are a table's", () => {
+    mount({ splitContext: PICKUP });
+    expect(screen.queryByRole("button", { name: /^More for /i })).toBeNull();
+  });
+
+  it("'To go' reaches setLineFulfillment, the sheet closes, and focus returns to that line's ⋯", async () => {
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("group", { name: "Where Mohinga goes" })).toBeTruthy();
+    await press("To go");
+    expect(h.setLineFulfillment).toHaveBeenCalledWith(LINE, "togo");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "More for Mohinga" })),
+    );
+  });
+
+  it("a line that stops being a draft closes its open sheet and lands focus on the line's name", async () => {
+    mount({ splitContext: DINE_IN });
+    await openLineSheet();
+    // A tablemate's send fired it while the sheet was open: the subject is gone.
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByRole("button", { name: /^More for /i })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(nameOf(LINE)));
+  });
+
+  it("under a tablemate's lock the pills stay RENDERED and aria-disabled, and nothing reaches the server", async () => {
+    mount({ splitContext: DINE_IN, initialLocked: true, initialLockedBy: PEER_SEAT });
+    await openLineSheet();
+    const dialog = screen.getByRole("dialog");
+    const togo = within(dialog).getByRole("button", { name: "To go" });
+    expect(togo.getAttribute("aria-disabled")).toBe("true");
+    expect(togo.hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(togo);
+    });
+    expect(h.setLineFulfillment).not.toHaveBeenCalled();
+    // The sheet carries its OWN single region (Radix hides the page's under an open dialog).
+    expect(within(dialog).getAllByRole("status")).toHaveLength(1);
   });
 });

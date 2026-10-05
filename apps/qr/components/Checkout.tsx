@@ -18,7 +18,7 @@ import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
 import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Avatar, EmptyState, Icon, NumberFlow, Stepper } from "@mms/ui";
+import { Avatar, EmptyState, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
 import {
   applyPromo as applyPromoAction,
   getCartView,
@@ -74,6 +74,10 @@ import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton } from "./SendToKitchenButton";
+// Phase 3c-i (D15) — the send's undo window lives HERE, not in the Send button (the brief's finding 2).
+import { useUndoGrace } from "./useUndoGrace";
+// Phase 3c-i (D17) — the dish's ⋯ sheet (For here / To go · Send to kitchen now).
+import { LineOptionsSheet } from "./LineOptionsSheet";
 import { SecureTabButton } from "./SecureTabButton";
 import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
@@ -98,6 +102,8 @@ import {
   type CheckoutStage,
 } from "@/lib/checkout-stage";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
+// Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
+import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "@/lib/checkout-verb";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
 import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
@@ -192,15 +198,16 @@ function customTipRateFromDollars(raw: string, net: number): number {
   return Math.min(Math.round(dollars * 100), TIP_AMOUNT_MAX_CENTS, 4000 * net) / net;
 }
 
-// Optimistic cart edits — a qty / destination / make-now tap reflects INSTANTLY, then the server action
-// + refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
+// Optimistic cart edits — a qty / destination tap reflects INSTANTLY, then the server action +
+// refresh() reconcile the base underneath (and correct a refused edit). Money stays server-authoritative:
 // the fulfillment flip touches the TAG ONLY (W17a — dine-in and to-go ring the same POS price, so the
 // unit price is unchanged by a flip; what does move is the line's TAX, which lives in the aggregate
 // totals receipt that refresh() re-reads). Never re-price a line here.
+// Phase 3c-i (D17) — "Send to kitchen now" is NO LONGER optimistic: a fire is one-way for the guest
+// who tapped it, so the ⋯ sheet holds for the server's answer and the chip changes only when it says so.
 type CartOptimistic =
   | { kind: "qty"; id: string; qty: number }
-  | { kind: "fulfillment"; id: string; ful: "dinein" | "togo" }
-  | { kind: "makeNow"; id: string };
+  | { kind: "fulfillment"; id: string; ful: "dinein" | "togo" };
 
 function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
   switch (u.kind) {
@@ -210,8 +217,6 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
         : state.map((i) => (i.id === u.id ? { ...i, qty: u.qty } : i));
     case "fulfillment":
       return state.map((i) => (i.id === u.id ? { ...i, fulfillment: u.ful } : i));
-    case "makeNow":
-      return state.map((i) => (i.id === u.id ? { ...i, lineState: "fired" } : i));
   }
 }
 
@@ -519,11 +524,8 @@ export function Checkout({
   // The landing is derived (lib/checkout-stage — drafts → order, fired-only → bill), then the
   // diner flips freely; it rides `viewKey` so a flip animates + moves focus like every view change.
   const [stage, setStage] = useState<CheckoutStage>(() => initialStage(initialItems));
-  // W12 review MED — the send's 10s undo grace lives inside SendToKitchenButton, and a stage flip
-  // unmounts it (the keyed step wrapper), destroying the only UI that can recall the send. While
-  // the window is open the View-bill door stays un-promoted and REFUSES with the why (the W9b
-  // dead-controls-say-why rule) instead of silently forfeiting the undo.
-  const [undoOpen, setUndoOpen] = useState(false);
+  // (W12's `undoOpen` mirror is RETIRED — Phase 3c-i (D15): the window is `useUndoGrace`'s, declared
+  // beside the region's writers below, so the Bill is readable during the grace and only Pay waits.)
   // W13 — the J1 rule ("back slides back") applied INSIDE /cart: forward flips (order→bill,
   // review→pay) enter from the right, back flips from the left. State (not a ref) — the wrapper
   // className reads it during render, and render-phase ref reads are a compiler violation.
@@ -542,6 +544,14 @@ export function Checkout({
   // boolean, so every CTA site below is untouched.
   const [payRequest, setPayRequest] = useState<{ freezeAtStart: CartFreeze } | null>(null);
   const loadingPay = payRequest !== null;
+  // Phase 3c-i (blind pass · concurrency) — the Pay door closes AT THE TAP. `loadingPay` lights only
+  // once create-intent is in flight, AFTER `continueToPayment`'s drain and decision; a second tap
+  // landing during that `await` ran a second drain, a second decision and a second mint. This is the
+  // state for the window before `loadingPay`: set synchronously in the handler (React flushes a
+  // discrete event's state before the next event is processed, so the button is `disabled` for the
+  // second tap) and cleared in the `finally` every exit shares. `payBusy` is what the button wears.
+  const [payDraining, setPayDraining] = useState(false);
+  const payBusy = loadingPay || payDraining;
 
   /**
    * Fold ONE server view into the screen — the ten setters, plus the ref the refusal latch reads.
@@ -865,6 +875,32 @@ export function Checkout({
     setStatus(text);
     setStatusSeq((n) => n + 1);
   };
+  /**
+   * Phase 3c-i (D15) — a send/undo OUTCOME, said through this view's ONE region (the Send button's
+   * private `role="status"` was the second polite region on the Order stage — QA §A:25). The owner's
+   * Burmese half rides beside the EN sentence it belongs to: `outcomeMy` is rendered only while
+   * `status` still IS that sentence, so any later writer of `status` retires it by construction —
+   * no clearing discipline to drift. Renumbered like a refusal, so a second identical send is said
+   * again.
+   */
+  const [outcomeMy, setOutcomeMy] = useState<{ text: string; my: string } | null>(null);
+  const sayOutcome = (text: string, my?: string) => {
+    sayRefusal(text);
+    setOutcomeMy(my ? { text, my } : null);
+  };
+  /**
+   * Phase 3c-i (D15) — the send's undo window, owned HERE. `useUndoGrace` holds the deadline, the
+   * batch, the tick, the in-flight flag and the serialized `graceWrites` chain; the mounted stage
+   * renders the ONE Undo control (`SendToKitchenButton verb="undo"`), so a flip to the Bill keeps the
+   * undo and the Bill is readable during the grace — only Pay waits (`payBlock`). Its outcomes go
+   * through `sayOutcome`; its re-sync is this screen's `refresh`, and the re-read's promise rides
+   * the chain so `continueToPayment`'s drain waits for the drafts an undo put back.
+   */
+  const grace = useUndoGrace({
+    say: (m) => sayOutcome(m.text, m.my),
+    onChanged: () => refresh(),
+  });
+  const graceOpen = grace.deadlineMs !== null;
   /**
    * A refusal waiting for its frame — WITH the landing predicate that produced it (Codex round 5).
    *
@@ -1660,31 +1696,12 @@ export function Checkout({
   // gate, and the render gate reads `i.lineState` from the last view: a `busy` refusal is the exact
   // peer-lock window M224 exists for, so the pill flips optimistically, snaps back, and says
   // nothing. `busy` is now diagnosed and spoken like every other refused edit on this screen.
-  // When the cart spans 2+ destinations the line's <li> moves to another <section> on re-route, so the
-  // clicked button unmounts and focus would drop to <body> (WCAG 2.4.3). Re-focus the now-pressed button
-  // for that line after the re-render — its accessible name + aria-pressed announces the new destination.
-  const refocusToggle = useRef<{ id: string; ful: string } | null>(null);
-  useEffect(() => {
-    const target = refocusToggle.current;
-    if (!target) return;
-    refocusToggle.current = null;
-    document
-      .querySelector<HTMLButtonElement>(
-        `[data-ful-line="${target.id}"][data-ful-val="${target.ful}"]`,
-      )
-      ?.focus();
-    // Dep on viewItems (the optimistic list): the re-group happens optimistically now, so focus must
-    // follow at that commit, not one server round-trip later. The `if (!target) return` guard keeps this
-    // a no-op on every other render (viewItems is a fresh array each render).
-  }, [viewItems]);
+  // Phase 3c-i (D17) — the pills live in the ⋯ sheet now, so the re-group no longer unmounts the
+  // tapped control: the sheet closes on the choice and its `onCloseAutoFocus` lands on the line's ⋯
+  // (which re-renders in the new section), so focus never drops to <body> (WCAG 2.4.3).
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
     const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
     startCartTransition(async () => {
-      // Set the refocus target in the SAME commit as the optimistic re-group: applyOptimistic moves the
-      // line's <li> to another destination <section>, unmounting the tapped button (focus → body). The
-      // [viewItems] effect then lands focus on this line's now-pressed pill — closing the WCAG 2.4.3 gap
-      // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
-      refocusToggle.current = { id, ful };
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
       // ⚠️ TWO FLAGS, NOT ONE (Codex round 3 P2). `accepted` is the server saying yes; `refused` is
       // the narrower question of whether we may NAME a reason. A `{ ok: false }` the re-read cannot
@@ -1722,36 +1739,86 @@ export function Checkout({
     });
   }
 
-  // S4.2 "Make it now": fire a to-go line to the kitchen early (instead of waiting for checkout). The
-  // server recomputes nothing about money — it only flips the line to 'fired'; refresh() re-syncs so the
-  // line shows its state chip (the toggle + this button drop away once fired). Refusals are handled
-  // exactly as on the toggle beside it — see its comment for why only `busy` may be diagnosed (M230).
-  function makeNow(id: string) {
+  // S4.2 "Send to kitchen now": fire a to-go line to the kitchen early (instead of waiting for
+  // checkout). The server recomputes nothing about money — it only flips the line to 'fired';
+  // refresh() re-syncs so the line shows its state chip (the ⋯ drops away once fired). Refusals are
+  // handled exactly as on the toggle — see its comment for why only `busy` may be diagnosed (M230).
+  //
+  // Phase 3c-i (D17) — NOT optimistic, and it RETURNS THE RAW WRITE: a fire is one-way for the guest
+  // who tapped it, so the ⋯ sheet awaits what this returns BOUNDED (`boundWrite`, M82) with the sheet
+  // busy. The bound is on `makeItNow` ALONE (blind pass · concurrency): the ledger tracks whatever
+  // promise it is handed as a WRITE, and a composite of write + diagnosis read + re-sync kept a
+  // "write" young or stalled for as long as a READ took. The follow-through — the M230 diagnosis on
+  // a `busy` refusal, the watermark on an accept, the re-sync that drops the ⋯ once the line is
+  // fired — rides `settleMakeNow` beside it, off the bounded promise. One flight per line: a second
+  // tap while the first is still settling re-bounds the SAME write and fires nothing. Outside any
+  // transition — a transition's pending would hold the sheet's lock for as long as the raw stays out.
+  const makeNowInFlight = useRef(new Map<string, ReturnType<typeof makeItNow>>());
+  function makeNow(id: string): ReturnType<typeof makeItNow> {
+    const live = makeNowInFlight.current.get(id);
+    if (live) return live;
     const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
-    startCartTransition(async () => {
-      applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
-      // `accepted` and `refused` are separate for the same reason as the toggle above.
-      let accepted = false;
-      let refused = false;
-      try {
-        const r = await makeItNow(id);
-        accepted = r.ok;
-        refused = !r.ok && r.reason === "busy";
-      } catch {
-        refused = true;
-      }
-      if (refused) {
-        // A fired line is no longer `draft` — that, not a flag of our own, is the landing.
-        await explainAndAnnounce(
-          gesture,
-          (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
-        );
-        return;
-      }
-      if (accepted) supersedeRefusals(gesture);
-      await refresh();
+    const action = makeItNow(id);
+    makeNowInFlight.current.set(id, action);
+    void settleMakeNow(id, gesture, action).finally(() => {
+      makeNowInFlight.current.delete(id);
     });
+    return action;
   }
+  async function settleMakeNow(
+    id: string,
+    gesture: number,
+    action: ReturnType<typeof makeItNow>,
+  ): Promise<void> {
+    // `accepted` and `refused` are separate for the same reason as the toggle above.
+    let accepted = false;
+    let refused = false;
+    try {
+      const r = await action;
+      accepted = r.ok;
+      refused = !r.ok && r.reason === "busy";
+    } catch {
+      refused = true;
+    }
+    if (refused) {
+      // A fired line is no longer `draft` — that, not a flag of our own, is the landing.
+      await explainAndAnnounce(
+        gesture,
+        (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
+      );
+      return;
+    }
+    if (accepted) supersedeRefusals(gesture);
+    await refresh();
+  }
+
+  /**
+   * Phase 3c-i (D17) — the dish whose ⋯ sheet is open. The SUBJECT is the live draft line, so a
+   * refresh mid-open reaches the sheet, and the moment the line stops being draft (Send-now landed, a
+   * tablemate's send fired it) the subject is null: the sheet closes, the id is retired (so a later
+   * revert to draft never re-opens it), and `onCloseAutoFocus` below lands on the line's name.
+   */
+  const [lineSheetId, setLineSheetId] = useState<string | null>(null);
+  const lineSubject =
+    lineSheetId === null
+      ? null
+      : (viewItems.find((l) => l.id === lineSheetId && l.lineState === "draft") ?? null);
+  // Derived during render (the adjust-state-on-prop idiom `useSheetSubject` itself uses), never in an
+  // effect — an effect would paint one frame with a sheet for a line that is already with the kitchen.
+  if (lineSheetId !== null && lineSubject === null) setLineSheetId(null);
+  const lineSheet = useSheetSubject(lineSubject);
+  /** Where focus lands when the sheet closes: the line's ⋯ while it is still a draft (a choice, a
+   *  dismissal), else the line's name (the Phase 1c landing — it fired while the sheet was open). */
+  const landAfterLineSheet = (e: Event, id: string) => {
+    e.preventDefault();
+    const target =
+      document.getElementById(`line-more-${id}`) ??
+      document.querySelector<HTMLElement>(
+        `li[data-line-id="${id}"]:not(.mms-remove) [data-line-name]`,
+      ) ??
+      headingRef.current;
+    target?.focus({ preventScroll: true });
+  };
 
   function onPromo(e: FormEvent) {
     e.preventDefault();
@@ -1851,6 +1918,18 @@ export function Checkout({
   }
 
   async function continueToPayment() {
+    // ONE tap at a time — see `payDraining`. The door is state, not a ref: a ref alone would be
+    // invisible to the button, and the button is what the second tap meets.
+    setPayDraining(true);
+    try {
+      await payFlow();
+    } finally {
+      setPayDraining(false);
+    }
+  }
+
+  /** The flow itself: gate → DRAIN → DECIDE → MINT. Entered only through `continueToPayment`. */
+  async function payFlow() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
     // W21 — the pickup contact gate, locally first (same pure predicate create-intent runs, so
@@ -1865,6 +1944,38 @@ export function Checkout({
             : "Add a phone number for pickup — we’ll only use it about this order.",
         );
         (missing === "name" ? pickupNameRef : pickupPhoneRef).current?.focus();
+        return;
+      }
+    }
+    // Phase 3c-i (D16) — DRAIN → DECIDE → MINT. An undo still answering (or its re-sync still out)
+    // may put drafts back under this tap: `graceWrites` is the serialized chain (it never rejects —
+    // each write owns its errors, so this await cannot throw), and the decision is re-asked AFTER it
+    // on the view that WON (`freezeFactsRef`, written synchronously by `applyCartView`) — never on
+    // this render's `block`, which is the answer to a question asked before the drain.
+    await grace.graceWrites.current;
+    {
+      const f = freezeFactsRef.current;
+      const after = payBlock({
+        frozenByPeer: freezeBlocksPayment(
+          cartFreeze({ locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat }),
+        ),
+        unsentBlocks: unsentBlocksFor(f.items),
+        graceOpen: grace.isOpen(),
+        // The chain has drained: nothing of ours is in flight by construction.
+        undoInFlight: false,
+      });
+      if (after !== null) {
+        // The peer's NAME from the same facts as the verdict (`f.lockedBy`), never this render's
+        // `lockedByName`: the decision is post-drain, and a lock that arrived during the drain has
+        // no name on the render that started it — "Waiting for Someone" beside a lock the view can
+        // name (blind pass · product truth).
+        const peer =
+          after === "peer"
+            ? (splitContext?.members.find((m) => m.seat === f.lockedBy)?.name ?? null)
+            : null;
+        sayRefusal(
+          payBlockCopy(after, { lockedByName: peer, canSend: canSendToKitchen, hostName }),
+        );
         return;
       }
     }
@@ -2206,7 +2317,6 @@ export function Checkout({
         stage,
         step,
         busy: paying || leavingPay,
-        canBill: !undoOpen,
       });
       if (action === "toOrder") flipStage("order");
       else if (action === "toBill") flipStage("bill");
@@ -2240,6 +2350,85 @@ export function Checkout({
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
+  // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
+  const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
+  // W19 — what the Bill moment warns about: EVERY still-draft food line (dinein + togo) is charged
+  // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
+  // kitchenDraftQty (see lib/checkout-stage).
+  const unsentQty = unsentFoodQty(viewItems);
+  // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
+  // (`payBlockedByUnsent`, the SAME binding create-intent refuses on — this is the courtesy, that is
+  // the gate). Only dine-in has a send step.
+  // Phase 3c-i — ONE binding of the rule's inputs: the render reads it on `viewItems`; the drain in
+  // `continueToPayment` re-asks it on the view that WON after an undo's re-sync (`freezeFactsRef`).
+  const unsentBlocksFor = (items: CartItem[]) =>
+    payBlockedByUnsent(
+      isDineIn ? "dinein" : sessionMode,
+      deriveKitchenDraftQty(items),
+      hostPresent,
+    );
+  const sendBlocksPay = unsentBlocksFor(viewItems);
+  const noteQty = sendBlocksPay ? kitchenDraftQty : unsentQty;
+
+  // Phase 3c-i (D13) — the Order stage's ONE hero verb: Send (the host, with drafts, no grace) · Undo
+  // (the window is open — reversing is never the hero) · the Bill door (everything sent; a guest with
+  // drafts; a hostless table). Decided in lib/checkout-verb, drawn below.
+  const hero = orderStageHero({
+    canSend: canSendToKitchen,
+    kitchenDraftUnits: kitchenDraftQty,
+    graceOpen,
+  });
+  // Phase 3c-i (D16) — Pay keeps its name and states its ONE reason, in precedence: a tablemate's lock
+  // (`payFrozen`) > dishes still to send (`sendBlocksPay`, READ here — never restated) > this device's
+  // undo window (open, or an undo still answering). The Order stage's Total door reads the same block
+  // for its label: "View bill" while Pay is held, "View bill & pay" only when nothing blocks it.
+  const block = payBlock({
+    frozenByPeer: payFrozen,
+    unsentBlocks: sendBlocksPay,
+    graceOpen,
+    undoInFlight: grace.pending,
+  });
+  // The Total door's ONE name key: never "& pay" while Pay is held, nor over a standing counter ask —
+  // the Bill it opens hides Pay behind the counter card then (Codex round 3 on #313).
+  const doorLabel = billDoorLabel(block, counterAt != null);
+  const payReasonId = "pay-reason";
+  const blockCopy = block
+    ? payBlockCopy(block, { lockedByName, canSend: canSendToKitchen, hostName })
+    : null;
+
+  /**
+   * Phase 3c-i (D16) — "Ready to pay.", said ONCE on the grace's true→false edge while the Bill is
+   * mounted: the dimmed Pay lighting up is otherwise silent to a reader parked on it. Only for an
+   * ELAPSED window — an undo or an `expired` answer speaks for itself in the same commit, and the
+   * undo's re-sync may put drafts back — and only when nothing else still blocks Pay (a guest's new
+   * drafts, a tablemate's lock, a standing counter ask): the sentence is a claim the next tap must
+   * keep. The same edge is where the Undo unmounts, so it also puts lost focus back on the <h1>.
+   */
+  const prevGraceOpen = useRef(graceOpen);
+  useEffect(() => {
+    const was = prevGraceOpen.current;
+    prevGraceOpen.current = graceOpen;
+    if (!was || graceOpen) return;
+    // The Undo this window rendered has just unmounted (on either stage: the Order's hero changed, or
+    // the Bill's Undo went). A reader parked on it is on <body> now — land on the <h1>, the screen's
+    // one focus home (B4), and only when focus was in fact lost: never stolen from a control the
+    // diner moved to (blind pass · a11y).
+    if (focusWasLost()) headingRef.current?.focus();
+    if (grace.closedBy !== "elapsed" || stage !== "bill" || onPay || block !== null) return;
+    // A standing counter ask is the Bill's hero already (`counterAsk` hides Pay): "Ready to pay." over
+    // it says the opposite of what the screen shows (blind pass · product truth).
+    if (counterAt != null) return;
+    // Through a frame, like every other announcement on this screen: a synchronous `setState` in an
+    // effect body is a cascading render the React Compiler lint rejects, and the region must be on
+    // screen before its text changes.
+    const frame = requestAnimationFrame(() => sayRefusal("Ready to pay."));
+    return () => cancelAnimationFrame(frame);
+    // `sayRefusal`, `block`, `stage`, `onPay` and `counterAt` are this render's; the edge is keyed on
+    // the window.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graceOpen]);
+
   if (viewItems.length === 0) {
     // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
     // to scan-&-go and would orphan a dine-in/pickup diner (F9). titleAs="p" — the <h1> names the region.
@@ -2251,13 +2440,17 @@ export function Checkout({
     // basket is not waiting on a dish.
     const backHref = menuHref(sessionMode);
     const backLabel = menuLinkText(sessionMode, "browse");
+    // D6's noun holds for the EMPTY slip too: the market's object is a basket from the first scan,
+    // and the screen that said "Your basket" a moment ago must not say "Your order" the instant the
+    // last line goes — least of all as the heading a screen reader is moved to (deep pass on #312).
+    const emptyHeadingKey: DictKey = sessionMode === "scango" ? "yourBasket" : "yourOrder";
     return (
       <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
         {/* Phase 1c — the landing target when the LAST line is removed (the view swaps here), so a
             screen reader hears "Your order", then the empty state, instead of losing focus to <body>. */}
         <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
-          {T("yourOrder")}
-          <My k="yourOrder" size="var(--fs-sm)" />
+          {T(emptyHeadingKey)}
+          <My k={emptyHeadingKey} size="var(--fs-sm)" />
         </h1>
         <EmptyState
           icon={<Icon name="cart" size={30} style={{ color: "var(--ac)" }} />}
@@ -2345,9 +2538,12 @@ export function Checkout({
   // A1 — under a counter ask the app charges no tip (the register records a cash tip in hand), so
   // no amount on this screen previews one.
   const tipPreviewCents = pureGrocery || counterAt != null ? 0 : tipPreview(effectiveTipRate);
-  // W2d — the estimated tip-inclusive total shown on the primary CTA (presentation only; the pay step
-  // confirms the server-authoritative amount).
-  const ctaTotal = `$${((totals.totalCents + tipPreviewCents) / 100).toFixed(2)}`;
+  // W2d → Phase 3c-i (D14) — the estimated tip-inclusive total, named ONCE (W17): the Order stage's
+  // Total door, the Bill's hero total and the Pay label all read this binding, so a previewed tip
+  // can never show on one and not another. Presentation only — a labelled PREVIEW; the charged figure
+  // is create-intent's `payTotals`, and the pay step's rows render from the LOCKED read.
+  const orderTotalCents = totals.totalCents + tipPreviewCents;
+  const ctaTotal = `$${(orderTotalCents / 100).toFixed(2)}`;
 
   // W12 — what each review surface shows. Classic (pickup/scango, unstaged) shows BOTH the editable
   // line cards and the pay furniture on one screen, exactly as before; a staged dine-in cart splits
@@ -2360,23 +2556,6 @@ export function Checkout({
   // server refuses the stamp on every other mode.
   const counterAsk = showPayFurniture && counterAt != null;
   const showPayControls = showPayFurniture && !counterAsk;
-
-  // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
-  // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
-  const kitchenDraftQty = deriveKitchenDraftQty(viewItems);
-  // W19 — what the Bill moment warns about: EVERY still-draft food line (dinein + togo) is charged
-  // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
-  // kitchenDraftQty (see lib/checkout-stage).
-  const unsentQty = unsentFoodQty(viewItems);
-  // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
-  // (`payBlockedByUnsent`, the SAME binding create-intent refuses on — this is the courtesy, that is
-  // the gate). Only dine-in has a send step.
-  const sendBlocksPay = payBlockedByUnsent(
-    isDineIn ? "dinein" : sessionMode,
-    kitchenDraftQty,
-    hostPresent,
-  );
-  const noteQty = sendBlocksPay ? kitchenDraftQty : unsentQty;
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -2427,7 +2606,7 @@ export function Checkout({
         <WalletChip badge={rewardsBadge} />
       </div>
       {steps.length > 0 && (
-        <ol className="checkout-steps" aria-label="Checkout steps">
+        <ol role="list" className="checkout-steps" aria-label="Checkout steps">
           {steps.map((st, i) => (
             <li
               key={st.key}
@@ -2849,73 +3028,31 @@ export function Checkout({
                           format={{ style: "currency", currency: "USD" }}
                         />
                       </div>
-                      {/* For-here / To-go (S4): food only, draft + editable. Grocery routing is fixed. The
-                        server recomputes per-line tax (cold food flips taxability) — the toggle is optimistic
-                        (instant re-group), reconciled on refresh. Unified `.checkout-pill` segmented control. */}
+                      {/* Phase 3c-i (D17) — the line is a receipt row: For here / To go and "Send to
+                          kitchen now" live behind this ⋯ (ONE `LineOptionsSheet`, subject-keyed), under
+                          the exact gate the pills had — dine-in food, still a draft, and this diner may
+                          edit it. A 44×44 ghost from `.checkout-pill`, never the lit cap: it is a door,
+                          not a selection. `aria-haspopup="dialog"` says what it opens. */}
                       {isDineIn &&
                         i.fulfillment !== "grocery" &&
                         i.lineState === "draft" &&
                         canEdit && (
-                          <div
-                            role="group"
-                            aria-label={`Where ${i.name} goes`}
-                            className="checkout-pill-row"
-                            style={{ marginTop: 8 }}
-                          >
-                            {(["dinein", "togo"] as const).map((f) => {
-                              const on = i.fulfillment === f;
-                              return (
-                                <button
-                                  key={f}
-                                  type="button"
-                                  data-ful-line={i.id}
-                                  data-ful-val={f}
-                                  aria-pressed={on}
-                                  // aria-disabled, not native: a peer can take the lock while this
-                                  // very button holds focus, and native-disabling would drop it to
-                                  // <body> mid-interaction (WCAG 2.4.3).
-                                  aria-disabled={editsFrozen || undefined}
-                                  onClick={() => {
-                                    if (editsFrozen || leaving) return;
-                                    toggleFulfillment(i.id, f);
-                                  }}
-                                  className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
-                                  style={editsFrozen ? { opacity: 0.55 } : undefined}
-                                >
-                                  {f === "dinein" ? "For here" : "To go"}
-                                </button>
-                              );
-                            })}
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              id={`line-more-${i.id}`}
+                              type="button"
+                              aria-label={`More for ${i.name}`}
+                              aria-haspopup="dialog"
+                              aria-expanded={lineSheetId === i.id}
+                              onClick={() => {
+                                if (leaving) return;
+                                setLineSheetId(i.id);
+                              }}
+                              className="checkout-pill checkout-line-more"
+                            >
+                              <Icon name="more" size={20} aria-hidden />
+                            </button>
                           </div>
-                        )}
-                      {/* Make it now (S4.2): a to-go food line waits for checkout by default; this fires it to
-                        the kitchen early. Draft + editable + togo only (a dinein line fires via Send to
-                        kitchen; grocery never fires). Optimistic; the server gates it, refused → no-ops on
-                        refresh. Accent-outline action pill. */}
-                      {isDineIn &&
-                        i.fulfillment === "togo" &&
-                        i.lineState === "draft" &&
-                        canEdit && (
-                          <button
-                            type="button"
-                            aria-disabled={editsFrozen || undefined}
-                            onClick={() => {
-                              if (editsFrozen || leaving) return;
-                              makeNow(i.id);
-                            }}
-                            className="checkout-pill checkout-pill-accent"
-                            style={{
-                              display: "flex",
-                              width: "100%",
-                              marginTop: 8,
-                              ...(editsFrozen ? { opacity: 0.55 } : null),
-                            }}
-                          >
-                            {/* W19 — "Send" names what the tap really is (a per-line kitchen
-                                commit, same vocabulary as the batch CTA and the "Sent to kitchen"
-                                chip this button becomes); "usually" hedges the config estimate. */}
-                            Send to kitchen now · usually ~{prepMinutes} min
-                          </button>
                         )}
                     </div>
                     {i.comped ? (
@@ -2990,8 +3127,12 @@ export function Checkout({
                         }}
                       >
                         Made fresh when you check out — usually ready in about {prepMinutes} min.
-                        {/* Names the control VERBATIM — moves with the button label (W19). */}
-                        {isDineIn ? " Want it sooner? Tap “Send to kitchen now.”" : ""}
+                        {/* Names BOTH controls VERBATIM — the ⋯'s accessible name ("More for …") and
+                            the sheet's action; each moves with its label (W19). A reader hears
+                            "More", never a glyph. */}
+                        {isDineIn
+                          ? " Want it sooner? Open “More” (⋯) on the dish, then tap “Send to kitchen now.”"
+                          : ""}
                       </p>
                     )}
                   <ul
@@ -3075,6 +3216,22 @@ export function Checkout({
                   </button>
                 )}
               </div>
+            )}
+            {/* Phase 3c-i (D15) — the send's undo window follows the diner onto the Bill: ONE Undo
+                control at a time (the stages never co-render), above the receipt, so a flip
+                mid-grace keeps the undo without a second home. Focus is NOT stolen here — the <h1>
+                owns the flip; the hook parks focus on Undo only when the window OPENS, and the grace
+                effect hands lost focus back to the <h1> when this Undo unmounts under a reader. */}
+            {!settledClose && staged && stage === "bill" && graceOpen && (
+              <SendToKitchenButton
+                cartId={cartId}
+                verb="undo"
+                grace={grace}
+                draftCount={kitchenDraftQty}
+                onMessage={sayOutcome}
+                onChanged={refresh}
+                frozen={editsFrozen}
+              />
             )}
             {/* W12 — the Bill moment's lines: the same viewItems as read-only RECEIPT rows inside the
                 textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
@@ -3592,31 +3749,108 @@ export function Checkout({
                   }}
                 >
                   <NumberFlow
-                    value={(totals.totalCents + tipPreviewCents) / 100}
+                    value={orderTotalCents / 100}
                     format={{ style: "currency", currency: "USD" }}
                   />
                 </span>
               </div>
             )}
 
-            {/* W12 — the Order moment's primary verb: SEND. Promoted from its old secondary outline
-                slot to the filled CTA (the moment owns one hero action); the undo-grace machinery
-                rides along unchanged inside the component. */}
+            {/* Phase 3c-i (D14) — the receipt foot IS the door. Under the dishes sits ONE 44px
+                button of PHRASING content only — "Total" / "Estimated total" (while a tip is
+                previewed) + MY + the amount + an aria-hidden arrow, never a <dl> — whose name is
+                `billDoorLabel(block) · $X` as the hero ("View bill & pay · $X" only when nothing blocks
+                Pay — the door never promises a verb the next screen refuses) and, quiet, its VISIBLE
+                label first — "Total · $X — View bill" (label in name, WCAG 2.5.3).
+                ALWAYS enabled — reading a bill is not a write, so no refusal and no "Hold on": the
+                send's undo window keeps its Undo on the Bill too (D15). While the bill is the hero
+                (`hero === "bill"`: everything sent, a guest with drafts, a hostless table) the SAME
+                element wears `.checkout-cta` and reads the door label visibly. `.vt-cart-total` rides
+                here on the Order view (the Bill's hero total keeps its own; the two never co-render).
+                `orderTotalCents` is the ONE binding every total-reading surface shares — a labelled
+                PREVIEW; the charge is create-intent's `payTotals`. */}
+            {!settledClose && staged && stage === "order" && (
+              <>
+                <button
+                  type="button"
+                  onClick={goBill}
+                  // Label in name (WCAG 2.5.3 — blind pass · a11y): the QUIET door shows "Total · $X" (or
+                  // "Estimated total") and used to be named "View bill · $X" alone, so a voice user
+                  // saying the visible words missed it. Its name opens with the visible label and ends
+                  // with the verb; the hero's visible text IS the verb, so its name is its text.
+                  aria-label={
+                    hero === "bill"
+                      ? `${T(doorLabel)} · ${ctaTotal}`
+                      : `${T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")} · ${ctaTotal} — ${T(doorLabel)}`
+                  }
+                  className={`checkout-total-door${hero === "bill" ? " checkout-cta" : ""}`}
+                >
+                  {hero === "bill" ? (
+                    <span style={{ position: "relative", zIndex: 1 }}>
+                      {T(doorLabel)} ·{" "}
+                      <span className="vt-cart-total">
+                        <NumberFlow
+                          value={orderTotalCents / 100}
+                          format={{ style: "currency", currency: "USD" }}
+                        />
+                      </span>
+                      <span aria-hidden className="checkout-cta-arrow">
+                        →
+                      </span>
+                      {/* W16b — the MY line rides under the EN+amount line; the $ amount stays on
+                          the EN line only (the Latin-digits money rule). */}
+                      <My k={doorLabel} color="inherit" />
+                    </span>
+                  ) : (
+                    <>
+                      <span className="checkout-total-door-label">
+                        {T(tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal")}
+                        <My
+                          k={tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal"}
+                          color="var(--t3)"
+                        />
+                      </span>
+                      <span className="checkout-total-door-amount vt-cart-total">
+                        <NumberFlow
+                          value={orderTotalCents / 100}
+                          format={{ style: "currency", currency: "USD" }}
+                        />
+                        <span aria-hidden className="checkout-total-door-arrow">
+                          →
+                        </span>
+                      </span>
+                    </>
+                  )}
+                </button>
+                {/* W19 — the unsent state is VISIBLE before the flip, not discovered after. Plain
+                    content under the door, never inside the button's name. */}
+                {unsentQty > 0 && (
+                  <p className="checkout-total-door-note">
+                    {unsentQty} {unsentQty === 1 ? "item" : "items"} not sent yet
+                  </p>
+                )}
+              </>
+            )}
+
+            {/* W12 → Phase 3c-i (D13) — the Order moment's ONE verb control, drawn as `orderStageHero`
+                decides: the filled Send (the host, with drafts), the outline Undo (the window is open —
+                reversing is never the hero), or the quiet "with the kitchen" line once everything is
+                sent. Only the host fires the table (server-enforced too), so only the host sees it;
+                a guest's hero is the door above, with the note below. */}
             {showLineCards && canSendToKitchen && viewItems.length > 0 && (
-              // onChanged re-syncs the cart after a send (steppers → chips) or an undo (chips → steppers),
-              // since solo dine-in isn't on the group realtime channel.
+              // onChanged re-syncs the cart after a send (steppers → chips); the undo's re-sync is the
+              // grace hook's own, since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
                 cartId={cartId}
-                hasDraft={kitchenDraftQty > 0}
+                verb={hero}
+                grace={grace}
                 draftCount={kitchenDraftQty}
-                primary
-                onUndoWindowChange={setUndoOpen}
+                onMessage={sayOutcome}
                 onChanged={refresh}
                 // T9 — `sendToKitchen` and `undoFire` both refuse on bare `locked`. Gating UNDO
                 // looks like taking something away, and isn't: `undoFire` refuses under the same
-                // predicate, so a freeze has already removed it server-side. The component keeps
-                // the undo WINDOW open rather than closing it, so it returns the moment the lock
-                // lifts (see its docblock).
+                // predicate, so a freeze has already removed it server-side. The hook keeps the
+                // undo WINDOW open rather than closing it, so it returns the moment the lock lifts.
                 frozen={editsFrozen}
               />
             )}
@@ -3637,129 +3871,79 @@ export function Checkout({
                 </p>
               )}
 
-            {/* W12 — the Order moment's quiet door to the Pay moment: the live bill total, always
-                visible, never dominating. Promoted to the filled CTA once everything is with the
-                kitchen (the ordering verb is spent — viewing the bill IS the next thing). */}
-            {!settledClose && staged && stage === "order" && (
-              // Promotes to the filled hero only once the kitchen verb is genuinely spent AND the
-              // undo grace has passed (review MED: a filled bar beside "Undo — Ns" made forfeiting
-              // the undo the visual hero). The amount includes any tip already dialed on the Bill
-              // (review LOW: tip-exclusive here made the price jump between two adjacent taps).
-              <button
-                type="button"
-                aria-disabled={undoOpen || undefined}
-                onClick={() => {
-                  if (undoOpen) {
-                    setPayError(null);
-                    setStatus("Hold on — you can still undo that send for a few seconds.");
-                    return;
-                  }
-                  goBill();
-                }}
-                className={
-                  kitchenDraftQty === 0 && !undoOpen ? "checkout-cta" : "checkout-viewbill"
-                }
-                style={{
-                  width: "100%",
-                  marginTop: 12,
-                  minHeight: 50,
-                  borderRadius: 12,
-                  border: kitchenDraftQty === 0 && !undoOpen ? "none" : undefined,
-                  fontWeight: "var(--fw-heavy)",
-                  fontSize: "var(--fs-body)",
-                  cursor: undoOpen ? "default" : "pointer",
-                  opacity: undoOpen ? 0.55 : 1,
-                }}
-              >
-                <span style={{ position: "relative", zIndex: 1 }}>
-                  {T("viewBillAndPay")} ·{" "}
-                  <NumberFlow
-                    value={(totals.totalCents + tipPreviewCents) / 100}
-                    format={{ style: "currency", currency: "USD" }}
-                  />
-                  <span aria-hidden className="checkout-cta-arrow">
-                    →
-                  </span>
-                  {/* W16b — the MY line rides under the EN+amount line; the $ amount stays on the
-                      EN line only (the Latin-digits money rule). */}
-                  <My k="viewBillAndPay" color="inherit" />
-                  {/* W19 — the unsent state is VISIBLE before the flip, not discovered after. */}
-                  {unsentQty > 0 && (
-                    <span
-                      style={{
-                        display: "block",
-                        fontWeight: "var(--fw-semibold)",
-                        fontSize: "var(--fs-xs)",
-                        color: "inherit",
-                        opacity: 0.8,
-                      }}
-                    >
-                      {unsentQty} {unsentQty === 1 ? "item" : "items"} not sent yet
-                    </span>
-                  )}
-                </span>
-              </button>
-            )}
-
             {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
                 with 409 because the lock is exactly the mutex that stops two diners paying at once. It
-                stays RENDERED and says so, rather than sending the diner into a failure to find out. */}
+                stays RENDERED and says so, rather than sending the diner into a failure to find out.
+                Phase 3c-i (D16) — Pay KEEPS ITS NAME: the label is always "Pay · $X" (or "Pay the whole
+                order · $X"); the ONE reason it is held (`payBlock`: a tablemate's lock > dishes still to
+                send > the send's undo window) is a static line it is `aria-describedby`, and every
+                blocked tap re-says that same sentence through the view's region. `aria-disabled`, never
+                native — the control stays reachable and reads why. */}
             {showPayControls && (
-              <button
-                type="button"
-                aria-disabled={payFrozen || sendBlocksPay || undefined}
-                onClick={() => {
-                  if (payFrozen) return;
-                  if (sendBlocksPay) {
-                    // The note above says why; the status line repeats it for a tap that missed it
-                    // — on EVERY tap (`sayRefusal`, Phase 2c · review).
-                    sayRefusal(
-                      "Send everything to the kitchen first — then the bill is ready to pay.",
-                    );
-                    return;
-                  }
-                  void continueToPayment();
-                }}
-                disabled={loadingPay}
-                aria-busy={loadingPay}
-                className="checkout-cta"
-                style={{
-                  width: "100%",
-                  marginTop: 12,
-                  minHeight: 50,
-                  borderRadius: 12,
-                  border: "none",
-                  fontWeight: "var(--fw-heavy)",
-                  fontSize: "var(--fs-body)",
-                  cursor: loadingPay || payFrozen || sendBlocksPay ? "default" : "pointer",
-                  opacity: loadingPay ? 0.7 : payFrozen || sendBlocksPay ? 0.55 : 1,
-                }}
-              >
-                {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
-                  carries the amount (fees are visible above it) — and for a GROUP it says "Pay the whole
-                  order · $X", elevating the honesty caveat (a guest who read "your share" isn't surprised
-                  by the full charge). The amount is the server-reconciled estimate; the pay step confirms. */}
-                <span style={{ position: "relative", zIndex: 1 }}>
-                  {loadingPay ? (
-                    "Starting checkout…"
-                  ) : payFrozen ? (
-                    `Waiting for ${lockedByName} to finish`
-                  ) : sendBlocksPay ? (
-                    "Send everything to the kitchen first"
-                  ) : (
-                    <>
-                      {isGroup
-                        ? `${T("payWholeOrder")} · ${ctaTotal}`
-                        : `${T("pay")} · ${ctaTotal}`}
-                      <span aria-hidden className="checkout-cta-arrow">
-                        →
+              <>
+                <button
+                  type="button"
+                  aria-disabled={block !== null || undefined}
+                  aria-describedby={block ? payReasonId : undefined}
+                  onClick={() => {
+                    if (blockCopy) {
+                      // The reason line says why; the status line repeats it for a tap that missed
+                      // it — on EVERY tap (`sayRefusal`, Phase 2c · review).
+                      sayRefusal(blockCopy);
+                      return;
+                    }
+                    void continueToPayment();
+                  }}
+                  disabled={payBusy}
+                  aria-busy={payBusy}
+                  className="checkout-cta"
+                  style={{
+                    width: "100%",
+                    marginTop: 12,
+                    minHeight: 50,
+                    borderRadius: 12,
+                    border: "none",
+                    fontWeight: "var(--fw-heavy)",
+                    fontSize: "var(--fs-body)",
+                    cursor: payBusy || block ? "default" : "pointer",
+                    opacity: payBusy ? 0.7 : block ? 0.55 : 1,
+                  }}
+                >
+                  {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the
+                    CTA carries the amount (fees are visible above it) — and for a GROUP it says "Pay the
+                    whole order · $X", elevating the honesty caveat (a guest who read "your share" isn't
+                    surprised by the full charge). The amount is the server-reconciled estimate; the pay
+                    step confirms. */}
+                  <span style={{ position: "relative", zIndex: 1 }}>
+                    {loadingPay ? (
+                      "Starting checkout…"
+                    ) : (
+                      <>
+                        {isGroup
+                          ? `${T("payWholeOrder")} · ${ctaTotal}`
+                          : `${T("pay")} · ${ctaTotal}`}
+                        <span aria-hidden className="checkout-cta-arrow">
+                          →
+                        </span>
+                        {/* W16b — MY line under the EN+amount line (amount stays Latin, EN line only). */}
+                        <My k={isGroup ? "payWholeOrder" : "pay"} color="inherit" />
+                      </>
+                    )}
+                  </span>
+                </button>
+                {/* Pay's ONE reason — static text (never a live region: this view keeps its one), read
+                    through `aria-describedby` from the control it explains. */}
+                {blockCopy && (
+                  <p id={payReasonId} className="checkout-pay-reason">
+                    {blockCopy}
+                    {block === "grace" && (
+                      <span lang="my" className="checkout-pay-reason-my">
+                        {t("my", "payOpensAfterUndo")}
                       </span>
-                      {/* W16b — MY line under the EN+amount line (amount stays Latin, EN line only). */}
-                      <My k={isGroup ? "payWholeOrder" : "pay"} color="inherit" />
-                    </>
-                  )}
-                </span>
-              </button>
+                    )}
+                  </p>
+                )}
+              </>
             )}
 
             {/* A1 — the other door, quiet, under the one filled CTA: the register. Same freeze gate
@@ -3771,11 +3955,11 @@ export function Checkout({
                 and a tap on it repeats the reason — the server refuses the ask the same way. */}
             {showPayControls && isDineIn && (
               <PayAtCounterButton
-                disabled={payFrozen || sendBlocksPay}
+                disabled={block !== null}
                 busy={counterBusy}
                 onClick={askCounter}
                 onRefusedTap={
-                  sendBlocksPay && !payFrozen
+                  block === "unsent"
                     ? () =>
                         // The host is told to send; a guest is told who does (the note's split).
                         // Said again on every tap (`sayRefusal`, Phase 2c · review).
@@ -3784,7 +3968,10 @@ export function Checkout({
                             canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
                           ),
                         )
-                    : undefined
+                    : block === "grace" && blockCopy
+                      ? // Phase 3c-i (D16) — the counter waits for the undo window too, in Pay's words.
+                        () => sayRefusal(blockCopy)
+                      : undefined
                 }
               />
             )}
@@ -3869,8 +4056,42 @@ export function Checkout({
             >
               {/* Keyed on `statusSeq` (Phase 2c · review): a refused tap renumbers it, so a repeated
                   sentence remounts and is said again. */}
-              <span key={statusSeq}>{payError ?? status}</span>
+              <span key={statusSeq}>
+                {payError ?? status}
+                {/* Phase 3c-i (D15) — the owner's Burmese half of a send/undo outcome, only while the
+                    region still says the EN sentence it belongs to. */}
+                {!payError && outcomeMy && status === outcomeMy.text && (
+                  <span lang="my" style={{ display: "block", fontFamily: "var(--font-my)" }}>
+                    {outcomeMy.my}
+                  </span>
+                )}
+              </span>
             </p>
+            {/* Phase 3c-i (D17) — the dish's ⋯ sheet, ONE per screen, held through its exit by
+                `useSheetSubject` and keyed per open. It closes on a choice, on a dismissal, and the
+                moment its line stops being a draft (the subject goes null); focus returns to the
+                line's ⋯, or lands on the line's name when the ⋯ is gone (`landAfterLineSheet`). The
+                sheet mirrors this view's sentence in its own region (Radix hides the page's). */}
+            {lineSheet.held && (
+              <LineOptionsSheet
+                key={lineSheet.key}
+                line={lineSheet.held}
+                open={lineSheet.open}
+                frozen={editsFrozen}
+                prepMinutes={prepMinutes}
+                notice={payError ?? status}
+                onOpenChange={(open) => {
+                  if (!open) setLineSheetId(null);
+                }}
+                onChoose={(ful) => {
+                  const id = lineSheet.held!.id;
+                  setLineSheetId(null); // close on choice — the toggle is the existing optimistic chain
+                  toggleFulfillment(id, ful);
+                }}
+                onMakeNow={() => makeNow(lineSheet.held!.id)}
+                onCloseAutoFocus={(e) => landAfterLineSheet(e, lineSheet.held!.id)}
+              />
+            )}
           </>
         )}
       </div>

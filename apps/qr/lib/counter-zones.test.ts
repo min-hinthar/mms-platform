@@ -33,6 +33,23 @@ describe("currentZone — the last heading at or above the strip's edge", () => 
       ),
     ).toBe("start-h");
   });
+  it("at the END of a scrollable page the LAST present zone is current — a short last zone can never climb to the edge (deep pass on #312)", () => {
+    const tops = [
+      { id: "start-h", top: -400 },
+      { id: "floor-h", top: 4 },
+      { id: "expo-h", top: 300 },
+    ];
+    expect(currentZone(tops, 52, false)).toBe("floor-h");
+    expect(currentZone(tops, 52, true)).toBe("expo-h");
+  });
+  it("at the end of the page a MISSING last heading still never becomes current — the last present one does", () => {
+    const tops = [
+      { id: "start-h", top: -400 },
+      { id: "floor-h", top: 4 },
+      { id: "expo-h", top: Number.POSITIVE_INFINITY },
+    ];
+    expect(currentZone(tops, 52, true)).toBe("floor-h");
+  });
   it("no zones, no answer", () => {
     expect(currentZone([], 120)).toBeNull();
   });

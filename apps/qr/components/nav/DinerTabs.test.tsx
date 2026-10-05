@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DrainOutcome } from "@/lib/write-ledger";
 
 /**
  * Phase 3a (D1) — the tab bar rendered for real: four links, the lit one `aria-current="page"`, the
@@ -14,23 +15,40 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(search),
 }));
 const push = vi.fn();
-vi.mock("./TransitionNav", () => ({
-  useJourneyRouter: () => ({ push }),
-  TransitionLink: ({
-    href,
-    children,
-    ...rest
-  }: {
-    href: string;
-    children?: React.ReactNode;
-    [k: string]: unknown;
-  }) => (
-    <a href={href} {...(rest as object)}>
-      {children}
-    </a>
-  ),
-}));
-const drain = vi.fn<() => Promise<void>>();
+vi.mock("./TransitionNav", async () => {
+  // The mock keeps the ONE rule of the real grammar that this bar's drain depends on: an in-tab click
+  // bumps the epoch AFTER the consumer's handler ran and only if that handler did not take the
+  // navigation over (deep pass on #312 — a bare `<a>` here let a double tap pass while the shipped
+  // bar navigated zero times).
+  const { navEpoch } = await vi.importActual<typeof import("@/lib/nav-epoch")>("@/lib/nav-epoch");
+  return {
+    useJourneyRouter: () => ({ push }),
+    TransitionLink: ({
+      href,
+      children,
+      onClick,
+      ...rest
+    }: {
+      href: string;
+      children?: React.ReactNode;
+      onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+      [k: string]: unknown;
+    }) => (
+      <a
+        href={href}
+        {...(rest as object)}
+        onClick={(e) => {
+          onClick?.(e);
+          const inTab = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+          if (inTab && !e.defaultPrevented) navEpoch.bump();
+        }}
+      >
+        {children}
+      </a>
+    ),
+  };
+});
+const drain = vi.fn<() => Promise<DrainOutcome>>();
 const store = {
   cartId: "c1" as string | null,
   cartCount: 2 as number | null,
@@ -70,12 +88,15 @@ beforeEach(() => {
   badge.mockResolvedValue({ stars: 4, tierId: "new", isUpgraded: false });
   push.mockReset();
   drain.mockReset();
-  drain.mockResolvedValue(undefined);
+  drain.mockResolvedValue("settled");
 });
 afterEach(cleanup);
 
 describe("DinerTabs", () => {
   it("three links, the current one marked, the claims in the names (Phase 3b, D7)", async () => {
+    // The menu URL always carries its mode (`menuHref`); a lit Menu tab is a self-link to where you
+    // are (Codex round 2 on #313), so the fixture names the real route, not a bare `/menu`.
+    search = "mode=pickup";
     render(<DinerTabs />);
     const links = screen.getAllByRole("link");
     expect(links.map((a) => a.getAttribute("href"))).toEqual([
@@ -136,8 +157,8 @@ describe("DinerTabs", () => {
     // is intercepted, the barrier awaited, and only then does the journey push.
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     render(<DinerTabs />);
@@ -150,11 +171,21 @@ describe("DinerTabs", () => {
     release();
     await waitFor(() => expect(push).toHaveBeenCalledWith("/cart?cart=c1"));
     expect(order.getAttribute("aria-busy")).toBeNull();
-    // A second tap during the drain is one navigation, not two.
-    drain.mockReturnValue(new Promise<void>(() => {}));
+    // A second tap during the drain is ONE navigation, not two — and not zero: the impatient
+    // re-tap must neither start a second drain nor cancel the first (deep pass on #312).
+    push.mockClear();
+    let release2!: () => void;
+    drain.mockReturnValue(
+      new Promise<DrainOutcome>((r) => {
+        release2 = () => r("settled");
+      }),
+    );
     fireEvent.click(order);
     fireEvent.click(order);
     expect(drain).toHaveBeenCalledTimes(2);
+    release2();
+    await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
+    expect(push).toHaveBeenCalledWith("/cart?cart=c1");
   });
   it("on /track with nothing left to open, the lit Order tab is a self-link to the tracker's own URL (blind pass on 3b)", () => {
     pathname = "/track";
@@ -172,8 +203,8 @@ describe("DinerTabs", () => {
   it("a competing navigation during the drain CANCELS the queued push — the diner is never yanked back (Codex round 1 on 3b)", async () => {
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     const { rerender } = render(<DinerTabs />);
@@ -195,8 +226,8 @@ describe("DinerTabs", () => {
     const { navEpoch } = await import("@/lib/nav-epoch");
     let release!: () => void;
     drain.mockReturnValue(
-      new Promise<void>((r) => {
-        release = r;
+      new Promise<DrainOutcome>((r) => {
+        release = () => r("settled");
       }),
     );
     render(<DinerTabs />);
@@ -205,6 +236,20 @@ describe("DinerTabs", () => {
     release();
     await new Promise((r) => setTimeout(r, 10));
     expect(push).not.toHaveBeenCalled();
+  });
+  it("a drain past its deadline does NOT navigate — the lender has said the change is still saving, and the tab is live for a retry (Codex round 1 on #313, P1)", async () => {
+    // Elapsed time does not settle a write. Pushing on the deadline put the diner on /cart while the
+    // add was still in flight — missed by its first read, or refused by the lock it took.
+    drain.mockResolvedValue("timed-out");
+    render(<DinerTabs />);
+    const order = screen.getByRole("link", { name: "Order — 2 items" });
+    fireEvent.click(order);
+    expect(order.getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => expect(order.getAttribute("aria-busy")).toBeNull());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(order); // the retry re-awaits — a second drain, never a swallowed tap
+    expect(drain).toHaveBeenCalledTimes(2);
   });
   it("a modified click on the Order tab is the link it is — no drain, no push", () => {
     render(<DinerTabs />);

@@ -437,9 +437,13 @@ the plan state.
         Menu · Order · Account with the Order tab following the order; the threshold lights nothing;
         the DoorSheet on every menu and the market; the menu's thrown-away pickup pick retired; the
         pickup phone dies with the handover; the paid headline in both tongues.
-  - [ ] **3c — dine-in, two PRs:** the Checkout half (one hero verb per state, the undo lifted so the
-        bill is live during the grace, Pay stating its reason, the Total row, the line ⋯ sheet, the
-        table grid as a section of the DoorSheet); then the table bound at SEND time (authority).
+  - [x] **3c-i — the bill is a receipt you can read** (2026-10-04, `docs/PHASE3C_DESIGN.md`, D13–D20):
+        one hero verb per state (`lib/checkout-verb.ts`), the undo lifted into Checkout so the bill is
+        readable during the grace and only Pay waits, Pay keeping its name and stating its one reason
+        (peer > unsent > grace), the Total row as the door named once, the line's For here / To go
+        behind a ⋯ sheet, the table grid as a SECTION of the DoorSheet offered only OFF the table.
+  - [ ] **3c-ii — the table bound at SEND time** (authority: `seatedSessionFor`, the CAS bind, the
+        register refusal; and the `mms_undo_fire` `locked` guard, M258 — a prod migration behind M125).
   - [ ] **3d — staff, two PRs:** the kitchen's pass at two distances (Aa + bell as bar circles, the
         glance strip, "Late" in the badge); the counter's receipt stack, then the cash-sheet re-host.
   - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the

@@ -1,6 +1,7 @@
 "use client";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useSessionPeek, type PeekSession } from "@/lib/useSessionPeek";
+import { dineInMenuHref } from "@/lib/table-pick"; // 3c-i: the ONE dine-in menu href builder
 
 /**
  * W5a — the homepage "you have something open" card(s), the session-level sibling of
@@ -44,7 +45,10 @@ export function HomeSessionCard() {
         // the claim path is the authoritative rejoin). A solo basket with items lands on the cart
         // review directly (menu-door fallback if the open cart somehow vanished).
         const href = isDinein
-          ? `/menu?mode=dinein&door=dinein&resume=1${s.tableNumber != null ? `&table=${s.tableNumber}` : ""}`
+          ? dineInMenuHref({
+              resume: true,
+              ...(s.tableNumber != null ? { table: s.tableNumber } : {}),
+            })
           : s.cartId
             ? `/cart?cart=${encodeURIComponent(s.cartId)}`
             : `/menu?mode=${s.mode}&door=togo`;

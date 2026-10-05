@@ -3358,7 +3358,7 @@ reset at load (`lib/test-resets.ts`) and have the setup run the registry — a m
 has nothing to reset. Prove each with an ordered pair of cases and delete the suite's own manual reset,
 or the suite hides the leak the setup is meant to stop.
 
-## #200
+## #215
 
 **A later rule at the same specificity beats your declaration, and it happened twice in one day.** Phase
 3a's zone strip declared `scroll-padding-top` on `:root:has(.staff-zone-strip)` and lost to
@@ -3371,3 +3371,208 @@ other element cannot match (`a.door-sheet-row`), never on a shared class; (2) a 
 every block that can match the element and assert the competing property is ABSENT there, not that the
 intended block declares it; (3) the blind pass found both, the author neither — read your new selector
 against every rule that already matches the same element before calling it done.
+
+## #216
+
+**Run the blind pass on the FULL PR diff before the merge, not per slice.** The deep pass on #312
+(3a + 3b, 96 files) confirmed 53 findings in code every per-slice pass had passed, and the worst were
+CROSS-slice: Codex round 3's "persist the picker's door" (3b) orphaned every live pickup or market cart
+on neutral routes, and 3b's DoorSheet linked a same-pathname `/menu?mode=pickup` that kept 3a's
+`TableCartProvider` alive with the table's session — adds from the "To go" menu landed on the shared
+table bill. Neither slice's pass could see the other's assumption. A pass over the merge head is the
+only one that reads the whole contract. ⚠️ This is a rule about SCOPE, not depth: the pass that found
+them ran 103 agents, and the owner's verdict on it is #218 — the full diff, at the HARD CAP.
+
+## #217
+
+**A `useSearchParams` mock that hands out a fresh object per render re-runs every `[searchParams]`
+effect per render — and masks mutants.** `ActiveOrderProvider.test` mocked `useSearchParams: () => new
+URLSearchParams(search)`; the provider's route effect therefore ran on every setState, and its new
+back-fill re-stamped a door the mutant had made the publisher forget, so
+`active-order/publish-forgets-the-door` SURVIVED with the suite green. Next hands out ONE
+URLSearchParams per URL; the mock must too (a cache keyed on the search string). The same shape hides
+in any mock that returns a new object from a hook used as an effect dependency.
+
+## #218
+
+**The review pass is capped, and the owner has now said so twice (2026-08-05, 2026-10-04: "pass should
+never be that deep, codex level adversarial review is fine if codex red").** The deep pass on #312 ran
+11 auditors + a coverage critic + 2–3 refuters per finding — 103 agents — and hit the weekly token
+limit with four refuters unrun. It found 53 real things, and that is not the point: the HARD CAP in
+CLAUDE.md (one pass · ≤3 lenses · ≤10 agents · ~15 min) is a budget the owner set over the cost of
+being right slowly. The rule now: the in-session pass covers the FULL PR diff (#216) at the cap;
+Codex is the second reviewer; and only a RED Codex round earns a further adversarial pass — one more
+capped pass over the files Codex named, never a fleet. "Deep pass" in an owner's message means the
+whole diff, not a bigger panel.
+
+## #219
+
+**A deadline on a barrier is not a settlement — and a liveness fix on a money path is a money change.**
+The deep pass on #312 fixed a real stuck tab (a hung Server Action behind `settled()` left the Order tab
+`aria-busy` forever) with `bounded()`: resolve when the barrier settles OR after 8 s. It resolved `void`
+either way, so every caller navigated at the deadline with the write still in flight — the exact W21
+race (/cart's first read misses the add; its create-intent lock refuses it) the barrier exists to
+prevent, reintroduced by the fix and passed by eleven auditors, a coverage critic and three refuters,
+because all of them were reading for "does the tab come back", not "what is charged". Codex round 1 on
+#313 caught it in one line. Rules: (1) when you bound an await, the timeout branch must carry a
+DIFFERENT value from the success branch (`"settled" | "timed-out"`) and every caller must handle it —
+a `Promise<void>` that resolves either way erases the distinction at the type level; (2) a timeout on
+a write barrier is a REFUSAL to proceed, narrated through the view's existing live region, never a
+release; (3) any fix that trades liveness for money-safety on a charge path is a money-path change and
+gets the money lens, whatever bug it started as.
+
+## #220
+
+**`check:docs` counts TRACKED docs files — run it after `git add`, never before.** The 3c-i design doc was
+checked clean while still untracked (102 files measured), committed and pushed; CI measured 103 while
+HANDOFF said 102, and `check:docs` — step ONE of the lane under `bash -e` — stopped the whole `build`
+job on a docs-only commit (`4d57ecf`, 2026-10-04). A new `.md` changes the count the moment it is
+staged, so the pre-push check is `git add … && pnpm check:docs`, in that order.
+
+## #221
+
+**Run the suites of the files you IMPORT, not only the files you edited.** `cbfd1ca` changed
+`CartPublisher` to lend the provider's bounded `drain` instead of the bare `settled()`; its own suite,
+`CartPublisher.test.tsx`, still handed the mock a `settled` and was never run — the author ran nine
+suites for nine edited files and CI ran the 390th. Before any push: `grep -rl "<ComponentName>"
+apps/qr --include=*.test.tsx --include=*.test.ts` for every touched module, and when in doubt the full
+`pnpm exec vitest run` (100 s locally) — it is what CI runs, and it is cheaper than a red head mid-
+review.
+
+## #222
+
+**A mutant on an UNREACHABLE clause survives — re-aim at the clause that does the work, never delete
+it.** 3c-i's brief asked for `checkout/line-sheet-offered-on-a-fired-line` as "drop `lineState ===
+"draft"` from the ⋯ gate"; the builder watched it SURVIVE: `canMutateLine` already returns false for
+every non-draft line when the actor is a diner, so no input reaches the clause. The W17 rule ("a guard
+that cannot be reached is decorative") cuts both ways — the mutant proved the clause decorative, and
+the behaviour the brief cared about (no ⋯ on a fired line, none on a tablemate's) lives in `canEdit`.
+Re-aimed there with a guest fixture, it went red. A surviving mutant is information about the CODE's
+structure; read it before touching the fixture.
+
+## #223
+
+**A brief's `file:line` citation is a claim to verify, not a fact — including the lead's.** The 3c-i
+doors brief cited a `.table-start-plain` rule at `globals.css:7252-7349`; no such rule exists anywhere
+(the class is a hook on the button, styled by an inline object), and the Checkout brief's test-file
+line numbers were off by a few lines at the base. Both builders verified every citation against source
+before acting and reported the misses as deviations — which is the only reason nothing was built on
+them. The panel that writes a brief reads one checkout; the builder reads another; the citation is the
+hand-off's weakest link, so the brief must say "verify each line" and the builder must.
+
+## #224
+
+**Concurrent Bash calls share one working directory — a `cd` into a subdirectory in one call moves the
+others.** A test run that did `cd ../../packages/ui` at its end moved a parallel fast-lane loop into
+`packages/ui`, where every `pnpm -s check:*` failed with exit 1 and empty output and `node
+scripts/check-test-env.mjs` printed a Node version banner. The loop's leading `cd /home/user/mms-platform
+&&` did not save it. Run subdirectory commands in a subshell — `(cd apps/qr && …)` — and never trust an
+all-red fast lane that produced no text: re-run it alone before reading anything into it.
+
+## #225
+
+**A tool that reads a child process's whole output has a buffer, and a growing suite will cross it.**
+`check-docs.mjs` ran `vitest list` through `execFileSync` with the 1 MB default `maxBuffer`; at 6437
+long-named cases the list crossed it and the check died with ENOBUFS, dumping the list to stderr.
+`check:docs` is step ONE of the lane under `bash -e`, so this would have reddened `build` on the first
+push that grew the suite past the line, with a stack trace that looks nothing like "docs". Size every
+`execFileSync`/`execSync` buffer for the output it can grow to (64 MB here), and read an unfamiliar
+`child_process` stack trace as "too much output" before anything else.
+
+## #226
+
+**A mutant whose SCENARIO a fix removed is RETIRED with its reason — never kept to survive, never
+"made reachable" by weakening the fix (3c-i blind pass, 2026-10-04).** `checkout/pay-mints-over-an-in-flight-undo` and `checkout/pay-decides-before-the-drain` falsified Pay's
+drain in exactly one state: the undo window CLOSED while its chain was still out. The blind pass's fix
+(the window outlives the re-sync; `pending` holds Pay) made that state unreachable — the tap is refused
+at `blockCopy` for as long as `graceWrites` can be non-trivially pending — so both would SURVIVE. W17's
+"make the rule reachable, never delete the mutant" is about a FIXTURE that cannot reach a live rule
+(the 15/20/30 ladder under a 50% cap). A rule with no reachable violation keeps its code (belt behind
+braces) and loses its mutant, with the reason in CHANGELOG. Related, same session: a RE-ENTRANCY door is
+falsifiable only as STATE the control wears — a synchronous `setState` in the handler makes the button
+`disabled` before the next discrete event is processed (React flushes a click's updates at the end of
+the click) — a ref-only guard passes every DOM test with or without it, because two `fireEvent.click`s
+never share a tick. Mutate the `setState`, not the ref.
+
+## #227
+
+**A global count sweep rewrites every other number that happens to equal it (2026-10-04).**
+`3000 → 3023` to refresh the mutant total also rewrote the dev PORT in README
+(`http://localhost:3023`) and HANDOFF (`curl "localhost:3023/…"`), and sat there through a push:
+`check:docs` measures the counts it KNOWS and nothing else, and the blind pass found it, not a guard.
+Replace a count with its CONTEXT (`3000 mutations`, `(3000 today)`), then `git grep` the bare number
+before committing — and when the sweep is `sed`, read its diff, not its exit code. **It happened AGAIN
+the same session, four commits after this entry was written:** `3030 → 3031` rewrote the migration
+timestamp `20260623030000` to `…031000` in CHANGELOG and HANDOFF, and three historical "N → M" sentences
+with it. A bare count is never a safe search key. Replace the LIVE-COUNT PHRASES (`N qr tests`,
+`N verify:slice mutants`, `(N today)`), and before committing run the set check that would have caught
+both: every 14-digit timestamp the docs cite must exist as a file prefix under `supabase/migrations/`.
+
+## #228
+
+**A gate on a landed-but-unapplied write waits on the READ, never on the clock — and a bounded retry
+that gives up is a clock (Codex rounds 3–5 on #313, 2026-10-04).** The undo window closed on the
+server's answer (round 3: the re-sync had not applied), then on a re-sync that RESOLVED "failed"
+(round 3: `refresh` swallows), then — after a bounded retry released `pending` — on the grace deadline
+passing mid-outage (round 5): each time Pay went live over drafts the server had restored, and only
+create-intent's refusal stood between the diner and a failed charge. Three rounds for one rule: the
+state that gates money moves when a view the screen can keep has APPLIED. A retry that stops is a
+deadline in disguise; keep the gate shut and keep asking (bounded by the window's own lifetime —
+unmount or a new window — not by a count), release the CHAIN so drains never wait on an outage, and
+say what is happening. Sibling of #219.
+
+## #229
+
+**A detached process does not outlive the container, and an idle cloud session loses its container
+(the full `verify:slice` on #313, attempts 2 and 5, 2026-10-04).** `setsid nohup` survives the tool's
+shell and the 2 h Bash ceiling — it does not survive the container being reclaimed, which happened
+~20 minutes after a turn ended to wait on PR events (uptime read 183 s on the resume; the log's last
+write was the baseline suites). A job longer than a turn needs a HARNESS-TRACKED escort: one background
+Bash `while kill -0 <pid>; do sleep 30; done` at the ceiling, re-armed on expiry while the pid lives,
+so the harness holds the container and wakes the session once when the job exits. The escort waits on a
+job THIS session started and reads a log tail on wake; it is not the parked-PR poll #114 forbids — a
+PR still waits on events only. Before relying on a detached run, check `/proc/uptime` on every resume:
+a young uptime means every detached process is gone, and a worktree it was mutating may hold a live
+mutant (`git status` it; `git checkout -- .`).
+
+## #230
+
+**A check whose verdict is piped through `tail` reports `tail`'s exit code, and a backticked span must
+not cross a line break inside a blockquote (#313's docs push `c8b2677`, 2026-10-04).** `prettier --check
+… | tail -1 && git commit … && git push` pushed an unformatted HANDOFF: the pipe's status is the last
+command's, so `[warn] Code style issues` scrolled past and the chain went on — CI's `format:check` is
+step two of the fast lane and would have reddened `build`. Put the check FIRST on its own line and test
+`$?`, or `set -o pipefail`; never let a gate's output be the thing that decides whether the gate passed.
+The drift itself was prettier's: an inline code span that wraps across two `> ` lines makes it drop the
+marker from the continuation (a lazy line — renders, but the doc's own guard will not know), so keep a
+code span on one line, re-wrapping the prose around it. Sibling of the table rule in `check:docs`
+("prettier INTRODUCES breaks").
+
+## #231
+
+**`clearTimeout` in a cleanup is not cancellation once the callback is mid-await — cancel through the
+TARGET the continuation checks (Codex round 7 on #313, 2026-10-04).** `retryRead`'s timer callback
+nulled its own handle, then awaited the read; the unmount cleanup found nothing to clear, the read failed
+after the diner had left, and the continuation re-armed the timer from a hook nobody rendered — an
+abandoned checkout polling its cart every 750 ms for the length of an outage. Every continuation already
+re-checked `restoredRef.current === target` after its await, so the cleanup had only to clear the target,
+as `open()` already did for a superseded window. Rule: a cleanup for an async loop invalidates the thing
+the loop checks after each await; clearing the handle stops only the step that has not started. Test it
+with a read that is OUT at unmount (a deferred promise), resolve it afterwards, and count the calls.
+**And the target alone was not enough (round 8, the same day):** the undo's OWN continuation — a Server
+Action and up to three reads out at unmount — wrote the target back and re-armed the retry. A target is
+state the continuation itself mutates; the cancellation that holds is a flag only the lifecycle writes
+(`mountedRef`, set in the mount effect so StrictMode's effect → cleanup → effect ends mounted), read
+after EVERY await, and the continuation says, closes and arms nothing once it reads false.
+
+## #232
+
+**A focus assertion that follows a DOM-only `waitFor` races the passive effect that lands the focus —
+wait for the focus itself (CI on #313's `1c128cf`, 2026-10-04).** The grace's close edge removes the
+Undo in one commit and lands `<h1>` focus in a `useEffect` keyed on the window closing; the test waited
+for the Undo to vanish, then read `document.activeElement` synchronously. Locally the effect had always
+run; on the runner `waitFor`'s observer fired between the commit and the effect flush, and the
+assertion saw `<body>` — a test red on a product behaviour that was correct. Anything a passive effect
+produces (focus, an announcement, a scroll) is asserted inside its own `waitFor`; a wait on the DOM
+proves only the commit. The repo's "a failing test is never a flake" stands: the race was the test's
+own, and the fix is the test's — the product landing stayed as it was.

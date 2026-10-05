@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizePickupSlot, sameSlot } from "./pickup-slot";
+import {
+  nextSlotCheck,
+  normalizePickupSlot,
+  sameSlot,
+  SLOT_RECHECK_MAX_MS,
+  slotIsPast,
+} from "./pickup-slot";
 
 /**
  * W19 — the ASAP-snap normalization, pinned. Two callers (the server seed in cart/page.tsx and
@@ -39,5 +45,38 @@ describe("sameSlot — slot equality by instant, never by string (W20)", () => {
     expect(sameSlot(null, "2026-08-16T18:30:00Z")).toBe(false);
     expect(sameSlot("2026-08-16T18:30:00Z", null)).toBe(false);
     expect(sameSlot("not-a-date", "not-a-date")).toBe(false);
+  });
+});
+
+describe("slotIsPast — a lapsed slot is not a plan (deep pass on #312)", () => {
+  const now = Date.parse("2031-03-15T18:30:00.000Z");
+  it("an instant at or before now is past; one after now is not", () => {
+    expect(slotIsPast("2031-03-15T18:29:59.000Z", now)).toBe(true);
+    expect(slotIsPast("2031-03-15T18:30:00.000Z", now)).toBe(true);
+    expect(slotIsPast("2031-03-15T18:30:01.000Z", now)).toBe(false);
+  });
+  it("no slot, or garbage, is never past — the question does not arise", () => {
+    expect(slotIsPast(null, now)).toBe(false);
+    expect(slotIsPast("not a date", now)).toBe(false);
+  });
+});
+
+describe("nextSlotCheck — when a surface must look at the slot again (Codex round 1 on #313)", () => {
+  const now = Date.parse("2031-03-15T18:00:00.000Z");
+  it("a future slot: the ms until its instant", () => {
+    expect(nextSlotCheck("2031-03-15T18:30:00.000Z", now)).toBe(30 * 60 * 1000);
+  });
+  it("a far slot is CAPPED so the timer re-arms, rather than one long timer the tab may sleep through", () => {
+    expect(nextSlotCheck("2031-04-15T18:00:00.000Z", now)).toBe(SLOT_RECHECK_MAX_MS);
+    expect(nextSlotCheck("2031-04-15T18:00:00.000Z", now, 1000)).toBe(1000);
+  });
+  it("an instant AT or before now needs no check — `slotIsPast` already answers", () => {
+    expect(nextSlotCheck("2031-03-15T18:00:00.000Z", now)).toBeNull();
+    expect(nextSlotCheck("2031-03-15T17:59:59.000Z", now)).toBeNull();
+  });
+  it("no slot, or garbage, is nothing to wait for", () => {
+    expect(nextSlotCheck(null, now)).toBeNull();
+    expect(nextSlotCheck(undefined, now)).toBeNull();
+    expect(nextSlotCheck("not a date", now)).toBeNull();
   });
 });

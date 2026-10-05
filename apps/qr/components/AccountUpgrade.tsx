@@ -179,7 +179,24 @@ export function AccountUpgrade({
         // "Your Stars followed you" about value that is not theirs. Supabase rate-limits OTP per
         // address, so "the send failed and they gave up" is an ordinary evening, not a rare edge.
         clearMergeToken();
-        setError(e0.message || "Couldn’t send the sign-in code — try again.");
+        // Deep pass on #312 — `shouldCreateUser: false` refuses an address with no account, and the
+        // first-press Sign in door made that refusal reachable by a typed, never-vetted address. The
+        // gateway's own words ("Signups not allowed for otp") are not a sentence for a diner.
+        // Codex round 1 on #313 — and the CODE is not the discriminator: GoTrue answers `otp_disabled`
+        // both for that refusal and for OTP sign-in switched off in the project's Auth settings, so
+        // keying on the code told every EXISTING account "we couldn't find you" during an outage and
+        // sent them off to create a second one. The message decides; the configuration case gets a
+        // sentence of its own; `signup_disabled`'s "…for this instance" is neither.
+        const gotrueCode = (e0 as { code?: string }).code;
+        const noAccount = /signups? not allowed for otp/i.test(e0.message ?? "");
+        const otpOff = !noAccount && gotrueCode === "otp_disabled";
+        setError(
+          noAccount
+            ? "We couldn’t find a Morning Star account for that email. Check the spelling, or save your Stars to start one."
+            : otpOff
+              ? "Email sign-in isn’t available right now — try again in a little while."
+              : e0.message || "Couldn’t send the sign-in code — try again.",
+        );
         signInStarting.current = false;
         return false;
       }
@@ -355,6 +372,10 @@ export function AccountUpgrade({
     url.searchParams.delete("error");
     url.searchParams.delete("error_code");
     url.searchParams.delete("error_description");
+    // The strip leaves the URL naming the panel it implied (deep pass on #312): the bounce landed
+    // on You, and `router.refresh()` after the sign-in re-requests the canonical URL — without
+    // `?tab=you` the hub re-rendered on Orders the moment the account confirmed.
+    if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");
     window.history.replaceState(null, "", `${url.pathname}${url.search}`);
   }, [callback]);
 
@@ -468,6 +489,8 @@ export function AccountUpgrade({
         // Strip ONLY `resume` (keep any co-present params, e.g. an OAuth error_code) so a refresh can't re-fire.
         const url = new URL(window.location.href);
         url.searchParams.delete("resume");
+        // …and keep the panel the lend return implied, for the same reason as the bounce strip above.
+        if (!url.searchParams.has("tab")) url.searchParams.set("tab", "you");
         window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
       }
       const match = readIdentities().find(
@@ -745,6 +768,10 @@ export function AccountUpgrade({
           <button
             type="button"
             onClick={() => {
+              // Backing out abandons whatever sign-in minted the carry proof (deep pass on #312):
+              // the stash is unbound exactly as on the e0/e4 paths. Unconditional is safe — the
+              // upgrade (email_change) path never mints, and the next door re-mints its own.
+              clearMergeToken();
               setPhase("idle");
               setCode("");
               setError(null);

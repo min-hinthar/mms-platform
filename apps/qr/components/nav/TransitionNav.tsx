@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, type ComponentProps } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useRef, type ComponentProps } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Link as VTLink, useTransitionRouter } from "next-view-transitions";
 import { navEpoch } from "@/lib/nav-epoch";
 
@@ -71,12 +71,15 @@ export function TransitionLink(props: ComponentProps<typeof VTLink>) {
         // Stamp only when THIS click will actually navigate in-tab: a modified/middle click opens a
         // new tab (no transition here), and stamping anyway would leave a stale direction for the next
         // unstamped transition source (the popstate handler restamps, but keep the invariant tight).
-        if (e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-          stampDir(directionBetween(pathname, pathnameOf(String(href))));
-          // A navigation is STARTING (Codex round 2 on 3b): any push a drain has queued is now stale.
-          navEpoch.bump();
-        }
+        const inTab = e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+        if (inTab) stampDir(directionBetween(pathname, pathnameOf(String(href))));
         onClick?.(e);
+        // A navigation is STARTING (Codex round 2 on 3b): any push a drain has queued is now stale —
+        // unless the consumer's handler took the navigation over (`preventDefault`, which also stops
+        // the link itself: the Order tab's drain, whose own `journey.push` bumps when it fires). Read
+        // AFTER the handler, for that reason: bumping a cancelled click made the tab's impatient second
+        // tap cancel its first and navigate nowhere (deep pass on #312).
+        if (inTab && !e.defaultPrevented) navEpoch.bump();
       }}
     />
   );
@@ -107,9 +110,22 @@ export function useJourneyRouter() {
  * Mounted once in the root layout.
  */
 export function NavDirectionSync() {
+  const pathname = usePathname();
+  const search = useSearchParams()?.toString() ?? "";
+  // The route the app last COMMITTED, as the popstate handler will compare it: a `popstate` also fires
+  // for a same-document history walk — an aisle shelf closing over its own `#aisle-*` entry, a
+  // checkout stage stepping back — and that is no navigation, so it must not bump the epoch and drop
+  // a drain's queued push (deep pass on #312). Path + query, never the hash.
+  const lastRoute = useRef(`${pathname ?? ""}${search ? `?${search}` : ""}`);
+  useEffect(() => {
+    lastRoute.current = `${pathname ?? ""}${search ? `?${search}` : ""}`;
+  }, [pathname, search]);
   useEffect(() => {
     const onPop = () => {
       stampDir("back");
+      const now = `${window.location.pathname}${window.location.search}`;
+      if (now === lastRoute.current) return; // a hash-only walk: the diner is still here
+      lastRoute.current = now;
       navEpoch.bump(); // Back is a navigation starting, too (Codex round 2 on 3b)
     };
     window.addEventListener("popstate", onPop);

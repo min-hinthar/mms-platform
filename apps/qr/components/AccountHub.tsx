@@ -55,7 +55,15 @@ export function AccountHub({
     setSeenInitial(initial);
     setPicked(null);
   }
-  const current: AccountPanelKey = isAccountPanel(fromUrl) ? fromUrl : (picked ?? initial);
+  // A URL CHANGE wins over a tap; a fresh tap wins over a STALE URL (deep pass on #312): arriving on
+  // `/account?tab=rewards` in a runtime whose replaceState throws, a tap on Orders used to set
+  // `picked` and change nothing, because the URL still said rewards and outranked it.
+  const [seenUrl, setSeenUrl] = useState(fromUrl);
+  if (seenUrl !== fromUrl) {
+    setSeenUrl(fromUrl);
+    setPicked(null);
+  }
+  const current: AccountPanelKey = picked ?? (isAccountPanel(fromUrl) ? fromUrl : initial);
   const id = useId();
   const tabRefs = useRef<Partial<Record<AccountPanelKey, HTMLAnchorElement | null>>>({});
 

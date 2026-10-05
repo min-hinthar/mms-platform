@@ -2533,26 +2533,91 @@ html[data-fx="off"] .pa-mid {
   content: none;
 }
 
-/* W12 — the Order moment's quiet door to the bill: the old Send outline look, inherited (the filled
-   promotion once everything is sent comes from .checkout-cta on the same element). */
-.checkout-viewbill {
-  /* W16e review MED — the SAME box as .checkout-cta: Checkout swaps one button between the two
-     classes (draft-count / undo state), so a box on only one of them made the primary CTA jump
-     ~8px on the first add and back again when the undo grace ended. */
+/* Phase 3c-i (D14) — the Order stage's receipt foot IS the door to the Bill (W12's quiet
+   "View bill" outline is retired). One 44px button of phrasing content — "Total" / "Estimated total" + MY, the amount,
+   an aria-hidden arrow — drawn as a receipt's total line: a hairline above, the label left, the hero
+   figure right. STATIC: no transition, no hover motion (nothing new animates in 3c-i); the button's
+   focus ring is the browser's. While the bill is the hero the SAME element wears `.checkout-cta`, so
+   every surface rule here is scoped `:not(.checkout-cta)` and the CTA's gradient wins untouched. */
+.checkout-total-door {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
   min-height: 50px;
-  padding-block: var(--s2);
-  border: 1px solid var(--ac);
+  margin-top: 14px;
+  padding: var(--s2) 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.checkout-total-door:not(.checkout-cta) {
+  border: 0;
+  border-top: 1px solid var(--bd);
+  border-radius: 0;
   background: transparent;
+  color: var(--tx);
+}
+.checkout-total-door.checkout-cta {
+  justify-content: center;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 12px;
+  text-align: center;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-body);
+}
+.checkout-total-door-label {
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-body);
+}
+.checkout-total-door-amount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-heavy);
+}
+/* The quiet door's arrow — body-sized beside the display figure, the accent's colour, no motion. */
+.checkout-total-door-arrow {
+  font-size: var(--fs-body);
   color: var(--ac);
-  transition:
-    transform var(--dur-fast) var(--ease-out),
-    background var(--dur-base) var(--ease-out);
 }
-.checkout-viewbill:hover {
-  background: color-mix(in oklab, var(--ac) 8%, transparent);
+/* W19 — "N items not sent yet", under the door (plain content, never inside the button's name). */
+.checkout-total-door-note {
+  margin: 2px 0 0;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: var(--t2);
+  text-align: right;
 }
-.checkout-viewbill:active {
-  transform: scale(0.98);
+
+/* Phase 3c-i (D16) — Pay's ONE reason, a static line the Pay button is `aria-describedby`. Never a
+   live region (the view keeps its one); every blocked tap re-says this sentence through it. */
+.checkout-pay-reason {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.checkout-pay-reason-my {
+  display: block;
+  font-family: var(--font-my);
+  font-size: var(--fs-xs);
+  color: var(--t3);
+}
+
+/* Phase 3c-i (D17) — the dish's ⋯: a 44×44 ghost from `.checkout-pill` (its press and reduced-motion
+   rules ride along), never the lit cap — a door, not a selection. */
+.checkout-line-more {
+  width: 44px;
+  padding: 0;
+}
+/* The ⋯ sheet's body: the pill row, the to-go line's early fire, the sheet's one region. */
+.checkout-line-sheet {
+  padding: var(--s2) 0 var(--s3);
 }
 
 /* Promo input — a calm resting field that blooms an accent focus ring (matches the global focus-visible).
@@ -2902,8 +2967,9 @@ html[data-fx="off"] .pa-mid {
   cursor: default;
 }
 
-/* The Send-to-kitchen secondary + undo buttons — the same outline family as .checkout-viewbill,
-   finally with a pulse of life. Colors here so :active can exist (they were inline). */
+/* The Send-to-kitchen undo button — the accent outline family (the Order stage's quiet door used
+   to share it; since 3c-i that door is `.checkout-total-door`), with a pulse of life. Colors here
+   so :active can exist (they were inline). */
 .checkout-outline-btn {
   border: 1px solid var(--ac);
   background: transparent;
@@ -2967,7 +3033,6 @@ html[data-fx="off"] .pa-mid {
   .checkout-cta,
   .checkout-cta-ghost,
   .checkout-cta-arrow,
-  .checkout-viewbill,
   .checkout-pill,
   .confirm-swap-cancel,
   .confirm-swap-proceed,
@@ -2981,7 +3046,6 @@ html[data-fx="off"] .pa-mid {
   .checkout-pill-accent:not(:disabled):hover,
   .checkout-tip:not(:disabled):hover,
   .checkout-cta:not(:disabled):not([aria-disabled="true"]):active,
-  .checkout-viewbill:active,
   .confirm-swap-cancel:not(:disabled):hover,
   .confirm-swap-cancel:not(:disabled):active,
   .confirm-swap-proceed:not(:disabled):active,
@@ -4567,12 +4631,13 @@ html[data-fx="off"] .pa-mid {
 }
 /* Off-menu "back to cart" link — a quiet secondary. */
 /* ── Phase 3a (D1) · the diner spine's bottom half — v7.2's persistent tab bar ───────────────────
-   Menu · Order · Track · Account on every diner route (components/nav/DinerTabs.tsx; decisions in
-   lib/diner-tabs.ts). The same chrome pane as the header (`--glass-chrome`, frosted under .dark
-   beside it in THE GLASS), the same z-plane (--z-toolbar: sheets, scrims and toasts paint above),
-   and its own view-transition-name so a route change moves the page UNDER it. Four equal columns,
-   each a 44px+ target; the lit tab is `aria-current="page"` and wears --ac-strong (bare --ac on the
-   chrome is pinned at AA by composite-contrast, --ac-strong is darker still). Tokens only. */
+   Menu · Order · Account on every diner route (components/nav/DinerTabs.tsx; decisions in
+   lib/diner-tabs.ts; 3b/D7 folded Track into the Order tab). The same chrome pane as the header
+   (`--glass-chrome`, frosted under .dark beside it in THE GLASS), the same z-plane (--z-toolbar:
+   sheets, scrims and toasts paint above), and its own view-transition-name so a route change moves
+   the page UNDER it. Three equal columns, each a 44px+ target; the lit tab is `aria-current="page"`
+   and wears --ac-strong (darker than --ac in light; in Night it aliases --ac, so the lit tab rides
+   the composite-contrast bound exactly). Tokens only. */
 :root:has(.diner-tabs) {
   --tabs-h: 60px;
 }
@@ -4580,6 +4645,13 @@ html[data-fx="off"] .pa-mid {
    parked under it — the same reserve the staff column keeps for its thumb-zone pill. */
 :root:has(.diner-tabs) body {
   padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px));
+}
+/* …and the SCROLL reserve (deep pass on #312): the body padding protects only the document's end. A
+   focus scroll or `scrollIntoView` lands its target flush with the viewport's bottom — under the bar
+   (WCAG 2.4.11) — unless the root reserves the height here too, as the top chrome does with
+   `scroll-padding-top`. Pinned by lib/scroll-padding-contract.test.ts. */
+:root:has(.diner-tabs) {
+  scroll-padding-bottom: calc(var(--tabs-h) + env(safe-area-inset-bottom, 0px) + var(--s2));
 }
 .diner-tabs {
   position: fixed;
@@ -4651,6 +4723,9 @@ html[data-fx="off"] .pa-mid {
   }
   :root:has(.diner-tabs) body {
     padding-bottom: 0;
+  }
+  :root:has(.diner-tabs) {
+    scroll-padding-bottom: 0;
   }
 }
 /* The count: a quiet accent capsule off the icon's corner (cream --oa on solid --ac = AA). */
@@ -4900,8 +4975,6 @@ html[data-fx="off"] .pa-mid {
 
 @media (prefers-reduced-motion: reduce) {
   .app-header-order,
-  .app-header-cart,
-  .app-header-rewards,
   .home-resume,
   .home-resume-arrow,
   .live-order-row,

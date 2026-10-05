@@ -19,6 +19,7 @@ import {
   encodeCartMode,
 } from "@/lib/order-noun";
 import { tabsMode } from "@/lib/diner-tabs";
+import type { DrainOutcome } from "@/lib/write-ledger";
 
 /**
  * Cross-route wayfinding memory (M-nav). QR screens are otherwise islands: `mode` is a URL param on `/menu`
@@ -63,11 +64,13 @@ type ActiveOrderCtx = {
    *  root layout, so the provider LENDS the store its `settled()` barrier while it is mounted
    *  (`CartPublisher`) and the tab awaits it before navigating: an add still in flight when the tab
    *  is tapped could otherwise be missed by /cart's first read or refused by its create-intent
-   *  lock. Resolves at once on a route with no provider — nothing is pending there. */
-  drain: () => Promise<void>;
-  /** The cart provider's publisher registers its barrier on mount and withdraws it (`null`) on
-   *  unmount, so a torn-down menu's ledger is never awaited from another route. */
-  registerDrain: (fn: (() => Promise<void>) | null) => void;
+   *  lock. Resolves at once on a route with no provider — nothing is pending there.
+   *  Codex round 1 on #313 (P1): the lender BOUNDS it and answers how it ended — a `"timed-out"`
+   *  drain has been spoken through the lender's own toast, and the tab must not navigate on it. */
+  drain: () => Promise<DrainOutcome>;
+  /** The cart provider's publisher (and the market's page) registers its bounded drain on mount and
+   *  withdraws it (`null`) on unmount, so a torn-down menu's ledger is never awaited from another route. */
+  registerDrain: (fn: (() => Promise<DrainOutcome>) | null) => void;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
@@ -131,11 +134,17 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const hydrated = useRef(false);
   // The lent barrier (see `drain` on the context type). A ref, never state: registering it must not
   // re-render every consumer of the store, and the tab reads it only inside a click.
-  const drainRef = useRef<(() => Promise<void>) | null>(null);
-  const registerDrain = useCallback((fn: (() => Promise<void>) | null) => {
+  const drainRef = useRef<(() => Promise<DrainOutcome>) | null>(null);
+  const registerDrain = useCallback((fn: (() => Promise<DrainOutcome>) | null) => {
     drainRef.current = fn;
   }, []);
-  const drain = useCallback(() => drainRef.current?.() ?? Promise.resolve(), []);
+  // The deadline (deep pass on #312) and its meaning (Codex round 1 on #313) both live with the
+  // LENDER, which owns the toast that explains a timeout; this store only relays the answer. A route
+  // with no lender has nothing pending — `"settled"` at once.
+  const drain = useCallback(
+    (): Promise<DrainOutcome> => drainRef.current?.() ?? Promise.resolve("settled"),
+    [],
+  );
 
   // Runs on every route/param change: persist fresh URL signals, capture a new live order on the /track
   // success landing, and hydrate the stored order once. Reads are sync; state writes ride a single rAF.
@@ -151,12 +160,22 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     // a transient reading, a diner who opened /dine-in with a grocery basket remembered and tapped
     // Account before picking a table saw the basket and "Market" return on /account, where the route
     // implies nothing and the stale stored door won.
-    const chosenMode = urlMode ?? tabsMode(pathname, null);
+    const routeDoor = tabsMode(pathname, null);
+    const chosenMode = urlMode ?? routeDoor;
     try {
+      // A pointer written before 3b has no `<cartId>:<mode>` pair, so `cartForDoor` offers it on
+      // every door — the pre-3b behaviour — until its own cart PUBLISHES and binds it (`publishCart`
+      // with the provider's session mode: cart-authoritative). The deep pass on #312 back-filled the
+      // pair here from the MODE the device remembered, and Codex round 1 on #313 showed why that is
+      // worse than nothing: the old store rewrote the mode on every `/menu?mode=` visit but kept the
+      // cart pointer until another cart published, so a door changed while the new mint failed left a
+      // dine-in cart beside `mode=pickup` — and a guessed pair offered that cart on the wrong door
+      // while SUPPRESSING it on its real one, for good. An ambiguous pointer stays unbound.
+      const storedCart = localStorage.getItem(KEY_CART);
       if (chosenMode) localStorage.setItem(KEY_MODE, chosenMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
       nextMode = chosenMode ?? localStorage.getItem(KEY_MODE);
-      nextCart = urlCart ?? localStorage.getItem(KEY_CART);
+      nextCart = urlCart ?? storedCart;
       // The remembered cart is offered only on the door it was published through (Codex round 2 on
       // 3b): the diner who leaves the market for /dine-in or the to-go menu stands in another door,
       // and its Order tab must not open the grocery basket while that door's cart is still minting
@@ -167,6 +186,15 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
       // owns it still does.
       if (!urlCart) {
         const door = decodeCartMode(localStorage.getItem(KEY_CART_MODE), nextCart);
+        // On a NEUTRAL route (one that is no door and names no `?mode=`) a LIVE remembered cart —
+        // something in it, or a count this device cannot know — is the diner's order, and its door
+        // is the diner's door: a glance at the table picker must not orphan three items behind "No
+        // order on this device yet". An EMPTY cart is not an order, so the door chosen last stands
+        // (deep pass on #312).
+        if (!chosenMode && door && nextCart) {
+          const liveCount = decodeCartCount(localStorage.getItem(KEY_CART_COUNT), nextCart);
+          if (liveCount !== 0) nextMode = door;
+        }
         nextCart = cartForDoor(nextCart, door, tabsMode(pathname, nextMode));
       }
       // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.

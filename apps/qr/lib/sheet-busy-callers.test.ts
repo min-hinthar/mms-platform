@@ -575,6 +575,10 @@ const GUARDED: [file: string, because: string][] = [
     "voidLine spends one of the manager's five PIN attempts before the RPC",
   ],
   ["staff/StaffModSheet.tsx", "the add's refusal renders only inside this sheet, behind the scrim"],
+  [
+    "LineOptionsSheet.tsx",
+    "Send to kitchen now fires a line — one-way for the guest who tapped it (3c-i, D17)",
+  ],
   ["staff/RefundActionSheet.tsx", "real money leaves the account"],
   // P7·4 — "Something's wrong": a row, an email and a GitHub issue leave on Send; dismissing
   // mid-flight would hide how it ended (the id the person reads back to us).

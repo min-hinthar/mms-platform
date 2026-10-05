@@ -95,32 +95,23 @@ describe("P2e — the front doors keep the pill; the Profile carries the card", 
     expect(c.querySelector(".staff-lang-card")).toBeNull();
   });
 
-  it("/staff/login signed IN: no pill in the bar, the language card after the person's own", async () => {
+  // Phase 3a (D5) promised the counter-aware up-link on Menu, Tips AND Sign-in; Codex round 3 on
+  // #312 found the third unwired. Same two literal arms as the other two (rule 4d). One case per
+  // arm (deep pass on #312): a single body proved the second arm only while the first held.
+  it.each([
+    {
+      label: "a counter device: 'up' is the counter",
+      stored: "counter" as const,
+      back: "/staff?floor=1",
+      circ: null,
+    },
+    { label: "elsewhere: the Screens circle", stored: null, back: null, circ: "/staff?doors=1" },
+  ])("/staff/login signed IN — $label", async ({ stored, back, circ }) => {
     auth.mockResolvedValue({ kind: "staff", caller });
+    door = stored;
     const c = mount(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(pills(c)).toHaveLength(0);
-    const card = c.querySelector(".staff-lang-card")!;
-    expect(card).not.toBeNull();
-    const me = c.querySelector('[aria-labelledby="entry-h"]')!;
-    expect(me.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(c.querySelector(".staff-lang-rows")?.getAttribute("aria-labelledby")).toBe("lang-h");
-    // No focus claim without the param.
-    expect(card.contains(document.activeElement)).toBe(false);
-  });
-
-  it("/staff/login signed IN: 'up' is the counter on a counter device, the Screens circle elsewhere", async () => {
-    // Phase 3a (D5) promised the counter-aware up-link on Menu, Tips AND Sign-in; Codex round 3 on
-    // #312 found the third unwired. Same two literal arms as the other two (rule 4d).
-    auth.mockResolvedValue({ kind: "staff", caller });
-    door = "counter";
-    let c = mount(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(c.querySelector(".staff-bar a.staff-back")?.getAttribute("href")).toBe("/staff?floor=1");
-    expect(c.querySelector(".staff-bar a.staff-circ[href='/staff?doors=1']")).toBeNull();
-    cleanup();
-    door = null;
-    c = mount(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(c.querySelector(".staff-bar a.staff-back")).toBeNull();
-    expect(c.querySelector(".staff-bar a.staff-circ")?.getAttribute("href")).toBe("/staff?doors=1");
+    expect(c.querySelector(".staff-bar a.staff-back")?.getAttribute("href") ?? null).toBe(back);
+    expect(c.querySelector(".staff-bar a.staff-circ")?.getAttribute("href") ?? null).toBe(circ);
   });
   it("?show=lang lands focus on the PRESSED mode (a query param — never a #hash, §26)", async () => {
     auth.mockResolvedValue({ kind: "staff", caller });

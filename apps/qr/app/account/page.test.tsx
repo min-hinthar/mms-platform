@@ -211,6 +211,30 @@ describe("W9c — a failed rewards read costs the Stars panel, never the history
     expect(await slots()).toEqual(["live", "alert", "history", "favorites", "sound", "help"]);
   });
 
+  it("a signed-in diner on the failed branch is TOLD why the identity card is missing (deep pass on #312)", async () => {
+    // The You panel's job is "who this is"; with the read down it showed sound + help and nothing
+    // else, and the only explanation sat in the Orders panel. A plain line, not a second alert (one
+    // live region per view).
+    h.getRewardsState.mockResolvedValue(null);
+    h.getSessionKind.mockResolvedValue("diner");
+    const { container } = render(await Account(params()));
+    expect(container.textContent).toMatch(/couldn’t load your account details/i);
+    expect(container.querySelectorAll("[role='alert']")).toHaveLength(1);
+  });
+
+  it("when BOTH reads fail, the You panel says only that it could not load — never the signed-in promise about a name and a switcher (Codex round 2 on #313)", async () => {
+    // `kind` is null here, and null satisfied `kind !== "anon"`: an anonymous diner on a double
+    // failure was told their name and account switcher would return.
+    h.getRewardsState.mockResolvedValue(null);
+    h.getSessionKind.mockRejectedValue(new Error("staff lookup failed"));
+    const { container } = render(await Account(params()));
+    expect(container.textContent).toMatch(
+      /couldn’t load your account details just now — check back/i,
+    );
+    expect(container.textContent).not.toMatch(/account switcher/i);
+    expect(container.querySelectorAll("[role='alert']")).toHaveLength(1);
+  });
+
   it("a failed 'who is this?' resolves to no card — the page never throws", async () => {
     // RED when the await is unguarded (the page throws and the diner loses their receipts too).
     h.getRewardsState.mockResolvedValue(null);

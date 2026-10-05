@@ -176,35 +176,38 @@ export function AppHeader() {
         <span className="app-header-brand-word">Morning Star</span>
       </Link>
 
-      <nav className="app-header-actions" aria-label="Your order">
-        {showSingle && (
-          // W22b — the chip is a DISCLOSURE, not a link: tapping it opens the order in place rather
-          // than spending a navigation, which is what makes it feel ambient on an installed phone.
-          // /track is still one tap away — it is the panel's primary action.
-          <button
-            type="button"
-            ref={chipRef}
-            onClick={() => setChipOpen((o) => !o)}
-            className={`app-header-order app-header-order-chip${singleReady ? " app-header-order-ready" : ""}${chipOpen ? " app-header-order-open" : ""}`}
-            aria-expanded={chipOpen}
-            // Only reference the panel while it is mounted — no dangling IDREF when closed.
-            aria-controls={chipOpen ? panelId : undefined}
-            aria-label={`${singleBase}${singleWord ? ` · ${singleWord}` : ""} — order details`}
-          >
-            <span className="app-header-order-dot" aria-hidden />
-            {/* `.vt-order-status` (J1): on the chip→/track cut this label MORPHS into the tracker's
+      {/* Rendered only with something in it (deep pass on #312): every child is gated on the live
+          order, so on most of a visit this was an EMPTY "Your order" landmark in the rotor. */}
+      {hasOrderPill && (
+        <nav className="app-header-actions" aria-label="Your order">
+          {showSingle && (
+            // W22b — the chip is a DISCLOSURE, not a link: tapping it opens the order in place rather
+            // than spending a navigation, which is what makes it feel ambient on an installed phone.
+            // /track is still one tap away — it is the panel's primary action.
+            <button
+              type="button"
+              ref={chipRef}
+              onClick={() => setChipOpen((o) => !o)}
+              className={`app-header-order app-header-order-chip${singleReady ? " app-header-order-ready" : ""}${chipOpen ? " app-header-order-open" : ""}`}
+              aria-expanded={chipOpen}
+              // Only reference the panel while it is mounted — no dangling IDREF when closed.
+              aria-controls={chipOpen ? panelId : undefined}
+              aria-label={`${singleBase}${singleWord ? ` · ${singleWord}` : ""} — order details`}
+            >
+              <span className="app-header-order-dot" aria-hidden />
+              {/* `.vt-order-status` (J1): on the chip→/track cut this label MORPHS into the tracker's
                 status chip — the diner follows their order's status across the navigation. The chip
                 hides on /track, so the view-transition name is never duplicated in one document. */}
-            <span className="app-header-order-label vt-order-status">
-              {singleBase}
-              {singleWord && <span className="app-header-order-status"> · {singleWord}</span>}
-            </span>
-            <span className={`app-header-order-caret${chipOpen ? " is-open" : ""}`} aria-hidden>
-              ⌄
-            </span>
-          </button>
-        )}
-        {/* W22b — the expanded chip. It follows its trigger IMMEDIATELY in the DOM so the tab order
+              <span className="app-header-order-label vt-order-status">
+                {singleBase}
+                {singleWord && <span className="app-header-order-status"> · {singleWord}</span>}
+              </span>
+              <span className={`app-header-order-caret${chipOpen ? " is-open" : ""}`} aria-hidden>
+                ⌄
+              </span>
+            </button>
+          )}
+          {/* W22b — the expanded chip. It follows its trigger IMMEDIATELY in the DOM so the tab order
             matches the visual order (WCAG 2.4.3 / 1.3.2) — a disclosure whose content sits after the
             other header controls makes a keyboard user tab through Rewards and Cart to reach the
             panel they just opened. `.app-header-actions` is `position: static`, so the containing
@@ -214,70 +217,71 @@ export function AppHeader() {
             deliberately NOT a live region — kitchen transitions are ambient state, every diner route
             already owns its one announcer, and this is chrome mounted once in the root layout, so an
             `aria-live` here would be the second (or, on /cart, the fourth) announcer on every screen. */}
-        {showSingle && chipOpen && (
-          <div id={panelId} ref={panelRef} className="app-header-panel mms-rise">
-            {panel ? (
-              <>
-                <div className="app-header-panel-head">
-                  <span className="app-header-panel-mode">{panel.modeLabel}</span>
-                  {panel.itemSummary && (
-                    <span className="app-header-panel-count">{panel.itemSummary}</span>
-                  )}
-                </div>
-                {panel.context && <p className="app-header-panel-context">{panel.context}</p>}
-                <dl className="app-header-panel-rows">
-                  {panel.rows.map((r) => (
-                    <div key={r.label} className="app-header-panel-row">
-                      <dt>{r.label}</dt>
-                      <dd>{r.value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </>
-            ) : (
-              // A cross-device order this phone did not place: the server row carries the mode, the
-              // context and the honest status word, but no totals and no expo stamps — so it renders
-              // its reduced form rather than an empty panel pretending to load.
-              serverSingle && (
-                <ul className="app-header-panel-rowlist" role="list">
-                  <li>
-                    <LiveOrderRow order={serverSingle} onNavigate={closeChip} />
-                  </li>
-                </ul>
-              )
-            )}
-            {/* Placed, but the row has not reached this device yet (the webhook is still landing, or the
+          {showSingle && chipOpen && (
+            <div id={panelId} ref={panelRef} className="app-header-panel mms-rise">
+              {panel ? (
+                <>
+                  <div className="app-header-panel-head">
+                    <span className="app-header-panel-mode">{panel.modeLabel}</span>
+                    {panel.itemSummary && (
+                      <span className="app-header-panel-count">{panel.itemSummary}</span>
+                    )}
+                  </div>
+                  {panel.context && <p className="app-header-panel-context">{panel.context}</p>}
+                  <dl className="app-header-panel-rows">
+                    {panel.rows.map((r) => (
+                      <div key={r.label} className="app-header-panel-row">
+                        <dt>{r.label}</dt>
+                        <dd>{r.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </>
+              ) : (
+                // A cross-device order this phone did not place: the server row carries the mode, the
+                // context and the honest status word, but no totals and no expo stamps — so it renders
+                // its reduced form rather than an empty panel pretending to load.
+                serverSingle && (
+                  <ul className="app-header-panel-rowlist" role="list">
+                    <li>
+                      <LiveOrderRow order={serverSingle} onNavigate={closeChip} />
+                    </li>
+                  </ul>
+                )
+              )}
+              {/* Placed, but the row has not reached this device yet (the webhook is still landing, or the
                 live read has given up on a cleared table). Say only what is true — the chip's own word —
                 rather than render an empty shell that reads as a broken panel. */}
-            {!panel && !serverSingle && singleWord && (
-              <p className="app-header-panel-context">{singleWord}</p>
-            )}
-            <Link href={singleHref} className="app-header-panel-cta" onClick={closeChip}>
-              View full status
-            </Link>
-            {/* The same honest limitation the tray states: a cash-settled order records the staff member
+              {!panel && !serverSingle && singleWord && (
+                <p className="app-header-panel-context">{singleWord}</p>
+              )}
+              <Link href={singleHref} className="app-header-panel-cta" onClick={closeChip}>
+                View full status
+              </Link>
+              {/* The same honest limitation the tray states: a cash-settled order records the staff member
                 who closed it, not an earner, so it cannot appear in a "your orders" read at all. Without
                 this line a cash payer reads the chip's absence as "we lost your order". */}
-            <p className="app-header-panel-note">Cash-paid orders aren’t shown here.</p>
-          </div>
-        )}
-        {showTray && (
-          <button
-            type="button"
-            onClick={() => setTrayOpen(true)}
-            className="app-header-order app-header-order-tray"
-            aria-haspopup="dialog"
-            aria-expanded={trayOpen}
-            aria-label={`${liveCount} orders in progress — open your orders`}
-          >
-            <span className="app-header-order-dot" aria-hidden />
-            <span className="app-header-order-label">Orders</span>
-            <span className="app-header-order-count" aria-hidden>
-              {liveCount}
-            </span>
-          </button>
-        )}
-      </nav>
+              <p className="app-header-panel-note">Cash-paid orders aren’t shown here.</p>
+            </div>
+          )}
+          {showTray && (
+            <button
+              type="button"
+              onClick={() => setTrayOpen(true)}
+              className="app-header-order app-header-order-tray"
+              aria-haspopup="dialog"
+              aria-expanded={trayOpen}
+              aria-label={`${liveCount} orders in progress — open your orders`}
+            >
+              <span className="app-header-order-dot" aria-hidden />
+              <span className="app-header-order-label">Orders</span>
+              <span className="app-header-order-count" aria-hidden>
+                {liveCount}
+              </span>
+            </button>
+          )}
+        </nav>
+      )}
       {/* Radix portals the sheet to <body>; `open` folds to false when there's nothing to show, so a
           completing order can't leave the tray stranded open. */}
       <OrdersTray

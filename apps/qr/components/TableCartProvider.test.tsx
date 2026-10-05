@@ -17,6 +17,7 @@ import {
   threadableView,
 } from "@/lib/write-outcome";
 import { pillAddClaim, sheetAddClaim } from "@/lib/add-feedback";
+import { DRAIN_MAX_MS, DRAIN_TIMED_OUT_NOTICE } from "@/lib/write-ledger";
 import type { WriteResult } from "@/lib/write-outcome";
 
 /**
@@ -824,6 +825,46 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
     const result = await ctl.setItemQty("line-1", 2);
     expect(result.state).toBe("applied");
+  });
+});
+
+describe("Codex round 1 on #313 (P1) — a drain past its deadline is a refusal to leave, said once", () => {
+  it("a write still in flight at the deadline ends the drain `timed-out`, and the view says the change is still saving", async () => {
+    vi.useFakeTimers();
+    try {
+      h.addItem.mockReturnValue(new Promise(() => {})); // a Server Action that never answers
+      mount();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      void ctl.add(ITEM);
+      let outcome: string | null = null;
+      const p = ctl.drain().then((o) => {
+        outcome = o;
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(DRAIN_MAX_MS - 1);
+      });
+      expect(outcome).toBeNull(); // not a beat early
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      await p;
+      expect(outcome).toBe("timed-out");
+      expect(spoken()).toBe(DRAIN_TIMED_OUT_NOTICE);
+      expect(screen.getAllByRole("status")).toHaveLength(1); // through the ONE region, not a second
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("a drain with nothing in flight is `settled` at once and says nothing", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    const before = spoken();
+    await expect(ctl.drain()).resolves.toBe("settled");
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(before);
+    expect(spoken()).not.toBe(DRAIN_TIMED_OUT_NOTICE);
   });
 });
 

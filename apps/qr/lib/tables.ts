@@ -15,18 +15,17 @@ export type DineInTable = { tableNumber: number; occupied: boolean };
  */
 export async function getDineInTables(): Promise<DineInTable[]> {
   const db = serviceClient();
-  const { data: tables, error } = await db
-    .from("qr_tables")
-    .select("table_number,qr_code")
-    .eq("active", true)
-    .order("table_number");
+  // Two independent reads, issued TOGETHER (blind pass on 3c-i · perf): the sheet now reads this on
+  // the to-go menu's RSC too, so a serial pair was one round trip of TTFB for nothing (J30).
+  const [{ data: tables, error }, { data: active }] = await Promise.all([
+    db.from("qr_tables").select("table_number,qr_code").eq("active", true).order("table_number"),
+    db
+      .from("table_sessions")
+      .select("qr_code")
+      .eq("status", "active")
+      .gt("expires_at", new Date().toISOString()),
+  ]);
   if (error || !tables) return [];
-
-  const { data: active } = await db
-    .from("table_sessions")
-    .select("qr_code")
-    .eq("status", "active")
-    .gt("expires_at", new Date().toISOString());
   const seated = new Set((active ?? []).map((s) => s.qr_code));
 
   return tables.map((t) => ({ tableNumber: t.table_number, occupied: seated.has(t.qr_code) }));

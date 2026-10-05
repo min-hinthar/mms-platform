@@ -33,7 +33,8 @@ import { navEpoch } from "@/lib/nav-epoch";
  * name for it (blind pass on #312, critical 2). The bar therefore subscribes on /account alone —
  * still one realtime channel per route — and trusts the store's owner everywhere else.
  *
- * Labels are English (D2): four 12px labels at a 44px target cannot carry a stacked Burmese pair;
+ * Labels are English (D2): three 12px labels at a 44px target (3a drew four) do not carry a
+ * stacked Burmese pair — a K15 row, not drafted here;
  * every surface under a tab stays bilingual. `aria-current="page"` is the lit tab's one claim; the
  * count badge is decorative to the ear (the link's accessible name carries it).
  */
@@ -151,8 +152,11 @@ export function DinerTabs() {
                     setLeaving(true);
                     const startedAt = here;
                     const epoch = navEpoch.current();
-                    void drain().finally(() => {
+                    void drain().then((outcome) => {
                       setLeaving(false);
+                      // Codex round 1 on #313 (P1): a drain past its deadline is a REFUSAL to leave —
+                      // the lender has said the change is still saving; the tab is live for a retry.
+                      if (outcome === "timed-out") return;
                       // A competing navigation during the drain wins: the queued push is dropped —
                       // whether it has committed (the route moved) or merely started (the epoch moved).
                       if (navEpoch.current() === epoch && hereRef.current === startedAt)

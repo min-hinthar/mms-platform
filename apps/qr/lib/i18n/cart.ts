@@ -39,6 +39,16 @@ export const CART = {
   // away from formal-document သည်/မည် endings. Still pending Min's native check — K15.)
   sendToKitchen: { en: "Send to kitchen", my: "မီးဖိုချောင်ဆီ ပို့လိုက်မယ်" },
   viewBillAndPay: { en: "View bill & pay", my: "ဘောက်ချာကြည့်ပြီး ရှင်းမယ်" },
+  // Phase 3c-i (D14) — the Order stage's Total door while Pay is held (a peer's lock, dishes still
+  // to send, the send's undo window): a door to a bill you can READ, never a verb the Bill refuses.
+  viewBill: { en: "View bill", my: "ဘောက်ချာ ကြည့်မယ်" }, // K15 draft (3c-i)
+  // Phase 3c-i (D16) — Pay's one reason while the send's undo window is open (or an undo is still
+  // answering): the window is this device's courtesy, and Pay waits for it rather than charging
+  // lines the diner can still pull back.
+  payOpensAfterUndo: {
+    en: "Pay opens when the undo window closes.",
+    my: "ပြန်ပြင်လို့ရတဲ့ အချိန် ကုန်သွားတာနဲ့ ရှင်းလို့ ရပါမယ်", // K15 draft (3c-i)
+  },
   pay: { en: "Pay", my: "ရှင်းမယ်" },
   placeOrder: { en: "Place order", my: "အော်ဒါ တင်မယ်" }, // v7.2 (glossary-adapted)
   payAndLeave: { en: "Pay & leave", my: "ရှင်းပြီး ထွက်မယ်" }, // v7.2
@@ -224,6 +234,8 @@ export const CART_MONEY_KEYS = [
   // A1 — pay-prefixed by convention; they carry no amount, the rule costs them nothing.
   "payAtCounter",
   "payOnPhoneInstead",
+  // Phase 3c-i — Pay's grace reason, pay-prefixed by the same convention: no amount in it.
+  "payOpensAfterUndo",
   // Phase 1c — the pay form's wait/failure copy, pay-prefixed by the same A1 convention: no amount
   // in any of them, so the Latin-digits rule costs nothing and keeps them honest if one ever grows.
   "payFormLoading",

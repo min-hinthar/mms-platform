@@ -32,6 +32,7 @@ import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
 import { spyAdoption } from "@/lib/menu-spy";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import type { WelcomeBack } from "@/lib/rewards";
+import type { DineInTable } from "@/lib/tables"; // type-only: the read stays server-side
 
 export type MenuItem = {
   id: string;
@@ -94,9 +95,15 @@ export function MenuBrowser({
   reorderId = null,
   catalogStale = false,
   catalogStamp = 0,
+  tables,
 }: {
   items: MenuItem[];
   mode: string;
+  /** Phase 3c-i (D18) — the registered dine-in tables (number + occupancy, tokens stripped by
+   *  lib/tables.ts) for the DoorSheet's "Pick your table" section. The page reads them ONLY when
+   *  `tableGridOffered(mode)` — the to-go menu — so at a table this is undefined and the sheet
+   *  renders exactly as before. */
+  tables?: DineInTable[];
   /** M135: menu-item ids ordered by REAL units sold, from the owner's PayPal/Zettle till export
    *  (lib/menu/posPopular.ts), top `POS_BADGE_MAX` only. No rank travels with them (
    *  share a numeral, so a seal never orders what the data left tied). Drives the "Start here" band
@@ -631,7 +638,12 @@ export function MenuBrowser({
               (the DoorSheet), with the home's three doors as rows and, at a table, Phase 1a's two
               exits. It reads the same DOOR vocabulary as the greeting below it (`doorFor`, inside
               the sheet), so the masthead can never contradict the arrival line. */}
-          <DoorSheet mode={mode} tableNumber={tableNumber} onOpenChange={setDoorSheetOpen} />
+          <DoorSheet
+            mode={mode}
+            tableNumber={tableNumber}
+            tables={tables}
+            onOpenChange={setDoorSheetOpen}
+          />
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}

@@ -176,6 +176,24 @@ export default async function Account({
   const you = (
     <>
       {identity && <div style={{ marginBottom: "var(--s4)" }}>{identity}</div>}
+      {/* Deep pass on #312 — a signed-in diner on the failed-read branch has no identity card (and
+          no Switch account / lend door with it); the only explanation sat in the Orders panel. Say
+          so here, as a plain line — never a second alert (one live region per view).
+          Codex round 2 on #313 — `kind` is null when BOTH reads failed (the page swallows the second
+          so the diner keeps their receipts), and null is not "signed in": the sentence promised a
+          name and a switcher the server never established. Only a positively known diner or staff
+          member gets that promise; the unknown case gets the Orders panel's neutral form. */}
+      {!state && kind !== null && kind !== "anon" && (
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 var(--s4)" }}>
+          We couldn’t load your account details just now — your name, Stars and the account switcher
+          will be back here once we can reach them again.
+        </p>
+      )}
+      {!state && kind === null && (
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: "0 0 var(--s4)" }}>
+          We couldn’t load your account details just now — check back in a moment.
+        </p>
+      )}
       {/* W22f: the ONE place sound can be switched on. */}
       <SoundToggle />
       {/* Phase 3a — help & contact, from lib/brand.ts (no hours: none exist anywhere). */}

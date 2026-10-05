@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEVICE_SESSION_PREFIX } from "@/lib/device-session";
 import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { tierMeta } from "@/lib/rewards-tiers";
@@ -8,7 +9,10 @@ import { useAccountPanelVisible } from "./AccountPanelVisible";
 // Tier ladder rank (ascending). localStorage remembers the last tier the diner has SEEN celebrated, so the
 // moment only fires on a genuine climb — never on first sight, a revisit, or a (refund) downgrade.
 const RANK: Record<string, number> = { new: 0, jade: 1, ruby: 2, gold: 3 };
-const SEEN_KEY = "mms_qr_seen_tier";
+// Inside the handover boundary (deep pass on #312): `mms_qr_seen_tier`, one character outside the
+// `mms.qr.` prefix, survived `clearDeviceSession()` on Switch account, so Alice's baseline outlived
+// Bob's sign-in and her return fired "Tier unlocked" for a climb she never made.
+const SEEN_KEY = `${DEVICE_SESSION_PREFIX}seen_tier`;
 const DISMISS_MS = 5200;
 
 /**
@@ -80,6 +84,17 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
       return () => cancelAnimationFrame(id);
     }
   }, [tierId, visible]);
+
+  // The panel hidden while the card shows (the diner tapped another tab inside the 5.2 s): the overlay
+  // sits in a display:none subtree with its timer and Escape listener alive, and the timer's
+  // "restore" then yanked focus to the Rewards tab the diner had left. Dismiss at once, and do NOT
+  // restore focus — there is nothing of ours to restore it to (deep pass on #312).
+  useEffect(() => {
+    if (!show || visible) return;
+    restoreFocusRef.current = null;
+    const id = requestAnimationFrame(() => setShow(false));
+    return () => cancelAnimationFrame(id);
+  }, [show, visible]);
 
   // While shown: capture prior focus + move it into the dismiss button, wire Escape, and auto-dismiss.
   useEffect(() => {

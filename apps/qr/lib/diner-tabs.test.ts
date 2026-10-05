@@ -170,6 +170,54 @@ describe("dinerTabs — three places, their hrefs and claims", () => {
     expect(dinerTabs({ ...base, stars: 0 })[2]!.badge).toBeNull();
     expect(dinerTabs({ ...base, stars: null })[2]!.badge).toBeNull();
   });
+  it("a dine-in diner with no table entered is led to the PICKER, never the code-free menu (deep pass on #312)", () => {
+    // The code-free `/menu?mode=dinein` is the J15 entrance 3b retired: a numberless host-start. A
+    // remembered dine-in door with no cart published through it means no table was entered yet.
+    const base = {
+      pathname: "/account",
+      mode: "dinein",
+      cartCount: null,
+      order: null,
+      stars: null,
+    };
+    expect(dinerTabs({ ...base, cartId: null })[0]).toMatchObject({
+      label: "Menu",
+      href: "/dine-in",
+    });
+    expect(dinerTabs({ ...base, cartId: "c1" })[0]).toMatchObject({
+      label: "Menu",
+      href: "/menu?mode=dinein",
+    });
+    // Other doors keep their menu whether or not a cart exists: nothing to enter first.
+    expect(dinerTabs({ ...base, mode: "pickup", cartId: null })[0]?.href).toBe("/menu?mode=pickup");
+  });
+  it("a LIT Menu tab is a self-link to where you are — on a table or invite URL the picker fallback never fires while the mint still runs (Codex round 2 on #313)", () => {
+    // `/menu?mode=dinein&t=…`: cartId is null until useTableSession mints and CartPublisher publishes;
+    // in that window the current tab's href was `/dine-in`, so a re-tap abandoned the scanned flow.
+    const here = "/menu?mode=dinein&t=TBL7";
+    expect(
+      dinerTabs({ ...base, pathname: "/menu", here, mode: "dinein", cartId: null })[0],
+    ).toMatchObject({ key: "menu", current: true, href: here });
+    // Off the menu the picker rule stands: a remembered dine-in door with no cart leads to /dine-in.
+    expect(
+      dinerTabs({
+        ...base,
+        pathname: "/account",
+        here: "/account",
+        mode: "dinein",
+        cartId: null,
+      })[0]?.href,
+    ).toBe("/dine-in");
+  });
+  it("a LIT Account tab is a self-link to where you are — the Rewards panel stays put (deep pass on #312)", () => {
+    const base = { mode: "pickup", cartId: null, cartCount: null, order: null, stars: null };
+    expect(
+      dinerTabs({ ...base, pathname: "/account", here: "/account?tab=rewards" })[2]?.href,
+    ).toBe("/account?tab=rewards");
+    expect(dinerTabs({ ...base, pathname: "/menu", here: "/menu?mode=pickup" })[2]?.href).toBe(
+      "/account",
+    );
+  });
   it("exactly one tab is current where one is, and it matches activeDinerTab", () => {
     const tabs = dinerTabs({ ...base, pathname: "/cart" });
     expect(tabs.filter((t) => t.current).map((t) => t.key)).toEqual(["order"]);
