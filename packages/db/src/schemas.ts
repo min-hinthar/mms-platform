@@ -51,6 +51,15 @@ export const setDisplayNameInput = z.object({
   name: displayName,
 });
 
+/** bindTable (Phase 3c-ii, D24) — the host seats an unbound dine-in session at a registered table.
+ *  The number is bounded like `sessionMintInput.tableNumber` (the qr_tables CHECK, 1..99); the server
+ *  re-reads the registry and refuses an inactive or unregistered table. */
+export const bindTableInput = z.object({
+  cartId: uuid,
+  tableNumber: z.number().int().min(1).max(99),
+});
+export type BindTableInput = z.infer<typeof bindTableInput>;
+
 /** A kitchen note ("no peanuts — allergy") is user-controlled free text → cap length (mirrors the
  *  qr_cart_items.notes column CHECK, 160); JSX escapes it at render. W3b: the allergy channel. */
 const lineNotes = z.string().trim().max(160);
