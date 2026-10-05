@@ -261,8 +261,8 @@ function customerFiles(): string[] {
     }
   };
   walk(join(QR, "app"));
-  for (const c of ["Checkout", "TablePicker", "OrderTracker", "menu/MenuBrowser"])
-    out.push(`components/${c}.tsx`);
+  // 3c-ii retired `TablePicker` (its grid lives on in `TableGrid`, a section of two sheets).
+  for (const c of ["Checkout", "OrderTracker", "menu/MenuBrowser"]) out.push(`components/${c}.tsx`);
   return out;
 }
 
@@ -432,14 +432,13 @@ describe("the responsive contract — the pages half", () => {
       expect(wideFiles.has(f), `${f} mixes narrow and tier columns`).toBe(false);
     expect([...wideFiles].sort()).toEqual(
       [
-        "app/(order)/dine-in/loading.tsx",
+        // 3c-ii (D27): /dine-in redirects to the menu — its picker and the picker's skeleton retired.
         "app/(order)/menu/loading.tsx",
         "app/grocery/loading.tsx",
         "app/grocery/page.tsx",
         // Phase 0 — the primitives reference (/kit, never on the production host) takes the tier.
         "app/kit/page.tsx",
         "app/page.tsx",
-        "components/TablePicker.tsx",
         "components/menu/MenuBrowser.tsx",
       ].sort(),
     );

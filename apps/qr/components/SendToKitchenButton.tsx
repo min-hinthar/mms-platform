@@ -1,5 +1,12 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
+import {
+  useImperativeHandle,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+  type Ref,
+} from "react";
 import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen } from "@/lib/cart";
@@ -31,8 +38,26 @@ const T = (k: DictKey) => t("en", k);
  * (REVERSING IS NEVER THE HERO), or the quiet "with the kitchen" line. Every outcome sentence leaves
  * through `onMessage` to the view's ONE live region — the private `role="status"` this component
  * carried was the second polite region on the Order stage (QA §A:25).
+ *
+ * Phase 3c-ii (D27) — THE TABLE IS A GATE INSIDE `send()`, after the frozen refusal and before the
+ * server: when the host says a table is still needed (`needsTable` — `sendNeedsTable`, lib/table-
+ * pick: dine-in, unbound, a registry with answers) and offers an ask (`onNeedTable`), the tap opens
+ * the host's sheet and RETURNS; the chip there binds the session and runs THIS send again through
+ * the handle (`ref` → `SendHandle.send({ tableAnswered: true })`), so the bind and the fire are one
+ * gesture with one send body. "Pick your table" is the Send's question, never a verb: the hero is
+ * `orderStageHero`'s and nothing here gains a second one. `focus()` is for the sheet's success
+ * edge: the Send node the modal would restore to has given way to the Undo by then.
  */
+export type SendHandle = {
+  /** The SAME send the button runs on its tap. `tableAnswered` skips the table gate (the sheet's
+   *  chip has bound the session, or the host chose to send unbound); the frozen refusal stays. */
+  send: (opts?: { tableAnswered?: boolean }) => void;
+  /** Focus the mounted control — the Undo once the window is open, else the Send. */
+  focus: () => void;
+};
+
 export function SendToKitchenButton({
+  ref,
   cartId,
   verb,
   grace,
@@ -40,7 +65,11 @@ export function SendToKitchenButton({
   frozen,
   onMessage,
   onChanged,
+  needsTable = false,
+  onNeedTable,
 }: {
+  /** 3c-ii — the host's handle on this send (the bind sheet's one gesture; the success edge's focus). */
+  ref?: Ref<SendHandle>;
   cartId: string;
   /** `orderStageHero(...)` — send (the filled hero) · undo (the outline, during the grace) · bill
    *  (nothing to send here: the door is the hero; with no drafts left, the quiet confirmation). */
@@ -63,6 +92,11 @@ export function SendToKitchenButton({
   onMessage: (text: string, my?: string) => void;
   /** Re-sync the parent cart after a send (solo dine-in isn't on the group realtime channel). */
   onChanged: () => void;
+  /** 3c-ii (D27) — the host's answer to `sendNeedsTable` (lib/table-pick): a dine-in session with
+   *  no number yet and a registry with answers. Only holds the send when an ask is offered. */
+  needsTable?: boolean;
+  /** 3c-ii — open the host's "Pick your table" sheet; the send returns and waits for the chip. */
+  onNeedTable?: () => void;
 }) {
   const [pending, startTransition] = useTransition();
   // W22a — the paper-beat ceremony counter: bumped once per SUCCESSFUL send; the beat glyph is
@@ -70,10 +104,18 @@ export function SendToKitchenButton({
   // send yet, nothing rendered. Decorative only — the live region says it in words.
   const [sendBeat, setSendBeat] = useState(0);
 
-  const send = () => {
+  const send = (opts?: { tableAnswered?: boolean }) => {
     if (frozen) {
       // Refuse at the DOOR, and say why rather than dying quietly — this is the one control the diner came here to press.
       onMessage(FROZEN_NOTE);
+      return;
+    }
+    // 3c-ii (D27) — the table's question, AFTER the freeze (a bind under a peer's charge would
+    // re-table a paid order) and BEFORE the server: the host's sheet takes the tap, its chip binds,
+    // and this same send runs again with the question answered. With no host to ask, the order goes
+    // out unbound exactly as before 3c-ii.
+    if (!opts?.tableAnswered && needsTable && onNeedTable) {
+      onNeedTable();
       return;
     }
     startTransition(async () => {
@@ -103,6 +145,17 @@ export function SendToKitchenButton({
     });
   };
 
+  // 3c-ii — the mounted control's node, for the host's `focus()`: the Undo (beside the hook's own
+  // callback ref, which parks focus there when the window opens) or the Send.
+  const undoEl = useRef<HTMLButtonElement | null>(null);
+  const sendEl = useRef<HTMLButtonElement | null>(null);
+  useImperativeHandle(ref, () => ({
+    send,
+    focus: () => {
+      (undoEl.current ?? sendEl.current)?.focus();
+    },
+  }));
+
   return (
     // position:relative hosts the W22a paper beat (an absolute glyph lifting off the control row).
     <div style={{ marginTop: 12, position: "relative" }}>
@@ -122,7 +175,10 @@ export function SendToKitchenButton({
         <button
           // The hook's callback ref, called from OURS at commit: `ref={grace.undoBtnRef}` would make the
           // React Compiler lint read every `grace.*` in this render as a ref access.
-          ref={(el) => grace.undoBtnRef(el)}
+          ref={(el) => {
+            grace.undoBtnRef(el);
+            undoEl.current = el;
+          }}
           type="button"
           onClick={() => void grace.undo(cartId, frozen)}
           disabled={grace.pending}
@@ -145,9 +201,11 @@ export function SendToKitchenButton({
         </button>
       ) : verb === "send" ? (
         <button
+          ref={sendEl}
           type="button"
-          // One tap sends (Phase 1b). `send()` refuses at the door under a freeze and says why.
-          onClick={send}
+          // One tap sends (Phase 1b). `send()` refuses at the door under a freeze and says why, and
+          // asks the table (3c-ii) before the server when the host says one is still needed.
+          onClick={() => send()}
           disabled={pending}
           aria-disabled={frozen || undefined}
           aria-busy={pending}

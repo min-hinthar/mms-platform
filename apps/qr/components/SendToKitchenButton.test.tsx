@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { UndoGrace } from "./useUndoGrace";
+import type { SendHandle } from "./SendToKitchenButton";
 
 /**
  * Phase 1b — Send to kitchen is ONE tap (the W16c confirm is retired; the server-clocked undo is the
@@ -47,11 +48,16 @@ const mount = (p: {
   grace?: UndoGrace;
   onMessage?: (text: string, my?: string) => void;
   draftCount?: number;
+  /** 3c-ii (D27) — the table gate and the host's ask. */
+  needsTable?: boolean;
+  onNeedTable?: () => void;
 }) => {
   const g = p.grace ?? grace();
   const onMessage = p.onMessage ?? vi.fn();
+  const handle: { current: SendHandle | null } = { current: null };
   render(
     <SendToKitchenButton
+      ref={handle}
       cartId="cart-1"
       verb={p.verb}
       grace={g}
@@ -59,9 +65,11 @@ const mount = (p: {
       frozen={p.frozen ?? false}
       onMessage={onMessage}
       onChanged={() => {}}
+      needsTable={p.needsTable}
+      onNeedTable={p.onNeedTable}
     />,
   );
-  return { g, onMessage };
+  return { g, onMessage, handle };
 };
 
 describe("Phase 1b — one tap sends", () => {
@@ -99,6 +107,93 @@ describe("Phase 1b — one tap sends", () => {
     });
     expect(h.sendToKitchen).not.toHaveBeenCalled();
     expect(onMessage).toHaveBeenCalledWith(FROZEN_NOTE);
+  });
+});
+
+/**
+ * Phase 3c-ii (D27) — the table is asked INSIDE the send, once, on an unbound session: `send()`
+ * keeps the frozen refusal FIRST, then — when the host says a table is needed and offers an ask —
+ * calls `onNeedTable` and RETURNS before the server. The host's handle runs the SAME send once the
+ * chip has answered (`tableAnswered`), and `focus()` lands on whichever control is mounted (the
+ * Undo after a send that opened the window; the Send otherwise) — the sheet's success edge needs a
+ * stable target after the modal unmounts.
+ */
+describe("Phase 3c-ii (D27) — the table gate inside send()", () => {
+  it("an unbound dine-in send ASKS: the host's ask is called once and NOTHING reaches the server or the region", async () => {
+    const onNeedTable = vi.fn();
+    const { onMessage } = mount({ verb: "send", needsTable: true, onNeedTable });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
+    });
+    // MUTANT send-button/unbound-send-reaches-the-server: the `return` after the ask is dropped —
+    // the sheet opens AND the order goes to the kitchen numberless behind it; red.
+    expect(onNeedTable).toHaveBeenCalledTimes(1);
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(onMessage).not.toHaveBeenCalled();
+  });
+
+  it("a FROZEN cart is refused at the door BEFORE the table is asked — no sheet over a lock", async () => {
+    const onNeedTable = vi.fn();
+    const { onMessage } = mount({ verb: "send", frozen: true, needsTable: true, onNeedTable });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
+    });
+    // MUTANT send-button/sheet-opens-under-a-freeze: the gate runs before the frozen refusal — a
+    // table is bound under a peer's charge (the fulfill RPC snapshots the number at settlement)
+    // and the send it was about to run is refused anyway; red.
+    expect(onNeedTable).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledWith(FROZEN_NOTE);
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+  });
+
+  it("the handle runs the SAME send with the table answered — the gate is skipped, the server reached, the window opened", async () => {
+    const res = {
+      ok: true,
+      fired: 2,
+      undoUntil: "2026-10-04T12:00:10.000Z",
+      serverNow: "2026-10-04T12:00:00.000Z",
+      undoBatch: "batch-2",
+    };
+    h.sendToKitchen.mockResolvedValue(res);
+    const onNeedTable = vi.fn();
+    const { g, handle } = mount({ verb: "send", needsTable: true, onNeedTable });
+    await act(async () => {
+      handle.current!.send({ tableAnswered: true });
+    });
+    expect(onNeedTable).not.toHaveBeenCalled();
+    expect(h.sendToKitchen).toHaveBeenCalledWith("cart-1");
+    expect(g.open).toHaveBeenCalledWith(res, expect.any(Number));
+  });
+
+  it("the handle's send still honours the freeze first", async () => {
+    const { handle, onMessage } = mount({ verb: "send", frozen: true, needsTable: true });
+    await act(async () => {
+      handle.current!.send({ tableAnswered: true });
+    });
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledWith(FROZEN_NOTE);
+  });
+
+  it("with no host to ask, a needed table never blocks the send — the order goes out unbound, as before 3c-ii", async () => {
+    h.sendToKitchen.mockResolvedValue({ ok: false, reason: "nothing" });
+    mount({ verb: "send", needsTable: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
+    });
+    expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
+  });
+
+  it("`focus()` lands on the mounted control: the Send, or the Undo once the window is open", () => {
+    const { handle } = mount({ verb: "send" });
+    handle.current!.focus();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Send to kitchen/i }));
+    cleanup();
+    const { handle: undoHandle } = mount({
+      verb: "undo",
+      grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 }),
+    });
+    undoHandle.current!.focus();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Undo — 7s" }));
   });
 });
 

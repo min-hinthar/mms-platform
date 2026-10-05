@@ -589,6 +589,10 @@ const GUARDED: [file: string, because: string][] = [
   // Phase 2f — "They didn't come": the no-show cancels the order and records the sent food as a
   // loss, and its step-up spends one of the manager's PIN attempts (LossActionSheet's reason).
   ["staff/CounterNoShowButton.tsx", "the no-show cancels the order and records the loss"],
+  // Phase 3c-ii (D27) — the Send-time table sheet: a chip binds the live session to a table, once
+  // (`table_number` is set ONCE under the CAS) — dismissing mid-write would hide how it ended, with
+  // the same send waiting on the answer.
+  ["TableBindSheet.tsx", "the chip binds the live session to a table, once, then the send runs"],
 ];
 
 /** StaffModSheet takes its busy as a PROP; the contract lives where the value is produced. */
@@ -601,7 +605,6 @@ const UNGUARDED = [
   "JoinTable.tsx",
   "OrdersTray.tsx",
   "PickupSlotSheet.tsx",
-  "TablePicker.tsx",
   "grocery/GroceryBasketSheet.tsx",
   "grocery/GroceryItemSheet.tsx",
   "menu/DietFilterButton.tsx",

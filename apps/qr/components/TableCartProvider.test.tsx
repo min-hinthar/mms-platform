@@ -1269,3 +1269,42 @@ describe("Phase 3b · D10 — the When write has ONE owner, and it is not this c
     expect(ctl.pickupSlot).toBe(SLOT);
   });
 });
+
+/**
+ * Phase 3c-ii (D30) — the table number is LIVE on /menu: the context reads the latest CONFIRMED
+ * value, never the mint alone. A table bound at Send (`bindTable` → `touchCart`) moves
+ * `qr_carts.updated_at`, every phone's watch re-reads, and the view carries `tableNumber` — so the
+ * DoorSheet trigger ("At table N"), the guest list and the invite sheet flip without a remount. A
+ * NULL view after a known number never un-names the table (the number is read, never derived).
+ */
+describe("Phase 3c-ii · D30 — the table number is read from the latest confirmed view", () => {
+  it("a mint with NO number, then a view carrying 7 → the context says 7", async () => {
+    // MUTANT provider/table-number-frozen-at-mint: the context reads `session.tableNumber` alone —
+    // a table bound at Send never reaches the menu's eyebrow until a reload; red.
+    h.getCartView.mockResolvedValue(view({ tableNumber: 7 }));
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBe(7);
+  });
+  it("a later NULL view keeps the known number — a view never un-names the table", async () => {
+    // MUTANT provider/view-null-unnames-the-table: `setViewTable(v.tableNumber)` unconditionally —
+    // one thin read and "At table 7" reverts to "At the table" over a live bound session; red.
+    h.getCartView.mockResolvedValue(view({ tableNumber: 7 }));
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBe(7);
+    h.getCartView.mockResolvedValue(view({ tableNumber: null }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBe(7);
+  });
+  it("the mint's own number still reads while no view has carried one (a sticker, a claim)", async () => {
+    h.session.current = { ...h.session.current!, tableNumber: 4 };
+    h.getCartView.mockResolvedValue(view({ tableNumber: null }));
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBe(4);
+  });
+});

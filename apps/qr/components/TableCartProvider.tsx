@@ -267,6 +267,12 @@ export function TableCartProvider({
   // is the one that survives a thin read.
   const [mySeat, setMySeat] = useState<string | null>(null);
   const [settling, setSettling] = useState(false); // split-tender settlement freeze (P3.3b) — read-only cart
+  // 3c-ii (D30) — the table number the latest CONFIRMED view carried, or null until one has. A
+  // table bound at Send (`bindTable` → `touchCart`) reaches every phone through its `qr_carts`
+  // watch, and the view names it; the context reads this over the mint's own number so the
+  // eyebrow, the guest list and the invite sheet flip without a remount. Written only from a view
+  // that CARRIES a number — a thin read must never un-name a live table.
+  const [viewTable, setViewTable] = useState<number | null>(null);
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -417,6 +423,9 @@ export function TableCartProvider({
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
       setSettling(v.settling);
+      // 3c-ii (D30) — the table number rides every applied view (the realtime echo included), and
+      // a null one never un-names a table a view already named.
+      if (v.tableNumber != null) setViewTable(v.tableNumber);
       // T14 — the same three facts in a REF, because the write paths must read the CURRENT freeze
       // without taking it as a dependency: putting `locked` in `add`/`setItemQty`'s dep arrays would
       // re-create both callbacks on every lock flip and churn every consumer that memoizes on them.
@@ -1602,7 +1611,8 @@ export function TableCartProvider({
       me,
       role: session?.role ?? null,
       joinCode: session?.joinCode ?? null,
-      tableNumber: session?.tableNumber ?? null,
+      // 3c-ii (D30) — the latest confirmed view's number first, the mint's own while none has.
+      tableNumber: viewTable ?? session?.tableNumber ?? null,
       setName,
       locked,
       lockedByName,
@@ -1632,6 +1642,7 @@ export function TableCartProvider({
       session?.role,
       session?.joinCode,
       session?.tableNumber,
+      viewTable,
       setName,
       locked,
       lockedByName,

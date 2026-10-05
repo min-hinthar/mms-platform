@@ -10,6 +10,7 @@ import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { EmptyState, Icon, buttonClass } from "@mms/ui";
 import { CART_EMPTY_COPY, cartEmptyState } from "@/lib/cart-empty-copy";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
+import { getDineInTables } from "@/lib/tables";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
 // id); `getCartView` authorizes the viewer against the cart (member-gated — a non-member can't read
@@ -145,6 +146,16 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // the relit-ASAP bug).
   const initialPickupSlot = normalizePickupSlot(view.pickupSlot, view.fireAt);
 
+  // 3c-ii (D27) — the Send's "Pick your table" ask needs the registry, and ONLY for a dine-in cart
+  // whose session carries no number yet (a sticker, a claim, a staff start, a kiosk and a landed
+  // bind all stamp one; to-go and the market have no table). Read here, in the RSC, through the
+  // service client so the sticker tokens stay server-side (lib/tables.ts strips `qr_code`); a failed
+  // read is `[]`, and an empty registry never asks — the send proceeds unbound, as before 3c-ii.
+  const tables =
+    split?.mode === "dinein" && view.tableNumber == null
+      ? await getDineInTables().catch(() => [])
+      : undefined;
+
   // A settling cart with NO split context is unwinnable in the plain flow: the cart is frozen
   // table-wide, so "Pay · $X" 409s ("pay your share on the split screen") but the board
   // can't render without the context. Rather than strand the payer in that loop on a transient read
@@ -183,7 +194,10 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialMySeat={view.mySeat}
       initialTabType={view.tabType}
       initialCounterRequestedAt={view.counterRequestedAt}
-      tableNumber={view.tableNumber}
+      // 3c-ii (D30): a SEED — the number is live state in Checkout from here (every applied view,
+      // the bind's confirmed answer).
+      initialTableNumber={view.tableNumber}
+      tables={tables}
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}
       initialPickupSlot={initialPickupSlot}

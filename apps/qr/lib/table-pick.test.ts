@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { BIND_COPY } from "./bind-copy";
 import {
   JOIN_COPY,
+  bindRefusalCopy,
   dineInMenuHref,
+  sendNeedsTable,
   tableChipAction,
   tableChipLabel,
   tableChipWord,
   tableGridOffered,
+  tablePlainLabel,
 } from "./table-pick";
 
 /**
@@ -120,6 +124,86 @@ describe("JOIN_COPY — the inline form's words, named once (TablePicker.tsx:136
     // A real token in a "use client" bundle is a live join credential shipped to every browser.
     expect(JOIN_COPY.placeholder.startsWith("e.g. ")).toBe(true);
   });
-  // TablePicker's Sheet READS these (it imports `JOIN_COPY`), so there is no second copy to drift —
-  // the source scan that used to stand here was a guard a comment could satisfy (LEARNINGS #60).
+  // The DoorSheet's inline form (TableSection) READS these (it imports `JOIN_COPY`), so there is no
+  // second copy to drift — the source scan that used to stand here was a guard a comment could
+  // satisfy (LEARNINGS #60). TablePicker's own Sheet retired with /dine-in's picker (3c-ii, D27).
+});
+
+/**
+ * Phase 3c-ii (D27) — the table is asked ONCE, inside the first Send, and only when the question has
+ * answers. `sendNeedsTable` is the gate `SendToKitchenButton` consults after the frozen refusal: a
+ * dine-in session with no number yet AND a registry with at least one table. An EMPTY or failed
+ * registry (`getDineInTables` → `[]`) never asks a question with no answers — the send proceeds
+ * UNBOUND exactly as today (the KDS labels the ticket by its code, `kitchen.ts`).
+ */
+describe("sendNeedsTable — the Send's one question, asked only with answers (3c-ii, D27)", () => {
+  const TABLES = [{ tableNumber: 2, occupied: false }];
+  it("an UNBOUND dine-in session with a registry asks", () => {
+    // MUTANT table-pick/send-skips-the-table-ask: the gate answers false for every state — the
+    // sheet never opens and every dine-in send goes out numberless; red here.
+    expect(sendNeedsTable({ isDineIn: true, tableNumber: null, tables: TABLES })).toBe(true);
+  });
+  it("a BOUND table (sticker · claim · staff-started · kiosk · after a bind) is never asked again", () => {
+    // MUTANT table-pick/bound-table-asked-again: the `tableNumber === null` conjunct is dropped —
+    // Table 7 is asked which table it is on every send; red here.
+    expect(sendNeedsTable({ isDineIn: true, tableNumber: 7, tables: TABLES })).toBe(false);
+  });
+  it("an EMPTY registry (a failed read is []) never asks — the send proceeds unbound, as today", () => {
+    // MUTANT table-pick/empty-registry-asks-anyway: `tables.length > 0` is dropped — a registry
+    // outage opens a sheet with no chips, a dead end on the one control the host came to press.
+    expect(sendNeedsTable({ isDineIn: true, tableNumber: null, tables: [] })).toBe(false);
+  });
+  it("to-go and the market have no table to ask about", () => {
+    expect(sendNeedsTable({ isDineIn: false, tableNumber: null, tables: TABLES })).toBe(false);
+  });
+});
+
+describe("tablePlainLabel — the escape under the grid, per host (3c-ii, D27 · D28)", () => {
+  it("the Send sheet's escape SENDS — `BIND_COPY.sendAnyway`, never a Start that would navigate", () => {
+    // MUTANT table-pick/send-sheet-says-start: the send sheet's button reads the DoorSheet's
+    // "Start anyway" — a verb promising a navigation the sheet does not make; red here.
+    expect(tablePlainLabel("send")).toBe(BIND_COPY.sendAnyway);
+    expect(tablePlainLabel("send")).toBe("Not at a numbered table? Send anyway");
+  });
+  it("the /dine-in page and the DoorSheet keep the shipped sibling (TableGrid.tsx:143 at 97d2904)", () => {
+    expect(tablePlainLabel("page")).toBe("Not at a numbered table? Start anyway");
+    expect(tablePlainLabel("sheet")).toBe("Not at a numbered table? Start anyway");
+  });
+});
+
+/**
+ * D28 — every bind refusal names its recovery, and every sentence is READ from where it is named:
+ * the bind's own three from `BIND_COPY` (the mint's `seated` / `unavailable`, byte-identical to
+ * /api/session's), the five it shares with the send from the send's `reasonCopy` — PASSED IN, never
+ * imported here: `useUndoGrace.ts:3` reaches `@/lib/cart` → `@mms/db/server:1` (`server-only`),
+ * which would poison the suite of every importer of this module (DoorSheet.test, TableGrid.test).
+ * So the record below is a FIXTURE whose sentences are distinct on purpose: the mapping is falsified
+ * by which KEY each reason picks, and `Checkout.bind.test` pins the real sentence end to end.
+ */
+describe("bindRefusalCopy — a refusal that names its way out (3c-ii, D28)", () => {
+  const SEND = {
+    not_host: "send:not_host",
+    locked: "send:locked",
+    settling: "send:settling",
+    rate_limited: "send:rate_limited",
+    error: "send:error",
+  };
+  it("the bind's OWN three come from BIND_COPY, verbatim", () => {
+    expect(bindRefusalCopy({ ok: false, reason: "seated" }, SEND)).toBe(BIND_COPY.seated);
+    expect(bindRefusalCopy({ ok: false, reason: "unavailable" }, SEND)).toBe(BIND_COPY.unavailable);
+    expect(bindRefusalCopy({ ok: false, reason: "already_bound", tableNumber: 3 }, SEND)).toBe(
+      BIND_COPY.alreadyBound(3),
+    );
+    expect(bindRefusalCopy({ ok: false, reason: "already_bound", tableNumber: 3 }, SEND)).toBe(
+      "You’re at Table 3 — this order goes there.",
+    );
+  });
+  it("the five it shares with the send are the send's, by KEY — never a retyped sentence", () => {
+    for (const reason of ["not_host", "locked", "settling", "rate_limited", "error"] as const)
+      expect(bindRefusalCopy({ ok: false, reason }, SEND)).toBe(SEND[reason]);
+  });
+  it("an expired session (and a not-dine-in cart — neither reachable from the sheet) is the send's `error` sentence: the state the shipped send already answers with (SendToKitchenButton's catch arm)", () => {
+    expect(bindRefusalCopy({ ok: false, reason: "session_expired" }, SEND)).toBe(SEND.error);
+    expect(bindRefusalCopy({ ok: false, reason: "not_dinein" }, SEND)).toBe(SEND.error);
+  });
 });

@@ -1,15 +1,15 @@
 "use client";
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Field, Sheet, buttonClass } from "@mms/ui";
+import { useState, type ReactNode } from "react";
+import { Sheet, buttonClass } from "@mms/ui";
 import posthog from "posthog-js";
-import { TransitionLink as Link, useJourneyRouter } from "@/components/nav/TransitionNav";
+import { TransitionLink as Link } from "@/components/nav/TransitionNav";
 import { DoorFace } from "@/components/ModeCard";
-import { TableGrid } from "@/components/TableGrid";
+import { TableSection } from "@/components/TableSection";
 import { useForgetCart } from "@/components/ActiveOrderProvider";
 import { DOORS, currentDoor, doorFor } from "@/lib/doors";
 import { t } from "@/lib/i18n";
 import { menuHref } from "@/lib/menu-href";
-import { JOIN_COPY, dineInMenuHref, tableGridOffered } from "@/lib/table-pick";
+import { tableGridOffered } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
 
@@ -50,10 +50,11 @@ import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
  * shipped concurrency rule: the market's camera hold; the per-door remount unmounts it). An EMPTY
  * Join is refused ON THE FIELD (`JOIN_COPY.missing`, `aria-invalid`, focus back on the input) — an
  * `aria-disabled` button still submits on Enter, and used to say nothing; the seated chip is a
- * DISCLOSURE here (`aria-expanded` / `aria-controls` → the form), which `/dine-in`'s dialog-opening
- * chip is not (blind pass on 3c-i · a11y). The market
- * passes no `tables` yet: it is a client page and the read is service-role, RSC-only — a
- * member-gated `/api/tables` is filed, not built here.
+ * DISCLOSURE (`aria-expanded` / `aria-controls` → the form). Phase 3c-ii (D27) extracted the
+ * section VERBATIM into `TableSection`, the ONE host the Send sheet shares — this sheet keeps the
+ * ask's owner (`joinNum`), its sticker sub-line and the door-entered capture. The market passes no
+ * `tables` yet: it is a client page and the read is service-role, RSC-only — a member-gated
+ * `/api/tables` is filed, not built here.
  *
  * `tableNumber` is a PROP, not a `useCart()` read: the market (`/grocery`) mounts no
  * `TableCartProvider`, and `useCart` throws outside one. The menu hands its number over; the market
@@ -82,22 +83,11 @@ export function DoorSheet({
 }) {
   const [open, setOpenState] = useState(false);
   // 3c-i — the seated table whose code is being asked for, inline under the grid (null = no ask).
+  // The form's own state (the typed code, the on-field refusal) is `TableSection`'s, keyed on it.
   const [joinNum, setJoinNum] = useState<number | null>(null);
-  const [code, setCode] = useState("");
-  // The empty submit's refusal, on the field; cleared by typing, by a re-target and on the next open.
-  const [joinError, setJoinError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const tablesTitleId = useId();
-  const joinTitleId = useId();
-  const joinFormId = useId();
-  const router = useJourneyRouter();
   const setOpen = (next: boolean) => {
     // A reset "on close" would be visible for the whole exit slide (§16) — reset on the next open.
-    if (next) {
-      setJoinNum(null);
-      setCode("");
-      setJoinError(null);
-    }
+    if (next) setJoinNum(null);
     setOpenState(next);
     onOpenChange?.(next);
   };
@@ -109,39 +99,10 @@ export function DoorSheet({
   // phone is at while a tablemate checks out.
   const shown = atTable ? `At table ${tableNumber}` : doorFor(mode).label;
 
-  // The step change moves focus INTO the ask (QA §A) — on every reveal and every re-target.
-  useEffect(() => {
-    if (joinNum != null) inputRef.current?.focus();
-  }, [joinNum]);
-
   /** The door actually entered — recorded on the tap that navigates, never on open or reveal. */
   const dinein = DOORS.find((d) => d.mode === "dinein")!;
   const enterDinein = () =>
     posthog.capture("mode_selected", { mode: dinein.mode, door: dinein.door, source: "sheet" });
-  const onJoin = (n: number, chip: HTMLButtonElement) => {
-    if (joinNum === n) {
-      // The same chip again collapses the ask; focus goes back where the diner was.
-      setJoinNum(null);
-      chip.focus();
-      return;
-    }
-    setCode("");
-    setJoinError(null);
-    setJoinNum(n);
-  };
-  const submitJoin = (e: FormEvent) => {
-    e.preventDefault();
-    const c = code.trim().toUpperCase(); // tokens are 8-char uppercase — normalize like JoinTable
-    if (!c) {
-      // Said on the field and focus goes back to it — a refusal a reader can find (QA §A).
-      setJoinError(JOIN_COPY.missing);
-      inputRef.current?.focus();
-      return;
-    }
-    enterDinein();
-    // The sheet stays open through the navigation (the per-door remount unmounts it).
-    router.push(dineInMenuHref({ join: c }));
-  };
 
   return (
     <>
@@ -221,80 +182,17 @@ export function DoorSheet({
           )}
         </ul>
         {tableGridOffered(mode) && tables && (
-          // 3c-i (D18) — the grid as a SECTION, under the doors, under a hairline. Spacing is the
-          // exits' idiom in tokens; `.table-chip.is-mine` is availability (the clay wash), never the
-          // lit cap — the current door above stays the one selected thing on this surface.
-          <section
-            aria-labelledby={tablesTitleId}
-            className="door-sheet-tables"
-            style={tablesSection}
-          >
-            <h3 id={tablesTitleId} style={sectionTitle}>
-              {t("en", "pickYourTable")}{" "}
-              <span lang="my" className="door-sheet-my">
-                {t("my", "pickYourTable")}
-              </span>
-            </h3>
-            <p className="door-sheet-sub" style={flush}>
-              Scan your table’s sticker, or pick your number.
-            </p>
-            <TableGrid
-              tables={tables}
-              stagger={false}
-              source="sheet"
-              onJoin={onJoin}
-              onEnter={enterDinein}
-              expandedTable={joinNum}
-              controls={joinFormId}
-            />
-            {joinNum != null && (
-              // The seated-table ask, INLINE (never a nested sheet). Arrives with `mms-rise` — RM-none
-              // in globals.css — and the Field is the app's one field.
-              <form
-                id={joinFormId}
-                aria-labelledby={joinTitleId}
-                className="mms-rise"
-                style={joinForm}
-                onSubmit={submitJoin}
-              >
-                <h4 id={joinTitleId} style={sectionTitle}>
-                  {JOIN_COPY.title(joinNum)}
-                </h4>
-                <p className="door-sheet-sub" style={flush}>
-                  {JOIN_COPY.body(joinNum)}
-                </p>
-                <Field label={JOIN_COPY.label} error={joinError}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      ref={inputRef}
-                      value={code}
-                      onChange={(e) => {
-                        setCode(e.target.value);
-                        setJoinError(null);
-                      }}
-                      autoCapitalize="characters"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      maxLength={40}
-                      // A synthetic example, NOT any seeded token (lib/table-pick.ts says why).
-                      placeholder={JOIN_COPY.placeholder}
-                    />
-                  )}
-                </Field>
-                {/* A refusal that stays reachable: `aria-disabled`, never native `disabled` — the
-                    submit guard above is the enforcement; an empty code goes nowhere, and SAYS so on
-                    the field (Enter in the input submits past any disabled look). */}
-                <button
-                  type="submit"
-                  className={buttonClass({ variant: "primary", size: "lg", block: true })}
-                  aria-disabled={!code.trim() || undefined}
-                >
-                  {JOIN_COPY.button}
-                </button>
-              </form>
-            )}
-          </section>
+          // 3c-i (D18) → 3c-ii (D27) — the grid as a SECTION, under the doors, under a hairline:
+          // `TableSection`, the one host the Send sheet shares. Here a chip NAVIGATES (no `onClaim`)
+          // and the door entered is recorded; the sub-line is this sheet's own sticker line.
+          <TableSection
+            tables={tables}
+            source="sheet"
+            sub="Scan your table’s sticker, or pick your number."
+            joinNum={joinNum}
+            onJoinChange={setJoinNum}
+            onEnter={enterDinein}
+          />
         )}
         {mode === "dinein" && (
           <div className="door-sheet-exits">
@@ -330,17 +228,3 @@ export function DoorSheet({
     </>
   );
 }
-
-// 3c-i — the section's spacing in tokens (the `.door-sheet-exits` idiom: a hairline, then the
-// stack). Inline until Slice A's stylesheet carries a `.door-sheet-tables` rule; no literal sizes.
-const tablesSection = {
-  display: "grid",
-  gap: "var(--s3)",
-  marginTop: "var(--s4)",
-  paddingTop: "var(--s4)",
-  paddingBottom: "var(--s2)",
-  borderTop: "1px solid var(--bd)",
-} as const;
-const sectionTitle = { margin: 0, fontSize: "var(--fs-h3)" } as const;
-const flush = { margin: 0 } as const;
-const joinForm = { display: "grid", gap: "var(--s3)", marginTop: "var(--s2)" } as const;

@@ -38,6 +38,9 @@ vi.mock("@/lib/cart", () => ({
   sendToKitchen: h.sendToKitchen,
   undoFire: h.undoFire,
 }));
+// 3c-ii — the bind sheet is mounted for every dine-in host; its Server Action reaches the service
+// client (server-only). Never called here: the table is known (7), so the ask never opens.
+vi.mock("@/lib/bind-table", () => ({ bindTable: vi.fn() }));
 vi.mock("@/lib/counter-pay", () => ({
   counterPayOutcome: h.counterPayOutcome,
   requestCounterPay: vi.fn(),

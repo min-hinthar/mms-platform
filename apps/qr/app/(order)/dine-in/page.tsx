@@ -1,14 +1,12 @@
-import { getDineInTables } from "@/lib/tables";
-import { TablePicker } from "@/components/TablePicker";
+import { redirect } from "next/navigation";
+import { dineInMenuHref } from "@/lib/table-pick";
 
-// K2 (Journey II) — the dine-in table picker route. Reached from the Dine-in door on the entry (the
-// "can't scan the sticker" fallback); a scanned physical sticker deep-links straight to
-// /menu?mode=dinein&t=<token> and skips this. RSC read of the registered tables + occupancy via the
-// service client (the sticker tokens stay server-side); the client TablePicker gets only number +
-// occupied and routes by NUMBER (?table=N) so the token never touches the client.
-export const dynamic = "force-dynamic"; // occupancy is truth-at-read-time — never cache the picker
-
-export default async function DineIn() {
-  const tables = await getDineInTables();
-  return <TablePicker tables={tables} />;
+// Phase 3c-ii (D27) — browse first. K2's "Which table are you at?" picker stood here before the menu;
+// the table is now asked ONCE, inside the first Send, as a sheet on the cart (`TableBindSheet`), and
+// a scanned sticker or a `?table=N` claim stamps the number at mint and never sees it. The ROUTE
+// stays — the manifest's jump list names it and `ActiveOrderProvider` / `diner-tabs` read the path
+// as the dine-in door — and enters the dine-in menu on today's bare host-start: the ONE builder's
+// href, the same string the home's Dine-in door carries (`lib/doors.ts`, pinned by doors.test).
+export default function DineIn() {
+  redirect(dineInMenuHref({}));
 }
