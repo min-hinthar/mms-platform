@@ -1,12 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient, sessionClient } from "@mms/db/server";
 import { sessionMintInput } from "@mms/db/schemas";
-import { generateJoinCode, reservedCodeRefusal, sweepsExpiredSquatter } from "@/lib/session-code";
+import {
+  generateJoinCode,
+  isReservedSessionCode,
+  reservedCodeRefusal,
+  sweepsExpiredSquatter,
+} from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
-import { isTransportFailure } from "@/lib/authz";
+import { AuthzError, isTransportFailure } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { BIND_COPY } from "@/lib/bind-copy";
+import {
+  bindSessionTable,
+  claimDisposition,
+  seatedSessionFor,
+  sweepExpiredOnTable,
+} from "@/lib/seated";
 
 type Sess = {
   id: string;
@@ -15,6 +27,13 @@ type Sess = {
   qr_code: string;
   table_number: number | null;
 };
+
+/** W10a — the auth/DB plane is unreachable: 503 "we're down", never a verdict about the diner. */
+const unavailable = () =>
+  NextResponse.json(
+    { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
+    { status: 503, headers: { "Retry-After": "20" } },
+  );
 
 /**
  * Table-session mint/join (closes red-team C2). A scanned QR — or, for the dine-in group cart
@@ -32,6 +51,15 @@ type Sess = {
  * sticker. The SERVER then mints an unguessable join code (generateJoinCode) and returns it, so the
  * code is server-issued (QA §C). Find-or-create races safely: the table_sessions_active_qr_uniq
  * partial index makes two phones joining the same code at once collide (23505) → re-read → converge.
+ *
+ * TWO IDENTITIES (Phase 3c-ii, D21–D25). The sticker TOKEN (`qr_code`) is the join identity for a
+ * session's whole life; the table NUMBER is the seat, and it is now UNIQUE among live dine-in
+ * sessions (`table_sessions_active_table_uniq`). A session can be seated late — a generated join
+ * code bound to 7 at the first Send (`bindTable`) — and the sticker token never names that row, so
+ * every number-keyed read here goes through the ONE predicate (`seatedSessionFor`, lib/seated.ts):
+ * a sticker scan or a `?table=N` claim finds the party at N whatever code it holds, every 23505 is
+ * re-read by NUMBER (never by constraint name), and a claim from a phone whose persisted code names
+ * a live UNBOUND session it hosts BINDS that session instead of orphaning its drafts (J33).
  */
 export async function POST(req: NextRequest) {
   let body;
@@ -53,11 +81,7 @@ export async function POST(req: NextRequest) {
   // the paused-project outage every diner with a perfectly good token was told their session was
   // invalid, and the client's recovery (re-mint) churned uselessly against the same dead plane.
   // The client keys its honest we-are-down copy off this status.
-  if (authErr && isTransportFailure(authErr))
-    return NextResponse.json(
-      { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
-      { status: 503, headers: { "Retry-After": "20" } },
-    );
+  if (authErr && isTransportFailure(authErr)) return unavailable();
   if (authErr || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
   const seat = user.id; // == auth.uid() → becomes session_members.seat_id (the RLS identity)
 
@@ -75,27 +99,28 @@ export async function POST(req: NextRequest) {
   const cols = "id,mode,host_seat,qr_code,table_number";
 
   // K2 (Journey II): resolve the effective session key + the registered table number.
-  //  • Dine-in PICKER path (a `tableNumber` with no token): look up the table's registered sticker
-  //    qr_code server-side — the token never travels to the client. The picker is advisory, so the
-  //    mint re-checks the table is registered + active (a stale/forged number 400s here).
+  //  • Dine-in CLAIM path (a `tableNumber` — Phase 3c-ii D25: with or without a code): look up the
+  //    table's registered sticker qr_code server-side — the token never travels to the client. The
+  //    picker is advisory, so the mint re-checks the table is registered + active (a stale/forged
+  //    number 400s here). A code sent BESIDE the number is only ever `priorCode` — this phone's
+  //    persisted session, verified below by `host_seat === seat` — never the key the number resolves.
   //  • Sticker/invite path (a `qrCode`): resolve the table number FROM the token so the session is
   //    stamped even when a physical sticker is scanned — null for a host-mint code / legacy sticker.
-  // `resolvedQr` then drives find-or-create exactly as `qrCode` did; `sessionTable` stamps the insert.
-  let resolvedQr = qrCode;
+  // `resolvedQr` then drives the create exactly as `qrCode` did; `sessionTable` stamps the insert
+  // and, when known, is what the session is FOUND by.
+  const claim = mode === "dinein" && tableNumber != null;
+  const priorCode = claim ? qrCode : undefined;
+  let resolvedQr = claim ? undefined : qrCode;
   let sessionTable: number | null = null;
   if (mode === "dinein") {
-    if (!resolvedQr && tableNumber != null) {
+    if (claim) {
       const { data: tbl } = await db
         .from("qr_tables")
         .select("qr_code")
         .eq("table_number", tableNumber)
         .eq("active", true)
         .maybeSingle();
-      if (!tbl)
-        return NextResponse.json(
-          { error: "That table isn’t available — scan its sticker or pick another." },
-          { status: 400 },
-        );
+      if (!tbl) return NextResponse.json({ error: BIND_COPY.unavailable }, { status: 400 });
       resolvedQr = tbl.qr_code;
       sessionTable = tableNumber;
     } else if (resolvedQr) {
@@ -122,13 +147,47 @@ export async function POST(req: NextRequest) {
         .maybeSingle()
     ).data ?? null;
 
-  let sess: Sess | null = resolvedQr ? await findActive(resolvedQr) : null;
+  // D25 — a registered table is found BY NUMBER (the one predicate), a numberless code by token. A
+  // failed number read is an outage, never "no session here" followed by a second mint over a table
+  // we could not see.
+  let sess: Sess | null;
+  try {
+    sess =
+      sessionTable != null
+        ? await seatedSessionFor(db, sessionTable)
+        : resolvedQr
+          ? await findActive(resolvedQr)
+          : null;
+  } catch (e) {
+    if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+    throw e;
+  }
   let created = false;
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
   if (joinOnly && !sess)
     return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+
+  // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
+  // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
+  // (without this, any visitor could mint fake counter-queue entries). Phase 2f (Codex r3 on #308):
+  // nor JOIN an active reserved session — a member of a `reg-` counter order could add a to-go draft
+  // after staff reviewed it (the counter Send fires every draft unpaid), a member of a `kiosk-`
+  // dine-in could add drafts its host fires unpaid, and no real client joins either. Decided BEFORE
+  // the member check, the expiry slide, the host claim and the membership insert below, so a refused
+  // join touches nothing. One predicate: `reservedCodeRefusal` (lib/session-code.ts) — keyed on the
+  // code the CLIENT sent, so a session FOUND BY NUMBER (D25: a kiosk dine-in claim carries a number,
+  // lib/kiosk.ts) is checked on its own `qr_code` too. The copy names neither kind: it must be true
+  // for a counter order AND a kiosk order.
+  const reserved = reservedCodeRefusal({ found: sess !== null, code: resolvedQr });
+  if (reserved === "create")
+    return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
+  if (reserved === "join" || (sess !== null && isReservedSessionCode(sess.qr_code)))
+    return NextResponse.json(
+      { error: "That order can’t be joined from a phone — please ask staff." },
+      { status: 403 },
+    );
 
   // K2 — the picker's CLAIM path (`tableNumber`) expects an EMPTY table. If one is already active
   // (someone claimed/sat this table between the picker's occupancy read and now), do NOT silently
@@ -138,7 +197,9 @@ export async function POST(req: NextRequest) {
   // W5a — UNLESS the "stranger" is the party itself: a swipe-back diner re-tapping their OWN table
   // in the picker was 409'd here (the re-entry dead end). If this seat is already a member of the
   // active session, converge on it — a rejoin, not a takeover; the stranger refusal below is intact.
-  if (tableNumber != null && sess) {
+  // D25: the session is found by NUMBER now, so the home card's `?resume=1&table=N` converges on a
+  // late-bound table instead of 409ing its own host.
+  if (claim && sess) {
     const { data: mine, error: mineErr } = await db
       .from("session_members")
       .select("id")
@@ -152,16 +213,13 @@ export async function POST(req: NextRequest) {
         { error: "Could not check the table — try again." },
         { status: 500 },
       );
-    if (!mine)
-      return NextResponse.json(
-        { error: "That table was just seated — join with the party’s code, or pick another." },
-        { status: 409 },
-      );
+    if (!mine) return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
   }
 
   // Turned-over table: the same physical sticker code can be reused, but the prior session may be
-  // EXPIRED yet still status='active' (there's no background sweeper) — squatting on the partial unique
-  // index (table_sessions_active_qr_uniq WHERE status='active') so a fresh insert below would 23505.
+  // EXPIRED yet still status='active' — the pg_cron sweeper (`mms_sweep_expired_sessions`, every
+  // 15 minutes) has not reached it yet, and it squats on the partial unique index
+  // (table_sessions_active_qr_uniq WHERE status='active') so a fresh insert below would 23505.
   // Sweep it to 'closed' first (the sweep that index's comment anticipated), freeing the code to mint anew.
   // Trust note: only an ALREADY-expired session is swept (its legit diners are already locked out by
   // the expiry check), and whoever re-mints becomes host — the same "first scanner provisions" model
@@ -176,24 +234,32 @@ export async function POST(req: NextRequest) {
       .eq("status", "active")
       .lte("expires_at", new Date().toISOString());
   }
+  // D22 — and the same sweep BY NUMBER before any write that stamps one: the number index is
+  // partial on status too, so a dead row holds N until the cron. Dead rows only; this stays for
+  // numberless token rows above, that one for every number-stamping write below.
+  if (!sess && sessionTable != null) await sweepExpiredOnTable(db, sessionTable);
 
-  // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
-  // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
-  // (without this, any visitor could mint fake counter-queue entries). Phase 2f (Codex r3 on #308):
-  // nor JOIN an active reserved session — a member of a `reg-` counter order could add a to-go draft
-  // after staff reviewed it (the counter Send fires every draft unpaid), a member of a `kiosk-`
-  // dine-in could add drafts its host fires unpaid, and no real client joins either. Decided BEFORE
-  // the expiry slide, the host claim and the membership insert below, so a refused join touches
-  // nothing. One predicate: `reservedCodeRefusal` (lib/session-code.ts). The copy names neither
-  // kind: it must be true for a counter order AND a kiosk order.
-  const reserved = reservedCodeRefusal({ found: sess !== null, code: resolvedQr });
-  if (reserved === "create")
-    return NextResponse.json({ error: "That code isn’t valid." }, { status: 404 });
-  if (reserved === "join")
-    return NextResponse.json(
-      { error: "That order can’t be joined from a phone — please ask staff." },
-      { status: 403 },
-    );
+  // D25 — J33's unbound half. A claim from a phone whose persisted code names a live UNBOUND dine-in
+  // session THIS seat hosts binds that session to the table (one column, `bindSessionTable`) and
+  // rejoins it — its drafts come along, where a second mint would have orphaned them. Decided by the
+  // pure `claimDisposition`: a guest's session, a bound one, a pickup one, a reserved code or no
+  // prior session at all mints as today. The CAS can refuse: 23505 → the number was taken between
+  // the read and the write (the shipped 409); 0 rows → the session died under us → mint.
+  if (!sess && claim && sessionTable != null) {
+    const mine =
+      priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;
+    if (claimDisposition({ seated: false, mine, seat }) === "bind" && mine) {
+      const { count, error } = await bindSessionTable(db, mine.id, sessionTable);
+      if (error?.code === "23505")
+        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      if (error)
+        return NextResponse.json(
+          { error: "Could not check the table — try again." },
+          { status: 500 },
+        );
+      if ((count ?? 0) > 0) sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
+    }
+  }
 
   // Create when no active session exists for the code (or when the host omitted one → mint a code).
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
@@ -213,22 +279,30 @@ export async function POST(req: NextRequest) {
       break;
     }
     if (error?.code === "23505") {
-      // Unique violation on table_sessions_active_qr_uniq.
+      // Unique violation — on table_sessions_active_qr_uniq (the code) or, for a numbered insert,
+      // table_sessions_active_table_uniq (the NUMBER, D22). Either way the live row at N is the one
+      // to converge on, and it is read BY NUMBER, never by the constraint name.
       // K2: a picker CLAIM that lost the insert race to a concurrent claimant must NOT converge onto
       // their session (that's a code-free join into a stranger's party) — refuse, same as above.
       // W5a: UNLESS the winner is THIS seat (two of the diner's own tabs racing an empty-table
       // claim — home resume card + picker chip): converge on our own session instead of the
       // misleading stranger 409. host_seat is deterministic (no membership-insert race to lose).
-      if (tableNumber != null) {
-        const winner = resolvedQr ? await findActive(resolvedQr) : null;
-        if (winner && winner.host_seat === seat) {
-          sess = winner;
+      try {
+        if (claim && sessionTable != null) {
+          const winner = await seatedSessionFor(db, sessionTable);
+          if (winner && winner.host_seat === seat) {
+            sess = winner;
+            break;
+          }
+          return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+        }
+        if (sessionTable != null) {
+          sess = await seatedSessionFor(db, sessionTable); // the party at N won → join them
           break;
         }
-        return NextResponse.json(
-          { error: "That table was just seated — join with the party’s code, or pick another." },
-          { status: 409 },
-        );
+      } catch (e) {
+        if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+        throw e;
       }
       if (resolvedQr) {
         sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session

@@ -46,13 +46,22 @@ type Q = {
   op: "select" | "insert" | "update";
   payload?: Record<string, unknown>;
   eq: [string, unknown][];
+  gt: [string, unknown][];
+  lte: [string, unknown][];
   like: [string, string][];
   or: string[];
 };
 let queries: Q[] = [];
 /** Scripted single-row answers keyed by table for maybeSingle reads. */
 let tableRow: Record<string, unknown> | null = null;
-let occupiedRow: Record<string, unknown> | null = null;
+/** What each number-keyed read (`seatedSessionFor`) answers, in order — the last entry repeats.
+ *  Two entries script the insert RACE: an empty pre-read, then a holder on the 23505 re-read. */
+let occupiedRows: (Record<string, unknown> | null)[] = [null];
+let occupiedReads = 0;
+let occupiedError: { message: string } | null = null;
+/** What each `table_sessions` insert answers, in order (null = lands) — the last entry repeats. */
+let insertErrors: ({ code: string } | null)[] = [null];
+let sessionInserts = 0;
 /** The reset's scope read (table_sessions select WITHOUT a table_number filter). */
 let sessionRow: Record<string, unknown> | null = { id: "sess-1" };
 let closedRows: { id: string }[] = [{ id: "sess-1" }];
@@ -64,8 +73,14 @@ function chain(q: Q) {
       q.eq.push([col, val]);
       return api;
     },
-    gt: () => api,
-    lte: () => api,
+    gt(col: string, val: unknown) {
+      q.gt.push([col, val]);
+      return api;
+    },
+    lte(col: string, val: unknown) {
+      q.lte.push([col, val]);
+      return api;
+    },
     limit: () => api,
     like(col: string, val: string) {
       q.like.push([col, val]);
@@ -75,22 +90,26 @@ function chain(q: Q) {
       q.or.push(expr);
       return api;
     },
-    maybeSingle: () =>
-      Promise.resolve({
-        data:
-          q.table === "qr_tables"
-            ? tableRow
-            : q.eq.some(([col]) => col === "table_number")
-              ? occupiedRow
-              : sessionRow,
+    maybeSingle: () => {
+      if (q.table === "qr_tables") return Promise.resolve({ data: tableRow, error: null });
+      if (q.eq.some(([col]) => col === "table_number")) {
+        const i = Math.min(occupiedReads++, occupiedRows.length - 1);
+        return Promise.resolve({ data: occupiedRows[i] ?? null, error: occupiedError });
+      }
+      return Promise.resolve({ data: sessionRow, error: null });
+    },
+    single: () => {
+      if (q.op !== "insert") return Promise.resolve({ data: null, error: null });
+      if (q.table === "table_sessions") {
+        const i = Math.min(sessionInserts++, insertErrors.length - 1);
+        const err = insertErrors[i] ?? null;
+        if (err) return Promise.resolve({ data: null, error: err });
+      }
+      return Promise.resolve({
+        data: { id: q.table === "qr_carts" ? "cart-1" : "sess-1" },
         error: null,
-      }),
-    single: () =>
-      Promise.resolve(
-        q.op === "insert"
-          ? { data: { id: q.table === "qr_carts" ? "cart-1" : "sess-1" }, error: null }
-          : { data: null, error: null },
-      ),
+      });
+    },
     select(_cols?: string) {
       if (q.op === "update")
         return Object.assign(
@@ -109,7 +128,7 @@ function chain(q: Q) {
   return api;
 }
 function pushQ(table: string, op: Q["op"], payload?: Record<string, unknown>) {
-  const q: Q = { table, op, payload, eq: [], like: [], or: [] };
+  const q: Q = { table, op, payload, eq: [], gt: [], lte: [], like: [], or: [] };
   queries.push(q);
   return q;
 }
@@ -136,7 +155,11 @@ beforeEach(() => {
   gateAnswer = null;
   kioskOpen = true;
   tableRow = null;
-  occupiedRow = null;
+  occupiedRows = [null];
+  occupiedReads = 0;
+  occupiedError = null;
+  insertErrors = [null];
+  sessionInserts = 0;
   sessionRow = { id: SESSION };
   closedRows = [{ id: "sess-1" }];
   cancelledRows = [{ id: "cart-1" }];
@@ -220,7 +243,7 @@ describe("openKioskOrder — the mint shape", () => {
 
   it("refuses an OCCUPIED table — never a second cart over a seated party", async () => {
     tableRow = { table_number: 4 };
-    occupiedRow = { id: "other-sess" };
+    occupiedRows = [{ id: "other-sess" }];
     const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
     expect(r).toEqual({ ok: false, reason: "occupied" });
     expect(queries.some((q) => q.op === "insert")).toBe(false);
@@ -233,6 +256,104 @@ describe("openKioskOrder — the mint shape", () => {
     const mint = queries.find((q) => q.table === "table_sessions" && q.op === "insert");
     expect(mint?.payload?.mode).toBe("dinein");
     expect(mint?.payload?.table_number).toBe(4);
+  });
+});
+
+/**
+ * Phase 3c-ii (D22 · D23) — the kiosk's dine-in claim reads occupancy through the ONE predicate
+ * (`seatedSessionFor`, lib/seated.ts), sweeps the dead row off N before it stamps the number, and
+ * reads a 23505 BY NUMBER: with the partial unique index on `table_sessions(table_number)`, a phone
+ * that bound N between the pre-read and the insert refuses the insert — and a bare `continue` would
+ * spend all six attempts re-colliding on the same number and answer `error` for a table that is
+ * simply taken.
+ */
+describe("openKioskOrder — the dine-in claim under the number index (3c-ii)", () => {
+  it("sweeps the expired row off N (dead rows only) BEFORE the pre-read and the insert", async () => {
+    tableRow = { table_number: 4 };
+    const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    expect(r.ok).toBe(true);
+    const sweepIdx = queries.findIndex(
+      (q) => q.table === "table_sessions" && q.op === "update" && q.payload?.status === "closed",
+    );
+    const readIdx = queries.findIndex(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([col]) => col === "table_number"),
+    );
+    const insertIdx = queries.findIndex((q) => q.table === "table_sessions" && q.op === "insert");
+    expect(sweepIdx).toBeGreaterThan(-1);
+    expect(sweepIdx).toBeLessThan(readIdx);
+    expect(readIdx).toBeLessThan(insertIdx);
+    const sweep = queries[sweepIdx];
+    expect(sweep?.eq).toContainEqual(["table_number", 4]);
+    expect(sweep?.eq).toContainEqual(["mode", "dinein"]);
+    expect(sweep?.eq).toContainEqual(["status", "active"]);
+    expect(sweep?.lte[0]?.[0]).toBe("expires_at");
+  });
+
+  it("the pre-read is the live-dine-in-at-N predicate (number · dinein · active · unexpired)", async () => {
+    tableRow = { table_number: 4 };
+    await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    const read = queries.find(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([col]) => col === "table_number"),
+    );
+    expect(read?.eq).toContainEqual(["table_number", 4]);
+    expect(read?.eq).toContainEqual(["mode", "dinein"]);
+    expect(read?.eq).toContainEqual(["status", "active"]);
+    expect(read?.gt[0]?.[0]).toBe("expires_at");
+  });
+
+  it("a failed pre-read is an outage, never an empty table", async () => {
+    tableRow = { table_number: 4 };
+    occupiedError = { message: "fetch failed" };
+    const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    expect(r).toEqual({ ok: false, reason: "error" });
+    expect(queries.some((q) => q.op === "insert")).toBe(false);
+  });
+
+  it("a 23505 on the insert re-reads BY NUMBER and answers occupied — one insert, never six regenerations", async () => {
+    tableRow = { table_number: 4 };
+    // The race: nobody at the pre-read, a phone bound 4 by the time the insert ran.
+    occupiedRows = [null, { id: "phone-sess", table_number: 4 }];
+    insertErrors = [{ code: "23505" }];
+    const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    expect(r).toEqual({ ok: false, reason: "occupied" });
+    expect(queries.filter((q) => q.table === "table_sessions" && q.op === "insert")).toHaveLength(
+      1,
+    );
+    const reads = queries.filter(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([col]) => col === "table_number"),
+    );
+    expect(reads).toHaveLength(2); // the pre-read and the collision re-read, both by number
+    expect(reads[1]?.eq).toContainEqual(["table_number", 4]);
+    expect(reads[1]?.eq.some(([col]) => col === "qr_code")).toBe(false);
+  });
+
+  it("a 23505 with nobody at N is the kiosk CODE colliding — regenerate, as always", async () => {
+    tableRow = { table_number: 4 };
+    insertErrors = [{ code: "23505" }, null];
+    const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    expect(r.ok).toBe(true);
+    expect(queries.filter((q) => q.table === "table_sessions" && q.op === "insert")).toHaveLength(
+      2,
+    );
+  });
+
+  it("a to-go kiosk order never consults the number read, and a code collision still regenerates", async () => {
+    insertErrors = [{ code: "23505" }, null];
+    const r = await openKioskOrder({ k: TOKEN, kind: "togo", customerName: "Thiri" });
+    expect(r.ok).toBe(true);
+    expect(queries.some((q) => q.eq.some(([col]) => col === "table_number"))).toBe(false);
+    expect(queries.filter((q) => q.table === "table_sessions" && q.op === "insert")).toHaveLength(
+      2,
+    );
   });
 });
 

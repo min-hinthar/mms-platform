@@ -144,10 +144,14 @@ export function useTableSession(
     // the route to switch modes.
     if (!anon || session || minting.current) return;
     minting.current = true;
-    // K2: on a fresh picker CLAIM (`?table=N`), send the table number and DON'T reuse a stale persisted
-    // token — the server resolves the number to the table's token and mints/claims it. Otherwise resolve
-    // the code as before (sticker/invite param or the persisted dine-in key).
-    const qrCode = tableNumber != null ? undefined : resolveQrCode(mode, code);
+    // K2 · Phase 3c-ii (D25): on a picker CLAIM (`?table=N`) the table number rides to the server,
+    // which resolves it to the table's token and finds the party at N by NUMBER — the persisted
+    // dine-in key is sent BESIDE it, never as the key the number resolves. The server reads that
+    // code only as `priorCode`: this phone's own live session, verified by `host_seat === seat`, so
+    // an UNBOUND session the diner hosts is BOUND to the table instead of a second session minting
+    // over its drafts (J33's unbound half). A stale or foreign key still claims the table as before
+    // (the server mints), so W9a holds: the code is read here, written only after the server accepts.
+    const qrCode = resolveQrCode(mode, code);
     const storedName = window.localStorage.getItem(NAME_KEY);
     fetch("/api/session", {
       method: "POST",

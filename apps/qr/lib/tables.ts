@@ -1,4 +1,5 @@
 import { serviceClient } from "@mms/db/server";
+import { occupancyFor, seatedTableNumbers } from "./seated";
 
 /** K2 — one registered dine-in table for the picker: its number + honest occupancy (is a party
  *  currently seated). The sticker TOKEN is never included — the picker routes by number (`?table=N`)
@@ -6,27 +7,27 @@ import { serviceClient } from "@mms/db/server";
 export type DineInTable = { tableNumber: number; occupied: boolean };
 
 /**
- * Server-only read for the dine-in table picker (the "can't scan the sticker" fallback). Lists the
- * active registered tables with truth-at-read-time occupancy — occupancy is NOT a reservation, just
- * "is there an active, non-expired session for this table right now" (mirrors the mint's own
- * active-session predicate: status='active' AND expires_at>now()). Read via the service client from
- * an RSC ONLY (never a client component) so the tokens stay server-side; a read failure returns [] so
- * the picker degrades to "scan your sticker" rather than crashing the dine-in door.
+ * Server-only read for the dine-in table grid (the DoorSheet's section and the Send sheet's).
+ * Lists the active registered tables with truth-at-read-time occupancy — occupancy is NOT a
+ * reservation, just "is there a live dine-in session seated at this NUMBER right now", decided by
+ * the ONE predicate (`seatedTableNumbers`, lib/seated.ts — Phase 3c-ii D23). Keyed on the number,
+ * not the sticker token: a generated-code session bound to 7 at Send (D21) carries the number and
+ * never the sticker's code, so a token-keyed read would have offered that table as Open. Read via
+ * the service client from an RSC ONLY (never a client component) so the tokens stay server-side.
+ * A failed read is NO list (`[]`) — the picker degrades to "scan your sticker" — never a list with
+ * every table Open (finding 6: the sessions read used to have no error branch).
  */
 export async function getDineInTables(): Promise<DineInTable[]> {
   const db = serviceClient();
   // Two independent reads, issued TOGETHER (blind pass on 3c-i · perf): the sheet now reads this on
   // the to-go menu's RSC too, so a serial pair was one round trip of TTFB for nothing (J30).
-  const [{ data: tables, error }, { data: active }] = await Promise.all([
-    db.from("qr_tables").select("table_number,qr_code").eq("active", true).order("table_number"),
-    db
-      .from("table_sessions")
-      .select("qr_code")
-      .eq("status", "active")
-      .gt("expires_at", new Date().toISOString()),
+  const [{ data: tables, error }, seated] = await Promise.all([
+    db.from("qr_tables").select("table_number").eq("active", true).order("table_number"),
+    seatedTableNumbers(db),
   ]);
   if (error || !tables) return [];
-  const seated = new Set((active ?? []).map((s) => s.qr_code));
-
-  return tables.map((t) => ({ tableNumber: t.table_number, occupied: seated.has(t.qr_code) }));
+  return occupancyFor(
+    tables.map((t) => t.table_number),
+    seated,
+  );
 }

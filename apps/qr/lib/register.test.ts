@@ -23,10 +23,21 @@ vi.mock("./session-code", () => ({ generateJoinCode: () => "ABCD1234" }));
 type Q = {
   table: string;
   op: "select" | "insert" | "update";
+  cols?: string;
   payload?: Record<string, unknown>;
   eq: [string, unknown][];
+  gt: [string, unknown][];
+  lte: [string, unknown][];
 };
 let queries: Q[] = [];
+/** Phase 3c-ii — `startTable`'s registry row (null = unregistered). */
+let registryRow: { table_number: number; qr_code: string; active: boolean } | null = null;
+/** What each number-keyed read (`seatedSessionFor`) answers, in order — the last entry repeats. */
+let numberRows: (Record<string, unknown> | null)[] = [null];
+let numberReads = 0;
+/** What each `table_sessions` insert answers, in order (null = lands) — the last entry repeats. */
+let insertErrors: ({ code: string } | null)[] = [null];
+let sessionInserts = 0;
 /** Rows the update's read-back returns (the 0-row honesty test flips this). */
 let updatedRows: { id: string }[] = [];
 /** Phase 2f — every RPC called, and what `mms_clear_cart_name` answers. */
@@ -42,19 +53,35 @@ function chain(q: Q) {
       q.eq.push([col, val]);
       return api;
     },
-    gt: () => api,
-    lte: () => api,
+    gt(col: string, val: unknown) {
+      q.gt.push([col, val]);
+      return api;
+    },
+    lte(col: string, val: unknown) {
+      q.lte.push([col, val]);
+      return api;
+    },
     like: () => api,
     in: () => api,
     order: () => api,
     limit: () => api,
-    maybeSingle: () => Promise.resolve({ data: null, error: null }),
-    single: () =>
-      Promise.resolve(
-        q.op === "insert" && q.table === "table_sessions"
-          ? { data: { id: "sess-1" }, error: null }
-          : { data: null, error: null },
-      ),
+    maybeSingle: () => {
+      if (q.table === "qr_tables") return Promise.resolve({ data: registryRow, error: null });
+      if (q.table === "table_sessions" && q.eq.some(([col]) => col === "table_number")) {
+        const i = Math.min(numberReads++, numberRows.length - 1);
+        return Promise.resolve({ data: numberRows[i] ?? null, error: null });
+      }
+      return Promise.resolve({ data: null, error: null });
+    },
+    single: () => {
+      if (q.op !== "insert" || q.table !== "table_sessions")
+        return Promise.resolve({ data: null, error: null });
+      const i = Math.min(sessionInserts++, insertErrors.length - 1);
+      const err = insertErrors[i] ?? null;
+      return Promise.resolve(
+        err ? { data: null, error: err } : { data: { id: "sess-1" }, error: null },
+      );
+    },
     select(_cols?: string) {
       // A mutation's read-back resolves rows; a plain select keeps chaining.
       if (q.op === "update")
@@ -78,7 +105,7 @@ vi.mock("@mms/db/server", () => ({
       return Promise.resolve({ data: "2026-09-13T19:00:00.000Z", error: null });
     },
     from: (table: string) => ({
-      select: (_cols: string) => chain(pushQ(table, "select")),
+      select: (cols: string) => chain(pushQ(table, "select", undefined, cols)),
       insert: (payload: Record<string, unknown>) => chain(pushQ(table, "insert", payload)),
       update: (payload: Record<string, unknown>) => chain(pushQ(table, "update", payload)),
     }),
@@ -86,8 +113,8 @@ vi.mock("@mms/db/server", () => ({
 }));
 
 /** Register the query in the log and return the SAME object so chain() records into it. */
-function pushQ(table: string, op: Q["op"], payload?: Record<string, unknown>) {
-  const q: Q = { table, op, payload, eq: [] };
+function pushQ(table: string, op: Q["op"], payload?: Record<string, unknown>, cols?: string) {
+  const q: Q = { table, op, cols, payload, eq: [], gt: [], lte: [] };
   queries.push(q);
   return q;
 }
@@ -97,6 +124,11 @@ const SESSION = "11111111-1111-4111-8111-111111111111";
 
 beforeEach(() => {
   queries = [];
+  registryRow = null;
+  numberRows = [null];
+  numberReads = 0;
+  insertErrors = [null];
+  sessionInserts = 0;
   updatedRows = [{ id: "cart-1" }];
   rpcCalls = [];
   clearVerdict = { data: "ok", error: null };
@@ -187,5 +219,113 @@ describe("setCartCustomerName — clearing a name goes through the cart-locked S
     await setCartCustomerName({ sessionId: SESSION, name: "Ko Ko" });
     expect(rpcCalls).toEqual([]);
     expect(queries.find((q) => q.op === "update")?.payload).toEqual({ customer_name: "Ko Ko" });
+  });
+});
+
+/**
+ * Phase 3c-ii (D22 · D26) — the register's "Start a table" finds the live session BY NUMBER through
+ * the ONE predicate (`seatedSessionFor`, lib/seated.ts) and CONVERGES on it: a diner who bound a
+ * generated code to 7 at Send holds a session the sticker TOKEN could never find, so a token-keyed
+ * Start minted a SECOND session on the same table — two ledgers, one party. The registry read now
+ * refuses an inactive table (the mint already requires `active = true` on both of its arms), the
+ * dead row is swept off N beside the token sweep, and a 23505 is re-read by number.
+ */
+describe("startTable — finds by NUMBER and converges; an inactive table is refused", () => {
+  const REG = { table_number: 7, qr_code: "STICKER7", active: true };
+  const numberReadsOf = () =>
+    queries.filter(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([col]) => col === "table_number"),
+    );
+  const insertsOf = () => queries.filter((q) => q.table === "table_sessions" && q.op === "insert");
+
+  it("an INACTIVE registered table is refused by name, before any table_sessions query", async () => {
+    registryRow = { ...REG, active: false };
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({ ok: false, error: "Table 7 isn’t active." });
+    expect(queries.some((q) => q.table === "table_sessions")).toBe(false);
+    // The registry read must ASK for `active` — a select that omits the column cannot refuse on it.
+    const reg = queries.find((q) => q.table === "qr_tables");
+    expect(reg?.cols?.split(",")).toContain("active");
+  });
+
+  it("an unregistered table keeps its sentence", async () => {
+    expect(await openRegisterOrder({ kind: "table", tableNumber: 7 })).toEqual({
+      ok: false,
+      error: "Table 7 isn’t registered.",
+    });
+  });
+
+  it("the find is the live-dine-in-at-N predicate — by NUMBER, never by qr_code — before the insert", async () => {
+    registryRow = REG;
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({ ok: true, sessionId: "sess-1", created: true });
+    const [find] = numberReadsOf();
+    expect(find?.eq).toContainEqual(["table_number", 7]);
+    expect(find?.eq).toContainEqual(["mode", "dinein"]);
+    expect(find?.eq).toContainEqual(["status", "active"]);
+    expect(find?.gt[0]?.[0]).toBe("expires_at");
+    const insertIdx = queries.findIndex((q) => q.table === "table_sessions" && q.op === "insert");
+    expect(queries.indexOf(find!)).toBeLessThan(insertIdx);
+    // No read before the insert keys on the sticker token.
+    expect(
+      queries
+        .slice(0, insertIdx)
+        .some((q) => q.op === "select" && q.eq.some(([col]) => col === "qr_code")),
+    ).toBe(false);
+  });
+
+  it("a live session at N (bound from a generated code) → created: false, NO insert, its cart ensured", async () => {
+    registryRow = REG;
+    numberRows = [{ id: "sess-bound", qr_code: "GENCODE7", table_number: 7 }];
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({ ok: true, sessionId: "sess-bound", created: false });
+    expect(insertsOf()).toHaveLength(0);
+    const cartRead = queries.find((q) => q.table === "qr_carts" && q.op === "select");
+    expect(cartRead?.eq).toContainEqual(["session_id", "sess-bound"]);
+  });
+
+  it("a 23505 on the insert is re-read BY NUMBER and converges on the winner", async () => {
+    registryRow = REG;
+    numberRows = [null, { id: "sess-winner", qr_code: "GENCODE7", table_number: 7 }];
+    insertErrors = [{ code: "23505" }];
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({ ok: true, sessionId: "sess-winner", created: false });
+    const reads = numberReadsOf();
+    expect(reads).toHaveLength(2);
+    expect(reads[1]?.eq).toContainEqual(["table_number", 7]);
+    expect(reads[1]?.eq.some(([col]) => col === "qr_code")).toBe(false);
+  });
+
+  it("sweeps the dead row off N (number + expired) beside the token sweep, before the find", async () => {
+    registryRow = REG;
+    await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    const sweeps = queries.filter(
+      (q) => q.table === "table_sessions" && q.op === "update" && q.payload?.status === "closed",
+    );
+    const byNumber = sweeps.find((q) => q.eq.some(([col]) => col === "table_number"));
+    expect(byNumber?.eq).toContainEqual(["table_number", 7]);
+    expect(byNumber?.eq).toContainEqual(["mode", "dinein"]);
+    expect(byNumber?.eq).toContainEqual(["status", "active"]);
+    expect(byNumber?.lte[0]?.[0]).toBe("expires_at");
+    const [find] = numberReadsOf();
+    expect(queries.indexOf(byNumber!)).toBeLessThan(queries.indexOf(find!));
+    // The token sweep stays for numberless token rows.
+    expect(sweeps.some((q) => q.eq.some(([col, v]) => col === "qr_code" && v === "STICKER7"))).toBe(
+      true,
+    );
+  });
+
+  it("the insert payload is unchanged: the sticker code, dine-in, no host, the number", async () => {
+    registryRow = REG;
+    await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(insertsOf()[0]?.payload).toEqual({
+      qr_code: "STICKER7",
+      mode: "dinein",
+      host_seat: null,
+      table_number: 7,
+    });
   });
 });

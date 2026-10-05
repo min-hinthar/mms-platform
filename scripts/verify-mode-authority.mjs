@@ -67,6 +67,12 @@
  * by `verify-counter-fire-race.mjs --mutants` (orders i2 and j) instead. `mms_line_transition` and
  * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
+ * Phase 3c-ii · M258 (D29) adds suite `p3c2`: `mms_undo_fire` restated with the two freshness legs
+ * (a fresh pay lock, a fresh split freeze — `mms_void_line`'s idiom) and FOUR killed mutants, each
+ * beside the legitimate case its leg must not over-block, with NO new survivor: the function takes
+ * no row lock by default (owner question 1), and the one-statement residual that leaves is STATED
+ * in the migration header rather than claimed closed by a row here.
+ *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
  *
@@ -124,9 +130,16 @@ const SUITES = {
     ),
     test: path.join(ROOT, "supabase/tests/p2f_counter_cook_before_paid_test.sql"),
   },
+  // Phase 3c-ii · M258 (D29) — `mms_undo_fire` restated with the two freshness conjuncts (a fresh
+  // pay lock, a fresh split freeze). Its LAST definition was 20260624030000 (s4), outside every
+  // chain, so the function joins TARGETS here and the drift check below now covers it.
+  p3c2: {
+    migration: path.join(ROOT, "supabase/migrations/20261005120100_m258_undo_fire_lock_guard.sql"),
+    test: path.join(ROOT, "supabase/tests/m258_undo_fire_lock_guard_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -1632,6 +1645,52 @@ const MUTANTS = [
     find: "    update public.qr_cart_items set state = 'draft', fire_at = null, fire_batch = null\n      where cart_id = p_source_cart and state = 'fired' and fire_at > now();\n",
     replace: "",
   },
+  // ── Phase 3c-ii · M258 (D29) — the undo's two freshness legs, each beside the legitimate case it
+  // must not over-block. Both legs read the SAME columns `mms_void_line` reads, so a leg written in
+  // the strict form (bare `c.locked = false`) passes M1 and fails M2 — the over-blocking direction
+  // W17 named. No row lock by default (owner question 1): the one-statement residual is stated in
+  // the migration header, not claimed closed here.
+  {
+    id: "undo/locked-cart-undone",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.1 ·",
+    why: "the hole D20 filed — without the lock leg, host A's undo flips the batch back after guest B's create-intent locked and read zero drafts, and B's charge mints over dishes the gate would have refused",
+    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    replace: "",
+  },
+  {
+    id: "undo/stale-lock-blocks-undo",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.2 ·",
+    why: "the strict form the row proposed — `locked` is sticky (acquireCartLock takes a stale lock over; authz ignores one past its TTL), so a bare locked=false refuses every undo after an abandoned pay tab and the action says 'already with the kitchen' over lines the kitchen never saw",
+    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    replace: "      and c.locked = false\n",
+  },
+  {
+    id: "undo/settling-cart-undone",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.4 ·",
+    why: "a split in flight captures each share against the CURRENT base — an undo under a fresh settle freeze re-drafts lines the shares already priced",
+    find: "      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses\n",
+    replace: "",
+  },
+  {
+    id: "undo/settle-window-widened",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.5 ·",
+    why: "the freeze lifetime is SETTLE_TTL_MS (10 min) in lib/lock-ttl.ts, lib/authz.ts and every mms_split_* — a wider window here refuses the undo of a table whose settlement the app already treats as abandoned",
+    find: "      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses\n",
+    replace:
+      "      and (c.settle_at is null or c.settle_at <= now() - interval '60 minutes')   -- M258: a FRESH split freeze refuses\n",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -1688,6 +1747,7 @@ const TARGETS = [
   "mms_request_approval",
   "mms_line_transition",
   "mms_bump_ticket",
+  "mms_undo_fire",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

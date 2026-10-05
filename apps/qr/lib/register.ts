@@ -4,6 +4,7 @@ import { serviceClient } from "@mms/db/server";
 import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
+import { seatedSessionFor, sweepExpiredOnTable, type SeatedSession } from "./seated";
 import { summarizeDay, type DaySummary } from "./register-math";
 import { cashRefundedCents, readLedgerSince } from "./refund-ledger";
 import { readServiceDay } from "./service-day";
@@ -94,37 +95,44 @@ export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResul
 }
 
 /** Find-or-create the active session for a registered table (the staff mirror of a diner's sticker
- *  scan). Converges on an existing active session — staff "starting" an occupied table just opens it. */
+ *  scan). Converges on an existing active session — staff "starting" an occupied table just opens it.
+ *
+ *  Phase 3c-ii (D22 · D26) — found BY NUMBER through the ONE predicate (`seatedSessionFor`,
+ *  lib/seated.ts): a diner who bound a generated code to this table at Send holds a session the
+ *  sticker TOKEN could never find, so a token-keyed Start minted a SECOND session on the same table
+ *  (two ledgers, one party — finding 1). Staff open the diners' ledger, never a second one
+ *  (`created: false` re-arms the pane with the number). An inactive table is refused like the mint
+ *  refuses it (`/api/session` requires `active = true` on both arms; this read did not ask). */
 async function startTable(
   db: ReturnType<typeof serviceClient>,
   tableNumber: number,
 ): Promise<OpenRegisterResult> {
   const { data: reg, error: regErr } = await db
     .from("qr_tables")
-    .select("table_number,qr_code")
+    .select("table_number,qr_code,active")
     .eq("table_number", tableNumber)
     .maybeSingle();
   if (regErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!reg) return { ok: false, error: `Table ${tableNumber} isn’t registered.` };
+  if (!reg.active) return { ok: false, error: `Table ${tableNumber} isn’t active.` };
 
-  // Sweep an expired-but-still-'active' squatter off the sticker code (mirrors /api/session:169) so
-  // the fresh insert below can't 23505 against a dead session.
+  // Sweep an expired-but-still-'active' squatter off the sticker code (mirrors /api/session) so
+  // the fresh insert below can't 23505 against a dead session — and, beside it, off the NUMBER
+  // (D22: the number index is partial on status too; the token sweep stays for numberless rows).
   await db
     .from("table_sessions")
     .update({ status: "closed" })
     .eq("qr_code", reg.qr_code)
     .eq("status", "active")
     .lte("expires_at", new Date().toISOString());
+  await sweepExpiredOnTable(db, tableNumber);
 
-  const nowIso = new Date().toISOString();
-  const { data: existing, error: findErr } = await db
-    .from("table_sessions")
-    .select("id")
-    .eq("qr_code", reg.qr_code)
-    .eq("status", "active")
-    .gt("expires_at", nowIso)
-    .maybeSingle();
-  if (findErr) return { ok: false, error: STAFF_WRITE_OUTAGE };
+  let existing: SeatedSession | null;
+  try {
+    existing = await seatedSessionFor(db, tableNumber);
+  } catch {
+    return { ok: false, error: STAFF_WRITE_OUTAGE }; // W10a — unknowable ≠ empty
+  }
   if (existing) {
     await ensureOpenCart(db, existing.id);
     return { ok: true, sessionId: existing.id, created: false };
@@ -133,19 +141,15 @@ async function startTable(
   const { data: sess, error } = await db
     .from("table_sessions")
     // host_seat null: the session has no diner host yet — the first diner who scans the sticker
-    // becomes a member via /api/session join (their join converges on this session by code).
+    // becomes a member via /api/session join (their join converges on this session by number).
     .insert({ qr_code: reg.qr_code, mode: "dinein", host_seat: null, table_number: tableNumber })
     .select("id")
     .single();
   if (error) {
     if (error.code === "23505") {
-      // Lost the insert race to a concurrent scan/mint — converge on the winner.
-      const { data: winner } = await db
-        .from("table_sessions")
-        .select("id")
-        .eq("qr_code", reg.qr_code)
-        .eq("status", "active")
-        .maybeSingle();
+      // Lost the insert race to a concurrent scan/mint/bind — converge on the winner, read by the
+      // NUMBER (either index names the same live row), never by the constraint name.
+      const winner = await seatedSessionFor(db, tableNumber).catch(() => null);
       if (winner) {
         await ensureOpenCart(db, winner.id);
         return { ok: true, sessionId: winner.id, created: false };

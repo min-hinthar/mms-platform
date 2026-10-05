@@ -6,6 +6,7 @@ import { authorizeDevice } from "./device-auth";
 import { surfaceOpen } from "./surfaces";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { generateJoinCode } from "./session-code";
+import { seatedSessionFor, sweepExpiredOnTable, type SeatedSession } from "./seated";
 
 /**
  * The self-serve kiosk's server layer (W6b — S5). The device token IS the authority (the /board
@@ -74,17 +75,18 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
       .maybeSingle();
     if (regErr) return { ok: false, reason: "error" };
     if (!reg) return { ok: false, reason: "table" };
-    // Occupancy by TABLE NUMBER across every active session (sticker-coded or kiosk-coded) — a
-    // kiosk claim must never open a second live cart over a seated party's order.
-    const { data: occupied, error: occErr } = await db
-      .from("table_sessions")
-      .select("id")
-      .eq("table_number", tableNumber)
-      .eq("status", "active")
-      .gt("expires_at", new Date().toISOString())
-      .limit(1)
-      .maybeSingle();
-    if (occErr) return { ok: false, reason: "error" };
+    // Occupancy by TABLE NUMBER through the ONE predicate (Phase 3c-ii D23, lib/seated.ts) — a
+    // kiosk claim must never open a second live cart over a seated party's order, whether that
+    // party scanned the sticker, was started from the register, or bound a generated code at Send.
+    // The dead row on N is swept first (D22: the index is partial on status, so an expired-but-
+    // active row holds N until the cron); a failed read is an outage, never an empty table.
+    await sweepExpiredOnTable(db, tableNumber);
+    let occupied: SeatedSession | null;
+    try {
+      occupied = await seatedSessionFor(db, tableNumber);
+    } catch {
+      return { ok: false, reason: "error" };
+    }
     if (occupied) return { ok: false, reason: "occupied" };
     sessionTable = tableNumber;
   }
@@ -108,7 +110,23 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
       .select("id")
       .single();
     if (error) {
-      if (error.code === "23505") continue; // active-code collision → fresh code
+      if (error.code === "23505") {
+        // Two unique indexes can refuse this insert: the kiosk CODE (regenerate, as always) and —
+        // for a dine-in claim — the table NUMBER (Phase 3c-ii D22: a phone bound N between the
+        // pre-read and now). Decided by the ONE predicate, never by the constraint name: a live
+        // party at N → `occupied`; nobody there → the code collided → a fresh one. Without this
+        // arm a taken table burns all six attempts on the same number and answers `error`.
+        if (sessionTable != null) {
+          let holder: SeatedSession | null;
+          try {
+            holder = await seatedSessionFor(db, sessionTable);
+          } catch {
+            return { ok: false, reason: "error" };
+          }
+          if (holder) return { ok: false, reason: "occupied" };
+        }
+        continue; // active-code collision → fresh code
+      }
       return { ok: false, reason: "error" };
     }
 
