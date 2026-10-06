@@ -2249,7 +2249,10 @@ export type Database = {
         Args: { p_batch: string; p_cart_id: string }
         Returns: number
       }
-      mms_untouched_shells: { Args: { p_sessions: string[] }; Returns: string[] }
+      mms_untouched_shells: {
+        Args: { p_sessions: string[] }
+        Returns: string[]
+      }
       mms_usual_lines: {
         Args: { p_since: string; p_uid: string }
         Returns: {
