@@ -95,17 +95,31 @@ export type SeatedSet = { numbers: ReadonlySet<number>; strandedCodes: ReadonlyS
 /**
  * The live dine-in parties, for the picker's occupancy — or null when the read failed, which the
  * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6). A row that
- * `awaitsFirstDiner` (a table a server started) is not a party yet: its table reads Open, and the
- * tap that follows makes the diner its host or adopts it (J40).
+ * `awaitsFirstDiner` (a table a server started) with NOTHING on it is not a party yet: its table
+ * reads Open, and the tap that follows makes the diner its host or adopts it (J40). One with
+ * something on it reads Seated — the Send sheet's bind answers `held`, the DoorSheet asks for the
+ * party's code or the sticker scan.
  */
 export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
   const { data, error } = await liveDineIn(db, new Date().toISOString());
   if (error) return null;
+  const rows = data ?? [];
+  // J40 — a table a server started is OPEN only while NOTHING is on it: the ONE SQL predicate
+  // (`mms_shell_untouched`, batched as `mms_untouched_shells`) decides, asked only when the read
+  // returned a hostless shell. A touched shell — a server took an order, somebody joined — reads
+  // Seated, and a FAILED ask reads every shell Seated: fail-honest, never Open.
+  const shells = rows.filter(awaitsFirstDiner).map((s) => s.id);
+  let untouched: ReadonlySet<string> = new Set();
+  if (shells.length > 0) {
+    const { data: open, error: openErr } = await db.rpc("mms_untouched_shells", {
+      p_sessions: shells,
+    });
+    if (!openErr && Array.isArray(open)) untouched = new Set(open);
+  }
   const numbers = new Set<number>();
   const strandedCodes = new Set<string>();
-  for (const s of data ?? []) {
-    // J40 — a table a server started is OPEN to its first diner (`awaitsFirstDiner`).
-    if (awaitsFirstDiner(s)) continue;
+  for (const s of rows) {
+    if (awaitsFirstDiner(s) && untouched.has(s.id)) continue;
     if (s.table_number != null) numbers.add(s.table_number);
     else strandedCodes.add(s.qr_code);
   }
@@ -114,11 +128,13 @@ export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
 
 /**
  * PURE (J40) — a live dine-in row no diner has claimed yet: `host_seat` null (the register's Start,
- * register.ts) and not a reserved `kiosk-` order. It is OPEN to its first diner on every surface,
- * because every path that reaches it makes that diner its host or hands it to them: a sticker scan
- * claims host (W6a), a DoorSheet claim joins it as host — or, from a phone with an unbound session
- * of its own, ADOPTS it with the drafts (`/api/session`) — and a Send-time pick adopts it
- * (`mms_bind_session_table`). Named ONCE: the picker's occupancy, the bind's holder verdict and the
+ * register.ts) and not a reserved `kiosk-` order — a SHELL. Whether anything is ON it is the SQL's
+ * one predicate (`mms_shell_untouched`), never re-derived here: an untouched shell reads Open in the
+ * picker and every path that reaches it makes the diner its host or hands it to them — a sticker
+ * scan claims host (W6a), a DoorSheet claim takes host through `mms_claim_untouched_shell` (the
+ * predicate in its UPDATE's WHERE) or, from a phone with an unbound session of its own, ADOPTS it
+ * with the drafts, and a Send-time pick adopts it (`mms_bind_session_table`). A touched one reads
+ * Seated and answers `held`. Named ONCE: the picker's occupancy, the bind's holder verdict and the
  * claim arm all read it, and `seatedSessionFor` still FINDS the row — the bind needs it.
  */
 export function awaitsFirstDiner(s: Pick<SeatedSession, "host_seat" | "qr_code">): boolean {

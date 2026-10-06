@@ -262,7 +262,7 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 181 `id:` rows (measured below; was "20" while the file held 27) across eighteen LIVE functions
+      # 191 `id:` rows (measured below; was "20" while the file held 27) across twenty-one LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, — Phase 2f · P2v — mms_fire_counter_cart,
@@ -270,10 +270,11 @@ jobs:
       # mms_sweep_expired_sessions and mms_clear_counter_cart, and — Codex r3 on #308 —
       # mms_void_line and mms_request_approval, and — the Phase 2f self-review — mms_line_transition
       # and mms_bump_ticket, and — Phase 3c-ii · M258 — mms_undo_fire, and — M263 · J41 · J40 —
-      # mms_bind_session_table) plus one of
+      # mms_bind_session_table and the ONE "untouched" predicate's readers mms_shell_untouched,
+      # mms_untouched_shells and mms_claim_untouched_shell) plus one of
       # mms_init_togo_status — the only way to falsify the
       # end-to-end case — each requiring a green baseline first, a body hash that actually changed,
-      # and the NAMED case (not just some case) to be the one that goes red. Fifteen mutants are
+      # and the NAMED case (not just some case) to be the one that goes red. Seventeen mutants are
       # documented SURVIVORS and are asserted as such rather than left as untested comments.
       # The battery replays an ordered migration CHAIN and verifies from the migration FILENAMES that
       # its chain is complete: a function whose last definition moves outside the chain ABORTS the
@@ -282,24 +283,27 @@ jobs:
       #   grep -c 'id: "' scripts/verify-mode-authority.mjs
       # ~211s measured locally at 127 mutants (each replays the chain) — the timeout has headroom for CI.
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
-      # (181 since M263 · J41 · J40 — 44 rows for mms_bind_session_table; the full 181 ran in ~5 min
-      # against a throwaway PG16 with the seven-file chain. 12 minutes, for headroom.)
+      # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
+      # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12
         run: node scripts/verify-mode-authority.mjs
       # M263 · J40 — `mms_bind_session_table` decides under three row locks no single session can
       # observe: the binder's open cart FOR SHARE (a lock acquire, a split claim, the flip to paid
       # wait or are seen — and a staff line insert does NOT wait), the shell cart's and the shell
-      # session's row-exclusive locks (a staff line, a join, a host claim mid-adopt wait or are seen).
-      # Nine orders, every wait read from pg_blocking_pids. Commits `M263R-` fixtures and the one
+      # session's row-exclusive locks (a staff line, a join, a host claim mid-adopt wait or are seen);
+      # and the grid claim's `mms_claim_untouched_shell` takes the same two shell locks before its
+      # predicate-guarded UPDATE (a staff line or a join mid-claim refuses it).
+      # Eleven orders, every wait read from pg_blocking_pids. Commits `M263R-` fixtures and the one
       # registry row it binds (table 88), so the script refuses anything that is not the local stack.
       - name: Bind race harness (two concurrent sessions)
         timeout-minutes: 3
         run: node scripts/verify-bind-race.mjs
       # Can it fail? The binder's FOR SHARE deleted (a–d must go red, i stays green) and made a mutex
       # (i must go red), the shell cart's lock deleted (e; h is a control — the adopt's own cancel
-      # UPDATE still conflicts), the shell session's lock deleted (f, g) — md5-checked apply,
-      # byte-identical restore. These are verify-mode-authority.mjs's three m263 survivors.
+      # UPDATE still conflicts), the shell session's lock deleted (f, g), the claim's two shell locks
+      # deleted (j · k) — md5-checked apply, byte-identical restore of all four functions. These are
+      # verify-mode-authority.mjs's five m263 survivors.
       - name: Bind race mutants (can the row locks fail?)
         timeout-minutes: 5
         run: node scripts/verify-bind-race.mjs --mutants

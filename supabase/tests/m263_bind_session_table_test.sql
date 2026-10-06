@@ -25,7 +25,12 @@
 --   J40.3 · .11–.14  `gone` — a claimed shell, no open cart, another number, a pickup row, a closed
 --               row: the row is not what the caller saw;
 --   J40.15      a CAS that moves no row takes the adopt back (the subtransaction);
---   J40.16–.17  the sticker rule and the freeze are decided BEFORE the adopt — the shell survives.
+--   J40.16–.17  the sticker rule and the freeze are decided BEFORE the adopt — the shell survives;
+--   SH.1–.10    "untouched" is ONE predicate (`mms_shell_untouched`): true for the untouched shell,
+--               false for each dimension of something on it, for a cancelled-only cart and an unknown
+--               id; the picker's batched `mms_untouched_shells` returns exactly the untouched
+--               candidate; the grid claim's `mms_claim_untouched_shell` claims an untouched shell and
+--               refuses a touched, hosted, closed or pickup row; the three readers' grants.
 --
 -- Red-team #10 on the design: every session carries its OWN code (the token index is unique among
 -- active rows, so a reused literal turns one `held` into the next case's 23505 and aborts the block),
@@ -82,6 +87,27 @@ $$;
 create function pg_temp.m263_close(variadic p_ids uuid[]) returns void language sql as $$
   update public.table_sessions set status = 'closed' where id = any(p_ids)
 $$;
+
+-- The three J40 readers of the ONE "untouched" predicate, as DATA (a missing function is
+-- `raised:42883`, so the un-migrated stack reds on the first SH case, not on an aborted block).
+create function pg_temp.m263_untouched(p_s uuid) returns text language plpgsql as $$
+begin
+  return public.mms_shell_untouched(p_s)::text;
+exception when others then
+  return 'raised:' || sqlstate;
+end $$;
+create function pg_temp.m263_batch(p_ids uuid[]) returns text language plpgsql as $$
+begin
+  return array_to_string(public.mms_untouched_shells(p_ids), ',');
+exception when others then
+  return 'raised:' || sqlstate;
+end $$;
+create function pg_temp.m263_claim(p_s uuid, p_seat uuid) returns text language plpgsql as $$
+begin
+  return public.mms_claim_untouched_shell(p_s, p_seat)::text;
+exception when others then
+  return 'raised:' || sqlstate;
+end $$;
 
 do $$
 declare
@@ -379,6 +405,128 @@ begin
   select count(*) into n from public.table_sessions where id = sh and status = 'active';
   assert n = 1, 'J40.17 · the frozen bind still closed the shell';
   perform pg_temp.m263_close(b, sh);
+
+  -- ══ SH — "untouched", named ONCE (`mms_shell_untouched`) and its two other readers ════════════
+  sh := pg_temp.m263_session('M263-U1', 94, null);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'true', format('SH.1 · an untouched shell (a server''s Start: no member, an empty open cart) read %s', v_got);
+  perform pg_temp.m263_close(sh);
+
+  -- SH.2 — every dimension of "something is on it", one fresh shell each.
+  sh := pg_temp.m263_session('M263-U2a', 94, null);
+  insert into public.session_members (session_id, seat_id, display_name, role) values (sh, bo, 'Bo', 'guest');
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a MEMBER read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2b', 94, null);
+  insert into public.qr_carts (session_id, status) values (sh, 'paid');
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with an EARLIER order read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2c', 94, null);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment, state)
+    values (pg_temp.m263_cart(sh), dish, 'Mohinga', 1, 1400, 147, null, 'dinein', 'voided');
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a (voided) LINE read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2d', 94, null);
+  update public.qr_carts set locked = true where id = pg_temp.m263_cart(sh);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a PAY ATTEMPT read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2e', 94, null);
+  update public.qr_carts set settle_at = now() - interval '1 day' where id = pg_temp.m263_cart(sh);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a SPLIT read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2f', 94, null);
+  update public.qr_carts set customer_name = 'Ana' where id = pg_temp.m263_cart(sh);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a NAMED shell read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2g', 94, null);
+  update public.qr_carts set promo_code = 'M263' where id = pg_temp.m263_cart(sh);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a PROMO read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+  sh := pg_temp.m263_session('M263-U2h', 94, null);
+  update public.qr_carts set tab_type = 'trust', tab_opened_at = now() where id = pg_temp.m263_cart(sh);
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.2 · a shell with a TAB read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+
+  -- SH.3 — no OPEN cart is not "untouched" (a cancelled one is history, not an empty table).
+  sh := pg_temp.m263_session('M263-U3', 94, null);
+  update public.qr_carts set status = 'cancelled' where session_id = sh;
+  v_got := pg_temp.m263_untouched(sh);
+  assert v_got = 'false', format('SH.3 · a shell whose only cart is CANCELLED read untouched (%s)', v_got);
+  v_got := pg_temp.m263_untouched(gen_random_uuid());
+  assert v_got = 'false', format('SH.3 · an unknown session read untouched (%s)', v_got);
+  perform pg_temp.m263_close(sh);
+
+  -- SH.4 — the batched call answers the predicate per candidate, and nothing else.
+  b := pg_temp.m263_session('M263-U4u', 94, null);
+  sh := pg_temp.m263_session('M263-U4t', 92, null);
+  insert into public.session_members (session_id, seat_id, display_name, role) values (sh, bo, 'Bo', 'guest');
+  c := gen_random_uuid();
+  v_got := pg_temp.m263_batch(array[sh, b, c]);
+  assert v_got = b::text, format('SH.4 · the batch over (touched, untouched, unknown) answered %s — the picker reads exactly the untouched shell Open', v_got);
+  v_got := pg_temp.m263_batch(array[]::uuid[]);
+  assert v_got = '', format('SH.4 · the batch over nothing answered %s', v_got);
+  perform pg_temp.m263_close(b, sh);
+
+  -- SH.5–9 — the `?table=N` claim's host claim: ONE statement, the predicate in its WHERE.
+  sh := pg_temp.m263_session('M263-U5', 94, null);
+  v_got := pg_temp.m263_claim(sh, bo);
+  assert v_got = 'true', format('SH.5 · a claim of an untouched shell answered %s', v_got);
+  select count(*) into n from public.table_sessions where id = sh and host_seat = bo;
+  assert n = 1, 'SH.5 · the claim did not make the claimant host';
+  perform pg_temp.m263_close(sh);
+
+  sh := pg_temp.m263_session('M263-U6', 94, null);
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (pg_temp.m263_cart(sh), dish, 'Mohinga', 2, 1400, 147, null, 'dinein');
+  v_got := pg_temp.m263_claim(sh, bo);
+  assert v_got = 'false', format('SH.6 · a claim of a shell with an ORDER on it answered %s — a stranger''s grid tap hosts the order a server took', v_got);
+  select count(*) into n from public.table_sessions where id = sh and host_seat is null;
+  assert n = 1, 'SH.6 · the refused claim still wrote host_seat';
+  perform pg_temp.m263_close(sh);
+
+  sh := pg_temp.m263_session('M263-U7', 94, ana);
+  v_got := pg_temp.m263_claim(sh, bo);
+  assert v_got = 'false', format('SH.7 · a claim of a HOSTED row answered %s — W6a is first-writer-wins', v_got);
+  select count(*) into n from public.table_sessions where id = sh and host_seat = ana;
+  assert n = 1, 'SH.7 · the host changed';
+  perform pg_temp.m263_close(sh);
+
+  sh := pg_temp.m263_session('M263-U8', 94, null);
+  update public.table_sessions set status = 'closed' where id = sh;
+  v_got := pg_temp.m263_claim(sh, bo);
+  assert v_got = 'false', format('SH.8 · a claim of a CLOSED row answered %s (M264)', v_got);
+
+  sh := pg_temp.m263_session('M263-U9', 94, null, 'pickup');
+  v_got := pg_temp.m263_claim(sh, bo);
+  assert v_got = 'false', format('SH.9 · a claim of a hostless PICKUP row answered %s — a counter order is never a table', v_got);
+  perform pg_temp.m263_close(sh);
+
+  -- SH.10 — the three readers' grants, SECURITY DEFINER and the empty search_path.
+  assert not has_function_privilege('anon', 'public.mms_shell_untouched(uuid)', 'execute')
+     and not has_function_privilege('authenticated', 'public.mms_shell_untouched(uuid)', 'execute')
+     and has_function_privilege('service_role', 'public.mms_shell_untouched(uuid)', 'execute'),
+    'SH.10 · mms_shell_untouched grants';
+  assert not has_function_privilege('anon', 'public.mms_untouched_shells(uuid[])', 'execute')
+     and not has_function_privilege('authenticated', 'public.mms_untouched_shells(uuid[])', 'execute')
+     and has_function_privilege('service_role', 'public.mms_untouched_shells(uuid[])', 'execute'),
+    'SH.10 · mms_untouched_shells grants';
+  assert not has_function_privilege('anon', 'public.mms_claim_untouched_shell(uuid, uuid)', 'execute')
+     and not has_function_privilege('authenticated', 'public.mms_claim_untouched_shell(uuid, uuid)', 'execute')
+     and has_function_privilege('service_role', 'public.mms_claim_untouched_shell(uuid, uuid)', 'execute'),
+    'SH.10 · mms_claim_untouched_shell grants — a diner could make itself host of any table';
+  select count(*) into n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.proname in ('mms_shell_untouched', 'mms_untouched_shells', 'mms_claim_untouched_shell')
+     and p.prosecdef and 'search_path=""' = any(p.proconfig);
+  assert n = 3, format('SH.10 · %s of the 3 readers are SECURITY DEFINER with an empty search_path', n);
 end $$;
 
 rollback;

@@ -45,8 +45,9 @@
 -- re-checked under locks. Two answers instead of an adopt:
 --   · `gone` — the row is no longer what the caller saw: no open cart, not live, not dine-in,
 --     claimed by a host, or not at this number. The caller re-reads by number and answers that.
---   · `held` — a live, hostless shell at this number with something on it: a member, an earlier
---     cart, a line (voided included), a pay attempt, a split, a name, a promo or a tab. The order
+--   · `held` — a live, hostless shell at this number with something on it (`mms_shell_untouched`,
+--     below, is false): a member, an earlier cart, a line (voided included), a pay attempt, a
+--     split, a name, a promo or a tab. The order
 --     goes to a server, who can fold it in (`mms_merge_table_orders`). `applied_reward_id` needs a
 --     member and a subtotal (20260816060000), so an empty memberless cart cannot carry one.
 --
@@ -72,6 +73,44 @@
 -- it merges, never `db push` (CLAUDE.md: the prod history is divergent). Pinned by
 -- supabase/tests/m263_bind_session_table_test.sql, falsified case by case in
 -- scripts/verify-mode-authority.mjs (suite `m263`), and its row locks by scripts/verify-bind-race.mjs.
+--
+-- UNTOUCHED, NAMED ONCE (J40, the lead's follow-up to commit 2). "Nothing and nobody is on this
+-- shell" is ONE predicate, `mms_shell_untouched(p_shell)`, and every reader calls it — no second
+-- copy of the conjunction exists anywhere:
+--   · the adopt above re-checks it UNDER its locks (`held` when it is false);
+--   · `mms_untouched_shells(p_sessions)` answers it in one batched call for the picker's
+--     occupancy, which reads a hostless shell Open only when it holds — a touched one (staff took
+--     an order, somebody joined, a pay attempt…) reads Seated, and a failed call reads every shell
+--     Seated, never Open;
+--   · `mms_claim_untouched_shell(p_shell, p_seat)` is the W6a host claim for a `?table=N` CLAIM
+--     (the DoorSheet's Open chip): the predicate sits IN the claim's UPDATE ... WHERE, one statement,
+--     after the shell's open cart and its session are taken row-exclusive (the adopt's order), so a
+--     staff line or a join landing at the same instant either commits first and refuses the claim,
+--     or waits for it. A stranger's tap never becomes host of an order a server took. (A STICKER
+--     scan keeps W6a's own claim: it is the table's own physical code, and the party staff seated
+--     scanning it is exactly who the shell is for.)
+-- All three are SECURITY DEFINER with an empty search_path, revoked from public, anon and
+-- authenticated, granted to service_role — only the service client reads them.
+
+create or replace function public.mms_shell_untouched(p_shell uuid) returns boolean
+  language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1
+      from public.qr_carts c
+     where c.session_id = p_shell
+       and c.status = 'open'   -- J40: the shell's one open cart
+       and not c.locked   -- J40: no pay attempt
+       and c.settle_at is null   -- J40: no split
+       and c.customer_name is null   -- J40: no name staff typed
+       and c.promo_code is null   -- J40: no promo
+       and c.tab_type = 'none'   -- J40: no tab
+       and not exists (select 1 from public.qr_cart_items ci where ci.cart_id = c.id)   -- J40: no line, voided included
+       and not exists (select 1 from public.qr_carts o where o.session_id = p_shell and o.id <> c.id)   -- J40: no earlier order
+       and not exists (select 1 from public.session_members m where m.session_id = p_shell)   -- J40: nobody joined it
+  )
+$$;
+revoke all on function public.mms_shell_untouched(uuid) from public, anon, authenticated;
+grant execute on function public.mms_shell_untouched(uuid) to service_role;
 
 create or replace function public.mms_bind_session_table(
   p_session uuid,
@@ -152,17 +191,7 @@ begin
       return query select 'gone'::text, null::integer;
       return;
     end if;
-    if exists (select 1 from public.session_members m where m.session_id = p_shell)   -- J40: nobody joined it
-       or exists (select 1 from public.qr_carts c where c.session_id = p_shell and c.id <> v_shell_cart)   -- J40: no earlier order
-       or exists (select 1 from public.qr_cart_items ci where ci.cart_id = v_shell_cart)   -- J40: no line, voided included
-       or exists (select 1 from public.qr_carts c
-                   where c.id = v_shell_cart
-                     and (c.locked   -- J40: no pay attempt
-                          or c.settle_at is not null   -- J40: no split
-                          or c.customer_name is not null   -- J40: no name staff typed
-                          or c.promo_code is not null   -- J40: no promo
-                          or c.tab_type <> 'none'))   -- J40: no tab
-    then
+    if not public.mms_shell_untouched(p_shell) then   -- J40: the ONE predicate, read under the locks above
       return query select 'held'::text, null::integer;
       return;
     end if;
@@ -193,3 +222,35 @@ begin
 end $$;
 revoke all on function public.mms_bind_session_table(uuid, integer, uuid) from public, anon, authenticated;
 grant execute on function public.mms_bind_session_table(uuid, integer, uuid) to service_role;
+
+create or replace function public.mms_untouched_shells(p_sessions uuid[]) returns uuid[]
+  language sql stable security definer set search_path = '' as $$
+  select coalesce(array_agg(x.id order by x.id), '{}'::uuid[])
+    from unnest(p_sessions) as x(id)
+   where public.mms_shell_untouched(x.id)   -- J40: the ONE predicate, per candidate
+$$;
+revoke all on function public.mms_untouched_shells(uuid[]) from public, anon, authenticated;
+grant execute on function public.mms_untouched_shells(uuid[]) to service_role;
+
+create or replace function public.mms_claim_untouched_shell(p_shell uuid, p_seat uuid) returns boolean
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform 1 from public.qr_carts c
+   where c.session_id = p_shell and c.status = 'open'
+     for update;   -- J40 claim: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen by the predicate
+  perform 1 from public.table_sessions s
+   where s.id = p_shell
+     for update;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate
+  update public.table_sessions s
+     set host_seat = p_seat
+   where s.id = p_shell
+     and s.host_seat is null   -- W6a: the first claim wins
+     and s.status = 'active'   -- M264: never a closed row
+     and s.mode = 'dinein'   -- J40: a table, never a counter order
+     and public.mms_shell_untouched(s.id);   -- J40: only a table nothing and nobody is on
+  get diagnostics n = row_count;
+  return n > 0;
+end $$;
+revoke all on function public.mms_claim_untouched_shell(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.mms_claim_untouched_shell(uuid, uuid) to service_role;

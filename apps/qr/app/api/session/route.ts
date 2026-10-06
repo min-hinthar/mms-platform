@@ -13,6 +13,7 @@ import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
+import type { BindTableResult } from "@/lib/bind-table";
 import {
   awaitsFirstDiner,
   bindSessionTable,
@@ -36,6 +37,22 @@ const unavailable = () =>
     { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
     { status: 503, headers: { "Retry-After": "20" } },
   );
+
+/** J40 — a claim at table N the re-read refused, said by name: a party → `BIND_COPY.seated` (its
+ *  code joins it), a kiosk order → `kioskOrder(N)`, a table a server started with an order on it →
+ *  `held(N)` (a server folds yours in) — never a join form for a table no code joins; nobody →
+ *  "try again" (500). */
+function refusedAt(v: Extract<BindTableResult, { ok: false }>, n: number) {
+  const said =
+    v.reason === "seated"
+      ? BIND_COPY.seated
+      : v.reason === "kiosk"
+        ? BIND_COPY.kioskOrder(n)
+        : v.reason === "held"
+          ? BIND_COPY.held(n)
+          : "Could not check the table — try again.";
+  return NextResponse.json({ error: said }, { status: v.reason === "error" ? 500 : 409 });
+}
 
 /**
  * Table-session mint/join (closes red-team C2). A scanned QR — or, for the dine-in group cart
@@ -159,6 +176,37 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (error) throw UNAVAILABLE();
     return data ?? null;
+  };
+
+  // J40 — a `?table=N` claim taking a table a server started as its FIRST diner. The grid offered it
+  // Open because nothing was on it; the host claim lands ONLY if that is still true — the ONE SQL
+  // predicate in its UPDATE's WHERE, after the shell's cart and session are taken row-exclusive
+  // (`mms_claim_untouched_shell`) — so a stranger's tap never becomes host of an order a server
+  // took. A refused claim is re-read by number and said by name: this seat's other tab already
+  // hosting it → rejoin; a still-hostless (touched) shell → `held`; a party → `seated`; nobody →
+  // "try again". (A STICKER scan keeps W6a's own claim below: the table's physical code.)
+  const takeShell = async (sh: Sess, n: number): Promise<Sess | NextResponse> => {
+    const { data: claimed, error: claimErr } = await db.rpc("mms_claim_untouched_shell", {
+      p_shell: sh.id,
+      p_seat: seat,
+    });
+    if (claimErr && isTransportFailure(claimErr)) return unavailable();
+    if (claimErr)
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 500 },
+      );
+    if (claimed === true) return { ...sh, host_seat: seat };
+    let now: Sess | null;
+    try {
+      now = await seatedSessionFor(db, n, resolvedQr);
+    } catch (e) {
+      if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+      throw e;
+    }
+    if (now && now.host_seat === seat) return now;
+    const v = rereadVerdict(now, "", n, true);
+    return v.ok ? NextResponse.json({ error: BIND_COPY.seated }, { status: 409 }) : refusedAt(v, n);
   };
 
   // D25 — a registered table is found BY NUMBER (the one predicate, handed the sticker token so a
@@ -363,7 +411,11 @@ export async function POST(req: NextRequest) {
           throw e;
         }
         if (live) sess = live;
-        else if (shell) sess = shell;
+        else if (shell) {
+          const took = await takeShell(shell, sessionTable);
+          if (took instanceof NextResponse) return took;
+          sess = took;
+        }
       } else if (outcome.kind === "gone" || outcome.kind === "held") {
         // J40 · red-team #5 — the shell changed under the call (`gone`) or has an order on it
         // (`held`): re-read who holds N NOW and answer that, by name — this phone's own row there
@@ -378,25 +430,15 @@ export async function POST(req: NextRequest) {
         }
         const v = rereadVerdict(now, mine.id, sessionTable, outcome.kind === "held");
         if (v.ok && now) sess = now;
-        else if (!v.ok) {
-          const said =
-            v.reason === "seated"
-              ? BIND_COPY.seated
-              : v.reason === "kiosk"
-                ? BIND_COPY.kioskOrder(sessionTable)
-                : v.reason === "held"
-                  ? BIND_COPY.held(sessionTable)
-                  : "Could not check the table — try again.";
-          return NextResponse.json({ error: said }, { status: v.reason === "error" ? 500 : 409 });
-        }
+        else if (!v.ok) return refusedAt(v, sessionTable);
       } else {
         sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send
       }
     } else if (shell) {
-      // J40 — no unbound session of this phone's to keep: join the table a server started exactly as
-      // its first sticker scan would. W6a's claim below makes this seat its host (guarded on the row
-      // still being live — M264), and the join re-checks it before handing out its cart.
-      sess = shell;
+      // J40 — no unbound session of this phone's to keep: take the shell as its first diner.
+      const took = await takeShell(shell, sessionTable);
+      if (took instanceof NextResponse) return took;
+      sess = took;
     }
   }
 
@@ -483,7 +525,8 @@ export async function POST(req: NextRequest) {
   // M264 — a hostless row is also the one row another phone's Send can ADOPT (J40,
   // `mms_bind_session_table`) or staff can clear while this join is in flight, so the claim is
   // guarded on the row still being live, and the join re-checks it below before handing out a cart.
-  const wasShell = sess.host_seat == null;
+  // (A shell this claim just took host of is one too: the re-check below still runs for it.)
+  const wasShell = sess.host_seat == null || sess.id === shell?.id;
   if (sess.host_seat == null && !joinOnly) {
     const { data: claimed } = await db
       .from("table_sessions")

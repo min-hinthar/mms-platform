@@ -85,10 +85,13 @@
  *
  * M263 · J41 · J40 adds suite `m263`: `mms_bind_session_table`, the one bind authority (the freeze
  * read under the binder's cart lock, the sticker rule, the adopt of an untouched staff shell, the
- * CAS) — one killed mutant per named `M263.<n> ·` / `J41.<n> ·` / `J40.<n> ·` case, and THREE new
+ * CAS) and the ONE "untouched" predicate's three readers (`mms_shell_untouched` itself, the
+ * picker's batched `mms_untouched_shells`, the grid claim's `mms_claim_untouched_shell`) — one
+ * killed mutant per named `M263.<n> ·` / `J41.<n> ·` / `J40.<n> ·` / `SH.<n> ·` case, and FIVE new
  * documented survivors, all row locks no single session can observe: the binder cart's FOR SHARE,
- * the shell cart's and the shell session's row-exclusive locks. All three are KILLED by
- * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g). Fifteen survivors in all.
+ * the adopt's shell-cart and shell-session locks, and the claim's two. All five are KILLED by
+ * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Seventeen survivors
+ * in all.
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -1992,10 +1995,11 @@ const MUTANTS = [
     },
     {
       id: "bind/adopt-a-joined-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.2 ·",
       why: "J40 — a shell someone JOINED is closed under its member",
-      find: "    if exists (select 1 from public.session_members m where m.session_id = p_shell)   -- J40: nobody joined it\n",
-      replace: "    if false   -- J40: nobody joined it\n",
+      find: "       and not exists (select 1 from public.session_members m where m.session_id = p_shell)   -- J40: nobody joined it\n",
+      replace: "",
     },
     {
       id: "bind/adopt-a-claimed-shell",
@@ -2013,52 +2017,59 @@ const MUTANTS = [
     },
     {
       id: "bind/adopt-a-touched-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.4 ·",
       why: "J40 — a shell with a line (a void included: the kitchen's record) cancelled with its cart",
-      find: "       or exists (select 1 from public.qr_cart_items ci where ci.cart_id = v_shell_cart)   -- J40: no line, voided included\n",
+      find: "       and not exists (select 1 from public.qr_cart_items ci where ci.cart_id = c.id)   -- J40: no line, voided included\n",
       replace: "",
     },
     {
       id: "bind/adopt-a-shell-with-history",
+      fn: "mms_shell_untouched",
       expect: "J40.5 ·",
       why: "J40 — a shell with an earlier (paid) order closed: that order's table reads closed",
-      find: "       or exists (select 1 from public.qr_carts c where c.session_id = p_shell and c.id <> v_shell_cart)   -- J40: no earlier order\n",
+      find: "       and not exists (select 1 from public.qr_carts o where o.session_id = p_shell and o.id <> c.id)   -- J40: no earlier order\n",
       replace: "",
     },
     {
       id: "bind/adopt-a-named-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.6 ·",
       why: "J40 — the name staff typed for the call-out discarded",
-      find: "or c.customer_name is not null   -- J40",
-      replace: "or false   -- J40",
+      find: "       and c.customer_name is null   -- J40: no name staff typed\n",
+      replace: "",
     },
     {
       id: "bind/adopt-a-promo-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.7 ·",
       why: "J40 — a promo staff applied discarded",
-      find: "or c.promo_code is not null   -- J40",
-      replace: "or false   -- J40",
+      find: "       and c.promo_code is null   -- J40: no promo\n",
+      replace: "",
     },
     {
       id: "bind/adopt-a-tab-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.8 ·",
       why: "J40 — an open tab (a card on file, a trust tab) cancelled with its cart",
-      find: "or c.tab_type <> 'none'))   -- J40: no tab",
-      replace: "or false))   -- J40: no tab",
+      find: "       and c.tab_type = 'none'   -- J40: no tab\n",
+      replace: "",
     },
     {
       id: "bind/adopt-a-paying-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.9 ·",
       why: "J40 — a cart with a pay attempt cancelled: a charge in flight on a cart that no longer exists",
-      find: "(c.locked   -- J40: no pay attempt",
-      replace: "(false   -- J40: no pay attempt",
+      find: "       and not c.locked   -- J40: no pay attempt\n",
+      replace: "",
     },
     {
       id: "bind/adopt-a-splitting-shell",
+      fn: "mms_shell_untouched",
       expect: "J40.10 ·",
       why: "J40 — a cart that has ever been split cancelled: its shares' records orphaned",
-      find: "or c.settle_at is not null   -- J40: no split",
-      replace: "or false   -- J40: no split",
+      find: "       and c.settle_at is null   -- J40: no split\n",
+      replace: "",
     },
     {
       id: "bind/adopt-without-a-cart",
@@ -2113,8 +2124,72 @@ const MUTANTS = [
         { find: BIND_CAS_HEAD, replace: `${BIND_FREEZE_BLOCK}${BIND_CAS_HEAD}` },
       ],
     },
-    // DOCUMENTED SURVIVORS — the three row locks. One session cannot interleave the writer each
-    // lock orders; scripts/verify-bind-race.mjs --mutants kills each (orders a–d · e · f and g).
+    {
+      id: "bind/held-check-dropped",
+      expect: "J40.2 ·",
+      why: "J40 — the adopt never asks the predicate: any shell at N, whatever is on it, is closed with its cart",
+      find: "    if not public.mms_shell_untouched(p_shell) then   -- J40: the ONE predicate, read under the locks above\n",
+      replace: "    if false then   -- J40: the ONE predicate, read under the locks above\n",
+    },
+    {
+      id: "bind/untouched-any-cart",
+      fn: "mms_shell_untouched",
+      expect: "SH.3 ·",
+      why: "J40 — the predicate reads ANY cart of the session: a shell whose only cart is cancelled (history) reads as an empty table",
+      find: "       and c.status = 'open'   -- J40: the shell's one open cart\n",
+      replace: "",
+    },
+    {
+      id: "bind/batch-ignores-the-predicate",
+      fn: "mms_untouched_shells",
+      expect: "SH.4 ·",
+      why: "J40 — the picker's batched call answers every candidate untouched: a shell with an order on it reads Open, and a stranger's tap is offered the order a server took",
+      find: "   where public.mms_shell_untouched(x.id)   -- J40: the ONE predicate, per candidate\n",
+      replace: "   where true   -- J40: the ONE predicate, per candidate\n",
+    },
+    {
+      id: "bind/claim-ignores-the-predicate",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.6 ·",
+      why: "J40 — the grid claim's host claim without the predicate: a stranger becomes host of the order a server took for the party at N",
+      find: "     and public.mms_shell_untouched(s.id);   -- J40: only a table nothing and nobody is on\n",
+      replace: "     and true;   -- J40: only a table nothing and nobody is on\n",
+    },
+    {
+      id: "bind/claim-reads-refused-as-claimed",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.6 ·",
+      why: "J40 — a claim the WHERE refused answers `true`: the route hands a cart on a table this phone does not host",
+      find: "  return n > 0;\n",
+      replace: "  return true;\n",
+    },
+    {
+      id: "bind/claim-takes-a-hosted-row",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.7 ·",
+      why: "W6a — the first claim no longer wins: a second claimant overwrites the host of a live party",
+      find: "     and s.host_seat is null   -- W6a: the first claim wins\n",
+      replace: "     and true   -- W6a: the first claim wins\n",
+    },
+    {
+      id: "bind/claim-takes-a-closed-row",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.8 ·",
+      why: "M264 — host_seat lands on a CLOSED row (adopted or cleared under the claim)",
+      find: "     and s.status = 'active'   -- M264: never a closed row\n",
+      replace: "     and true   -- M264: never a closed row\n",
+    },
+    {
+      id: "bind/claim-takes-a-counter-order",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.9 ·",
+      why: "J40 — a hostless counter order (pickup) gets a diner host from a table grid",
+      find: "     and s.mode = 'dinein'   -- J40: a table, never a counter order\n",
+      replace: "     and true   -- J40: a table, never a counter order\n",
+    },
+    // DOCUMENTED SURVIVORS — the five row locks. One session cannot interleave the writer each
+    // lock orders; scripts/verify-bind-race.mjs --mutants kills each (orders a–d · e · f and g ·
+    // j · k).
     {
       id: "bind/for-share-deleted",
       expect: null,
@@ -2139,7 +2214,25 @@ const MUTANTS = [
       replace:
         "       ;   -- J40: a membership insert (its FK's KEY SHARE) or a host claim waits, or is seen below\n",
     },
-  ].map((m) => ({ ...m, fn: "mms_bind_session_table", src: "m263", suite: "m263" })),
+    {
+      id: "bind/claim-cart-lock-deleted",
+      fn: "mms_claim_untouched_shell",
+      expect: null,
+      why: "the grid claim's shell-cart lock: a staff line landing mid-claim is invisible to the predicate in its WHERE — killed by verify-bind-race.mjs (j)",
+      find: "     for update;   -- J40 claim: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen by the predicate\n",
+      replace:
+        "     ;   -- J40 claim: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen by the predicate\n",
+    },
+    {
+      id: "bind/claim-row-lock-deleted",
+      fn: "mms_claim_untouched_shell",
+      expect: null,
+      why: "the grid claim's shell-session lock: a join landing mid-claim is invisible to the predicate (the claim's own UPDATE takes NO KEY UPDATE, compatible with the FK's KEY SHARE) — killed by verify-bind-race.mjs (k)",
+      find: "     for update;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
+      replace:
+        "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
+    },
+  ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2198,6 +2291,9 @@ const TARGETS = [
   "mms_bump_ticket",
   "mms_undo_fire",
   "mms_bind_session_table",
+  "mms_shell_untouched",
+  "mms_untouched_shells",
+  "mms_claim_untouched_shell",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

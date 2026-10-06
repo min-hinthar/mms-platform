@@ -104,9 +104,15 @@ bound one is the CAS's, an INACTIVE registration does not refuse. J40 — an unt
 adopted (closed, its empty cart cancelled, the binder's own draft untouched); `held` for a member, an
 earlier cart, a (voided) line, a name, a promo, a tab, a pay attempt, a split; `gone` for a claimed
 shell, no open cart, another number, a pickup row, a closed row; a CAS that moves no row takes the
-adopt back; the sticker rule and the freeze are decided before the adopt. Every session carries its
-own code and every case closes what it opened (red-team #10). Rolls back. Every case is falsified by
-name in `scripts/verify-mode-authority.mjs` (suite `m263`); the three row locks no single session can
-observe (the binder cart's FOR SHARE, the shell cart's and the shell session's row-exclusive locks)
-are the suite's documented survivors and are falsified by `scripts/verify-bind-race.mjs --mutants`.
-Red on M263.1 (`raised:42883`) without the migration.
+adopt back; the sticker rule and the freeze are decided before the adopt. SH — "untouched" is ONE
+predicate, `mms_shell_untouched` (the untouched shell → true; each of a member, an earlier cart, a
+voided line, a pay attempt, a split, a name, a promo, a tab → false; a cancelled-only cart and an
+unknown id → false), read by the adopt above, by the picker's batched `mms_untouched_shells` (exactly
+the untouched candidate comes back) and by the grid claim's `mms_claim_untouched_shell` (the predicate
+in its UPDATE's WHERE: an untouched shell is claimed, a touched, hosted, closed or pickup row is not),
+with their grants. Every session carries its own code and every case closes what it opened
+(red-team #10). Rolls back. Every case is falsified by name in `scripts/verify-mode-authority.mjs`
+(suite `m263`); the five row locks no single session can observe (the binder cart's FOR SHARE, the
+adopt's and the claim's shell-cart and shell-session locks) are the suite's documented survivors and
+are falsified by `scripts/verify-bind-race.mjs --mutants`. Red on M263.1 (`raised:42883`) without the
+migration, and on SH.1 against the body before the predicate was factored out.

@@ -240,30 +240,66 @@ describe("seatedTableNumbers — the picker's occupancy read", () => {
     expect(await seatedTableNumbers(db)).toBeNull();
   });
 
-  it("J40 — a table a server STARTED (no host, not a kiosk order) reads OPEN: neither its number nor its code is in the set; a hostless KIOSK row and a hosted party still are", async () => {
-    answer = {
-      data: [
-        { ...SESS, id: "shell-4", host_seat: null, qr_code: "STICKER4", table_number: 4 },
-        { ...SESS, id: "shell-x", host_seat: null, qr_code: "STICKER5", table_number: null },
-        { ...SESS, id: "k6", host_seat: null, qr_code: "kiosk-AB12", table_number: 6 },
-        SESS,
-      ],
-      error: null,
-    };
+  // J40 — a hostless shell reads Open ONLY when the ONE SQL predicate says nothing is on it
+  // (`mms_untouched_shells`, batched): a shell with an order on it reads Seated, and a failed ask
+  // reads every shell Seated — fail-honest, never Open.
+  const LIVE = [
+    { ...SESS, id: "shell-4", host_seat: null, qr_code: "STICKER4", table_number: 4 },
+    { ...SESS, id: "shell-x", host_seat: null, qr_code: "STICKER5", table_number: null },
+    { ...SESS, id: "k6", host_seat: null, qr_code: "kiosk-AB12", table_number: 6 },
+    { ...SESS, id: "shell-8", host_seat: null, qr_code: "STICKER8", table_number: 8 },
+    SESS,
+  ];
+  const map = (set: Awaited<ReturnType<typeof seatedTableNumbers>>) =>
+    occupancyFor(
+      [4, 5, 6, 7, 8].map((n) => ({ tableNumber: n, qrCode: `STICKER${n}` })),
+      set,
+    );
+
+  it("J40 — the predicate is asked ONCE, for exactly the hostless non-kiosk shells; an UNTOUCHED shell reads Open, a TOUCHED one reads Seated; a kiosk order and a party read Seated", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: ["shell-4", "shell-x"], error: null }, // shell-8 has an order on it
+    ];
     const set = await seatedTableNumbers(db);
-    expect(set?.numbers).toEqual(new Set([6, 7]));
+    expect(rpcs).toHaveLength(1);
+    expect(rpcs[0]?.name).toBe("mms_untouched_shells");
+    expect(rpcs[0]?.args.p_sessions).toEqual(["shell-4", "shell-x", "shell-8"]);
+    expect(set?.numbers).toEqual(new Set([6, 7, 8]));
     expect(set?.strandedCodes).toEqual(new Set());
-    // Through the pure mapping: 4 is Open (a sticker scan or a claim makes the diner its host).
-    expect(
-      occupancyFor(
-        [4, 6, 7].map((n) => ({ tableNumber: n, qrCode: `STICKER${n}` })),
-        set ?? null,
-      ),
-    ).toEqual([
+    expect(map(set ?? null)).toEqual([
       { tableNumber: 4, occupied: false },
+      { tableNumber: 5, occupied: false },
       { tableNumber: 6, occupied: true },
       { tableNumber: 7, occupied: true },
+      { tableNumber: 8, occupied: true },
     ]);
+  });
+
+  it("J40 — a FAILED predicate call reads every shell Seated (never Open), and the rest of the set still stands", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: null, error: { message: "fetch failed" } },
+    ];
+    const set = await seatedTableNumbers(db);
+    expect(set?.numbers).toEqual(new Set([4, 6, 7, 8]));
+    expect(set?.strandedCodes).toEqual(new Set(["STICKER5"]));
+  });
+
+  it("J40 — the predicate only answers for the shells it was asked about: a hosted party's id in the answer never opens its table", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: ["sess-7", "k6"], error: null },
+    ];
+    const set = await seatedTableNumbers(db);
+    expect(set?.numbers).toEqual(new Set([4, 6, 7, 8]));
+  });
+
+  it("J40 — no hostless shell in the read → no predicate call at all (no round trip on the common path)", async () => {
+    answer = { data: [SESS, { ...SESS, id: "s9", table_number: 9 }], error: null };
+    const set = await seatedTableNumbers(db);
+    expect(rpcs).toEqual([]);
+    expect(set?.numbers).toEqual(new Set([7, 9]));
   });
 });
 

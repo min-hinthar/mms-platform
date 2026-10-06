@@ -15,7 +15,10 @@
  *     the adopt never cancels a cart a line just landed on;
  *   · the SHELL's session row, row-exclusive (J40) — orders an adopt against a membership insert
  *     (its foreign key's KEY SHARE) and a host claim (an UPDATE), so the adopt never closes a
- *     session somebody just joined or claimed.
+ *     session somebody just joined or claimed;
+ *   · the same two shell locks in `mms_claim_untouched_shell` (the grid claim's host claim, the
+ *     ONE "untouched" predicate in its UPDATE's WHERE) — so a staff line or a join landing at the
+ *     instant a stranger taps an Open chip refuses the claim instead of slipping past the predicate.
  *
  * ── The orders (B holds its transaction open; A calls the RPC) ───────────────────────────────────
  *
@@ -33,6 +36,8 @@
  *                                          cancelled) — a CONTROL for M3 (see below).
  *   (i) B inserts a line on the BINDER  → A does NOT block, and binds — the CONTROL that tells
  *                                          FOR SHARE from a mutex.
+ *   (j) B inserts a line on the SHELL   → A's grid claim BLOCKS, then `false`; nobody is host.
+ *   (k) B joins the SHELL (member row)  → A's grid claim blocks, then `false`; nobody is host.
  *
  * Every wait is observed, both ways: a statement is polled until it either appears in
  * `pg_blocking_pids` behind the named peer ("blocked") or its completion marker lands ("done").
@@ -45,6 +50,9 @@
  *                                                 cancel UPDATE still conflicts with the insert's
  *                                                 FOR SHARE, so (h) cannot tell (red-team #4).
  *   M4  the shell session's lock deleted        → f and g must go red.
+ *   M5  the claim's shell-cart lock deleted     → j must go red.
+ *   M6  the claim's shell-session lock deleted  → k must go red (its own UPDATE takes NO KEY
+ *                                                 UPDATE, which a join's KEY SHARE never waits on).
  *
  * Each mutant asserts its line matched exactly once, the apply succeeded and `md5(prosrc)` changed;
  * the restore re-applies the migration file and asserts the body is byte-identical. Before any of
@@ -74,6 +82,13 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const MIGRATION = path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql");
 const FN = "mms_bind_session_table";
+/** Every function the migration defines — the drift check and the restore cover them all. */
+const FNS = [
+  "mms_bind_session_table",
+  "mms_claim_untouched_shell",
+  "mms_shell_untouched",
+  "mms_untouched_shells",
+];
 const TAG = "M263R";
 const TABLE = 88;
 const red = (s) => `\x1b[31m${s}\x1b[0m`;
@@ -357,6 +372,12 @@ const tableOf = (s) =>
   `select coalesce(table_number::text, 'null') from public.table_sessions where id = '${s.id}';`;
 const statusOf = (s) => `select status from public.table_sessions where id = '${s.id}';`;
 const lines = (cart) => `select count(*) from public.qr_cart_items where cart_id = '${cart}';`;
+/** The grid claim's host claim (J40): the ONE predicate in its UPDATE's WHERE. */
+const claimShell = (sh) =>
+  `select pg_temp.m263r_try($q$select public.mms_claim_untouched_shell('${sh.id}'::uuid,
+     gen_random_uuid())::text$q$);`;
+const hostOf = (s) =>
+  `select coalesce(host_seat::text, 'null') from public.table_sessions where id = '${s.id}';`;
 
 /** A holds nothing; B holds `hold` open; A's bind must wait for B and then answer `want`. */
 async function bHoldsThenABinds(hold, aSql, check) {
@@ -557,6 +578,36 @@ const ORDERS = {
       closeAll();
     }
   },
+  async j() {
+    const sh = session("S", TABLE);
+    try {
+      return await bHoldsThenABinds(insertLine(sh.cart), claimShell(sh), ({ held, how, res }) => [
+        ["B's line landed", /^[0-9a-f-]{36}$/.test(held) ? "uuid" : held, "uuid"],
+        ["the grid claim waited for the line", how, "blocked"],
+        ["the claim was refused (a touched shell)", res, "false"],
+        ["nobody became host", q(hostOf(sh)), "null"],
+      ]);
+    } finally {
+      closeAll();
+    }
+  },
+  async k() {
+    const sh = session("S", TABLE);
+    try {
+      return await bHoldsThenABinds(
+        `insert into public.session_members (session_id, seat_id, display_name, role)
+           values ('${sh.id}', gen_random_uuid(), 'Bo', 'guest') returning 'held';`,
+        claimShell(sh),
+        ({ how, res }) => [
+          ["the grid claim waited for the join", how, "blocked"],
+          ["the claim was refused (somebody joined)", res, "false"],
+          ["nobody became host", q(hostOf(sh)), "null"],
+        ],
+      );
+    } finally {
+      closeAll();
+    }
+  },
 };
 
 /** Run every order; returns the ids that went red (printing when `loud`). */
@@ -613,12 +664,15 @@ function ensureRegistry() {
 
 // ── The mutation battery ─────────────────────────────────────────────────────────────────────────
 const MIGRATION_TEXT = readFileSync(MIGRATION, "utf8");
-const IDENTITY = `select md5(pg_get_functiondef(p.oid)) || '|' ||
+const IN_FNS = FNS.map((f) => `'${f}'`).join(", ");
+const IDENTITY = `select p.proname || '|' || md5(pg_get_functiondef(p.oid)) || '|' ||
     coalesce(array_to_string(p.proacl::text[], ','), '(default)')
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname = '${FN}';`;
-const HASH = `select md5(p.prosrc) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-  where n.nspname = 'public' and p.proname = '${FN}';`;
+  where n.nspname = 'public' and p.proname in (${IN_FNS})
+  order by 1;`;
+const HASH = `select string_agg(p.proname || '=' || md5(p.prosrc), ',' order by p.proname)
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public' and p.proname in (${IN_FNS});`;
 
 /** Each mutant rewrites ONE line, found by the comment the migration pins it with. */
 const MUTANTS = [
@@ -650,6 +704,20 @@ const MUTANTS = [
     expect: ["f", "g"],
     why: "a join or a host claim mid-adopt is invisible to the checks, and the adopt closes the session somebody just joined or claimed",
   },
+  {
+    id: "M5/claim-cart-lock-deleted",
+    line: /^\s*for update;\s+-- J40 claim: a staff line/,
+    to: (l) => l.replace("for update;", ";"),
+    expect: ["j"],
+    why: "a staff line landing mid-claim is invisible to the predicate in the claim's WHERE, and a stranger's grid tap becomes host of the order a server took",
+  },
+  {
+    id: "M6/claim-row-lock-deleted",
+    line: /^\s*for update;\s+-- J40 claim: a membership insert/,
+    to: (l) => l.replace("for update;", ";"),
+    expect: ["k"],
+    why: "a join landing mid-claim is invisible to the predicate (the claim's own UPDATE takes NO KEY UPDATE, compatible with the FK's KEY SHARE), and the claimant hosts a table somebody just joined",
+  },
 ];
 
 function restoreMigration() {
@@ -661,9 +729,9 @@ async function runMutants() {
   const live = q(IDENTITY);
   const expected = q(`begin;\n${MIGRATION_TEXT}\n${IDENTITY}\nrollback;`)
     .split("\n")
-    .filter((l) => /^[0-9a-f]{32}\|/.test(l))
+    .filter((l) => /^mms_\w+\|[0-9a-f]{32}\|/.test(l))
     .join("\n");
-  if (!live || live !== expected) {
+  if (!live || live !== expected || live.split("\n").length !== FNS.length) {
     throw new Error(
       `${TAG} REFUSED — the live ${FN} is not what ${path.basename(MIGRATION)} produces — a later ` +
         `migration redefines it (or a mutant is live, or it is missing). Restoring from this file ` +
@@ -779,7 +847,7 @@ async function main() {
   if (!process.argv.includes("--mutants")) {
     console.log(
       green(
-        `\n✓ verify:bind-race — ${Object.keys(ORDERS).length} orders (a–i), every wait observed\n`,
+        `\n✓ verify:bind-race — ${Object.keys(ORDERS).length} orders (a–k), every wait observed\n`,
       ),
     );
   }

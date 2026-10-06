@@ -73,6 +73,13 @@ let rpcAnswer: { data: unknown; error: unknown } | null = null;
 let idReadFailsFor: string | null = null;
 /** Per-session carts (J40's adopt cancels the shell's); null = every cart read answers `cart-1`. */
 let carts: { id: string; session_id: string; status: string }[] | null = null;
+/** Shells with something on them the fixtures cannot show (a line, a name, a promo…): the SQL
+ *  predicate `mms_shell_untouched` reads them false (members are read from `members`). */
+let touchedShells = new Set<string>();
+/** A scripted answer for the grid claim's host claim (`mms_claim_untouched_shell`); null = emulated. */
+let claimAnswer: { data: unknown; error: unknown } | null = null;
+/** Runs when the grid claim's host claim is issued — the row moving between the claim and the re-read. */
+let claimHook: (() => void) | null = null;
 /** Runs once when a write matching `on` is issued, BEFORE it applies — a row moving under it (M264). */
 let writeHook: { on: (q: Q) => boolean; run: () => void } | null = null;
 /** The number-keyed read fails (an outage). */
@@ -109,7 +116,7 @@ function emulateBind(args: Record<string, unknown>): { data: unknown; error: unk
       shell.table_number !== n
     )
       return { data: [{ outcome: "gone", at_table: null }], error: null };
-    if (members.some((m) => m.session_id === shell.id))
+    if (members.some((m) => m.session_id === shell.id) || touchedShells.has(shell.id))
       return { data: [{ outcome: "held", at_table: null }], error: null };
   }
   // The CAS decides before anything is written here — the SQL's subtransaction rolls an adopt back
@@ -156,6 +163,25 @@ vi.mock("@mms/db/server", () => ({
     rpc: (name: string, args: Record<string, unknown>) => {
       rpcs.push({ name, args });
       writes.push(`rpc:${name}`);
+      if (name === "mms_claim_untouched_shell") {
+        if (claimHook) {
+          const h = claimHook;
+          claimHook = null;
+          h();
+        }
+        if (claimAnswer) return Promise.resolve(claimAnswer);
+        // The SQL's one statement: hostless · live · dine-in · the predicate (no member, nothing on it).
+        const sh = sessions.find((r) => r.id === args.p_shell);
+        const ok =
+          !!sh &&
+          sh.host_seat == null &&
+          sh.status === "active" &&
+          sh.mode === "dinein" &&
+          !touchedShells.has(sh.id) &&
+          !members.some((m) => m.session_id === sh.id);
+        if (ok) sh.host_seat = args.p_seat as string;
+        return Promise.resolve({ data: ok, error: null });
+      }
       if (bindCollision)
         return Promise.resolve({ data: null, error: { code: bindCollision.code, message: "dup" } });
       if (rpcAnswer) return Promise.resolve(rpcAnswer);
@@ -354,6 +380,9 @@ beforeEach(() => {
   idReadFailsFor = null;
   writeHook = null;
   carts = null;
+  touchedShells = new Set();
+  claimAnswer = null;
+  claimHook = null;
   nextId = 0;
 });
 
@@ -1092,6 +1121,17 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
     });
     expect(sessionInserts()).toHaveLength(0);
     expect(bindUpdates()).toHaveLength(0);
+    // The host claim went through the ONE predicate, in one statement — never W6a's plain claim.
+    const claims = rpcs.filter((r) => r.name === "mms_claim_untouched_shell");
+    expect(claims).toEqual([
+      { name: "mms_claim_untouched_shell", args: { p_shell: "sess-STICKER7", p_seat: SEAT } },
+    ]);
+    expect(
+      queries.some(
+        (q) =>
+          q.table === "table_sessions" && q.op === "update" && "host_seat" in (q.payload ?? {}),
+      ),
+    ).toBe(false);
     expect(sessions[0]?.host_seat).toBe(SEAT);
     expect(members).toContainEqual(
       expect.objectContaining({ session_id: "sess-STICKER7", seat_id: SEAT }),
@@ -1228,5 +1268,118 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
       expect(((await res.json()) as { error: string }).error).toBe(JOIN_REFUSED);
       expect(writes).toEqual([]);
     }
+  });
+});
+
+describe("/api/session — J40: a TOUCHED shell is never hosted from the grid (the lead's follow-up)", () => {
+  // The picker reads a shell Open only while the ONE SQL predicate says nothing is on it, but the
+  // read is the RSC's and the tap comes later (or the `?table=` is typed). So the claim's host claim
+  // re-asks the predicate IN its UPDATE's WHERE: a shell a server has since put an order on is
+  // refused by name — `held` — and nobody becomes host of an order a server took.
+  const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+
+  it("a TOUCHED shell, no prior session → 409 BIND_COPY.held(7): no host, no membership, no cart, no insert", async () => {
+    sessions = [shell()];
+    touchedShells = new Set(["sess-STICKER7"]);
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    expect(sessions[0]?.host_seat).toBeNull();
+    expect(members.some((m) => m.session_id === "sess-STICKER7")).toBe(false);
+    expect(writes).not.toContain("qr_carts:insert");
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("a shell somebody JOINED (a member) is touched too → 409 held, the joiner's table never hosted by a stranger", async () => {
+    sessions = [shell()];
+    members = [{ session_id: "sess-STICKER7", seat_id: OTHER }];
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    expect(sessions[0]?.host_seat).toBeNull();
+  });
+
+  it("a refused claim whose re-read finds a PARTY (a host claimed it first) → the shipped 409 seated", async () => {
+    sessions = [shell()];
+    claimAnswer = { data: false, error: null };
+    // A diner's sticker scan claims host between the pre-read and this claim.
+    claimHook = () => {
+      sessions[0]!.host_seat = OTHER;
+    };
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+  });
+
+  it("a refused claim with NOBODY at 7 any more (cleared) → 'try again' (500), never a mint over it", async () => {
+    sessions = [shell()];
+    claimAnswer = { data: false, error: null };
+    claimHook = () => {
+      sessions[0]!.status = "closed";
+    };
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Could not check the table — try again.",
+    );
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("a refused claim whose re-read finds THIS seat already its host (another tab) → rejoined, 200", async () => {
+    sessions = [shell()];
+    claimAnswer = { data: false, error: null };
+    claimHook = () => {
+      sessions[0]!.host_seat = SEAT;
+    };
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+    });
+  });
+
+  it("the host claim's TRANSPORT failure is the W10a 503; any other error is 'try again' (500) — never a join without the predicate", async () => {
+    sessions = [shell()];
+    claimAnswer = { data: null, error: { message: "TypeError: fetch failed" } };
+    let res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(503);
+    claimAnswer = {
+      data: null,
+      error: { code: "PGRST202", message: "Could not find the function" },
+    };
+    res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(sessions[0]?.host_seat).toBeNull();
+    expect(members.some((m) => m.session_id === "sess-STICKER7")).toBe(false);
+  });
+
+  it("the prior session DIED under the adopt and the shell has since been TOUCHED → 409 held, never hosted", async () => {
+    sessions = [row("MYCODE12", "dinein", SEAT), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    bindHook = () => {
+      sessions[0]!.status = "closed";
+    };
+    claimHook = () => {
+      touchedShells = new Set(["sess-STICKER7"]);
+    };
+    // The bind call sees an untouched shell and a dead binder → `unmoved`; the claim that follows
+    // sees the order that landed meanwhile.
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    expect(sessions[1]?.host_seat).toBeNull();
+  });
+
+  it("a STICKER scan of a touched shell keeps W6a: the table's own physical code makes the scanner host (the party staff seated)", async () => {
+    sessions = [shell()];
+    touchedShells = new Set(["sess-STICKER7"]);
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+    });
+    expect(rpcs.some((r) => r.name === "mms_claim_untouched_shell")).toBe(false);
   });
 });
