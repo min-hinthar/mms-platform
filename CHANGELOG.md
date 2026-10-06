@@ -60,8 +60,8 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   the Send sheet and the `?table` claim: the binder's cart `FOR SHARE`, freshness on the DB clock, the
   sticker rule, an untouched staff shell's adopt and the CAS in one transaction. **J40:** an untouched table
   a server started reads Open and yields to its first diner (adopted at Send, hosted from the grid by a
-  predicate-guarded claim); a touched one reads Seated and answers "ask a server to add yours to it" — never
-  hosted from the grid (`mms_shell_untouched`, one predicate, three readers); a kiosk order has no join
+  predicate-guarded claim); a touched one reads Seated and answers `held` ("A server has Table N open — ask
+  them to seat you there, or pick another.") — never hosted from the grid (`mms_shell_untouched`, one predicate, three readers); a kiosk order has no join
   form. **J41:** a sticker session binds only to its own table (a session bound elsewhere wedged its own
   table through the token index). **M264:** the host claim is status-guarded. `scripts/verify-bind-race.mjs`
   joins the CI `supabase` job (11 orders, 6 mutants); battery suite `m263` (54 rows). **The four functions
@@ -72,6 +72,24 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's
   three lines are KEPT (v7.2 draws none of those surfaces — DESIGN-LANGUAGE §9 says so now), `floor.back`
   pinned by a test and a mutant.
+- **The capped blind pass on #315 — three auditors (money · concurrency · product truth + a11y), all
+  REJECT; every finding checked against source, fixed red-first or recorded (the PR comment is the
+  record).** The undo's `gone` ("Brought back") now needs the cart still OPEN and no batch line the kitchen
+  could have: a staff MERGE re-parents the in-grace batch and cancels the cart, so the old reading said
+  "Brought back" over dishes cooking at the merged table; a VOIDED line (it keeps `fire_batch`) no longer
+  counts, a COMPED one still does; the lines are read before the cart, so the merge's one commit cannot
+  fall between the reads (`lib/undo-miss.ts`, LEARNINGS #244). **J45 closed:** a 0 under a pay lock or
+  split freeze that landed after authz's read re-reads authz's flags and answers `locked` / `settling`, so
+  the window stays open instead of closing "already with the kitchen". The Send sheet's chip whose bind
+  answered `kiosk` / `held` is named "Table N, someone is sitting here" with no `aria-expanded` (J42
+  narrowed); `BIND_COPY.held` is true for every held case ("A server has Table N open — ask them to seat
+  you there, or pick another." — the old sentence claimed an order and a fold-in a member-only shell does
+  not have). SQL J37.3 · J37.4 pin the comped and voided legs of an in-grace undo; M261's lock ORDER is a
+  documented survivor (P2fj); M263's header now says what fulfillment and the grid claim actually do
+  (comments only — every `md5(prosrc)` unchanged, the file's sha256 now `d242011c…`). The receipt tests
+  cite the real `p3d-receipt/` ids. 10 new mutants, 3 re-anchored; the battery 197 rows. Filed J50 (the
+  console's undo has J45's shape) and J51 (ACCEPTED — any phone can host an untouched staff shell from
+  the grid, J40's trade-off).
 
 ### Phase 3c-ii — the table bound at SEND (2026-10-05)
 

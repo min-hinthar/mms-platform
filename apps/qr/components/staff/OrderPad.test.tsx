@@ -2078,7 +2078,8 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
     });
     await flush();
     expect(fire).toHaveBeenCalledWith({ sessionId: SESSION });
-    // MUTATION (pad/send-slot-jumps-at-the-tap): the Undo remounts in the primary slot — red.
+    // The wiring of p2f-lib/pad/send-slot-jumps-at-the-tap (judged by lib/order-pad.test.ts): the
+    // Undo must not remount in the primary slot.
     expect(sendBtn()).toBe(before);
     expect(sendBtn().closest(".pad-dock-settle")).not.toBeNull();
     expect(sendBtn().textContent).toContain(STAFF["table.send.undo"].en);
