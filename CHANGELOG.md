@@ -43,7 +43,7 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   back (`lib/undo-miss.ts`, the console's diagnosis made the one copy for both undos), and that answer
   decides the sentence and the close. `mms_undo_fire` takes the cart row lock first, like its counter twin
   (`20261006120000_m261_undo_fire_cart_lock.sql` — no deploy order; its SQL test probes a line-less cart's
-  `xmax`, because a line's FK check stamps any cart with lines; **the prod apply waits on the owner**). The
+  `xmax`, because a line's FK check stamps any cart with lines; **on prod since 2026-10-06, `20261006191844`**). The
   Undo's count moved into its own leaf on a `useSyncExternalStore` ticker, so Checkout no longer re-renders
   four times a second through the grace (measured: 0 host renders across 36 ticks; the old shape 38). The
   region's pay-error rule is written down (DESIGN-LANGUAGE §7). Filed J43–J46.
@@ -65,8 +65,8 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   form. **J41:** a sticker session binds only to its own table (a session bound elsewhere wedged its own
   table through the token index). **M264:** the host claim is status-guarded. `scripts/verify-bind-race.mjs`
   joins the CI `supabase` job (11 orders, 6 mutants); battery suite `m263` (54 rows). **The four functions
-  must be applied to prod (one file) BEFORE this PR merges** — the TS calls them. Filed J42 · J49 · M265 ·
-  M266 · M267.
+  are on prod since 2026-10-06 (`20261006191633`), applied BEFORE the merge** — the TS calls them. Filed J42 ·
+  J49 · M265 · M266 · M267.
 - **J39 · J32 · J29.** The Menu tab off the threshold is `menuHref(mode)` everywhere (the no-cart arm to the
   retired `/dine-in` dropped — a tab names no session and claims no door). "Pick your table" is spaced by the
   stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's
@@ -90,6 +90,18 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   cite the real `p3d-receipt/` ids. 10 new mutants, 3 re-anchored; the battery 197 rows. Filed J50 (the
   console's undo has J45's shape) and J51 (ACCEPTED — any phone can host an untouched staff shell from
   the grid, J40's trade-off).
+
+- **M263 and M261 ON PROD (2026-10-06, the owner's go: "apply M263 and M261").** One file at a time via the
+  MCP, M263 first: `m263_bind_session_table` (**`20261006191633`**) at sha256 `d242011c…`, the bytes CI ran
+  green on `172ef48`, then `m261_undo_fire_cart_lock` (**`20261006191844`**) at `e60728fa…`. Read-only
+  pre-checks first (none of the four functions existed; prod's `mms_undo_fire` was the M258 body; the
+  active-number index present; 0 live dine-in sessions; every column the bodies touch present). Verified
+  after: one overload each, the definer/invoker split as designed, `search_path=""`, EXECUTE for
+  `service_role` only, every `md5(prosrc)` equal to the throwaway-Postgres measurement; write-free SQL
+  smokes (`unmoved` · `gone` · false · `{}` · false · 0); the anon key refused 42501 on all five through
+  PostgREST (a made-up name answers PGRST202 — the schema cache has them); no new security advisor. The
+  service-key REST leg was not run (no key in the agent environment). M125: 108 prod rows vs 107 files,
+  the same 3 + 4 unmatched names. M261 and M263 closed.
 
 ### Phase 3c-ii — the table bound at SEND (2026-10-05)
 

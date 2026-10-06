@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-06 · #315 open on `claude/fervent-johnson-luj1lm` · the follow-ups after 3c-ii + Phase 3d's kitchen and receipt stack BUILT · the blind pass FIXED · M263's prod apply + the Codex per-head round stand between it and the merge)
+> ## ⏭️ NEXT SESSION — start here (2026-10-06 · #315 open on `claude/fervent-johnson-luj1lm` · the follow-ups after 3c-ii + Phase 3d's kitchen and receipt stack BUILT · the blind pass FIXED · M263 + M261 ON PROD · the Codex per-head round (blocked on the Codex quota) stands between it and the merge)
 >
 > **Where things stand.** #314 (3c-ii) merged as `b391dc8`. Everything the owner asked for next is on
 > #315 (the CHANGELOG entry "After 3c-ii — the follow-ups and Phase 3d" is the list): the full escorted
@@ -26,15 +26,16 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **What stands between #315 and the merge — in this order:**
 >
-> 1. **The owner's one-file prod apply of `20261006120100_m263_bind_session_table.sql` BEFORE the merge**
->    (the TS calls its four functions). The runbook is in the PR body: CI's `supabase` job green on the
->    exact bytes (sha256 `d242011c225900df0f3d7e248db3be7275f505c3eecb70377b6ba15e66fcce36` — the blind
->    pass changed the header's COMMENTS; every `md5(prosrc)` is unchanged), read-only pre-checks, apply,
->    verify the four functions, a SQL and a PostgREST smoke, record the stamp under M125. M261's file
->    (`e60728fa…8804`) has no deploy order and can go the same day. **New prod DDL was NOT authorized by
->    the session's ask — it waits on the owner's go.**
+> 1. ~~The owner's one-file prod apply of M263 BEFORE the merge~~ — **DONE 2026-10-06 on the owner's go
+>    ("apply M263 and M261"): `m263_bind_session_table` `20261006191633`, then `m261_undo_fire_cart_lock`
+>    `20261006191844`**, each pre-checked read-only and verified (OPEN-ITEMS M263 · M261, closed; M125 has
+>    the stamps). Nothing in prod now waits on this PR's code: the old build never calls the new functions,
+>    and `mms_undo_fire` keeps its integer contract.
 > 2. **The Codex per-head round** on the final head: mark ready → `@codex review` → wait (events only)
 >    for `codex-review` green with "Codex has reviewed" naming the head → fix-or-justify → the owner's merge.
+>    ⚠️ **Blocked 2026-10-06 on the Codex account's review quota** — the connector answered every
+>    `@codex review` on `172ef48` with "You have reached your Codex usage limits for code reviews", so
+>    `codex-review` stays red (by design). The owner raises the quota, then ONE `@codex review`.
 > 3. After the merge: the full escorted `verify:slice` on the merge head (if the PR-head run recorded on
 >    #315 did not cover the same tree).
 >
