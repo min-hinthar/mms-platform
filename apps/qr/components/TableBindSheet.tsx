@@ -42,10 +42,11 @@ import { FROZEN_NOTE } from "./useUndoGrace";
  * table's sticker — which the registry reports as occupied — from a stranger's party; `TableGrid`
  * says why) — flips THAT chip to Seated (a disclosure, never natively disabled) and reveals the inline
  * join with focus in its input, plus the drafts note while this cart holds drafts: joining moves the
- * diner, never the dishes. J40 — `kiosk` and `held` (an order NO code joins: a kiosk order, or a
- * table a server started that already has an order on it) flip the chip to Seated with NO form, and
- * under a freeze such a chip says FROZEN_NOTE instead of revealing an ask (`seatedAnswer`, pure,
- * decides which). Every other answer is the host's to say.
+ * diner, never the dishes. J40 — `kiosk` and `held` (a table NO code joins: a kiosk order, or a
+ * table a server started that is no longer untouched — anything on it, or anyone joined) flip the
+ * chip to Seated with NO form, handed to the grid as `noJoin` so its name drops the join clause and
+ * it wears no disclosure state, and under a freeze such a chip says FROZEN_NOTE instead of revealing
+ * an ask (`seatedAnswer`, pure, decides which). Every other answer is the host's to say.
  *
  * NO LIVE REGION HERE (one per view): a sentence written while the modal is open sits under Radix's
  * `aria-hidden`, so the host STASHES each one and says it through its own region in `onClosed` —
@@ -109,8 +110,9 @@ export function TableBindSheet({
   // Tables the bind answered `seated` for since this sheet opened: their chips read Seated now,
   // whatever the registry said when the grid was read.
   const [seatedAt, setSeatedAt] = useState<ReadonlySet<number>>(() => new Set());
-  // J40 — the subset whose latest answer was an order NO code joins (`kiosk` · `held`): Seated, but
-  // with no join form, here or under a freeze. Cleared when the same chip's next answer is `seated`.
+  // J40 — the subset whose latest answer was a table NO code joins (`kiosk` · `held`): Seated, but
+  // with no join form, here or under a freeze, and no join clause or disclosure on its chip (the
+  // grid's `noJoin`). Cleared when the same chip's next answer is `seated`.
   const [noJoinAt, setNoJoinAt] = useState<ReadonlySet<number>>(() => new Set());
   // Why the sheet is closing — "send" on a landed bind or "Send anyway", else a dismissal.
   const closedBy = useRef<"send" | null>(null);
@@ -217,6 +219,7 @@ export function TableBindSheet({
         onClaim={claim}
         onPlain={sendAnyway}
         markMine={false}
+        noJoin={noJoinAt}
         joinNote={
           draftQty > 0 ? (
             <p className="door-sheet-sub" style={flush}>

@@ -41,6 +41,7 @@ function Host(props: {
   joinNote?: string;
   initialJoin?: number | null;
   onJoinChange?: (n: number | null) => void;
+  noJoin?: ReadonlySet<number>;
 }) {
   const [joinNum, setJoinNum] = useState<number | null>(props.initialJoin ?? null);
   return (
@@ -62,6 +63,7 @@ function Host(props: {
         onPlain={props.onPlain}
         markMine={props.markMine}
         joinNote={props.joinNote}
+        noJoin={props.noJoin}
       />
     </>
   );
@@ -193,5 +195,16 @@ describe("TableSection — the Send sheet's wiring reaches the grid (3c-ii)", ()
     fireEvent.click(screen.getByRole("button", { name: "host-reveal-9" }));
     const form = document.querySelector("form")!;
     expect(within(form).getByText("the drafts note")).toBeTruthy();
+  });
+
+  it("`noJoin` reaches the grid: that Seated chip drops the join clause and is no disclosure; the other Seated chip keeps both", () => {
+    render(<Host source="send" onClaim={() => {}} markMine={false} noJoin={new Set([9])} />);
+    const nine = screen.getByRole("button", { name: "Table 9, someone is sitting here" });
+    expect(nine.hasAttribute("aria-expanded")).toBe(false);
+    expect(nine.hasAttribute("aria-controls")).toBe(false);
+    const five = screen.getByRole("button", {
+      name: "Table 5, someone is sitting here — join with the table code",
+    });
+    expect(five.getAttribute("aria-expanded")).toBe("false");
   });
 });

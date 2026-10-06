@@ -38,6 +38,7 @@ export function TableSection({
   onPlain,
   markMine,
   joinNote,
+  noJoin,
 }: {
   tables: DineInTable[];
   /** `sheet` (the DoorSheet) or `send` (the bind sheet) — on the capture and the escape's verb. */
@@ -59,6 +60,9 @@ export function TableSection({
   markMine?: boolean;
   /** Rendered under the join form only (the Send sheet's drafts note). */
   joinNote?: ReactNode;
+  /** J40 — the Send sheet's Seated tables whose order no code joins (`TableGrid`): no disclosure,
+   *  no join clause. The DoorSheet passes none. */
+  noJoin?: ReadonlySet<number>;
 }) {
   const tablesTitleId = useId();
   const joinFormId = useId();
@@ -114,6 +118,7 @@ export function TableSection({
         markMine={markMine}
         expandedTable={joinNum}
         controls={joinFormId}
+        noJoin={noJoin}
       />
       {joinNum != null && (
         <JoinForm key={joinNum} id={joinFormId} tableNumber={joinNum} onJoin={submitJoin}>

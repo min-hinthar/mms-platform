@@ -476,7 +476,7 @@ describe("TableBindSheet — J40: an order NO code joins flips the chip with no 
     { ok: false, reason: "held", tableNumber: 9 },
     { ok: false, reason: "kiosk", tableNumber: 9 },
   ] as const) {
-    it(`\`${answer.reason}\`: the chip turns Seated with NO join form and no expanded chip; the note shows; the sheet stays open; a second tap binds again`, async () => {
+    it(`\`${answer.reason}\`: the chip turns Seated with NO join form, no join clause in its name and no aria-expanded; the note shows; the sheet stays open; a second tap binds again`, async () => {
       const s = spies();
       h.bindTable.mockResolvedValue(answer);
       render(<Host {...s} />);
@@ -490,7 +490,13 @@ describe("TableBindSheet — J40: an order NO code joins flips the chip with no 
       // MUTATION (checkout-bind/occupied-answer-opens-the-join): the form asks for a party's code
       // that nobody at this table holds (a kiosk order, a table a server started); red.
       expect(dialog.querySelector("form")).toBeNull();
-      expect(nine.getAttribute("aria-expanded")).toBe("false");
+      // The chip's NAME and STATE tell the same truth: no join clause (no code joins this table) and
+      // no `aria-expanded` (there is no form for it to expand).
+      // MUTANT checkout-bind/no-join-set-not-passed: the sheet stops handing `noJoinAt` to the grid —
+      // the chip is named "join with the table code" and announced collapsed; red.
+      expect(screen.getByRole("button", { name: "Table 9, someone is sitting here" })).toBe(nine);
+      expect(nine.hasAttribute("aria-expanded")).toBe(false);
+      expect(nine.hasAttribute("aria-controls")).toBe(false);
       expect(text(dialog)).toContain(`note:${answer.reason}`);
       expect(screen.queryByRole("dialog")).not.toBeNull();
       // Nothing to collapse: the next tap asks the bind again (the shell may have been cleared).
@@ -501,6 +507,20 @@ describe("TableBindSheet — J40: an order NO code joins flips the chip with no 
       expect(dialog.querySelector("form")).toBeNull();
     });
   }
+
+  it("`seated`, by contrast, keeps the join's name and its disclosure: the label offers the code and the chip says expanded, controlling the form", async () => {
+    h.bindTable.mockResolvedValue({ ok: false, reason: "seated" });
+    render(<Host {...spies()} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    const nine = screen.getByRole("button", {
+      name: "Table 9, someone is sitting here — join with the table code",
+    });
+    expect(nine.getAttribute("aria-expanded")).toBe("true");
+    expect(nine.getAttribute("aria-controls")).toBe(dialog.querySelector("form")!.id);
+  });
 
   it("`sticker_table` (J41): the chip stays Open — the table is not taken — and no form opens; the note shows", async () => {
     const s = spies();
@@ -554,10 +574,16 @@ describe("TableBindSheet — J40: an order NO code joins flips the chip with no 
     await act(async () => {
       fireEvent.click(chip(9));
     });
+    expect(chip(9).hasAttribute("aria-expanded")).toBe(false);
     await act(async () => {
       fireEvent.click(chip(9));
     });
     expect(dialog.querySelector("form")).not.toBeNull();
+    // The `seated` answer clears the no-join mark from the chip's name and state too.
+    expect(chip(9).getAttribute("aria-label")).toBe(
+      "Table 9, someone is sitting here — join with the table code",
+    );
+    expect(chip(9).getAttribute("aria-expanded")).toBe("true");
     await act(async () => {
       fireEvent.click(chip(9)); // collapse the ask
     });

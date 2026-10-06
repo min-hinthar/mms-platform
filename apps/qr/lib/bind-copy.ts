@@ -15,9 +15,12 @@ export const BIND_COPY = {
   /** J40 — a kiosk order holds the table: no phone joins one (`/api/session` refuses), so no form. */
   kioskOrder: (n: number) =>
     `Table ${n} has a kiosk order in progress — ask a server, or pick another.`,
-  /** J40 — a table a server started that already has something on it: staff can fold this order
-   *  into it (`mergeTables`), and a numberless session keeps its own floor card until they do. */
-  held: (n: number) => `Table ${n} already has an order open — ask a server to add yours to it.`,
+  /** J40 — a table a server started that is no longer untouched (`mms_shell_untouched`): a line, a
+   *  name, a promo, a tab, a split, a pay attempt, an earlier order, or only a joiner. Said by the
+   *  Send's bind AND by `/api/session`'s `?table=N` claim, whose diner may have no order at all — so
+   *  it claims no order on the table and none to add: who holds the table, and the two ways out. */
+  held: (n: number) =>
+    `A server has Table ${n} open — ask them to seat you there, or pick another.`,
   /** J41 — this session started from another table's sticker, and binds only there. Worded for the
    *  diner who MOVED as well as the one who mis-tapped: no move-table tool exists (J38), so the
    *  honest options are that table, or a numberless send. */

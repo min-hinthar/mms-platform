@@ -39,9 +39,9 @@ const unavailable = () =>
   );
 
 /** J40 — a claim at table N the re-read refused, said by name: a party → `BIND_COPY.seated` (its
- *  code joins it), a kiosk order → `kioskOrder(N)`, a table a server started with an order on it →
- *  `held(N)` (a server folds yours in) — never a join form for a table no code joins; nobody →
- *  "try again" (500). */
+ *  code joins it), a kiosk order → `kioskOrder(N)`, a table a server started that is no longer
+ *  untouched (anything on it, or anyone joined) → `held(N)` (ask that server to seat you, or pick
+ *  another) — never a join form for a table no code joins; nobody → "try again" (500). */
 function refusedAt(v: Extract<BindTableResult, { ok: false }>, n: number) {
   const said =
     v.reason === "seated"
@@ -298,8 +298,9 @@ export async function POST(req: NextRequest) {
   //
   // J40 — UNLESS the row is a table a server STARTED (`awaitsFirstDiner`: no host yet, not a kiosk
   // order — a kiosk row met the reserved refusal above). It is no stranger's party: the picker shows
-  // it Open, a sticker scan of it makes the scanner its host (W6a, below), and so does this claim —
-  // or, from a phone with an unbound session of its own, the bind arm below ADOPTS it and keeps the
+  // it Open while it is untouched, a sticker scan of it makes the scanner its host (W6a, below), and
+  // so does this claim while it is STILL untouched (`takeShell`; a touched one answers `held`) — or,
+  // from a phone with an unbound session of its own, the bind arm below ADOPTS it and keeps the
   // drafts (`mms_bind_session_table` with the shell). Held aside as `shell`; nothing is written yet.
   let shell: Sess | null = null;
   if (claim && sess) {
@@ -417,7 +418,7 @@ export async function POST(req: NextRequest) {
           sess = took;
         }
       } else if (outcome.kind === "gone" || outcome.kind === "held") {
-        // J40 · red-team #5 — the shell changed under the call (`gone`) or has an order on it
+        // J40 · red-team #5 — the shell changed under the call (`gone`) or is no longer untouched
         // (`held`): re-read who holds N NOW and answer that, by name — this phone's own row there
         // (another tab) is a rejoin; a party, a kiosk order or a held table is refused with its own
         // sentence; nobody is a retry. Never a join form: no code joins a table a server started.

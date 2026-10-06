@@ -52,12 +52,18 @@ export function tableChipWord(action: TableChipAction): "Your table" | "Seated" 
   }
 }
 
-/** The full sentence that names each chip button (TablePicker.tsx:93-96, verbatim). */
-export function tableChipLabel(n: number, action: TableChipAction): string {
+/**
+ * The full sentence that names each chip button (TablePicker.tsx:93-96, verbatim). `noJoin` (J40) —
+ * a Seated chip whose bind answered an order NO code joins (`seatedAnswer` → `occupied`: a kiosk
+ * order, a table a server is holding) is named by the K2 prefix alone: the join clause would promise
+ * a code nobody at that table holds. It speaks for a Seated chip only.
+ */
+export function tableChipLabel(n: number, action: TableChipAction, noJoin = false): string {
   switch (action) {
     case "resume":
       return `Table ${n}, your table — pick up where you left off`;
     case "join":
+      if (noJoin) return `Table ${n}, someone is sitting here`;
       return `Table ${n}, someone is sitting here — join with the table code`;
     case "claim":
       return `Table ${n}, open — sit here`;
@@ -144,10 +150,10 @@ export function tablePlainLabel(source: TableGridSource): string {
 
 /**
  * J40 — what a bind refusal does to the chip it came from. A party with a host (`seated`) flips it
- * to Seated and opens the join form (the party's code joins it). An order NO code joins — a kiosk
- * order (`kiosk`), or a table a server started that already has an order on it (`held`) — flips it
- * to Seated with NO form: a form there would ask for a code nobody at the table holds. Every other
- * answer leaves the chip as it was (its sentence is the host's to say).
+ * to Seated and opens the join form (the party's code joins it). A table NO code joins — a kiosk
+ * order (`kiosk`), or a table a server started that is no longer untouched, anything on it or anyone
+ * joined (`held`) — flips it to Seated with NO form: a form there would ask for a code nobody at the
+ * table holds. Every other answer leaves the chip as it was (its sentence is the host's to say).
  */
 export function seatedAnswer(r: BindTableResult): "join" | "occupied" | null {
   if (r.ok) return null;

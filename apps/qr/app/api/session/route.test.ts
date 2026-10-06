@@ -1101,9 +1101,9 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
   // The picker reads such a table Open (`awaitsFirstDiner`, lib/seated.ts), so the claim it sends
   // must do what "open — sit here" says: a phone with no unbound session of its own joins the shell
   // as its HOST (W6a, the sticker's own path); one with an unbound session ADOPTS it through the one
-  // bind call and keeps its drafts; a shell with an order on it answers `held` by name — never the
-  // join form, which asks for a code nobody at that table holds. A party and a kiosk order keep
-  // today's refusals.
+  // bind call and keeps its drafts; a TOUCHED shell (anything on it, or anyone joined —
+  // `mms_shell_untouched`) answers `held` by name — never the join form, which asks for a code
+  // nobody at that table holds. A party and a kiosk order keep today's refusals.
   const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
   const mine = () => row("MYCODE12", "dinein", SEAT);
 
@@ -1272,18 +1272,24 @@ describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (
 });
 
 describe("/api/session — J40: a TOUCHED shell is never hosted from the grid (the lead's follow-up)", () => {
-  // The picker reads a shell Open only while the ONE SQL predicate says nothing is on it, but the
-  // read is the RSC's and the tap comes later (or the `?table=` is typed). So the claim's host claim
-  // re-asks the predicate IN its UPDATE's WHERE: a shell a server has since put an order on is
-  // refused by name — `held` — and nobody becomes host of an order a server took.
+  // The picker reads a shell Open only while the ONE SQL predicate says nothing and nobody is on it,
+  // but the read is the RSC's and the tap comes later (or the `?table=` is typed). So the claim's host
+  // claim re-asks the predicate IN its UPDATE's WHERE: a shell anything has since landed on (a
+  // server's line, a name, a promo, a tab, a pay attempt) or anyone has joined is refused by name —
+  // `held` — and nobody becomes host of a table a server is holding.
   const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+  // `held`'s sentence, PASTED: true for every touched shell. This arm's diner has no order to add,
+  // and a joined-only shell has no order on it — so it says neither.
+  const HELD_7 = "A server has Table 7 open — ask them to seat you there, or pick another.";
 
   it("a TOUCHED shell, no prior session → 409 BIND_COPY.held(7): no host, no membership, no cart, no insert", async () => {
     sessions = [shell()];
     touchedShells = new Set(["sess-STICKER7"]);
     const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    const said = ((await res.json()) as { error: string }).error;
+    expect(said).toBe(BIND_COPY.held(7));
+    expect(said).toBe(HELD_7);
     expect(sessions[0]?.host_seat).toBeNull();
     expect(members.some((m) => m.session_id === "sess-STICKER7")).toBe(false);
     expect(writes).not.toContain("qr_carts:insert");
@@ -1295,7 +1301,9 @@ describe("/api/session — J40: a TOUCHED shell is never hosted from the grid (t
     members = [{ session_id: "sess-STICKER7", seat_id: OTHER }];
     const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    const said = ((await res.json()) as { error: string }).error;
+    expect(said).toBe(BIND_COPY.held(7));
+    expect(said).toBe(HELD_7);
     expect(sessions[0]?.host_seat).toBeNull();
   });
 

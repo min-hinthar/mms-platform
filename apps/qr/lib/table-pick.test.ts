@@ -66,6 +66,19 @@ describe("tableChipWord / tableChipLabel — the K2 sentences, verbatim from Tab
     expect(tableChipLabel(3, "resume")).toBe("Table 3, your table — pick up where you left off");
     expect(tableChipLabel(12, "claim")).toBe("Table 12, open — sit here");
   });
+  it("a Seated chip whose order NO code joins (its bind answered `held` or `kiosk`) is named by the K2 prefix alone — never the join clause it cannot keep", () => {
+    // MUTANT table-pick/no-join-label-offers-the-join: the no-join form ignored — the chip is named
+    // "join with the table code" at a table no code joins; red here.
+    expect(tableChipLabel(7, "join", true)).toBe("Table 7, someone is sitting here");
+    expect(tableChipLabel(7, "join", false)).toBe(
+      "Table 7, someone is sitting here — join with the table code",
+    );
+    // The flag speaks for a Seated chip only: Open and Your-table keep their sentences.
+    expect(tableChipLabel(12, "claim", true)).toBe("Table 12, open — sit here");
+    expect(tableChipLabel(3, "resume", true)).toBe(
+      "Table 3, your table — pick up where you left off",
+    );
+  });
 });
 
 describe("dineInMenuHref — the ONE builder, byte-for-byte the four shipped strings", () => {
@@ -223,6 +236,12 @@ describe("bindRefusalCopy — a refusal that names its way out (3c-ii, D28)", ()
     );
     expect(bindRefusalCopy({ ok: false, reason: "held", tableNumber: 7 }, SEND)).toContain(
       "Table 7",
+    );
+    // `held` is said for EVERY touched shell — a line, a name, a promo, a tab, a pay attempt, or only
+    // a joiner — and on /api/session's claim arm to a diner with no order of its own. So it claims
+    // no order on the table and none of the diner's to add: who has the table, and the two ways out.
+    expect(bindRefusalCopy({ ok: false, reason: "held", tableNumber: 7 }, SEND)).toBe(
+      "A server has Table 7 open — ask them to seat you there, or pick another.",
     );
     expect(bindRefusalCopy({ ok: false, reason: "sticker_table", tableNumber: 4 }, SEND)).toBe(
       "This order started from Table 4’s sticker — if you’re at Table 4, pick it; otherwise send anyway.",

@@ -2082,7 +2082,7 @@ const MUTANTS = [
     {
       id: "bind/gone-said-as-held",
       expect: "J40.3 ·",
-      why: "the two refusals merged: a claimed (or vanished) shell answers 'already has an order open — ask a server' where the caller should re-read and name the party at N",
+      why: "the two refusals merged: a claimed (or vanished) shell answers `held` ('A server has Table N open — ask them to seat you there') where the caller should re-read and name the party at N",
       find: "      return query select 'gone'::text, null::integer;\n",
       replace: "      return query select 'held'::text, null::integer;\n",
     },

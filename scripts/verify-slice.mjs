@@ -25894,7 +25894,7 @@ const MUTANTS = [
     id: "seated/held-without-the-rpc-saying-so",
     file: "apps/qr/lib/seated.ts",
     suite: "lib/seated.test.ts",
-    why: "red-team #5 — a shell the RPC called `gone` (no open cart, mid-clear) answered 'already has an order open' — a sentence nothing measured",
+    why: "red-team #5 — a shell the RPC called `gone` (no open cart, mid-clear) answered `held` ('A server has Table N open') — a sentence nothing measured",
     find: '  if (v.kind === "shell" && held) return { ok: false, reason: "held", tableNumber: n };',
     replace: '  if (v.kind === "shell") return { ok: false, reason: "held", tableNumber: n };',
   },
@@ -26182,7 +26182,7 @@ const MUTANTS = [
     id: "bind-table/shell-answer-not-reread",
     file: "apps/qr/lib/bind-table.ts",
     suite: "lib/bind-table.test.ts",
-    why: "red-team #5 — `gone`/`held` answered without the re-read: a tablemate's adopt reads 'already has an order open' instead of the join form, and this phone's other tab never reads `already`",
+    why: "red-team #5 — `gone`/`held` answered without the re-read: a tablemate's adopt reads `held` ('A server has Table N open') instead of the join form, and this phone's other tab never reads `already`",
     find: '  if (outcome.kind === "gone" || outcome.kind === "held") {\n    const now = await seatedSessionFor(db, n, reg.qr_code).catch(() => null);\n    return rereadVerdict(now, sessionId, n, outcome.kind === "held");\n  }\n',
     replace:
       '  if (outcome.kind === "gone" || outcome.kind === "held")\n    return { ok: false, reason: "held", tableNumber: n };\n',
@@ -26689,6 +26689,14 @@ const MUTANTS = [
     replace: "      return BIND_COPY.alreadyBound(result.tableNumber);",
   },
   {
+    id: "table-pick/no-join-label-offers-the-join",
+    file: "apps/qr/lib/table-pick.ts",
+    suite: "lib/table-pick.test.ts",
+    why: "J40 (blind review F5) — the pure label ignores no-join: a Seated chip whose bind answered `held`/`kiosk` is named 'join with the table code' at a table no code joins, promising a screen reader the one way in that does not exist",
+    find: "      if (noJoin) return `Table ${n}, someone is sitting here`;\n",
+    replace: "",
+  },
+  {
     id: "table-grid/claim-override-ignored",
     file: "apps/qr/components/TableGrid.tsx",
     suite: "components/TableGrid.test.tsx",
@@ -26719,6 +26727,22 @@ const MUTANTS = [
     why: "Codex round 3 on #314 (P2) — the Seated chip whose ask is already OPEN fires another bind instead of collapsing it: the same `seated` lands again, the ask never closes from its chip and focus never returns to it",
     find: '    const bindsFirst = action === "join" && !!onClaim && expandedTable !== t.tableNumber;\n',
     replace: '    const bindsFirst = action === "join" && !!onClaim;\n',
+  },
+  {
+    id: "table-grid/no-join-chip-claims-expanded",
+    file: "apps/qr/components/TableGrid.tsx",
+    suite: "components/TableGrid.test.tsx",
+    why: "J40 (blind review F5) — a Seated chip whose order no code joins wears `aria-expanded` (and, aimed at, `aria-controls`): a screen reader hears a collapsed disclosure over a form that never opens",
+    find: '          const discloses = action === "join" && !noJoinHere;\n',
+    replace: '          const discloses = action === "join";\n',
+  },
+  {
+    id: "table-grid/no-join-label-not-threaded",
+    file: "apps/qr/components/TableGrid.tsx",
+    suite: "components/TableGrid.test.tsx",
+    why: "J40 (blind review F5) — the grid drops the no-join flag on the way to the label: the chip the sheet knows no code joins is still named 'join with the table code'",
+    find: "                aria-label={tableChipLabel(t.tableNumber, action, noJoinHere)}",
+    replace: "                aria-label={tableChipLabel(t.tableNumber, action)}",
   },
   {
     id: "checkout-bind/frozen-seated-chip-refused",
@@ -26799,9 +26823,9 @@ const MUTANTS = [
     file: "apps/qr/components/TableGrid.tsx",
     suite: "components/TableBindSheet.test.tsx",
     why: "3c-ii (D28) — a seated chip is a DISCLOSURE (it reveals the join form, and collapses it, by keyboard); native `disabled` drops focus to <body> the moment the bind flips the chip under the diner's finger",
-    find: "                aria-label={tableChipLabel(t.tableNumber, action)}",
+    find: "                aria-label={tableChipLabel(t.tableNumber, action, noJoinHere)}",
     replace:
-      '                aria-label={tableChipLabel(t.tableNumber, action)}\n                disabled={action === "join"}',
+      '                aria-label={tableChipLabel(t.tableNumber, action, noJoinHere)}\n                disabled={action === "join"}',
   },
   {
     id: "checkout-bind/seated-claims-again",
@@ -26849,6 +26873,14 @@ const MUTANTS = [
     suite: "components/TableBindSheet.test.tsx",
     why: "red-team #7 — a chip that answered `held` and then `seated` keeps its no-join mark: under a later freeze the join is walled off with FROZEN_NOTE (the regression `frozen-seated-chip-refused` exists to prevent)",
     find: "      setNoJoinAt((s) => withoutTable(s, n));\n",
+    replace: "",
+  },
+  {
+    id: "checkout-bind/no-join-set-not-passed",
+    file: "apps/qr/components/TableBindSheet.tsx",
+    suite: "components/TableBindSheet.test.tsx",
+    why: "J40 (blind review F5) — the sheet keeps its `noJoinAt` verdicts to itself: the chip whose bind answered `held`/`kiosk` shows no form, yet is named 'join with the table code' and announced as a collapsed disclosure",
+    find: "        noJoin={noJoinAt}\n",
     replace: "",
   },
   {

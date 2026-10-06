@@ -47,9 +47,9 @@ import {
  * J40 — A TABLE A SERVER STARTED YIELDS. The register's Start leaves a HOSTLESS row at N with an
  * empty cart, waiting for its first diner (route.ts, W6a). `holderVerdict` hands that row to the RPC,
  * which adopts it — cancels its empty cart and closes it, in the same subtransaction as the CAS —
- * only if NOTHING and NOBODY is on it, under its row locks; a shell with anything on it answers
- * `held` (a server folds the order in), and one that changed under the call answers `gone` → the
- * re-read names whoever is there now. Turning the adopt off is one line: hand the RPC no shell.
+ * only if NOTHING and NOBODY is on it, under its row locks; a shell with anything or anyone on it
+ * answers `held` (`BIND_COPY.held`: ask that server to seat you, or pick another), and one that
+ * changed under the call answers `gone` → the re-read names whoever is there now. Turning the adopt off is one line: hand the RPC no shell.
  *
  * WHY THE PRE-READ (the blind pass on 3c-ii, money lens): the index is the authority for the truly
  * simultaneous case; the pre-read decides the common one, as the mint, the register and the kiosk
@@ -180,9 +180,10 @@ export async function bindTable(cartId: string, tableNumber: number): Promise<Bi
   // J41 — the session's sticker belongs to another table; the refusal names THAT table.
   if (outcome.kind === "sticker")
     return { ok: false, reason: "sticker_table", tableNumber: outcome.stickerTable };
-  // J40 (red-team #5) — the shell changed under the call (`gone`), or has something on it (`held`):
-  // re-read who is at N now and answer THAT — a party seated meanwhile is `seated`, this phone's own
-  // other tab is `already`, a shell still holding an order is `held`, nobody is a retry.
+  // J40 (red-team #5) — the shell changed under the call (`gone`), or is no longer untouched
+  // (`held`): re-read who is at N now and answer THAT — a party seated meanwhile is `seated`, this
+  // phone's own other tab is `already`, a still-hostless shell the RPC called `held` is `held`,
+  // nobody is a retry.
   if (outcome.kind === "gone" || outcome.kind === "held") {
     const now = await seatedSessionFor(db, n, reg.qr_code).catch(() => null);
     return rereadVerdict(now, sessionId, n, outcome.kind === "held");
