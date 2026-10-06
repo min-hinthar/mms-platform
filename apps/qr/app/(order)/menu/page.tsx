@@ -60,8 +60,9 @@ export default async function Menu({
   const welcomeP = getWelcomeBack();
   const heartedP = getFavoriteIds();
   // Phase 3c-i (D18) — the DoorSheet's "Pick your table" section, offered ONLY off a dine-in session
-  // (the to-go menu): a `?table=N` claim mints a NEW session, so a grid at a live table would orphan
-  // this phone's drafts (lib/table-pick.ts). Read here, in the RSC, through the service client so the
+  // (the to-go menu): a `?table=N` claim from a BOUND session mints a NEW session (an unbound hosted
+  // one binds — 3c-ii D25), so a grid at a bound table would orphan this phone's drafts
+  // (lib/table-pick.ts). Read here, in the RSC, through the service client so the
   // sticker tokens stay server-side (lib/tables.ts strips `qr_code`); a failed read is [] and the
   // section degrades to "scan your sticker". Started beside the recognition reads, awaited with them.
   const tablesP = tableGridOffered(mode) ? getDineInTables() : Promise.resolve(undefined);

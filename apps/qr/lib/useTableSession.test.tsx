@@ -79,12 +79,27 @@ describe("useTableSession — the claim's POST body (D25)", () => {
     expect(bodies[0]).not.toHaveProperty("tableNumber");
   });
 
-  it("a persisted code with no table rejoins by that code, as before", async () => {
+  it("a persisted code with no table rejoins by that code, as before — MARKED `persisted` (J15: the server re-joins only a session this seat belongs to)", async () => {
     window.localStorage.setItem("mms.qr.dinein", "PRIORCOD");
     render(<Probe />);
     await minted();
-    expect(bodies[0]).toMatchObject({ qrCode: "PRIORCOD" });
+    expect(bodies[0]).toMatchObject({ qrCode: "PRIORCOD", persisted: true });
     expect(bodies[0]).not.toHaveProperty("tableNumber");
+  });
+
+  it("a URL code (`?t=` / `?j=`) is never marked persisted — the sticker is the join identity", async () => {
+    window.localStorage.setItem("mms.qr.dinein", "PRIORCOD");
+    render(<Probe code="SCANNED1" />);
+    await minted();
+    expect(bodies[0]).toMatchObject({ qrCode: "SCANNED1" });
+    expect(bodies[0]).not.toHaveProperty("persisted");
+  });
+
+  it("a claim's prior code is never marked persisted — the number is the key, the code is `priorCode`", async () => {
+    window.localStorage.setItem("mms.qr.dinein", "PRIORCOD");
+    render(<Probe tableNumber={5} />);
+    await minted();
+    expect(bodies[0]).not.toHaveProperty("persisted");
   });
 
   it("W9a — a deep-link code wins over the persisted key, and a claim never marks itself join-only", async () => {

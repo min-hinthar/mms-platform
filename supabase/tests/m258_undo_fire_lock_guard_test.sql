@@ -14,6 +14,12 @@
 --   M5. `settle_at = now() - 11 minutes` (an abandoned settlement) → the same batch reverses;
 --   M6. privileges: anon and authenticated cannot EXECUTE it, service_role can (the migration's
 --       revoke/grant actually landed — nothing else in the repo can see a grant).
+--   M7. `locked_at = now() - 4 minutes` (INSIDE the 5-minute window) → undo = 0 — the inner edge:
+--       M1/M2 pin only the outer edges (0 and 6 minutes), so a body reading `interval '1 minute'`
+--       passed both while the hole D20 filed reopened for any lock older than a minute (the blind
+--       pass on 3c-ii, money lens);
+--   M8. `settle_at = now() - 9 minutes` (INSIDE the 10-minute window) → undo = 0, the same edge for
+--       the split freeze.
 --
 -- ⚠️ `now()` is the TRANSACTION start and this file is ONE transaction, so every fire's deadline is
 -- now()+10s and `fire_at > now()` stays true throughout: the only thing that varies between cases is
@@ -21,9 +27,10 @@
 --
 -- CI-only: it needs the local stack (Docker). In the authoring environment it was run against a
 -- throwaway Postgres 16 cluster carrying the four tables' DDL and the LATEST `mms_fire_cart` /
--- `mms_undo_fire` bodies (20260624030000) — M1 red before the migration file was applied, all six
--- green after, and the four verify-mode-authority rows each red on their NAMED case — not against
--- the Supabase stack; the first CI run is its first run on the real schema.
+-- `mms_undo_fire` bodies (20260624030000) — M1 red before the migration file was applied, all eight
+-- green after, M7/M8 red against a copy of the migration with each window narrowed to one minute,
+-- and the six verify-mode-authority rows each red on their NAMED case — not against the Supabase
+-- stack; the first CI run is its first run on the real schema.
 -- Every case is falsified by name in scripts/verify-mode-authority.mjs (suite `p3c2`).
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
@@ -63,6 +70,14 @@ begin
     where id in (l1, l2) and state = 'fired' and fire_batch = v_batch;
   assert n = 2, format('M258.1 · %s of the 2 lines still carry the batch after the refused undo', n);
 
+  -- ══ M7. a lock INSIDE the window (4 min) still refuses — the inner edge a narrowed body misses ══
+  update public.qr_carts set locked_at = now() - interval '4 minutes' where id = cart;
+  n := public.mms_undo_fire(cart, v_batch);
+  assert n = 0, format('M258.7 · an undo under a 4-minute-old lock reversed %s lines — the pay window is 5 minutes (CART_LOCK_TTL_MS), and a create-intent inside it may have read zero drafts', n);
+  select count(*) into n from public.qr_cart_items
+    where id in (l1, l2) and state = 'fired' and fire_batch = v_batch;
+  assert n = 2, format('M258.7 · %s of the 2 lines still carry the batch after the refused undo', n);
+
   -- ══ M2. a STALE lock (an abandoned pay tab) does not refuse — W17: never over-block ═══════════
   update public.qr_carts set locked_at = now() - interval '6 minutes' where id = cart;
   n := public.mms_undo_fire(cart, v_batch);
@@ -87,6 +102,14 @@ begin
   select count(*) into n from public.qr_cart_items
     where id in (l1, l2) and state = 'fired' and fire_batch = v_batch;
   assert n = 2, format('M258.4 · %s of the 2 lines still carry the batch after the refused undo', n);
+
+  -- ══ M8. a settlement INSIDE the window (9 min) still refuses — the inner edge ══════════════════
+  update public.qr_carts set settle_at = now() - interval '9 minutes' where id = cart;
+  n := public.mms_undo_fire(cart, v_batch);
+  assert n = 0, format('M258.8 · an undo under a 9-minute-old settlement reversed %s lines — the split freeze is 10 minutes (SETTLE_TTL_MS)', n);
+  select count(*) into n from public.qr_cart_items
+    where id in (l1, l2) and state = 'fired' and fire_batch = v_batch;
+  assert n = 2, format('M258.8 · %s of the 2 lines still carry the batch after the refused undo', n);
 
   -- ══ M5. a STALE settlement (11 min) does not refuse — the same batch reverses ═════════════════
   update public.qr_carts set settle_at = now() - interval '11 minutes' where id = cart;

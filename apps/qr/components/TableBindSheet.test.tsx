@@ -119,6 +119,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TableBindSheet — named, quiet, the K2 chips", () => {
+  it("says 'Pick your table' ONCE — the dialog's title; no second heading under it", () => {
+    render(<Host {...spies()} />);
+    const dialog = openSheet();
+    // The DoorSheet hosts TableSection under its own door title, so the section carries an h3; the
+    // Send sheet IS the section, so the title is the only name (the blind pass on 3c-ii: a reader
+    // heard "Pick your table, dialog", then heading level 3 "Pick your table").
+    expect(dialog.querySelectorAll("h3")).toHaveLength(0);
+    expect(within(dialog).getAllByText(t("en", "pickYourTable"), { exact: false })).toHaveLength(1);
+  });
+
   it("is a dialog named 'Pick your table' in both tongues (lang=my), carries the sub-line and its MY draft, and has NO live region", () => {
     render(<Host {...spies()} />);
     const dialog = openSheet();
@@ -197,6 +207,49 @@ describe("TableBindSheet — a chip binds, bounded, and reports only the confirm
     // disabled by then, so <body>) instead of the Undo that replaced it; red.
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "undo-stub" }));
     expect(document.activeElement).not.toBe(screen.getByRole("button", { name: "open-sheet" }));
+  });
+
+  it("a SECOND tap while a bind is out is ignored — one bind, one answer — and 'Send anyway' is held too (the blind pass on 3c-ii: a late ok after a dismissal fired the order)", async () => {
+    const s = spies();
+    const pending = deferred<BindTableResult>();
+    h.bindTable.mockReturnValue(pending.promise);
+    render(<Host {...s} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(2));
+    });
+    await act(async () => {
+      fireEvent.click(chip(9)); // another chip
+      fireEvent.click(chip(2)); // the same chip
+      fireEvent.click(within(dialog).getByRole("button", { name: BIND_COPY.sendAnyway }));
+    });
+    expect(h.bindTable).toHaveBeenCalledTimes(1);
+    expect(s.onSendAnyway).not.toHaveBeenCalled();
+    expect(dialog.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      pending.resolve({ ok: true, tableNumber: 2, already: false });
+    });
+    expect(s.onOutcome).toHaveBeenCalledTimes(1);
+    expect(h.bindTable).toHaveBeenCalledTimes(1);
+  });
+
+  it("a seated ask does NOT survive a close: reopened, the sheet shows no join form and no expanded chip", async () => {
+    const s = spies();
+    h.bindTable.mockResolvedValue({ ok: false, reason: "seated" });
+    render(<Host {...s} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    expect(dialog.querySelector("form")).not.toBeNull();
+    expect(chip(9).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const again = openSheet();
+    expect(again.querySelector("form")).toBeNull();
+    expect(chip(9).getAttribute("aria-expanded")).toBe("false");
+    // The bind's verdict is remembered: 9 still reads Seated (the registry snapshot said Open).
+    expect(chip(9).className.split(/\s+/)).toContain("is-seated");
   });
 
   it("`seated`: the chip flips to Seated as a DISCLOSURE (never natively disabled), the join form reveals with focus in its input, the drafts note shows, the sentence stays off any region, and the chip is never claimed again", async () => {

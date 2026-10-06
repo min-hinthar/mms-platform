@@ -89,15 +89,22 @@ type Q = {
 };
 let queries: Q[] = [];
 /** The registry row for the requested number (null = unregistered / inactive). */
-let registryRow: { table_number: number } | null = { table_number: 5 };
+let registryRow: { table_number: number; qr_code: string } | null = {
+  table_number: 5,
+  qr_code: "STICKER5",
+};
 let registryError: { message: string } | null = null;
 /** What the CAS answers. */
 let cas: { count: number | null; error: { code: string; message: string } | null } = {
   count: 1,
   error: null,
 };
-/** The live holder `seatedSessionFor` finds on a 23505 re-read. */
-let holderRow: Record<string, unknown> | null = { id: "sess-other", table_number: 5 };
+/** What each number-keyed read (`seatedSessionFor`) answers, in order — the PRE-READ before the
+ *  write, then the 23505 re-read; the last entry repeats. Empty by default: nobody at 5. */
+let holderRows: (Record<string, unknown> | null)[] = [null];
+let holderReads = 0;
+/** The live NUMBERLESS row on the table's sticker token, for the predicate's second read. */
+let tokenHolderRow: Record<string, unknown> | null = null;
 /** The own row the zero-row re-read finds. */
 let ownRow: { status: string; expires_at: string; table_number: number | null } | null = null;
 
@@ -123,8 +130,15 @@ const chain = (q: Q) => {
     maybeSingle: () => {
       if (q.table === "qr_tables")
         return Promise.resolve({ data: registryRow, error: registryError });
-      if (q.eq.some(([c]) => c === "table_number"))
-        return Promise.resolve({ data: holderRow, error: null });
+      if (q.eq.some(([c]) => c === "table_number")) {
+        const i = Math.min(holderReads++, holderRows.length - 1);
+        const row = holderRows[i] ?? null;
+        if (row && typeof row.__error === "string")
+          return Promise.resolve({ data: null, error: { message: row.__error } });
+        return Promise.resolve({ data: row, error: null });
+      }
+      if (q.eq.some(([c]) => c === "qr_code"))
+        return Promise.resolve({ data: tokenHolderRow, error: null });
       return Promise.resolve({ data: ownRow, error: null });
     },
     then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
@@ -167,10 +181,12 @@ beforeEach(() => {
   captured = [];
   authz = HOST;
   rateOk = true;
-  registryRow = { table_number: 5 };
+  registryRow = { table_number: 5, qr_code: "STICKER5" };
   registryError = null;
   cas = { count: 1, error: null };
-  holderRow = { id: "sess-other", table_number: 5 };
+  holderRows = [null];
+  holderReads = 0;
+  tokenHolderRow = null;
   ownRow = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -182,7 +198,7 @@ describe("bindTable — refusals in sendToKitchen's order, each before any write
     expect(writes()).toEqual([]);
   });
 
-  it("a FRESH pay lock → locked, nothing written (a bind under a peer's charge would re-table a paid order)", async () => {
+  it("a FRESH pay lock → locked, nothing written (the lock model: no cart-adjacent write while a peer's charge is live; the CAS requires NULL, so nothing is RE-tabled — the refusal keeps the receipt the payer is reading unchanged)", async () => {
     authz = { ...HOST, locked: true, lockedBy: "seat-peer" };
     expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "locked" });
     expect(writes()).toEqual([]);
@@ -296,8 +312,9 @@ describe("bindTable — the write: one column, swept first, peers resynced only 
 describe("bindTable — a 23505 is the number, read by NUMBER, answered seated, nothing evicted", () => {
   it("23505 → seated, re-read through the live-dine-in-at-N predicate", async () => {
     cas = { count: null, error: { code: "23505", message: "duplicate key" } };
+    holderRows = [null, { id: "sess-other", table_number: 5 }]; // empty at the pre-read, taken at the re-read
     expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "seated" });
-    const reread = queries.find((q) => q.table === "table_sessions" && q.op === "select");
+    const reread = queries.filter((q) => q.table === "table_sessions" && q.op === "select").pop();
     expect(reread?.eq).toContainEqual(["table_number", 5]);
     expect(reread?.eq).toContainEqual(["mode", "dinein"]);
     expect(reread?.eq).toContainEqual(["status", "active"]);
@@ -307,6 +324,7 @@ describe("bindTable — a 23505 is the number, read by NUMBER, answered seated, 
 
   it("on seated, the ONLY session writes are the dead-row sweep and the own-row CAS — the other party is never closed or re-tabled", async () => {
     cas = { count: null, error: { code: "23505", message: "duplicate key" } };
+    holderRows = [null, { id: "sess-other", table_number: 5 }];
     await bindTable(CART, 5);
     const w = sessionWrites();
     expect(w).toHaveLength(2);
@@ -320,7 +338,7 @@ describe("bindTable — a 23505 is the number, read by NUMBER, answered seated, 
 
   it("23505 whose holder has already gone → error (retryable), never seated-by-constraint-name", async () => {
     cas = { count: null, error: { code: "23505", message: "table_sessions_active_table_uniq" } };
-    holderRow = null;
+    holderRows = [null];
     expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "error" });
   });
 
@@ -332,6 +350,58 @@ describe("bindTable — a 23505 is the number, read by NUMBER, answered seated, 
   it("any other write error → error", async () => {
     cas = { count: null, error: { code: "42703", message: "boom" } };
     expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "error" });
+  });
+});
+
+describe("bindTable — the occupancy PRE-READ, before any write (the blind pass on 3c-ii, money lens)", () => {
+  // The index is the authority for the truly simultaneous case; the pre-read decides the common
+  // one. Without it a stale "Open" chip lands a second party on N in the deploy-before-apply window
+  // the migration header names — the register and the kiosk pre-read the same way.
+  it("a SEATED table → seated, with NO sweep and NO CAS", async () => {
+    holderRows = [{ id: "sess-other", host_seat: "seat-x", table_number: 5 }];
+    expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "seated" });
+    expect(sessionWrites()).toEqual([]);
+    expect(log).toEqual(["authz"]);
+  });
+
+  it("the pre-read is the ONE predicate, handed the registry's sticker token", async () => {
+    await bindTable(CART, 5);
+    const pre = queries.find((q) => q.table === "table_sessions" && q.op === "select");
+    expect(pre?.eq).toContainEqual(["table_number", 5]);
+    expect(pre?.eq).toContainEqual(["mode", "dinein"]);
+    expect(pre?.eq).toContainEqual(["status", "active"]);
+    // The registry read carries the token the predicate falls back to.
+    const reg = queries.find((q) => q.table === "qr_tables");
+    expect(reg?.cols?.split(",")).toEqual(expect.arrayContaining(["table_number", "qr_code"]));
+  });
+
+  it("a NUMBERLESS live row on the table's sticker (the stranded shape) → seated, no CAS", async () => {
+    tokenHolderRow = { id: "sess-stranded", qr_code: "STICKER5", table_number: null };
+    expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "seated" });
+    expect(sessionWrites()).toEqual([]);
+    const byToken = queries.find((q) => q.eq.some(([c, v]) => c === "qr_code" && v === "STICKER5"));
+    expect(byToken?.is).toContainEqual(["table_number", null]);
+  });
+
+  it("the OWN row already at n (two tabs) → ok, already — nothing written, no touch", async () => {
+    holderRows = [{ id: "sess-1", host_seat: "seat-host", table_number: 5 }];
+    expect(await bindTable(CART, 5)).toEqual({ ok: true, tableNumber: 5, already: true });
+    expect(sessionWrites()).toEqual([]);
+    expect(log).not.toContain(`touch:${CART}:bindTable`);
+  });
+
+  it("a FAILED pre-read → error, never a write over an unknowable table", async () => {
+    // The scripted client answers the number read with an error through `seatedSessionFor`'s own
+    // throw: script the registry fine and make the predicate's read fail.
+    holderRows = [null];
+    const failing = { message: "fetch failed" };
+    const orig = registryRow;
+    registryRow = orig;
+    // Route the number read's error through the chain: the mock answers `holderRows` entries as
+    // data; an Error-shaped entry is handed back as `error`.
+    holderRows = [{ __error: failing.message }];
+    expect(await bindTable(CART, 5)).toEqual({ ok: false, reason: "error" });
+    expect(sessionWrites()).toEqual([]);
   });
 });
 

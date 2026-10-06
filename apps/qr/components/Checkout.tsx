@@ -946,7 +946,11 @@ export function Checkout({
   const onBindOutcome = (r: BindTableResult) => {
     if (r.ok) {
       // The CONFIRMED answer (the CAS count, or the re-read's `already`): the number lands, the
-      // sheet closes, and the SAME send runs with the question answered.
+      // sheet closes, and the SAME send runs with the question answered. An earlier refusal's
+      // sentence (a chip that answered `seated`, then an open one) is dropped — it would be said
+      // through the region at the moment the order fires (the blind pass on 3c-ii).
+      stashed.current = null;
+      setBindNote(null);
       setTableNumber(r.tableNumber);
       setBindOpen(false);
       sendHandle.current?.send({ tableAnswered: true });
@@ -956,15 +960,19 @@ export function Checkout({
     stashed.current = { text: sentence };
     if (r.reason === "already_bound") {
       // Another tab (or a tablemate's claim) bound this session meanwhile: the re-read's number is
-      // a confirmed answer too. The order goes THERE — said after the close; the host re-taps Send
-      // knowing it, and the gate no longer asks.
+      // a confirmed answer too, so the SAME send runs — "this order goes there" is then true the
+      // moment it is said, after the close (the gate no longer asks).
+      setBindNote(null);
       setTableNumber(r.tableNumber);
       setBindOpen(false);
+      sendHandle.current?.send({ tableAnswered: true });
       return;
     }
     setBindNote(sentence); // seated · unavailable · locked · … — the sheet stays open to pick again
   };
   const onSendAnyway = () => {
+    stashed.current = null; // an earlier refusal is not the send's sentence (as on the ok edge)
+    setBindNote(null);
     setSentAnyway(true);
     setBindOpen(false);
     sendHandle.current?.send({ tableAnswered: true });

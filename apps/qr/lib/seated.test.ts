@@ -30,11 +30,13 @@ type Q = {
   limit: number[];
 };
 let queries: Q[] = [];
+type Answer = { data: unknown; error: { message: string; code?: string } | null; count?: number };
 /** What the next read answers. */
-let answer: { data: unknown; error: { message: string; code?: string } | null; count?: number } = {
-  data: null,
-  error: null,
-};
+let answer: Answer = { data: null, error: null };
+/** Scripted answers for consecutive reads (the token fallback is a SECOND read); `answer` repeats
+ *  once the script is spent. */
+let answers: Answer[] = [];
+const next = () => answers.shift() ?? answer;
 
 function chain(q: Q) {
   const api = {
@@ -58,9 +60,9 @@ function chain(q: Q) {
       q.limit.push(n);
       return api;
     },
-    maybeSingle: () => Promise.resolve(answer),
-    then(res: (v: typeof answer) => unknown, rej?: (e: unknown) => unknown) {
-      return Promise.resolve(answer).then(res, rej);
+    maybeSingle: () => Promise.resolve(next()),
+    then(res: (v: Answer) => unknown, rej?: (e: unknown) => unknown) {
+      return Promise.resolve(next()).then(res, rej);
     },
   };
   return api;
@@ -112,6 +114,7 @@ const SESS = {
 beforeEach(() => {
   queries = [];
   answer = { data: null, error: null };
+  answers = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -145,6 +148,57 @@ describe("seatedSessionFor — the ONE live-dine-in-at-N predicate", () => {
     await expect(seatedSessionFor(db, 7)).rejects.toSatisfy(
       (e: unknown) => e instanceof AuthzError && e.code === "unavailable" && e.status === 503,
     );
+  });
+
+  // The blind pass on 3c-ii (money lens, CRITICAL 1): a live dine-in row on a REGISTERED sticker
+  // whose number is still null — the mint stamps null when its own registry read fails, and a
+  // sticker registered mid-session leaves one behind — was reachable by NOBODY once every find
+  // went number-first: the host's reload 500'd on its own token, an invite 404'd, the register
+  // read an outage. The token is the SECOND read, and only for that stranded shape.
+  describe("the sticker-token fallback — a numberless live row on the registered token", () => {
+    const STRANDED = { ...SESS, id: "sess-stranded", qr_code: "STICKER7", table_number: null };
+
+    it("is the SECOND read, keyed on the token with the number still null, when nobody is at N", async () => {
+      answers = [
+        { data: null, error: null },
+        { data: STRANDED, error: null },
+      ];
+      expect(await seatedSessionFor(db, 7, "STICKER7")).toEqual(STRANDED);
+      expect(queries).toHaveLength(2);
+      const [byNumber, byToken] = queries;
+      expect(byNumber?.eq).toContainEqual(["table_number", 7]);
+      expect(byToken?.eq).toContainEqual(["qr_code", "STICKER7"]);
+      expect(byToken?.is).toContainEqual(["table_number", null]);
+      // The same three live-dine-in conjuncts: a closed, expired or pickup row on the token is
+      // not a party either.
+      expect(byToken?.eq).toContainEqual(["mode", "dinein"]);
+      expect(byToken?.eq).toContainEqual(["status", "active"]);
+      expect(byToken?.gt[0]?.[0]).toBe("expires_at");
+      expect(byToken?.eq.some(([col]) => col === "table_number")).toBe(false);
+    });
+
+    it("never runs when the number read found the party — the number is the identity", async () => {
+      answer = { data: SESS, error: null };
+      expect(await seatedSessionFor(db, 7, "STICKER7")).toEqual(SESS);
+      expect(queries).toHaveLength(1);
+    });
+
+    it("never runs without a token (a generated code has no sticker to fall back to)", async () => {
+      expect(await seatedSessionFor(db, 7)).toBeNull();
+      expect(await seatedSessionFor(db, 7, null)).toBeNull();
+      expect(queries).toHaveLength(2);
+      expect(queries.every((q) => q.eq.some(([col]) => col === "table_number"))).toBe(true);
+    });
+
+    it("a failed token read throws `unavailable` like the number read", async () => {
+      answers = [
+        { data: null, error: null },
+        { data: null, error: { message: "fetch failed" } },
+      ];
+      await expect(seatedSessionFor(db, 7, "STICKER7")).rejects.toSatisfy(
+        (e: unknown) => e instanceof AuthzError && e.code === "unavailable",
+      );
+    });
   });
 });
 

@@ -1691,6 +1691,28 @@ const MUTANTS = [
     replace:
       "      and (c.settle_at is null or c.settle_at <= now() - interval '60 minutes')   -- M258: a FRESH split freeze refuses\n",
   },
+  {
+    id: "undo/lock-window-narrowed",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.7 ·",
+    why: "the blind pass on 3c-ii (money lens) — the outer edges alone (0 and 6 minutes) let a body reading `interval '1 minute'` pass: the hole D20 filed reopens for any lock older than a minute, inside the 5-minute pay window a create-intent still holds",
+    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    replace:
+      "      and not (c.locked and c.locked_at > now() - interval '1 minute')   -- M258: a FRESH pay lock refuses\n",
+  },
+  {
+    id: "undo/settle-window-narrowed",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.8 ·",
+    why: "the same inner edge for the split freeze: a body reading `interval '1 minute'` passes M4 (0 min) and M5 (11 min) while a 9-minute-old settlement — inside SETTLE_TTL_MS — no longer refuses the undo",
+    find: "      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses\n",
+    replace:
+      "      and (c.settle_at is null or c.settle_at <= now() - interval '1 minute')   -- M258: a FRESH split freeze refuses\n",
+  },
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */

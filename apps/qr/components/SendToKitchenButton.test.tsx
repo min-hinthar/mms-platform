@@ -17,6 +17,14 @@ vi.mock("@/lib/cart", () => ({ sendToKitchen: h.sendToKitchen, undoFire: h.undoF
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 
 const { SendToKitchenButton } = await import("./SendToKitchenButton");
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 const { FROZEN_NOTE } = await import("./useUndoGrace");
 
 afterEach(() => {
@@ -181,6 +189,46 @@ describe("Phase 3c-ii (D27) — the table gate inside send()", () => {
       fireEvent.click(screen.getByRole("button", { name: /Send to kitchen/i }));
     });
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
+  });
+
+  it("the handle's send is held while one is PENDING — one server call per gesture (the blind pass on 3c-ii: the tap path's native disable never covered the handle)", async () => {
+    const sending = deferred<unknown>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    const { handle } = mount({ verb: "send", needsTable: true, onNeedTable: vi.fn() });
+    await act(async () => {
+      handle.current!.send({ tableAnswered: true });
+    });
+    await act(async () => {
+      handle.current!.send({ tableAnswered: true });
+      fireEvent.click(screen.getByRole("button", { name: /^Sending…/ })); // the pending name
+    });
+    expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      sending.resolve({ ok: false, reason: "nothing" });
+    });
+  });
+
+  it("a PENDING Send stays focusable — aria-busy + aria-disabled, never natively disabled — so the host's landing after the table sheet reaches it, and a failed send leaves focus there", async () => {
+    const sending = deferred<unknown>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    const { handle, onMessage } = mount({ verb: "send" });
+    await act(async () => {
+      handle.current!.send({ tableAnswered: true });
+    });
+    const btn = screen.getByRole("button", { name: /^Sending…/ }); // the pending name
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    expect(btn.getAttribute("aria-disabled")).toBe("true");
+    expect(btn.hasAttribute("disabled")).toBe(false);
+    handle.current!.focus();
+    expect(document.activeElement).toBe(btn);
+    await act(async () => {
+      sending.resolve({ ok: false, reason: "locked" });
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /Send to kitchen/i })).toBe(btn);
+    expect(btn.getAttribute("aria-busy")).toBe("false");
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(document.activeElement).toBe(btn);
   });
 
   it("`focus()` lands on the mounted control: the Send, or the Undo once the window is open", () => {

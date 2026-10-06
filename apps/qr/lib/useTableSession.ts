@@ -152,6 +152,10 @@ export function useTableSession(
     // over its drafts (J33's unbound half). A stale or foreign key still claims the table as before
     // (the server mints), so W9a holds: the code is read here, written only after the server accepts.
     const qrCode = resolveQrCode(mode, code);
+    // J15 (the blind pass on 3c-ii) — a dine-in code that came from STORAGE, not the URL and not
+    // beside a claim: the server re-joins only a session this seat belongs to, else a fresh
+    // host-start (a persisted sticker token outlives its party).
+    const persisted = mode === "dinein" && !code && tableNumber == null && qrCode !== undefined;
     const storedName = window.localStorage.getItem(NAME_KEY);
     fetch("/api/session", {
       method: "POST",
@@ -168,6 +172,7 @@ export function useTableSession(
         // Only the invite-code path (a present `code` we didn't generate) is join-only; a host-start
         // (no code → server mints one) must be allowed to create.
         ...(joinOnly && qrCode ? { joinOnly: true } : {}),
+        ...(persisted ? { persisted: true } : {}),
       }),
     })
       .then(async (r) => {

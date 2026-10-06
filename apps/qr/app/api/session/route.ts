@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
-  const { qrCode, mode, name, joinOnly, tableNumber } = body;
+  const { qrCode, mode, name, joinOnly, tableNumber, persisted } = body;
 
   // Verify the caller actually holds a valid anonymous-auth session.
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
@@ -147,14 +147,16 @@ export async function POST(req: NextRequest) {
         .maybeSingle()
     ).data ?? null;
 
-  // D25 — a registered table is found BY NUMBER (the one predicate), a numberless code by token. A
-  // failed number read is an outage, never "no session here" followed by a second mint over a table
-  // we could not see.
+  // D25 — a registered table is found BY NUMBER (the one predicate, handed the sticker token so a
+  // NUMBERLESS live row on that sticker is a party too — the blind pass on 3c-ii: the mint itself
+  // stamps null when its registry read fails, and that party was then reachable by nobody), a
+  // numberless code by token. A failed read is an outage, never "no session here" followed by a
+  // second mint over a table we could not see.
   let sess: Sess | null;
   try {
     sess =
       sessionTable != null
-        ? await seatedSessionFor(db, sessionTable)
+        ? await seatedSessionFor(db, sessionTable, resolvedQr)
         : resolvedQr
           ? await findActive(resolvedQr)
           : null;
@@ -163,6 +165,38 @@ export async function POST(req: NextRequest) {
     throw e;
   }
   let created = false;
+
+  // J15 (the blind pass on 3c-ii) — a code this PHONE persisted, never one from a URL, re-joins only
+  // a session this seat is already a member of. A registered sticker token outlives its party (the
+  // next party at that table holds it within hours), and the code-free Dine-in door resolves the
+  // persisted key with neither `joinOnly` nor `tableNumber` — so without this a returning diner
+  // joined the next party's cart from the couch, or minted a session AT that table for the real
+  // party to converge onto as guests. Not a member (or nobody there) → a bare host-start: a fresh
+  // generated code, no number. Decided before the reserved check, the sweep, the bind and the mint,
+  // so a dropped code touches nothing. A claim (`tableNumber`) carries its prior code as
+  // `priorCode` and never reaches here; a `?j=` is a URL code.
+  if (persisted && !claim && !joinOnly) {
+    let member = false;
+    if (sess) {
+      const { data: row, error: memberErr } = await db
+        .from("session_members")
+        .select("id")
+        .eq("session_id", sess.id)
+        .eq("seat_id", seat)
+        .maybeSingle();
+      if (memberErr)
+        return NextResponse.json(
+          { error: "Could not check the table — try again." },
+          { status: 500 },
+        );
+      member = row !== null;
+    }
+    if (!member) {
+      sess = null;
+      resolvedQr = undefined;
+      sessionTable = null;
+    }
+  }
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
@@ -245,6 +279,10 @@ export async function POST(req: NextRequest) {
   // pure `claimDisposition`: a guest's session, a bound one, a pickup one, a reserved code or no
   // prior session at all mints as today. The CAS can refuse: 23505 → the number was taken between
   // the read and the write (the shipped 409); 0 rows → the session died under us → mint.
+  // D30 — true once the bind below landed: the session's open cart is touched after it is resolved,
+  // so every tablemate's `qr_carts` watch re-reads the view (the blind pass on 3c-ii: without the
+  // touch a peer's Checkout kept asking for a table already bound).
+  let boundNow = false;
   if (!sess && claim && sessionTable != null) {
     const mine =
       priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;
@@ -257,7 +295,17 @@ export async function POST(req: NextRequest) {
           { error: "Could not check the table — try again." },
           { status: 500 },
         );
-      if ((count ?? 0) > 0) sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
+      if ((count ?? 0) > 0) {
+        sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
+        boundNow = true;
+      } else {
+        // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
+        // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or died.
+        // Re-read it: a live row is this phone's own party, rejoined at whatever number it holds —
+        // never a second session minted over its drafts. Dead → the mint below.
+        const live = await findActive(mine.qr_code);
+        if (live) sess = live;
+      }
     }
   }
 
@@ -289,15 +337,22 @@ export async function POST(req: NextRequest) {
       // misleading stranger 409. host_seat is deterministic (no membership-insert race to lose).
       try {
         if (claim && sessionTable != null) {
-          const winner = await seatedSessionFor(db, sessionTable);
+          const winner = await seatedSessionFor(db, sessionTable, resolvedQr);
           if (winner && winner.host_seat === seat) {
             sess = winner;
             break;
           }
+          // No winner to read (a dead row the sweep failed to close still holds an index) is
+          // "try again", as `bindTable` answers it — never a seated verdict by constraint name.
+          if (!winner)
+            return NextResponse.json(
+              { error: "Could not check the table — try again." },
+              { status: 500 },
+            );
           return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
         }
         if (sessionTable != null) {
-          sess = await seatedSessionFor(db, sessionTable); // the party at N won → join them
+          sess = await seatedSessionFor(db, sessionTable, resolvedQr); // the party at N won → join them
           break;
         }
       } catch (e) {
@@ -421,6 +476,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "Could not create cart" }, { status: 500 });
       cart = reread.data;
     }
+  }
+  if (boundNow) {
+    // D30 — the peers' resync after the claim-arm bind (`bindTable` does the same through
+    // `touchCart`). Best-effort: a failed touch leaves the peers to their next re-read.
+    const { error: touchErr } = await db
+      .from("qr_carts")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", cart.id);
+    if (touchErr) console.error("[session] bind resync touch failed", touchErr.message);
   }
 
   const posthog = getPostHogClient();

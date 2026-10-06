@@ -51,16 +51,37 @@ export function liveDineInAt(db: Db, n: number, nowIso: string) {
 /**
  * The session seated at table N, or null when the table is empty. Read by the mint (the claim and
  * the sticker paths, and every 23505 re-read), the register's Start, the kiosk's pre-read and the
- * bind's collision re-read — so a late-bound generated-code session is found by every one of them.
- * `limit(1)` is the kiosk's own idiom: under the index at most one row matches; before it is
- * applied (deploy-before-apply) two anomalous rows must not turn into a `maybeSingle` error.
+ * bind's pre-read and collision re-read — so a late-bound generated-code session is found by every
+ * one of them. `limit(1)` is the kiosk's own idiom: under the index at most one row matches; before
+ * it is applied (deploy-before-apply) two anomalous rows must not turn into a `maybeSingle` error.
+ *
+ * THE TOKEN IS THE SECOND READ, FOR ONE SHAPE ONLY (the blind pass on 3c-ii, money lens): a live
+ * dine-in row on N's registered sticker TOKEN whose `table_number` is still null. The mint stamps
+ * null when its own registry read fails, and a sticker registered mid-session leaves one behind —
+ * and once every find went number-first that party was reachable by nobody: the host's reload
+ * 500'd on its own token, an invite 404'd, the register read an outage. So a caller that knows the
+ * table's `stickerCode` hands it in, and when the number finds nobody the token is read with
+ * `table_number IS NULL` — never a bound row (a sticker row is bound to its own number or to none),
+ * never before the number (the number is the identity). A generated code has no sticker: no
+ * fallback.
  */
-export async function seatedSessionFor(db: Db, n: number): Promise<SeatedSession | null> {
-  const { data, error } = await liveDineInAt(db, n, new Date().toISOString())
+export async function seatedSessionFor(
+  db: Db,
+  n: number,
+  stickerCode?: string | null,
+): Promise<SeatedSession | null> {
+  const nowIso = new Date().toISOString();
+  const { data, error } = await liveDineInAt(db, n, nowIso).limit(1).maybeSingle();
+  if (error) throw UNAVAILABLE(); // W10a — unknowable ≠ free
+  if (data) return data;
+  if (!stickerCode) return null;
+  const stranded = await liveDineIn(db, nowIso)
+    .eq("qr_code", stickerCode)
+    .is("table_number", null)
     .limit(1)
     .maybeSingle();
-  if (error) throw UNAVAILABLE(); // W10a — unknowable ≠ free
-  return data ?? null;
+  if (stranded.error) throw UNAVAILABLE();
+  return stranded.data ?? null;
 }
 
 /**

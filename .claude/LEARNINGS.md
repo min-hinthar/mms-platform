@@ -3595,3 +3595,22 @@ append to `verify-slice.mjs`, the merge conflict's common suffix is the last ent
 `node --check` and the anchor count before trusting the seam; and a live `verify:slice --only=` run in
 the main checkout leaves a TARGET dirty (`Checkout.tsx` sat mutated under this docs pass) — read
 `git status` before every commit and never `git add -A` while a run lives.
+
+## #234
+
+**An identity the system can fail to stamp needs a second read for exactly that shape, and a CAS is
+not an occupancy check (3c-ii's blind pass, 2026-10-06).** D23 made the table NUMBER the seat's
+identity and routed every find through one number-keyed predicate — and the mint itself, on a failed
+registry read, stamps `table_number: null` onto a live row on a REGISTERED sticker. That row was then
+reachable by nobody: the host's own reload 500'd on the token index, an invite 404'd, the register read
+an outage. The fix is not "find by token first" (the number IS the identity: a generated code bound to
+7 is found by 7) but a SECOND read, for the one shape the first cannot see, with the conjunct that
+names it (`qr_code = token AND table_number IS NULL`). Beside it: `bindTable`'s CAS (`id = S AND
+table_number IS NULL`) guarantees the row moved once, and NOTHING about N being free — only the index
+does, and the index was deliberately deploy-before-apply. Every other number-stamping writer
+pre-read; the one that mattered most did not. Three test-side traps from the same pass: a
+`mockResolvedValueOnce` queue survives `vi.clearAllMocks()` (a leftover `ok` from a failed test fed the
+next test's click); a control's accessible NAME changes while pending ("Sending…"), so a query by the
+idle name finds nothing mid-flight; and a natively `disabled` control makes a programmatic focus landing
+a silent no-op — the Undo already used `aria-disabled` for exactly this (T9), and the Send beside it did
+not.

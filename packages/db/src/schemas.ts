@@ -42,6 +42,11 @@ export const sessionMintInput = z.object({
   // table with the typer as host. A scanned sticker (`?t=`) leaves this false → first scanner may
   // provision the table.
   joinOnly: z.boolean().default(false),
+  // Phase 3c-ii (J15, the blind pass): the code came from THIS phone's storage, not a URL. The
+  // server then re-joins only a session this seat is already a member of; otherwise the entry is a
+  // bare host-start — a registered sticker token outlives its party, so a persisted one must never
+  // join the next party's cart nor mint a session at that table from the couch.
+  persisted: z.boolean().default(false),
 });
 
 /** setDisplayName — a member renames THEIR OWN seat (presence guest list). Server re-verifies the

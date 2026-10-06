@@ -63,8 +63,12 @@ let queries: Q[] = [];
 let insertCollision: { code: string; then?: () => void } | null = null;
 /** The bind's CAS refuses with this code (a phone/kiosk took N between the read and the write). */
 let bindCollision: { code: string } | null = null;
+/** Runs when the bind's CAS is issued, BEFORE it matches rows — the row moving under the write. */
+let bindHook: (() => void) | null = null;
 /** The number-keyed read fails (an outage). */
 let numberReadFails = false;
+/** The membership read fails (an outage). */
+let membersReadFails = false;
 
 vi.mock("@/lib/rate", () => ({ withinJoinRate: () => Promise.resolve(true) }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
@@ -120,6 +124,11 @@ vi.mock("@mms/db/server", () => ({
           if (table !== "table_sessions") return { data: null, error: null, count: 0 };
           if (bindCollision && "table_number" in (q.payload ?? {}))
             return { data: null, error: { code: bindCollision.code, message: "dup" }, count: null };
+          if (bindHook && "table_number" in (q.payload ?? {})) {
+            const h = bindHook;
+            bindHook = null;
+            h();
+          }
           const hit = sessions.filter((r) => matches(r, q));
           for (const r of hit) Object.assign(r, q.payload);
           const first = hit[0];
@@ -132,6 +141,7 @@ vi.mock("@mms/db/server", () => ({
           return { data: hit, error: null };
         }
         if (table === "session_members") {
+          if (membersReadFails) return { data: null, error: { message: "fetch failed" } };
           const hit = members.filter((m) => matches(m, q));
           return {
             data: hit.map((m) => ({ id: `${m.session_id}:${m.seat_id}` })),
@@ -242,7 +252,9 @@ beforeEach(() => {
   queries = [];
   insertCollision = null;
   bindCollision = null;
+  bindHook = null;
   numberReadFails = false;
+  membersReadFails = false;
   nextId = 0;
 });
 
@@ -310,9 +322,7 @@ describe("/api/session — the two refusals are BIND_COPY's sentences, byte for 
     const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(400);
     expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.unavailable);
-    expect(BIND_COPY.unavailable).toBe(
-      "That table isn’t available — scan its sticker or pick another.",
-    );
+    expect(BIND_COPY.unavailable).toBe("That table isn’t available — pick another.");
     expect(writes).toEqual([]);
   });
 });
@@ -408,6 +418,15 @@ describe("/api/session — the claim and the sticker find the table BY NUMBER (D
     expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
   });
 
+  it("(d‴) a 23505 on the claim's insert with NO holder to read is 'try again' (500), never a seated verdict by constraint name", async () => {
+    // The blind pass on 3c-ii (concurrency lens): `bindTable` answers `error` for this state; the
+    // claim arm answered BIND_COPY.seated for a dead row the sweep failed to close.
+    insertCollision = { code: "23505" };
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).not.toBe(BIND_COPY.seated);
+  });
+
   it("(d″) a 23505 on the STICKER's insert joins the number-found winner", async () => {
     insertCollision = {
       code: "23505",
@@ -499,6 +518,12 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
     expect(binds[0]?.is).toContainEqual(["table_number", null]);
     expect(sessions[0]?.table_number).toBe(7);
     expect(sessions[0]?.qr_code).toBe("MYCODE12");
+    // D30 — the peers' resync: the session's open cart is touched after the bind landed, so every
+    // tablemate's `qr_carts` watch re-reads the view and the number flips without a remount (the
+    // blind pass on 3c-ii: this arm had no touch, so a peer's Checkout kept asking a bound table).
+    const touch = queries.find((q) => q.table === "qr_carts" && q.op === "update");
+    expect(touch?.payload).toHaveProperty("updated_at");
+    expect(touch?.eq).toContainEqual(["id", "cart-1"]);
   });
 
   it("a GUEST's prior session mints instead (never a bind of someone else's table)", async () => {
@@ -544,14 +569,41 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
     expect(sessionInserts()).toHaveLength(0);
   });
 
-  it("a zero-row bind (the session expired under us) falls through to the mint", async () => {
-    sessions = [row("MYCODE12", "dinein", SEAT, { expires_at: PAST })];
+  it("a zero-row bind whose row DIED under the write (closed between the read and the CAS) falls through to the mint", async () => {
+    // The blind pass on 3c-ii (concurrency lens): the previous fixture expired the row BEFORE the
+    // read, so `findActive` answered null and the CAS never ran — a test of a path it never entered.
+    sessions = [mine()];
+    bindHook = () => {
+      sessions[0]!.status = "closed";
+    };
     const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(200);
     expect((await res.json()) as Record<string, unknown>).toMatchObject({
       created: true,
       tableNumber: 7,
     });
+    expect(bindUpdates()).toHaveLength(1);
+    expect(sessionInserts()).toHaveLength(1);
+  });
+
+  it("a zero-row bind whose row was BOUND meanwhile (another tab landed 3) rejoins it at 3 — never a second session over its drafts", async () => {
+    sessions = [mine()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    bindHook = () => {
+      sessions[0]!.table_number = 3;
+    };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-MYCODE12",
+      joinCode: "MYCODE12",
+      tableNumber: 3,
+      role: "host",
+      created: false,
+    });
+    expect(bindUpdates()).toHaveLength(1);
+    expect(sessionInserts()).toHaveLength(0);
+    expect(sessions).toHaveLength(1);
   });
 
   it("a rejoin by the SAME persisted code after a bind returns tableNumber N with no insert (D21)", async () => {
@@ -566,5 +618,150 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
       created: false,
     });
     expect(sessionInserts()).toHaveLength(0);
+  });
+});
+
+describe("/api/session — the stranded shape: a NUMBERLESS live row on a registered sticker (the blind pass on 3c-ii, money lens)", () => {
+  // The mint stamps `table_number: null` when its own registry read fails, and a sticker
+  // registered mid-session leaves one behind. Once every find went number-first that party was
+  // reachable by nobody: the host's reload 500'd on its own token, an invite 404'd. The token is
+  // the predicate's SECOND read, for this shape only (lib/seated.ts).
+  const stranded = (host: string | null = OTHER) => row("STICKER7", "dinein", host);
+
+  it("(g) a sticker scan joins the numberless party on that sticker — no insert, no 500", async () => {
+    sessions = [stranded()];
+    members = [{ session_id: "sess-STICKER7", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      joinCode: "STICKER7",
+      role: "guest",
+      created: false,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+    // Number first, then the token with the number still null — never the token alone.
+    const byNumber = numberReads()[0];
+    const byToken = queries.find(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([c, v]) => c === "qr_code" && v === "STICKER7"),
+    );
+    expect(byNumber).toBeDefined();
+    expect(byToken?.is).toContainEqual(["table_number", null]);
+    expect(queries.indexOf(byNumber!)).toBeLessThan(queries.indexOf(byToken!));
+  });
+
+  it("(g′) the HOST's own reload (its persisted code is the sticker) rejoins as host", async () => {
+    sessions = [stranded(SEAT)];
+    members = [{ session_id: "sess-STICKER7", seat_id: SEAT }];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+      created: false,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("(g″) an invite `?j=` for that sticker is found, not 404", async () => {
+    sessions = [stranded()];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(200);
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("(g‴) a stranger's `?table=7` claim meets the seated refusal — the party is there, numberless", async () => {
+    sessions = [stranded()];
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+    expect(writes).toEqual([]);
+  });
+
+  it("(g⁗) a 23505 on the sticker's insert whose winner is numberless on the token joins it", async () => {
+    insertCollision = { code: "23505", then: () => sessions.push(stranded()) };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      created: false,
+    });
+  });
+});
+
+describe("/api/session — a PERSISTED code re-joins only a session this seat belongs to (J15, the front door)", () => {
+  // A registered sticker token outlives its party — the next party at that table holds it within
+  // hours — and 3c-ii's Dine-in door enters the menu code-free, where `useTableSession` resolves
+  // the persisted key with neither `joinOnly` nor `tableNumber`. So a code the PHONE persisted
+  // (never one from a URL) re-joins a session this seat is a member of, and otherwise the entry is
+  // a bare host-start: a fresh generated code, no number — never a stranger's cart, never a session
+  // minted AT a table from the couch for the real party to converge onto as guests.
+  it("(h) a stranger's party at the sticker's table is NOT joined — a fresh code, no number, no membership on theirs", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    members = [{ session_id: "sess-GENCODE7", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ created: true, tableNumber: null, role: "host" });
+    expect(body.joinCode).not.toBe("GENCODE7");
+    expect(body.joinCode).not.toBe("STICKER7");
+    expect(members.some((m) => m.session_id === "sess-GENCODE7" && m.seat_id === SEAT)).toBe(false);
+    expect(sessionInserts()).toHaveLength(1);
+  });
+
+  it("(h′) the party this seat BELONGS to is rejoined — no insert", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    members = [
+      { session_id: "sess-GENCODE7", seat_id: OTHER },
+      { session_id: "sess-GENCODE7", seat_id: SEAT },
+    ];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-GENCODE7",
+      tableNumber: 7,
+      created: false,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("(h″) nobody at the sticker's table → a fresh host-start, never a session minted AT that table on its token", async () => {
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ created: true, tableNumber: null });
+    expect(body.joinCode).not.toBe("STICKER7");
+    const insert = queries.find((q) => q.table === "table_sessions" && q.op === "insert");
+    expect(insert?.payload?.qr_code).not.toBe("STICKER7");
+    expect(insert?.payload?.table_number).toBeNull();
+  });
+
+  it("(h‴) a persisted GENERATED code whose session died mints a FRESH code, not the old one", async () => {
+    const res = await POST(req({ qrCode: "OLDGEN123", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ created: true });
+    expect(body.joinCode).not.toBe("OLDGEN123");
+  });
+
+  it("a URL sticker scan (no `persisted`) still joins the party at the table — the sticker is the join identity", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-GENCODE7",
+      created: false,
+    });
+  });
+
+  it("a FAILED membership read is 'try again' (500) with nothing written — never a stranger's join, never a mint", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    membersReadFails = true;
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
+    expect(res.status).toBe(500);
+    expect(writes).toEqual([]);
   });
 });

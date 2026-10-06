@@ -55,6 +55,36 @@ the lead squashed and integrated.
   write with `FROZEN_NOTE`, said after the close; the host owns the bind call (`onClaim`, the
   `LineOptionsSheet` shape the guard can read). Red-first in both suites; mutant
   `checkout-bind/frozen-chip-binds`.
+- **The capped blind pass (money semantics · concurrency · product truth + a11y; three auditors, ~17
+  min, every finding verified against source before a fix — LEARNINGS #218), fixed red-first BEFORE
+  the PR (2026-10-06):** the ONE predicate takes the table's sticker token as a SECOND read — a live
+  dine-in row the mint itself stamps numberless on a registered sticker (its registry read failed) was
+  reachable by nobody once every find went number-first (the host's reload 500'd, an invite 404'd, the
+  register read an outage); `bindTable` PRE-READS occupancy before its CAS (own row → ok/already; a
+  party → `seated`) so a stale Open chip cannot double-seat a table in the deploy-before-apply window;
+  J15 is CLOSED at the server — a code the phone PERSISTED (`persisted` in the mint body) re-joins only
+  a session this seat belongs to, else a bare host-start, because 3c-ii's code-free Dine-in door had
+  made the stale sticker token the FRONT door; the claim arm's zero-row CAS re-reads the own row and
+  rejoins it at the number another tab landed (never a second session over the drafts), its 23505
+  with no holder is "try again" (500) like `bindTable`'s `error`, and a landed claim-arm bind touches
+  the open cart so peers resync (D30); the register refuses a `kiosk-` holder by name (its idle reset
+  cancels the open cart staff would add to); the Send-time sheet takes ONE bind at a time (a second
+  chip or "Send anyway" under a bind still out is ignored — a late `ok` could fire the order after a
+  dismissal), resets its join ask at the close edge, and renders no second "Pick your table" heading
+  (`TableSection` under `source="send"`); the Send button stays FOCUSABLE while pending
+  (`aria-disabled` + `aria-busy`, the Undo's T9 idiom; `send()` refuses the second call itself) so the
+  host's focus landing after the sheet reaches it and a failed send keeps it; Checkout drops a stashed
+  refusal on the ok and "Send anyway" edges (the region said "That table was just seated" as the order
+  fired at another table) and `already_bound` now SENDS (so "this order goes there" is true when
+  said); `BIND_COPY.unavailable` no longer advises the sticker scan the sheet's own docblock refuses;
+  three docblocks that said a `?table=N` claim never sends the persisted code (it does — as
+  `priorCode`, D25) and that "wrong table?" is `bindTable` (it is J38) corrected; M258's test gains
+  the INNER edges (a 4-minute lock and a 9-minute settle still refuse — M258.7/8, red against a copy
+  of the migration with each window narrowed to one minute) and the battery two narrowed-window rows.
+  Twenty-nine new mutants (3116 over 265 files), the SQL proofs re-run on a throwaway Postgres 16,
+  prod measured read-only (0 live dine-in rows, 0 duplicates, neither migration applied — M260).
+  Filed: J40 (a staff shell at N refuses the host's bind — hostile ordering, owner decision);
+  J15 closed; J33's bound half amended; M260's pre-apply query.
 - **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
   `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
   `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when

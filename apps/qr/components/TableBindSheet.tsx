@@ -22,14 +22,16 @@ import { FROZEN_NOTE } from "./useUndoGrace";
  * "Send anyway" (`BIND_COPY.sendAnyway` — a numberless ticket reads its code on the pass, so a
  * registry outage is never a dead end), and the sub-line is this sheet's own (`BIND_COPY.sub` with
  * its K15 draft): the DoorSheet's "scan your sticker" is REFUSED here, since a `?t=` from /cart
- * drops the persisted key (`useTableSession`) and mints a second session.
+ * drops the persisted key (`useTableSession`) and mints a second session. The section's own h3 is
+ * not rendered here either: this sheet IS the section, and its title is the one name.
  *
  * THE BIND (M82 · `busy`): `claim` raises `binding`, awaits `boundWrite(onClaim(n))` — the HOST's
  * `bindTable(cartId, n)`, the 3c-i shape (`LineOptionsSheet`'s `onMakeNow`: the host owns the
  * mutation call, the sheet owns the bounded await) — the contract's STAFF_HANG_MS bound, never a
  * raw action — and clears it in a `finally`, so every
  * exit is refused only while the write can still be out (`lib/sheet-busy-callers.test.ts` parses
- * this shape). A write still out at the bound reads as `error` to the host ("couldn't send that just
+ * this shape), and a second chip or "Send anyway" under a bind still out is IGNORED (one write per
+ * open at a time). A write still out at the bound reads as `error` to the host ("couldn't send that just
  * now"); its late answer is deliberately not applied — the next Send asks again and the bind answers
  * `already` if it landed, so nothing is lost but one question.
  *
@@ -104,6 +106,11 @@ export function TableBindSheet({
   const closedBy = useRef<"send" | null>(null);
 
   async function claim(n: number) {
+    // One bind at a time (the blind pass on 3c-ii, concurrency): a second chip while one is out
+    // started a second write whose late `ok` could fire the order after a dismissal, and the first
+    // `finally` dropped `busy` with that write still in flight. The chips are never natively
+    // disabled (the sheet is `aria-busy`); the guard is here, where the write starts.
+    if (binding) return;
     if (frozen) {
       // T9 — the lock landed while the ask was up: refuse BEFORE the write, and say so.
       onFrozen(FROZEN_NOTE);
@@ -131,14 +138,18 @@ export function TableBindSheet({
     onOutcome(result);
   }
   const sendAnyway = () => {
+    if (binding) return; // the same one-write rule: no second send under a bind still out
     closedBy.current = "send";
     onSendAnyway();
   };
   // At UNMOUNT (after the exit). Nothing to prevent: Radix's modal content prevents its own default
   // and aims at a trigger that does not exist, so the landing is the host's either way (docblock).
+  // The join ASK is this open's: a reopened sheet shows no form for a table the host did not tap
+  // (the DoorSheet resets the same way). The `seated` verdicts stay — the bind said so.
   const closeEdge = () => {
     const sent = closedBy.current === "send";
     closedBy.current = null;
+    setJoinNum(null);
     onClosed?.({ sent });
   };
 

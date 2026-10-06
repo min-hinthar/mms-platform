@@ -401,19 +401,106 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
 });
 
 describe("3c-ii (D28) — every refusal names its way out, said after the sheet", () => {
-  it("`already_bound` (another tab bound 3): the eyebrow reads 'Table 3' from the re-read, the sheet closes, NO send, the sentence follows the close", async () => {
+  it("`already_bound` (another tab bound 3): the eyebrow reads 'Table 3' from the re-read, the sheet closes, and the SAME send runs — the sentence 'this order goes there' is kept, said after the close", async () => {
+    // The blind pass on 3c-ii (product truth): the sentence asserted the order was going while no
+    // send had fired. A confirmed number — the CAS's, or the re-read's — sends.
     h.bindTable.mockResolvedValue({ ok: false, reason: "already_bound", tableNumber: 3 });
+    const sending = deferred<typeof SENT>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], tableNumber: 3 }));
     mount();
     await askTable();
     await act(async () => {
       fireEvent.click(chip(5));
     });
-    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
+    expect(h.bindTable.mock.invocationCallOrder[0]!).toBeLessThan(
+      h.sendToKitchen.mock.invocationCallOrder[0]!,
+    );
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByText("Table 3")).toBeTruthy();
+    // Said after the close, while the send is out — true the moment it is said.
     await waitFor(() => expect(regionText()).toContain(BIND_COPY.alreadyBound(3)));
     expect(regionText()).toContain("You’re at Table 3 — this order goes there.");
+    await act(async () => {
+      sending.resolve(SENT);
+    });
+    await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+  });
+
+  it("a refusal followed by a SUCCESSFUL chip in one open: the stale refusal is never said — only the send's own line (the blind pass on 3c-ii, product truth)", async () => {
+    h.bindTable
+      .mockResolvedValueOnce({ ok: false, reason: "seated" })
+      .mockResolvedValueOnce({ ok: true, tableNumber: 8, already: false });
+    mount({ tables: [...TABLES, { tableNumber: 8, occupied: false }] });
+    const dialog = await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(dialog.textContent).toContain(BIND_COPY.seated);
+    // Deterministic under reduced motion: the close edge precedes the send's answer.
+    const sending = deferred<typeof SENT>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], tableNumber: 8 }));
+    await act(async () => {
+      fireEvent.click(chip(8)); // another open chip — the bind lands now (5 is a join disclosure)
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(regionText()).not.toContain(BIND_COPY.seated);
+    await act(async () => {
+      sending.resolve(SENT);
+    });
+    await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
+    expect(regionText()).not.toContain(BIND_COPY.seated);
+  });
+
+  it("a refusal followed by 'Send anyway' in one open: the stale refusal is never said", async () => {
+    h.bindTable.mockReset(); // a `mockResolvedValueOnce` queue survives clearAllMocks
+    h.bindTable.mockResolvedValue({ ok: false, reason: "unavailable" });
+    mount();
+    const dialog = await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(dialog.textContent).toContain(BIND_COPY.unavailable);
+    const sending = deferred<typeof SENT>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: BIND_COPY.sendAnyway }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(regionText()).not.toContain(BIND_COPY.unavailable);
+    await act(async () => {
+      sending.resolve(SENT);
+    });
+    await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
+    expect(regionText()).not.toContain(BIND_COPY.unavailable);
+  });
+
+  it("the SEND edge lands focus on the Send itself while the send is still out — and keeps it there when the send then FAILS", async () => {
+    // The blind pass on 3c-ii (a11y): the Send was natively disabled while pending, so the landing
+    // after the sheet's unmount was a no-op and a failed send left focus on <body>.
+    h.bindTable.mockResolvedValue({ ok: true, tableNumber: 5, already: false });
+    const sending = deferred<{ ok: false; reason: "locked" }>();
+    h.sendToKitchen.mockReturnValue(sending.promise);
+    mount();
+    await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const pendingSend = () => screen.getByRole("button", { name: /^Sending…/ });
+    await waitFor(() => expect(document.activeElement).toBe(pendingSend()));
+    expect(pendingSend().getAttribute("aria-busy")).toBe("true");
+    expect(pendingSend().hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      sending.resolve({ ok: false, reason: "locked" });
+    });
+    await waitFor(() => expect(regionText()).toContain(reasonCopy.locked));
     expect(document.activeElement).toBe(sendButton());
+    expect(sendButton().getAttribute("aria-busy")).toBe("false");
   });
 
   it("`locked` (the raced path): the sheet stays open showing the send's own sentence; it reaches the region after the close — pasted from reasonCopy, never typed", async () => {
@@ -439,9 +526,10 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
       fireEvent.click(chip(5));
     });
     expect(dialog.textContent).toContain(BIND_COPY.unavailable);
-    expect(dialog.textContent).toContain(
-      "That table isn’t available — scan its sticker or pick another.",
-    );
+    // Never "scan its sticker": a `?t=` from /cart drops the persisted key and mints a second
+    // session over the drafts about to be sent (the sheet's own docblock; the blind pass on 3c-ii).
+    expect(dialog.textContent).toContain("That table isn’t available — pick another.");
+    expect(dialog.textContent).not.toContain("scan its sticker");
   });
 });
 

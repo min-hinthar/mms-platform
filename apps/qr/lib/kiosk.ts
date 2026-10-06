@@ -66,24 +66,29 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
   const db = serviceClient();
 
   let sessionTable: number | null = null;
+  /** The claimed table's registered sticker token — the predicate's second read (see below). */
+  let stickerCode: string | null = null;
   if (kind === "dinein") {
     if (tableNumber == null) return { ok: false, reason: "table" };
     const { data: reg, error: regErr } = await db
       .from("qr_tables")
-      .select("table_number")
+      .select("table_number,qr_code")
       .eq("table_number", tableNumber)
       .maybeSingle();
     if (regErr) return { ok: false, reason: "error" };
     if (!reg) return { ok: false, reason: "table" };
+    stickerCode = reg.qr_code;
     // Occupancy by TABLE NUMBER through the ONE predicate (Phase 3c-ii D23, lib/seated.ts) — a
     // kiosk claim must never open a second live cart over a seated party's order, whether that
     // party scanned the sticker, was started from the register, or bound a generated code at Send.
     // The dead row on N is swept first (D22: the index is partial on status, so an expired-but-
     // active row holds N until the cron); a failed read is an outage, never an empty table.
     await sweepExpiredOnTable(db, tableNumber);
+    // The predicate takes the sticker token: a NUMBERLESS live row on this table's sticker is a
+    // seated party too (the blind pass on 3c-ii).
     let occupied: SeatedSession | null;
     try {
-      occupied = await seatedSessionFor(db, tableNumber);
+      occupied = await seatedSessionFor(db, tableNumber, stickerCode);
     } catch {
       return { ok: false, reason: "error" };
     }
@@ -119,7 +124,7 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
         if (sessionTable != null) {
           let holder: SeatedSession | null;
           try {
-            holder = await seatedSessionFor(db, sessionTable);
+            holder = await seatedSessionFor(db, sessionTable, stickerCode);
           } catch {
             return { ok: false, reason: "error" };
           }

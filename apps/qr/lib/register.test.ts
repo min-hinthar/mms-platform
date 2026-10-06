@@ -18,7 +18,10 @@ vi.mock("./staff", () => ({
     Promise.resolve({ ok: true, caller: { uid: "u-1", staffId: "s-1", role: "manager" } }),
   STAFF_WRITE_OUTAGE: "outage",
 }));
-vi.mock("./session-code", () => ({ generateJoinCode: () => "ABCD1234" }));
+vi.mock("./session-code", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-code")>()),
+  generateJoinCode: () => "ABCD1234",
+}));
 
 type Q = {
   table: string;
@@ -35,6 +38,8 @@ let registryRow: { table_number: number; qr_code: string; active: boolean } | nu
 /** What each number-keyed read (`seatedSessionFor`) answers, in order — the last entry repeats. */
 let numberRows: (Record<string, unknown> | null)[] = [null];
 let numberReads = 0;
+/** The live NUMBERLESS row on the table's sticker token (the predicate's second read). */
+let tokenRow: Record<string, unknown> | null = null;
 /** What each `table_sessions` insert answers, in order (null = lands) — the last entry repeats. */
 let insertErrors: ({ code: string } | null)[] = [null];
 let sessionInserts = 0;
@@ -63,6 +68,7 @@ function chain(q: Q) {
     },
     like: () => api,
     in: () => api,
+    is: () => api, // the predicate's token read (`table_number IS NULL`); its conjuncts are pinned in seated.test
     order: () => api,
     limit: () => api,
     maybeSingle: () => {
@@ -71,6 +77,12 @@ function chain(q: Q) {
         const i = Math.min(numberReads++, numberRows.length - 1);
         return Promise.resolve({ data: numberRows[i] ?? null, error: null });
       }
+      if (
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.eq.some(([col]) => col === "qr_code")
+      )
+        return Promise.resolve({ data: tokenRow, error: null });
       return Promise.resolve({ data: null, error: null });
     },
     single: () => {
@@ -127,6 +139,7 @@ beforeEach(() => {
   registryRow = null;
   numberRows = [null];
   numberReads = 0;
+  tokenRow = null;
   insertErrors = [null];
   sessionInserts = 0;
   updatedRows = [{ id: "cart-1" }];
@@ -269,12 +282,13 @@ describe("startTable — finds by NUMBER and converges; an inactive table is ref
     expect(find?.gt[0]?.[0]).toBe("expires_at");
     const insertIdx = queries.findIndex((q) => q.table === "table_sessions" && q.op === "insert");
     expect(queries.indexOf(find!)).toBeLessThan(insertIdx);
-    // No read before the insert keys on the sticker token.
-    expect(
-      queries
-        .slice(0, insertIdx)
-        .some((q) => q.op === "select" && q.eq.some(([col]) => col === "qr_code")),
-    ).toBe(false);
+    // The FIRST session read keys on the number, never the sticker token (finding 1); the token is
+    // the predicate's SECOND read, after the number found nobody (the stranded shape, seated.test).
+    const sessionReads = queries
+      .slice(0, insertIdx)
+      .filter((q) => q.table === "table_sessions" && q.op === "select");
+    expect(sessionReads[0]).toBe(find);
+    expect(find?.eq.some(([col]) => col === "qr_code")).toBe(false);
   });
 
   it("a live session at N (bound from a generated code) → created: false, NO insert, its cart ensured", async () => {
@@ -285,6 +299,36 @@ describe("startTable — finds by NUMBER and converges; an inactive table is ref
     expect(insertsOf()).toHaveLength(0);
     const cartRead = queries.find((q) => q.table === "qr_carts" && q.op === "select");
     expect(cartRead?.eq).toContainEqual(["session_id", "sess-bound"]);
+  });
+
+  it("hands the registry's sticker token to the predicate: a NUMBERLESS live row on that sticker (the stranded shape) is the party — converge, no insert", async () => {
+    // The blind pass on 3c-ii (money lens, CRITICAL 1): the register's insert on the sticker code
+    // 23505'd against that row on the TOKEN index, the number re-read found nobody, and staff read
+    // an outage for a table with a party at it.
+    registryRow = REG;
+    tokenRow = { id: "sess-stranded", qr_code: "STICKER7", table_number: null, host_seat: "d1" };
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({ ok: true, sessionId: "sess-stranded", created: false });
+    expect(insertsOf()).toHaveLength(0);
+    const byToken = queries.find(
+      (q) => q.op === "select" && q.eq.some(([col, v]) => col === "qr_code" && v === "STICKER7"),
+    );
+    expect(byToken?.eq).toContainEqual(["mode", "dinein"]);
+    expect(byToken?.eq).toContainEqual(["status", "active"]);
+  });
+
+  it("a RESERVED holder at N (a kiosk dine-in mid-order) is refused by name — never opened as the diners' ledger", async () => {
+    // The blind pass on 3c-ii (money lens): the number-first find converged staff onto a `kiosk-`
+    // session; its idle reset then cancels the open cart staff added lines to.
+    registryRow = REG;
+    numberRows = [{ id: "sess-kiosk", qr_code: "kiosk-ABCD1234", table_number: 7 }];
+    const r = await openRegisterOrder({ kind: "table", tableNumber: 7 });
+    expect(r).toEqual({
+      ok: false,
+      error: "Table 7 has a kiosk order in progress — finish or clear it at the kiosk.",
+    });
+    expect(insertsOf()).toHaveLength(0);
+    expect(queries.some((q) => q.table === "qr_carts")).toBe(false);
   });
 
   it("a 23505 on the insert is re-read BY NUMBER and converges on the winner", async () => {

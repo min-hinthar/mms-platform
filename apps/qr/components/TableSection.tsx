@@ -82,13 +82,22 @@ export function TableSection({
     // 3c-i (D18) — the grid as a SECTION, under the doors, under a hairline. Spacing is the
     // exits' idiom in tokens; `.table-chip.is-mine` is availability (the clay wash), never the
     // lit cap — the current door above stays the one selected thing on this surface.
-    <section aria-labelledby={tablesTitleId} className="door-sheet-tables" style={tablesSection}>
-      <h3 id={tablesTitleId} style={sectionTitle}>
-        {t("en", "pickYourTable")}{" "}
-        <span lang="my" className="door-sheet-my">
-          {t("my", "pickYourTable")}
-        </span>
-      </h3>
+    <section
+      aria-labelledby={source === "send" ? undefined : tablesTitleId}
+      className="door-sheet-tables"
+      style={source === "send" ? sendSection : tablesSection}
+    >
+      {/* Under the DoorSheet the section sits beneath the door's title and names itself; the Send
+          sheet IS this section and its dialog title is the one name — a second "Pick your table"
+          heading under a hairline with nothing above it was read twice (the blind pass on 3c-ii). */}
+      {source !== "send" && (
+        <h3 id={tablesTitleId} style={sectionTitle}>
+          {t("en", "pickYourTable")}{" "}
+          <span lang="my" className="door-sheet-my">
+            {t("my", "pickYourTable")}
+          </span>
+        </h3>
+      )}
       <p className="door-sheet-sub" style={flush}>
         {sub}
       </p>
@@ -209,6 +218,8 @@ const tablesSection = {
   paddingBottom: "var(--s2)",
   borderTop: "1px solid var(--bd)",
 } as const;
+// The Send sheet's section: the dialog's title is directly above, so no hairline and no top gap.
+const sendSection = { display: "grid", gap: "var(--s3)", paddingBottom: "var(--s2)" } as const;
 const sectionTitle = { margin: 0, fontSize: "var(--fs-h3)" } as const;
 const flush = { margin: 0 } as const;
 const joinForm = { display: "grid", gap: "var(--s3)", marginTop: "var(--s2)" } as const;

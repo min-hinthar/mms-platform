@@ -105,6 +105,10 @@ export function SendToKitchenButton({
   const [sendBeat, setSendBeat] = useState(0);
 
   const send = (opts?: { tableAnswered?: boolean }) => {
+    // One send per gesture: the tap path used to rely on a native `disabled` the handle bypassed,
+    // and a second `send()` from the host (two bind answers) reached the server twice (the blind
+    // pass on 3c-ii). The control stays focusable while pending — see the button below.
+    if (pending) return;
     if (frozen) {
       // Refuse at the DOOR, and say why rather than dying quietly — this is the one control the diner came here to press.
       onMessage(FROZEN_NOTE);
@@ -206,8 +210,11 @@ export function SendToKitchenButton({
           // One tap sends (Phase 1b). `send()` refuses at the door under a freeze and says why, and
           // asks the table (3c-ii) before the server when the host says one is still needed.
           onClick={() => send()}
-          disabled={pending}
-          aria-disabled={frozen || undefined}
+          /* `aria-disabled`, never native, while PENDING (the Undo's T9 idiom): the host lands focus
+             here after the table sheet unmounts — under reduced motion before the send answers — and
+             a natively disabled control drops that landing to <body>, where a failed send then
+             leaves it (WCAG 2.4.3). `send()` refuses the second tap itself. */
+          aria-disabled={pending || frozen || undefined}
           aria-busy={pending}
           className="checkout-cta"
           // ⚠️ Inline styles outrank the class: the outline look's background/color/border must NOT

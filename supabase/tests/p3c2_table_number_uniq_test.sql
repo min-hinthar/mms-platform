@@ -5,8 +5,10 @@
 -- The index has no function body for scripts/verify-mode-authority.mjs to mutate, so the proof is
 -- RED-FIRST BY CONSTRUCTION: case 1 is the collision itself and comes FIRST, so a run against the
 -- un-migrated stack fails there (a second active dine-in row on 98 simply lands), and only the
--- migrated stack reaches cases 2–6. The other cases pin the SCOPE — every leg of the WHERE that
--- a narrower or wider index would get wrong:
+-- migrated stack reaches cases 2–6. That red run exists only where the migration can be withheld
+-- (the authoring cluster below); CI's stack carries every migration, so there case 1 is green-only.
+-- The other cases pin the SCOPE — every leg of the WHERE that a narrower or wider index would get
+-- wrong:
 --
 --   1. two ACTIVE dine-in rows on 98 → unique_violation (SQLSTATE 23505, the code every writer
 --      reads — lib/seated.ts, lib/bind-table.ts, the mint, the register, the kiosk);

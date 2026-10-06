@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { serviceClient } from "@mms/db/server";
 import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
-import { generateJoinCode } from "./session-code";
+import { generateJoinCode, isReservedSessionCode } from "./session-code";
 import { seatedSessionFor, sweepExpiredOnTable, type SeatedSession } from "./seated";
 import { summarizeDay, type DaySummary } from "./register-math";
 import { cashRefundedCents, readLedgerSince } from "./refund-ledger";
@@ -127,13 +127,25 @@ async function startTable(
     .lte("expires_at", new Date().toISOString());
   await sweepExpiredOnTable(db, tableNumber);
 
+  // The ONE predicate, handed the sticker token: a NUMBERLESS live row on this table's sticker (the
+  // mint stamps null when its registry read fails) is the party too — without the token this insert
+  // 23505'd against it on the TOKEN index and staff read an outage (the blind pass on 3c-ii).
   let existing: SeatedSession | null;
   try {
-    existing = await seatedSessionFor(db, tableNumber);
+    existing = await seatedSessionFor(db, tableNumber, reg.qr_code);
   } catch {
     return { ok: false, error: STAFF_WRITE_OUTAGE }; // W10a — unknowable ≠ empty
   }
   if (existing) {
+    // A RESERVED holder is a kiosk dine-in claim mid-order (`kiosk-`; a `reg-` row is pickup and
+    // outside the predicate): its idle reset cancels the session's OPEN cart, so lines staff add
+    // here would vanish with it. Refused by name — the kiosk finishes or clears it (the blind pass
+    // on 3c-ii, money lens).
+    if (isReservedSessionCode(existing.qr_code))
+      return {
+        ok: false,
+        error: `Table ${tableNumber} has a kiosk order in progress — finish or clear it at the kiosk.`,
+      };
     await ensureOpenCart(db, existing.id);
     return { ok: true, sessionId: existing.id, created: false };
   }
@@ -149,8 +161,8 @@ async function startTable(
     if (error.code === "23505") {
       // Lost the insert race to a concurrent scan/mint/bind — converge on the winner, read by the
       // NUMBER (either index names the same live row), never by the constraint name.
-      const winner = await seatedSessionFor(db, tableNumber).catch(() => null);
-      if (winner) {
+      const winner = await seatedSessionFor(db, tableNumber, reg.qr_code).catch(() => null);
+      if (winner && !isReservedSessionCode(winner.qr_code)) {
         await ensureOpenCart(db, winner.id);
         return { ok: true, sessionId: winner.id, created: false };
       }

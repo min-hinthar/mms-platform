@@ -8,7 +8,7 @@ export const BIND_COPY = {
   /** The table has a live party: join with their code (the inline form), or pick another. */
   seated: "That table was just seated — join with the party’s code, or pick another.",
   /** Not registered, retired, or gone from the registry between the read and the write. */
-  unavailable: "That table isn’t available — scan its sticker or pick another.",
+  unavailable: "That table isn’t available — pick another.",
   /** This session is already seated somewhere else; the order goes to THAT table. */
   alreadyBound: (m: number) => `You’re at Table ${m} — this order goes there.`,
   /** Under a seated chip's join form, only while this cart holds drafts: joining moves the diner,

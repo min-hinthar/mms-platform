@@ -43,9 +43,10 @@ import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
  * nested sheet; the dialog count stays one) that arrives with `mms-rise` and takes focus on its code
  * input, giving it back to the chip when the ask collapses. The Dine-in ROW is untouched — still the
  * home's exact link, not a disclosure. The RULE is `lib/table-pick.ts`'s and has a mutant: a
- * `?table=N` claim mints a NEW session (it never reuses the persisted code — useTableSession), so a
- * grid at a live table, numbered or numberless, would orphan this phone's drafts; "wrong table?" from
- * a table is 3c-ii's `bindTable`. `mode_selected` fires on the CHIP TAP — the door actually
+ * `?table=N` claim from a BOUND session mints a NEW session (an UNBOUND hosted one is bound to the
+ * number instead — 3c-ii D25, `useTableSession` sends the persisted code as `priorCode`), so a grid
+ * at a bound table would orphan this phone's drafts; "wrong table?" from a bound table has no diner
+ * path (OPEN-ITEMS J38). `mode_selected` fires on the CHIP TAP — the door actually
  * entered — never on open or on the section's reveal, and a chip tap never closes the sheet (the
  * shipped concurrency rule: the market's camera hold; the per-door remount unmounts it). An EMPTY
  * Join is refused ON THE FIELD (`JOIN_COPY.missing`, `aria-invalid`, focus back on the input) — an

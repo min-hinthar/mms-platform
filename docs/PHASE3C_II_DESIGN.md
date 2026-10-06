@@ -21,6 +21,21 @@ reasonCopy)` takes the send's copy as a PARAMETER (`useUndoGrace` imports `@/lib
 > freeze gate to the sheet (`frozen` + `onFrozen`, `FROZEN_NOTE` before the write) and moved the bind
 > call to the host as `onClaim` (the `LineOptionsSheet` shape `check:child-freeze` can read); the
 > migration stamps are `20261005…`, not the doc's `20261006…`. The tap walk's 9 stayed 9, as scored.
+>
+> **The blind pass's deviations (2026-10-06, each verified against source; the CHANGELOG bullet is the
+> list):** `seatedSessionFor(db, n, stickerCode?)` — the ONE predicate reads the table's sticker TOKEN
+> as a SECOND read for one shape only (a live numberless row on the registered sticker — D23 named the
+> number as the identity and left that row to nobody); `bindTable` PRE-READS occupancy before its CAS
+> (D24 trusted the index; the deploy-before-apply window needs the pre-read like the mint, the register
+> and the kiosk); the mint's `persisted` rule closes J15 (D25's "a stale or foreign key still claims the
+> table as before" no longer holds for a PERSISTED sticker token: it re-joins only a session this seat
+> belongs to); the claim arm's zero-row CAS rejoins the own row (D25 said "mint"); `already_bound` SENDS
+> (D28 said "the host re-taps Send knowing it"); `BIND_COPY.unavailable` reads "— pick another." (D28's
+> "scan its sticker or" contradicted D27's own reason for refusing the sticker line in the sheet); the
+> Send-time sheet renders no `TableSection` h3 (D27 hosted the section "verbatim"; the dialog title is
+> the one name); the Send button is `aria-disabled` while pending, never native (D28's landing on the
+> SEND edge was a no-op on a disabled control); the register refuses a `kiosk-` holder by name (D26
+> converged on every live row). J40 (a staff shell refuses the host's bind) is filed, not built.
 
 **The brief.** Row 3c of `docs/PHASE3_JOURNEYS.md` (J22 · J33 · M258). Today a dine-in diner is asked
 "Which table are you at?" BEFORE the menu (`/dine-in` → `TablePicker.tsx:42`) and a seated table demands
@@ -308,7 +323,8 @@ sending verb (D13 forbids it); a two-tap shape is 10 and is owner question 2.
   at a numbered table? Send anyway" (`tablePlainLabel("send")`, the sibling of `TableGrid.tsx:143`).
   REFUSALS, verbatim where shipped: `seated` → "That table was just seated — join with the party’s code,
   or pick another." (`route.ts:157`, named once as `BIND_COPY.seated` in lib/table-pick and imported by
-  the route); `unavailable` → "That table isn’t available — scan its sticker or pick another."
+  the route); `unavailable` → "That table isn’t available — pick another." (the blind pass dropped
+  "scan its sticker or": a `?t=` from /cart drops the persisted key — the sheet's own reason)
   (`route.ts:96`); `locked` / `settling` / `not_host` / `rate_limited` / `error` → `reasonCopy` verbatim
   (`useUndoGrace.ts:107-130`; a bind that fails is a send that did not happen, so `error`'s sentence is
   true); `already_bound` (NEW EN): "You’re at Table {M} — this order goes there." SUCCESS: no sentence of

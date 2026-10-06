@@ -44,6 +44,7 @@ vi.mock("./device-auth", async (importOriginal) => {
 type Q = {
   table: string;
   op: "select" | "insert" | "update";
+  cols?: string;
   payload?: Record<string, unknown>;
   eq: [string, unknown][];
   gt: [string, unknown][];
@@ -64,6 +65,8 @@ let insertErrors: ({ code: string } | null)[] = [null];
 let sessionInserts = 0;
 /** The reset's scope read (table_sessions select WITHOUT a table_number filter). */
 let sessionRow: Record<string, unknown> | null = { id: "sess-1" };
+/** The live NUMBERLESS row on the table's sticker token (the predicate's second read). */
+let tokenRow: Record<string, unknown> | null = null;
 let closedRows: { id: string }[] = [{ id: "sess-1" }];
 let cancelledRows: { id: string }[] = [{ id: "cart-1" }];
 
@@ -82,6 +85,7 @@ function chain(q: Q) {
       return api;
     },
     limit: () => api,
+    is: () => api, // the predicate's token read (`table_number IS NULL`); pinned in seated.test
     like(col: string, val: string) {
       q.like.push([col, val]);
       return api;
@@ -96,6 +100,8 @@ function chain(q: Q) {
         const i = Math.min(occupiedReads++, occupiedRows.length - 1);
         return Promise.resolve({ data: occupiedRows[i] ?? null, error: occupiedError });
       }
+      if (q.table === "table_sessions" && q.eq.some(([col]) => col === "qr_code"))
+        return Promise.resolve({ data: tokenRow, error: null });
       return Promise.resolve({ data: sessionRow, error: null });
     },
     single: () => {
@@ -110,7 +116,8 @@ function chain(q: Q) {
         error: null,
       });
     },
-    select(_cols?: string) {
+    select(cols?: string) {
+      q.cols = cols;
       if (q.op === "update")
         return Object.assign(
           Promise.resolve({
@@ -127,8 +134,8 @@ function chain(q: Q) {
   };
   return api;
 }
-function pushQ(table: string, op: Q["op"], payload?: Record<string, unknown>) {
-  const q: Q = { table, op, payload, eq: [], gt: [], lte: [], like: [], or: [] };
+function pushQ(table: string, op: Q["op"], payload?: Record<string, unknown>, cols?: string) {
+  const q: Q = { table, op, cols, payload, eq: [], gt: [], lte: [], like: [], or: [] };
   queries.push(q);
   return q;
 }
@@ -139,7 +146,7 @@ vi.mock("@mms/db/server", () => ({
   }),
   serviceClient: () => ({
     from: (table: string) => ({
-      select: (_cols: string) => chain(pushQ(table, "select")),
+      select: (cols: string) => chain(pushQ(table, "select", undefined, cols)),
       insert: (payload: Record<string, unknown>) => chain(pushQ(table, "insert", payload)),
       update: (payload: Record<string, unknown>) => chain(pushQ(table, "update", payload)),
     }),
@@ -158,6 +165,7 @@ beforeEach(() => {
   occupiedRows = [null];
   occupiedReads = 0;
   occupiedError = null;
+  tokenRow = null;
   insertErrors = [null];
   sessionInserts = 0;
   sessionRow = { id: SESSION };
@@ -305,6 +313,16 @@ describe("openKioskOrder — the dine-in claim under the number index (3c-ii)", 
     expect(read?.eq).toContainEqual(["mode", "dinein"]);
     expect(read?.eq).toContainEqual(["status", "active"]);
     expect(read?.gt[0]?.[0]).toBe("expires_at");
+  });
+
+  it("hands the registry's sticker token to the predicate: a NUMBERLESS live row on that sticker is occupied too", async () => {
+    tableRow = { table_number: 4, qr_code: "STICKER4" };
+    tokenRow = { id: "sess-stranded", qr_code: "STICKER4", table_number: null };
+    const r = await openKioskOrder({ k: TOKEN, kind: "dinein", tableNumber: 4 });
+    expect(r).toEqual({ ok: false, reason: "occupied" });
+    expect(queries.some((q) => q.op === "insert")).toBe(false);
+    const reg = queries.find((q) => q.table === "qr_tables");
+    expect(reg?.cols?.split(",")).toEqual(expect.arrayContaining(["table_number", "qr_code"]));
   });
 
   it("a failed pre-read is an outage, never an empty table", async () => {
