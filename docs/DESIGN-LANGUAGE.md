@@ -2499,7 +2499,9 @@ instead of navigating when its host asks, and `SendToKitchenButton`'s gate. Cont
   predicate-guarded claim from the grid and adopted at Send; a touched one reads Seated and answers
   `held` — "A server has Table N open — ask them to seat you there, or pick another." (it claims no order
   on the table and none to add: a touched shell may hold only a joiner) — and is never hosted from the
-  grid; its chip in the Send sheet is named "Table N, someone is sitting here" and is no disclosure. An order no code joins
+  grid; ONCE its bind has answered `held` / `kiosk`, its chip in the Send sheet is named "Table N, someone is
+  sitting here" and is no disclosure (before that first answer the grid cannot tell it from a party's Seated
+  chip — `DineInTable` carries no held state, J42). An order no code joins
   (a kiosk's) is Seated with no join form. A sticker session binds only to its own table (J41).
 - **The Menu tab off the threshold is `menuHref(mode)` (J39).** A tab names no session and claims no
   door: the menu resolves the persisted code itself (J15), and the analytics `door` of a tab tap is

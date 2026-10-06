@@ -3740,3 +3740,17 @@ filter — evaluate the predicate in the mock; and when two honest rules collide
 first ask said" vs "never 'brought back' over food being cooked" — a batch whose other lines came back
 beside a comped one), keep the rule whose failure sends people to LOOK at the dishes: a comped line
 counts, so an all-comped batch can never read "brought back".
+
+## #245
+
+**A filter that removes evidence must be paired with a probe for what it removed (the self-review on
+#315).** The blind pass caught `undoMissReason` reading "no line carries the batch" as "an earlier undo
+landed" while a void kept the batch on a line nothing was cooking — and the fix filtered voided lines
+out. That made "every line was voided" indistinguishable from "the undo landed", so a batch staff voided
+told the diner "Brought back to your order": the fix for one absence-reading was a new absence-reading,
+and two blind lenses found it independently. When a predicate drops rows to sharpen a verdict, ask what
+the dropped rows would have proved, and read for them explicitly (here a third probe, `state = 'voided'`,
+and its own verdict). The same round showed the cost of deciding a race by a LATER re-read: "was the
+undo refused by a lock?" asked of authz after the fact misses a lock taken and freed inside one request,
+while the LINES still answer it — dishes still fired and in their grace that the un-fire did not move
+were refused. Decide from the state the failed write left behind, not from a second look at its cause.

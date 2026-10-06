@@ -79,8 +79,8 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   "Brought back" over dishes cooking at the merged table; a VOIDED line (it keeps `fire_batch`) no longer
   counts, a COMPED one still does; the lines are read before the cart, so the merge's one commit cannot
   fall between the reads (`lib/undo-miss.ts`, LEARNINGS #244). **J45 closed:** a 0 under a pay lock or
-  split freeze that landed after authz's read re-reads authz's flags and answers `locked` / `settling`, so
-  the window stays open instead of closing "already with the kitchen". The Send sheet's chip whose bind
+  split freeze that landed after authz's read answers `locked` / `settling`, so the window stays open
+  instead of closing "already with the kitchen" (decided from the lines since the self-review — below). The Send sheet's chip whose bind
   answered `kiosk` / `held` is named "Table N, someone is sitting here" with no `aria-expanded` (J42
   narrowed); `BIND_COPY.held` is true for every held case ("A server has Table N open — ask them to seat
   you there, or pick another." — the old sentence claimed an order and a fold-in a member-only shell does
@@ -90,6 +90,24 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   cite the real `p3d-receipt/` ids. 10 new mutants, 3 re-anchored; the battery 197 rows. Filed J50 (the
   console's undo has J45's shape) and J51 (ACCEPTED — any phone can host an untouched staff shell from
   the grid, J40's trade-off).
+
+- **The self-review on #315 (the owner's "review yourself, fix all, and then merge when ready" — the Codex
+  per-head round was blocked on the account's quota).** The capped pass again: three blind auditors (money ·
+  concurrency · product truth + a11y) over `51838ad..d30b4a4`, every finding checked against source. **Two
+  lenses found the same regression in the blind pass's own fix:** filtering voided lines out of the undo's
+  diagnosis made a batch staff VOIDED read `gone` — the diner heard "Brought back to your order" over a dish
+  removed from it. `undoMissReason` now rests every verdict on a line read: `expired` (the kitchen has the
+  batch and none of it is undoable), `frozen` (a batch line is still fired, not comped and in its grace — so
+  the 0 was the freshness legs' refusal), `voided` (only voided lines carry it: "Nothing from that send is
+  with the kitchen now — check your order.") and `gone` (nothing carries it on an open cart). **J45 is now
+  decided by the lines, not a later lock re-read** — the re-read missed a lock taken and freed inside one
+  checkout, and answered "please try again" over a grace that had run out under a lock. **J43 closed:** a
+  refused undo says the undo's sentence, never the Send's. The console keeps its two sentences (`voided` →
+  its `gone`, `frozen` → `expired`, J50 unchanged). Text corrected: the merge folds as well as re-parents and
+  leaves comped lines behind; a comped dish un-fired is pulled off the KDS, not made billable (every total
+  excludes comped lines); DESIGN-LANGUAGE's held chip is no disclosure only once its bind has answered.
+  The cart-undo mock now carries `comped` and `fire_at` and evaluates `gt`; 12 of its 20 cases red on the
+  old code, both new hook cases red. Filed J52 · J53 · J54; LEARNINGS #245.
 
 - **M263 and M261 ON PROD (2026-10-06, the owner's go: "apply M263 and M261").** One file at a time via the
   MCP, M263 first: `m263_bind_session_table` (**`20261006191633`**) at sha256 `d242011c…`, the bytes CI ran
