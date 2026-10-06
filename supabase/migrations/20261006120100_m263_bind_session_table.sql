@@ -10,10 +10,14 @@
 --
 -- THE MECHANISM. The binder's open cart is taken FOR SHARE (the P2cy idiom, 20260929000000). It
 -- conflicts with every freeze writer — the lock acquire and both settle claims are UPDATEs of that
--- row (lib/lock.ts) — and with fulfillment's flip to paid, so each of them either commits first and
--- is SEEN by the freshness reads below, or waits until this call commits. It is compatible with
--- itself, so a bind never queues behind a staff line insert (P2cy's own FOR SHARE); a row-exclusive
--- lock here would have made every bind wait on every add.
+-- row (lib/lock.ts) — so each of them either commits first and is SEEN by the freshness reads below,
+-- or waits until this call commits. It conflicts with fulfillment's flip to paid too, but that write
+-- is not SEEN: committed first, the re-checked `status = 'open'` drops the row, nothing is locked and
+-- the bind proceeds on a session whose order is already paid — whose `table_number` fulfillment
+-- snapshotted in the SAME transaction as its flip, before this call could write it (the number
+-- reaches only the next order). Waiting instead, the number it snapshots is the one this call
+-- bound. It is compatible with itself, so a bind never queues behind a staff line insert (P2cy's own
+-- FOR SHARE); a row-exclusive lock here would have made every bind wait on every add.
 --
 -- FRESHNESS, stated as `mms_undo_fire` states it (20261005120100): a fresh single-pay lock is
 -- `locked and locked_at > now() - 5 minutes` (CART_LOCK_TTL_MS), a fresh split freeze is
@@ -47,9 +51,10 @@
 --     claimed by a host, or not at this number. The caller re-reads by number and answers that.
 --   · `held` — a live, hostless shell at this number with something on it (`mms_shell_untouched`,
 --     below, is false): a member, an earlier cart, a line (voided included), a pay attempt, a
---     split, a name, a promo or a tab. The order
---     goes to a server, who can fold it in (`mms_merge_table_orders`). `applied_reward_id` needs a
---     member and a subtotal (20260816060000), so an empty memberless cart cannot carry one.
+--     split, a name, a promo or a tab. The diner is sent to a server, who decides — seat them
+--     there, or fold an order in (`mms_merge_table_orders`); nothing here assumes the shell holds an
+--     ORDER (it may hold only a member). `applied_reward_id` needs a member and a subtotal
+--     (20260816060000), so an empty memberless cart cannot carry one.
 --
 -- LOCK ORDER. Both open carts — the binder's (SHARE) and, with `p_shell`, the shell's (row-exclusive)
 -- — in cart-id order, the order `mms_merge_table_orders` locks them (20261001000000), so a server
@@ -86,9 +91,12 @@
 --     (the DoorSheet's Open chip): the predicate sits IN the claim's UPDATE ... WHERE, one statement,
 --     after the shell's open cart and its session are taken row-exclusive (the adopt's order), so a
 --     staff line or a join landing at the same instant either commits first and refuses the claim,
---     or waits for it. A stranger's tap never becomes host of an order a server took. (A STICKER
---     scan keeps W6a's own claim: it is the table's own physical code, and the party staff seated
---     scanning it is exactly who the shell is for.)
+--     or waits for it. A stranger's tap never becomes host of an order a server took. It CAN
+--     become host of an UNTOUCHED shell: the grid cannot tell the party staff seated from any other
+--     phone, so whoever taps that Open chip first hosts it, and the party's later sticker scans
+--     join as guests — the exposure every Open table where an unscanned party sits already has
+--     (J40's accepted trade-off, recorded in OPEN-ITEMS). (A STICKER scan keeps W6a's own claim: it
+--     is the table's own physical code.)
 -- All three are SECURITY DEFINER with an empty search_path, revoked from public, anon and
 -- authenticated, granted to service_role — only the service client reads them.
 

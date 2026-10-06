@@ -13,6 +13,11 @@
 --           itself reverses 0 (the integer contract the live `if (!unfired)` reads is unchanged).
 --   J37.2.  an undo AFTER the grace reverses 0 and the late lines KEEP the batch — so `undoMissReason`
 --           reads `expired` ("the kitchen has it"), never `gone`, over dishes being cooked.
+--   J37.3.  an in-grace undo SKIPS a comped line: it stays `fired`, comped, carrying the batch — the
+--           kitchen is cooking it, and `undoMissReason` counts it (any state but `voided`).
+--   J37.4.  an in-grace undo SKIPS a voided line: it stays `voided` and KEEPS the batch — the reason
+--           `undoMissReason` filters `state <> 'voided'` (blind pass on #315): counted, a batch whose
+--           undo landed beside a void re-asked as `expired` forever.
 --
 -- ⚠️ WHY M261.1 PROBES A CART NO LINE HAS TOUCHED. A line write runs the `qr_cart_items.cart_id` FK
 -- check, which takes `FOR KEY SHARE` on the cart and stamps the very `xmax` this case reads — measured
@@ -46,7 +51,8 @@ declare
   cart   uuid := gen_random_uuid();
   esess  uuid := gen_random_uuid();
   ecart  uuid := gen_random_uuid();
-  l1 uuid; l2 uuid;
+  l1 uuid; l2 uuid; l3 uuid; l4 uuid;
+  v_state text; v_lbatch uuid; v_comped boolean;
   v_fired integer; v_batch uuid;
   v_xmax text;
   n integer;
@@ -88,6 +94,26 @@ begin
   select count(*) into n from public.qr_cart_items
     where id in (l1, l2) and fire_batch = v_batch and state = 'fired';
   assert n = 2, format('J37.2 · %s of the 2 late lines still carry the batch, fired — without it undoMissReason answers `gone` ("brought back") over dishes being cooked', n);
+
+  -- ══ J37.3 · J37.4. an in-grace undo skips a comped line and a voided one; both keep the batch ════
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 1, 1400, 147, ana, 'dinein') returning id into l3;
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, by_seat, fulfillment)
+    values (cart, dish, 'Mohinga', 3, 1400, 147, ana, 'dinein') returning id into l4;
+  select f.fired, f.batch into v_fired, v_batch from public.mms_fire_cart(cart) f;
+  assert v_fired = 2, format('fixture: the third send fired %s lines, expected 2 (l3, l4)', v_fired);
+  -- Staff comp l3 and void l4 inside the grace (the fixture writes the row facts the comp and the void
+  -- leave; the undo reads nothing else).
+  update public.qr_cart_items set comped = true where id = l3;
+  update public.qr_cart_items set state = 'voided' where id = l4;
+  n := public.mms_undo_fire(cart, v_batch);
+  select ci.state, ci.fire_batch, ci.comped into v_state, v_lbatch, v_comped from public.qr_cart_items ci where ci.id = l3;
+  assert v_state = 'fired' and v_lbatch = v_batch and v_comped,
+    format('J37.3 · the in-grace undo turned a COMPED line into %s (batch %s) — an audited loss made billable again, and undoMissReason loses the dish the kitchen is cooking', v_state, coalesce(v_lbatch::text, 'cleared'));
+  select ci.state, ci.fire_batch into v_state, v_lbatch from public.qr_cart_items ci where ci.id = l4;
+  assert v_state = 'voided' and v_lbatch = v_batch,
+    format('J37.4 · the in-grace undo turned a VOIDED line into %s (batch %s) — a voided dish back on the order as a draft', v_state, coalesce(v_lbatch::text, 'cleared'));
+  assert n = 0, format('fixture: the undo over a comped and a voided line reversed %s, expected 0', n);
 
   raise notice 'm261_undo_fire_cart_lock_test: all cases passed';
 end $$;

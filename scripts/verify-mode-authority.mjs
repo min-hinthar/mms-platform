@@ -77,11 +77,13 @@
  * M261 · J37 adds suite `m261`: `mms_undo_fire` restated AGAIN, now taking the cart row lock first
  * (`mms_undo_counter_fire`'s line) — so M258's seven mutants patch THAT file (`src: "m261"`) and are
  * still judged by `p3c2`, or the chain would overwrite each mutation and every one would read NO-OP.
- * Three killed mutants and NO new survivor: the lock dropped (M261.1 — a line-less cart's `xmax`, the
- * lock TAKEN; its ORDER against a claim is still two-session work, OPEN-ITEMS P2fj), the un-fire that
- * keeps `fire_batch` (J37.1 — the fact `lib/undo-miss.ts` reads as "an earlier undo landed"), and the
- * grace leg dropped (J37.2 — a late undo must leave the batch on the lines, the fact it reads as
- * "the kitchen has it").
+ * Five killed mutants: the lock dropped (M261.1 — a line-less cart's `xmax`, the lock TAKEN), the
+ * un-fire that keeps `fire_batch` (J37.1 — the fact `lib/undo-miss.ts` reads as "an earlier undo
+ * landed"), the grace leg dropped (J37.2 — a late undo must leave the batch on the lines, the fact it
+ * reads as "the kitchen has it"), and — from the blind pass on #315 — the comped and the voided legs
+ * (J37.3 · J37.4: both lines are skipped and keep the batch; `undoMissReason` counts the first and
+ * not the second). ONE documented survivor: the lock moved AFTER the update still stamps `xmax`, so
+ * M261.1 cannot see it — its ORDER against a claim is two-session work (OPEN-ITEMS P2fj).
  *
  * M263 · J41 · J40 adds suite `m263`: `mms_bind_session_table`, the one bind authority (the freeze
  * read under the binder's cart lock, the sticker rule, the adopt of an untouched staff shell, the
@@ -90,8 +92,8 @@
  * killed mutant per named `M263.<n> ·` / `J41.<n> ·` / `J40.<n> ·` / `SH.<n> ·` case, and FIVE new
  * documented survivors, all row locks no single session can observe: the binder cart's FOR SHARE,
  * the adopt's shell-cart and shell-session locks, and the claim's two. All five are KILLED by
- * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Seventeen survivors
- * in all.
+ * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
+ * in all (with M261's lock order, above).
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -1808,6 +1810,75 @@ const MUTANTS = [
     why: "the grace leg is what makes a 0 after the deadline mean 'the kitchen has it' — dropped, a late undo un-fires (and un-batches) dishes the KDS already shows, and `undoMissReason` then answers `gone` ('brought back') over food being cooked",
     find: "      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)\n",
     replace: "",
+  },
+  // ── The blind pass on #315 — the two lines an in-grace undo must SKIP, both of which keep the batch
+  // (the facts `undoMissReason` now reads: a comped line counts, a voided one does not).
+  {
+    id: "undo/comped-line-unfired",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.3 ·",
+    why: "a comped line is an audited loss; an undo that turns it back into a draft makes it billable again with the comp row standing, and clears the batch the kitchen is cooking it under",
+    find: "      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)\n",
+    replace: "",
+  },
+  {
+    id: "undo/voided-line-unvoided",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.4 ·",
+    why: "only a FIRED line comes back; without the state leg an in-grace undo turns a voided dish back into a draft on the order",
+    find: "      and ci.state = 'fired'\n",
+    replace: "",
+  },
+  {
+    id: "undo/cart-lock-after-the-update",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    // DOCUMENTED SURVIVOR (the blind pass on #315, concurrency). The lock moved AFTER the un-fire still
+    // stamps the cart's `xmax`, so M261.1 — which proves the lock TAKEN — passes; what this breaks is
+    // the ORDER (cart → line, the freshness legs read under the cart lock), and that needs a second
+    // session holding the pay lock mid-statement: OPEN-ITEMS P2fj's two-session harness. Listed so a
+    // maintainer who reworks the lock sees this row rather than a silently-absent one.
+    expect: null,
+    why: "the cart lock must come FIRST — taken after the update, the freshness legs read a snapshot one statement wide again; unkillable single-session (P2fj)",
+    find: `  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire
+  update public.qr_cart_items ci
+    set state = 'draft', fire_at = null, fire_batch = null
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where ci.cart_id = p_cart_id
+      and c.id = ci.cart_id
+      and c.status = 'open'
+      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)
+      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses
+      and s.mode = 'dinein'
+      and ci.state = 'fired'
+      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)
+      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)
+      and ci.fire_batch = p_batch;     -- ONLY this send's batch (the UI's Undo corresponds to one send)
+  get diagnostics n = row_count;
+`,
+    replace: `  update public.qr_cart_items ci
+    set state = 'draft', fire_at = null, fire_batch = null
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where ci.cart_id = p_cart_id
+      and c.id = ci.cart_id
+      and c.status = 'open'
+      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)
+      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses
+      and s.mode = 'dinein'
+      and ci.state = 'fired'
+      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)
+      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)
+      and ci.fire_batch = p_batch;     -- ONLY this send's batch (the UI's Undo corresponds to one send)
+  get diagnostics n = row_count;
+  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire
+`,
   },
   // ── M263 · J41 · J40 — `mms_bind_session_table`: the bind decided once, under locks. Each leg is
   // killed by its NAMED case; the three row locks are documented survivors here and killed by
