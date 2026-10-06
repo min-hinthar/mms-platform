@@ -1102,7 +1102,7 @@ describe("the ticket's own writes withhold the amounts until a read shows them (
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Increase Mohinga quantity" }));
     });
-    // MUTATION pad-ui/receipt-names-amounts-while-pending: "$15.81" beside a quantity of 2; red.
+    // MUTATION p3d-receipt/ticket-names-amounts-while-pending: "$15.81" beside a quantity of 2; red.
     // The rows stay (the last read's labels) and every amount withholds — the dock's own predicate.
     expect(rowKeys()).toEqual(["subtotal", "tax", "total"]);
     expect(rowKeys().map(row)).toEqual(["—", "—", "—"]);
@@ -1178,7 +1178,7 @@ describe("Phase 3d · counter — the ticket speaks receipt, and its Total is Ta
     mount(d);
     await flush();
     expect(rowKeys()).toEqual(["subtotal", "discount", "tax", "total"]);
-    // MUTATION pad-ui/receipt-discount-loses-its-minus: "$14.00" reads as an added charge; red.
+    // MUTATION p3d-receipt/ticket-discount-loses-its-minus: "$14.00" reads as an added charge; red.
     expect(row("discount")).toBe("−$14.00");
     expect(row("total")).toBe("$39.30");
     expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$39.30"));
@@ -1187,7 +1187,8 @@ describe("Phase 3d · counter — the ticket speaks receipt, and its Total is Ta
   it("a Burmese console reads the receipt's Burmese words — the settled list's own keys", async () => {
     mount(ONE(), { lang: "my" });
     await flush();
-    // MUTATION pad-ui/receipt-labels-lose-their-burmese: the receipt's English label, unmarked; red.
+    // MUTATION p3d-receipt/ticket-labels-lose-their-burmese: the receipt's English label, unmarked;
+    // red.
     expect(document.querySelector('[data-row="tax"] [lang="my"]')?.textContent).toBe(
       STAFF["floor.settled.row.tax"].my,
     );

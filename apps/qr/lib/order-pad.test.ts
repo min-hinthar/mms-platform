@@ -413,7 +413,7 @@ describe("padReceiptRows — the ticket speaks the receipt, and its Total is the
   });
 
   it("the Total row is settleTotalCents itself — the figure Take payment names, tax included", () => {
-    // MUTATION pad/receipt-total-is-pre-tax: the Total re-derived as subtotal − discount = 3600 —
+    // MUTATION p3d-receipt/pad-total-is-pre-tax: the Total re-derived as subtotal − discount = 3600 —
     // the two-bases bug back, one row down (a pre-tax figure under "Total", the dock's 3930 beside
     // it); red. The fixture separates them: tax is not 0.
     const rows = padReceiptRows(priced)!;

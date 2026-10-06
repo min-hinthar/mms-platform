@@ -253,7 +253,7 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     expect(res.detail.settleTotalCents).toBeNull();
     expect(getCartTotals).not.toHaveBeenCalled();
     // Phase 3d · counter — null exactly when the total is: the pad draws no stack, never a row of
-    // "$0.00". MUTATION floor/receipt-parts-default-to-zeros → red.
+    // "$0.00". MUTATION p3d-receipt/floor-parts-default-to-zeros → red.
     expect(res.detail.settleBreakdown).toBeNull();
   });
 
@@ -275,8 +275,8 @@ describe("getTableDetail — the receipt stack's parts", () => {
     const res = await getTableDetail(SESSION);
     expect(res.kind).toBe("detail");
     if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
-    // MUTATIONS floor/receipt-drops-the-tax · floor/receipt-discount-is-the-promo-alone ·
-    // floor/detail-drops-the-receipt → red on the shape.
+    // MUTATIONS p3d-receipt/floor-drops-the-tax · p3d-receipt/floor-discount-is-the-promo-alone ·
+    // p3d-receipt/floor-detail-drops-the-receipt → red on the shape.
     expect(res.detail.settleBreakdown).toEqual({
       subtotalCents: 5000,
       discountCents: 1400,
@@ -285,7 +285,7 @@ describe("getTableDetail — the receipt stack's parts", () => {
       tipCents: 0,
     });
     expect(res.detail.settleTotalCents).toBe(3930);
-    // MUTATION floor/receipt-reads-a-second-total: the parts off a SECOND call — identical values
+    // MUTATION p3d-receipt/floor-reads-a-second-total: the parts off a SECOND call — identical values
     // on this fake, a different basket in production if a write lands between the two → red here.
     expect(getCartTotals).toHaveBeenCalledTimes(1);
     expect(getCartTotals).toHaveBeenCalledWith("c-1", 0);
@@ -300,7 +300,7 @@ describe("getTableDetail — the receipt stack's parts", () => {
     expect(res.kind).toBe("detail");
     if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.runningSubtotalCents).toBe(4000);
-    // MUTATION floor/receipt-subtotal-from-the-lines-read → 4000; red.
+    // MUTATION p3d-receipt/floor-subtotal-from-the-lines-read → 4000; red.
     expect(res.detail.settleBreakdown?.subtotalCents).toBe(5000);
   });
 });
