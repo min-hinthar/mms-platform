@@ -887,6 +887,7 @@ const EXPECTED_SUBJECTS = [
   "applyPromo",
   "applyReward",
   "assignLine",
+  "bindTable",
   "clearReward",
   "makeItNow",
   "reorderOrder",

@@ -86,8 +86,8 @@ pnpm dev                 # apps/qr on :3000
 pnpm turbo lint typecheck build test   # the gate — run before any PR
 pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard (a changed money
                          # file MUST have a mutant, or an in-file `verify:slice-exempt — <reason>`)
-                         # + photo-filter grep + gate + 3036 mutations + orphan check (a few minutes)
-                         # ⚠️ REWRITES the 258 money/authority modules it mutates IN PLACE (175 under
+                         # + photo-filter grep + gate + 3131 mutations + orphan check (a few minutes)
+                         # ⚠️ REWRITES the 265 money/authority modules it mutates IN PLACE (179 under
                          # apps/qr/lib — Phase 2f added counter-order.ts, kitchen.ts and voids.ts,
                          # Phase 2g reader-collect.ts, Phase 2h bounded-write.ts, poll-gate.ts,
                          # test-setup.ts (vitest's per-case stall-ledger reset),
@@ -106,10 +106,16 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # counter-zones.ts (the zone strip's one decision, with its end-of-page
                          # rule), then Phase 3c-i's checkout-verb.ts (one hero verb per state ·
                          # payBlock's precedence · the Total door's honest name) and table-pick.ts
-                         # (the grid only OFF the table · the ONE dine-in menu href) —
-                         # plus create-share-intent, setup-intent, board and version routes (the
-                         # fourth, app/api/version/route.ts, Phase 2i · S1),
-                         # plus SEVENTY-SIX components, SEVEN of them hooks — TableCartProvider.tsx,
+                         # (the grid only OFF the table · the ONE dine-in menu href), then Phase
+                         # 3c-ii's seated.ts (the ONE live-dine-in-at-N predicate, the dead-row sweep
+                         # by number, the row-count CAS, the claim/bind verdicts), bind-table.ts (the
+                         # host's bind, under the lock model), tables.ts (the picker's occupancy by
+                         # NUMBER, fail-honest) and useTableSession.ts (a claim sends the persisted
+                         # code beside the number) —
+                         # plus create-share-intent, setup-intent, board, version and session routes
+                         # (the fourth, app/api/version/route.ts, Phase 2i · S1; the FIFTH,
+                         # app/api/session/route.ts, Phase 3c-ii — the number-first find),
+                         # plus SEVENTY-EIGHT components, SEVEN of them hooks — TableCartProvider.tsx,
                          # menu/YourUsual.tsx, staff/TicketText.tsx, staff/Chrome.tsx,
                          # staff/StaffPromoControl.tsx,
                          # ReadyBoard.tsx, MergeRedeemer.tsx, staff/TableCard.tsx,
@@ -153,7 +159,9 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # ActiveOrderProvider.tsx (the store's door-bound cart pointer), then Phase
                          # 3c-i's SendToKitchenButton.tsx (its FIRST mutant — Undo is never the hero),
                          # LineOptionsSheet.tsx (the line's ⋯ sheet) and the SEVENTH HOOK —
-                         # useUndoGrace.ts (the grace as a value Checkout owns) —
+                         # useUndoGrace.ts (the grace as a value Checkout owns), then Phase 3c-ii's
+                         # TableBindSheet.tsx (the Send-time table sheet) and TableGrid.tsx (its
+                         # FIRST mutants — a chip binds instead of navigating when its host asks) —
                          # COMPONENTS in the set
                          # since M46 — plus apps/qr/app/globals.css, the FIRST STYLESHEET (Phase 2e ·
                          # review: a dirty globals.css now aborts a run like any target, and its
@@ -161,7 +169,7 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # apps/qr/app/staff/table/[id]/page.tsx (Phase 2g · the closed #CODE card),
                          # plus packages/db/src/schemas.ts)
                          # and restores them.
-                         # ⚠️ 175+4+76+1+1+1=258, and THIS ENUMERATION IS THE OPERATOR'S ONLY LIST of files
+                         # ⚠️ 179+5+78+1+1+1=265, and THIS ENUMERATION IS THE OPERATOR'S ONLY LIST of files
                          # that may be sitting on disk as deliberately-broken mutants after a
                          # stalled or killed run — the reason LEARNINGS #74 exists and
                          # `git checkout -- .` is prescribed — so a bucket count that does not add up
@@ -265,7 +273,7 @@ The review/adversarial gates catch **escapes** — they are not your first pass.
 - **a11y — sweep _every_ interactive/region element, not just the layout** (QA-CHECKLIST §A): ≥44px touch targets; an accessible name on each control/list/region (`aria-label`/`-labelledby`); `role="list"` when `list-style:none`; **one** live region per view (no redundant `aria-live` on `role="status"`/`alert`); focus moved on remove / route / step change; decorative glyphs + emoji `aria-hidden`; a `prefers-reduced-motion` off-switch on any animation.
 - **Error / recovery paths** — every `await` / `{ error }` is handled or a **commented, deliberate** swallow (a silent one → a broken session or a stuck screen); every async UI has a **loading _and_ a failure/recovery** state (never strand the user); fail fast on unrecoverable errors instead of burning a full retry budget; on serverless, drain side-effects with `after()` (don't couple the response to them).
 - **Copy / fidelity** — strings **verbatim** from `docs/prototype/v7.2.html`; no promise the code doesn't keep ("live status here" only where it's wired); honest microcopy (no fabricated ETAs/counts); tokens, never hardcoded colors.
-- **`pnpm verify:slice` FIRST — the mechanical gate, before the subagent.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it runs the gate, applies 3036 semantic mutations to the money/authority modules (each must turn its owning suite RED), and mirrors CI's orphan-suite check. A few minutes, zero tokens; the review round that found the same class cost ~1M tokens and 56 minutes. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
+- **`pnpm verify:slice` FIRST — the mechanical gate, before the subagent.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it runs the gate, applies 3131 semantic mutations to the money/authority modules (each must turn its owning suite RED), and mirrors CI's orphan-suite check. A few minutes, zero tokens; the review round that found the same class cost ~1M tokens and 56 minutes. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
 - **The red-first rule.** Never write a guard you have not watched fail: a test, a lint rule, a CI step, a SQL assert. Induce the violation, see it go red, revert. Two live bugs shipped past "proved, not assumed" claims that had only been proved for one shape (a bare `/menu` surviving as a default parameter; a `.test.tsx` orphan the guard whitelisted by directory).
 - **Guards PARSE — they never scan (LEARNINGS #60; eleven Codex findings in one day, all this shape).** A guard about executable behaviour that matches a _name, substring, count, position, or constant_ will be satisfied by text that does not ship the behaviour: a comment, a dead `{false && …}` branch, an `await Promise.all` reorder. So: parse with `typescript` (already a dependency — comments are not AST nodes) when the subject is JS/TS, and where no parser exists (CSS) constrain the scan instead — comments stripped, the candidate selected by what it DECLARES, ambiguity refused; bind extractions to the live candidate — excluding the enumerated literal-dead shapes, which is liveness against parked dead copies, not a reachability proof — and evaluate the shipped literal, refusing ambiguity instead of picking by position (**uniqueness ≠ liveness**); assert sequencing as _awaited, in a statement that finishes first_, never as lexical order; and aim red-first at the MATCHER too — ask "what text satisfies this without shipping the behaviour?" and falsify that exact evasion. ⚠️ `ts.forEachChild` is a SEARCH primitive: a visitor that returns a truthy value aborts the walk — write `(c) => { visit(c); }`.
 - **Never transcribe a number into an assertion — nor a LIST.** Compute it in the shell and paste the output. A value that crosses from prose (a subagent summary, a plan doc) into an expectation is how `-600 → -59` shipped when the real value is `-58`. Same rule for sets: a merge-conflict resolution is verified as a set operation — derive `closed(parent1)` / `closed(parent2)` / `closed(merge)`, assert nothing lost and nothing invented — never from a remembered list (the #242 list was wrong twice; the resolution was right, provably, only after measuring — LEARNINGS #61).

@@ -3576,3 +3576,71 @@ assertion saw `<body>` — a test red on a product behaviour that was correct. A
 produces (focus, an announcement, a scroll) is asserted inside its own `waitFor`; a wait on the DOM
 proves only the commit. The repo's "a failing test is never a flake" stands: the race was the test's
 own, and the fix is the test's — the product landing stayed as it was.
+
+## #233
+
+**A child that fires a mutation through a wrapper the guard cannot read is unaudited, and the
+integration gate is where a two-slice build meets its own guards (3c-ii, 2026-10-05).** Two engineers
+built disjoint slices against a design; each ran its suites, mutants and the fast checks it knew. The
+LEAD's gate on the merged tree was the first run of `check:freeze-parity` (a deliberate speed bump for a
+new lock-bearing mutation) and `check:child-freeze`, which found a real T9 hole: a tablemate's checkout
+could lock the cart while the Send-time sheet was up, and a chip tap then reached the server to be
+refused with the raced sentence. The fix was behaviour (refuse before the write with `FROZEN_NOTE`, the
+host's `editsFrozen` threaded, said after the close) — and a SHAPE: the guard reads
+`const r = await mutation(…)` and `r.ok` in a condition, not `boundWrite(mutation(…))`, so the host owns
+the mutation call (`onClaim`) and the sheet owns the bounded await, the `LineOptionsSheet`/`onMakeNow`
+precedent. Rules: run the WHOLE fast lane on the merged tree before calling a build integrated (the
+slices cannot see each other's seams, and `check:docs` counts move with every test); when two slices both
+append to `verify-slice.mjs`, the merge conflict's common suffix is the last entry's `},` — check
+`node --check` and the anchor count before trusting the seam; and a live `verify:slice --only=` run in
+the main checkout leaves a TARGET dirty (`Checkout.tsx` sat mutated under this docs pass) — read
+`git status` before every commit and never `git add -A` while a run lives.
+
+## #234
+
+**An identity the system can fail to stamp needs a second read for exactly that shape, and a CAS is
+not an occupancy check (3c-ii's blind pass, 2026-10-06).** D23 made the table NUMBER the seat's
+identity and routed every find through one number-keyed predicate — and the mint itself, on a failed
+registry read, stamps `table_number: null` onto a live row on a REGISTERED sticker. That row was then
+reachable by nobody: the host's own reload 500'd on the token index, an invite 404'd, the register read
+an outage. The fix is not "find by token first" (the number IS the identity: a generated code bound to
+7 is found by 7) but a SECOND read, for the one shape the first cannot see, with the conjunct that
+names it (`qr_code = token AND table_number IS NULL`). Beside it: `bindTable`'s CAS (`id = S AND
+table_number IS NULL`) guarantees the row moved once, and NOTHING about N being free — only the index
+does, and the index was deliberately deploy-before-apply. Every other number-stamping writer
+pre-read; the one that mattered most did not. Three test-side traps from the same pass: a
+`mockResolvedValueOnce` queue survives `vi.clearAllMocks()` (a leftover `ok` from a failed test fed the
+next test's click); a control's accessible NAME changes while pending ("Sending…"), so a query by the
+idle name finds nothing mid-flight; and a natively `disabled` control makes a programmatic focus landing
+a silent no-op — the Undo already used `aria-disabled` for exactly this (T9), and the Send beside it did
+not.
+
+## #235
+
+**A chip's word is the registry's snapshot; the server's pre-read is the authority — route the
+AMBIGUOUS tap through it (3c-ii, Codex round 3 on #314, 2026-10-06).** `markMine={false}` made every
+occupied table read Seated in the Send sheet, and round 2's occupancy fix (a numberless live row on a
+registered sticker is a party) made the host's OWN stranded row one of them — so the client could not
+tell "my table, unbound" from "a stranger's party", and the Seated tap went to the join ask, which for
+the stranded host could only rejoin the same numberless row: Seated forever, with the bind that would
+have landed it one call away and unreachable. `bindTable`'s pre-read CAN tell them apart
+(`holder.id === sessionId`), so the Seated chip now tries the bind first and the ask reveals on
+`seated`. The rule: when a client-side classification collapses two cases the server distinguishes, and
+the host can act on BOTH answers, send the tap to the server and branch on the answer — never pick the
+path by the chip's word. The cost is one bounded round trip before a stranger's join ask; the
+alternative was a dead end the client had no way to see.
+
+## #236
+
+**A ref written in `useEffect` is stale for one microtask checkpoint after a commit that overran the
+frame (React 19.2, measured 2026-10-06 — Codex round 4 on #314).** React schedules a commit's passive
+effects as a separate scheduler task; when the commit itself took longer than the 5 ms frame budget
+the scheduler yields between the two, the macrotask ends, and every promise continuation queued
+during the commit runs with the DOM committed and the ref still holding the previous render's value.
+`TableCartProvider`'s per-cart view guard compared against such a ref, so an old cart's read
+resolving in that window was accepted onto the new cart's rows. `useLayoutEffect` runs inside the
+commit, before any microtask, and closes it. The proof needs the window FORCED, not awaited: commit
+the update outside `act` (`IS_REACT_ACT_ENVIRONMENT = false` around it, so React schedules the
+effects itself), resolve the stale promise from a child's layout effect, and busy-wait past the frame
+budget right there; a `rerender` inside `act` flushes the effects before any microtask and can never
+show it — which is why round 2's per-cart test was green on both shapes.

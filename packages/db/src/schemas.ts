@@ -42,6 +42,11 @@ export const sessionMintInput = z.object({
   // table with the typer as host. A scanned sticker (`?t=`) leaves this false → first scanner may
   // provision the table.
   joinOnly: z.boolean().default(false),
+  // Phase 3c-ii (J15, the blind pass): the code came from THIS phone's storage, not a URL. The
+  // server then re-joins only a session this seat is already a member of; otherwise the entry is a
+  // bare host-start — a registered sticker token outlives its party, so a persisted one must never
+  // join the next party's cart nor mint a session at that table from the couch.
+  persisted: z.boolean().default(false),
 });
 
 /** setDisplayName — a member renames THEIR OWN seat (presence guest list). Server re-verifies the
@@ -50,6 +55,15 @@ export const setDisplayNameInput = z.object({
   sessionId: uuid,
   name: displayName,
 });
+
+/** bindTable (Phase 3c-ii, D24) — the host seats an unbound dine-in session at a registered table.
+ *  The number is bounded like `sessionMintInput.tableNumber` (the qr_tables CHECK, 1..99); the server
+ *  re-reads the registry and refuses an inactive or unregistered table. */
+export const bindTableInput = z.object({
+  cartId: uuid,
+  tableNumber: z.number().int().min(1).max(99),
+});
+export type BindTableInput = z.infer<typeof bindTableInput>;
 
 /** A kitchen note ("no peanuts — allergy") is user-controlled free text → cap length (mirrors the
  *  qr_cart_items.notes column CHECK, 160); JSX escapes it at render. W3b: the allergy channel. */

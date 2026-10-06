@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { DOORS, currentDoor } from "./doors";
+import { dineInMenuHref } from "./table-pick";
 
 /**
  * Phase 3b (D9) — the three doors are ONE table. The home renders it and the DoorSheet renders it,
@@ -35,6 +36,15 @@ describe("DOORS — the one door table", () => {
     expect(DOORS.map((d) => d.description)).not.toContain(
       "Pick your table, invite friends, order together",
     );
+  });
+
+  it("3c-ii (D27) — the Dine-in door enters the MENU on a bare host-start: the ONE builder's href, as a literal (doors cannot import table-pick — table-pick imports doors)", () => {
+    // The pre-menu picker (/dine-in → TablePicker) retired; the table is asked inside the first Send.
+    // A door whose href still named /dine-in would cost the diner a redirect on every entry and put
+    // a `?table=N` claim back in front of the menu.
+    const href = DOORS.find((d) => d.mode === "dinein")!.href;
+    expect(href).toBe(dineInMenuHref({}));
+    expect(href).not.toBe("/dine-in");
   });
 
   it("currentDoor maps the menu's internal modes onto the doors (scango IS the market)", () => {

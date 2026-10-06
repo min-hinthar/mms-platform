@@ -64,6 +64,9 @@ vi.mock("@/lib/cart", () => ({
   setLineFulfillment: h.setLineFulfillment,
   setQty: h.setQty,
 }));
+// 3c-ii — the bind sheet is mounted for every dine-in host; its Server Action reaches the service
+// client (server-only). Never called here: the ask only opens with `tables`, which this file omits.
+vi.mock("@/lib/bind-table", () => ({ bindTable: vi.fn() }));
 vi.mock("@/lib/counter-pay", () => ({
   counterPayOutcome: h.counterPayOutcome,
   requestCounterPay: h.requestCounterPay,
@@ -1531,8 +1534,10 @@ describe("the Bill's other door — Pay at the counter keeps the 'Everything sen
 describe("Phase 1b — the bill says which table it is", () => {
   it("wears the table number at a dine-in table", () => {
     // MUTATION: drop the eyebrow — a shared-table bill stops naming its table; red.
+    // 3c-ii (D30): the prop SEEDS state (`initialTableNumber`, the `initialLocked` idiom) — the
+    // number is live afterwards, written by every applied view and by the bind's confirmed answer.
     mount({
-      tableNumber: 7,
+      initialTableNumber: 7,
       splitContext: {
         mode: "dinein",
         mySeat: MY_SEAT,

@@ -4,6 +4,160 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3c-ii — the table bound at SEND (2026-10-05)
+
+**The owner's ask:** "merge, continue 3c-ii" after #313. Row 3c's authority half (`docs/PHASE3_JOURNEYS.md`;
+J22 · J33 · M258): a dine-in diner was asked "Which table are you at?" BEFORE the menu, a seated table
+demanded the party's code there, and the table NUMBER was a nullable label beside the sticker TOKEN —
+three occupancy predicates, no uniqueness, every 23505 read as the token index, the picker's occupancy
+failing OPEN, and `mms_undo_fire` never reading the lock. Contract: `docs/PHASE3C_II_DESIGN.md` (D21–D30),
+written by a nine-agent panel (two mappers · four blind proposers · two judges · one synthesizer; the
+adversary's proposal won with both judges at 5/5 on contract); the lead spot-checked its load-bearing
+claims against source before adopting it. Two engineers built the disjoint slices in worktrees, red-first;
+the lead squashed and integrated.
+
+- **Browse first; the table is asked ONCE, inside the first Send (D27, D28).** The Dine-in door enters
+  the menu on the bare host-start; `/dine-in` redirects (its picker and skeleton retired); the first Send
+  on an unbound session opens `TableBindSheet` — `TableSection`, the DoorSheet's own section extracted
+  verbatim, hosted a second time — as a GATE inside `send()` after the frozen refusal; a chip BINDS the
+  live session through one bounded write and the SAME send runs; `seated` flips that chip and reveals
+  the inline join with the drafts note; "Send anyway" keeps a registry outage from ever dead-ending the
+  send; dismissal calls nothing. The hero stays `orderStageHero`'s one `.checkout-cta`. No live region in
+  the sheet: every sentence is stashed and said through the view's one region after the modal unmounts;
+  the host lands focus on both edges (the primitive restores nothing once a close handler exists — a
+  design claim refuted against `sheet.tsx` by the engineer, recorded as a BUILT deviation).
+- **The number is an identity beside the token (D21–D23, D25, D26).** `lib/seated.ts` — `seatedSessionFor`
+  (ONE live-dine-in-at-N predicate, throws on a read error), `sweepExpiredOnTable`, the one-column
+  row-count CAS `bindSessionTable`, the pure `claimDisposition`/`bindVerdict`/`occupancyFor`. `bindTable`
+  (`lib/bind-table.ts`): host-only, refusals in `sendToKitchen`'s order, `table_number` ONLY (never the
+  join code — re-keying would mint a phantom host session, the W9a shape), swept first, every 23505
+  re-read BY NUMBER. `/api/session` finds the table by number on the sticker, claim and home-card paths
+  (a late-bound table converges instead of 409ing its own host), a claim from a phone hosting a live
+  UNBOUND session binds it (J33's unbound half), a number-found reserved session meets the join refusal,
+  a failed number read is 503, the two sentences come from `BIND_COPY`. The register's Start a table and
+  the kiosk's claim read the one predicate; an inactive table is refused by name; the picker's occupancy
+  is by number and fails honest.
+- **SQL, as files (D22, D29).** `20261005120000_p3c2_table_number_uniq.sql` — close only expired dine-in
+  rows carrying a number, RAISE naming the numbers if two LIVE rows share one, then the partial unique
+  index `table_sessions_active_table_uniq`; `20261005120100_m258_undo_fire_lock_guard.sql` — M258 as the
+  void path's freshness idiom (a FRESH 5-minute lock · a FRESH 10-minute settle; the bare `locked = false`
+  rejected as sticky), body and grants restated, the one-statement residual STATED (M261). Both pinned by
+  SQL tests in CI's required list (run locally on a throwaway Postgres 16 before CI) and four
+  `verify-mode-authority.mjs` rows (suite `p3c2`). Nothing applied to prod — M260 is the owner's one-file
+  apply, M258's file first.
+- **The number is live on every surface (D30).** Checkout's `tableNumber` is state seeded from
+  `initialTableNumber`, written by `applyCartView` and the bind's CONFIRMED answer; the provider's context
+  reads `viewTable ?? session.tableNumber`; a later null view never un-names the table.
+- **The integration gate's two guards caught the slices' seam.** `check:freeze-parity` stopped for the
+  new lock-bearing mutation (registered after its guard was read); `check:child-freeze` found that a
+  tablemate's checkout could lock the cart while the table sheet was up, and a chip tap then reached the
+  server to be refused with the RACED sentence — the sheet now takes `editsFrozen` and refuses before the
+  write with `FROZEN_NOTE`, said after the close; the host owns the bind call (`onClaim`, the
+  `LineOptionsSheet` shape the guard can read). Red-first in both suites; mutant
+  `checkout-bind/frozen-chip-binds`.
+- **The capped blind pass (money semantics · concurrency · product truth + a11y; three auditors, ~17
+  min, every finding verified against source before a fix — LEARNINGS #218), fixed red-first BEFORE
+  the PR (2026-10-06):** the ONE predicate takes the table's sticker token as a SECOND read — a live
+  dine-in row the mint itself stamps numberless on a registered sticker (its registry read failed) was
+  reachable by nobody once every find went number-first (the host's reload 500'd, an invite 404'd, the
+  register read an outage); `bindTable` PRE-READS occupancy before its CAS (own row → ok/already; a
+  party → `seated`) so a stale Open chip cannot double-seat a table in the deploy-before-apply window;
+  J15 is CLOSED at the server — a code the phone PERSISTED (`persisted` in the mint body) re-joins only
+  a session this seat belongs to, else a bare host-start, because 3c-ii's code-free Dine-in door had
+  made the stale sticker token the FRONT door; the claim arm's zero-row CAS re-reads the own row and
+  rejoins it at the number another tab landed (never a second session over the drafts), its 23505
+  with no holder is "try again" (500) like `bindTable`'s `error`, and a landed claim-arm bind touches
+  the open cart so peers resync (D30); the register refuses a `kiosk-` holder by name (its idle reset
+  cancels the open cart staff would add to); the Send-time sheet takes ONE bind at a time (a second
+  chip or "Send anyway" under a bind still out is ignored — a late `ok` could fire the order after a
+  dismissal), resets its join ask at the close edge, and renders no second "Pick your table" heading
+  (`TableSection` under `source="send"`); the Send button stays FOCUSABLE while pending
+  (`aria-disabled` + `aria-busy`, the Undo's T9 idiom; `send()` refuses the second call itself) so the
+  host's focus landing after the sheet reaches it and a failed send keeps it; Checkout drops a stashed
+  refusal on the ok and "Send anyway" edges (the region said "That table was just seated" as the order
+  fired at another table) and `already_bound` now SENDS (so "this order goes there" is true when
+  said); `BIND_COPY.unavailable` no longer advises the sticker scan the sheet's own docblock refuses;
+  three docblocks that said a `?table=N` claim never sends the persisted code (it does — as
+  `priorCode`, D25) and that "wrong table?" is `bindTable` (it is J38) corrected; M258's test gains
+  the INNER edges (a 4-minute lock and a 9-minute settle still refuse — M258.7/8, red against a copy
+  of the migration with each window narrowed to one minute) and the battery two narrowed-window rows.
+  Twenty-nine new mutants (3116 over 265 files), the SQL proofs re-run on a throwaway Postgres 16,
+  prod measured read-only (0 live dine-in rows, 0 duplicates, neither migration applied — M260).
+  Filed: J40 (a staff shell at N refuses the host's bind — hostile ordering, owner decision);
+  J15 closed; J33's bound half amended; M260's pre-apply query.
+- **Codex round 1 on #314 (`95814db`): three P1, four P2 — six fixed red-first, one justified.** The bind's
+  pre-read answered `already` for the OWN numberless row on the table's sticker (the stranded shape) and
+  sent without the CAS — the row, the floor and the ticket stayed numberless; now only an own row AT n
+  is `already`, an own numberless one runs the CAS. The claim-arm bind (J33) now keeps `bindTable`'s
+  lock model: the session's open cart is read with authz's own freshness (`CART_LOCK_TTL_MS` ·
+  `SETTLE_TTL_MS`), a FRESH lock or settlement makes the claim a plain REJOIN (unbound; the next Send
+  asks under `bindTable`), an unknowable freeze is 503. `findActive` THROWS on a read error (W10a) —
+  discarded, it read as "no prior session" and the claim arm minted a second session over the drafts;
+  every caller answers the 503 or stands down. The provider's cached table number is KEYED BY THE CART
+  it came from, so a recovery re-mint (a new cart) stops reading as the old table. `mms_undo_fire`'s
+  lock guard spells out `locked_at is not null` — SQL's three-valued logic made the bare form NULL for
+  `locked = true, locked_at = null` (a state the schema permits and `authz.ts` reads as not fresh), so
+  the UPDATE skipped the row and every undo on it read "expired" (M258.9, red against the old form on a
+  throwaway Postgres 16; battery row `undo/null-lock-timestamp-refuses`). Checkout's stash is a LIST
+  said as one announcement at the close edge — the one-slot stash let the send's line overwrite the
+  `already_bound` destination when the send answered inside the sheet's exit. Justified: the bind's
+  `waiting` at the 15 s bound frees the sheet by contract (`LineOptionsSheet`'s shape; the raw action
+  stays in the stall ledger — M259 names the diner surfaces in it). Seven mutants (3122 over 265 files).
+- **Codex round 2 on #314 (`8eeed25`): two P2, both fixed red-first.** The picker's occupancy read dropped
+  a NUMBERLESS live row on a registered sticker (the stranded shape `seatedSessionFor`'s token read
+  finds), so that table read Open, the tap followed the claim path and the mint 409'd the stranger:
+  `seatedTableNumbers` now returns the numbers AND the numberless rows' codes, the registry read
+  carries each table's sticker code into the pure `occupancyFor`, and a table is occupied when a party
+  holds its number or a numberless party holds its sticker — the code never leaves the mapping. And
+  `applyView` is PER-CART: every caller names the cart it read for, and a view for a cart that is no
+  longer this provider's is refused outright — the ticket alone admitted an old cart's `refresh` that
+  answered after a re-mint, with the new cart's first view still out, so the new cart wore the old
+  table, rows and totals. Three mutants (3125 over 265 files).
+- **Codex round 3 on #314 (`7bd48a5`, the per-head round): one P2 fixed red-first, one P1 filed.** In the
+  Send sheet a SEATED chip now tries the BIND first: `markMine={false}` makes every occupied table read
+  Seated, and since round 2 the registry reports the host's OWN numberless row on a table's sticker as
+  occupied too — so the stranded host's own table read Seated forever and its ask could only rejoin the
+  same numberless row. Only `bindTable`'s pre-read can tell that row from a stranger's party, so the chip
+  calls `onClaim` and the ask reveals on the `seated` answer; the chip whose ask is open collapses it
+  with no write; under a freeze a Seated chip reveals the ask directly (the join is not a cart write —
+  FROZEN_NOTE stays the Open chip's sentence). The P1 — the claim arm's freeze read and bind are two
+  statements, M261's class one layer up — is filed as M263 with the fix: a `for update` on the cart with
+  the freshness re-checked in-statement is an RPC, i.e. a migration PR of its own, not a round-3 commit.
+  Three mutants (3128 over 265 files).
+- **Codex round 4 on #314 (`9045d3c`): one P1 and one P2 fixed red-first, one P2 filed.** The mint's two
+  `qr_tables` reads discarded their error: the sticker arm then read a registered sticker as a legacy
+  code, went token-only — blind to a late-bound generated-code party at that table — and minted a
+  SECOND, numberless session on the sticker (the stranded shape at its origin, LEARNINGS #234), and
+  the claim arm answered "pick another" for a read that did not happen; both now answer the W10a 503,
+  as the register and the kiosk already did. The provider's `cartIdRef` advanced in a passive effect:
+  React flushes a commit's passive effects in a later scheduler task when the commit overran the 5 ms
+  frame, so an old cart's read resolving in that window was accepted onto the new cart's rows — the
+  ref now moves in `useLayoutEffect`, proved by a harness that commits the re-mint outside `act` and
+  resolves the old read from a layout effect that burns past the frame (red first: the stale line
+  landed; LEARNINGS #236). Filed: J41 — a stranded sticker session bound at Send to a table other
+  than its sticker's is unreachable by its sticker code (the `IS NULL` token read excludes it); an
+  owner decision between a bind refusal, a wider token read and a membership-keyed persisted key.
+  Three mutants (3131 over 265 files).
+- **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
+  `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
+  `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when
+  a live holder is read, else `error` (retryable); the route maps a thrown `UNAVAILABLE()` to the
+  existing W10a 503 shape; the reserved-code block moved above the W5a member check; the kiosk also
+  sweeps before its pre-read; `bindRefusalCopy` takes `reasonCopy` as a parameter (`useUndoGrace` pulls
+  `@/lib/cart`'s `server-only` into every importer's suite); the Sheet's default opener restore is skipped
+  once `onCloseAutoFocus` exists, so the host lands focus on both edges.
+- **Proof:** every new test watched RED against the pre-change code, then green. Slice A 35 mutants ·
+  Slice B 19 · the integration fix 1 — fifty-five over seven new target files (`seated.ts` ·
+  `bind-table.ts` · `tables.ts` · `useTableSession.ts` · `app/api/session/route.ts` · `TableBindSheet.tsx`
+  · `TableGrid.tsx`): 3091 over 265 files, buckets measured (lib 179 · api 5 · components 78 · css 1 ·
+  staff page 1 · schemas 1); every family of every changed target run through `verify:slice --only=` on
+  the integrated head, one at a time, watched to the end; `bind-not-recorded` first SURVIVED on a
+  degenerate fixture (the post-send re-sync carried the number too) and the fixture was separated, never
+  the mutant dropped. Whole qr suite 6600 + 287 ui; tsc · eslint · `format:check` · `check:migration-
+versions` (105 migrations) · the fifteen-step fast lane · `check:mutant-anchors` clean. Filed: M260 ·
+  M261 · M262 · J38 · J39 · K41; J22 closed; J33's unbound half closed, bound half re-filed; M258 amended
+  (filed as a migration, the in-grace half retired, its retired-mutant citation corrected).
+
 ### Phase 3c-i — the bill is a receipt you can read (2026-10-04)
 
 **The owner's ask:** "continue good work" after 3b. The dine-in `/cart` audit (`docs/PHASE3_JOURNEYS.md`,

@@ -2410,3 +2410,44 @@ Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLa
   your table / စားပွဲ ရွေး", v7.2's words) with the join form inline — never a second sheet — and
   `mode_selected` fires on the taps that enter the door, never on a section revealed or a seated chip's
   code ask.
+
+## 33 · The table is bound at SEND; the number is an identity beside the token; one predicate for a seat (Phase 3c-ii)
+
+Decided in `lib/seated.ts` (`seatedSessionFor` · `liveDineInAt` · `sweepExpiredOnTable` ·
+`bindSessionTable` · `claimDisposition` · `bindVerdict` · `occupancyFor`), `lib/bind-table.ts` (the
+host's bind, under the lock model), `lib/table-pick.ts` (`sendNeedsTable` · `tablePlainLabel` ·
+`bindRefusalCopy`) and `lib/bind-copy.ts` (the bind's sentences, named once); drawn by
+`TableBindSheet` hosting `TableSection` (the DoorSheet's own section, verbatim), a `TableGrid` that binds
+instead of navigating when its host asks, and `SendToKitchenButton`'s gate. Contract:
+`docs/PHASE3C_II_DESIGN.md` (D21–D30).
+
+- **Browse first; the table is asked ONCE, where the kitchen needs it.** The Dine-in door enters the
+  menu on the bare host-start (a generated join code, no number); `/dine-in` redirects. The first Send on
+  an unbound session opens the table sheet as a GATE inside `send()` — after the frozen refusal, before
+  the server — and a chip BINDS the live session, then runs the SAME send: one gesture, bind and fire.
+  "Pick your table" is the Send's question, never a verb: the hero stays `orderStageHero`'s one
+  `.checkout-cta`. A sticker scan, a `?table` claim, a staff-started table and a kiosk claim stamp the
+  number at mint and never see the sheet; an empty or failed registry never asks a question with no
+  answers (the send proceeds unbound; "Send anyway" is the escape, never removed — a numberless ticket
+  reads its code on the pass).
+- **The NUMBER is an identity beside the sticker token, and the bind writes ONE column.** `bindTable`
+  sets `table_number` under a row-count CAS on `NULL` (`{ count: "exact" }` — an `.update()` with no count
+  reports a blocked write as success); `qr_code` is never rewritten, because every phone persists the
+  join code it was accepted with and the invite link embeds it — re-keying would mint a phantom host
+  session on the next bare `/menu?mode=dinein` (the W9a shape). One active dine-in session per number is
+  a partial unique index, and every writer that stamps a number (the mint's claim and sticker arms, the
+  register, the kiosk, the bind) sweeps the expired row off it first and reads a 23505 BY NUMBER through
+  the one predicate, never by a constraint name.
+- **One predicate for a seat; a read error is an outage, never "free".** `seatedSessionFor(n)` is the one
+  server reading of "the live dine-in session at table N" — the mint's claim refusal, the sticker scan's
+  convergence onto a late-bound table, the home card's resume, the register's Start a table (a
+  convergence, not a second ledger), the kiosk's occupancy and the picker's grid all read it. It throws
+  on a read error; the picker's occupancy fails HONEST (`[]`, the existing degrade), never Open.
+- **A freeze that lands while the sheet is up is refused before the write, in the client's own words.**
+  The sheet takes Checkout's `editsFrozen` (threaded, never re-derived) and a chip tap under it says
+  `FROZEN_NOTE` through the host — not the raced sentence the server would answer. No live region inside a
+  modal: every sentence that lands while the sheet is open is STASHED and said through the view's one
+  region after the sheet unmounts; the number lands on screen only from the confirmed answer (the CAS
+  count, the re-read, or a view), never optimistically. The host owns the mutation call (`onClaim`), the
+  sheet owns the bounded await and `busy` — the `LineOptionsSheet`/`onMakeNow` shape, and the one the
+  child-freeze guard can read.

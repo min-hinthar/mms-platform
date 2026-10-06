@@ -10,8 +10,13 @@ import type { OrderMode } from "./menu-href";
  * `mode` is the ANALYTICS mode that lands on `mode_selected` (K0) — presentation; the menu's internal
  * mode (dinein|pickup|scango, a DB CHECK) is `OrderMode` and `currentDoor` maps between the two. The
  * Dine-in line is v7.2's modecard verbatim ("Grab a table, invite friends, order together" — the
- * shipped "Pick your table…" promised a pre-menu picker a later slice retires); the other two stay as
+ * shipped "Pick your table…" promised a pre-menu picker Phase 3c-ii retired); the other two stay as
  * they shipped. Burmese: the three door names are v7.2-era copy already on the home — no new MY here.
+ *
+ * Phase 3c-ii (D27) — the Dine-in door enters the MENU on a bare host-start: its href is the LITERAL
+ * `dineInMenuHref({})` builds (`lib/table-pick.ts`), pinned equal by `doors.test.ts` — this module
+ * cannot import the builder (table-pick imports `currentDoor` from here). `/dine-in` stays as a route
+ * that redirects to the same href; the table is asked inside the first Send.
  */
 export type DoorMode = "dinein" | "pickup" | "grocery";
 
@@ -32,7 +37,7 @@ export const DOORS: readonly Door[] = [
   {
     mode: "dinein",
     door: "dinein",
-    href: "/dine-in",
+    href: "/menu?mode=dinein&door=dinein", // = dineInMenuHref({}), pinned by doors.test (3c-ii)
     emoji: "🪑",
     name: "Dine-in",
     my: "ဆိုင်တွင်စားရန်",

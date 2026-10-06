@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DineInTable } from "@/lib/tables";
 import type { PeekSession } from "@/lib/useSessionPeek";
-import { dineInMenuHref, tableChipLabel } from "@/lib/table-pick";
+import { dineInMenuHref, tableChipLabel, tablePlainLabel } from "@/lib/table-pick";
 
 /**
  * Phase 3c-i (D18) — the K2 grid, extracted from TablePicker so the DoorSheet can host it as a
@@ -240,5 +240,155 @@ describe("TableGrid — the empty registry stays honest", () => {
     expect(start.className.split(/\s+/)).toContain("table-start-plain");
     fireEvent.click(start);
     expect(ctx.push).toHaveBeenCalledWith(dineInMenuHref({}));
+  });
+});
+
+/**
+ * Phase 3c-ii (D27) — the SEND sheet hosts the same grid, but a chip there BINDS the live session
+ * instead of navigating: `onClaim` / `onPlain` take the tap, the door is never entered (no
+ * `onEnter`), `markMine={false}` keeps every occupied table plainly Seated (a "pick up where you
+ * left off" chip whose bind would answer `seated` is a promise the code cannot keep), and the
+ * escape reads the send's verb. The capture keeps `source: "send"`.
+ */
+describe("TableGrid — a host that binds instead of navigating (3c-ii, D27)", () => {
+  it("an OPEN chip with `onClaim` hands the number to the host and pushes NOTHING; the door is not entered", () => {
+    const onClaim = vi.fn();
+    const onEnter = vi.fn();
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={() => {}}
+        onEnter={onEnter}
+        onClaim={onClaim}
+        markMine={false}
+      />,
+    );
+    fireEvent.click(chip(8));
+    // MUTANT table-grid/claim-override-ignored: the chip navigates to `?table=8` as on the to-go
+    // menu — a `?table=N` claim MINTS a new session over the drafts about to be sent; red.
+    expect(onClaim).toHaveBeenCalledTimes(1);
+    expect(onClaim).toHaveBeenCalledWith(8);
+    expect(ctx.push).not.toHaveBeenCalled();
+    expect(onEnter).not.toHaveBeenCalled();
+    expect(ctx.capture).toHaveBeenCalledWith("table_picked", {
+      table_number: 8,
+      occupied: false,
+      resumed: false,
+      source: "send",
+    });
+  });
+
+  it("a SEATED chip with `onClaim` and no open ask tries the BIND first — `onClaim(n)`, never `onJoin`, nothing pushed; the capture says occupied, not resumed (Codex round 3 on #314, P2)", () => {
+    const onClaim = vi.fn();
+    const onJoin = vi.fn();
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={null}
+        controls="join-form"
+      />,
+    );
+    fireEvent.click(chip(5));
+    // MUTANT table-grid/seated-chip-skips-the-bind: the Seated chip hands the join straight to the
+    // host, as the DoorSheet's does — but the registry reports the host's OWN numberless row on that
+    // table's sticker as occupied too, and only `bindTable`'s pre-read can tell it from a stranger's
+    // party: that table reads Seated forever and the ask can only rejoin the same numberless row; red.
+    expect(onClaim).toHaveBeenCalledTimes(1);
+    expect(onClaim).toHaveBeenCalledWith(5);
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(ctx.push).not.toHaveBeenCalled();
+    expect(ctx.capture).toHaveBeenCalledWith("table_picked", {
+      table_number: 5,
+      occupied: true,
+      resumed: false,
+      source: "send",
+    });
+    // Still a disclosure, still closed: the ask opens on the bind's `seated` answer, through the host.
+    expect(chip(5).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("the SEATED chip whose ask is OPEN collapses it through `onJoin` — no second bind", () => {
+    const onClaim = vi.fn();
+    const onJoin = vi.fn();
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={5}
+        controls="join-form"
+      />,
+    );
+    const five = chip(5);
+    expect(five.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(five);
+    // MUTANT table-grid/open-ask-rebinds: the expanded chip fires another bind instead of collapsing
+    // — the same `seated` again, the ask never closes from its chip and focus never returns to it; red.
+    expect(onJoin).toHaveBeenCalledTimes(1);
+    expect(onJoin).toHaveBeenCalledWith(5, five);
+    expect(onClaim).not.toHaveBeenCalled();
+    expect(ctx.push).not.toHaveBeenCalled();
+  });
+
+  it("`markMine={false}`: the diner's own peeked table reads Seated, never 'Your table'", () => {
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={() => {}}
+        onClaim={() => {}}
+        markMine={false}
+      />,
+    );
+    // MUTANT table-grid/mine-marked-in-the-send-sheet: the peek still marks table 3 as mine and the
+    // chip promises a resume; its bind would answer `seated`; red.
+    expect(screen.queryByText("Your table")).toBeNull();
+    expect(chip(3).className.split(/\s+/)).toContain("is-seated");
+    expect(chip(3).getAttribute("aria-label")).toBe(tableChipLabel(3, "join"));
+  });
+
+  it("the escape reads the send's verb and calls `onPlain` — no navigation; the empty registry's link does the same", () => {
+    const onPlain = vi.fn();
+    const { unmount } = render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={() => {}}
+        onClaim={() => {}}
+        onPlain={onPlain}
+        markMine={false}
+      />,
+    );
+    expect(screen.queryByText("Not at a numbered table? Start anyway")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: tablePlainLabel("send") }));
+    expect(onPlain).toHaveBeenCalledTimes(1);
+    expect(ctx.push).not.toHaveBeenCalled();
+    unmount();
+    render(
+      <TableGrid
+        tables={[]}
+        stagger={false}
+        source="send"
+        onJoin={() => {}}
+        onClaim={() => {}}
+        onPlain={onPlain}
+        markMine={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "start without a number" }));
+    expect(onPlain).toHaveBeenCalledTimes(2);
+    expect(ctx.push).not.toHaveBeenCalled();
   });
 });

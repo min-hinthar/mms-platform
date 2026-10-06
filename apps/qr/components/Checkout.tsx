@@ -73,9 +73,10 @@ import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { TimelineStrip } from "./TableTimeline";
-import { SendToKitchenButton } from "./SendToKitchenButton";
+import { SendToKitchenButton, type SendHandle } from "./SendToKitchenButton";
+import { TableBindSheet } from "./TableBindSheet";
 // Phase 3c-i (D15) — the send's undo window lives HERE, not in the Send button (the brief's finding 2).
-import { useUndoGrace } from "./useUndoGrace";
+import { reasonCopy, useUndoGrace } from "./useUndoGrace";
 // Phase 3c-i (D17) — the dish's ⋯ sheet (For here / To go · Send to kitchen now).
 import { LineOptionsSheet } from "./LineOptionsSheet";
 import { SecureTabButton } from "./SecureTabButton";
@@ -104,6 +105,9 @@ import {
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
 // Phase 3c-i (D13 · D14 · D16) — one hero verb per state, Pay's one reason, the door's honest label.
 import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "@/lib/checkout-verb";
+import { bindTable, type BindTableResult } from "@/lib/bind-table";
+import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
+import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
 import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
@@ -244,7 +248,8 @@ export function Checkout({
   initialMySeat = null,
   initialTabType = "none",
   initialCounterRequestedAt = null,
-  tableNumber = null,
+  initialTableNumber = null,
+  tables = [],
   canTab = false,
   prepMinutes = 12,
   initialPickupSlot = null,
@@ -269,8 +274,15 @@ export function Checkout({
   initialTabType?: "none" | "trust" | "secure";
   /** A1 — the table's live "pay at the counter" ask (ISO) from the server view, or null. */
   initialCounterRequestedAt?: string | null;
-  /** A1 — the registered table number the counter card names; null for an unregistered sticker. */
-  tableNumber?: number | null;
+  /** A1 — the registered table number the eyebrow and the counter card name; null for an
+   *  unregistered sticker or an UNBOUND session. 3c-ii (D30): a SEED, the `initialLocked` idiom —
+   *  the number is state afterwards, written by every applied view and by the bind's CONFIRMED
+   *  answer, so the next Send never asks again. */
+  initialTableNumber?: number | null;
+  /** 3c-ii (D27) — the registered dine-in tables (number + occupancy; tokens stripped server-side)
+   *  for the Send's "Pick your table" ask. The page passes them ONLY for a dine-in cart whose view
+   *  carries no number; empty (or a failed read, `[]`) never asks — the send proceeds unbound. */
+  tables?: DineInTable[];
   /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
   canTab?: boolean;
   /** S4.2: configured kitchen prep estimate (min) for the to-go "ready in ~X" copy. Honest config value. */
@@ -317,6 +329,11 @@ export function Checkout({
   // defeated by a second read. Declared beside the lock state because `refresh()` writes it.
   const [mySeat, setMySeat] = useState<string | null>(initialMySeat);
   const [lockedBy, setLockedBy] = useState<string | null>(initialLockedBy);
+  // 3c-ii (D30) — the table number is LIVE: seeded from the page's view, written by every applied
+  // view (a tablemate's bind reaches this phone through its watch) and by the bind's CONFIRMED
+  // answer — the CAS count or the re-read, never before. The eyebrow, the counter card and the
+  // Send's gate read THIS, so the next send never asks a table that is already bound.
+  const [tableNumber, setTableNumber] = useState<number | null>(initialTableNumber);
   /**
    * M224 — the freeze facts as the LAST APPLIED VIEW stated them, written synchronously beside the
    * setters above.
@@ -600,6 +617,9 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+    // 3c-ii (D30) — the table number rides every applied view (a tablemate's bind, the re-sync
+    // after a send); a null one never un-names a table a view already named.
+    if (v.tableNumber != null) setTableNumber(v.tableNumber);
   }, []);
 
   /**
@@ -887,6 +907,96 @@ export function Checkout({
   const sayOutcome = (text: string, my?: string) => {
     sayRefusal(text);
     setOutcomeMy(my ? { text, my } : null);
+  };
+  /**
+   * Phase 3c-ii (D27 · D28) — the table bound at SEND. The first Send on an UNBOUND dine-in session
+   * opens `TableBindSheet` (the button's gate, `sendNeedsTable`); a chip binds the live session and
+   * the host runs the SAME send through the button's handle — one gesture, one send body. The hero
+   * never gains a verb: "Pick your table" is the Send's question.
+   *
+   * ONE REGION PER VIEW, SAID AFTER THE SHEET. A sentence written while the modal is open sits under
+   * Radix's `aria-hidden`, so every outcome that lands while the sheet is up — the send's own
+   * success line, a bind refusal — is STASHED and said through `sayOutcome` in `onBindClosed`, which
+   * the sheet calls from `onCloseAutoFocus` at UNMOUNT, after the CSS exit. Focus lands there too, on
+   * both edges, through the button's handle: the Undo that replaced the Send after a send, the Send
+   * again after a dismissal (the primitive restores nothing once a close handler exists —
+   * `packages/ui/src/sheet.tsx:248-252`, and Radix aims its own at a trigger never rendered).
+   */
+  const [bindOpen, setBindOpen] = useState(false);
+  // "Send anyway" answered the question for THIS mount: a refused send retried after it never re-asks.
+  const [sentAnyway, setSentAnyway] = useState(false);
+  // The last refusal's sentence, SEEN inside the sheet while it stays open (and stashed for the region).
+  const [bindNote, setBindNote] = useState<string | null>(null);
+  // True from the ask until the sheet has unmounted (`onBindClosed`) — the stash's gate.
+  const sheetUp = useRef(false);
+  // Every sentence that lands while the sheet is up, IN ORDER — said as ONE announcement at the
+  // close edge (Codex r1 on #314, P2: a one-slot stash let the send's own line overwrite the
+  // `already_bound` destination when the send answered inside the sheet's exit, so a host who
+  // tapped 5 heard "Sent" and never "Table 3").
+  const stashed = useRef<{ text: string; my?: string }[]>([]);
+  const sendHandle = useRef<SendHandle | null>(null);
+  const sayOrStash = (text: string, my?: string) => {
+    if (sheetUp.current) stashed.current.push({ text, my });
+    else sayOutcome(text, my);
+  };
+  // The Send's one question (lib/table-pick): dine-in · unbound · a registry with answers — and not
+  // already answered with "Send anyway" on this mount.
+  const needsTable = !sentAnyway && sendNeedsTable({ isDineIn, tableNumber, tables });
+  const askTable = () => {
+    setBindNote(null);
+    sheetUp.current = true;
+    setBindOpen(true);
+  };
+  const onBindOutcome = (r: BindTableResult) => {
+    if (r.ok) {
+      // The CONFIRMED answer (the CAS count, or the re-read's `already`): the number lands, the
+      // sheet closes, and the SAME send runs with the question answered. An earlier refusal's
+      // sentence (a chip that answered `seated`, then an open one) is dropped — it would be said
+      // through the region at the moment the order fires (the blind pass on 3c-ii).
+      stashed.current = [];
+      setBindNote(null);
+      setTableNumber(r.tableNumber);
+      setBindOpen(false);
+      sendHandle.current?.send({ tableAnswered: true });
+      return;
+    }
+    const sentence = bindRefusalCopy(r, reasonCopy);
+    stashed.current = [{ text: sentence }];
+    if (r.reason === "already_bound") {
+      // Another tab (or a tablemate's claim) bound this session meanwhile: the re-read's number is
+      // a confirmed answer too, so the SAME send runs — "this order goes there" is then true the
+      // moment it is said, after the close (the gate no longer asks).
+      setBindNote(null);
+      setTableNumber(r.tableNumber);
+      setBindOpen(false);
+      sendHandle.current?.send({ tableAnswered: true });
+      return;
+    }
+    setBindNote(sentence); // seated · unavailable · locked · … — the sheet stays open to pick again
+  };
+  const onSendAnyway = () => {
+    stashed.current = []; // an earlier refusal is not the send's sentence (as on the ok edge)
+    setBindNote(null);
+    setSentAnyway(true);
+    setBindOpen(false);
+    sendHandle.current?.send({ tableAnswered: true });
+  };
+  // T9 — a chip tapped under a freeze that landed while the sheet was up: seen in the sheet, said
+  // through the region once it has closed (the same stash every in-sheet sentence rides).
+  const onBindFrozen = (frozenNote: string) => {
+    stashed.current = [{ text: frozenNote }];
+    setBindNote(frozenNote);
+  };
+  const onBindClosed = () => {
+    sheetUp.current = false;
+    const said = stashed.current;
+    stashed.current = [];
+    // One announcement: the sentences joined in the order they landed (a destination, then the
+    // send's line), the owner's Burmese half from the last one that carried it.
+    if (said.length)
+      sayOutcome(said.map((s) => s.text).join(" "), [...said].reverse().find((s) => s.my)?.my);
+    // The landing after the modal: the Undo once a send opened the window, else the Send.
+    sendHandle.current?.focus();
   };
   /**
    * Phase 3c-i (D15) — the send's undo window, owned HERE. `useUndoGrace` holds the deadline, the
@@ -3841,17 +3951,41 @@ export function Checkout({
               // onChanged re-syncs the cart after a send (steppers → chips); the undo's re-sync is the
               // grace hook's own, since solo dine-in isn't on the group realtime channel.
               <SendToKitchenButton
+                ref={sendHandle}
                 cartId={cartId}
                 verb={hero}
                 grace={grace}
                 draftCount={kitchenDraftQty}
-                onMessage={sayOutcome}
+                // 3c-ii — stashed while the table sheet is up, said once it has unmounted.
+                onMessage={sayOrStash}
                 onChanged={refresh}
+                // 3c-ii (D27) — the Send's one question, inside send() after the frozen refusal.
+                needsTable={needsTable}
+                onNeedTable={askTable}
                 // T9 — `sendToKitchen` and `undoFire` both refuse on bare `locked`. Gating UNDO
                 // looks like taking something away, and isn't: `undoFire` refuses under the same
                 // predicate, so a freeze has already removed it server-side. The hook keeps the
                 // undo WINDOW open rather than closing it, so it returns the moment the lock lifts.
                 frozen={editsFrozen}
+              />
+            )}
+            {/* 3c-ii (D27) — the Send's question, as a sheet the host owns. Mounted for every dine-in
+                host (never conditioned on the gate: the ok edge clears the gate in the same commit
+                that closes the sheet, and a sheet its parent unmounts cannot exit — sheet.tsx). It
+                never opens without `tables`; its outcomes are the handlers above. */}
+            {canSendToKitchen && (
+              <TableBindSheet
+                open={bindOpen}
+                onOpenChange={setBindOpen}
+                onClaim={(n) => bindTable(cartId, n)}
+                tables={tables}
+                draftQty={kitchenDraftQty}
+                frozen={editsFrozen}
+                note={bindNote}
+                onFrozen={onBindFrozen}
+                onOutcome={onBindOutcome}
+                onSendAnyway={onSendAnyway}
+                onClosed={onBindClosed}
               />
             )}
 
