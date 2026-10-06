@@ -379,8 +379,13 @@ doorSheetOpen}`) — DoorSheet.test pins `onOpenChange` on both edges.
 - **3d — Staff, two independent PRs.** _[kitchen] whole_ (M, zero new strings): Aa + bell as bar circles,
   the glance strip (Open · Late at `--kfs-id`), the word "Late" in the ticket badge via `kdsBadgeKeys`
   (ship this XS first if nothing else — WCAG 1.4.1 under reduced motion), mute silences `play()`; owner
-  decisions on the slider and §17 first; measured at 1366 before merge. _[counter] split:_ the receipt
-  stack (Subtotal · Sales tax · Total, `taxCents` read verbatim from `getCartTotals` on the detail read)
+  decisions on the slider and §17 first; measured at 1366 before merge. **BUILT #315 (2026-10-06), the owner
+  decisions taken under delegation:** (a) the slider retires — a bar circle, a fixed 0.8, the mute a predicate
+  handed to the chime and defaulting open; (b) Aa opens Help straight onto Text size; (c) §17's "not a bar
+  circle" narrows to the counter's width reason (DESIGN-LANGUAGE §34). Measured at 1366 and 390 in headless
+  Chromium with the production CSS (K38's close). _[counter] split:_ the receipt
+  stack (BUILT #315 as Subtotal · Discount · Tax · Total — D1 "Tax" the console's receipt word, D2 one combined
+  Discount row — `taxCents` read verbatim from `getCartTotals` on the detail read)
   as a standalone S closing the two-bases bug; the cash-sheet re-host (`beforeOpen` gate, `HandoffCard`
   `next` slot, poll pause after a landed settle) as its own money PR with a tablet in hand.
   **Rows:** K38 (closes with kitchen); K39 narrowed (the lane's Picked-up undo EXISTS —

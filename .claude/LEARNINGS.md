@@ -3644,3 +3644,45 @@ the update outside `act` (`IS_REACT_ACT_ENVIRONMENT = false` around it, so React
 effects itself), resolve the stale promise from a child's layout effect, and busy-wait past the frame
 budget right there; a `rerender` inside `act` flushes the effects before any microtask and can never
 show it — which is why round 2's per-cart test was green on both shapes.
+
+## #237
+
+**A design written without running anything ships tests that cannot fail — the implementer's first job
+is to make each one go red (#315, 2026-10-06).** Three read-only specs, three such tests, each caught
+only because the build ran red-first: the M261.1 lock probe asserted `xmax = '0'` on a cart that had
+lines, but a line insert's foreign-key check stamps the parent cart's `xmax`, and a later UPDATE carries
+that self-held key-share lock onto the new row version — so the probe was red on BOTH bodies; it now
+probes a cart no line references (measured: red on the M258 body, green after). The J34 render-count
+test wrapped nine seconds of fake timers in ONE `act`, which batches every interval tick into one render
+— 3 renders on the old shape, indistinguishable from the fix; one `act` per tick measured 38. And the
+kitchen spec put a status dot on `::after` of a `.staff-press` control, whose `::after` is the press
+sheen and whose round clips everything outside it — the dot rides `::before`, inside. Rule: a spec's
+test is a hypothesis about a guard; induce the violation before believing either.
+
+## #238
+
+**A shared engine has two callers — hand it the screen's gate, default it OPEN (#315, 3d · kitchen).**
+`KdsChime` is the KDS's chime AND the TV wall's. A mute read inside the class from the kitchen's stored
+flag would have silenced every wall on every device where that flag was never set. The predicate is
+passed in by the screen that owns it and defaults to "always play"; the class reads it at every
+`play()`, never captured.
+
+## #239
+
+**The PostToolUse format hook runs `eslint --fix` on every TS edit — it is a process beside your run,
+and it rewrites code between edits (#315).** `.claude/settings.json`'s hook ran eslint while the full
+`verify:slice` was live (the "nothing beside the run" rule, LEARNINGS #229, did not know about it), and
+its `prefer-const` rewrote a `let` declared in one Edit and reassigned in the next into a `const` — a
+suite went 97/97 red with "Assignment to constant variable" inside a `vi.mock` factory. Declare and
+reassign in the SAME edit, re-read a declaration you split across edits, and count the hook among the
+processes a detached run shares the container with.
+
+## #240
+
+**Measure a layout with the real CSS and the real fonts, in a real engine — it is available here
+(#315, 3d · kitchen).** jsdom has no layout, and "no browser in this container" was false: Chromium is
+pre-installed (`/opt/pw-browsers`) and `playwright-core` drives it. The recipe: dump a component's REAL
+markup from a jsdom render (the suite's own mocks), compile `apps/qr/app/globals.css` with the app's own
+`@tailwindcss/postcss`, fetch the app's Google fonts locally, load the three under `.dark`, and read
+rows/overflow/wraps from `getBoundingClientRect` at each viewport. It settled the 3d merge condition
+(the bar one row at 1366 in EN and MY at every text size) that every earlier phase had left to "a device".

@@ -451,8 +451,12 @@ the plan state.
         index on `table_sessions(table_number)` for live dine-in rows, and M258's lock guard in
         `mms_undo_fire`) — both APPLIED to prod one file at a time on 2026-10-06, M258's first (M260 ✅ ·
         M125 records the stamps).
-  - [ ] **3d — staff, two PRs:** the kitchen's pass at two distances (Aa + bell as bar circles, the
-        glance strip, "Late" in the badge); the counter's receipt stack, then the cash-sheet re-host.
+  - [x] **3d · kitchen — the pass at two distances** (#315, 2026-10-06): Aa + sound as bar circles (the
+        slider retired), the glance strip Open · Late at the identity tier, "Late" in the badge (K38).
+  - [x] **3d · counter — the receipt stack** (#315, 2026-10-06): Subtotal · Discount · Tax · Total on the
+        pad's ticket, its Total Take payment's figure (K46).
+  - [ ] **3d · counter — the cash-sheet re-host** with a tablet in hand (K39), and the table page's two
+        bases (K44).
   - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the
         ASAP chip in the one sheet, the counter pass; reward terms from config, LA coupon expiry, the
         honest history foot, the receipt link on a row.

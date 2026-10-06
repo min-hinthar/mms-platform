@@ -375,7 +375,10 @@ update` by default** (both judges' letter; `20260929000000:33-37`'s "fires never
   `20260929000000:20-30` describes; the counter twin takes `perform 1 from public.qr_carts … for update`
   first (`20261001000000:171`) for exactly this reason. Upgrading to that lock (cart → line, the order every
   settlement uses) is **owner question 1**, recommended, with the 20260929 prose restated and the lock
-  listed as a two-session survivor as the battery lists the counter undo's. The TS stays: a lock-refused 0
+  listed as a two-session survivor as the battery lists the counter undo's. **BUILT #315 (2026-10-06) as
+  M261** — `20261006120000_m261_undo_fire_cart_lock.sql`, the counter twin's line first, no deploy order;
+  M261.1 probes a line-less cart's `xmax` (a line's FK check stamps any cart with lines); the prod apply
+  waits on the owner's go (OPEN-ITEMS M261). The TS stays: a lock-refused 0
   rows reads `expired` — true in effect; naming the lock needs a return-shape change (nice-to-do). THE
   IN-GRACE PREDICATE stays filed: it would 409 a GUEST's legitimate pay for ≤10 s after every host send
   with no money benefit — with the guard, whichever side wins, the charge equals the cart and nothing is

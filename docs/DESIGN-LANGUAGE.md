@@ -231,6 +231,13 @@ would see them — this is the paper proof), and the identity foot (§10). It al
 printer: `@media print` re-pins the light tokens on `html.dark` (the live tokens never
 re-evaluate for paper), flattens `.receipt-artifact` to plain paper, and hides `.paper-ambient`.
 
+**The staff pad's ticket speaks receipt too (Phase 3d · counter, K46).** It is the one
+`buildReceiptRows` reader that renders a LIVE breakdown rather than a fulfillment-time snapshot — still
+verbatim from the server (`TableDetail.settleBreakdown`, off the same `getCartTotals` call as
+`settleTotalCents`), never recomputed, its Total the very binding Take payment names. It says "Tax"
+without the rate beside it (the console's receipt words, one per row; the Bill's rate rule is the
+diner's) — the K40 sweep owns "Tax" vs "Sales tax".
+
 ## 9 · Voice — a warm host, never a nag
 
 Declining is never met with a reaction ("None" sits last and quiet; no guilt line). Generosity is
@@ -238,6 +245,12 @@ met warmly and proportionally (`tipReaction` climbs the ladder). Encouragement i
 (`--tip-heat`), not a modal. Exits are named and honest ("Back to the start keeps your table ·
 Leave this table lets this phone go — the table stays open for everyone else"). Every mode has a
 door out; leaving is a navigation, never a server mutation.
+
+**Where v7.2 has no string for a surface, there is nothing to copy verbatim (J29, 2026-10-06).** The
+verbatim rule binds the surfaces the prototype draws; a per-door line under the greeting, a sign-in
+refusal and the console's arrow pills are the house's own words — held to this section's voice and to
+the honesty rule (each one's promise checked against the code that keeps it), never written into the
+prototype after the fact.
 
 ## 10 · Identity + the surfaces that leave the app (W22r)
 
@@ -567,8 +580,8 @@ So it is the one channel that is off until someone says otherwise.
 - **The moments are one phrase, not two alerts.** `sent` lifts G5→C6; `paid` picks up on C6 and
   resolves home to G5. A beginning and an end across the meal, in the same register as the gold cap —
   a restaurant's sound rather than a notification tone.
-- **A guest's phone is not a working device.** The kitchen chime defaults to 0.8 because a cook must
-  hear a ticket land across a hot line. The diner level is 0.22: loud enough for the person holding
+- **A guest's phone is not a working device.** The kitchen chime plays at a fixed 0.8 (Phase 3d retired its slider — the
+  device's own buttons are the dial, §34) because a cook must hear a ticket land across a hot line. The diner level is 0.22: loud enough for the person holding
   the phone, quiet enough not to announce their dinner to the room.
 - **Enabled and armed are two facts and neither implies the other.** Browsers create an AudioContext
   `suspended` and resume it only from a real user gesture (strictly, on iOS). A diner can therefore
@@ -776,8 +789,8 @@ built.
 - **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
   tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
   of real links, named by its visible heading.
-- **Sheets, not chip rows, for settings** — the KDS text size opens from the bar's Aa circle into a
-  `Sheet` (§16 owns its four exits); `Sheet.title` is a `ReactNode` so a dictionary title arrives
+- **Sheets, not chip rows, for settings** — the KDS text size opens from the bar's Aa circle straight onto
+  the Help sheet's Text size view (Phase 3d — two taps, §34; §16 owns the Sheet's four exits); `Sheet.title` is a `ReactNode` so a dictionary title arrives
   marked.
 - **The CSS a component's DOM is written against is held to a render** (LEARNINGS #101):
   `StaffBar.test.tsx` and `StaffDoors.test.tsx` extract every selector naming the title from
@@ -972,9 +985,9 @@ built.
   re-pick for the same gesture. A KEYBOARD user on either Undo (`:focus-visible` only — a tap never
   holds) holds the window, capped at a minute. After an Undo from the pill focus lands on the card's
   restored slot. The counter column carries `.staff-col-dock` so its last controls scroll clear.
-- **The kitchen board's sound chip follows the engine.** `KdsChime.subscribe` sets the chip from the
-  audio context's real state, so a tablet that slept shows "Sound off — tap to turn on" and re-arms
-  off the next tap — never a volume slider over a silent board. The sold-out tap and its Undo buzz
+- **The kitchen board's sound circle follows the engine.** `KdsChime.subscribe` sets the circle from
+  the audio context's real state, so a tablet that slept shows the paused posture (warn ring + dot)
+  and re-arms off the next tap — the volume slider is retired (§34). The sold-out tap and its Undo buzz
   at the TAP (`commit`), opening the ⋯ buzzes `pick`. Lateness is one module (`lib/kds-urgency.ts`);
   nobody restates the 8/12-minute thresholds.
 - **Plain words on the console (owner, 2026-09-24).** §5's rule reaches the staff: "Mark sold out"
@@ -1018,8 +1031,11 @@ built.
   too, so one path serves every tier. **It re-says its reason on EVERY tap:** a same-value
   `setState` is a React no-op and says nothing, so the region's text is keyed on a per-refusal number
   (the diner's Bill: `sayRefusal` renumbers `statusSeq`) — a repeated sentence is a new node, a new
-  announcement — and the refusal clears a standing pay error in the same region, whose rule is that
-  each handler clears the other.
+  announcement — and the refusal clears a standing pay error in the same region. **The region's written rule
+  (J34):** it says the newest answer to what the next tap meets — a tap's own sentence and a freeze
+  retire a standing pay error; an `unknown` hedge does not; "Ready to pay." does, honestly, because
+  with the undo window open Pay and the counter are refused and a Send's outcome clears the error, so
+  one stands there only when a write that started before the Send answered inside the window.
 - **A programmatic focus target shows the keyboard ring.** A heading or control the page lands
   focus on (the settle section's `settle-h`, the order's `order-h`, the pad's ticket heading) never
   carries an inline `outline: none`, and a stylesheet drops its outline only under
@@ -1226,8 +1242,9 @@ _The counter bell (owner decision 5c)._
   tap asked for sound) but plays no volume check once it has left: the engine is a document singleton
   that stays armed across the trip to a table, so "the view is gone" must be checked, never assumed.
   Nothing on the ring path reads whether the tab is visible — it rings while hidden.
-- **The bell's control is the counter's own chip, not a bar circle** (the KDS rule; a fifth circle
-  overflows a 390 manager bar): a `.staff-chip` at the right of the greeting (`.staff-greet-row`,
+- **The bell's control is the counter's own chip, not a bar circle** (a fifth circle overflows a 390
+  manager bar — the kitchen, with no role badge and no approvals circle, carries its sound as a bar
+  circle since Phase 3d, §34): a `.staff-chip` at the right of the greeting (`.staff-greet-row`,
   counter branch only — the doors' greeting is unchanged), wearing the ONE lit cap through the shared
   pressed list when on. Three postures from two stores (§15 — "wanted" and "armed" are two facts, each
   read through `useSyncExternalStore`, both OFF on the server): **"Turn on sound"** · **"Sound on"**
@@ -1248,7 +1265,9 @@ _The counter bell (owner decision 5c)._
   WebKit's `playback` audio session where it exists, so an iPad's silent switch does not mute the bell
   (the chip is the counter's mute). The engine is a module singleton, so the arm survives the soft trip
   to a table page and back; a reload loses it and the chip says so.
-- **One word per action on every sound chip.** The KDS, the TV and the counter share the OFF word —
+- **One word per action on every sound chip.** `soundWord` (`lib/counter-chime.ts`) is the ONE
+  posture → word map, read by the counter's chip and the kitchen's circle. The KDS, the TV and the
+  counter share the OFF word —
   "Turn on sound" (`kds.sound.enable`, `board.sound`), the same "turn on" the paused posture says —
   and plain-words bans "enable" (settings-speak).
 - **One "just changed" ring on the counter screen.** A lane card the bell rang for wears the floor
@@ -2119,11 +2138,19 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   disc, `haptic("add")`, a ghost row at the end of "Not sent yet", the tile's `+1`, and a QUIET
   claim. Each tap mints its own add key (`p_scan_id`); writes run through ONE serialized chain
   (`usePadWrites`), so commit order is tap order. The COUNT is optimistic; no amount ever is: the
-  subtotal reads "—" and Take payment drops its figure while any add — or any of the ticket's own
+  ticket's receipt stack reads "—" on every row and Take payment drops its figure while any add — or any of the ticket's own
   writes (a quantity, a removal, a note) — is in flight, or answered but not yet in a read that
   started after it (`padAmountsSettled`, one predicate for both). **Every decision a tap makes is
   taken AT the tap, from refs** — the adds (`holdFor`, `counts`) and Take payment's phase
   (`phaseRef`, moved with its state by one setter) — never from the last render.
+- **The ticket speaks receipt (Phase 3d · counter, K46).** One read, one stack: `settleBreakdown` +
+  `settleTotalCents` from ONE `getCartTotals` call, rendered by `padReceiptRows` → `buildReceiptRows`
+  (Subtotal · Discount · Tax · Total); the Total row IS the figure Take payment names — no second total,
+  never re-added from parts. Nothing priced, nothing claimed (no stack until a read prices the order).
+  `runningSubtotalCents` is the LINES read's sum — the floor's "so far" and the ceiling's base — never a
+  receipt row. The stack's Total excludes any tip (the read runs at tipRate 0), as the dock's does; the
+  two reads may briefly disagree (line prices vs Subtotal) while a write lands between them. Still open:
+  the table page's two bases (K44) and the cash-sheet re-host (K39).
 - **Outcomes are settled BY KEY** (`pendingReduce`). `ok` lands the ghost, which leaves only on a
   committed read that STARTED after the landing. A definite refusal removes that attempt (never the
   dish), plays `mms-settle` on the glyph, keeps focus on the tile and names the dish. A write that
@@ -2409,7 +2436,17 @@ Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLa
   the rule, its mutant the guard; the DoorSheet on the to-go menu hosts the grid as a SECTION ("Pick
   your table / စားပွဲ ရွေး", v7.2's words) with the join form inline — never a second sheet — and
   `mode_selected` fires on the taps that enter the door, never on a section revealed or a seated chip's
-  code ask.
+  code ask. The section is spaced by `.door-sheet-tables`; inside it the `--s3` gap is the one rhythm
+  (J32 — no child carries its own top margin).
+- **A rejected write is UNCERTAIN, not failed — ask an idempotent server, never the clock (J37).** A
+  Server Action's answer can be lost AFTER it committed. Hold the state that gates money (the undo
+  window and `pending`), retry the read until one reaches the screen, then ask the server ONCE more —
+  the write is idempotent on what already landed (`undoFire`'s `gone`, `lib/undo-miss.ts`, one
+  diagnosis for both undos) — and let that answer decide the sentence and the close. Never loop a write
+  on a throw that a working read survives.
+- **The count is the label's (J34).** The window's state is the hook's and renders its host only at the
+  window's edges; the seconds are `useGraceCountdown`'s, read by the Undo label's own leaf on a
+  `useSyncExternalStore` ticker — a ten-second window costs Checkout no renders, the label ten.
 
 ## 33 · The table is bound at SEND; the number is an identity beside the token; one predicate for a seat (Phase 3c-ii)
 
@@ -2451,3 +2488,49 @@ instead of navigating when its host asks, and `SendToKitchenButton`'s gate. Cont
   count, the re-read, or a view), never optimistically. The host owns the mutation call (`onClaim`), the
   sheet owns the bounded await and `busy` — the `LineOptionsSheet`/`onMakeNow` shape, and the one the
   child-freeze guard can read.
+- **The Menu tab off the threshold is `menuHref(mode)` (J39).** A tab names no session and claims no
+  door: the menu resolves the persisted code itself (J15), and the analytics `door` of a tab tap is
+  unclaimed, never invented.
+
+## 34 · The pass at two distances (Phase 3d · kitchen)
+
+Decided in `lib/kds-urgency.ts` (`kdsTicketLevel` · `kdsLateCount` · `kdsBadgeKeys`), `lib/kds-sound.ts`
+(`KdsChime`'s mute predicate · `armWithin`) and `lib/counter-chime.ts` (`soundPosture` · `soundTapIntent`
+· `soundWord`); drawn by `KdsBoard` and `HelpButton`. Owner decisions taken under delegation
+(2026-10-06): the volume slider retires; text size is an Aa circle into the ONE Help sheet; §17's "not a
+bar circle" narrows to the counter's width reason.
+
+- **Two distances: the glance and the read.** The head is two numbers at the identity tier — **Open ·
+  Late** at `--kfs-id` (32/36/40 with the dial) — readable from across the kitchen; Oldest retires
+  (tickets already sort oldest-first). Avg today lives in the Served view and is drawn only when something
+  was served: a null or zero count draws nothing, never "0:00".
+- **"Late" is a word and one predicate.** `kdsTicketLevel` (a held ticket is never late — not even on a
+  frozen snapshot past its slot) drives the strip colour, the badge word and the Late count, so the strip
+  says exactly the cards whose badge says Late. `kdsBadgeKeys` gives "Later · " on a held card (byte-
+  identical to before) and "Late · " on a red one: under reduced motion the pulse stops and red would
+  otherwise differ from amber by hue alone (WCAG 1.4.1). The card's spoken name carries the same word.
+  Amber says nothing — its clock does.
+- **The tail is TV · sound · Aa · ? · Lock.** Aa appears only where there is a dial; it is plain, never
+  gold (gold is Help's), and opens the ONE Help sheet straight onto Text size — two taps, never a cycling
+  circle (each re-flow resets the pager). A pick closes the sheet and returns focus to Aa.
+- **Sound is the counter's three postures, as a circle.** `soundWord` is the one word map. Off: plain.
+  On: the ONE lit cap through the shared pressed list. Paused: a warn ring plus a warn DOT — a shape,
+  never hue alone. Icon-only, named by sr-only dictionary text. The dot rides `::before` INSIDE the round:
+  on a `.staff-press` control `::after` is the press sheen and the control clips to its circle.
+- **The level is fixed; the mute is a predicate the engine is HANDED.** The slider retires (0.8; the
+  device's own buttons are the dial). A mute silences `KdsChime.play()` through a predicate passed in and
+  read at every play — never read inside the class, because the TV wall shares the engine and defaults
+  OPEN. A muted board keeps its context running and its re-chime timers advancing, so unmuting never
+  plays a backlog.
+- **The circle's own tap is its arm.** The first-tap re-arm skips `[data-kds-sound]`; the arm is bounded
+  (`armWithin`, `ARM_TIMEOUT_MS`) and shows busy as `aria-busy` + `aria-disabled` with a ref guard (§17);
+  the volume check plays after the flag is written. A refusal is said in the board's ONE region, never
+  over a waiting line, and dropped once the context runs. The per-device answer survives a store that
+  refuses it (an in-memory fallback for THIS document).
+- **Only a SOUNDING board holds the reload.** The hold keys on the `on` posture, never on "armed" — a
+  muted-but-armed tablet used to hold the automatic reload forever.
+- **Measured, not assumed (2026-10-06, headless Chromium, the production CSS and the real fonts):** at
+  1366×1024 and 1366×768, EN and MY, every text size, the bar is ONE row, nothing scrolls sideways and no
+  badge wraps — a Burmese "နောက်ကျ · ဆိုင်မှာ စား" beside a two-digit table four across included; at 390
+  the tail is one unwrapped row. A real tablet (Night in-room light, iOS audio — P2bw) is the remaining
+  look.

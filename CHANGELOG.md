@@ -18,6 +18,47 @@ decisions on J40, J41 and M263, then J37, J28/J32, J29, J30, J34, J39, and Phase
   `table_sessions_active_table_uniq` unique · valid · ready with the exact predicate; step 1 closed nothing.
   No new advisor lint. M258 and M260 close; M125 records the two stamps (106 prod rows vs 105 files, both
   new pairs matching by name).
+- **The owed full `verify:slice` on the #314 merge head `b391dc8`: `✓ verify:slice passed — 3131 mutants
+caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own worktree and escorted per
+  LEARNINGS #229 (re-armed once at the tool's 2 h ceiling), with no vitest beside it; the worktree came back
+  clean.
+- **J30 measured on prod — the to-go menu's two extra reads cost no measurable time** (40 interleaved samples
+  per URL; the paired content − TTFB difference +4 ms, 95% CI [−41, +42]); the on-demand fetch is not needed.
+  The measurement found the bigger lever, filed as **C27**: the functions run in `iad1` while the database is
+  in `us-west-2`, so every serial read crosses the country. **J28** settled statically down to one owner
+  device pass (the sticky strip's ancestors, the 61px reserve, the remount, the drain race all retired).
+- **Phase 3d · kitchen — the pass at two distances (K38 closed).** The KDS volume slider is retired. Sound is
+  a bar circle with the counter's three postures (off · on under the lit cap · paused with a warn ring and a
+  dot); its tap is its own bounded arm; a refusal is said in the board's one region; a mute silences
+  `play()` through a predicate the chime reads at every call (default open — the TV wall shares the
+  engine); the level is fixed at 0.8. An Aa circle opens Help straight onto Text size (two taps). The head is
+  two numbers at the identity tier, Open · Late; Avg today moved to the Served view (drawn only when
+  something was served). A red ticket says "Late" in its badge and spoken name (WCAG 1.4.1 under reduced
+  motion). Only a sounding board holds the reload (a muted-but-armed board used to hold it forever). Zero
+  new strings, two retired; 29 mutants; `kds-sound.ts` joins the mutate set. **Measured at 1366 and 390** in
+  headless Chromium with the production CSS and the real fonts, EN and MY, every text size: one bar row, no
+  sideways scroll, no badge wrap (DESIGN-LANGUAGE §34).
+- **J37 · M261 · J34 — the undo grace, finished.** A rejected undo holds the window and Pay until a read
+  reaches the screen, then asks the server once more: `undoFire` is idempotent on a batch already brought
+  back (`lib/undo-miss.ts`, the console's diagnosis made the one copy for both undos), and that answer
+  decides the sentence and the close. `mms_undo_fire` takes the cart row lock first, like its counter twin
+  (`20261006120000_m261_undo_fire_cart_lock.sql` — no deploy order; its SQL test probes a line-less cart's
+  `xmax`, because a line's FK check stamps any cart with lines; **the prod apply waits on the owner**). The
+  Undo's count moved into its own leaf on a `useSyncExternalStore` ticker, so Checkout no longer re-renders
+  four times a second through the grace (measured: 0 host renders across 36 ticks; the old shape 38). The
+  region's pay-error rule is written down (DESIGN-LANGUAGE §7). Filed J43–J46.
+- **Phase 3d · counter — the receipt stack (K46 closed).** The pad's ticket printed the lines read's pre-tax
+  subtotal a thumb from the dock's tax-inclusive "Take payment · {m}". `TableDetail.settleBreakdown` now comes
+  off the same `getCartTotals` call (one call per read, asserted), `padReceiptRows` feeds it to the guest
+  receipt's `buildReceiptRows`, and the Total row IS `settleTotalCents`: Subtotal · Discount · Tax · Total,
+  "—" on every row while anything is pending, no stack before a read prices the order. Zero new strings
+  ("Tax" — K40); 12 mutants; `StaffTicket.tsx` joins the mutate set. Filed K44 (the table page's same two
+  bases), J47, J48; K39 narrowed to the cash-sheet re-host.
+- **J39 · J32 · J29.** The Menu tab off the threshold is `menuHref(mode)` everywhere (the no-cart arm to the
+  retired `/dine-in` dropped — a tab names no session and claims no door). "Pick your table" is spaced by the
+  stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's
+  three lines are KEPT (v7.2 draws none of those surfaces — DESIGN-LANGUAGE §9 says so now), `floor.back`
+  pinned by a test and a mutant.
 
 ### Phase 3c-ii — the table bound at SEND (2026-10-05)
 
