@@ -2451,7 +2451,9 @@ Decided in `lib/checkout-verb.ts` (`orderStageHero` · `payBlock` · `billDoorLa
 ## 33 · The table is bound at SEND; the number is an identity beside the token; one predicate for a seat (Phase 3c-ii)
 
 Decided in `lib/seated.ts` (`seatedSessionFor` · `liveDineInAt` · `sweepExpiredOnTable` ·
-`bindSessionTable` · `claimDisposition` · `bindVerdict` · `occupancyFor`), `lib/bind-table.ts` (the
+`bindSessionTable` · `bindOutcome` · `holderVerdict` · `rereadVerdict` · `awaitsFirstDiner` ·
+`claimDisposition` · `bindVerdict` · `occupancyFor`), the RPCs `mms_bind_session_table` ·
+`mms_shell_untouched` · `mms_untouched_shells` · `mms_claim_untouched_shell` (M263, #315), `lib/bind-table.ts` (the
 host's bind, under the lock model), `lib/table-pick.ts` (`sendNeedsTable` · `tablePlainLabel` ·
 `bindRefusalCopy`) and `lib/bind-copy.ts` (the bind's sentences, named once); drawn by
 `TableBindSheet` hosting `TableSection` (the DoorSheet's own section, verbatim), a `TableGrid` that binds
@@ -2488,6 +2490,15 @@ instead of navigating when its host asks, and `SendToKitchenButton`'s gate. Cont
   count, the re-read, or a view), never optimistically. The host owns the mutation call (`onClaim`), the
   sheet owns the bounded await and `busy` — the `LineOptionsSheet`/`onMakeNow` shape, and the one the
   child-freeze guard can read.
+- **The bind is decided where the lock is (M263).** One RPC, `mms_bind_session_table`, for both binders:
+  the binder's open cart under `FOR SHARE` (it conflicts with a pay lock, a split claim and the flip to
+  paid, never with a line add), freshness on the DB clock — a NULL stamp is not fresh — then the sticker
+  rule, the adopt and the CAS in one transaction. A read two statements before a write is not a guard.
+- **A table a server started yields to its first diner — only while nobody has touched it (J40).** ONE
+  predicate (`mms_shell_untouched`) says untouched; an untouched shell reads Open, is hosted by a
+  predicate-guarded claim from the grid and adopted at Send; a touched one reads Seated and answers
+  `held` — "ask a server to add yours to it" — and is never hosted from the grid. An order no code joins
+  (a kiosk's) is Seated with no join form. A sticker session binds only to its own table (J41).
 - **The Menu tab off the threshold is `menuHref(mode)` (J39).** A tab names no session and claims no
   door: the menu resolves the persisted code itself (J15), and the analytics `door` of a tab tap is
   unclaimed, never invented.

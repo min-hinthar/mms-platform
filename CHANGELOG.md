@@ -55,6 +55,18 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   ("Tax" — K40); 12 mutants; `StaffTicket.tsx` joins the mutate set. Filed K44 (the table page's same two
   bases), J47, J48; K39 narrowed to the cash-sheet re-host. Measured at 375 and 1366 in headless Chromium, EN and MY, light and
   Night: four one-line rows, the dock's figure equal to the Total.
+- **J40 · J41 · M263 · M264 — one bind authority, decided under its locks (owner decisions taken under
+  delegation).** `mms_bind_session_table` (`20261006120100_m263_bind_session_table.sql`) is the ONE bind for
+  the Send sheet and the `?table` claim: the binder's cart `FOR SHARE`, freshness on the DB clock, the
+  sticker rule, an untouched staff shell's adopt and the CAS in one transaction. **J40:** an untouched table
+  a server started reads Open and yields to its first diner (adopted at Send, hosted from the grid by a
+  predicate-guarded claim); a touched one reads Seated and answers "ask a server to add yours to it" — never
+  hosted from the grid (`mms_shell_untouched`, one predicate, three readers); a kiosk order has no join
+  form. **J41:** a sticker session binds only to its own table (a session bound elsewhere wedged its own
+  table through the token index). **M264:** the host claim is status-guarded. `scripts/verify-bind-race.mjs`
+  joins the CI `supabase` job (11 orders, 6 mutants); battery suite `m263` (54 rows). **The four functions
+  must be applied to prod (one file) BEFORE this PR merges** — the TS calls them. Filed J42 · J49 · M265 ·
+  M266 · M267.
 - **J39 · J32 · J29.** The Menu tab off the threshold is `menuHref(mode)` everywhere (the no-cart arm to the
   retired `/dine-in` dropped — a tab names no session and claims no door). "Pick your table" is spaced by the
   stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's

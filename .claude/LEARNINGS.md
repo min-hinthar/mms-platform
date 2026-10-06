@@ -3686,3 +3686,23 @@ markup from a jsdom render (the suite's own mocks), compile `apps/qr/app/globals
 `@tailwindcss/postcss`, fetch the app's Google fonts locally, load the three under `.dark`, and read
 rows/overflow/wraps from `getBoundingClientRect` at each viewport. It settled the 3d merge condition
 (the bar one row at 1366 in EN and MY at every text size) that every earlier phase had left to "a device".
+
+## #241
+
+**A sticker code bound to ANOTHER table wedges its own table through the token index (J41, #315).** The
+bind writes only `table_number` and never rewrites `qr_code`, and the token index is unique on `qr_code`
+for active rows. So a stranded sticker session bound at Send to M ≠ N held N's sticker code at M: N's
+sticker scan inserted S, took 23505, re-read BY NUMBER, found nobody and answered 500; the claim did the
+same; the register's Start read an outage — while the picker showed N Open. A rule about one row ("a
+sticker row is bound to its own number or to none") is also a rule about every OTHER writer of that
+key; check the invariant from the index's side, not only the row's.
+
+## #242
+
+**It is the row-exclusive lock on the PARENT that an FK's KEY SHARE conflicts with — not the UPDATE you
+are about to make (J40's adopt, #315).** A `session_members` insert takes `FOR KEY SHARE` on its
+`table_sessions` row; the adopt's close (`UPDATE … SET status`) takes `FOR NO KEY UPDATE`, which is
+COMPATIBLE with key share, so a join could land on the shell mid-adopt. Only the explicit
+`SELECT … FOR UPDATE` on the shell's session orders them — measured: with that lock deleted (mutant M4)
+race order (f) did not wait. When a guard depends on blocking a child insert, take the lock that
+conflicts with the child's FK lock, and prove it with a two-session order, never by reading the docs.
