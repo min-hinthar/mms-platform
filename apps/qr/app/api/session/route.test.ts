@@ -71,6 +71,8 @@ let rpcs: { name: string; args: Record<string, unknown> }[] = [];
 let rpcAnswer: { data: unknown; error: unknown } | null = null;
 /** A `table_sessions` read keyed on THIS id fails (an outage) — M264's live re-check. */
 let idReadFailsFor: string | null = null;
+/** Per-session carts (J40's adopt cancels the shell's); null = every cart read answers `cart-1`. */
+let carts: { id: string; session_id: string; status: string }[] | null = null;
 /** Runs once when a write matching `on` is issued, BEFORE it applies — a row moving under it (M264). */
 let writeHook: { on: (q: Q) => boolean; run: () => void } | null = null;
 /** The number-keyed read fails (an outage). */
@@ -95,16 +97,43 @@ function emulateBind(args: Record<string, unknown>): { data: unknown; error: unk
   const n = args.p_table as number;
   const me = sessions.find((r) => r.id === args.p_session);
   const live = (r: Row) => r.status === "active" && r.expires_at > new Date().toISOString();
+  // J40 — the shell, re-checked as the SQL re-checks it: a live hostless dine-in row AT n (else
+  // `gone`), with no member (else `held`). Line / cart-state `held` cases are scripted (`rpcAnswer`).
+  const shell = args.p_shell ? sessions.find((r) => r.id === args.p_shell) : undefined;
+  if (args.p_shell) {
+    if (
+      !shell ||
+      !live(shell) ||
+      shell.mode !== "dinein" ||
+      shell.host_seat != null ||
+      shell.table_number !== n
+    )
+      return { data: [{ outcome: "gone", at_table: null }], error: null };
+    if (members.some((m) => m.session_id === shell.id))
+      return { data: [{ outcome: "held", at_table: null }], error: null };
+  }
+  // The CAS decides before anything is written here — the SQL's subtransaction rolls an adopt back
+  // with a CAS that moved no row, which is the same observable.
   if (!me || !live(me) || me.mode !== "dinein" || me.table_number != null)
     return { data: [{ outcome: "unmoved", at_table: null }], error: null };
   if (
     sessions.some(
-      (r) => r !== me && r.status === "active" && r.mode === "dinein" && r.table_number === n,
+      (r) =>
+        r !== me &&
+        r !== shell &&
+        r.status === "active" &&
+        r.mode === "dinein" &&
+        r.table_number === n,
     )
   )
     return { data: null, error: { code: "23505", message: "duplicate key" } };
+  if (shell) {
+    shell.status = "closed";
+    for (const c of carts ?? [])
+      if (c.session_id === shell.id && c.status === "open") c.status = "cancelled";
+  }
   me.table_number = n;
-  return { data: [{ outcome: "bound", at_table: n }], error: null };
+  return { data: [{ outcome: shell ? "adopted" : "bound", at_table: n }], error: null };
 }
 function matches(row: Record<string, unknown>, q: Q): boolean {
   return (
@@ -163,7 +192,16 @@ vi.mock("@mms/db/server", () => ({
             sessions.push(row);
             return { data: pick(row, q.cols), error: null };
           }
-          if (table === "qr_carts") return { data: { id: "cart-1" }, error: null };
+          if (table === "qr_carts") {
+            if (!carts) return { data: { id: "cart-1" }, error: null };
+            const c = {
+              id: `cart-new-${++nextId}`,
+              session_id: String((q.payload as { session_id: string }).session_id),
+              status: "open",
+            };
+            carts.push(c);
+            return { data: { id: c.id }, error: null };
+          }
           if (table === "session_members") {
             members.push(q.payload as { session_id: string; seat_id: string });
             return { data: null, error: null };
@@ -203,7 +241,13 @@ vi.mock("@mms/db/server", () => ({
           if (registryReadFails) return { data: null, error: { message: "fetch failed" } };
           return { data: registry.filter((r) => matches(r, q)), error: null };
         }
-        if (table === "qr_carts") return { data: [{ id: "cart-1" }], error: null };
+        if (table === "qr_carts") {
+          if (!carts) return { data: [{ id: "cart-1" }], error: null };
+          return {
+            data: carts.filter((c) => matches(c, q)).map((c) => ({ id: c.id })),
+            error: null,
+          };
+        }
         return { data: [], error: null, count: 0 };
       };
       const one = () => {
@@ -309,6 +353,7 @@ beforeEach(() => {
   rpcAnswer = null;
   idReadFailsFor = null;
   writeHook = null;
+  carts = null;
   nextId = 0;
 });
 
@@ -1020,5 +1065,168 @@ describe("/api/session — M264: a hostless row closed UNDER a join is never han
         q.eq.some(([c]) => c === "id"),
     );
     expect(byId).toHaveLength(0);
+  });
+});
+
+describe("/api/session — J40: a `?table=N` claim on a table a server STARTED (the DoorSheet's Open chip)", () => {
+  // The picker reads such a table Open (`awaitsFirstDiner`, lib/seated.ts), so the claim it sends
+  // must do what "open — sit here" says: a phone with no unbound session of its own joins the shell
+  // as its HOST (W6a, the sticker's own path); one with an unbound session ADOPTS it through the one
+  // bind call and keeps its drafts; a shell with an order on it answers `held` by name — never the
+  // join form, which asks for a code nobody at that table holds. A party and a kiosk order keep
+  // today's refusals.
+  const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+  const mine = () => row("MYCODE12", "dinein", SEAT);
+
+  it("an UNTOUCHED shell, no prior session → joined as its HOST: no insert, no bind call, host_seat claimed, the shell's own cart", async () => {
+    sessions = [shell()];
+    carts = [{ id: "cart-shell", session_id: "sess-STICKER7", status: "open" }];
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+      tableNumber: 7,
+      cartId: "cart-shell",
+      created: false,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+    expect(bindUpdates()).toHaveLength(0);
+    expect(sessions[0]?.host_seat).toBe(SEAT);
+    expect(members).toContainEqual(
+      expect.objectContaining({ session_id: "sess-STICKER7", seat_id: SEAT }),
+    );
+  });
+
+  it("a phone with an UNBOUND session that has drafts → the ONE bind call ADOPTS the shell: its session at 7, its drafts' cart handed back, the shell closed with its empty cart cancelled", async () => {
+    sessions = [mine(), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    carts = [
+      { id: "cart-mine", session_id: "sess-MYCODE12", status: "open" },
+      { id: "cart-shell", session_id: "sess-STICKER7", status: "open" },
+    ];
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-MYCODE12",
+      joinCode: "MYCODE12",
+      tableNumber: 7,
+      role: "host",
+      cartId: "cart-mine",
+      created: false,
+    });
+    const binds = bindUpdates();
+    expect(binds).toHaveLength(1);
+    expect(binds[0]?.args).toMatchObject({
+      p_session: "sess-MYCODE12",
+      p_table: 7,
+      p_shell: "sess-STICKER7",
+    });
+    expect(sessions.find((r) => r.id === "sess-STICKER7")?.status).toBe("closed");
+    expect(carts.find((c) => c.id === "cart-shell")?.status).toBe("cancelled");
+    expect(carts.find((c) => c.id === "cart-mine")?.status).toBe("open");
+    expect(sessionInserts()).toHaveLength(0);
+    // D30 — the adopt is a landing: the drafts' cart is touched so every peer re-reads the table.
+    const touch = queries.find((q) => q.table === "qr_carts" && q.op === "update");
+    expect(touch?.eq).toContainEqual(["id", "cart-mine"]);
+  });
+
+  it("a TOUCHED shell (`held`) → 409 with BIND_COPY.held(7) — no join form's sentence, no insert, the shell and the prior session untouched", async () => {
+    sessions = [mine(), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    rpcAnswer = { data: [{ outcome: "held", at_table: null }], error: null };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.held(7));
+    expect(sessionInserts()).toHaveLength(0);
+    expect(sessions.find((r) => r.id === "sess-STICKER7")?.status).toBe("active");
+    expect(sessions.find((r) => r.id === "sess-MYCODE12")?.table_number).toBeNull();
+  });
+
+  it("red-team #5 — `gone`: a tablemate adopted it first, so a PARTY holds 7 now → the shipped 409 seated; the same shell still there without a cart → 'try again' (500)", async () => {
+    sessions = [mine(), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    rpcAnswer = { data: [{ outcome: "gone", at_table: null }], error: null };
+    // The re-read by number finds a hosted party at 7.
+    sessions[1]!.host_seat = OTHER;
+    let res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    // A hosted party at 7 never reaches the bind: it is the shipped 409 at the member check.
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+    // Now the shell is hostless at the pre-read, and a party seats itself between the call and the
+    // re-read: the call says `gone`, the re-read names the party.
+    sessions[1]!.host_seat = null;
+    rpcs = [];
+    rpcAnswer = null;
+    bindHook = () => {
+      sessions[1]!.host_seat = OTHER;
+    };
+    res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+    // `gone` with the same hostless shell still there (its cart vanished) → a retry, never `held`.
+    sessions[1]!.host_seat = null;
+    rpcAnswer = { data: [{ outcome: "gone", at_table: null }], error: null };
+    res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Could not check the table — try again.",
+    );
+  });
+
+  it("red-team #5 — `gone` because this phone's OTHER tab already adopted it: the re-read finds its own row at 7 → rejoined, 200", async () => {
+    sessions = [mine(), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    bindHook = () => {
+      sessions[1]!.status = "closed";
+      sessions[0]!.table_number = 7;
+    };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-MYCODE12",
+      tableNumber: 7,
+      created: false,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("the prior session DIED under the adopt (`unmoved`, the adopt rolled back with the CAS) → the shell is joined as its first diner's, never a mint that 409s against it", async () => {
+    sessions = [mine(), shell()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    bindHook = () => {
+      sessions[0]!.status = "closed";
+    };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+      tableNumber: 7,
+    });
+    expect(sessionInserts()).toHaveLength(0);
+    expect(sessions.find((r) => r.id === "sess-STICKER7")?.status).toBe("active");
+  });
+
+  it("a HOSTED party at 7 keeps the shipped 409 (BIND_COPY.seated) with nothing written — the join form is right there", async () => {
+    sessions = [row("GENCODE7", "dinein", OTHER, { table_number: 7 })];
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+    expect(writes).toEqual([]);
+  });
+
+  it("a KIOSK order at 7 is refused by name (403, 'please ask staff') before any write — never adopted, never joined", async () => {
+    sessions = [row("kiosk-AB12CD34", "dinein", "kiosk-uid", { table_number: 7 })];
+    for (const body of [
+      { tableNumber: 7, mode: "dinein" },
+      { qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" },
+    ]) {
+      writes = [];
+      const res = await POST(req(body));
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { error: string }).error).toBe(JOIN_REFUSED);
+      expect(writes).toEqual([]);
+    }
   });
 });

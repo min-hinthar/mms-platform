@@ -94,7 +94,9 @@ export type SeatedSet = { numbers: ReadonlySet<number>; strandedCodes: ReadonlyS
 
 /**
  * The live dine-in parties, for the picker's occupancy — or null when the read failed, which the
- * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6).
+ * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6). A row that
+ * `awaitsFirstDiner` (a table a server started) is not a party yet: its table reads Open, and the
+ * tap that follows makes the diner its host or adopts it (J40).
  */
 export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
   const { data, error } = await liveDineIn(db, new Date().toISOString());
@@ -102,10 +104,25 @@ export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
   const numbers = new Set<number>();
   const strandedCodes = new Set<string>();
   for (const s of data ?? []) {
+    // J40 — a table a server started is OPEN to its first diner (`awaitsFirstDiner`).
+    if (awaitsFirstDiner(s)) continue;
     if (s.table_number != null) numbers.add(s.table_number);
     else strandedCodes.add(s.qr_code);
   }
   return { numbers, strandedCodes };
+}
+
+/**
+ * PURE (J40) — a live dine-in row no diner has claimed yet: `host_seat` null (the register's Start,
+ * register.ts) and not a reserved `kiosk-` order. It is OPEN to its first diner on every surface,
+ * because every path that reaches it makes that diner its host or hands it to them: a sticker scan
+ * claims host (W6a), a DoorSheet claim joins it as host — or, from a phone with an unbound session
+ * of its own, ADOPTS it with the drafts (`/api/session`) — and a Send-time pick adopts it
+ * (`mms_bind_session_table`). Named ONCE: the picker's occupancy, the bind's holder verdict and the
+ * claim arm all read it, and `seatedSessionFor` still FINDS the row — the bind needs it.
+ */
+export function awaitsFirstDiner(s: Pick<SeatedSession, "host_seat" | "qr_code">): boolean {
+  return s.host_seat == null && !isReservedSessionCode(s.qr_code);
 }
 
 /** PURE: the registry (number + sticker code) against the seated set — a table is occupied when a
@@ -222,10 +239,10 @@ export function holderVerdict(
   if (!holder) return { kind: "free" };
   if (holder.id === sessionId)
     return holder.table_number === n ? { kind: "own" } : { kind: "free" };
+  if (awaitsFirstDiner(holder)) return { kind: "shell", shellId: holder.id };
   if (isReservedSessionCode(holder.qr_code))
     return { kind: "refuse", result: { ok: false, reason: "kiosk", tableNumber: n } };
-  if (holder.host_seat != null) return { kind: "refuse", result: { ok: false, reason: "seated" } };
-  return { kind: "shell", shellId: holder.id };
+  return { kind: "refuse", result: { ok: false, reason: "seated" } };
 }
 
 /**

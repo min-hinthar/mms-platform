@@ -14,8 +14,10 @@ import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
 import {
+  awaitsFirstDiner,
   bindSessionTable,
   claimDisposition,
+  rereadVerdict,
   seatedSessionFor,
   sweepExpiredOnTable,
 } from "@/lib/seated";
@@ -245,6 +247,13 @@ export async function POST(req: NextRequest) {
   // active session, converge on it — a rejoin, not a takeover; the stranger refusal below is intact.
   // D25: the session is found by NUMBER now, so the home card's `?resume=1&table=N` converges on a
   // late-bound table instead of 409ing its own host.
+  //
+  // J40 — UNLESS the row is a table a server STARTED (`awaitsFirstDiner`: no host yet, not a kiosk
+  // order — a kiosk row met the reserved refusal above). It is no stranger's party: the picker shows
+  // it Open, a sticker scan of it makes the scanner its host (W6a, below), and so does this claim —
+  // or, from a phone with an unbound session of its own, the bind arm below ADOPTS it and keeps the
+  // drafts (`mms_bind_session_table` with the shell). Held aside as `shell`; nothing is written yet.
+  let shell: Sess | null = null;
   if (claim && sess) {
     const { data: mine, error: mineErr } = await db
       .from("session_members")
@@ -259,7 +268,12 @@ export async function POST(req: NextRequest) {
         { error: "Could not check the table — try again." },
         { status: 500 },
       );
-    if (!mine) return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+    if (!mine) {
+      if (!awaitsFirstDiner(sess))
+        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      shell = sess;
+      sess = null;
+    }
   }
 
   // Turned-over table: the same physical sticker code can be reused, but the prior session may be
@@ -272,7 +286,10 @@ export async function POST(req: NextRequest) {
   // the sticker flow already trusts, not a new takeover vector against a live table.
   // Phase 2f (D10) — never on a reserved code: a forged `?t=reg-…` must not close a counter order.
   // (`resolvedQr &&` only narrows the type for the update below — the predicate already requires it.)
-  if (resolvedQr && sweepsExpiredSquatter({ found: sess !== null, code: resolvedQr, joinOnly })) {
+  if (
+    resolvedQr &&
+    sweepsExpiredSquatter({ found: sess !== null || shell !== null, code: resolvedQr, joinOnly })
+  ) {
     await db
       .from("table_sessions")
       .update({ status: "closed" })
@@ -311,9 +328,15 @@ export async function POST(req: NextRequest) {
       // freeze that commits between a read and a write can no longer land the number under a live
       // charge. A fresh freeze, or J41's sticker rule (this session started on ANOTHER table's
       // sticker) → the phone REJOINS its session unbound — no bind, no mint over its drafts — and the
-      // next Send asks, where `bindTable` answers by name. No shell here: this arm binds only an
-      // EMPTY table (the number read above found nobody).
-      const { outcome, error } = await bindSessionTable(db, mine.id, sessionTable);
+      // next Send asks, where `bindTable` answers by name. J40 — with a `shell` (a table a server
+      // started, found at N above) the SAME call ADOPTS it: nothing and nobody on it → it closes with
+      // its empty cart and THIS session is bound to N, drafts and all, under the shell's row locks.
+      const { outcome, error } = await bindSessionTable(
+        db,
+        mine.id,
+        sessionTable,
+        shell?.id ?? null,
+      );
       if (error?.code === "23505")
         return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
       // W10a — an outage is the 503, never a verdict.
@@ -323,14 +346,15 @@ export async function POST(req: NextRequest) {
           { error: "Could not check the table — try again." },
           { status: 500 },
         );
-      if (outcome.kind === "bound") {
+      if (outcome.kind === "bound" || outcome.kind === "adopted") {
         sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
         boundNow = true;
       } else if (outcome.kind === "unmoved") {
         // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
         // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or
         // died. Re-read it: a live row is this phone's own party, rejoined at whatever number it
-        // holds — never a second session minted over its drafts. Dead → the mint below.
+        // holds — never a second session minted over its drafts. Dead → the shell, joined as its
+        // first diner (the adopt rolled back with the CAS), or with no shell the mint below.
         let live: Sess | null;
         try {
           live = await findActive(mine.qr_code);
@@ -339,9 +363,40 @@ export async function POST(req: NextRequest) {
           throw e;
         }
         if (live) sess = live;
+        else if (shell) sess = shell;
+      } else if (outcome.kind === "gone" || outcome.kind === "held") {
+        // J40 · red-team #5 — the shell changed under the call (`gone`) or has an order on it
+        // (`held`): re-read who holds N NOW and answer that, by name — this phone's own row there
+        // (another tab) is a rejoin; a party, a kiosk order or a held table is refused with its own
+        // sentence; nobody is a retry. Never a join form: no code joins a table a server started.
+        let now: Sess | null;
+        try {
+          now = await seatedSessionFor(db, sessionTable, resolvedQr);
+        } catch (e) {
+          if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+          throw e;
+        }
+        const v = rereadVerdict(now, mine.id, sessionTable, outcome.kind === "held");
+        if (v.ok && now) sess = now;
+        else if (!v.ok) {
+          const said =
+            v.reason === "seated"
+              ? BIND_COPY.seated
+              : v.reason === "kiosk"
+                ? BIND_COPY.kioskOrder(sessionTable)
+                : v.reason === "held"
+                  ? BIND_COPY.held(sessionTable)
+                  : "Could not check the table — try again.";
+          return NextResponse.json({ error: said }, { status: v.reason === "error" ? 500 : 409 });
+        }
       } else {
         sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send
       }
+    } else if (shell) {
+      // J40 — no unbound session of this phone's to keep: join the table a server started exactly as
+      // its first sticker scan would. W6a's claim below makes this seat its host (guarded on the row
+      // still being live — M264), and the join re-checks it before handing out its cart.
+      sess = shell;
     }
   }
 

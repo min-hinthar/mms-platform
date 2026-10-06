@@ -99,6 +99,7 @@ const db = {
 } as unknown as Parameters<typeof seatedSessionFor>[0];
 
 const {
+  awaitsFirstDiner,
   bindOutcome,
   bindSessionTable,
   bindVerdict,
@@ -237,6 +238,46 @@ describe("seatedTableNumbers — the picker's occupancy read", () => {
   it("answers null (not an empty set) on a read error — the caller degrades, it never reads 'all Open'", async () => {
     answer = { data: null, error: { message: "fetch failed" } };
     expect(await seatedTableNumbers(db)).toBeNull();
+  });
+
+  it("J40 — a table a server STARTED (no host, not a kiosk order) reads OPEN: neither its number nor its code is in the set; a hostless KIOSK row and a hosted party still are", async () => {
+    answer = {
+      data: [
+        { ...SESS, id: "shell-4", host_seat: null, qr_code: "STICKER4", table_number: 4 },
+        { ...SESS, id: "shell-x", host_seat: null, qr_code: "STICKER5", table_number: null },
+        { ...SESS, id: "k6", host_seat: null, qr_code: "kiosk-AB12", table_number: 6 },
+        SESS,
+      ],
+      error: null,
+    };
+    const set = await seatedTableNumbers(db);
+    expect(set?.numbers).toEqual(new Set([6, 7]));
+    expect(set?.strandedCodes).toEqual(new Set());
+    // Through the pure mapping: 4 is Open (a sticker scan or a claim makes the diner its host).
+    expect(
+      occupancyFor(
+        [4, 6, 7].map((n) => ({ tableNumber: n, qrCode: `STICKER${n}` })),
+        set ?? null,
+      ),
+    ).toEqual([
+      { tableNumber: 4, occupied: false },
+      { tableNumber: 6, occupied: true },
+      { tableNumber: 7, occupied: true },
+    ]);
+  });
+});
+
+describe("awaitsFirstDiner — the ONE 'a table a server started' predicate (J40)", () => {
+  it("a hostless, non-reserved row → true", () => {
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "STICKER4" })).toBe(true);
+  });
+  it("a row with a host → false (a party)", () => {
+    expect(awaitsFirstDiner({ host_seat: "seat-a", qr_code: "STICKER4" })).toBe(false);
+  });
+  it("a reserved code, hostless or not → false (a kiosk or counter order is never a shell)", () => {
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "kiosk-AB12" })).toBe(false);
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "reg-AB12" })).toBe(false);
+    expect(awaitsFirstDiner({ host_seat: "kiosk-uid", qr_code: "kiosk-AB12" })).toBe(false);
   });
 });
 

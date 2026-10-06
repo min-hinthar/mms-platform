@@ -18,7 +18,9 @@ export type DineInTable = { tableNumber: number; occupied: boolean };
  * every table Open (finding 6: the sessions read used to have no error branch). The registry's
  * sticker code is read HERE so a NUMBERLESS live row on it (the stranded shape — the party
  * `seatedSessionFor`'s token read finds) marks its table too (Codex r2 on #314); `occupancyFor`
- * consumes the code and never emits it.
+ * consumes the code and never emits it. J40 — a table a server STARTED that no diner has claimed
+ * yet (`awaitsFirstDiner`) is not a party: it reads Open, and the tap makes the diner its host (the
+ * DoorSheet's claim) or adopts it (the Send sheet's bind).
  */
 export async function getDineInTables(): Promise<DineInTable[]> {
   const db = serviceClient();
