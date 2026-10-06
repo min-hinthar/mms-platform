@@ -51,9 +51,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > (one MY draft). LEARNINGS #218 governs every review from here: the full diff, at the HARD CAP; a
 > further adversarial round only when Codex is red.
 >
-> **Still owed:** the full `verify:slice` on the merge head (every changed family was run through
-> `--only=`, one at a time, on the integrated head — the whole 3131 run is owed before merge, escorted
-> per LEARNINGS #229); J37 (the uncertain-undo gate + an idempotent `undoFire`); J28's device checks
+> **Still owed:** ~~the full `verify:slice` on the merge head~~ — **DONE 2026-10-06 on `b391dc8` (the #314
+> merge head): `✓ verify:slice passed — 3131 mutants caught, no orphans`, 04:45 → 07:24 UTC (2 h 40 min),
+> detached in `.claude/worktrees/vs-full4`, escorted per LEARNINGS #229 (re-armed once at the 2 h ceiling),
+> nothing else ran beside it; the worktree came back clean and is removed. ~~M260~~ — applied the same
+> morning (OPEN-ITEMS M260, closed);** J37 (the uncertain-undo gate + an idempotent `undoFire`); J28's device checks
 > (+ J32); J29's copy calls; J30's TTFB (now also the unbound `/cart`'s registry read); J34's Profiler
 > read; J39 (one line); then **3d** (staff) per `docs/PHASE3_JOURNEYS.md`.
 >
