@@ -13815,10 +13815,24 @@ html[data-reloading] body::after {
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
-.pad-note {
+/* Phase 3d · counter — the guest receipt's rows on the ticket (§28): a list, one leader per row, the
+   Total last under its own rule, in body ink and one step up the scale (--fs-h3 over the rows'
+   --fs-body) so the figure Take payment names is the one that leads. */
+.pad-receipts {
+  display: grid;
+  gap: var(--s1);
   margin: 0;
-  font-size: var(--fs-caption);
-  color: var(--t3);
+  padding: 0;
+  list-style: none;
+}
+.pad-receipt[data-grand] {
+  padding-top: var(--s2);
+  border-top: 1px solid var(--bd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+}
+.pad-receipt[data-grand] .pad-receipt-amt {
+  font-size: var(--fs-h3);
 }
 .pad-stale {
   margin: 0;

@@ -5387,6 +5387,114 @@ const MUTANTS = [
     find: "    settlePromoCents = settleTotals.promoCents;\n",
     replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
+  // ── Phase 3d · counter — the receipt stack on the pad's ticket ─────────────────────────────────
+  // The ticket printed the LINES read's pre-tax "subtotal so far" a thumb from the dock's
+  // tax-inclusive Take payment figure: two bases on one screen, pinned as expected behaviour. The
+  // detail read now carries the PARTS of `settleTotalCents` off the same `getCartTotals` call
+  // (`settleBreakdown`), `padReceiptRows` feeds them to the guest receipt's `buildReceiptRows` with
+  // the Total read from `settleTotalCents` itself, and StaffTicket (its FIRST mutants) renders the
+  // rows. Ids share `p3d-receipt/` so `--only=p3d-receipt/` runs the block.
+  {
+    id: "p3d-receipt/floor-drops-the-tax",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the stack's Tax row is the engine's `taxCents`, read verbatim. Zeroed, the ticket prints a tax-free stack whose rows no longer reach the Total Take payment names — the two-bases bug back, one row down",
+    find: "      taxCents: settleTotals.taxCents,\n",
+    replace: "      taxCents: 0,\n",
+  },
+  {
+    id: "p3d-receipt/floor-discount-is-the-promo-alone",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "M22's seam on the receipt: `discountCents` is promo PLUS reward and `promoCents` sits on the same object. Read the promo alone and a reward cart's stack under-states the Discount by the whole reward, so Subtotal − Discount + Tax stops reaching the dock's figure",
+    find: "      discountCents: settleTotals.discountCents,\n",
+    replace: "      discountCents: settleTotals.promoCents,\n",
+  },
+  {
+    id: "p3d-receipt/floor-subtotal-from-the-lines-read",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "`runningSubtotalCents` is a DIFFERENT read than `getCartTotals`; a write landing between them leaves a Subtotal that does not sum to the Total beneath it. The plausible 'they are the same number' refactor",
+    find: "      subtotalCents: settleTotals.subtotalCents,\n",
+    replace: "      subtotalCents: runningSubtotalCents,\n",
+  },
+  {
+    id: "p3d-receipt/floor-detail-drops-the-receipt",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the projection, not the derivation: dropped, the pad silently draws no stack and the cashier is back to a bare Take payment figure with nothing on the ticket naming the tax or the discount inside it",
+    find: "    settleBreakdown,\n",
+    replace: "    settleBreakdown: null,\n",
+  },
+  {
+    id: "p3d-receipt/floor-parts-default-to-zeros",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the read's contract is 'null exactly when `settleTotalCents` is' — nothing priced, nothing claimed. Today the pad's own `settleTotalCents === null` check would still hide a zeroed stack, so this guards the CONTRACT, not today's render: the table page's planned reuse of the stack (its own two-bases row, filed with Phase 3d) may read the breakdown alone, and a zeroed default there prints a row of \"$0.00\" over an empty or settled table",
+    find: '  let settleBreakdown: TableDetail["settleBreakdown"] = null;\n',
+    replace:
+      '  let settleBreakdown: TableDetail["settleBreakdown"] = {\n    subtotalCents: 0,\n    discountCents: 0,\n    serviceChargeCents: 0,\n    taxCents: 0,\n    tipCents: 0,\n  };\n',
+  },
+  {
+    id: "p3d-receipt/floor-reads-a-second-total",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "W17, 'name it ONCE': the parts and the Total must come off ONE totals object. Read off a second `getCartTotals` call (the 'extract a helper' refactor), a write landing between the two prices the stack and the dock on different baskets — the very two-bases bug, between reads instead of between fields. The suite's spy counts the calls; the values alone cannot see it",
+    find: "    settleBreakdown = {\n      subtotalCents: settleTotals.subtotalCents,\n      discountCents: settleTotals.discountCents,\n      serviceChargeCents: settleTotals.serviceChargeCents,\n      taxCents: settleTotals.taxCents,\n      tipCents: settleTotals.tipCents,\n    };\n",
+    replace:
+      "    const again = await getCartTotals(cart.id, 0);\n    settleBreakdown = {\n      subtotalCents: again.subtotalCents,\n      discountCents: again.discountCents,\n      serviceChargeCents: again.serviceChargeCents,\n      taxCents: again.taxCents,\n      tipCents: again.tipCents,\n    };\n",
+  },
+  {
+    id: "p3d-receipt/pad-total-is-pre-tax",
+    file: "apps/qr/lib/order-pad.ts",
+    suite: "lib/order-pad.test.ts",
+    why: 'W17 — a second computation of the collected figure, and the plausible one: the Total re-derived as Subtotal − Discount is the two-bases bug coming back under a new label — a pre-tax figure printed as "Total" a thumb from the tax-inclusive Take payment. The Total row IS `settleTotalCents`',
+    find: "  return buildReceiptRows(d.settleBreakdown, d.settleTotalCents);\n",
+    replace:
+      "  return buildReceiptRows(\n    d.settleBreakdown,\n    d.settleBreakdown.subtotalCents - d.settleBreakdown.discountCents,\n  );\n",
+  },
+  {
+    id: "p3d-receipt/pad-claims-zero-before-priced",
+    file: "apps/qr/lib/order-pad.ts",
+    suite: "lib/order-pad.test.ts",
+    why: "no stack until a read priced the order (D3). The old ticket printed \"$0.00 subtotal so far\" on an empty or all-comped open order; a zero stack is a claim the server never made, and on a settled record it reads as 'this table owes nothing'",
+    find: "  if (d.settleBreakdown === null || d.settleTotalCents === null) return null;\n",
+    replace:
+      "  if (d.settleBreakdown === null || d.settleTotalCents === null)\n    return buildReceiptRows(\n      { subtotalCents: 0, discountCents: 0, serviceChargeCents: 0, taxCents: 0, tipCents: 0 },\n      0,\n    );\n",
+  },
+  {
+    id: "p3d-receipt/ticket-names-amounts-while-pending",
+    file: "apps/qr/components/staff/StaffTicket.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "§23 — amounts are never intent: a Total beside a quantity still saving is a claim the server has not made, while the dock a thumb away already withholds on the same predicate",
+    find: '{amountsSettled ? (r.negative ? "−" : "") + dollars(r.amountCents) : "—"}',
+    replace: '{(r.negative ? "−" : "") + dollars(r.amountCents)}',
+  },
+  {
+    id: "p3d-receipt/ticket-discount-loses-its-minus",
+    file: "apps/qr/components/staff/StaffTicket.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "an unsigned Discount row reads as an added charge on the screen a cashier totals from — the guest receipt and the settled list both sign it",
+    find: '(r.negative ? "−" : "") + dollars(r.amountCents)',
+    replace: "dollars(r.amountCents)",
+  },
+  {
+    id: "p3d-receipt/ticket-labels-lose-their-burmese",
+    file: "apps/qr/components/staff/StaffTicket.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "the plausible 'just print the receipt's label' shortcut: a Burmese console reads English money words with no lang mark, where the settled list a tab away speaks the same rows in Burmese",
+    find: '<span>{k ? <Chrome lang={lang} k={k} echo="inline" /> : r.label}</span>',
+    replace: "<span>{r.label}</span>",
+  },
+  {
+    id: "p3d-receipt/ticket-blind-to-a-flying-add",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "the ticket's amounts and the dock's are ONE predicate over the same counts; fed counts that drop the adds still on their way, the stack names a Total that predates the dish being added while Take payment beside it already withholds — §23's claim, back on the ticket alone",
+    find: "          amountsSettled={padAmountsSettled(counts, lineWrites)}",
+    replace:
+      "          amountsSettled={padAmountsSettled({ ...counts, flying: 0, unseen: 0 }, lineWrites)}",
+  },
   // ── A6 · the team screen opened to managers (floor lowered, ceiling added) ──────────────────
   // Every write here goes through the service-role client and `staff` carries one RLS policy, a
   // SELECT — so these TypeScript refusals are the entire gate and a survivor is a live hole.

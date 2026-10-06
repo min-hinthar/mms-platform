@@ -138,6 +138,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     runningSubtotalCents: 0,
     settleTotalCents: null,
     settleTipBaseCents: null,
+    settleBreakdown: null,
     intendedTipCents: null,
     counterRequestedAt: null,
     paidTotalCents: null,
@@ -179,13 +180,30 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     ...over,
   };
 }
+/**
+ * Phase 3d · counter — a PRICED read, as `getTableDetail` returns one: the lines read's sum beside
+ * the totals read's figure and its parts. The breakdown's tax is the FIXTURE's (total − sub), not the
+ * 10.5% engine's — the stack renders the server's parts verbatim and never recomputes, so a client
+ * that did would read a different number ($1.31 here where the engine says $1.52 on $14.50). A total
+ * with no breakdown is a state the read cannot produce.
+ */
+const priced = (sub: number, total: number) => ({
+  runningSubtotalCents: sub,
+  settleTotalCents: total,
+  settleBreakdown: {
+    subtotalCents: sub,
+    discountCents: 0,
+    serviceChargeCents: 0,
+    taxCents: total - sub,
+    tipCents: 0,
+  },
+});
 /** The table after one Mohinga landed. */
 const ONE = () =>
   detail({
     lines: [line({ id: "l1" })],
     itemCount: 1,
-    runningSubtotalCents: 1450,
-    settleTotalCents: 1581,
+    ...priced(1450, 1581),
     send: {
       sendable: 1,
       staffAdded: 1,
@@ -207,8 +225,7 @@ const payable = () => {
   const d = detail({
     lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
     itemCount: 1,
-    runningSubtotalCents: 1450,
-    settleTotalCents: 1581,
+    ...priced(1450, 1581),
     send: {
       sendable: 0,
       staffAdded: 0,
@@ -232,8 +249,7 @@ const counterPayable = () => {
     counterOrder: true,
     lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
     itemCount: 1,
-    runningSubtotalCents: 1450,
-    settleTotalCents: 1581,
+    ...priced(1450, 1581),
     // Phase 2f — the counts B derives for a counter order: its to-go draft is `counterDraft` (the
     // pay-at-pickup Send's), never `togoDraft` (a dine-in table's cook-at-payment count).
     send: {
@@ -294,7 +310,14 @@ const tile = (name: RegExp) =>
     .find((b) => b.classList.contains("pad-tile-main")) as HTMLButtonElement;
 const mohinga = () => tile(/Mohinga/);
 const ghosts = () => [...document.querySelectorAll<HTMLElement>(".pad-ghost")];
-const receipt = () => document.querySelector(".pad-receipt-amt")!.textContent;
+/** Phase 3d · counter — the ticket's receipt stack, read by ROW KEY (`data-row`), never by position:
+ *  a row's amount, null when the row is not drawn; and the drawn rows' keys in DOM order. */
+const row = (k: string) =>
+  document.querySelector(`.pad-receipts [data-row="${k}"] .pad-receipt-amt`)?.textContent ?? null;
+const rowKeys = () =>
+  [...document.querySelectorAll<HTMLElement>(".pad-receipts [data-row]")].map(
+    (r) => r.getAttribute("data-row") ?? "",
+  );
 const sendBtn = () => document.querySelector<HTMLButtonElement>(".pad-dock .staff-send button")!;
 const settleBtn = () => document.querySelector<HTMLButtonElement>(".pad-settle button")!;
 const region = () => document.querySelector<HTMLElement>(".ui-toast-region")!;
@@ -311,10 +334,12 @@ afterEach(() => {
 });
 
 describe("the add moment — claimed at the tap, written once, under its own key", () => {
-  it("a quick-add tap writes ONE add {qty 1, no modifiers, a uuid key}, draws a ghost and says '—'", async () => {
+  it("a quick-add tap writes ONE add {qty 1, no modifiers, a uuid key}, draws a ghost and claims no figure", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
     mount();
+    // Phase 3d · counter — nothing priced yet, so no receipt stack: never a fabricated "$0.00".
+    expect(document.querySelector(".pad-receipt-amt")).toBeNull();
     mohinga().focus();
     await act(async () => {
       fireEvent.click(mohinga());
@@ -327,11 +352,12 @@ describe("the add moment — claimed at the tap, written once, under its own key
       qty: 1,
       addKey: expect.stringMatching(UUID),
     });
-    // The ghost row — "Adding…", never a price — and the subtotal withholds its figure (§23).
+    // The ghost row — "Adding…", never a price — and the ticket claims no figure while the first
+    // dish flies: no read has priced the order, so there is no stack to name one (§23).
     expect(ghosts()).toHaveLength(1);
     expect(ghosts()[0]!.textContent).toContain(STAFF["pad.ghost.adding"].en);
     expect(ghosts()[0]!.textContent).not.toContain("$");
-    expect(receipt()).toBe("—");
+    expect(document.querySelector(".pad-receipt-amt")).toBeNull();
     // The claim is SPOKEN (quiet) through the one region; focus stays on the tile.
     expect(region().querySelector(".ui-toast-quiet")?.textContent).toBe("Added 1 × Mohinga.");
     expect(document.activeElement).toBe(mohinga());
@@ -346,7 +372,7 @@ describe("the add moment — claimed at the tap, written once, under its own key
     await flush();
     expect(getTableDetail).toHaveBeenCalled();
     expect(ghosts()).toHaveLength(0);
-    expect(receipt()).toBe("$14.50");
+    expect(row("total")).toBe("$15.81");
     expect(mohinga().textContent).toContain("×1");
   });
 
@@ -647,6 +673,11 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     // Enabled (never refused for a flying add), and names no stale sum.
     expect(settleBtn().getAttribute("aria-disabled")).toBeNull();
     expect(settleBtn().textContent).toBe(STAFF["pad.settle.bare"].en);
+    // Phase 3d · counter — nor does the ticket a thumb away: the priced stack keeps its rows and
+    // withholds every amount while the dish flies (the dock's own predicate). MUTATION
+    // p3d-receipt/ticket-blind-to-a-flying-add → red.
+    expect(rowKeys()).toEqual(["subtotal", "tax", "total"]);
+    expect(rowKeys().map(row)).toEqual(["—", "—", "—"]);
     await act(async () => {
       fireEvent.click(settleBtn());
     });
@@ -695,8 +726,7 @@ describe("a counter order — Take payment, and (Phase 2f) a Send that is paid a
         payAtPickup: false,
         lines: [line({ id: "l1", sendable: false, fulfillment: "togo" })],
         itemCount: 1,
-        runningSubtotalCents: 1450,
-        settleTotalCents: 1581,
+        ...priced(1450, 1581),
         send: {
           sendable: 0,
           staffAdded: 0,
@@ -780,8 +810,7 @@ describe("a removal on the ticket — a ghost while it goes, back in place if re
     detail({
       lines: [line({ id: "l1" }), line({ id: "l2", name: "Tea", menuItemId: "t1", nameMy: null })],
       itemCount: 2,
-      runningSubtotalCents: 2900,
-      settleTotalCents: 3162,
+      ...priced(2900, 3162),
       send: {
         sendable: 2,
         staffAdded: 2,
@@ -876,8 +905,7 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
         counterOrder: true,
         lines: [line({ id: "l1", sendable: false })],
         itemCount: 1,
-        runningSubtotalCents: 1450,
-        settleTotalCents: 1581,
+        ...priced(1450, 1581),
         send: {
           sendable: 0,
           staffAdded: 0,
@@ -1064,26 +1092,28 @@ describe("Take payment says what it is actually doing while busy", () => {
 });
 
 describe("the ticket's own writes withhold the amounts until a read shows them (§23)", () => {
-  it("a quantity change: '—' while it saves AND until a read that started after it commits", async () => {
+  it("a quantity change: '—' on every row while it saves AND until a read that started after it commits", async () => {
     const write = deferred<StaffWriteResult>();
     setQty.mockReturnValueOnce(write.promise);
     const read = deferred<TableDetailResult>();
     mount(ONE());
     await flush(400);
-    expect(receipt()).toBe("$14.50");
+    expect(row("total")).toBe("$15.81");
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Increase Mohinga quantity" }));
     });
-    // MUTATION: amounts blind to line writes — "$14.50" beside a quantity of 2; red.
-    expect(receipt()).toBe("—");
+    // MUTATION pad-ui/receipt-names-amounts-while-pending: "$15.81" beside a quantity of 2; red.
+    // The rows stay (the last read's labels) and every amount withholds — the dock's own predicate.
+    expect(rowKeys()).toEqual(["subtotal", "tax", "total"]);
+    expect(rowKeys().map(row)).toEqual(["—", "—", "—"]);
     expect(settleBtn().textContent).toBe(STAFF["pad.settle.bare"].en);
     getTableDetail.mockReturnValueOnce(read.promise);
     await act(async () => {
       write.resolve({ ok: true });
     });
     await flush();
-    // Answered, but the read that shows it has not committed: still no figure.
-    expect(receipt()).toBe("—");
+    // Answered, but the read that shows it has not committed: still no figure on any row.
+    expect(rowKeys().map(row)).toEqual(["—", "—", "—"]);
     await act(async () => {
       read.resolve({
         kind: "detail",
@@ -1091,14 +1121,82 @@ describe("the ticket's own writes withhold the amounts until a read shows them (
           ...ONE(),
           lines: [line({ id: "l1", qty: 2 })],
           itemCount: 2,
-          runningSubtotalCents: 2900,
-          settleTotalCents: 3162,
+          ...priced(2900, 3162),
         },
       });
     });
     await flush();
-    expect(receipt()).toBe("$29.00");
+    expect(row("subtotal")).toBe("$29.00");
+    expect(row("total")).toBe("$31.62");
     expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$31.62"));
+  });
+});
+
+describe("Phase 3d · counter — the ticket speaks receipt, and its Total is Take payment's figure", () => {
+  it("the ticket's Total IS Take payment's figure — one binding, a thumb apart", async () => {
+    // The bug this closes: the ticket printed the LINES read's pre-tax "$14.50 subtotal so far" a
+    // thumb from the dock's tax-inclusive "Take payment · $15.81" — two bases on one screen.
+    mount(ONE());
+    await flush();
+    expect(rowKeys()).toEqual(["subtotal", "tax", "total"]);
+    // The server's parts, verbatim: $1.31 is the FIXTURE's tax (`priced`); the 10.5% engine on
+    // $14.50 says $1.52, so a stack that recomputed client-side reads a different number here.
+    expect(rowKeys().map(row)).toEqual(["$14.50", "$1.31", "$15.81"]);
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$15.81"));
+    expect(document.querySelector('[data-row="total"]')!.hasAttribute("data-grand")).toBe(true);
+    expect(document.querySelector('[data-row="tax"]')!.textContent).toContain(
+      STAFF["floor.settled.row.tax"].en,
+    );
+    // The pre-tax note left with the pre-tax figure.
+    expect(screen.queryByText(STAFF["table.detail.pretaxNote"].en)).toBeNull();
+    expect(screen.queryByText(STAFF["table.detail.subtotalSoFar"].en)).toBeNull();
+    // A list named as the receipt's totals — never a region (the pad's one Toast stays the one).
+    const list = document.querySelector(".pad-receipts")!;
+    expect(list.getAttribute("role")).toBe("list");
+    expect(list.getAttribute("aria-label")).toBe(STAFF["floor.settled.a11y.rows"].en);
+    expect(list.getAttribute("aria-live")).toBeNull();
+  });
+
+  it("a discount is its own row, signed, and the Total is still the dock's figure", async () => {
+    // Before 3d nothing on the pad named a discount: the pre-discount subtotal sat beside a
+    // discounted total. The combined Discount (promo + reward, M22) is the guest receipt's row.
+    const d = detail({
+      ...ONE(),
+      lines: [line({ id: "l1", qty: 2, unitPriceCents: 2500 })],
+      itemCount: 2,
+      runningSubtotalCents: 5000,
+      settleTotalCents: 3930,
+      settleBreakdown: {
+        subtotalCents: 5000,
+        discountCents: 1400,
+        serviceChargeCents: 0,
+        taxCents: 330,
+        tipCents: 0,
+      },
+    });
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+    mount(d);
+    await flush();
+    expect(rowKeys()).toEqual(["subtotal", "discount", "tax", "total"]);
+    // MUTATION pad-ui/receipt-discount-loses-its-minus: "$14.00" reads as an added charge; red.
+    expect(row("discount")).toBe("−$14.00");
+    expect(row("total")).toBe("$39.30");
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$39.30"));
+  });
+
+  it("a Burmese console reads the receipt's Burmese words — the settled list's own keys", async () => {
+    mount(ONE(), { lang: "my" });
+    await flush();
+    // MUTATION pad-ui/receipt-labels-lose-their-burmese: the receipt's English label, unmarked; red.
+    expect(document.querySelector('[data-row="tax"] [lang="my"]')?.textContent).toBe(
+      STAFF["floor.settled.row.tax"].my,
+    );
+    expect(document.querySelector('[data-row="total"] [lang="my"]')?.textContent).toBe(
+      STAFF["floor.settled.row.total"].my,
+    );
+    expect(document.querySelector(".pad-receipts")!.getAttribute("aria-label")).toBe(
+      STAFF["floor.settled.a11y.rows"].my,
+    );
   });
 });
 
@@ -1146,8 +1244,7 @@ describe("a removal whose answer is lost — said as unknown, never stranded", (
     detail({
       lines: [line({ id: "l1" }), line({ id: "l2", name: "Tea", menuItemId: "t1", nameMy: null })],
       itemCount: 2,
-      runningSubtotalCents: 2900,
-      settleTotalCents: 3162,
+      ...priced(2900, 3162),
       send: {
         sendable: 2,
         staffAdded: 2,
@@ -1918,8 +2015,7 @@ describe("Phase 2f · pay at pickup — the pad's dock for a counter order", () 
       customerName: "Aye",
       lines: [line({ id: "l1", sendable: false, fulfillment: "togo" })],
       itemCount: 1,
-      runningSubtotalCents: 1450,
-      settleTotalCents: 1581,
+      ...priced(1450, 1581),
       send: {
         sendable: 0,
         staffAdded: 0,

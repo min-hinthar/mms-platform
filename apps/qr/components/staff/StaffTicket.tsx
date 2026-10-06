@@ -6,20 +6,21 @@ import type { StaffLineEdit } from "@/lib/staff-send-view";
 import type { PendingAdd } from "@/lib/pad-pending";
 import {
   padDishName,
+  padReceiptRows,
   ticketGroupOf,
   ticketGroups,
   TICKET_GROUP_ORDER,
   type TicketGroupKey,
 } from "@/lib/order-pad";
+import { dollars } from "@/lib/receipt-view";
+import { receiptRowKey } from "@/lib/settled-view";
 import { frozenBoardCopy, type StaffDegraded } from "@/lib/staff-outage";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
-import { al } from "@/lib/staff-labels";
+import { al, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { useLineMotion } from "../useLineMotion";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { Chrome } from "./Chrome";
-
-const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 const GROUP_KEY: Record<TicketGroupKey, StaffKey> = {
   unsent: "pad.group.unsent",
@@ -58,11 +59,14 @@ export type CounterNameField = {
  * · removed; headings only with two or more), each a `StaffLineEditor`, and the GHOSTS of adds still
  * in flight at the end of "Not sent yet" — "Adding…", "Checking…", or "Try again" (the SAME add
  * key, so it can never go on twice) — never a price. A removal leaves as a ghost while the list
- * closes over it, and a refused one comes back in place (`useLineMotion`, §24). Foot: the server's
- * pre-tax subtotal on a receipt row, "—" while anything is pending — an add, or a line write in
- * flight or not yet read (amounts are never intent); the pre-tax note; the frozen-feed line; "Reload
- * the order" once an add or a removal has gone unanswered; and the status row the pad hands in
- * (to-go at pay · everything sent · counter at pay). The Send and Take payment live in the pad's
+ * closes over it, and a refused one comes back in place (`useLineMotion`, §24). Foot: the RECEIPT
+ * STACK (Phase 3d · counter, §28) — Subtotal · Discount · Tax · Total, the guest receipt's own rows
+ * (`padReceiptRows` → `buildReceiptRows`) over the server's breakdown, its Total the very
+ * `settleTotalCents` Take payment names, so the ticket and the dock a thumb apart speak ONE base;
+ * no stack until a read priced the order, and "—" on every row while anything is pending — an add,
+ * or a line write in flight or not yet read (amounts are never intent); then the frozen-feed line;
+ * "Reload the order" once an add or a removal has gone unanswered; and the status row the pad hands
+ * in (to-go at pay · everything sent · counter at pay). The Send and Take payment live in the pad's
  * dock, one node each, placed by CSS per tier.
  *
  * The ticket mounts NO live region: every outcome goes to the pad's one Toast.
@@ -92,7 +96,7 @@ export function StaffTicket({
   sessionId: string;
   detail: TableDetail;
   pending: readonly PendingAdd[];
-  /** Nothing is pending (`padAmountsSettled`): the subtotal may be named. */
+  /** Nothing is pending (`padAmountsSettled`): the receipt stack's amounts may be named. */
   amountsSettled: boolean;
   degraded: StaffDegraded | null;
   nowMs: number;
@@ -130,6 +134,7 @@ export function StaffTicket({
       : groups;
   const headings = showHeadings || (ghosts.length > 0 && drawn.length >= 2);
   const empty = drawn.length === 0;
+  const receipt = padReceiptRows(detail);
 
   return (
     <section
@@ -255,21 +260,31 @@ export function StaffTicket({
       </div>
 
       <div className="pad-ticket-foot">
-        {!detail.settled && (
-          <p className="pad-receipt">
-            <Chrome lang={lang} k="table.detail.subtotalSoFar" />
-            <span className="pad-leader" aria-hidden="true" />
-            {/* The server's pre-tax subtotal — never recomputed here — and "—" while any add is
-                pending: a figure named over a dish still in flight would be a claim (§23). */}
-            <span className="pad-receipt-amt">
-              {amountsSettled ? fmt(detail.runningSubtotalCents) : "—"}
-            </span>
-          </p>
-        )}
-        {!detail.settled && (
-          <p className="pad-note">
-            <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
-          </p>
+        {/* Phase 3d · counter (§28) — the guest receipt's rows over the server's own breakdown; the
+            Total IS `settleTotalCents`, the figure Take payment names — never recomputed. No stack
+            before a read priced the order; "—" on every row while anything is pending (§23, the
+            dock's own predicate). A list, not a region: the pad's one Toast stays the one. */}
+        {receipt && (
+          <ul role="list" className="pad-receipts" aria-label={sx(lang, "floor.settled.a11y.rows")}>
+            {receipt.map((r) => {
+              const k = receiptRowKey(r);
+              return (
+                <li
+                  key={r.key}
+                  className="pad-receipt"
+                  data-row={r.key}
+                  data-grand={r.grand ? "" : undefined}
+                >
+                  {/* An unmapped row prints its own English label — never an invented word. */}
+                  <span>{k ? <Chrome lang={lang} k={k} echo="inline" /> : r.label}</span>
+                  <span className="pad-leader" aria-hidden="true" />
+                  <span className="pad-receipt-amt">
+                    {amountsSettled ? (r.negative ? "−" : "") + dollars(r.amountCents) : "—"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
         )}
         {degraded && (
           // Plain text, not a region: the pad's one Toast announced it once when the feed froze.

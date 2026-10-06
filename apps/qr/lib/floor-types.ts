@@ -18,6 +18,7 @@ import type { InFlightHolder } from "./inflight-refusal";
 import type { KdsThresholds } from "./kitchen-types";
 import type { CounterArm as CounterArmOf } from "./counter-order";
 import type { Handoff } from "./register-ui";
+import type { ReceiptBreakdownish } from "./receipt-view";
 
 /** Phase 2f — how a counter order was started (re-exported for the client components). */
 export type CounterArm = CounterArmOf;
@@ -208,6 +209,8 @@ export type TableDetail = {
   members: TableMemberView[];
   lines: TableLineView[];
   itemCount: number;
+  /** The LINES read's chargeable sum (pre-discount, pre-tax) — the floor's "so far" and the trust
+   *  ceiling's base. Never a receipt row: the pad's stack reads `settleBreakdown` (Phase 3d). */
   runningSubtotalCents: number;
   /** Authoritative all-in total (subtotal − discount + service + tax, tip excluded) for a CASH settle,
    *  in cents — the amount the "Settle in cash" action will record. null when there's no open cart with
@@ -218,6 +221,17 @@ export type TableDetail = {
    *  offered against this on every surface; `settleTotalCents` is tax-inclusive and offering
    *  against it makes the same "20%" label charge more at the register than at the kiosk. */
   settleTipBaseCents: number | null;
+  /** Phase 3d · counter — the PARTS of `settleTotalCents` (subtotal · discount · service · tax ·
+   *  tip), off the SAME `getCartTotals` result, so the pad's ticket prints the receipt stack
+   *  (`padReceiptRows` → `buildReceiptRows`) whose Total is the figure Take payment names. NO total
+   *  here, deliberately: the Total row reads `settleTotalCents` — one binding, never a copy. On this
+   *  read `tipCents` is always 0 (it runs at tipRate 0) and `serviceChargeCents` 0 since W16a, so the
+   *  stack's Total EXCLUDES any tip — a kiosk guest's `intendedTipCents` too — exactly as the dock's
+   *  figure does. `discountCents` is promo PLUS reward (M22); `settlePromoCents` is the promo alone.
+   *  Null exactly when `settleTotalCents` is. Only on the detail, never the floor hot path.
+   *  ⚠️ Never mix it with `runningSubtotalCents` — that is the LINES read, and a write landing between
+   *  the two reads would leave a stack that does not add up. */
+  settleBreakdown: ReceiptBreakdownish | null;
   /** W17c-3 — the tip a KIOSK guest chose before walking to the counter. `null` means they were
    *  never asked (every non-kiosk cart); `0` means they were asked and chose to leave nothing. The
    *  settle UI shows those differently, so the distinction has to survive the read. */

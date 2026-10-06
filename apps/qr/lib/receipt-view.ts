@@ -7,6 +7,11 @@
  * recomputes a total. The M7 rule is structural: line amounts are qty × unit price and tax is ONE
  * order-level row (per-line tax_cents can differ from the aggregate by a rounding cent — charge is
  * correct; a receipt must not surface the mismatch).
+ *
+ * Phase 3d · counter — the staff pad's ticket is the one reader that renders a LIVE breakdown rather
+ * than a snapshot: `padReceiptRows` (lib/order-pad) hands `buildReceiptRows` the open cart's parts
+ * off the detail read's ONE `getCartTotals` call, its Total that read's `settleTotalCents`. Still
+ * verbatim, still never recomputed — only the source is the live engine instead of the paid row.
  */
 
 export type ReceiptBreakdownish = {
