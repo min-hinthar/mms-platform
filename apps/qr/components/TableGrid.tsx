@@ -133,7 +133,7 @@ export function TableGrid({
     // The registry read failed or is empty — never dead-end the dine-in door; offer the sticker
     // scan + a plain host-start (a session with no table number, exactly today's behavior).
     return (
-      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginTop: 20 }}>
+      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
         Couldn’t load the tables. Scan your table’s sticker, or{" "}
         <button type="button" onClick={startPlain} style={inlineLink}>
           start without a number
@@ -194,10 +194,11 @@ export function TableGrid({
   );
 }
 
+// No top margin of its own (J32): TableGrid's one host is `TableSection`, whose --s3 gap is the
+// rhythm; the 20/18px tops were the retired TablePicker page's spacing and doubled inside it.
 const inlineLink: CSSProperties = {
   display: "block",
   width: "100%",
-  marginTop: 18,
   minHeight: 44,
   background: "none",
   border: "none",

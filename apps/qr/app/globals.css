@@ -7312,11 +7312,14 @@ html[data-seen-surface] .mms-stagger {
   padding: 1px 6px;
 }
 
-/* ── K2 · Dine-in table picker (docs/JOURNEY2_PLAN.md) ───────────────────────────────────────────── */
+/* ── K2 · the dine-in table grid (docs/JOURNEY2_PLAN.md) ─────────────────────────────────────────── */
+/* Its one host since 3c-i is `TableSection` — "Pick your table" in the DoorSheet and the Send sheet —
+   whose --s3 gap is the rhythm, so the grid carries no margin of its own: the 20px top was the
+   retired TablePicker page's spacing and doubled inside the section (J32). */
 .table-grid {
   list-style: none;
   padding: 0;
-  margin: 20px 0 0;
+  margin: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
   gap: 10px;
@@ -11243,9 +11246,10 @@ html[data-fx="lite"] .mms-scrim {
     overflow: visible;
     scroll-snap-type: none;
   }
-  /* The table picker: ten tables were 3 + 3 + 3 + 1 with the tenth alone on its row at every
-     wide viewport. 124px tiles fill five across at the tablet width and six at the desktop's —
-     two even rows either way. The phone keeps its 94px three-up. */
+  /* The table grid (measured on the retired picker page, before 3c-i moved it into the sheets): ten
+     tables were 3 + 3 + 3 + 1 with the tenth alone on its row at every wide viewport. 124px tiles
+     filled five across at the tablet width and six at the desktop's — two even rows either way. The
+     phone keeps its 94px three-up. */
   .table-grid {
     grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
   }
@@ -12226,6 +12230,21 @@ a.door-sheet-row {
   font-weight: var(--fw-medium);
   letter-spacing: normal;
   opacity: 0.85;
+}
+/* 3c-i (D18) → 3c-ii (D27) — "Pick your table", the ONE section `TableSection` hosts in the DoorSheet
+   and the Send sheet: the exits' idiom, a stack on the --s3 gap, and inside it that gap is the ONE
+   rhythm — no child brings a top margin of its own (J32). The DoorSheet's section sits under the
+   doors, so it takes the exits' hairline and top rhythm (`[data-host="sheet"]`); the Send sheet IS
+   this section, its dialog title directly above, so it takes neither. */
+.door-sheet-tables {
+  display: grid;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+}
+.door-sheet-tables[data-host="sheet"] {
+  margin-top: var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--bd);
 }
 
 /* The picks row — lens pills on the menu's own selection vocabulary (.menu-tab / .menu-tab-on),

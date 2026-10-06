@@ -87,6 +87,23 @@ describe("TableSection — one section, both tongues, the host's sub-line, no re
   });
 });
 
+describe("TableSection — the stylesheet owns the spacing (J32)", () => {
+  it("the Send host is named for its variant and carries no inline spacing", () => {
+    // `.door-sheet-tables` alone — no `[data-host="sheet"]` hairline under the Send sheet's title.
+    render(<Host source="send" />);
+    const sec = document.querySelector<HTMLElement>("section.door-sheet-tables")!;
+    expect(sec).not.toBeNull();
+    expect(sec.getAttribute("data-host")).toBe("send");
+    expect(sec.getAttribute("style")).toBeNull();
+    // The revealed join form is a direct child of the section's grid: no top margin of its own on
+    // top of the --s3 gap (its old --s2 made the escape-to-form step 20px, every other step 12px).
+    fireEvent.click(screen.getByRole("button", { name: "host-reveal-9" }));
+    const form = sec.querySelector<HTMLFormElement>(":scope > form")!;
+    expect(form).not.toBeNull();
+    expect(form.style.marginTop).toBe("");
+  });
+});
+
 describe("TableSection — the ask is the HOST's", () => {
   it("the host can reveal the join for a table on its own (the bind's `seated` answer): the form opens, focus lands in its input, the chip is its disclosure", () => {
     render(<Host />);

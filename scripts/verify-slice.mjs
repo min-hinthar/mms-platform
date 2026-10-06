@@ -25028,21 +25028,49 @@ const MUTANTS = [
     replace: "    const chosenMode = urlMode;",
   },
   {
-    id: "diner-tabs/menu-tab-skips-the-picker",
-    file: "apps/qr/lib/diner-tabs.ts",
-    suite: "lib/diner-tabs.test.ts",
-    why: "Deep pass on #312 \u2014 a remembered dine-in door with no cart published through it means no table was entered; without this arm the Menu tab links the code-free `/menu?mode=dinein`, the numberless host-start J15 retired, from /account, /cart and /track",
-    find: '      href: isThreshold(s.pathname)\n        ? "/"\n        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : mode === "dinein" && !s.cartId\n            ? "/dine-in"\n            : menuHref(mode),',
-    replace:
-      '      href: isThreshold(s.pathname)\n        ? "/"\n        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : menuHref(mode),',
-  },
-  {
     id: "diner-tabs/lit-menu-tab-leaves-the-join",
     file: "apps/qr/lib/diner-tabs.ts",
     suite: "lib/diner-tabs.test.ts",
-    why: "Codex round 2 on #313 (P2) \u2014 on a table or invite URL the cart is null until the mint lands, and the picker fallback turned the CURRENT Menu tab into a door out of the join flow for exactly that window; a lit tab is a self-link to where you are, or the scanned sticker's diner re-taps into the table picker",
-    find: '        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : mode === "dinein" && !s.cartId',
-    replace: '        : mode === "dinein" && !s.cartId',
+    why: "Codex round 2 on #313 (P2) — a lit tab is a self-link to where you are. On a table or invite URL (`/menu?mode=dinein&t=…`) the cart is null until the mint lands; a lit Menu tab that linked the bare `menuHref(mode)` drops the URL's code, so the scanned sticker's diner re-tapping Menu leaves the join flow for a fresh host-start (re-anchored at J39, when the no-cart `/dine-in` arm it used to sit beside was dropped)",
+    find: '        : active === "menu"\n          ? (s.here ?? menuHref(mode))\n          : menuHref(mode),',
+    replace: "        : menuHref(mode),",
+  },
+  {
+    id: "diner-tabs/menu-tab-takes-the-retired-redirect",
+    file: "apps/qr/lib/diner-tabs.ts",
+    suite: "lib/diner-tabs.test.ts",
+    why: "J39 — since 3c-ii `/dine-in` is a server redirect into the browse-first dine-in menu, kept for the manifest's jump list and old bookmarks. A Menu tab that put back the old no-cart arm to it costs every no-cart dine-in diner a redirect hop and offers, as a destination, a route that is no longer a place; the tab names no session either way (the menu resolves the persisted code)",
+    find: "          ? (s.here ?? menuHref(mode))\n          : menuHref(mode),",
+    replace:
+      '          ? (s.here ?? menuHref(mode))\n          : mode === "dinein" && !s.cartId\n            ? "/dine-in"\n            : menuHref(mode),',
+  },
+  // ── J32 — "Pick your table" spaced by the stylesheet: the section's --s3 gap is the ONE rhythm ──
+  // Ids share `door-sheet/` so `--only=door-sheet/` runs the block.
+  {
+    id: "door-sheet/grid-margin-doubles-in-the-section",
+    file: "apps/qr/app/globals.css",
+    suite: "components/DoorSheet.test.tsx",
+    why: "J32 — `.table-grid`'s one host is `TableSection`, whose --s3 gap is the rhythm; the retired TablePicker page's `margin: 20px 0 0` added to it and set the sub-line 32px over the chips, in the DoorSheet and the Send sheet alike",
+    find: ".table-grid {\n  list-style: none;\n  padding: 0;\n  margin: 0;\n",
+    replace: ".table-grid {\n  list-style: none;\n  padding: 0;\n  margin: 20px 0 0;\n",
+  },
+  {
+    id: "door-sheet/send-section-takes-the-hairline",
+    file: "apps/qr/app/globals.css",
+    suite: "components/DoorSheet.test.tsx",
+    why: 'the hairline belongs to the DoorSheet\'s host alone (`[data-host="sheet"]`): the Send sheet IS this section with its dialog title directly above, and a rule under a title with nothing between them is the shape the blind pass on 3c-ii removed (a second heading under a hairline, read twice). Consolidated onto the bare class it lands there',
+    find: ".door-sheet-tables {\n  display: grid;\n  gap: var(--s3);\n  padding-bottom: var(--s2);\n}\n",
+    replace:
+      ".door-sheet-tables {\n  display: grid;\n  gap: var(--s3);\n  padding-bottom: var(--s2);\n  border-top: 1px solid var(--bd);\n}\n",
+  },
+  // ── J29 (kept) — the console's way back up names the place it lands on ───────────────────────
+  {
+    id: "staff-copy/counter-back-names-the-wrong-place",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "lib/i18n/strings.test.ts",
+    why: 'Deep pass on #312, kept under J29 — every `floor.back` lands on the counter home (`/staff?floor=1`), whose bar and tab read `floor.door.counter` ("Counter & tables"). The word it replaced, "Floor", is one that screen never shows, so a new hire could not learn the two are one place',
+    find: '  "floor.back": { en: "← Counter", my: "← ကောင်တာ" },',
+    replace: '  "floor.back": { en: "← Floor", my: "← ခန်းမ" },',
   },
   {
     id: "checkout-verb/send-offered-during-grace",

@@ -352,9 +352,11 @@ export const STAFF = {
   "kds.size.l": { en: "Large", my: "ကြီး" },
 
   // ── the floor: the console home and the live table board ──────────────────
-  // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
-  // per-key native check: the kitchen's only exit and one link in a console header may want
-  // different wording, and one key would force them to move together.
+  // `floor.back` began as `kds.back`'s two words ("← Floor") and was kept its OWN key because K15 is
+  // a per-key native check — one key would have forced the two to move together, and they have since
+  // parted (below). `kds.back` itself has no reader left outside this file (J29, 2026-10-06 — a
+  // dictionary key, so knip cannot see it); every way back up to the counter home is this key. The
+  // arrow lives INSIDE the value — it is part of the label, not a decorative glyph beside it.
   // Deep pass on #312: the link's destination is the counter home, whose bar title and tab title
   // read `floor.door.counter` ("Counter & tables") — the control said "Floor", a word the screen it
   // lands on never shows, so a new hire had no way to learn they were one place. The MY word is the
@@ -1607,10 +1609,6 @@ export const STAFF = {
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════
   // ── the register (FOH counter): identity and the page's own frame ─────────
-  // `reg.back` carries the same two words as `kds.back`/`floor.back` and stays its OWN key for the
-  // reason stated there: K15 is a per-key native check, and the counter's exit may want different
-  // wording from the kitchen's. The arrow lives INSIDE the value — it is part of the label, not a
-  // decorative glyph beside it.
   // A4·2 — the register is a ZONE of the counter's one screen now (`/staff/register` redirects), so
   // it has no title and no back link of its own; `reg.sub` is the line under the Start heading.
   "reg.sub": {
@@ -3164,7 +3162,7 @@ export const STAFF = {
   // A COUNTER order closed while a cash settle's outcome was unknown (critic finding): settleCash
   // closes a counter session only after a landed settle, so it most likely went through — said as
   // "most likely", never as certain (staff clearing it from another tablet also closes it). "The
-  // floor" is ခန်းမ (grounded: floor.back).
+  // floor" is ခန်းမ (grounded: what.floor).
   "settle.cash.unknownClosed": {
     en: "This order has closed — the payment most likely went through. Find it on the floor before taking payment again.",
     my: "ဒီအော်ဒါ ပိတ်သွားပါပြီ — ငွေရှင်းတာ ဖြစ်သွားပုံရပါတယ်။ ထပ်ငွေမယူခင် ခန်းမမှာ ရှာကြည့်ပါ။",
