@@ -3723,3 +3723,20 @@ migration PR need not push to learn whether its battery passes. Two harness trap
 a BLOCKED session before releasing its peer deadlocks itself under a mutex mutant (and psql's close then
 waits forever — terminate the backend after a bound); and a decision-order mutant must move the WHOLE
 step, or it fails every case the step guards and reads as "wrong case", not "killed".
+
+## #244
+
+**An absence is evidence only inside a container you have proved still exists (the blind pass on #315).**
+J37's `undoMissReason` read "no line on this cart carries the batch" as "an earlier undo landed" — true
+for the one writer it was built around (un-fire clears `fire_batch`) and false for three others: a
+MERGE re-parents the batch, intact, onto another cart and cancels this one; a VOID keeps the batch on a
+line nothing is cooking; a COMP keeps it on a line the kitchen IS cooking. Before reading "nothing here"
+as a fact about what happened, list every writer that can empty the place you are looking — and read
+the side such a writer EMPTIES first: the merge cancels the cart and moves the lines in one commit, so
+lines-then-cart cannot straddle it, while cart-then-lines can (`undo-miss/cart-read-before-lines` is
+that swap, killed by a mock that commits a merge between the two reads). Two corollaries from the same
+round: a mock that RECORDS filters but returns rows regardless of them can never falsify a missing
+filter — evaluate the predicate in the mock; and when two honest rules collide ("a re-ask says what the
+first ask said" vs "never 'brought back' over food being cooked" — a batch whose other lines came back
+beside a comped one), keep the rule whose failure sends people to LOOK at the dishes: a comped line
+counts, so an all-comped batch can never read "brought back".
