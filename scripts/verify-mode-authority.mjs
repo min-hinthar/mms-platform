@@ -873,7 +873,7 @@ const MUTANTS = [
     src: "p2f",
     suite: "p2f",
     expect: "P2F.12 ·",
-    why: "a comped line is an audited loss; the undo turning it back into a draft makes it billable again with the comp row still standing",
+    why: "a comped line is an audited loss the kitchen is making; the undo turning it back into a draft pulls the dish off the KDS as an unsent draft while its comp row still describes a fired line (no charge — every total excludes a comped line in any state, totals-math.ts — but the kitchen stops making food the floor promised free)",
     find: "      and ci.state = 'fired'\n      and not ci.comped\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
     replace:
       "      and ci.state = 'fired'\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
@@ -1819,7 +1819,7 @@ const MUTANTS = [
     src: "m261",
     suite: "m261",
     expect: "J37.3 ·",
-    why: "a comped line is an audited loss; an undo that turns it back into a draft makes it billable again with the comp row standing, and clears the batch the kitchen is cooking it under",
+    why: "a comped line is an audited loss the kitchen is making; an undo that turns it back into a draft pulls the dish off the KDS as an unsent draft, clears the batch `undoMissReason` reads it by, and leaves the comp row describing a line no longer fired (no charge — every total excludes a comped line in any state, totals-math.ts)",
     find: "      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)\n",
     replace: "",
   },

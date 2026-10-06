@@ -109,7 +109,7 @@ begin
   n := public.mms_undo_fire(cart, v_batch);
   select ci.state, ci.fire_batch, ci.comped into v_state, v_lbatch, v_comped from public.qr_cart_items ci where ci.id = l3;
   assert v_state = 'fired' and v_lbatch = v_batch and v_comped,
-    format('J37.3 · the in-grace undo turned a COMPED line into %s (batch %s) — an audited loss made billable again, and undoMissReason loses the dish the kitchen is cooking', v_state, coalesce(v_lbatch::text, 'cleared'));
+    format('J37.3 · the in-grace undo turned a COMPED line into %s (batch %s) — the comped dish pulled off the KDS as an unsent draft, its comp row describing a line no longer fired, and undoMissReason loses the dish the kitchen is cooking', v_state, coalesce(v_lbatch::text, 'cleared'));
   select ci.state, ci.fire_batch into v_state, v_lbatch from public.qr_cart_items ci where ci.id = l4;
   assert v_state = 'voided' and v_lbatch = v_batch,
     format('J37.4 · the in-grace undo turned a VOIDED line into %s (batch %s) — a voided dish back on the order as a draft', v_state, coalesce(v_lbatch::text, 'cleared'));

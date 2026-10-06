@@ -170,6 +170,28 @@ export const reasonCopy: Record<
   error: "Couldn’t send that just now — please try again.",
 };
 
+/**
+ * The UNDO's own sentences (J43 · the self-review on #315). `reasonCopy` speaks for SENDING, and an
+ * undo refused with it said "Couldn’t send that" or "you can’t send" over a tap that tried to bring
+ * something BACK. The lock's and the rate limit's sentences name no act and are shared verbatim (the
+ * lock's is the raced-path sentence documented above). EN only — K15 holds the Burmese.
+ */
+export const undoReasonCopy: Record<
+  "not_host" | "locked" | "settling" | "rate_limited" | "error",
+  string
+> = {
+  not_host: `Ask ${TABLE_STARTER_MID} to bring it back.`,
+  locked: reasonCopy.locked,
+  settling: "Your table is paying — that can’t change while everyone pays.",
+  rate_limited: reasonCopy.rate_limited,
+  error: "Couldn’t bring that back just now — please try again.",
+};
+
+/** Staff voided what was sent (`voided`, lib/undo-miss.ts): nothing is with the kitchen, and nothing
+ *  came back as a draft that the server can prove — so the sentence claims neither and sends the diner
+ *  to LOOK. "Brought back" here was a false success (the self-review on #315). */
+export const VOIDED_NOTE = "Nothing from that send is with the kitchen now — check your order.";
+
 export function useUndoGrace(opts?: {
   /** Every outcome sentence, as it is decided — Checkout routes it to the view's one region. */
   say?: (m: GraceMessage) => void;
@@ -275,9 +297,16 @@ export function useUndoGrace(opts?: {
         say({ kind: "ok", text: "That’s already with the kitchen — ask a server to change it." });
         return "expired";
       }
+      if (res.reason === "voided") {
+        // Staff voided what was sent: never "Brought back" (nothing came back to this order), and the
+        // window is over as for `expired` — there is nothing left in it to take back.
+        say({ kind: "ok", text: VOIDED_NOTE });
+        return "expired"; // voided — the window has nothing left to undo
+      }
       // locked / settling / rate_limited / error / not_host: NOTHING was un-fired by this call and the
-      // lines may still be in grace — keep the window open so the host can retry; it expires on its own.
-      say({ kind: "err", text: reasonCopy[res.reason] });
+      // lines may still be in grace (J45's `frozen` answers `locked` / `settling`) — keep the window
+      // open so the host can retry; it expires on its own. The UNDO's sentence, never the Send's (J43).
+      say({ kind: "err", text: undoReasonCopy[res.reason] });
       return null;
     },
     [say],

@@ -318,7 +318,7 @@ export type UndoFireResult =
   | { ok: true; unfired: number; gone: boolean }
   | {
       ok: false;
-      reason: "not_host" | "expired" | "locked" | "settling" | "rate_limited" | "error";
+      reason: "not_host" | "expired" | "voided" | "locked" | "settling" | "rate_limited" | "error";
     };
 
 /**
@@ -327,11 +327,14 @@ export type UndoFireResult =
  * null; a line whose grace already passed is left fired, so undo can't un-send food the kitchen already
  * has). S4-audit P1-3: undo targets the SPECIFIC `batch` sendToKitchen handed back — so a host's Undo
  * reverses only the host's batch, never a guest's make-it-now (S4.2) line sharing the grace window.
- * `expired` (0 rows un-fired while lines still carry the batch, and no fresh lock or freeze explains
- * it — J45) is the honest signal that the window closed → the UI steers to "ask a server", never a
- * silent success. `gone` (0 rows, the cart still open, and NO line the kitchen could have carries the
- * batch any more) is a SUCCESS: an earlier undo of this batch landed and its answer was lost (J37), so
- * asking again is idempotent. Returned (not thrown) for the same prod-redaction reason.
+ * A 0 is read by `undoMissReason` (lib/undo-miss.ts), never guessed: `expired` (the kitchen has the
+ * batch and none of it is still undoable) is the honest signal that the window closed → the UI steers
+ * to "ask a server", never a silent success; `frozen` (lines the un-fire could move are still in their
+ * grace — J45) is the freshness legs' REFUSAL, answered with the lock's own reason so the window stays;
+ * `voided` (staff voided what was sent) closes it with a sentence that claims nothing came back; `gone`
+ * (the cart still open and NO line carries the batch) is a SUCCESS: an earlier undo of this batch
+ * landed and its answer was lost (J37), so asking again is idempotent. Returned (not thrown) for the
+ * same prod-redaction reason.
  */
 export async function undoFire(cartId: string, batch: string): Promise<UndoFireResult> {
   const input = undoFireInput.parse({ cartId, batch });
@@ -350,22 +353,22 @@ export async function undoFire(cartId: string, batch: string): Promise<UndoFireR
     return { ok: false, reason: "error" };
   }
   if (!unfired) {
-    // J37 — 0 rows is two facts, and a diner's re-ask after a LOST response is the second: un-fire
-    // clears `fire_batch`, so no line still carrying the batch means an earlier undo of it LANDED.
-    // Answered `expired`, the hook said "already with the kitchen" and closed the window over dishes
-    // that are drafts. One diagnosis for both undos (lib/undo-miss.ts); an unread check stays `expired`.
-    if ((await undoMissReason(input.cartId, input.batch)) === "gone")
-      return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)
-    // J45 — the lines still carry the batch, but that is not yet "the kitchen has it": since M258 the
-    // RPC refuses a FRESH pay lock / split freeze in its own statement, so a lock that committed after
-    // authz's read at the top answers 0 over dishes still in their grace. Answered `expired`, the hook
-    // closed the window for good; the lock's refusal keeps it open, and the undo lands once the lock
-    // lifts. Authz's EFFECTIVE flags, re-read — never re-derived here. A throw (the cart closed, a
-    // transport failure) leaves the diagnosis standing. (A lock that lands as the grace ends reads
-    // `locked` too; the window then closes on its own clock.)
-    const again = await assertCartMember(input.cartId).catch(() => null);
-    if (again?.locked) return { ok: false, reason: "locked" };
-    if (again?.settling) return { ok: false, reason: "settling" };
+    // J37 — a 0 is several facts, and a diner's re-ask after a LOST response is one of them: un-fire
+    // clears `fire_batch`, so no line carrying the batch on an open cart means an earlier undo of it
+    // LANDED. One diagnosis for both undos (lib/undo-miss.ts); an unread check stays `expired`.
+    const miss = await undoMissReason(input.cartId, input.batch);
+    if (miss === "gone") return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)
+    // Staff voided the batch: nothing is cooking and nothing came back — never "Brought back".
+    if (miss === "voided") return { ok: false, reason: "voided" };
+    if (miss === "frozen") {
+      // J45 — dishes the un-fire could move are still in their grace, so the RPC's freshness legs
+      // (M258) refused it: a pay lock or split freeze. The window stays for the rest of the grace and a
+      // re-tap lands once the freeze lifts. Authz's EFFECTIVE flags pick only the SENTENCE (never
+      // re-derived here), and a lock already freed again — taken and released inside one checkout —
+      // still reads `locked`: "That didn't go through — please try again." is true of it.
+      const again = await assertCartMember(input.cartId).catch(() => null);
+      return { ok: false, reason: again?.settling ? "settling" : "locked" };
+    }
     return { ok: false, reason: "expired" };
   }
   await touchCart(input.cartId, "undoFire");

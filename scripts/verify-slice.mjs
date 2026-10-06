@@ -7004,18 +7004,33 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-send.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a — 0 lines taken back means the kitchen has it. Answered as a success, the console says 'Brought back — not sent' over a dish that is being cooked, and nobody reaches for Void / Comp",
-    find: "  if (!unfired) return { ok: false, reason: await undoMissReason(table.cart.id, batch) };\n",
-    replace: "",
+    find: `  if (!unfired) {
+    // The ONE diagnosis (lib/undo-miss.ts)`,
+    replace: `  if (false) {
+    // The ONE diagnosis (lib/undo-miss.ts)`,
+  },
+  {
+    id: "staff-send/voided-batch-reads-as-expired",
+    file: "apps/qr/lib/staff-send.ts",
+    suite: "lib/staff-send.test.ts",
+    why: "the self-review on #315 — a batch staff already voided is not 'too late, Void / Comp': the console's `gone` sentence ('Nothing from that send is still with the kitchen — the dishes above show where each one is.') is the true one",
+    find: 'miss === "voided" ? "gone"',
+    replace: 'miss === "voided" ? "expired"',
+  },
+  {
+    id: "staff-send/frozen-batch-reads-as-gone",
+    file: "apps/qr/lib/staff-send.ts",
+    suite: "lib/staff-send.test.ts",
+    why: "the self-review on #315 — a batch with dishes still fired in their grace is never 'nothing is with the kitchen'; the console keeps `expired` until J50 gives it an undo sentence of its own",
+    find: 'miss === "frozen" ? "expired"',
+    replace: 'miss === "frozen" ? "gone"',
   },
   {
     id: "staff-send/undo-gone-reads-as-expired",
-    // J37 — the diagnosis moved verbatim to lib/undo-miss.ts (its second reader is the diner's
-    // `undoFire`); this suite still reaches it through `staffUndoFire`, and lib/cart-undo.test.ts
-    // through the diner's door.
     file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a (blind review) — an undo retried after a LOST response finds its batch already brought back (undo clears fire_batch). Answered `expired`, the console says 'too late — the kitchen has it, Void / Comp' over a dish nobody is cooking",
-    find: '  return cart?.status === "open" ? "gone" : "expired";\n',
+    find: '  return voided?.length ? "voided" : "gone";\n',
     replace: '  return "expired";\n',
   },
   {
@@ -7023,8 +7038,8 @@ const MUTANTS = [
     file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a (blind review) — lines still carrying the batch mean the grace ran out and the kitchen has them. Answered `gone` without looking, the console says nothing from the send is cooking while it is, and nobody reaches for Void / Comp",
-    find: '  if (data?.length) return "expired";\n',
-    replace: "",
+    find: '    return live?.length ? "frozen" : "expired";\n',
+    replace: '    return "gone";\n',
   },
   {
     id: "staff-send/undo-unread-check-reads-as-gone",
@@ -7034,24 +7049,31 @@ const MUTANTS = [
     find: '    return "expired"; // deliberate: the conservative steer (see above)\n',
     replace: '    return "gone";\n',
   },
-  // ── The blind pass on #315 — three readings `undoMissReason` got wrong, each a false "brought back"
-  // or a false "too late". Judged through the DINER's door, whose suite filters the mock rows FOR REAL
-  // (lib/cart-undo.test.ts), so a dropped filter is a different answer, not just a different call.
   {
     id: "undo-miss/voided-line-counts-as-kitchen",
     file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/cart-undo.test.ts",
-    why: "blind pass on #315 (money) — `mms_void_line` keeps `fire_batch`, so a voided line in the batch is not evidence the kitchen has anything. Counted, an undo that landed beside it re-asks as `expired` forever — 'already with the kitchen' and the window closed over drafts",
+    why: "blind pass on #315 (money) — `mms_void_line` keeps `fire_batch`, so a voided line in the batch is not evidence the kitchen has anything. Counted, a voided batch reads `expired` — 'already with the kitchen' over a dish nobody is cooking",
     find: '    .neq("state", "voided")\n',
     replace: "",
+  },
+  {
+    id: "undo-miss/comped-line-reads-gone",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 (product) — a COMPED line stays fired with the batch while the kitchen cooks it. Dropped from the first probe, an all-comped batch reads `gone`: 'Brought back to your order' over food on the pass",
+    find: '    .neq("state", "voided")\n',
+    replace: `    .neq("state", "voided")
+    .eq("comped", false)
+`,
   },
   {
     id: "undo-miss/closed-cart-reads-gone",
     file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/cart-undo.test.ts",
-    why: "blind pass on #315 (money · concurrency) — a staff MERGE re-parents the in-grace batch onto another table and cancels this cart, so nothing here carries it. `gone` without the cart's status says 'Brought back' over dishes cooking at the merged table",
-    find: '  return cart?.status === "open" ? "gone" : "expired";\n',
-    replace: '  return "gone";\n',
+    why: "blind pass on #315 (money · concurrency) — a staff MERGE moves or folds the in-grace batch onto another table and cancels this cart, so nothing here carries it. `gone` without the cart's status says 'Brought back' over dishes cooking at the merged table",
+    find: '  if (cart?.status !== "open") return "expired";\n',
+    replace: "",
   },
   {
     id: "undo-miss/unread-cart-reads-gone",
@@ -7062,12 +7084,59 @@ const MUTANTS = [
     replace: '    return "gone";\n',
   },
   {
+    id: "undo-miss/frozen-reads-expired",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "J45 (the self-review on #315) — dishes the un-fire could move still in their grace mean the RPC REFUSED; never saying `frozen`, the diner hears 'already with the kitchen' and loses the Undo over dishes it would bring back",
+    find: '    return live?.length ? "frozen" : "expired";\n',
+    replace: '    return "expired";\n',
+  },
+  {
+    id: "undo-miss/lapsed-grace-reads-frozen",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 (concurrency) — a grace that ran out is the clock, not a lock. Without the `fire_at` bound the diner hears 'That didn't go through — please try again' while the Undo is about to vanish over dishes the kitchen has",
+    find: '      .gt("fire_at", new Date().toISOString())\n',
+    replace: "",
+  },
+  {
+    id: "undo-miss/comped-line-reads-frozen",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 (product) — a comped line can never be un-fired; counted as undoable, its 0 reads as a refusal and the diner is told to try again over a dish no undo can take back",
+    find: '      .eq("comped", false)\n',
+    replace: "",
+  },
+  {
+    id: "undo-miss/unread-grace-check-reads-frozen",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 — an unreadable grace check is no evidence of a refusal; it keeps `expired`, never 'please try again'",
+    find: '      return "expired"; // deliberate: unread is never "refused, try again"\n',
+    replace: '      return "frozen";\n',
+  },
+  {
+    id: "undo-miss/all-voided-reads-gone",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 (money · concurrency · product — three lenses, one finding) — a batch staff VOIDED in its grace leaves only voided lines carrying it; read as `gone`, the diner hears 'Brought back to your order' and the window closes as undone over a dish that is gone from the order",
+    find: '  return voided?.length ? "voided" : "gone";\n',
+    replace: '  return "gone";\n',
+  },
+  {
+    id: "undo-miss/unread-void-check-reads-gone",
+    file: "apps/qr/lib/undo-miss.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 — an unreadable void check is no evidence an undo landed; it keeps `expired`, never 'Brought back'",
+    find: '    return "expired"; // deliberate: unread is never "brought back"\n',
+    replace: '    return "gone";\n',
+  },
+  {
     id: "undo-miss/cart-read-before-lines",
     file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/cart-undo.test.ts",
     why: "blind pass on #315 (concurrency) — the merge cancels the cart and moves the lines in ONE commit; read the cart first and that commit can fall between the reads (open, then no lines) — `gone`, 'Brought back' over dishes being cooked. Lines first, the cart only after",
-    find: `  const db = serviceClient();
-  const { data, error } = await db
+    find: `  const { data, error } = await db
     .from("qr_cart_items")
     .select("id")
     .eq("cart_id", cartId)
@@ -7078,7 +7147,6 @@ const MUTANTS = [
     console.error("[undo-miss] undo batch check failed", { message: error.message });
     return "expired"; // deliberate: the conservative steer (see above)
   }
-  if (data?.length) return "expired";
   // Only now the cart (the docblock's merge): a status read BEFORE the lines could straddle the commit.
   const { data: cart, error: cartErr } = await db
     .from("qr_carts")
@@ -7089,10 +7157,8 @@ const MUTANTS = [
     console.error("[undo-miss] undo cart check failed", { message: cartErr.message });
     return "expired"; // deliberate: the same conservative steer
   }
-  return cart?.status === "open" ? "gone" : "expired";
 `,
-    replace: `  const db = serviceClient();
-  const { data: cart, error: cartErr } = await db
+    replace: `  const { data: cart, error: cartErr } = await db
     .from("qr_carts")
     .select("status")
     .eq("id", cartId)
@@ -7108,25 +7174,18 @@ const MUTANTS = [
     console.error("[undo-miss] undo batch check failed", { message: error.message });
     return "expired"; // deliberate: the conservative steer (see above)
   }
-  if (data?.length) return "expired";
-  // Only now the cart (the docblock's merge): a status read BEFORE the lines could straddle the commit.
   if (cartErr) {
     console.error("[undo-miss] undo cart check failed", { message: cartErr.message });
     return "expired"; // deliberate: the same conservative steer
   }
-  return cart?.status === "open" ? "gone" : "expired";
 `,
   },
-
-  // ── J37 — the diner's `undoFire` reads the same diagnosis after a 0-row answer: `gone` (no line still
-  // carries the batch) is an earlier undo of it that LANDED, answered as a success so a re-ask after a
-  // lost response is idempotent. Value-falsified through the real lib/undo-miss.ts in lib/cart-undo.test.ts.
   {
     id: "cart-undo/retried-undo-reads-expired",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-undo.test.ts",
     why: "J37 — a re-ask after a lost response finds its batch gone (un-fire clears fire_batch). Read as expired, the diner hears 'already with the kitchen' and the window closes as expired over dishes that are drafts",
-    find: '    if ((await undoMissReason(input.cartId, input.batch)) === "gone")\n      return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)\n',
+    find: '    if (miss === "gone") return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)\n',
     replace: "",
   },
   {
@@ -7134,26 +7193,40 @@ const MUTANTS = [
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-undo.test.ts",
     why: "J37 — lines still carrying the batch are with the kitchen; answering every 0 as 'brought back' without looking is a lie about food being cooked, and the window closes as undone over it",
-    find: '    if ((await undoMissReason(input.cartId, input.batch)) === "gone")\n',
-    replace: "    if (true)\n",
+    find: "    const miss = await undoMissReason(input.cartId, input.batch);\n",
+    replace: '    const miss = "gone" as "gone" | "voided" | "frozen" | "expired";\n',
   },
-  // ── J45 (the blind pass on #315, concurrency) — a 0 under a lock that committed after authz's read is
-  // the lock's refusal, not "too late": the in-statement freshness legs (M258) refused the un-fire.
   {
-    id: "cart-undo/fresh-lock-reads-expired",
+    id: "cart-undo/voided-reads-expired",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-undo.test.ts",
-    why: "J45 — without the re-read, a pay lock that landed between authz and the RPC answers `expired`: 'already with the kitchen', and the hook closes the window for good over dishes still in their grace that the undo would bring back once the lock lifts",
-    find: '    if (again?.locked) return { ok: false, reason: "locked" };\n',
+    why: "the self-review on #315 — a voided batch answered `expired` says 'already with the kitchen' over a dish staff removed; `voided` has its own true sentence",
+    find: '    if (miss === "voided") return { ok: false, reason: "voided" };\n',
     replace: "",
   },
   {
-    id: "cart-undo/fresh-freeze-reads-expired",
+    id: "cart-undo/frozen-reads-expired",
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-undo.test.ts",
-    why: "J45 — the same for a split freeze that landed between authz and the RPC",
-    find: '    if (again?.settling) return { ok: false, reason: "settling" };\n',
-    replace: "",
+    why: "J45 — without the `frozen` arm a pay lock that refused the un-fire answers `expired`: 'already with the kitchen', and the hook closes the window for good over dishes still in their grace",
+    find: '    if (miss === "frozen") {\n',
+    replace: "    if (false) {\n",
+  },
+  {
+    id: "cart-undo/fresh-freeze-reads-locked",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "J45 — a split freeze is told apart from a pay lock so the diner hears why ('Your table is paying'), not a bare 'try again'",
+    find: 'reason: again?.settling ? "settling" : "locked"',
+    replace: 'reason: "locked" as const',
+  },
+  {
+    id: "cart-undo/freed-lock-reads-expired",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "the self-review on #315 (money) — a lock taken and freed inside one checkout is gone by any re-read; deciding by the re-read answered `expired` over dishes still in their grace. The lines decide; the re-read only picks the sentence",
+    find: 'reason: again?.settling ? "settling" : "locked"',
+    replace: 'reason: again?.settling ? "settling" : again?.locked ? "locked" : "expired"',
   },
   {
     id: "staff-send/fired-rows-not-units",
@@ -25418,6 +25491,29 @@ const MUTANTS = [
     why: "J34 — the label's ticker must leave with the label; one that survives fires every quarter second for as long as the tab lives, once per Undo ever drawn",
     find: "  return () => clearInterval(id);\n",
     replace: "  return () => {};\n",
+  },
+  {
+    id: "undo-grace/voided-keeps-the-window",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "the self-review on #315 — a batch staff voided has nothing left to take back; read as a refusal, the region says nothing true and the Undo stays live over a dish that is gone from the order",
+    find: `      if (res.reason === "voided") {
+        // Staff voided what was sent: never "Brought back" (nothing came back to this order), and the
+        // window is over as for \`expired\` — there is nothing left in it to take back.
+        say({ kind: "ok", text: VOIDED_NOTE });
+        return "expired"; // voided — the window has nothing left to undo
+      }
+`,
+    replace: "",
+  },
+  {
+    id: "undo-grace/undo-refusal-says-the-send",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J43 (the self-review on #315) — a refused UNDO said the Send's sentence: 'Couldn't send that just now' and 'you can't send while everyone pays' over a tap that tried to bring something back",
+    find: '      say({ kind: "err", text: undoReasonCopy[res.reason] });\n',
+    replace:
+      '      say({ kind: "err", text: reasonCopy[res.reason as keyof typeof reasonCopy] });\n',
   },
   {
     id: "checkout/pay-re-entered-during-the-drain",

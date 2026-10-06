@@ -52,6 +52,10 @@ const h = vi.hoisted(() => ({
   /** qr_cart_items rows the post-fire units read returns, and what it filtered on. */
   batchRows: [] as { qty: number }[] | null,
   batchReadError: null as null | { message: string },
+  /** `undoMissReason`'s grace check (`eq state fired`) and void check (`eq state voided`): the rows
+   *  each one returns, told apart by the state filter it carries. */
+  liveRows: [] as { qty: number }[],
+  voidedRows: [] as { qty: number }[],
   itemReads: [] as { table: string; cols: string; filters: [string, unknown][] }[],
 }));
 
@@ -115,11 +119,15 @@ function itemsQuery(table: string) {
           : { data: { status: h.cartStatus }, error: null },
       );
     },
+    gt(col: string) {
+      rec.filters.push([`>${col}`, "now"]);
+      return q;
+    },
     then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
+      const state = rec.filters.find(([c]) => c === "state")?.[1];
+      const rows = state === "fired" ? h.liveRows : state === "voided" ? h.voidedRows : h.batchRows;
       return Promise.resolve(
-        h.batchReadError
-          ? { data: null, error: h.batchReadError }
-          : { data: h.batchRows, error: null },
+        h.batchReadError ? { data: null, error: h.batchReadError } : { data: rows, error: null },
       ).then(res, rej);
     },
   };
@@ -170,6 +178,8 @@ beforeEach(() => {
   // Three rows of qty 1 — the default where rows and units agree. The units case below separates them.
   h.batchRows = [{ qty: 1 }, { qty: 1 }, { qty: 1 }];
   h.batchReadError = null;
+  h.liveRows = [];
+  h.voidedRows = [];
   h.cartStatus = "open";
   h.itemReads = [];
 });
@@ -287,18 +297,58 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
     });
     // MUTATION: answer `gone` without looking — "nothing is with the kitchen" over a dish being
     // cooked, and nobody reaches for Void / Comp; red.
-    expect(h.itemReads).toEqual([
-      {
-        table: "qr_cart_items",
-        cols: "id",
-        filters: [
+    // The batch's lines, then the cart, then the grace check — read, never assumed.
+    expect(h.itemReads.map((r) => [r.table, r.cols, r.filters])).toEqual([
+      [
+        "qr_cart_items",
+        "id",
+        [
           ["cart_id", "cart-1"],
           ["fire_batch", BATCH],
           ["!state", "voided"],
         ],
-      },
+      ],
+      ["qr_carts", "status", [["id", "cart-1"]]],
+      [
+        "qr_cart_items",
+        "id",
+        [
+          ["cart_id", "cart-1"],
+          ["fire_batch", BATCH],
+          ["state", "fired"],
+          ["comped", false],
+          [">fire_at", "now"],
+        ],
+      ],
     ]);
     expect(h.touched).toEqual([]);
+  });
+
+  it("0 lines taken back while a batch line is still undoable in its grace → still `expired` on the console (its J45 twin is J50)", async () => {
+    // The diner's door answers this `frozen` verdict with the lock's own reason; the console keeps
+    // "too late" until J50 gives it an undo sentence of its own — pinned so the split is deliberate.
+    h.unfired = 0;
+    h.batchRows = [{ qty: 1 }];
+    h.liveRows = [{ qty: 1 }];
+    // MUTATION (staff-send/frozen-batch-reads-as-gone): `frozen` mapped to `gone` — "nothing is with
+    // the kitchen" over dishes still fired; red.
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+  });
+
+  it("0 lines taken back and only a VOIDED line carries the batch → `gone`: the console's sentence is true of a voided batch", async () => {
+    // "Nothing from that send is still with the kitchen — the dishes above show where each one is."
+    h.unfired = 0;
+    h.batchRows = [];
+    h.voidedRows = [{ qty: 1 }];
+    // MUTATION (staff-send/voided-batch-reads-as-expired): `voided` mapped to `expired` — "too late,
+    // Void / Comp" over a dish already voided; red.
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "gone",
+    });
   });
 
   it("0 lines taken back and NO line still carries the batch → `gone` (an earlier undo landed)", async () => {
@@ -325,6 +375,15 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
         ],
       ],
       ["qr_carts", "status", [["id", "cart-1"]]],
+      [
+        "qr_cart_items",
+        "id",
+        [
+          ["cart_id", "cart-1"],
+          ["fire_batch", BATCH],
+          ["state", "voided"],
+        ],
+      ],
     ]);
     expect(h.touched).toEqual([]);
   });

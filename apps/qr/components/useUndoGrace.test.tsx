@@ -22,7 +22,9 @@ const {
   RESYNC_RETRY_MS,
   UNDO_UNCONFIRMED_NOTE,
   UNDO_UNCONFIRMED_FINAL,
+  VOIDED_NOTE,
   reasonCopy,
+  undoReasonCopy,
 } = await import("./useUndoGrace");
 const { graceRemainingSec } = await import("@/lib/send-grace");
 const KITCHEN_LINE = "That’s already with the kitchen — ask a server to change it.";
@@ -138,6 +140,46 @@ describe("useUndoGrace — the window", () => {
     });
     expect(result.current.deadlineMs).toBe(before);
     expect(result.current.message).toEqual({ kind: "err", text: reasonCopy.rate_limited });
+  });
+
+  it("a VOIDED batch closes the window with a sentence that claims nothing came back — never 'Brought back' (self-review on #315)", async () => {
+    const say = vi.fn();
+    const { result } = renderHook(() => useUndoGrace({ say }));
+    act(() => result.current.open(receipt(), Date.now()));
+    h.undoFire.mockResolvedValueOnce({ ok: false, reason: "voided" });
+    // MUTATION (undo-grace/voided-keeps-the-window): the voided answer falls through to the refusal
+    // branch — an `undefined` sentence and an Undo left live over a dish staff removed; red.
+    await act(async () => {
+      await result.current.undo("cart-1", false);
+    });
+    expect(result.current.message).toEqual({ kind: "ok", text: VOIDED_NOTE });
+    expect(say).toHaveBeenLastCalledWith({ kind: "ok", text: VOIDED_NOTE });
+    expect(VOIDED_NOTE).not.toBe(BROUGHT_BACK_NOTE);
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("expired");
+  });
+
+  it("a refused UNDO says the undo's sentence, never the Send's (J43): error · settling · not_host; the lock's and the rate limit's are shared", async () => {
+    const { result } = renderHook(() => useUndoGrace());
+    act(() => result.current.open(receipt(), Date.now()));
+    const before = result.current.deadlineMs;
+    for (const reason of ["error", "settling", "not_host"] as const) {
+      h.undoFire.mockResolvedValueOnce({ ok: false, reason });
+      await act(async () => {
+        await result.current.undo("cart-1", false);
+      });
+      // MUTATION (undo-grace/undo-refusal-says-the-send): the Send's `reasonCopy` — "Couldn't send
+      // that just now" over a tap that tried to bring something back; red.
+      expect(result.current.message).toEqual({ kind: "err", text: undoReasonCopy[reason] });
+      expect(undoReasonCopy[reason]).not.toBe(reasonCopy[reason]);
+      expect(result.current.deadlineMs).toBe(before); // nothing un-fired: the window stays
+    }
+    expect(undoReasonCopy.error).toBe("Couldn’t bring that back just now — please try again.");
+    expect(undoReasonCopy.settling).toBe(
+      "Your table is paying — that can’t change while everyone pays.",
+    );
+    expect(undoReasonCopy.locked).toBe(reasonCopy.locked);
+    expect(undoReasonCopy.rate_limited).toBe(reasonCopy.rate_limited);
   });
 
   it("graceWrites.current resolves only AFTER the undo (and its re-sync) — and never rejects on a thrown action", async () => {
