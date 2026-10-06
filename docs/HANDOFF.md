@@ -5,7 +5,60 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-06 · #315 open on `claude/fervent-johnson-luj1lm` · the follow-ups after 3c-ii + Phase 3d's kitchen and receipt stack BUILT · the blind pass FIXED · M263 + M261 ON PROD · the Codex per-head round (blocked on the Codex quota) stands between it and the merge)
+> ## ⏭️ NEXT SESSION — start here (2026-10-06, late · #315 MERGES on the owner's go — "merge once CI and verify:slice are green" · check `git log origin/main` first)
+>
+> **First, measure where #315 is** — `git log origin/main --oneline -3`. The owner's last word was "merge
+> once CI and verify:slice are green": CI was green on `3a4210a`, and a full `verify:slice` was running on
+> `3a4210a` (detached in `.claude/worktrees/vs-full5`, started 20:22 UTC, ~2½ h). Every commit after
+> `3a4210a` is docs only, which `git diff 3a4210a <head> -- . ':!*.md'` proves empty. The merge happens
+> only on a green verdict from that run plus green CI on the final head; the PR comments carry the result.
+> If #315 is NOT merged, that run did not finish green (or never finished: a container restart killed one
+> run at 12:12). Restart it on the PR head per LEARNINGS #229 and merge on green. Never merge on a run you
+> did not watch finish.
+>
+> **What #315 is** (the CHANGELOG entry "After 3c-ii — the follow-ups and Phase 3d" is the list):
+>
+> - the full escorted `verify:slice` on `b391dc8`;
+> - **M260, M263 and M261, all on prod** (`20261006045935` · `20261006050018` · `20261006191633` ·
+>   `20261006191844`, each pre-checked and verified; M125 has the stamps);
+> - J30 measured (found C27);
+> - J28 settled down to one owner device pass;
+> - **J37 · M261 · J34** (the undo grace);
+> - **J40 · J41 · M263 · M264** (one bind authority);
+> - J39 · J32 · J29;
+> - **Phase 3d · kitchen** (K38) and **3d · counter's receipt stack** (K46).
+>
+> **Three review layers, all on the PR as comments:**
+>
+> - **The capped blind pass** on the full diff: three lenses, all REJECT, everything fixed or recorded.
+> - **Codex round 1** on `51838ad`: nothing major.
+> - **The self-review** that replaced the per-head Codex round. The Codex account hit its review quota,
+>   so the owner said "review yourself, fix all, and then merge when ready".
+>   - Two of its three blind lenses found the same regression in the blind pass's own fix: a batch staff
+>     VOIDED read "Brought back to your order".
+>   - `undoMissReason` now rests every verdict on a line read: `expired` · `frozen` · `voided` · `gone`.
+>   - J45 is decided by the dishes still in grace, not by a later lock re-read.
+>   - J43 is closed: the undo has its own refusal sentences.
+>   - LEARNINGS #245 records the lesson.
+>
+> ⚠️ `codex-review` stays RED on #315's heads, because Codex never ran (quota). The owner's go replaces
+> that gate for this PR only. The next PR needs the Codex quota raised, or the owner's word again.
+>
+> **Then, after the merge:** **3d · counter — the cash-sheet re-host (K39)**, with K44, is Phase 3d's
+> remaining slice (ROADMAP). Also open:
+>
+> - J50 (the console's undo has J45's shape — it can now reuse `undoMissReason`'s `frozen`);
+> - J52 · J53 · J54 (filed by the self-review);
+> - J42's remainder and J49 (held chips);
+> - M265–M267;
+> - J44 · J46–J48;
+> - C27 (the function region — owner config);
+> - one owner device pass: J28's list, the kitchen in a real Night room with iOS audio (P2bw), K43's
+>   badge clip, and J42's screen-reader name-change check.
+>
+> **J51 is ACCEPTED, not open work** (J40's trade-off).
+
+> ## ✅ (superseded 2026-10-06, late) NEXT SESSION as of (2026-10-06 · #315 open on `claude/fervent-johnson-luj1lm` · the follow-ups after 3c-ii + Phase 3d's kitchen and receipt stack BUILT · the blind pass FIXED · M263 + M261 ON PROD · the Codex per-head round (blocked on the Codex quota) stands between it and the merge)
 >
 > **Where things stand.** #314 (3c-ii) merged as `b391dc8`. Everything the owner asked for next is on
 > #315 (the CHANGELOG entry "After 3c-ii — the follow-ups and Phase 3d" is the list): the full escorted
