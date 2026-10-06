@@ -6,6 +6,7 @@ import { BIND_COPY } from "@/lib/bind-copy";
 import type { BindTableResult } from "@/lib/bind-table";
 import { boundWrite, type Bounded } from "@/lib/bounded-write";
 import { t } from "@/lib/i18n";
+import { seatedAnswer } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { FROZEN_NOTE } from "./useUndoGrace";
 
@@ -41,7 +42,10 @@ import { FROZEN_NOTE } from "./useUndoGrace";
  * table's sticker — which the registry reports as occupied — from a stranger's party; `TableGrid`
  * says why) — flips THAT chip to Seated (a disclosure, never natively disabled) and reveals the inline
  * join with focus in its input, plus the drafts note while this cart holds drafts: joining moves the
- * diner, never the dishes. Every other answer is the host's to say.
+ * diner, never the dishes. J40 — `kiosk` and `held` (an order NO code joins: a kiosk order, or a
+ * table a server started that already has an order on it) flip the chip to Seated with NO form, and
+ * under a freeze such a chip says FROZEN_NOTE instead of revealing an ask (`seatedAnswer`, pure,
+ * decides which). Every other answer is the host's to say.
  *
  * NO LIVE REGION HERE (one per view): a sentence written while the modal is open sits under Radix's
  * `aria-hidden`, so the host STASHES each one and says it through its own region in `onClosed` —
@@ -105,6 +109,9 @@ export function TableBindSheet({
   // Tables the bind answered `seated` for since this sheet opened: their chips read Seated now,
   // whatever the registry said when the grid was read.
   const [seatedAt, setSeatedAt] = useState<ReadonlySet<number>>(() => new Set());
+  // J40 — the subset whose latest answer was an order NO code joins (`kiosk` · `held`): Seated, but
+  // with no join form, here or under a freeze. Cleared when the same chip's next answer is `seated`.
+  const [noJoinAt, setNoJoinAt] = useState<ReadonlySet<number>>(() => new Set());
   // Why the sheet is closing — "send" on a landed bind or "Send anyway", else a dismissal.
   const closedBy = useRef<"send" | null>(null);
 
@@ -123,7 +130,10 @@ export function TableBindSheet({
       // A SEATED chip under a freeze (Codex round 3 on #314): no bind is possible, and the join is
       // not a cart write — reveal the ask, as the DoorSheet's chip would. FROZEN_NOTE below is the
       // OPEN chip's sentence; said here it would wall the join off until a tablemate's lock lifts.
-      setJoinNum(n);
+      // J40 — except a chip whose order no code joins: there is no ask to reveal, so the freeze's
+      // own sentence is the true one.
+      if (noJoinAt.has(n)) onFrozen(FROZEN_NOTE);
+      else setJoinNum(n);
       return;
     }
     if (frozen) {
@@ -144,11 +154,19 @@ export function TableBindSheet({
     // docblock says why), both read as a send that did not happen.
     const result: BindTableResult =
       out.kind === "answer" ? out.value : { ok: false, reason: "error" };
+    // J40 — `seatedAnswer` (pure) says what the refusal does to THIS chip.
+    const ask = seatedAnswer(result);
     if (result.ok) {
       closedBy.current = "send";
-    } else if (result.reason === "seated") {
+    } else if (ask === "join") {
       setSeatedAt((s) => new Set(s).add(n));
+      setNoJoinAt((s) => withoutTable(s, n));
       setJoinNum(n);
+    } else if (ask === "occupied") {
+      // No form: the chip whose ask is OPEN collapses instead of binding (`TableGrid`), so no ask
+      // can be open on the chip this answer is for.
+      setSeatedAt((s) => new Set(s).add(n));
+      setNoJoinAt((s) => new Set(s).add(n));
     }
     onOutcome(result);
   }
@@ -215,6 +233,14 @@ export function TableBindSheet({
       )}
     </Sheet>
   );
+}
+
+/** A copy of `s` without `n` (the state sets are never mutated in place). */
+function withoutTable(s: ReadonlySet<number>, n: number): ReadonlySet<number> {
+  if (!s.has(n)) return s;
+  const next = new Set(s);
+  next.delete(n);
+  return next;
 }
 
 const flush = { margin: 0 } as const;

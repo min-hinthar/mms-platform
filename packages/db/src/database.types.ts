@@ -1887,6 +1887,13 @@ export type Database = {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
       }
+      mms_bind_session_table: {
+        Args: { p_session: string; p_shell?: string; p_table: number }
+        Returns: {
+          at_table: number
+          outcome: string
+        }[]
+      }
       mms_bump_ticket: {
         Args: { p_cart: string; p_lines: string[] }
         Returns: number

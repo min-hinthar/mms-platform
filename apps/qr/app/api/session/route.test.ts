@@ -61,10 +61,18 @@ let writes: string[] = [];
 let queries: Q[] = [];
 /** The first `table_sessions` insert refuses with this code, after `then` ran (the concurrent winner). */
 let insertCollision: { code: string; then?: () => void } | null = null;
-/** The bind's CAS refuses with this code (a phone/kiosk took N between the read and the write). */
+/** The bind call refuses with this code (a phone/kiosk took N between the read and the write). */
 let bindCollision: { code: string } | null = null;
-/** Runs when the bind's CAS is issued, BEFORE it matches rows — the row moving under the write. */
+/** Runs when the bind call is issued, BEFORE it matches rows — the row moving under the write. */
 let bindHook: (() => void) | null = null;
+/** Every RPC the route issued (M263: the bind is ONE call, `mms_bind_session_table`). */
+let rpcs: { name: string; args: Record<string, unknown> }[] = [];
+/** A scripted answer for the bind call; null = the SQL's CAS emulated on the fixture rows. */
+let rpcAnswer: { data: unknown; error: unknown } | null = null;
+/** A `table_sessions` read keyed on THIS id fails (an outage) — M264's live re-check. */
+let idReadFailsFor: string | null = null;
+/** Runs once when a write matching `on` is issued, BEFORE it applies — a row moving under it (M264). */
+let writeHook: { on: (q: Q) => boolean; run: () => void } | null = null;
 /** The number-keyed read fails (an outage). */
 let numberReadFails = false;
 /** The membership read fails (an outage). */
@@ -73,19 +81,31 @@ let membersReadFails = false;
 let registryReadFails = false;
 /** A `table_sessions` read keyed on THIS token fails (an outage) — the prior-code read, the zero-row re-read. */
 let tokenReadFailsFor: string | null = null;
-/** The session's open cart's freeze columns, as `qr_carts` answers them. */
-let cartFreeze: { locked: boolean; locked_at: string | null; settle_at: string | null } = {
-  locked: false,
-  locked_at: null,
-  settle_at: null,
-};
-/** The `qr_carts` read fails (an outage). */
-let cartReadFails = false;
 
 vi.mock("@/lib/rate", () => ({ withinJoinRate: () => Promise.resolve(true) }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
 
 let nextId = 0;
+/**
+ * `mms_bind_session_table`'s CAS on the fixture rows (the freeze, J41 and J40 are the SQL test's —
+ * supabase/tests/m263_bind_session_table_test.sql): a live, unbound, dine-in row lands; a live
+ * dine-in row already AT the number raises 23505 (the index); anything else is `unmoved`.
+ */
+function emulateBind(args: Record<string, unknown>): { data: unknown; error: unknown } {
+  const n = args.p_table as number;
+  const me = sessions.find((r) => r.id === args.p_session);
+  const live = (r: Row) => r.status === "active" && r.expires_at > new Date().toISOString();
+  if (!me || !live(me) || me.mode !== "dinein" || me.table_number != null)
+    return { data: [{ outcome: "unmoved", at_table: null }], error: null };
+  if (
+    sessions.some(
+      (r) => r !== me && r.status === "active" && r.mode === "dinein" && r.table_number === n,
+    )
+  )
+    return { data: null, error: { code: "23505", message: "duplicate key" } };
+  me.table_number = n;
+  return { data: [{ outcome: "bound", at_table: n }], error: null };
+}
 function matches(row: Record<string, unknown>, q: Q): boolean {
   return (
     q.eq.every(([c, v]) => row[c] === v) &&
@@ -104,10 +124,28 @@ vi.mock("@mms/db/server", () => ({
     auth: { getUser: () => Promise.resolve({ data: { user: { id: SEAT } }, error: null }) },
   }),
   serviceClient: () => ({
+    rpc: (name: string, args: Record<string, unknown>) => {
+      rpcs.push({ name, args });
+      writes.push(`rpc:${name}`);
+      if (bindCollision)
+        return Promise.resolve({ data: null, error: { code: bindCollision.code, message: "dup" } });
+      if (rpcAnswer) return Promise.resolve(rpcAnswer);
+      if (bindHook) {
+        const h = bindHook;
+        bindHook = null;
+        h();
+      }
+      return Promise.resolve(emulateBind(args));
+    },
     from: (table: string) => {
       const q: Q = { table, op: "select", eq: [], gt: [], lte: [], is: [] };
       queries.push(q);
       const result = (): { data: unknown; error: unknown; count?: number | null } => {
+        if (writeHook && q.op !== "select" && writeHook.on(q)) {
+          const h = writeHook;
+          writeHook = null;
+          h.run();
+        }
         if (q.op === "insert") {
           if (table === "table_sessions") {
             if (insertCollision) {
@@ -134,19 +172,14 @@ vi.mock("@mms/db/server", () => ({
         }
         if (q.op === "update") {
           if (table !== "table_sessions") return { data: null, error: null, count: 0 };
-          if (bindCollision && "table_number" in (q.payload ?? {}))
-            return { data: null, error: { code: bindCollision.code, message: "dup" }, count: null };
-          if (bindHook && "table_number" in (q.payload ?? {})) {
-            const h = bindHook;
-            bindHook = null;
-            h();
-          }
           const hit = sessions.filter((r) => matches(r, q));
           for (const r of hit) Object.assign(r, q.payload);
           const first = hit[0];
           return { data: first ? pick(first, q.cols) : null, error: null, count: hit.length };
         }
         if (table === "table_sessions") {
+          if (idReadFailsFor && q.eq.some(([c, v]) => c === "id" && v === idReadFailsFor))
+            return { data: null, error: { message: "fetch failed" } };
           if (numberReadFails && q.eq.some(([c]) => c === "table_number"))
             return { data: null, error: { message: "fetch failed" } };
           if (
@@ -170,10 +203,7 @@ vi.mock("@mms/db/server", () => ({
           if (registryReadFails) return { data: null, error: { message: "fetch failed" } };
           return { data: registry.filter((r) => matches(r, q)), error: null };
         }
-        if (table === "qr_carts") {
-          if (cartReadFails) return { data: null, error: { message: "fetch failed" } };
-          return { data: [{ id: "cart-1", ...cartFreeze }], error: null };
-        }
+        if (table === "qr_carts") return { data: [{ id: "cart-1" }], error: null };
         return { data: [], error: null, count: 0 };
       };
       const one = () => {
@@ -255,10 +285,7 @@ function row(
 }
 const REG7 = { table_number: 7, qr_code: "STICKER7", active: true };
 const sessionInserts = () => writes.filter((w) => w === "table_sessions:insert");
-const bindUpdates = () =>
-  queries.filter(
-    (q) => q.table === "table_sessions" && q.op === "update" && "table_number" in (q.payload ?? {}),
-  );
+const bindUpdates = () => rpcs.filter((r) => r.name === "mms_bind_session_table");
 const numberReads = () =>
   queries.filter(
     (q) =>
@@ -278,8 +305,10 @@ beforeEach(() => {
   membersReadFails = false;
   registryReadFails = false;
   tokenReadFailsFor = null;
-  cartFreeze = { locked: false, locked_at: null, settle_at: null };
-  cartReadFails = false;
+  rpcs = [];
+  rpcAnswer = null;
+  idReadFailsFor = null;
+  writeHook = null;
   nextId = 0;
 });
 
@@ -521,7 +550,7 @@ describe("/api/session — the claim and the sticker find the table BY NUMBER (D
 describe("/api/session — a claim from a phone with a live UNBOUND hosted session BINDS it (J33's unbound half)", () => {
   const mine = () => row("MYCODE12", "dinein", SEAT);
 
-  it("(b) the persisted code names a live unbound dine-in session this seat HOSTS → ONE bind update, no insert, drafts intact", async () => {
+  it("(b) the persisted code names a live unbound dine-in session this seat HOSTS → ONE bind call, no insert, drafts intact", async () => {
     sessions = [mine()];
     members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
     const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
@@ -536,11 +565,18 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
     expect(sessionInserts()).toHaveLength(0);
     const binds = bindUpdates();
     expect(binds).toHaveLength(1);
-    // D21 — table_number ONLY, counted exactly, on THIS row while still unbound and live.
-    expect(Object.keys(binds[0]?.payload ?? {})).toEqual(["table_number"]);
-    expect(binds[0]?.opts).toEqual({ count: "exact" });
-    expect(binds[0]?.eq).toContainEqual(["id", "sess-MYCODE12"]);
-    expect(binds[0]?.is).toContainEqual(["table_number", null]);
+    // M263 — ONE call with THIS session and the number; never a shell (this arm binds an EMPTY
+    // table). The CAS's own predicate (table_number ONLY, unbound · live) is the SQL test's.
+    expect(binds[0]?.args.p_session).toBe("sess-MYCODE12");
+    expect(binds[0]?.args.p_table).toBe(7);
+    expect(binds[0]?.args.p_shell === undefined).toBe(true);
+    // No table_sessions UPDATE carries a number: the route never writes the bind itself.
+    expect(
+      queries.some(
+        (q) =>
+          q.table === "table_sessions" && q.op === "update" && "table_number" in (q.payload ?? {}),
+      ),
+    ).toBe(false);
     expect(sessions[0]?.table_number).toBe(7);
     expect(sessions[0]?.qr_code).toBe("MYCODE12");
     // D30 — the peers' resync: the session's open cart is touched after the bind landed, so every
@@ -605,16 +641,18 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
     expect(writes.filter((w) => w !== "table_sessions:update")).toEqual([]);
   });
 
-  it("a FRESH pay lock or split freeze on the session's open cart holds the claim-arm bind: the phone REJOINS its session unbound (the next Send asks, under bindTable's lock model) — no bind, no mint (Codex r1 on #314, P1)", async () => {
-    for (const freeze of [
-      { locked: true, locked_at: new Date().toISOString(), settle_at: null },
-      { locked: false, locked_at: null, settle_at: new Date().toISOString() },
+  it("the RPC's `locked` · `settling` · `sticker` hold the claim-arm bind: the phone REJOINS its session unbound (the next Send asks, where bindTable names the refusal) — no bind, no mint, no touch (M263 · J41)", async () => {
+    for (const answer of [
+      { outcome: "locked", at_table: null },
+      { outcome: "settling", at_table: null },
+      { outcome: "sticker", at_table: 3 },
     ]) {
       sessions = [mine()];
       members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
       writes = [];
       queries = [];
-      cartFreeze = freeze;
+      rpcs = [];
+      rpcAnswer = { data: [answer], error: null };
       const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
       expect(res.status).toBe(200);
       expect((await res.json()) as Record<string, unknown>).toMatchObject({
@@ -622,32 +660,50 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
         tableNumber: null,
         created: false,
       });
-      expect(bindUpdates()).toHaveLength(0);
+      expect(bindUpdates()).toHaveLength(1);
       expect(sessionInserts()).toHaveLength(0);
+      expect(sessions[0]?.table_number).toBeNull();
+      expect(queries.some((q) => q.table === "qr_carts" && q.op === "update")).toBe(false);
     }
   });
 
-  it("a STALE lock (past CART_LOCK_TTL_MS) and a STALE settlement let the claim-arm bind land — W17: never over-block", async () => {
+  it("the route reads NO freeze itself — the lock model is decided where the lock is (M263); the old two-statement read is gone", async () => {
     sessions = [mine()];
     members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
-    cartFreeze = {
-      locked: true,
-      locked_at: new Date(Date.now() - 6 * 60_000).toISOString(),
-      settle_at: new Date(Date.now() - 11 * 60_000).toISOString(),
-    };
-    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
-    expect(res.status).toBe(200);
-    expect((await res.json()) as Record<string, unknown>).toMatchObject({ tableNumber: 7 });
-    expect(bindUpdates()).toHaveLength(1);
+    await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    const cartReads = queries.filter((q) => q.table === "qr_carts" && q.op === "select");
+    expect(cartReads.some((q) => /locked|settle_at/.test(q.cols ?? ""))).toBe(false);
   });
 
-  it("a FAILED cart read before the claim-arm bind is 503 — the freeze is unknowable, never 'free'", async () => {
+  it("a TRANSPORT failure on the bind call is the W10a 503, never a verdict; nothing minted", async () => {
     sessions = [mine()];
-    cartReadFails = true;
+    rpcAnswer = { data: null, error: { message: "TypeError: fetch failed" } };
     const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(503);
-    expect(bindUpdates()).toHaveLength(0);
     expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("any other bind error (PGRST202 — a stale schema cache, too) is 'try again' (500); nothing minted", async () => {
+    sessions = [mine()];
+    rpcAnswer = { data: null, error: { code: "PGRST202", message: "Could not find the function" } };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Could not check the table — try again.",
+    );
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("an answer this build cannot read ([] · an unknown word) is 'try again' (500) — never a landing, never a mint", async () => {
+    for (const data of [[], [{ outcome: "weird", at_table: 7 }]]) {
+      sessions = [mine()];
+      writes = [];
+      rpcAnswer = { data, error: null };
+      const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+      expect(res.status).toBe(500);
+      expect(sessionInserts()).toHaveLength(0);
+      expect(sessions[0]?.table_number).toBeNull();
+    }
   });
 
   it("a zero-row bind whose row DIED under the write (closed between the read and the CAS) falls through to the mint", async () => {
@@ -892,5 +948,77 @@ describe("/api/session — a failed REGISTRY read is an outage, never a legacy s
     const res = await POST(req({ qrCode: "ABCD1234", mode: "dinein" }));
     expect(res.status).toBe(200);
     expect(sessionInserts()).toHaveLength(0);
+  });
+});
+
+describe("/api/session — M264: a hostless row closed UNDER a join is never handed out (red-team #3 on J40)", () => {
+  // A table a server started (host_seat null) is the one row another phone's Send can ADOPT (J40 —
+  // `mms_bind_session_table` closes it) or staff can clear while this join is in flight. The host
+  // claim is guarded on the row still being live, and the join re-reads it once its own writes have
+  // landed: a closed row's cart is cancelled, and one minted on it would carry this diner's order on
+  // a session every write refuses. The retry re-resolves the table from the top.
+  const shell = () => row("STICKER7", "dinein", null, { table_number: 7 });
+  const closeShell = () => {
+    sessions[0]!.status = "closed";
+  };
+  const isSlide = (q: Q) => q.table === "table_sessions" && "expires_at" in (q.payload ?? {});
+  const isMemberInsert = (q: Q) => q.table === "session_members" && q.op === "insert";
+
+  it("a sticker scan of a LIVE shell still claims host (W6a) — the claim is guarded on status = 'active'", async () => {
+    sessions = [shell()];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({
+      sessionId: "sess-STICKER7",
+      role: "host",
+      tableNumber: 7,
+    });
+    const claimQ = queries.find(
+      (q) => q.table === "table_sessions" && q.op === "update" && "host_seat" in (q.payload ?? {}),
+    );
+    expect(claimQ?.is).toContainEqual(["host_seat", null]);
+    expect(claimQ?.eq).toContainEqual(["status", "active"]);
+    expect(sessions[0]?.host_seat).toBe(SEAT);
+  });
+
+  it("the shell ADOPTED before the host claim: no host_seat lands on the closed row, and the join answers 'try again' (409) with no cart — never a cartId on a dead session", async () => {
+    sessions = [shell()];
+    writeHook = { on: isSlide, run: closeShell };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Could not check the table — try again.",
+    );
+    expect(sessions[0]?.host_seat).toBeNull();
+    expect(writes).not.toContain("qr_carts:insert");
+  });
+
+  it("an invite (`?j=`) joiner of a shell adopted between its slide and its membership insert: 409, no cart", async () => {
+    sessions = [shell()];
+    writeHook = { on: isMemberInsert, run: closeShell };
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(409);
+    expect(writes).not.toContain("qr_carts:insert");
+  });
+
+  it("the live re-check failing on TRANSPORT is the W10a 503", async () => {
+    sessions = [shell()];
+    idReadFailsFor = "sess-STICKER7";
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(503);
+  });
+
+  it("a HOSTED party's join skips the re-check: nothing adopts a party (no extra round trip on the common path)", async () => {
+    sessions = [row("STICKER7", "dinein", OTHER, { table_number: 7 })];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    const byId = queries.filter(
+      (q) =>
+        q.table === "table_sessions" &&
+        q.op === "select" &&
+        q.cols === "status" &&
+        q.eq.some(([c]) => c === "id"),
+    );
+    expect(byId).toHaveLength(0);
   });
 });

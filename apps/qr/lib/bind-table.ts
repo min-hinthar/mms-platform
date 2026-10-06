@@ -8,6 +8,8 @@ import { getPostHogClient } from "./posthog-server";
 import {
   bindSessionTable,
   bindVerdict,
+  holderVerdict,
+  rereadVerdict,
   seatedSessionFor,
   sweepExpiredOnTable,
   type SeatedSession,
@@ -19,12 +21,35 @@ import {
  *
  * The order of refusals is `sendToKitchen`'s (lib/cart.ts): assertCartMember → withinMutationRate →
  * locked → settling → role !== host → mode !== dinein → the registry (`qr_tables`, `active = true`) →
- * the occupancy PRE-READ (`seatedSessionFor` with the registry's token: a party at N → `seated`;
- * the own row at N → ok/already) → `sweepExpiredOnTable` → the row-count CAS (`table_number` ONLY;
- * `qr_code` is never rewritten). Outcomes: 1 row → ok (then `touchCart` so every peer's `qr_carts`
- * watch re-reads the view — D30); 23505 → re-read BY NUMBER → `seated`; 23503 → `unavailable`;
- * 0 rows → re-read the own row and answer by the pure `bindVerdict` (the same number → ok/already;
- * another number → `already_bound`; closed/expired → `session_expired`).
+ * the occupancy PRE-READ (`seatedSessionFor` with the registry's token) decided by the pure
+ * `holderVerdict` (a party at N → `seated`; a kiosk order → `kiosk`; the own row at N → ok/already;
+ * a table a server started → handed to the RPC as the shell) → `sweepExpiredOnTable` → the ONE call,
+ * `mms_bind_session_table` (M263, through `bindSessionTable`). Outcomes: `bound` / `adopted` → ok
+ * (then `touchCart` so every peer's `qr_carts` watch re-reads the view — D30); `locked` / `settling`
+ * → the same refusals authz's flags give, now decided under the cart's lock; `sticker` →
+ * `sticker_table` naming the sticker's table (J41); `gone` / `held` → re-read BY NUMBER and answered
+ * by the pure `rereadVerdict`; 23505 → the same re-read; 23503 → `unavailable`; `unmoved` → re-read
+ * the own row and answer by the pure `bindVerdict` (the same number → ok/already; another number →
+ * `already_bound`; closed/expired → `session_expired`); an unreadable answer → `error`.
+ *
+ * M263 — WHY ONE CALL (Codex r3 on #314). The freeze used to be authz's single read and the CAS a
+ * separate statement, so a lock acquired between them let the number land under a live charge. The
+ * fast path below still refuses on authz's EFFECTIVE flags (no write, no round trip); the RPC
+ * re-reads the freeze under the binder's open cart `FOR SHARE` and CASes in the same transaction, so
+ * a lock that committed after authz's read is either seen or waits for the bind.
+ *
+ * J41 — A STICKER SESSION BINDS ONLY TO ITS OWN TABLE. The bind never rewrites `qr_code`, and the
+ * token index is unique among active rows, so a session minted on table T's sticker and bound to N
+ * wedged T (its sticker scan, a claim and a staff Start all failed while the picker read T Open). The
+ * RPC refuses `sticker` with T, and the sentence names T: if the diner is at T they pick it,
+ * otherwise "Send anyway" fires numberless — the only honest options without a move-table tool (J38).
+ *
+ * J40 — A TABLE A SERVER STARTED YIELDS. The register's Start leaves a HOSTLESS row at N with an
+ * empty cart, waiting for its first diner (route.ts, W6a). `holderVerdict` hands that row to the RPC,
+ * which adopts it — cancels its empty cart and closes it, in the same subtransaction as the CAS —
+ * only if NOTHING and NOBODY is on it, under its row locks; a shell with anything on it answers
+ * `held` (a server folds the order in), and one that changed under the call answers `gone` → the
+ * re-read names whoever is there now. Turning the adopt off is one line: hand the RPC no shell.
  *
  * WHY THE PRE-READ (the blind pass on 3c-ii, money lens): the index is the authority for the truly
  * simultaneous case; the pre-read decides the common one, as the mint, the register and the kiosk
@@ -37,15 +62,17 @@ import {
  * bind landing under a charge stamps a number onto the order whose receipt the payer is already
  * reading. Nothing is RE-tabled (the CAS requires `table_number IS NULL`); the refusal keeps that
  * receipt unchanged until the charge settles. `locked`/`settling` are authz's EFFECTIVE flags (a
- * stale lock lands — W17's rule), never re-derived here. The mint's own claim-arm bind
- * (`/api/session`, J33) is a JOIN-time write on a phone that is not mid-Send, and lands under the
- * same NULL-only CAS.
+ * stale lock lands — W17's rule), never re-derived here; the RPC's own read is the DB-clocked
+ * twin of the same rule. The mint's own claim-arm bind (`/api/session`, J33) is a JOIN-time write
+ * on a phone that is not mid-Send, and goes through the SAME call.
  *
  * WHY NEVER A MERGE: `mms_merge_table_orders` re-parents lines, cancels the source cart and closes
  * its session — a money-bearing, staff-gated write (M257). A seated number is REFUSED with the join
- * path (`BIND_COPY.seated`) and NOTHING on the other session is written: the only session writes
- * are the dead-row sweep (`expires_at <= now()`) and the own row's CAS. No `session_members` row,
- * no `expires_at` in the payload (`assertCartMember`'s renewal is the only slide).
+ * path (`BIND_COPY.seated`) and NOTHING on a party's session is written: the only session writes
+ * are the dead-row sweep (`expires_at <= now()`), the own row's CAS, and the RPC's adopt of an
+ * UNTOUCHED staff shell under its row locks (no member, no line, no cart state — nothing to move).
+ * No `session_members` row, no `expires_at` in the payload (`assertCartMember`'s renewal is the
+ * only slide).
  */
 export type BindTableReason =
   | "not_host"
@@ -54,15 +81,22 @@ export type BindTableReason =
   | "not_dinein"
   | "unavailable"
   | "seated"
+  | "kiosk"
+  | "held"
+  | "sticker_table"
   | "already_bound"
   | "session_expired"
   | "rate_limited"
   | "error";
 
+/** The refusals that name a table: where the order goes (`already_bound`), whose table it is
+ *  (`kiosk` · `held`), or which table the session's sticker belongs to (`sticker_table`). */
+type NamedRefusal = "already_bound" | "kiosk" | "held" | "sticker_table";
+
 export type BindTableResult =
   | { ok: true; tableNumber: number; already: boolean }
-  | { ok: false; reason: Exclude<BindTableReason, "already_bound"> }
-  | { ok: false; reason: "already_bound"; tableNumber: number };
+  | { ok: false; reason: Exclude<BindTableReason, NamedRefusal> }
+  | { ok: false; reason: NamedRefusal; tableNumber: number };
 
 export async function bindTable(cartId: string, tableNumber: number): Promise<BindTableResult> {
   // Zod (1..99, the qr_tables CHECK) — a forged number is refused before any read.
@@ -108,24 +142,26 @@ export async function bindTable(cartId: string, tableNumber: number): Promise<Bi
   } catch {
     return { ok: false, reason: "error" };
   }
-  if (holder && holder.id !== sessionId) return { ok: false, reason: "seated" };
-  // The OWN row: already AT n (two tabs of one phone — the other landed it) is `already`; the own
-  // NUMBERLESS row on this table's sticker — the stranded shape the predicate's token read exists
-  // for — is NOT: nothing is bound yet, so the CAS below lands it (Codex r1 on #314, P1: reporting
-  // `already` here sent the order while the row, the floor and the ticket stayed numberless).
-  if (holder && holder.table_number === n) return { ok: true, tableNumber: n, already: true };
+  // J40 — who holds N decides (`holderVerdict`, pure). The OWN row already AT n (two tabs of one
+  // phone — the other landed it) is `already`; the own NUMBERLESS row on this table's sticker — the
+  // stranded shape the predicate's token read exists for — is NOT: nothing is bound yet, so the call
+  // below lands it (Codex r1 on #314, P1). A party or a kiosk order is refused before any write; a
+  // table a server started goes to the RPC as the shell it may adopt.
+  const holding = holderVerdict(holder, sessionId, n);
+  if (holding.kind === "own") return { ok: true, tableNumber: n, already: true };
+  if (holding.kind === "refuse") return holding.result;
+  const shellId = holding.kind === "shell" ? holding.shellId : null;
 
   // The index is partial on `status`, so an expired-but-active row holds N until the cron: close it
-  // first (dead rows only), then the CAS.
+  // first (dead rows only), then the ONE call.
   await sweepExpiredOnTable(db, n);
-  const { count, error } = await bindSessionTable(db, sessionId, n);
+  const { outcome, error } = await bindSessionTable(db, sessionId, n, shellId);
   if (error) {
     if (error.code === "23505") {
-      // The number is taken. Decided by the ONE predicate, never by the constraint name: a live
-      // party at N → `seated` (the inline join form); a holder gone between the write and this read
-      // is unexplained → `error`, which the diner can simply retry.
+      // The number was taken between the pre-read and the write. Decided by the ONE predicate,
+      // never by the constraint name, and nothing on the holder's session is written.
       const taken = await seatedSessionFor(db, n, reg.qr_code).catch(() => null);
-      return { ok: false, reason: taken ? "seated" : "error" };
+      return rereadVerdict(taken, sessionId, n);
     }
     // 23503 — the registry FK: the table was retired between the read above and this write.
     if (error.code === "23503") return { ok: false, reason: "unavailable" };
@@ -136,20 +172,39 @@ export async function bindTable(cartId: string, tableNumber: number): Promise<Bi
     });
     return { ok: false, reason: "error" };
   }
-
-  if ((count ?? 0) > 0) {
+  // M263 — an answer this build cannot read is never a landing.
+  if (!outcome) return { ok: false, reason: "error" };
+  // A freeze that committed after authz's read, seen by the RPC under the cart's lock.
+  if (outcome.kind === "locked") return { ok: false, reason: "locked" };
+  if (outcome.kind === "settling") return { ok: false, reason: "settling" };
+  // J41 — the session's sticker belongs to another table; the refusal names THAT table.
+  if (outcome.kind === "sticker")
+    return { ok: false, reason: "sticker_table", tableNumber: outcome.stickerTable };
+  // J40 (red-team #5) — the shell changed under the call (`gone`), or has something on it (`held`):
+  // re-read who is at N now and answer THAT — a party seated meanwhile is `seated`, this phone's own
+  // other tab is `already`, a shell still holding an order is `held`, nobody is a retry.
+  if (outcome.kind === "gone" || outcome.kind === "held") {
+    const now = await seatedSessionFor(db, n, reg.qr_code).catch(() => null);
+    return rereadVerdict(now, sessionId, n, outcome.kind === "held");
+  }
+  if (outcome.kind === "bound" || outcome.kind === "adopted") {
     // D30 — every peer's `qr_carts` watch re-reads the view and the number flips without a remount.
     await touchCart(id, "bindTable");
     getPostHogClient().capture({
       distinctId: uid,
       event: "table_bound",
-      properties: { cart_id: id, session_id: sessionId, table_number: n },
+      properties: {
+        cart_id: id,
+        session_id: sessionId,
+        table_number: n,
+        adopted: outcome.kind === "adopted",
+      },
     });
     return { ok: true, tableNumber: n, already: false };
   }
 
-  // Zero rows: the row moved under us (two tabs, a bound-meanwhile session, an expiry). Re-read the
-  // OWN row and let the pure verdict name it — a blocked write is never reported as a landing.
+  // `unmoved` — zero rows: the row moved under us (two tabs, a bound-meanwhile session, an expiry).
+  // Re-read the OWN row and let the pure verdict name it — a blocked write is never a landing.
   const { data: own, error: ownErr } = await db
     .from("table_sessions")
     .select("status,expires_at,table_number")
