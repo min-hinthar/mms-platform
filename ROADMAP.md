@@ -449,7 +449,8 @@ the plan state.
         row-count CAS `bindTable`), the sticker scan, the `?table` claim, the home card, the register and
         the kiosk all find a table by number; `/dine-in` redirects; two migration FILES (the partial unique
         index on `table_sessions(table_number)` for live dine-in rows, and M258's lock guard in
-        `mms_undo_fire`) await the owner's one-file apply (M260 · M125).
+        `mms_undo_fire`) — both APPLIED to prod one file at a time on 2026-10-06, M258's first (M260 ✅ ·
+        M125 records the stamps).
   - [ ] **3d — staff, two PRs:** the kitchen's pass at two distances (Aa + bell as bar circles, the
         glance strip, "Late" in the badge); the counter's receipt stack, then the cash-sheet re-host.
   - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the

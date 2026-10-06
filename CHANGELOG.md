@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### After 3c-ii — the follow-ups and Phase 3d (2026-10-06)
+
+**The owner's ask:** "plan and continue session per docs/HANDOFF.md: the full escorted verify:slice on the
+merge head, the M260 one-file apply of the two 3c-ii migrations (yours, M258's file first), the owner
+decisions on J40, J41 and M263, then J37, J28/J32, J29, J30, J34, J39, and Phase 3d."
+
+- **M260 — both 3c-ii migrations are ON PROD (2026-10-06), applied by the session under the owner's
+  delegation, one file at a time, M258's first, each verified before the next.** Measured before: 0 active
+  dine-in rows, 0 live duplicates, 0 stranded rows, the index absent, prod's `mms_undo_fire` equal to the
+  s4 body. `m258_undo_fire_lock_guard` (prod stamp `20261006045935`): one overload, both freshness legs in
+  the body, `search_path=""`, EXECUTE for `service_role` only. `p3c2_table_number_uniq` (`20261006050018`):
+  `table_sessions_active_table_uniq` unique · valid · ready with the exact predicate; step 1 closed nothing.
+  No new advisor lint. M258 and M260 close; M125 records the two stamps (106 prod rows vs 105 files, both
+  new pairs matching by name).
+
 ### Phase 3c-ii — the table bound at SEND (2026-10-05)
 
 **The owner's ask:** "merge, continue 3c-ii" after #313. Row 3c's authority half (`docs/PHASE3_JOURNEYS.md`;
