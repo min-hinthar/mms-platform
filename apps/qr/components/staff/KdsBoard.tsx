@@ -7,15 +7,10 @@ import { boundWrite } from "@/lib/bounded-write";
 import { createPollGate, type PollGate } from "@/lib/poll-gate";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
-import {
-  KdsChime,
-  getKdsSoundWanted,
-  getKdsVolume,
-  setKdsSoundWanted,
-  setKdsVolume,
-} from "@/lib/kds-sound";
+import { KdsChime, getKdsSoundWanted, setKdsSoundWanted } from "@/lib/kds-sound";
+import { soundPosture, soundTapIntent, soundWord } from "@/lib/counter-chime";
 import { allDayRows } from "@/lib/ticket-names";
-import { kdsUrgency } from "@/lib/kds-urgency";
+import { kdsBadgeKeys, kdsLateCount, kdsTicketLevel, type KdsBadgeLead } from "@/lib/kds-urgency";
 import {
   canEightySix,
   lineDescribedBy,
@@ -138,6 +133,23 @@ function ticketId(
  *  for the ticket's name (WCAG 2.5.3 — the name contains the visible label). */
 function unpaidWords(lang: StaffLang, shown: boolean): string {
   return chromeVisible(lang, "settle.unpaid", "stack", shown);
+}
+
+/** Phase 3d — a badge's lead word as the badge draws it and the card's name speaks it: the
+ *  dictionary value with its trailing " · " separator dropped ("Later", "Late"). */
+const badgeWord = (lang: StaffLang, k: KdsBadgeLead): string =>
+  ts(lang, k).trim().replace(/ ·$/, "");
+
+// ── Phase 3d ── the sound circle in the bar (the counter's three postures, `lib/counter-chime.ts`).
+/** The circle's marker: a tap on it is ITS arm, with its lock — never the board's first-tap re-arm
+ *  (which would arm first, then let the circle's own tap read "on" and MUTE). */
+const SOUND_SELECTOR = "[data-kds-sound]";
+/** A refused (or never-answered) arm, said in the board's ONE region beside an icon-only control. */
+const SOUND_REFUSED: KdsMsg = { k: "floor.sound.refused" };
+/** The board's chime, made once per mount, carrying the kitchen's mute as a predicate `play()` reads
+ *  at every call (the TV wall builds its own with none — the default plays). */
+function chimeIn(ref: { current: KdsChime | null }): KdsChime {
+  return (ref.current ??= new KdsChime(getKdsSoundWanted));
 }
 
 /** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
@@ -333,20 +345,29 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
   // Phase 2b — the KDS sound truth (§15: "wanted" and "armed" are two facts). `soundOn` FOLLOWS the
-  // engine (the subscription below), so a context suspended under a sleeping tablet drops the volume
-  // slider for the warn chip instead of claiming a sound nothing can make.
+  // engine (the subscription below), so a context suspended under a sleeping tablet turns the circle
+  // to its warn posture instead of claiming a sound nothing can make.
   const [soundOn, setSoundOn] = useState(false);
-  // kitchen-8 — "this device wanted sound": armed on a previous mount (or on this one — enableSound
-  // sets it), disarmed by the reload or an explicit mute.
+  // kitchen-8 — "this device wanted sound": armed on a previous mount (or on this one — the circle's
+  // arm sets it), cleared by the circle's mute.
   const [soundWanted, setSoundWanted] = useState(false);
-  const [volume, setVolume] = useState(0.8);
+  // Phase 3d — the circle's three postures, the counter's rule (`lib/counter-chime.ts`): off · on ·
+  // paused (wanted, the context not running). Only `on` makes a sound — a MUTED board keeps its
+  // context running (so unmuting needs no new gesture) and `play()` refuses through the mute.
+  const posture = soundPosture(soundWanted, soundOn);
+  const soundLive = posture === "on";
+  // Phase 3d — the circle's own arm is in flight (§17: the REF is the tap-time guard, the state what
+  // `aria-busy` renders); bounded by `armWithin`, so it always frees.
+  const [arming, setArming] = useState(false);
+  const armingRef = useRef(false);
   const chime = useRef<KdsChime | null>(null);
   // Phase 2i (P2bi) — what a reload for a new build would lose here: the Undo bar (unsent — refuses
   // a person's tap too), the recall rail (the only "Bring back" — refuses the automatic reload), and
-  // live sound (a reload turns it off — the automatic reload waits for a person).
+  // live sound (a reload turns it off — the automatic reload waits for a person). Phase 3d: LIVE
+  // means sounding — a muted board, its context still running, has nothing a reload would silence.
   useReloadHold("unsent", "kitchenUndo", "kds", undo !== null);
   useReloadHold("unread", "kitchenRecall", "kds", recall.length > 0);
-  useReloadHold("sound", "kdsSound", "kds", soundOn);
+  useReloadHold("sound", "kdsSound", "kds", soundLive);
 
   // Phase 2b · kitchen — the board's CONFIRMED override of a dish's sold-out flag, keyed on the poll
   // sequence (`lib/kds-line.ts`). `fetchSeq` counts every refresh that actually STARTS (a coalesced
@@ -394,15 +415,13 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         station: localStorage.getItem(STATION_KEY),
         rail: localStorage.getItem(RAIL_KEY),
         size: localStorage.getItem(KDS_SIZE_KEY),
-        volume: getKdsVolume(),
         sound: getKdsSoundWanted(),
       }))
-      .then(({ station: s, rail, size: sz, volume: v, sound }) => {
+      .then(({ station: s, rail, size: sz, sound }) => {
         if (!active) return;
         if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
         if (rail === "1") setRailOpen(true);
         setSize(parseKdsSize(sz));
-        setVolume(v);
         setSoundWanted(sound);
       })
       .catch(() => {
@@ -550,7 +569,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   }, [refresh]);
 
   // W3c re-chime: a ticket sitting fully UN-STARTED past the config window nags softly, at most once
-  // per window per ticket — audible without being a klaxon (O-C).
+  // per window per ticket — audible without being a klaxon (O-C). Phase 3d: gated on the context
+  // RUNNING, not on the posture — a muted board keeps advancing every timer (`play()` refuses
+  // through the mute), so unmuting never releases the whole backlog in one blast.
   const lastRechime = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     if (!soundOn) return;
@@ -624,10 +645,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // cook to a page of held cards). The live tail's page is where an arrival actually renders.
   const liveTailPage = Math.floor(Math.max(0, live.length - 1) / pageSize);
 
-  const lateCount = live.filter(
-    (t) => kdsUrgency(t.channel, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
-  ).length;
-  const oldestMs = live.reduce((max, t) => Math.max(max, nowMs - Date.parse(t.firedAt)), 0);
+  // Phase 3d — the glance strip's Late: the station-filtered tickets whose badge says Late (one
+  // predicate, `kdsTicketLevel`, for the count and every badge). The Oldest stat is retired: tickets
+  // sort oldest-first, so the oldest is the first card's own clock.
+  const lateCount = kdsLateCount(live, nowMs, snap.thresholds);
 
   // All-Day rail: pure client-side reduce over the LIVE lines (station-filtered — the rail answers
   // "how many mohinga does THIS screen owe right now"), grouped item+modifiers, largest first.
@@ -670,44 +691,77 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       return !open;
     });
   };
-  const enableSound = async () => {
-    chime.current ??= new KdsChime();
-    const ok = await chime.current.arm();
-    setSoundOn(ok);
-    if (ok) {
-      setKdsSoundWanted(true);
-      // Phase 2b — wanted on THIS mount too: without it, a device armed for the first time went
-      // silent after sleep showing "Enable sound", and the first-tap re-arm below never attached.
-      setSoundWanted(true);
-      chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
+  // Phase 3d — the sound circle's tap (the counter chip's `onTap`, `CounterBell.tsx`). The intent is
+  // read from the STORES at the tap, never from the render that drew the circle: `on` mutes; `off`
+  // and `paused` both arm — a paused circle's tap is the way back to sound, never a second mute.
+  const tapSound = () => {
+    if (armingRef.current) return; // §17 — the handler refuses re-entry; never `disabled`
+    const c = chimeIn(chime);
+    if (soundTapIntent(soundPosture(getKdsSoundWanted(), c.armed)) === "mute") {
+      haptic("pick"); // the circle leaving the lit cap is the visible half
+      setKdsSoundWanted(false);
+      setSoundWanted(false);
+      return;
     }
-  };
-  const changeVolume = (v: number) => {
-    setVolume(v);
-    setKdsVolume(v);
-    setKdsSoundWanted(v > 0); // an explicit mute is a choice; the next mount does not nag about it
-    setSoundWanted(v > 0);
+    armingRef.current = true;
+    setArming(true);
+    // Synchronously, inside this handler: the resume must ride the tap (iOS arms audio nowhere else).
+    // `armWithin` never rejects — the engine answers false for any failure and the timer bounds it.
+    void c.armWithin().then((ok) => {
+      armingRef.current = false;
+      setArming(false);
+      if (!alive.current) {
+        if (ok) setKdsSoundWanted(true); // the tap asked for sound, and it armed: say so next mount
+        return;
+      }
+      setSoundOn(ok);
+      if (!ok) {
+        // Said in the ONE region (the circle is icon-only), never over a standing waiting line —
+        // that line carries the board's only Reload. The words never blame the volume or silent
+        // mode: neither can refuse an arm.
+        if (!saysWaiting(errRef.current)) showErr(SOUND_REFUSED);
+        return;
+      }
+      dropErr(SOUND_REFUSED);
+      // Wanted on THIS mount too (Phase 2b): without it, a device armed for the first time went
+      // silent after sleep showing "Turn on sound", and the first-tap re-arm below never attached.
+      setKdsSoundWanted(true);
+      setSoundWanted(true);
+      haptic("pick"); // …with the circle lighting as its visible half
+      // The tap IS the volume check — played AFTER the flag, so the chime's mute lets it through.
+      c.play("dinein");
+    });
   };
   // Phase 2b — the engine's state, heard: arming, and a suspension out from under an armed context
   // (sleep, a call, an OS interruption), each re-read from `armed` in the subscription callback.
   useEffect(() => {
-    const c = (chime.current ??= new KdsChime());
-    return c.subscribe(() => setSoundOn(c.armed));
-  }, []);
+    const c = chimeIn(chime);
+    return c.subscribe(() => {
+      setSoundOn(c.armed);
+      // Phase 3d — a resume the browser let through AFTER the bound lights a paused circle; "tap to
+      // try again" beside a lit circle invites the very tap that MUTES it. The refusal goes the
+      // moment the context runs (the counter chip drops its alert on the same edge).
+      if (c.armed) dropErr(SOUND_REFUSED);
+    });
+  }, [dropErr]);
   // kitchen-8 — a device that wanted sound re-arms off the FIRST tap of the shift (usually a bump):
-  // browsers need some gesture, not the chip's. One attempt, silent (no confirmation tone — nobody
-  // asked for one); if the device has no audio the warn chip stays and says so.
+  // browsers need some gesture, not the circle's. One attempt, silent (no confirmation tone — nobody
+  // asked for one); if the device has no audio the warn circle stays and says so. Phase 3d: the
+  // circle's OWN tap is excluded — it is that tap's arm, with its lock; armed here first, the
+  // circle's handler would read "on" and MUTE the board it was tapped to turn on.
   const rootRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!soundWanted || soundOn) return;
     const root = rootRef.current;
     if (!root) return;
-    const onFirstTap = () => {
+    const onFirstTap = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest(SOUND_SELECTOR)) return;
       root.removeEventListener("click", onFirstTap, true);
-      chime.current ??= new KdsChime();
-      void chime.current.arm().then((ok) => {
-        if (ok) setSoundOn(true);
-      });
+      void chimeIn(chime)
+        .arm()
+        .then((ok) => {
+          if (ok) setSoundOn(true);
+        });
     };
     root.addEventListener("click", onFirstTap, true);
     return () => root.removeEventListener("click", onFirstTap, true);
@@ -1039,9 +1093,11 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       {/* P7·1b — the ONE staff bar: the Screens circle (on a kitchen tablet `/staff` is not a floor
           but the doors, and `?doors=1` wins over the remembered door, so the board can always be
           left), the title as the board's h1 (focus lands here after a bump/recall), the station
-          filter as a segmented control in the middle, and the Help door (P7·3 — the text size and,
-          since P2e, the language live inside it) before Lock. In Night the bar is glass the
-          tickets scroll under. */}
+          filter as a segmented control in the middle, and the tail — Phase 3d, "the pass at two
+          distances": TV · sound · Aa · ? · Lock. The sound circle and the Aa circle are the two
+          one-tap controls a cook reaches wet-handed (K38); Aa is HelpButton's (it opens the Help
+          sheet straight onto Text size), the language still lives inside Help (P2e). In Night the
+          bar is glass the tickets scroll under. */}
       <StaffBar
         lang={lang}
         title="kds.title"
@@ -1056,12 +1112,34 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         // sr-only text like the counter's approvals circle. Same tab, as the tile was: a tablet
         // peeking at the wall comes back with the browser's own Back.
         trailing={
-          <Link href="/board" className="staff-circ staff-press">
-            <Icon name="tv" size={20} />
-            <span className="sr-only">
-              <Chrome lang={lang} k="kds.nav.wall" />
-            </span>
-          </Link>
+          <>
+            <Link href="/board" className="staff-circ staff-press">
+              <Icon name="tv" size={20} />
+              <span className="sr-only">
+                <Chrome lang={lang} k="kds.nav.wall" />
+              </span>
+            </Link>
+            {/* Phase 3d — the sound circle (K38): the counter chip's three postures as a bar circle,
+                named by sr-only text like every circle here (§17 narrowed — the counter keeps its
+                chip only for the 390 manager bar's width). Lit cap when on (the shared pressed
+                list), warn ring + dot when paused, the plain circle when off. Busy is the
+                attribute, never `disabled`; its bounded arm always frees it. */}
+            <button
+              type="button"
+              className="staff-circ staff-press"
+              data-kds-sound=""
+              aria-pressed={posture === "on"}
+              data-muted={posture === "paused" || undefined}
+              aria-busy={arming || undefined}
+              aria-disabled={arming || undefined}
+              onClick={tapSound}
+            >
+              <Icon name={posture === "on" ? "volume" : "volume-off"} size={20} />
+              <span className="sr-only">
+                <Chrome lang={lang} k={soundWord(posture)} />
+              </span>
+            </button>
+          </>
         }
         middle={
           <div className="staff-seg" role="group" aria-label={sx(lang, "kds.a11y.stationFilter")}>
@@ -1096,22 +1174,17 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       <div className="kds-head">
         {/* `role="group"`: a bare <div> is the `generic` role, which prohibits an author name — the
             `aria-label` below was silently discarded until rule 3d went in. */}
+        {/* Phase 3d — the glance strip: Open · Late, the two numbers read from across the kitchen,
+            drawn at the identity tier (`--kfs-id`, the table number's size). Oldest is the first
+            card's own clock; Avg today moved to the Served view, where the day's work is. */}
         <div className="kds-stats" role="group" aria-label={sx(lang, "kds.a11y.stats")}>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count}</b>
             <span lang={lang}>{ts(lang, "kds.stat.open")}</span>
           </p>
-          <p className="kds-stat" style={{ margin: 0 }}>
-            <b>{count === 0 ? "—" : fmtElapsed(oldestMs)}</b>
-            <span lang={lang}>{ts(lang, "kds.stat.oldest")}</span>
-          </p>
           <p className={`kds-stat${lateCount > 0 ? " kds-stat-late" : ""}`} style={{ margin: 0 }}>
             <b>{lateCount}</b>
             <span lang={lang}>{ts(lang, "kds.stat.late")}</span>
-          </p>
-          <p className="kds-stat" style={{ margin: 0 }}>
-            <b>{!snap.stats.servedToday ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
-            <span lang={lang}>{ts(lang, "kds.stat.avg")}</span>
           </p>
         </div>
 
@@ -1165,44 +1238,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         )}
 
         <div className="kds-controls">
-          {/* The station filter and the text size moved into the bar (P7·1b); the all-day rail, the
-              sound control and the arrival pill stay here — they are the board's, not the chrome's. */}
+          {/* The station filter moved into the bar (P7·1b), and Phase 3d moved the sound control
+              there too, as a circle beside the Aa that opens the text size (K38): the all-day rail,
+              the arrival pill and the pager stay here — they are the board's, not the chrome's. */}
           <button type="button" className="kds-chip" aria-pressed={railOpen} onClick={toggleRail}>
             <Chrome lang={lang} k="kds.allday.chip" />
           </button>
-          {soundOn ? (
-            <label
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: "var(--kfs-meta)",
-              }}
-            >
-              <Icon name="volume" size={18} />
-              <span className="sr-only">{sx(lang, "kds.a11y.volume")}</span>
-              <input
-                type="range"
-                className="kds-vol"
-                min={0}
-                max={1}
-                step={0.1}
-                value={volume}
-                onChange={(e) => changeVolume(Number(e.target.value))}
-              />
-            </label>
-          ) : (
-            // Browsers gate audio behind a gesture — this tap at shift start IS the arming (O-C).
-            // kitchen-8: a device that WANTED sound wears the warn tone until the first tap re-arms it.
-            <button
-              type="button"
-              className="kds-chip"
-              data-muted={soundWanted || undefined}
-              onClick={enableSound}
-            >
-              <Chrome lang={lang} k={soundWanted ? "kds.sound.off" : "kds.sound.enable"} />
-            </button>
-          )}
           {/* Offscreen-arrival pill: only when the live tail (where arrivals render) is NOT the page
               being watched — never for held-card overflow alone (MED-1). */}
           {newCount > 0 && safePage !== liveTailPage && (
@@ -1358,6 +1399,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 <h3 id="kds-served-h">
                   <Chrome lang={lang} k="kds.served.title" echo="stack" />
                 </h3>
+                {/* Phase 3d — "Avg today" left the glance strip for the view about the day's work.
+                    Shown only on a day something was served: an unknown count (null — the stats
+                    read failed) and a zero both draw NOTHING, never a made-up "0:00". */}
+                {snap.stats.servedToday ? (
+                  <p className="kds-stat kds-served-avg">
+                    <b>{fmtElapsed(snap.stats.avgSecs * 1000)}</b>
+                    <span lang={lang}>{ts(lang, "kds.stat.avg")}</span>
+                  </p>
+                ) : null}
                 {/* Three honest states, never conflated: unreadable (the ADVISORY read failed —
                     said, not shown as an empty day), empty, and the rows newest-first. */}
                 {snap.served === null ? (
@@ -1555,7 +1605,11 @@ function TicketCard({
   const pendingRef = useRef(false);
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
-  const level = ticket.held ? "ok" : kdsUrgency(ticket.channel, ageMs, thresholds);
+  // Phase 3d — ONE predicate for this strip, its badge's word and the glance strip's Late count.
+  const level = kdsTicketLevel(ticket, nowMs, thresholds);
+  // "Later" on a held card, "Late" on a red one — the badge says it and the card's name speaks it
+  // (WCAG 1.4.1: under reduced motion the pulse stops, and red would differ from amber by hue alone).
+  const leadWords = kdsBadgeKeys(ticket.held, level).map((k) => badgeWord(lang, k));
   const stripClass =
     level === "red"
       ? "kds-strip kds-strip-red kds-strip-pulse"
@@ -1628,7 +1682,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${leadWords.map((w) => `, ${w}`).join("")}${ticket.unpaid ? `, ${unpaidWords(lang, echoes)}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
@@ -1650,9 +1704,10 @@ function TicketCard({
               : spokenElapsed(lang, ageMs)}
           </span>
           {/* Class C — a badge this size cannot legibly stack two scripts, so it speaks the
-              device's language alone. */}
+              device's language alone. Phase 3d — its lead word (`kdsBadgeKeys`): "Later · " on a
+              held card, byte-identical to before; "Late · " on a red one. */}
           <span className="kds-badge" lang={lang}>
-            {ticket.held ? ts(lang, "kds.held") : ""}
+            {leadWords.map((w) => `${w} · `).join("")}
             {ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}
           </span>
         </span>

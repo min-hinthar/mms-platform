@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { KitchenQueue } from "@/lib/kitchen-types";
+import type { KitchenQueue, KitchenTicket } from "@/lib/kitchen-types";
 import type { KitchenActionResult } from "@/lib/kitchen";
 
 /**
@@ -24,7 +24,12 @@ import type { KitchenActionResult } from "@/lib/kitchen";
  *     the same rule, and the handler refuses re-entry so the attribute is a statement, not the gate;
  *   - K28: a ticket's visible age has a ceiling and its SPOKEN age is the dictionary's sentence;
  *   - §2: the six pressed selectors on the console share ONE rule — a second copy is the drift
- *     K29 found (a tint that vanished inside the station track).
+ *     K29 found (a tint that vanished inside the station track);
+ *   - Phase 3d ("the pass at two distances", K38): the sound control is a bar circle with the
+ *     counter's three postures — its own tap is its arm, a tap while on MUTES (the chime's
+ *     predicate silences the next arrival), a refusal is said in the ONE region, and only a
+ *     SOUNDING board holds the reload; the head is two stats (Open · Late) at the identity tier,
+ *     Avg today lives in the Served view, and a red ticket says "Late" in its badge and its name.
  */
 const NOW = "2026-09-20T18:00:00.000Z";
 const HOUR = 3_600_000;
@@ -41,10 +46,14 @@ const recallTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({
 const bumpLine = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const fireTicketNow = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const haptic = vi.fn();
-// kitchen-8 — the device's remembered sound preference and whether this "device" has audio.
+// kitchen-8 — the device's remembered sound preference and whether this "device" has audio. Phase
+// 3d: the mock's setter WRITES the flag (a store), so the chime's mute predicate reads the answer.
 let soundWanted = false;
 let armOk = false;
 const setKdsSoundWanted = vi.fn();
+// Phase 3d — when set, the circle's arm waits on it (an arm still in flight); `armCalls` counts arms.
+let armGate: Promise<void> | null = null;
+let armCalls = 0;
 // Phase 2b — the fake engine: `armed` is the context's state, and its listeners are what
 // `KdsChime.subscribe` hands the board (a suspension is `ctxRunning = false` + `notifyChime()`).
 let ctxRunning = false;
@@ -121,10 +130,22 @@ vi.mock("@/lib/kds-sound", () => ({
   SOFT_LEVEL: 0.4,
   KDS_DEFAULT_VOLUME: 0.8,
   KdsChime: class {
+    // Phase 3d — the real class's contract: the mute predicate, read at every play, default OPEN.
+    private readonly wanted: () => boolean;
+    constructor(wanted: () => boolean = () => true) {
+      this.wanted = wanted;
+    }
     arm() {
-      ctxRunning = armOk;
-      notifyChime(); // the real engine notifies once after an arm settles
-      return Promise.resolve(armOk);
+      armCalls += 1;
+      const settle = () => {
+        ctxRunning = armOk;
+        notifyChime(); // the real engine notifies once after an arm settles
+        return armOk;
+      };
+      return armGate ? armGate.then(settle) : Promise.resolve(settle());
+    }
+    armWithin() {
+      return this.arm();
     }
     get armed() {
       return ctxRunning;
@@ -136,13 +157,14 @@ vi.mock("@/lib/kds-sound", () => ({
       };
     }
     play(...a: unknown[]) {
-      played(...a);
+      if (this.wanted()) played(...a);
     }
   },
-  getKdsVolume: () => 0.8,
-  setKdsVolume: () => {},
   getKdsSoundWanted: () => soundWanted,
-  setKdsSoundWanted: (...a: unknown[]) => setKdsSoundWanted(...a),
+  setKdsSoundWanted: (w: boolean) => {
+    soundWanted = w;
+    setKdsSoundWanted(w);
+  },
 }));
 // The Help door auto-opens its sheet on a fresh device; this suite is about the board beneath it.
 vi.mock("./HelpButton", () => ({ HelpButton: () => null }));
@@ -157,6 +179,7 @@ const { tf, localizeCount } = await import("@/lib/i18n/fill");
 const { ts, STAFF } = await import("@/lib/i18n/staff");
 const { padDishName } = await import("@/lib/order-pad");
 const { sx, al } = await import("@/lib/staff-labels");
+const { fmtElapsed } = await import("@/lib/kds-time");
 
 afterEach(() => {
   cleanup();
@@ -176,6 +199,8 @@ afterEach(() => {
   getKitchenQueue.mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
   soundWanted = false;
   armOk = false;
+  armGate = null;
+  armCalls = 0;
   ctxRunning = false;
   chimeListeners.clear();
   played.mockReset();
@@ -1035,6 +1060,9 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     '.help-size-row[aria-pressed="true"]',
     '.staff-arm[aria-expanded="true"]',
     '.staff-chip[aria-pressed="true"]',
+    // ── Phase 3d ── the kitchen's sound circle in the bar, lit when it sounds. MUTATION
+    // (p3d/css/pressed-circle-leaves-the-cap): its selector leaves the shared rule, red.
+    '.staff-circ[aria-pressed="true"]',
     // board-9 — the wall's `Food up` chip wears the cap too (an <li>, pressed by its class).
     ".orb-table-up",
     // ── Phase 2d · split ── the selected floor card's NAME (a pick from a live list, not "you are here").
@@ -1072,8 +1100,9 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
 describe("Phase 2b — lateness is `kdsUrgency`, read by the ticket's OWN channel", () => {
   it("dine-in 8/12 and pickup 2/4: a five-minute dine-in ticket is calm, a five-minute pickup is red, Late reads 1", () => {
     // Asymmetric thresholds, or the wiring could pass a constant channel and read the same. MUTATION
-    // (red-first, by hand): `kdsUrgency("dinein", …)` at either call site — the pickup card loses its
-    // red strip and Late reads 0.
+    // (red-first, by hand): `kdsUrgency("dinein", …)` — the pickup card loses its red strip and Late
+    // reads 0. Phase 3d: that one call now lives in `kdsTicketLevel` (lib/kds-urgency.ts), which the
+    // strip, the badge and the Late count all read; its channel rule is pinned in that suite.
     const fiveAgo = new Date(Date.parse(NOW) - 5 * 60_000).toISOString();
     const q = queue(fiveAgo);
     q.thresholds = { ...q.thresholds, pickupAmberMin: 2, pickupRedMin: 4 };
@@ -1267,68 +1296,377 @@ describe("kitchen-10 — a refusal outlives the poll that follows it", () => {
   });
 });
 
-describe("kitchen-8 — a device that wanted sound says so, and the first tap re-arms it", () => {
-  it("wears the warn chip after a reload and arms off a bump, silently", async () => {
+/** Phase 3d — the bar's sound circle. It carries no aria-label: sr-only dictionary text names it. */
+const soundCircle = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-kds-sound]")!;
+/** The persisted-controls hydration: a two-step microtask chain after mount, flushed by hand — a
+ *  `waitFor` here raced its 1s wall-clock budget against a cold jsdom render (2026-09-23). */
+async function hydrate() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+/** Another LIVE dine-in ticket: cart `cartId` at Table `table`, fired `minAgo` minutes before NOW. */
+function ticketAt(
+  cartId: string,
+  table: number,
+  minAgo = 0,
+  extra: Partial<KitchenTicket> = {},
+): KitchenTicket {
+  const base = queue().tickets[0]!;
+  const firedAt = new Date(Date.parse(NOW) - minAgo * 60_000).toISOString();
+  return {
+    ...base,
+    cartId,
+    sessionId: `sess-${cartId}`,
+    tableNumber: table,
+    label: `T${table}`,
+    firedAt,
+    lines: [{ ...base.lines[0]!, id: `line-${cartId}`, firedAt }],
+    ...extra,
+  };
+}
+const bumpButtons = (q: ReturnType<typeof render>) =>
+  q.getAllByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) });
+
+describe("kitchen-8 · Phase 3d — the sound circle in the bar: wanted, armed, and the first tap", () => {
+  it("wears the warn circle after a reload and arms off a bump, silently", async () => {
     soundWanted = true;
     armOk = true;
-    const { getByRole, container } = mount();
-    // The preference hydrates through a two-step microtask chain after mount (KdsBoard's persisted-
-    // controls effect). Flush THAT, deterministically — a `waitFor` here raced its 1s wall-clock
-    // budget against a cold jsdom render and went red under CPU load (1 in 3 runs, 2026-09-23).
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const chip = container.querySelector('.kds-chip[data-muted="true"]');
-    expect(chip).not.toBeNull();
-    expect(chip!.textContent).toBe(ts("en", "kds.sound.off"));
+    const q = mount();
+    const { container } = q;
+    await hydrate();
+    expect(soundCircle(container).getAttribute("data-muted")).toBe("true");
+    expect(soundCircle(container).getAttribute("aria-pressed")).toBe("false");
+    expect(soundCircle(container).textContent).toBe(ts("en", "kds.sound.off"));
     // Any tap on the board is the gesture — here the bump. MUTATION: drop the capture listener —
-    // the chip stays and the slider never appears, red.
-    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
-    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
-    expect(container.querySelector('.kds-chip[data-muted="true"]')).toBeNull();
+    // the circle stays paused, red.
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true"));
+    expect(soundCircle(container).getAttribute("data-muted")).toBeNull();
+    expect(soundCircle(container).textContent).toBe(ts("en", "board.sound.on"));
     // The gesture that armed the chime was a BUMP, and it still lands — the capture listener must
-    // never swallow the shift's first tap.
+    // never swallow the shift's first tap. And the re-arm is silent: nobody asked for a tone.
     expect(bumpTicket).toHaveBeenCalledTimes(1);
+    expect(played).not.toHaveBeenCalled();
   });
 
-  it("Phase 2b — sound truth: armed for the FIRST time here, then suspended, wears the warn chip and re-arms off the next tap, silently", async () => {
-    // MUTATIONS (by hand): enableSound leaves `soundWanted` false — the suspended board reads
-    // "Enable sound" and never re-arms, red; `soundOn` set-once (no subscription) — the slider
-    // survives the suspension, red.
+  it("Phase 2b — sound truth: armed for the FIRST time here, then suspended, wears the warn circle and re-arms off the next tap, silently", async () => {
+    // MUTATIONS (by hand): the arm leaves `soundWanted` false — the suspended board reads "Turn on
+    // sound" and never re-arms, red; `soundOn` set-once (no subscription) — the circle stays lit
+    // over a silent board, red.
     armOk = true;
-    const { getByRole, container } = mount();
-    // Let the persisted-controls hydration (a two-step microtask chain, "no stored flag") land
-    // first, as it does long before a person can tap.
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    const q = mount();
+    const { container, getByRole } = q;
+    await hydrate();
     fireEvent.click(getByRole("button", { name: ts("en", "kds.sound.enable") }));
-    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
-    expect(played).toHaveBeenCalledTimes(1); // the arm's own confirmation tone
+    await waitFor(() => expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true"));
+    expect(played).toHaveBeenCalledTimes(1); // the arm's own volume check
     // The tablet sleeps: the context is suspended out from under the armed engine.
     act(() => {
       ctxRunning = false;
       notifyChime();
     });
-    expect(container.querySelector(".kds-vol")).toBeNull();
-    const chip = container.querySelector('.kds-chip[data-muted="true"]');
-    expect(chip?.textContent).toBe(ts("en", "kds.sound.off"));
-    // The next tap anywhere on the board re-arms, with no tone, and the slider comes back.
-    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
-    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
+    expect(soundCircle(container).getAttribute("aria-pressed")).toBe("false");
+    expect(soundCircle(container).getAttribute("data-muted")).toBe("true");
+    expect(soundCircle(container).textContent).toBe(ts("en", "kds.sound.off"));
+    // The next tap anywhere on the board re-arms, with no tone, and the circle lights again.
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true"));
     expect(played).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.kds-chip[data-muted="true"]')).toBeNull();
   });
 
-  it("a fresh device shows the plain chip, and an explicit arm is what sets the preference", async () => {
+  it("a fresh device shows the plain circle; an explicit arm sets the preference and frees the circle", async () => {
     armOk = true;
     const { getByRole, container } = mount();
-    expect(container.querySelector('.kds-chip[data-muted="true"]')).toBeNull();
+    await hydrate();
+    const circle = soundCircle(container);
+    expect(circle.getAttribute("data-muted")).toBeNull();
+    expect(circle.getAttribute("aria-pressed")).toBe("false");
+    // Named by sr-only dictionary text, never an aria-label (rule 3) — the role query finds it by it.
+    expect(circle.getAttribute("aria-label")).toBeNull();
     fireEvent.click(getByRole("button", { name: ts("en", "kds.sound.enable") }));
-    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
+    await waitFor(() => expect(circle.getAttribute("aria-pressed")).toBe("true"));
     expect(setKdsSoundWanted).toHaveBeenCalledWith(true);
+    expect(haptic).toHaveBeenCalledWith("pick");
+    // MUTATION (p3d/kds/circle-stays-busy): busy never clears after the arm — red.
+    expect(circle.getAttribute("aria-busy")).toBeNull();
+    expect(circle.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("§17 — while its arm is in flight the circle is busy, keeps its name, and refuses a second tap", async () => {
+    armOk = true;
+    const gate = deferred<void>();
+    armGate = gate.promise;
+    const { container } = mount();
+    await hydrate();
+    const circle = soundCircle(container);
+    fireEvent.click(circle);
+    expect(circle.getAttribute("aria-busy")).toBe("true");
+    expect(circle.getAttribute("aria-disabled")).toBe("true");
+    expect(circle.hasAttribute("disabled")).toBe(false); // native disabled drops focus mid-tap
+    expect(circle.textContent).toBe(ts("en", "kds.sound.enable")); // the name is kept
+    // MUTATION (p3d/kds/circle-arm-reentered): the ref guard dropped — the second tap starts a
+    // second arm under the first, red.
+    fireEvent.click(circle);
+    expect(armCalls).toBe(1);
+    await act(async () => {
+      gate.resolve();
+    });
+    await waitFor(() => expect(circle.getAttribute("aria-pressed")).toBe("true"));
+    expect(circle.getAttribute("aria-busy")).toBeNull();
+    expect(played).toHaveBeenCalledTimes(1);
+  });
+
+  it("a PAUSED circle's own tap is ITS arm: one volume check, never a mute", async () => {
+    // MUTATION (p3d/kds/circle-tap-arms-twice): the first-tap re-arm does not exclude the circle — it
+    // arms first, then the circle's handler reads "on" and MUTES the board it was tapped to turn on.
+    soundWanted = true;
+    armOk = true;
+    const { container } = mount();
+    await hydrate();
+    fireEvent.click(soundCircle(container));
+    await waitFor(() => expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true"));
+    expect(setKdsSoundWanted).not.toHaveBeenCalledWith(false);
+    expect(armCalls).toBe(1);
+    expect(played).toHaveBeenCalledTimes(1); // the circle's own volume check
+  });
+
+  it("on, a tap MUTES: the cap lets go, the preference clears, and the next arrival plays nothing", async () => {
+    armOk = true;
+    const q = mount();
+    const { container, getByRole } = q;
+    await hydrate();
+    fireEvent.click(getByRole("button", { name: ts("en", "kds.sound.enable") }));
+    await waitFor(() => expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true"));
+    expect(played).toHaveBeenCalledTimes(1); // the volume check
+    // An arrival while ON rings — so the silence below is the mute's, never a deaf fixture.
+    currentQueue = { ...queue(), tickets: [queue().tickets[0]!, ticketAt("cart-2", 5)] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(played).toHaveBeenCalledTimes(2));
+    expect(played).toHaveBeenLastCalledWith("dinein");
+    // MUTATION (p3d/kds/tap-never-mutes): the tap arms again — the cap stays lit, red. MUTATION
+    // (p3d/kds/posture-ignores-wanted): a muted board still reads "Sound on", red.
+    fireEvent.click(soundCircle(container));
+    expect(soundCircle(container).getAttribute("aria-pressed")).toBe("false");
+    expect(soundCircle(container).getAttribute("data-muted")).toBeNull();
+    expect(soundCircle(container).textContent).toBe(ts("en", "kds.sound.enable"));
+    expect(setKdsSoundWanted).toHaveBeenLastCalledWith(false);
+    expect(ctxRunning).toBe(true); // the context keeps running: unmuting needs no new gesture
+    // MUTATION (p3d/kds/chime-ignores-the-mute): the board builds its chime with no mute — the next
+    // arrival still rings, red.
+    currentQueue = {
+      ...queue(),
+      tickets: [queue().tickets[0]!, ticketAt("cart-2", 5), ticketAt("cart-3", 6)],
+    };
+    fireEvent.click(bumpButtons(q)[1]!);
+    await waitFor(() => expect(container.textContent).toContain(tf("en", "kds.table", { id: 6 })));
+    expect(played).toHaveBeenCalledTimes(2);
+  });
+
+  it("a refused arm is said in the board's ONE region, in the device language — no second region", async () => {
+    // MUTATION (p3d/kds/refusal-unsaid): nothing is said beside an icon-only control, red.
+    armOk = false;
+    for (const lang of ["en", "my"] as const) {
+      const { container } = mount(lang);
+      await hydrate();
+      fireEvent.click(soundCircle(container));
+      const region = container.querySelector('[role="status"]')!;
+      await waitFor(() => expect(region.textContent).toBe(ts(lang, "floor.sound.refused")));
+      if (lang === "my")
+        expect(region.querySelector('[lang="my"]')?.textContent).toBe(
+          ts("my", "floor.sound.refused"),
+        );
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(soundCircle(container).getAttribute("aria-pressed")).toBe("false");
+      expect(setKdsSoundWanted).not.toHaveBeenCalled();
+      cleanup();
+    }
+  });
+
+  it("a resume that lands AFTER the bound drops the refusal — never 'tap to try again' beside a lit circle", async () => {
+    // A paused circle (wanted), its arm refused at the bound; then the browser lets the resume
+    // through. MUTATION (p3d/kds/late-arm-keeps-the-refusal): the refusal stays, inviting the very
+    // tap that now MUTES, red.
+    soundWanted = true;
+    armOk = false;
+    const { container } = mount();
+    await hydrate();
+    fireEvent.click(soundCircle(container));
+    const region = container.querySelector('[role="status"]')!;
+    await waitFor(() => expect(region.textContent).toBe(ts("en", "floor.sound.refused")));
+    act(() => {
+      ctxRunning = true;
+      notifyChime();
+    });
+    expect(soundCircle(container).getAttribute("aria-pressed")).toBe("true");
+    expect(region.textContent).toBe(tf("en", "kds.open.one", { n: 1 }));
+  });
+
+  it("the circle sits in the bar's tail after the wall; the head holds no sound control and no slider", () => {
+    const { container } = mount();
+    const tail = [...container.querySelector(".staff-bar-tail")!.children];
+    expect(tail[0]!.matches('a[href="/board"]')).toBe(true);
+    expect(tail[1]!.matches("button.staff-circ[data-kds-sound]")).toBe(true);
+    expect(container.querySelectorAll("[data-kds-sound]")).toHaveLength(1);
+    expect(container.querySelector(".kds-head [data-kds-sound]")).toBeNull();
+    expect(container.querySelector(".kds-head [data-muted]")).toBeNull();
+    expect(container.querySelector('input[type="range"]')).toBeNull();
+  });
+});
+
+describe("Phase 3d — the glance strip and the word Late (WCAG 1.4.1)", () => {
+  /** A red dine-in (13 min), an amber dine-in (9 min), and a HELD pickup due in 20 minutes. */
+  const mixed = (): KitchenQueue => ({
+    ...queue(),
+    tickets: [
+      ticketAt("cart-1", 4, 13),
+      ticketAt("cart-a", 5, 9),
+      ticketAt("cart-h", 0, -20, {
+        channel: "pickup",
+        held: true,
+        tableNumber: null,
+        label: "#A1",
+        customerName: "Aye",
+        shortCode: "A1",
+        pickupSlot: new Date(Date.parse(NOW) + 20 * 60_000).toISOString(),
+      }),
+    ],
+  });
+  const lateStat = (c: HTMLElement) =>
+    c.querySelectorAll(".kds-stats .kds-stat b")[1]?.textContent ?? null;
+
+  it("a red ticket says LATE before its channel; amber says nothing; held still says Later", () => {
+    // MUTATION (p3d/kds/badge-word-unrendered): the lead words are never drawn — red differs from
+    // amber by hue alone again (and the held card loses "Later"), red.
+    for (const lang of ["en", "my"] as const) {
+      const { container } = mount(lang, mixed());
+      const badges = [...container.querySelectorAll(".kds-ticket .kds-badge")].map(
+        (b) => b.textContent,
+      );
+      expect(badges).toEqual([
+        `${ts(lang, "kds.stat.late")} · ${ts(lang, "kds.channel.dinein")}`,
+        ts(lang, "kds.channel.dinein"),
+        // byte-identical to the badge before Phase 3d
+        `${ts(lang, "kds.held")}${ts(lang, "kds.channel.pickup")}`,
+      ]);
+      cleanup();
+    }
+  });
+
+  it("the card's spoken name carries Late too — what the badge shows, the name says", () => {
+    // MUTATION (p3d/kds/name-drops-late): the name drops the word the badge shows (WCAG 2.5.3), red.
+    const { container } = mount("en", mixed());
+    const names = [...container.querySelectorAll("li.kds-ticket")].map((li) =>
+      li.getAttribute("aria-label"),
+    );
+    expect(names).toEqual([
+      `${tf("en", "kds.table", { id: 4 })} — ${ts("en", "kds.channel.dinein")}, ${ts("en", "kds.stat.late")}`,
+      `${tf("en", "kds.table", { id: 5 })} — ${ts("en", "kds.channel.dinein")}`,
+      `Aye — ${ts("en", "kds.channel.pickup")}, ${ts("en", "kds.held").trim().replace(/ ·$/, "")}`,
+    ]);
+  });
+
+  it("the strip's Late equals the badges that say Late", () => {
+    const { container } = mount("en", mixed());
+    const late = `${ts("en", "kds.stat.late")} · `; // "Later · " must not count: the separator decides
+    const saying = [...container.querySelectorAll(".kds-ticket .kds-badge")].filter((b) =>
+      b.textContent?.startsWith(late),
+    ).length;
+    expect(saying).toBe(1);
+    expect(lateStat(container)).toBe(String(saying));
+  });
+
+  it("the station filter scopes Late — the cold screen never counts the wok's lateness", async () => {
+    // MUTATION (p3d/kds/late-ignores-the-station): the count reads the unfiltered tickets — the cold
+    // screen says 1 Late for a ticket it does not show, red.
+    localStorage.removeItem("mms.kds.station");
+    const base = queue().tickets[0]!;
+    const q: KitchenQueue = {
+      ...queue(),
+      tickets: [
+        ticketAt("cart-w", 4, 13),
+        ticketAt("cart-c", 5, 1, {
+          lines: [{ ...base.lines[0]!, id: "line-c", station: "cold", name: "Salad" }],
+        }),
+      ],
+    };
+    const { container, getByRole } = mount("en", q);
+    await hydrate();
+    expect(lateStat(container)).toBe("1");
+    fireEvent.click(getByRole("button", { name: ts("en", "kds.station.cold") }));
+    expect(lateStat(container)).toBe("0");
+    fireEvent.click(getByRole("button", { name: ts("en", "kds.station.wok") }));
+    expect(lateStat(container)).toBe("1");
+    fireEvent.click(getByRole("button", { name: ts("en", "kds.station.all") })); // clears the key
+  });
+
+  it("the head is two stats — Open, then Late", () => {
+    const { container } = mount("en", mixed());
+    const labels = [...container.querySelectorAll(".kds-stats .kds-stat span")].map(
+      (s) => s.textContent,
+    );
+    expect(labels).toEqual([ts("en", "kds.stat.open"), ts("en", "kds.stat.late")]);
+    expect(container.querySelectorAll(".kds-stats .kds-stat b")[0]?.textContent).toBe("2");
+  });
+
+  it("Avg today lives in the Served view, and is never a made-up number", async () => {
+    // MUTATION (p3d/kds/avg-on-a-day-with-nothing-served): a zero count draws "0:00 Avg today", red.
+    const open = async (stats: KitchenQueue["stats"]) => {
+      const q = mount("en", { ...queue(), stats });
+      // The head chip BEFORE the hydration lands, so a rail left open by an earlier case is moot.
+      fireEvent.click(q.getByRole("button", { name: ts("en", "kds.allday.chip") }));
+      await hydrate();
+      fireEvent.click(q.getByRole("button", { name: ts("en", "kds.served.chip") }));
+      return q.container;
+    };
+    let c = await open({ avgSecs: 402, servedToday: 5 });
+    const avg = c.querySelector(".kds-rail .kds-served-avg");
+    expect(avg?.querySelector("b")?.textContent).toBe(fmtElapsed(402_000));
+    expect(avg?.querySelector("span")?.textContent).toBe(ts("en", "kds.stat.avg"));
+    expect(c.querySelector(".kds-head .kds-served-avg")).toBeNull();
+    cleanup();
+    c = await open({ avgSecs: 0, servedToday: 0 });
+    expect(c.querySelector(".kds-served-avg")).toBeNull();
+    cleanup();
+    c = await open({ avgSecs: 0, servedToday: null });
+    expect(c.querySelector(".kds-served-avg")).toBeNull();
+  });
+});
+
+describe("Phase 3d — the stylesheet: the glance tier, the paused dot", () => {
+  // Comments stripped and at-rule preludes removed, as in the §2 guard above (LEARNINGS #60).
+  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/@(media|supports|layer|container)[^{]*\{/g, "");
+  const blocksNaming = (sel: string) =>
+    [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
+      m[1]!
+        .split(",")
+        .map((s) => s.trim())
+        .includes(sel),
+    );
+  const decl = (body: string, prop: string) =>
+    new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(body)?.[1]?.trim() ?? null;
+
+  it("the glance numbers are drawn at the identity tier — exactly one `.kds-stat b` size", () => {
+    // MUTATION (p3d/css/glance-at-clock-size): back to the clock tier, red.
+    const sized = blocksNaming(".kds-stat b").filter((m) => decl(m[2]!, "font-size") !== null);
+    expect(sized).toHaveLength(1);
+    expect(decl(sized[0]![2]!, "font-size")).toBe("var(--kfs-id)");
+  });
+
+  it("a paused circle differs from an off one by SHAPE — a dot on ::before, never ::after", () => {
+    // MUTATION (p3d/css/paused-by-hue-alone): the dot moves to ::after — where `.staff-press::after`
+    // (the press sheen: opacity 0, inset 0, translated off) swallows it, red.
+    const dot = blocksNaming('.staff-circ[data-muted="true"]::before');
+    expect(dot).toHaveLength(1);
+    expect(decl(dot[0]![2]!, "content")).toBe('""');
+    expect(decl(dot[0]![2]!, "background")).toBe("var(--warn)");
+    expect(decl(dot[0]![2]!, "border-radius")).not.toBeNull();
+    expect(blocksNaming('.staff-circ[data-muted="true"]::after')).toHaveLength(0);
+    // The reason the dot is not on ::after — if this ever stops being true, re-read the rule.
+    expect(blocksNaming(".staff-press::after").length).toBeGreaterThan(0);
   });
 });
 
@@ -2337,13 +2675,10 @@ describe("Phase 2i — what a reload for a new build would lose here holds it", 
     // with nobody there to turn it back on; red.
     armOk = true;
     const q = mount();
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await hydrate();
     expect(held("kdsSound")).toHaveLength(0);
     fireEvent.click(q.getByRole("button", { name: ts("en", "kds.sound.enable") }));
-    await waitFor(() => expect(q.container.querySelector(".kds-vol")).not.toBeNull());
+    await waitFor(() => expect(soundCircle(q.container).getAttribute("aria-pressed")).toBe("true"));
     expect(held("kdsSound")).toMatchObject([{ kind: "sound", subject: "kds" }]);
     expect(autoBlock(quiet())).toEqual({ kind: "hold", reason: "kdsSound" });
     act(() => {
@@ -2351,6 +2686,21 @@ describe("Phase 2i — what a reload for a new build would lose here holds it", 
       notifyChime();
     });
     expect(held("kdsSound")).toHaveLength(0);
+  });
+
+  it("Phase 3d — a MUTED board lets go of the automatic reload; only a sounding one holds it", async () => {
+    // A mute keeps the context running (unmuting needs no new gesture), so "the engine is armed" is
+    // no longer "the board makes sound". MUTATION (p3d/kds/muted-still-holds-the-reload): the hold
+    // keyed on `soundOn` — a muted tablet never takes a new version on its own, red.
+    armOk = true;
+    const q = mount();
+    await hydrate();
+    fireEvent.click(q.getByRole("button", { name: ts("en", "kds.sound.enable") }));
+    await waitFor(() => expect(held("kdsSound")).toHaveLength(1));
+    fireEvent.click(soundCircle(q.container)); // mute
+    expect(ctxRunning).toBe(true);
+    expect(held("kdsSound")).toHaveLength(0);
+    expect(autoBlock(quiet())).toBeNull();
   });
 
   it("a new version's row rides the KDS bar — inside the header, so the bar's published height holds it", () => {

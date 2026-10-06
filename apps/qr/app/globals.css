@@ -7743,8 +7743,10 @@ a .chrome-en {
   justify-items: center;
   gap: 2px;
 }
+/* Phase 3d — the glance strip (Open · Late) is read from across the kitchen, so its numbers are
+   drawn at the IDENTITY tier, the table number's size (32/36/40 with the dial), not the clock's. */
 .kds-stat b {
-  font-size: var(--kfs-clock);
+  font-size: var(--kfs-id);
   font-weight: var(--fw-heavy);
   line-height: 1;
 }
@@ -7758,6 +7760,16 @@ a .chrome-en {
 }
 .kds-stat-late b {
   color: var(--warn);
+}
+/* Phase 3d — "Avg today" moved off the glance strip into the Served view of the rail: a stat at the
+   rail's own scale (the clock tier, like the rail's counts), left-aligned under the view's heading. */
+.kds-served-avg {
+  justify-items: start;
+  margin: 0 0 var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+.kds-served-avg b {
+  font-size: var(--kfs-clock);
 }
 .kds-controls {
   margin-left: auto;
@@ -7790,17 +7802,36 @@ a .chrome-en {
    `.kds-chip[aria-pressed]` at (0,2,0) and paints the fill transparent, so the pressed station was
    a faint sheen ring — the "grey disc" two reviewers saw. Listed explicitly at (0,3,1) so the track
    can never swallow it again. The language switch, the Help sheet's size rows, (counter-4) the
-   register's OPEN arm — `aria-expanded`, the state it already carries — and (manager-7) every
-   `.staff-chip` on the manager rails and the drill-down sheets share this rule
+   register's OPEN arm — `aria-expanded`, the state it already carries — (manager-7) every
+   `.staff-chip` on the manager rails and the drill-down sheets, and (Phase 3d) the kitchen's sound
+   circle in the bar when it sounds (`.staff-circ[aria-pressed]`) share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
    `.app-header-order-open`. */
 /* kitchen-8 — a device that WANTED sound and lost it to a reload: a warn hairline + warn ink, so
-   the chip is never the ghost twin of the filter beside it. Not a selection — a state tone. */
-.kds-chip[data-muted="true"] {
+   the control is never the ghost twin of an off one. Not a selection — a state tone. Phase 3d: the
+   kitchen's sound control is a bar circle now (the counter's chip keeps `.staff-chip[data-muted]`). */
+.staff-circ[data-muted="true"] {
+  position: relative;
   border-color: var(--warn);
   color: var(--warn);
+}
+/* Phase 3d — paused differs from off by a SHAPE, never by hue alone (WCAG 1.4.1): a warn dot on the
+   ring. `::before`, never `::after` — `.staff-press::after` is the press sheen (opacity 0, inset 0,
+   translated off), which would swallow the dot — and set INSIDE the circle, because `.staff-press`
+   clips to the round (`overflow: hidden`): a dot on the bounding box's corner would be cut away. */
+.staff-circ[data-muted="true"]::before {
+  content: "";
+  position: absolute;
+  top: var(--s2);
+  right: var(--s2);
+  width: var(--s2);
+  height: var(--s2);
+  border-radius: var(--r-full);
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--cd);
+  pointer-events: none;
 }
 .kds-chip[aria-pressed="true"],
 .staff-seg > .kds-chip[aria-pressed="true"],
@@ -7809,6 +7840,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.staff-circ[aria-pressed="true"],
 .staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
@@ -7818,11 +7850,6 @@ a .chrome-en {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     0 0 14px -6px var(--glow-gold);
-}
-.kds-vol {
-  accent-color: var(--ac);
-  width: 110px;
-  min-height: 44px;
 }
 
 .kds-body {
@@ -14567,7 +14594,7 @@ html[data-reloading] body::after {
   gap: var(--s2);
 }
 /* PAUSED — the counter wanted the bell and the context is not running: a warn hairline + warn ink,
-   the kitchen chip's `data-muted` idiom (a state tone, not a selection). */
+   the kitchen sound control's `data-muted` idiom (a state tone, not a selection). */
 .staff-chip[data-muted="true"] {
   border-color: var(--warn);
   color: var(--warn);

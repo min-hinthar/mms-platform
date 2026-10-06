@@ -193,7 +193,6 @@ export const STAFF = {
   // ── KDS: the status line and stats ─────────────────────────────────────────
   // Stat LABELS are Burmese; their VALUES stay Latin (tabular-nums column).
   "kds.stat.open": { en: "Open", my: "ဖွင့်ထား" },
-  "kds.stat.oldest": { en: "Oldest", my: "အကြာဆုံး" },
   "kds.stat.late": { en: "Late", my: "နောက်ကျ" }, // K15-HIGH — the one stat that demands action now
   "kds.stat.avg": { en: "Avg today", my: "ဒီနေ့ ပျမ်းမျှ" },
   "kds.allclear": { en: "All clear", my: "ရှင်းပြီ" },
@@ -327,7 +326,7 @@ export const STAFF = {
   },
 
   // ── KDS: accessible names with no visible text to pair with ───────────────
-  // These sit on glyph-only or region elements (a slider, a ‹ › pager, a <ul>), where WCAG 2.5.3
+  // These sit on glyph-only or region elements (a ‹ › pager, a <ul>), where WCAG 2.5.3
   // has no visible label to contain. Every LABELLED control's name comes from `lib/staff-labels.ts`.
   "kds.a11y.stats": { en: "Service stats", my: "ဝန်ဆောင်မှု စာရင်း" },
   "kds.a11y.stationFilter": { en: "Station filter", my: "စတေရှင် စစ်ထုတ်" },
@@ -336,7 +335,6 @@ export const STAFF = {
   "kds.a11y.allDay": { en: "Count of each dish", my: "စုစုပေါင်း အရေအတွက်" },
   "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.a11y.railView": { en: "Side panel view", my: "ဘေးဘား အမြင်" },
-  "kds.a11y.volume": { en: "Chime volume", my: "အသံ အတိုးအကျယ်" },
   // A4·5 — the wall's link is a circle in this bar, named by sr-only text like the counter's
   // approvals circle (the glyph is a TV). It was the doors' `floor.nav.board` tile from P7 to
   // A4·5, and reachable only by bookmark before that.

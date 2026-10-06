@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_KDS_THRESHOLDS, kdsUrgency, shapeKdsThresholds } from "./kds-urgency";
-import type { KdsThresholds } from "./kitchen-types";
+import {
+  DEFAULT_KDS_THRESHOLDS,
+  kdsBadgeKeys,
+  kdsLateCount,
+  kdsTicketLevel,
+  kdsUrgency,
+  shapeKdsThresholds,
+} from "./kds-urgency";
+import { STAFF } from "./i18n/staff";
+import type { KdsThresholds, KitchenChannel } from "./kitchen-types";
 
 /**
  * Phase 2b — kitchen lateness, named ONCE. `kdsUrgency` was a module-private `urgency()` inside
@@ -39,6 +47,61 @@ describe("kdsUrgency — which channel reads which thresholds", () => {
     expect(kdsUrgency("dinein", 8 * MIN, TH)).toBe("amber");
     expect(kdsUrgency("dinein", 12 * MIN - 1, TH)).toBe("amber");
     expect(kdsUrgency("dinein", 12 * MIN, TH)).toBe("red");
+  });
+});
+
+/** Phase 3d — a ticket fired `minAgo` minutes before `NOW_MS`, in the shape the level reads. */
+const NOW_MS = Date.parse("2026-10-06T18:00:00.000Z");
+const ticket = (channel: KitchenChannel, minAgo: number, held = false) => ({
+  channel,
+  held,
+  firedAt: new Date(NOW_MS - minAgo * MIN).toISOString(),
+});
+
+describe("kdsTicketLevel / kdsLateCount — one predicate for the strip, the badge and the count (Phase 3d)", () => {
+  it("a held ticket is never late — even 20 minutes past its slot on a frozen snapshot", () => {
+    // MUTATION kds-urgency/held-ticket-ages: the held arm dropped — a frozen board's held card reads
+    // red, wears "Late", and counts toward the strip, for food nobody has been asked to cook.
+    expect(kdsTicketLevel(ticket("dinein", 20, true), NOW_MS, TH)).toBe("ok");
+    expect(kdsTicketLevel(ticket("dinein", 20), NOW_MS, TH)).toBe("red");
+    // …and it reads the TICKET's own channel pair (pickup 2/4 here).
+    expect(kdsTicketLevel(ticket("dinein", 3), NOW_MS, TH)).toBe("ok");
+    expect(kdsTicketLevel(ticket("pickup", 3), NOW_MS, TH)).toBe("amber");
+  });
+
+  it("Late counts red only — never amber, never a held card", () => {
+    // MUTATION kds-urgency/late-counts-amber (`!== "ok"`): the 9-minute dine-in and the 3-minute
+    // pickup are AGING, not late — the strip would read 3. MUTATION kds-urgency/held-ticket-ages: the
+    // held card counts — 2.
+    const tickets = [
+      ticket("dinein", 13),
+      ticket("dinein", 9),
+      ticket("pickup", 3),
+      ticket("pickup", 20, true),
+    ];
+    expect(kdsLateCount(tickets, NOW_MS, TH)).toBe(1);
+    expect(kdsLateCount([], NOW_MS, TH)).toBe(0);
+  });
+});
+
+describe("kdsBadgeKeys — what a badge says before its channel (Phase 3d, WCAG 1.4.1)", () => {
+  it("Later on a held card, Late on a red one, nothing on amber or calm", () => {
+    // MUTATION kds-urgency/badge-says-late-on-amber: amber reads "Late" too — a word for a ticket
+    // nobody is behind on. MUTATION kds-urgency/badge-drops-later: a held card loses "Later"
+    // (K15-HIGH — a held card read as live is food cooked an hour early).
+    expect(kdsBadgeKeys(true, "ok")).toEqual(["kds.held"]);
+    expect(kdsBadgeKeys(false, "red")).toEqual(["kds.stat.late"]);
+    expect(kdsBadgeKeys(false, "amber")).toEqual([]);
+    expect(kdsBadgeKeys(false, "ok")).toEqual([]);
+    // Every key it can answer is a real dictionary key (both tongues).
+    for (const [held, level] of [
+      [true, "ok"],
+      [false, "red"],
+    ] as const)
+      for (const k of kdsBadgeKeys(held, level)) {
+        expect(STAFF[k].en.length).toBeGreaterThan(0);
+        expect(STAFF[k].my.length).toBeGreaterThan(0);
+      }
   });
 });
 

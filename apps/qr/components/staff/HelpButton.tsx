@@ -147,6 +147,17 @@ function safe(read: () => string | undefined): string | undefined {
  * line for the same failure (the menu ↔ Language flip, the bar tail after a close) is shown as plain
  * text — never a second assertive alert on top of the focus a view change moves. A new failure
  * (the next write clears the last) is news again.
+ *
+ * Phase 3d — THE Aa CIRCLE (K38, "the pass at two distances"). Where the screen has a dial (`size`
+ * — the kitchen board only), a plain `.staff-circ` sits before the gold one and opens this SAME
+ * sheet straight onto its Text size view: two taps to a size instead of three, and still one sheet,
+ * never a second dialog (DESIGN-LANGUAGE §17 — "sheets, not chip rows, for settings": a circle that
+ * cycled the size would re-flow the whole board and reset its page on every wet-hand mis-tap). It is
+ * not gold (gold is Help's alone), its glyph is the size row's own `Aa` (aria-hidden), and it is
+ * named by sr-only dictionary text like every circle in the bar. Picking a size closes the sheet as
+ * the row always did, and the Sheet returns focus to the circle that opened it. The open still rides
+ * `show`'s M76 reset — only the view it lands on differs — so an Aa visit never leaks into the next
+ * "?" open.
  */
 export function HelpButton(props: HelpProps) {
   const { lang, screen, size, sheetClassName } = props;
@@ -290,7 +301,9 @@ export function HelpButton(props: HelpProps) {
     if (sent) sentRef.current?.focus();
   }, [sent]);
 
-  function show(next: boolean) {
+  // Phase 3d — `at` is the view an OPEN lands on: the rows from the gold circle, Text size from the
+  // board's Aa circle. A close ignores it (Radix's `onOpenChange` passes only the boolean).
+  function show(next: boolean, at: View = "menu") {
     if (!next && reporting) return; // the sheet is busy — the choke point refuses too; belt and brace
     // P2e — a language failure the person SAW (the menu or the Language view draw its line) is
     // answered by closing the sheet, and a stale one must never greet the next open. One that
@@ -305,7 +318,7 @@ export function HelpButton(props: HelpProps) {
     // menu in the first frame of the slide (the blind pass, slice 4). Resetting here is the same
     // fresh sheet the next tap always got, with nothing visible in between.
     if (next) {
-      setView("menu");
+      setView(at);
       setStep(1);
       setErr(null);
       setSent(null);
@@ -433,6 +446,27 @@ export function HelpButton(props: HelpProps) {
 
   return (
     <>
+      {/* Phase 3d — the Aa circle, only where there is a dial (the board): the Help sheet straight
+          onto Text size, two taps to a size. A plain circle — gold stays Help's alone. */}
+      {size && (
+        <button
+          type="button"
+          className="staff-circ staff-press"
+          aria-haspopup="dialog"
+          aria-expanded={open && view === "size"}
+          onClick={() => {
+            haptic("pick");
+            show(true, "size");
+          }}
+        >
+          <span aria-hidden className="help-glyph-aa">
+            Aa
+          </span>
+          <span className="sr-only">
+            <Chrome lang={lang} k="kds.size.title" />
+          </span>
+        </button>
+      )}
       <button
         type="button"
         className="staff-circ staff-circ-gold staff-press"
