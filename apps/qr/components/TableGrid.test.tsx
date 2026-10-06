@@ -280,6 +280,66 @@ describe("TableGrid — a host that binds instead of navigating (3c-ii, D27)", (
     });
   });
 
+  it("a SEATED chip with `onClaim` and no open ask tries the BIND first — `onClaim(n)`, never `onJoin`, nothing pushed; the capture says occupied, not resumed (Codex round 3 on #314, P2)", () => {
+    const onClaim = vi.fn();
+    const onJoin = vi.fn();
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={null}
+        controls="join-form"
+      />,
+    );
+    fireEvent.click(chip(5));
+    // MUTANT table-grid/seated-chip-skips-the-bind: the Seated chip hands the join straight to the
+    // host, as the DoorSheet's does — but the registry reports the host's OWN numberless row on that
+    // table's sticker as occupied too, and only `bindTable`'s pre-read can tell it from a stranger's
+    // party: that table reads Seated forever and the ask can only rejoin the same numberless row; red.
+    expect(onClaim).toHaveBeenCalledTimes(1);
+    expect(onClaim).toHaveBeenCalledWith(5);
+    expect(onJoin).not.toHaveBeenCalled();
+    expect(ctx.push).not.toHaveBeenCalled();
+    expect(ctx.capture).toHaveBeenCalledWith("table_picked", {
+      table_number: 5,
+      occupied: true,
+      resumed: false,
+      source: "send",
+    });
+    // Still a disclosure, still closed: the ask opens on the bind's `seated` answer, through the host.
+    expect(chip(5).getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("the SEATED chip whose ask is OPEN collapses it through `onJoin` — no second bind", () => {
+    const onClaim = vi.fn();
+    const onJoin = vi.fn();
+    render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={5}
+        controls="join-form"
+      />,
+    );
+    const five = chip(5);
+    expect(five.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(five);
+    // MUTANT table-grid/open-ask-rebinds: the expanded chip fires another bind instead of collapsing
+    // — the same `seated` again, the ask never closes from its chip and focus never returns to it; red.
+    expect(onJoin).toHaveBeenCalledTimes(1);
+    expect(onJoin).toHaveBeenCalledWith(5, five);
+    expect(onClaim).not.toHaveBeenCalled();
+    expect(ctx.push).not.toHaveBeenCalled();
+  });
+
   it("`markMine={false}`: the diner's own peeked table reads Seated, never 'Your table'", () => {
     render(
       <TableGrid

@@ -36,7 +36,10 @@ import { FROZEN_NOTE } from "./useUndoGrace";
  * `already` if it landed, so nothing is lost but one question.
  *
  * `seated` — a table that was Open when the grid was read and seated by the time the chip was
- * pressed — flips THAT chip to Seated (a disclosure, never natively disabled) and reveals the inline
+ * pressed, OR a Seated chip's own bind (Codex round 3 on #314, P2: in this sheet a Seated chip tries
+ * the bind FIRST, because only `bindTable`'s pre-read can tell the host's OWN numberless row on that
+ * table's sticker — which the registry reports as occupied — from a stranger's party; `TableGrid`
+ * says why) — flips THAT chip to Seated (a disclosure, never natively disabled) and reveals the inline
  * join with focus in its input, plus the drafts note while this cart holds drafts: joining moves the
  * diner, never the dishes. Every other answer is the host's to say.
  *
@@ -105,12 +108,24 @@ export function TableBindSheet({
   // Why the sheet is closing — "send" on a landed bind or "Send anyway", else a dismissal.
   const closedBy = useRef<"send" | null>(null);
 
+  const shown = seatedAt.size
+    ? tables.map((t) => (seatedAt.has(t.tableNumber) ? { ...t, occupied: true } : t))
+    : tables;
+  const occupied = (n: number) => shown.some((t) => t.tableNumber === n && t.occupied);
+
   async function claim(n: number) {
     // One bind at a time (the blind pass on 3c-ii, concurrency): a second chip while one is out
     // started a second write whose late `ok` could fire the order after a dismissal, and the first
     // `finally` dropped `busy` with that write still in flight. The chips are never natively
     // disabled (the sheet is `aria-busy`); the guard is here, where the write starts.
     if (binding) return;
+    if (frozen && occupied(n)) {
+      // A SEATED chip under a freeze (Codex round 3 on #314): no bind is possible, and the join is
+      // not a cart write — reveal the ask, as the DoorSheet's chip would. FROZEN_NOTE below is the
+      // OPEN chip's sentence; said here it would wall the join off until a tablemate's lock lifts.
+      setJoinNum(n);
+      return;
+    }
     if (frozen) {
       // T9 — the lock landed while the ask was up: refuse BEFORE the write, and say so.
       onFrozen(FROZEN_NOTE);
@@ -152,10 +167,6 @@ export function TableBindSheet({
     setJoinNum(null);
     onClosed?.({ sent });
   };
-
-  const shown = seatedAt.size
-    ? tables.map((t) => (seatedAt.has(t.tableNumber) ? { ...t, occupied: true } : t))
-    : tables;
 
   return (
     <Sheet

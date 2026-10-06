@@ -113,6 +113,17 @@ the lead squashed and integrated.
   longer this provider's is refused outright — the ticket alone admitted an old cart's `refresh` that
   answered after a re-mint, with the new cart's first view still out, so the new cart wore the old
   table, rows and totals. Three mutants (3125 over 265 files).
+- **Codex round 3 on #314 (`7bd48a5`, the per-head round): one P2 fixed red-first, one P1 filed.** In the
+  Send sheet a SEATED chip now tries the BIND first: `markMine={false}` makes every occupied table read
+  Seated, and since round 2 the registry reports the host's OWN numberless row on a table's sticker as
+  occupied too — so the stranded host's own table read Seated forever and its ask could only rejoin the
+  same numberless row. Only `bindTable`'s pre-read can tell that row from a stranger's party, so the chip
+  calls `onClaim` and the ask reveals on the `seated` answer; the chip whose ask is open collapses it
+  with no write; under a freeze a Seated chip reveals the ask directly (the join is not a cart write —
+  FROZEN_NOTE stays the Open chip's sentence). The P1 — the claim arm's freeze read and bind are two
+  statements, M261's class one layer up — is filed as M263 with the fix: a `for update` on the cart with
+  the freshness re-checked in-statement is an RPC, i.e. a migration PR of its own, not a round-3 commit.
+  Three mutants (3128 over 265 files).
 - **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
   `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
   `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when

@@ -10,6 +10,7 @@ import {
   tableChipLabel,
   tableChipWord,
   tablePlainLabel,
+  type TableChipAction,
   type TableGridSource,
 } from "@/lib/table-pick";
 
@@ -34,6 +35,15 @@ import {
  * `onPlain` the escape does the same with no number. `markMine={false}` keeps every occupied table
  * plainly Seated: a "pick up where you left off" chip whose bind would answer `seated` is a promise
  * the code cannot keep. The capture keeps its `source` ("send") either way.
+ *
+ * Codex round 3 on #314 (P2) — in the Send sheet a SEATED chip tries the BIND first. `markMine={false}`
+ * makes every occupied table read Seated, and the registry reports the host's OWN numberless row on a
+ * table's sticker (the stranded shape `seatedSessionFor`'s token read exists for) as occupied too — so
+ * from here no Seated chip can be told from a stranger's party. Only `bindTable`'s pre-read can: the
+ * own numberless row lands, a stranger's answers `seated`, and the host reveals the ask on THAT answer
+ * (`TableBindSheet`). Routed through `onJoin` as the DoorSheet's chip is, the stranded table read
+ * Seated forever and its ask could only rejoin the same numberless row. The chip whose ask is already
+ * OPEN collapses it through `onJoin` — a toggle, never a second write.
  */
 export function TableGrid({
   tables,
@@ -93,10 +103,11 @@ export function TableGrid({
     onEnter?.();
     router.push(href);
   }
-  function claim(n: number, resuming = false) {
+  function claim(n: number, action: TableChipAction) {
+    const resuming = action === "resume";
     posthog.capture("table_picked", {
       table_number: n,
-      occupied: resuming,
+      occupied: action !== "claim",
       resumed: resuming,
       source,
     });
@@ -139,6 +150,8 @@ export function TableGrid({
           const action = tableChipAction(myTables.has(t.tableNumber), t.occupied);
           const state =
             action === "resume" ? "is-mine" : action === "join" ? "is-seated" : "is-open";
+          // The Send sheet's Seated chip binds first (docblock); its open ask collapses instead.
+          const bindsFirst = action === "join" && !!onClaim && expandedTable !== t.tableNumber;
           return (
             <li key={t.tableNumber}>
               <button
@@ -157,9 +170,9 @@ export function TableGrid({
                   action === "join" && expandedTable === t.tableNumber ? controls : undefined
                 }
                 onClick={(e: MouseEvent<HTMLButtonElement>) =>
-                  action === "join"
+                  action === "join" && !bindsFirst
                     ? askCode(t.tableNumber, e.currentTarget)
-                    : claim(t.tableNumber, action === "resume")
+                    : claim(t.tableNumber, action)
                 }
               >
                 <span className="table-chip-num" aria-hidden>

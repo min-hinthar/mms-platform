@@ -3614,3 +3614,18 @@ next test's click); a control's accessible NAME changes while pending ("Sending�
 idle name finds nothing mid-flight; and a natively `disabled` control makes a programmatic focus landing
 a silent no-op — the Undo already used `aria-disabled` for exactly this (T9), and the Send beside it did
 not.
+
+## #235
+
+**A chip's word is the registry's snapshot; the server's pre-read is the authority — route the
+AMBIGUOUS tap through it (3c-ii, Codex round 3 on #314, 2026-10-06).** `markMine={false}` made every
+occupied table read Seated in the Send sheet, and round 2's occupancy fix (a numberless live row on a
+registered sticker is a party) made the host's OWN stranded row one of them — so the client could not
+tell "my table, unbound" from "a stranger's party", and the Seated tap went to the join ask, which for
+the stranded host could only rejoin the same numberless row: Seated forever, with the bind that would
+have landed it one call away and unreachable. `bindTable`'s pre-read CAN tell them apart
+(`holder.id === sessionId`), so the Seated chip now tries the bind first and the ask reveals on
+`seated`. The rule: when a client-side classification collapses two cases the server distinguishes, and
+the host can act on BOTH answers, send the tap to the server and branch on the answer — never pick the
+path by the chip's word. The cost is one bounded round trip before a stranger's join ask; the
+alternative was a dead end the client had no way to see.

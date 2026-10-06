@@ -289,7 +289,13 @@ await boundWrite(bindTable(cartId, n))` (`bounded-write.ts:68`; `busy` cleared i
   `table-pick/send-skips-the-table-ask` · `bound-table-asked-again` · `empty-registry-asks-anyway` ·
   `send-sheet-says-start`; `checkout-bind/send-runs-before-the-bind-lands` · `dismiss-sends` ·
   `seated-claims-again` · `ask-is-a-second-hero`; `send-button/sheet-opens-under-a-freeze` ·
-  `unbound-send-reaches-the-server`; `table-grid/claim-override-ignored` · `mine-marked-in-the-send-sheet`.
+  `unbound-send-reaches-the-server`; `table-grid/claim-override-ignored` · `mine-marked-in-the-send-sheet`. **Codex round 3 on #314
+  (2026-10-06):** a SEATED chip in the Send sheet tries the bind FIRST (`TableGrid`'s `bindsFirst`:
+  `onClaim` given and the chip's ask not open) — `markMine={false}` plus round 2's stranded-sticker
+  occupancy made the host's own numberless table read Seated with no way to bind it; the ask reveals on
+  `seated`, the open ask collapses with no write, and under a freeze a Seated chip reveals the ask
+  directly. Mutants `table-grid/seated-chip-skips-the-bind` · `open-ask-rebinds` ·
+  `checkout-bind/frozen-seated-chip-refused`.
 
 **The tap walk (first-timer, no sticker, two one-tap dishes — `MenuBrowser.tsx:914-930` — card pay).**
 _Before (`PHASE3_JOURNEYS.md:19`):_ (1) Home → Dine-in (`doors.ts:35` → `/dine-in`); (2) "Which table are

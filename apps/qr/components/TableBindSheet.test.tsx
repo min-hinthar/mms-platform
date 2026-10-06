@@ -397,3 +397,76 @@ describe("TableBindSheet — the escape and the dismissal", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "open-sheet" }));
   });
 });
+
+/**
+ * Codex round 3 on #314 (P2) — a SEATED chip binds FIRST. `markMine={false}` keeps every occupied
+ * table plainly Seated, and the registry reports the host's OWN numberless row on a table's sticker
+ * (the stranded shape) as occupied too — so from the client no Seated chip can be told from a
+ * stranger's party. Only `bindTable`'s pre-read can: the own numberless row lands (`ok`), a stranger's
+ * party answers `seated`, and the ask reveals on THAT answer. The chip whose ask is open collapses it
+ * with no write, and under a freeze — where no bind is possible and the join is not a cart write — the
+ * ask reveals directly, as the DoorSheet's chip would.
+ */
+describe("TableBindSheet — a SEATED chip binds first (Codex round 3 on #314)", () => {
+  it("the registry's Seated chip tries the bind; `seated` reveals the ask with focus in its input; the same chip again collapses it with NO second bind", async () => {
+    const s = spies();
+    h.bindTable.mockResolvedValue({ ok: false, reason: "seated" });
+    render(<Host {...s} />);
+    const dialog = openSheet();
+    expect(dialog.querySelector("form")).toBeNull();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(h.bindTable).toHaveBeenCalledTimes(1);
+    expect(h.bindTable).toHaveBeenCalledWith(CART, 5);
+    expect(s.onOutcome).toHaveBeenCalledWith({ ok: false, reason: "seated" });
+    const five = chip(5);
+    expect(five.getAttribute("aria-expanded")).toBe("true");
+    const form = dialog.querySelector("form")!;
+    expect(within(form).getByRole("heading", { name: "Join Table 5" })).toBeTruthy();
+    expect(document.activeElement).toBe(within(form).getByLabelText("Table code"));
+    await act(async () => {
+      fireEvent.click(five);
+    });
+    expect(h.bindTable).toHaveBeenCalledTimes(1);
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(document.activeElement).toBe(five);
+  });
+
+  it("the stranded shape: a Seated chip whose bind answers ok (the host's OWN numberless row on that table's sticker) closes to SEND like any landed bind", async () => {
+    const s = spies();
+    h.bindTable.mockResolvedValue({ ok: true, tableNumber: 5, already: false });
+    render(<Host {...s} />);
+    openSheet();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(h.bindTable).toHaveBeenCalledWith(CART, 5);
+    expect(s.onOutcome).toHaveBeenCalledWith({ ok: true, tableNumber: 5, already: false });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(s.onClosed).toHaveBeenCalledWith({ sent: true });
+  });
+
+  it("under a FREEZE a Seated chip reveals the ask with NO write and no FROZEN_NOTE; an Open chip still says FROZEN_NOTE", async () => {
+    const s = spies();
+    const onFrozen = vi.fn();
+    render(<Host {...s} frozen onFrozen={onFrozen} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    // MUTATION (checkout-bind/frozen-seated-chip-refused): the frozen gate ignores occupancy — a
+    // Seated chip under a tablemate's checkout says "the order's locked" and the join is unreachable
+    // until the lock lifts, a regression from the DoorSheet's own path; red.
+    expect(h.bindTable).not.toHaveBeenCalled();
+    expect(onFrozen).not.toHaveBeenCalled();
+    expect(dialog.querySelector("form")).not.toBeNull();
+    expect(chip(5).getAttribute("aria-expanded")).toBe("true");
+    expect(text(dialog)).not.toContain(FROZEN_NOTE);
+    await act(async () => {
+      fireEvent.click(chip(2));
+    });
+    expect(h.bindTable).not.toHaveBeenCalled();
+    expect(onFrozen).toHaveBeenCalledWith(FROZEN_NOTE);
+  });
+});

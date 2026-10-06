@@ -167,7 +167,13 @@ describe("TableSection — the Send sheet's wiring reaches the grid (3c-ii)", ()
     fireEvent.click(screen.getByRole("button", { name: "Not at a numbered table? Send anyway" }));
     expect(onPlain).toHaveBeenCalledTimes(1);
     expect(nav.push).not.toHaveBeenCalled();
+    // Codex round 3 on #314 (P2): in the Send sheet a SEATED chip hands its number to `onClaim` too
+    // — the bind is tried first, since only the server can tell the host's own numberless row on that
+    // sticker from a stranger's party — and the ask reveals on the HOST's `seated` answer, not the tap.
     fireEvent.click(screen.getByRole("button", { name: /^Table 9,/ }));
+    expect(onClaim).toHaveBeenLastCalledWith(9);
+    expect(document.querySelector("form")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "host-reveal-9" }));
     const form = document.querySelector("form")!;
     expect(within(form).getByText("the drafts note")).toBeTruthy();
   });
