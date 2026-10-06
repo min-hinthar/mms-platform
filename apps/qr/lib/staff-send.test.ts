@@ -101,6 +101,10 @@ function itemsQuery(table: string) {
       rec.filters.push([col, v]);
       return q;
     },
+    neq(col: string, v: unknown) {
+      rec.filters.push([`!${col}`, v]);
+      return q;
+    },
     limit() {
       return q;
     },
@@ -290,6 +294,7 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
         filters: [
           ["cart_id", "cart-1"],
           ["fire_batch", BATCH],
+          ["!state", "voided"],
         ],
       },
     ]);
@@ -307,7 +312,33 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
       ok: false,
       reason: "gone",
     });
+    // …and only once the CART reads open, after the lines (lib/undo-miss.ts — a merge moves the batch
+    // off a cart it cancels; lib/cart-undo.test.ts falsifies that by value).
+    expect(h.itemReads.map((r) => [r.table, r.cols, r.filters])).toEqual([
+      [
+        "qr_cart_items",
+        "id",
+        [
+          ["cart_id", "cart-1"],
+          ["fire_batch", BATCH],
+          ["!state", "voided"],
+        ],
+      ],
+      ["qr_carts", "status", [["id", "cart-1"]]],
+    ]);
     expect(h.touched).toEqual([]);
+  });
+
+  it("0 lines taken back, none carrying the batch, but the cart is no longer open → `expired`", async () => {
+    // A merge re-parented the batch onto another table and cancelled this cart: "nothing from that
+    // send is with the kitchen" would be false at the other table.
+    h.unfired = 0;
+    h.batchRows = [];
+    h.cartStatus = "cancelled";
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "expired",
+    });
   });
 
   it("an unreadable batch check stays `expired` — the steer that sends staff to look", async () => {
