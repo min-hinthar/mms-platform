@@ -26,6 +26,8 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 // P3 — the refusal diagnosis moved to its own server-only module when `lib/staff-promo.ts`
 // became the second writer of `qr_carts.promo_code`. One verdict, both doors; see its docblock.
 import { refusedPromoReason } from "./promo-refusal";
+// J37 — an undo that took back nothing: the ONE diagnosis both undos read (lib/undo-miss.ts).
+import { undoMissReason } from "./undo-miss";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
@@ -313,7 +315,7 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
 }
 
 export type UndoFireResult =
-  | { ok: true; unfired: number }
+  | { ok: true; unfired: number; gone: boolean }
   | {
       ok: false;
       reason: "not_host" | "expired" | "locked" | "settling" | "rate_limited" | "error";
@@ -325,8 +327,10 @@ export type UndoFireResult =
  * null; a line whose grace already passed is left fired, so undo can't un-send food the kitchen already
  * has). S4-audit P1-3: undo targets the SPECIFIC `batch` sendToKitchen handed back — so a host's Undo
  * reverses only the host's batch, never a guest's make-it-now (S4.2) line sharing the grace window.
- * `expired` (0 rows un-fired) is the honest signal that the window closed / nothing was undoable → the UI
- * steers to "ask a server", never a silent success. Returned (not thrown) for the same prod-redaction reason.
+ * `expired` (0 rows un-fired while lines still carry the batch) is the honest signal that the window
+ * closed → the UI steers to "ask a server", never a silent success. `gone` (0 rows, and NO line carries
+ * the batch any more) is a SUCCESS: an earlier undo of this batch landed and its answer was lost (J37),
+ * so asking again is idempotent. Returned (not thrown) for the same prod-redaction reason.
  */
 export async function undoFire(cartId: string, batch: string): Promise<UndoFireResult> {
   const input = undoFireInput.parse({ cartId, batch });
@@ -344,7 +348,15 @@ export async function undoFire(cartId: string, batch: string): Promise<UndoFireR
     console.error("[cart] mms_undo_fire failed", { cartId: input.cartId, message: error.message });
     return { ok: false, reason: "error" };
   }
-  if (!unfired) return { ok: false, reason: "expired" }; // grace passed / nothing in grace to undo
+  if (!unfired) {
+    // J37 — 0 rows is two facts, and a diner's re-ask after a LOST response is the second: un-fire
+    // clears `fire_batch`, so no line still carrying the batch means an earlier undo of it LANDED.
+    // Answered `expired`, the hook said "already with the kitchen" and closed the window over dishes
+    // that are drafts. One diagnosis for both undos (lib/undo-miss.ts); an unread check stays `expired`.
+    if ((await undoMissReason(input.cartId, input.batch)) === "gone")
+      return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)
+    return { ok: false, reason: "expired" };
+  }
   await touchCart(input.cartId, "undoFire");
 
   getPostHogClient().capture({
@@ -352,7 +364,7 @@ export async function undoFire(cartId: string, batch: string): Promise<UndoFireR
     event: "undo_fire",
     properties: { cart_id: input.cartId, lines: unfired },
   });
-  return { ok: true, unfired };
+  return { ok: true, unfired, gone: false };
 }
 
 /** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the

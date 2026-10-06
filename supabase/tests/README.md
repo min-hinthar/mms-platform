@@ -67,5 +67,22 @@ cases 1–7 stay green on the new body. Rolls back. Every case is falsified by n
 `scripts/verify-mode-authority.mjs` (suite `p3c2`, seven rows — each window removed, the strict
 `locked = false` form, the settle window widened, each window NARROWED to one minute, and the
 null-stamp form restored);
-the one-statement residual (the UPDATE reads its snapshot and locks nothing) is STATED in the
-migration header — M261.
+the one-statement residual (the UPDATE reads its snapshot and locks nothing) was STATED in the
+migration header and is closed by M261 (below) — so since M261 this file runs against
+`20261006120000`'s body, and those seven rows patch THAT file (`src: "m261"`, still `suite: "p3c2"`).
+
+## m261_undo_fire_cart_lock_test.sql (M261 · J37)
+
+Pins `20261006120000_m261_undo_fire_cart_lock.sql`: `mms_undo_fire` takes the cart row lock FIRST
+(`perform 1 … for update`, `mms_undo_counter_fire`'s line) — M261.1: an undo that matches nothing on a
+cart NO line has touched still stamps that cart row's `xmax` (a cart with lines is useless here: every
+line write in the transaction runs the FK check, whose `FOR KEY SHARE` stamps the same `xmax`). It proves
+the lock is TAKEN, never its ORDER against a concurrent claim (two sessions — OPEN-ITEMS P2fj). And the
+two facts `lib/undo-miss.ts` reads after a 0-row answer — for the diner's undo too since J37: J37.1, a
+landed undo leaves NO line carrying the batch (so a re-ask reads `gone`, "brought back") and the re-ask
+reverses 0; J37.2, an undo after the grace reverses 0 and the late lines KEEP the batch (so it reads
+`expired`, "the kitchen has it"). Rolls back. Every case is falsified by name in
+`scripts/verify-mode-authority.mjs` (suite `m261`, three rows — the lock dropped, the un-fire that keeps
+`fire_batch`, the grace leg dropped). Run by hand on a throwaway Postgres 16 carrying every repo
+migration — M261.1 red against the M258 body, green after; CI's `supabase` job is its first run on the
+real schema.

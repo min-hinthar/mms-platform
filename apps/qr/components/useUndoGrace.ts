@@ -1,6 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { undoFire } from "@/lib/cart";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
+import { undoFire, type UndoFireResult } from "@/lib/cart";
 import { TABLE_STARTER_MID } from "@/lib/confirm-copy";
 import { graceDeadlineMs, graceRemainingSec, type GraceReceipt } from "@/lib/send-grace";
 
@@ -17,16 +24,20 @@ import { graceDeadlineMs, graceRemainingSec, type GraceReceipt } from "@/lib/sen
  *
  * What it owns: `deadlineMs` (epoch ms on THIS device — `graceDeadlineMs`, the server-MEASURED
  * duration counted from the receipt, never the server's absolute stamp against `Date.now()`),
- * `batch` (the undo targets exactly the batch this send minted — S4-audit P1-3), the 250 ms tick,
- * `pending`, `message`, `graceWrites` (a serialized chain that NEVER rejects — each write owns its
- * errors — which `continueToPayment` drains before it mints), and `undoBtnRef` (focus lands on Undo
- * the moment the window OPENS — B4: move focus predictably on the state change).
+ * `batch` (the undo targets exactly the batch this send minted — S4-audit P1-3), the 250 ms CLOSE
+ * tick (it renders nothing per tick — J34; the seconds count is `useGraceCountdown`'s, read by the
+ * Undo label's own leaf), `pending`, `message`, `graceWrites` (a serialized chain that NEVER rejects
+ * — each write owns its errors — which `continueToPayment` drains before it mints), and
+ * `undoBtnRef` (focus lands on Undo the moment the window OPENS — B4: move focus predictably on the
+ * state change).
  *
- * Three invariants, each with a mutant:
+ * Four invariants, each with a mutant:
  *  - a FREEZE never shortens the window: a frozen tap is refused at the door with FROZEN_NOTE and
  *    the countdown keeps running — the SQL would still honour the undo once the lock clears;
  *  - the undo targets exactly `batch`;
- *  - `graceWrites` never rejects.
+ *  - `graceWrites` never rejects;
+ *  - a REJECTED undo never opens the gate on the clock (J37): whether it landed is unknown until a
+ *    read applies and the server is asked once more.
  *
  * The callbacks are options, not effects (a `setState` that mirrors hook state from an effect is a
  * cascading render the React Compiler lint rejects): `say` carries every outcome sentence to the
@@ -43,9 +54,8 @@ export type GraceClose = "elapsed" | "undone" | "expired";
 export type UndoGrace = {
   deadlineMs: number | null;
   batch: string | null;
-  /** Whole seconds left, rounded UP (lib/send-grace) — the Undo label's count, never a region's. */
-  remaining: number;
-  /** An undo write has not answered yet. */
+  /** An undo has not SETTLED yet: its write is out, or it landed and no read has shown it, or (J37)
+   *  it rejected and the confirm has not answered. Holds Pay and the counter door. */
   pending: boolean;
   message: GraceMessage | null;
   closedBy: GraceClose | null;
@@ -104,6 +114,37 @@ export function viewApplied(outcome: unknown): boolean {
 }
 export const RESYNC_RETRY_MS = 750;
 
+/**
+ * J37 — the undo's Server Action REJECTED. A rejection is not a refusal: the answer can be lost AFTER the
+ * un-fire committed, so nobody knows whether the dishes came back. Said at once; the window and `pending`
+ * HOLD (Pay and the counter door stay held, the tick cannot close it) while the read is retried, and once
+ * a read reaches the screen the server is asked ONCE more — `undoFire` is idempotent on a batch already
+ * brought back (`gone`, lib/undo-miss.ts) — and that answer, never the clock, decides. EN-only (J29).
+ */
+export const UNDO_UNCONFIRMED_NOTE = "We couldn’t confirm the undo yet — checking your order…";
+/** J37 — the confirm rejected too, with reads answering: the view is the truth and the window runs on. */
+export const UNDO_UNCONFIRMED_FINAL = "We couldn’t confirm the undo — check your order.";
+
+/** J34 — the ticker behind the Undo label's count: one 250 ms interval per subscriber. */
+function subscribeGraceTick(onTick: () => void): () => void {
+  const id = setInterval(onTick, 250);
+  return () => clearInterval(id);
+}
+/** Module-level so no render body calls `Date.now()` (the compiler's purity lint). */
+function remainingNow(deadlineMs: number | null): number {
+  return graceRemainingSec(deadlineMs, Date.now());
+}
+/**
+ * J34 — whole seconds left (`graceRemainingSec`, lib/send-grace), re-read on a 250 ms tick by the
+ * component that DRAWS the count, never by the hook's host. The snapshot is a primitive, so React
+ * re-renders the subscriber only when the whole second changes: a ten-second window costs the label ten
+ * renders and Checkout none (it cost Checkout forty — `nowMs` was hook state set every tick).
+ */
+export function useGraceCountdown(deadlineMs: number | null): number {
+  const read = () => remainingNow(deadlineMs);
+  return useSyncExternalStore(subscribeGraceTick, read, read);
+}
+
 export const reasonCopy: Record<
   "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error",
   string
@@ -138,16 +179,16 @@ export function useUndoGrace(opts?: {
    *  outcome at all, counts as applied (`viewApplied`). */
   onChanged?: () => void | Promise<unknown>;
 }): UndoGrace {
-  // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the
-  // countdown re-renders. The ref is the SAME value, written synchronously beside the setter, for
-  // the one reader that asks after an `await` (`isOpen`) and for the tick's own close.
+  // Client-local undo deadline (epoch ms, = receipt + server-measured grace). The ref is the SAME
+  // value, written synchronously beside the setter, for the one reader that asks after an `await`
+  // (`isOpen`) and for the tick's own close. The seconds count is NOT state here (J34): the Undo
+  // label reads it through `useGraceCountdown`, so this hook's host renders at the window's edges only.
   const [deadlineMs, setDeadlineMsState] = useState<number | null>(null);
   const deadlineRef = useRef<number | null>(null);
   // The fire_batch the server handed back for THIS send — undo targets exactly it (S4-audit P1-3),
   // so the host's Undo never claws back a guest's make-it-now line that shares the grace window.
   const [batch, setBatch] = useState<string | null>(null);
   const batchRef = useRef<string | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [pending, setPending] = useState(false);
   // Mirrors `pending` for the tick and `isOpen`, which read after an await (state would be a render late).
   const pendingRef = useRef(false);
@@ -155,9 +196,12 @@ export function useUndoGrace(opts?: {
   const [closedBy, setClosedBy] = useState<GraceClose | null>(null);
   const graceWrites = useRef<Promise<void>>(Promise.resolve());
   // The batch whose undo LANDED on the server but whose re-sync never applied (Codex round 4 on
-  // #313): a later tap for it owes only the READ. A second `undoFire` finds nothing in grace and
-  // answers `expired` — "already with the kitchen" over dishes that are drafts.
+  // #313): a later tap for it owes only the READ. (A second `undoFire` would answer `gone` since J37 —
+  // a redundant round trip; before it, `expired` — "already with the kitchen" over drafts.)
   const restoredRef = useRef<string | null>(null);
+  // J37 — the batch whose undo REJECTED: a confirm is owed once a read applies. Cleared by open() and
+  // unmount — the target every uncertain continuation re-checks after its await.
+  const uncertainRef = useRef<string | null>(null);
   // The background read retry for a landed-but-unapplied undo (Codex round 5): cleared on a new
   // window and on unmount.
   const resyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -215,6 +259,90 @@ export function useUndoGrace(opts?: {
     },
     [say, setDeadline],
   );
+
+  /** The ONE reading of an undo's ANSWER — the first tap's and J37's confirm: says the sentence and
+   *  returns how the window closes (null: this call un-fired nothing; the window stays). */
+  const answer = useCallback(
+    (res: UndoFireResult): GraceClose | null => {
+      if (res.ok) {
+        // ok — un-fired now, or `gone` (J37): an earlier undo of THIS batch landed, its answer lost.
+        // Either way the batch is back in draft → the window closes once the view says so.
+        say({ kind: "ok", text: BROUGHT_BACK_NOTE });
+        return "undone";
+      }
+      if (res.reason === "expired") {
+        // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
+        say({ kind: "ok", text: "That’s already with the kitchen — ask a server to change it." });
+        return "expired";
+      }
+      // locked / settling / rate_limited / error / not_host: NOTHING was un-fired by this call and the
+      // lines may still be in grace — keep the window open so the host can retry; it expires on its own.
+      say({ kind: "err", text: reasonCopy[res.reason] });
+      return null;
+    },
+    [say],
+  );
+
+  /**
+   * J37 — the uncertain undo's ONE confirm, asked once a read has reached the screen (the server answers
+   * again). Always awaited on the write chain. Never repeated: a throw that survives a working read is
+   * the action's own (a closed session's AuthzError), not the network — looping it would send a Server
+   * Action every 750 ms for as long as the session stays closed.
+   */
+  const confirm = useCallback(
+    async (cartId: string, target: string): Promise<void> => {
+      if (!mountedRef.current || uncertainRef.current !== target) return; // a dead or superseded hook asks nothing
+      let res: UndoFireResult | null = null;
+      try {
+        res = await undoFire(cartId, target);
+      } catch {
+        // Still unconfirmable — decided below.
+      }
+      if (!mountedRef.current || uncertainRef.current !== target) return;
+      uncertainRef.current = null;
+      if (res?.ok) {
+        // Back in draft — by this call, or by the first tap whose answer was lost (`gone`). The read that
+        // applied may PREDATE it, so the landed path owes one more: `retryRead` says "Brought back" and
+        // closes as undone when a read shows it; `pending` holds until then.
+        restoredRef.current = target;
+        retryRead(target);
+        return;
+      }
+      if (res === null) say({ kind: "err", text: UNDO_UNCONFIRMED_FINAL });
+      const close = res === null ? null : answer(res);
+      if (close) setDeadline(null, close);
+      pendingRef.current = false;
+      setPending(false);
+    },
+    [answer, retryRead, say, setDeadline],
+  );
+
+  /**
+   * J37 — the uncertain undo's background read, retried with the gate shut until one APPLIES; then the
+   * confirm, ON the write chain (Pay's drain must wait for the server's answer, not race it). Stops on
+   * supersede and unmount by the target it re-checks after its await (LEARNINGS #231).
+   */
+  const retryUncertain = useCallback(
+    function retry(cartId: string, target: string) {
+      resyncTimer.current = setTimeout(async () => {
+        resyncTimer.current = null;
+        if (uncertainRef.current !== target || deadlineRef.current === null) return;
+        let applied = false;
+        try {
+          applied = viewApplied(await optsRef.current?.onChanged?.());
+        } catch {
+          // The read's failure is its own; the next attempt asks again.
+        }
+        if (uncertainRef.current !== target) return; // superseded or unmounted while the read was out
+        if (!applied) return retry(cartId, target);
+        // The server answers reads again: ask it the one question the view cannot — ON the chain.
+        const step = graceWrites.current.then(() => confirm(cartId, target));
+        graceWrites.current = step;
+      }, RESYNC_RETRY_MS);
+    },
+    [confirm],
+  );
+
   useEffect(() => {
     mountedRef.current = true; // StrictMode runs effect → cleanup → effect; the hook ends mounted
     return () => {
@@ -224,14 +352,16 @@ export function useUndoGrace(opts?: {
       // `retry` would re-arm from a hook nobody renders (the abandoned checkout polling its cart every
       // 750 ms for the length of an outage). Cancellation is the TARGET, which every continuation
       // checks before it goes on.
+      uncertainRef.current = null; // J37 — the uncertain retry's target, cancelled like the landed one
       restoredRef.current = null;
       if (resyncTimer.current) clearTimeout(resyncTimer.current);
     };
   }, []);
 
-  // Drive the countdown while a window is open, and close it (drop the Undo affordance — the lines
-  // are now truly with the kitchen) the moment it elapses. The clear happens inside the interval
-  // callback, not the effect body, so it doesn't trigger a synchronous mid-render setState.
+  // Close the window (drop the Undo affordance — the lines are now truly with the kitchen) the moment
+  // it elapses. The clear happens inside the interval callback, not the effect body, so it doesn't
+  // trigger a synchronous mid-render setState. J34 — the tick sets NOTHING else: the label's count is
+  // `useGraceCountdown`'s, so a ten-second window renders this hook's host at its open and its close.
   useEffect(() => {
     if (deadlineMs === null) return;
     // The Send control just gave way to Undo — land focus on it so a keyboard/SR host can reverse
@@ -241,7 +371,6 @@ export function useUndoGrace(opts?: {
     undoBtn.current?.focus();
     const timer = setInterval(() => {
       const now = Date.now();
-      setNowMs(now);
       // Phase 2a · send — `graceRemainingSec` is the ONE client reading of the window (lib/send-grace).
       // Never while an undo is still answering or re-syncing: the window ends on the read that shows
       // the truth, not on the clock (the close edge is the undo's own, above). And never over a
@@ -257,17 +386,15 @@ export function useUndoGrace(opts?: {
     return () => clearInterval(timer);
   }, [deadlineMs, setDeadline]);
 
-  const remaining = graceRemainingSec(deadlineMs, nowMs);
-
   const open = useCallback(
     (res: GraceReceipt, receiptMs: number) => {
       // Open the undo window for the server-MEASURED grace, counted from THIS client's receipt
-      // (`graceDeadlineMs`): immune to client-clock skew, and re-seeding `nowMs` to the same instant
-      // avoids a first-paint flash. null ⇒ no window (still sent). The server re-checks fire_at on
-      // undo regardless, so the countdown is advisory.
-      setNowMs(receiptMs);
-      // A new send, a new batch — nothing landed for it yet; a background retry for the old one stops.
+      // (`graceDeadlineMs`): immune to client-clock skew. null ⇒ no window (still sent). The server
+      // re-checks fire_at on undo regardless, so the countdown is advisory.
+      // A new send, a new batch — nothing landed (or is uncertain) for it yet; a background retry for
+      // the old one stops.
       restoredRef.current = null;
+      uncertainRef.current = null;
       if (resyncTimer.current) clearTimeout(resyncTimer.current);
       resyncTimer.current = null;
       pendingRef.current = false;
@@ -305,30 +432,20 @@ export function useUndoGrace(opts?: {
         // gates money moves only when the view can keep it.
         let close: GraceClose | null = null;
         // Codex round 4 on #313 — the undo for THIS batch already landed on an earlier tap and only
-        // its re-sync failed: the write is not repeated (it would read `expired`), the read is.
+        // its re-sync failed: the write is not repeated (since J37 it would answer `gone` — a
+        // redundant round trip), the read is.
         const alreadyLanded = restoredRef.current === target;
+        // J37 — set when the action REJECTED: whether the un-fire committed is not known.
+        let uncertain = false;
         if (alreadyLanded) close = "undone";
         else
           try {
-            const res = await undoFire(cartId, target);
-            if (res.ok) {
-              say({ kind: "ok", text: BROUGHT_BACK_NOTE });
-              close = "undone"; // the batch is back in draft → the window closes once the view says so
-            } else if (res.reason === "expired") {
-              // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
-              say({
-                kind: "ok",
-                text: "That’s already with the kitchen — ask a server to change it.",
-              });
-              close = "expired";
-            } else {
-              // locked / settling / rate_limited / error: NOTHING was un-fired and the lines may still
-              // be in grace — keep the window open so the host can retry; it expires on its own.
-              say({ kind: "err", text: reasonCopy[res.reason] });
-            }
+            close = answer(await undoFire(cartId, target));
           } catch {
-            // Uncertain outcome — leave the window to expire naturally; the re-sync shows the true state.
-            say({ kind: "err", text: "Couldn’t undo that just now — please try again." });
+            // J37 — UNCERTAIN, never a failure: the answer can be lost AFTER the un-fire committed. The
+            // window and `pending` hold; the confirm (below) decides once a read reaches the screen.
+            uncertain = true;
+            say({ kind: "err", text: UNDO_UNCONFIRMED_NOTE });
           }
         // Re-sync regardless — reveals the true state after an undo. ON the chain: a drain that
         // resolved before this read landed would decide Pay against a view the undo has outdated.
@@ -372,6 +489,13 @@ export function useUndoGrace(opts?: {
           restoredRef.current = target; // landed; only the read is owed from here
           say({ kind: "err", text: RESYNC_FAILED_NOTE });
           retryRead(target);
+        } else if (uncertain) {
+          // J37 — the gate HOLDS: nothing here releases `pending`, so the tick cannot close the window
+          // over a view that may predate a landed un-fire. A read applied → the confirm, on this link;
+          // none did → the background retry, which confirms (on the chain) once one does.
+          uncertainRef.current = target;
+          if (applied) await confirm(cartId, target);
+          else retryUncertain(cartId, target);
         } else {
           pendingRef.current = false;
           setPending(false);
@@ -380,7 +504,7 @@ export function useUndoGrace(opts?: {
       graceWrites.current = write;
       return write;
     },
-    [say, setDeadline, retryRead],
+    [answer, confirm, retryRead, retryUncertain, say, setDeadline],
   );
 
   // Open while the window still has time OR an undo is still settling against it (the deadline may
@@ -395,7 +519,6 @@ export function useUndoGrace(opts?: {
   return {
     deadlineMs,
     batch,
-    remaining,
     pending,
     message,
     closedBy,

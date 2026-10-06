@@ -68,10 +68,20 @@
  * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
  * Phase 3c-ii · M258 (D29) adds suite `p3c2`: `mms_undo_fire` restated with the two freshness legs
- * (a fresh pay lock, a fresh split freeze — `mms_void_line`'s idiom) and FOUR killed mutants, each
- * beside the legitimate case its leg must not over-block, with NO new survivor: the function takes
- * no row lock by default (owner question 1), and the one-statement residual that leaves is STATED
- * in the migration header rather than claimed closed by a row here.
+ * (a fresh pay lock, a fresh split freeze — `mms_void_line`'s idiom) and SEVEN killed mutants (four
+ * at first; the blind pass on 3c-ii added the two narrowed windows, Codex r1 on #314 the null stamp),
+ * each beside the legitimate case its leg must not over-block, with NO new survivor: the function
+ * took no row lock then (owner question 1), and the one-statement residual that left was STATED in
+ * the migration header rather than claimed closed by a row here.
+ *
+ * M261 · J37 adds suite `m261`: `mms_undo_fire` restated AGAIN, now taking the cart row lock first
+ * (`mms_undo_counter_fire`'s line) — so M258's seven mutants patch THAT file (`src: "m261"`) and are
+ * still judged by `p3c2`, or the chain would overwrite each mutation and every one would read NO-OP.
+ * Three killed mutants and NO new survivor: the lock dropped (M261.1 — a line-less cart's `xmax`, the
+ * lock TAKEN; its ORDER against a claim is still two-session work, OPEN-ITEMS P2fj), the un-fire that
+ * keeps `fire_batch` (J37.1 — the fact `lib/undo-miss.ts` reads as "an earlier undo landed"), and the
+ * grace leg dropped (J37.2 — a late undo must leave the batch on the lines, the fact it reads as
+ * "the kitchen has it").
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -137,9 +147,15 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261005120100_m258_undo_fire_lock_guard.sql"),
     test: path.join(ROOT, "supabase/tests/m258_undo_fire_lock_guard_test.sql"),
   },
+  // M261 · J37 — `mms_undo_fire` restated with the cart row lock first. Its LAST definition moves
+  // here, so M258's seven mutants patch THIS file now (`src: "m261"`) and are still judged by p3c2.
+  m261: {
+    migration: path.join(ROOT, "supabase/migrations/20261006120000_m261_undo_fire_cart_lock.sql"),
+    test: path.join(ROOT, "supabase/tests/m261_undo_fire_cart_lock_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -1648,12 +1664,12 @@ const MUTANTS = [
   // ── Phase 3c-ii · M258 (D29) — the undo's two freshness legs, each beside the legitimate case it
   // must not over-block. Both legs read the SAME columns `mms_void_line` reads, so a leg written in
   // the strict form (bare `c.locked = false`) passes M1 and fails M2 — the over-blocking direction
-  // W17 named. No row lock by default (owner question 1): the one-statement residual is stated in
-  // the migration header, not claimed closed here.
+  // W17 named. M261 restated the function with the cart row lock, so these patch THAT file now
+  // (`src: "m261"`) — a patch to 20261005120100 is overwritten by the chain's last entry and reads NO-OP.
   {
     id: "undo/locked-cart-undone",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.1 ·",
     why: "the hole D20 filed — without the lock leg, host A's undo flips the batch back after guest B's create-intent locked and read zero drafts, and B's charge mints over dishes the gate would have refused",
@@ -1663,7 +1679,7 @@ const MUTANTS = [
   {
     id: "undo/stale-lock-blocks-undo",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.2 ·",
     why: "the strict form the row proposed — `locked` is sticky (acquireCartLock takes a stale lock over; authz ignores one past its TTL), so a bare locked=false refuses every undo after an abandoned pay tab and the action says 'already with the kitchen' over lines the kitchen never saw",
@@ -1673,7 +1689,7 @@ const MUTANTS = [
   {
     id: "undo/settling-cart-undone",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.4 ·",
     why: "a split in flight captures each share against the CURRENT base — an undo under a fresh settle freeze re-drafts lines the shares already priced",
@@ -1683,7 +1699,7 @@ const MUTANTS = [
   {
     id: "undo/settle-window-widened",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.5 ·",
     why: "the freeze lifetime is SETTLE_TTL_MS (10 min) in lib/lock-ttl.ts, lib/authz.ts and every mms_split_* — a wider window here refuses the undo of a table whose settlement the app already treats as abandoned",
@@ -1694,7 +1710,7 @@ const MUTANTS = [
   {
     id: "undo/null-lock-timestamp-refuses",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.9 ·",
     why: "Codex r1 on #314 (P2) — the bare `locked and locked_at > …` is NULL for `locked = true, locked_at = NULL` (the schema permits it; authz.ts reads it as not fresh), so the UPDATE skips the row and every undo on such a cart reads 'expired'",
@@ -1705,7 +1721,7 @@ const MUTANTS = [
   {
     id: "undo/lock-window-narrowed",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.7 ·",
     why: "the blind pass on 3c-ii (money lens) — the outer edges alone (0 and 6 minutes) let a body reading `interval '1 minute'` pass: the hole D20 filed reopens for any lock older than a minute, inside the 5-minute pay window a create-intent still holds",
@@ -1716,13 +1732,45 @@ const MUTANTS = [
   {
     id: "undo/settle-window-narrowed",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.8 ·",
     why: "the same inner edge for the split freeze: a body reading `interval '1 minute'` passes M4 (0 min) and M5 (11 min) while a 9-minute-old settlement — inside SETTLE_TTL_MS — no longer refuses the undo",
     find: "      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses\n",
     replace:
       "      and (c.settle_at is null or c.settle_at <= now() - interval '1 minute')   -- M258: a FRESH split freeze refuses\n",
+  },
+  // ── M261 · J37 — the undo's cart row lock, and the two batch facts `lib/undo-miss.ts` reads after a
+  // 0-row answer (now for the diner's undo too): a landed un-fire CLEARS the batch, a late undo KEEPS it.
+  {
+    id: "undo/cart-lock-dropped",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "M261.1 ·",
+    why: "M261 — without the cart row lock the freshness legs read a snapshot one statement wide: a pay lock committing after it is invisible, and the undo flips a batch back under a create-intent that read zero drafts. M261.1 sees the lock TAKEN (a line-less cart's xmax); its ORDER against a claim is P2fj's two-session harness",
+    find: "  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire\n",
+    replace: "",
+  },
+  {
+    id: "undo/unfire-keeps-the-batch",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.1 ·",
+    why: "J37 — `undoMissReason` reads 'no line still carries the batch' as 'an earlier undo landed'; an un-fire that keeps fire_batch makes every re-ask after a lost answer read `expired` — 'already with the kitchen' over dishes that are drafts",
+    find: "    set state = 'draft', fire_at = null, fire_batch = null\n",
+    replace: "    set state = 'draft', fire_at = null\n",
+  },
+  {
+    id: "undo/grace-leg-dropped",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.2 ·",
+    why: "the grace leg is what makes a 0 after the deadline mean 'the kitchen has it' — dropped, a late undo un-fires (and un-batches) dishes the KDS already shows, and `undoMissReason` then answers `gone` ('brought back') over food being cooked",
+    find: "      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)\n",
+    replace: "",
   },
 ];
 

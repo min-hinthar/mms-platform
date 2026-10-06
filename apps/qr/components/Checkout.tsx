@@ -888,7 +888,8 @@ export function Checkout({
   // dimmed door set the same string, React skipped the same-value state, the region did not change
   // and a screen reader heard nothing. Each refusal renumbers the region's text (`statusSeq`, the
   // key below), so the same sentence is a new DOM node — a new announcement; it also clears a
-  // standing pay error (the region's own rule: each handler clears the other first).
+  // standing pay error (the region's own rule: each handler clears the other first). The written
+  // rule (DESIGN-LANGUAGE §7, J34): the region says the NEWEST answer to what the next tap meets.
   const [statusSeq, setStatusSeq] = useState(0);
   const sayRefusal = (text: string) => {
     setPayError(null);
@@ -2514,6 +2515,12 @@ export function Checkout({
    * undo's re-sync may put drafts back — and only when nothing else still blocks Pay (a guest's new
    * drafts, a tablemate's lock, a standing counter ask): the sentence is a claim the next tap must
    * keep. The same edge is where the Undo unmounts, so it also puts lost focus back on the <h1>.
+   *
+   * It may retire a standing pay error (`sayRefusal` clears it), and that is honest (J34): with the
+   * window open, Pay and the counter ask are refused (`block === "grace"`) and a Send's own outcome
+   * clears the error, so one stands here only when a write that STARTED BEFORE the Send (a
+   * create-intent that never took the lock, a reopen's trailing re-check) answered inside the window
+   * — an error about a basket that has since changed.
    */
   const prevGraceOpen = useRef(graceOpen);
   useEffect(() => {

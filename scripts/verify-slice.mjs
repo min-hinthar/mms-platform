@@ -6901,7 +6901,10 @@ const MUTANTS = [
   },
   {
     id: "staff-send/undo-gone-reads-as-expired",
-    file: "apps/qr/lib/staff-send.ts",
+    // J37 — the diagnosis moved verbatim to lib/undo-miss.ts (its second reader is the diner's
+    // `undoFire`); this suite still reaches it through `staffUndoFire`, and lib/cart-undo.test.ts
+    // through the diner's door.
+    file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a (blind review) — an undo retried after a LOST response finds its batch already brought back (undo clears fire_batch). Answered `expired`, the console says 'too late — the kitchen has it, Void / Comp' over a dish nobody is cooking",
     find: '  return data?.length ? "expired" : "gone";\n',
@@ -6909,7 +6912,7 @@ const MUTANTS = [
   },
   {
     id: "staff-send/undo-expired-reads-as-gone",
-    file: "apps/qr/lib/staff-send.ts",
+    file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a (blind review) — lines still carrying the batch mean the grace ran out and the kitchen has them. Answered `gone` without looking, the console says nothing from the send is cooking while it is, and nobody reaches for Void / Comp",
     find: '  return data?.length ? "expired" : "gone";\n',
@@ -6917,11 +6920,30 @@ const MUTANTS = [
   },
   {
     id: "staff-send/undo-unread-check-reads-as-gone",
-    file: "apps/qr/lib/staff-send.ts",
+    file: "apps/qr/lib/undo-miss.ts",
     suite: "lib/staff-send.test.ts",
     why: "Phase 2a (blind review) — an unreadable batch check has no evidence either way; it must keep the steer that sends staff to LOOK (`expired`), never the comforting 'nothing is with the kitchen'",
     find: '    return "expired"; // deliberate: the conservative steer (see above)\n',
     replace: '    return "gone";\n',
+  },
+  // ── J37 — the diner's `undoFire` reads the same diagnosis after a 0-row answer: `gone` (no line still
+  // carries the batch) is an earlier undo of it that LANDED, answered as a success so a re-ask after a
+  // lost response is idempotent. Value-falsified through the real lib/undo-miss.ts in lib/cart-undo.test.ts.
+  {
+    id: "cart-undo/retried-undo-reads-expired",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "J37 — a re-ask after a lost response finds its batch gone (un-fire clears fire_batch). Read as expired, the diner hears 'already with the kitchen' and the window closes as expired over dishes that are drafts",
+    find: '    if ((await undoMissReason(input.cartId, input.batch)) === "gone")\n      return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)\n',
+    replace: "",
+  },
+  {
+    id: "cart-undo/kitchen-batch-reads-as-gone",
+    file: "apps/qr/lib/cart.ts",
+    suite: "lib/cart-undo.test.ts",
+    why: "J37 — lines still carrying the batch are with the kitchen; answering every 0 as 'brought back' without looking is a lie about food being cooked, and the window closes as undone over it",
+    find: '    if ((await undoMissReason(input.cartId, input.batch)) === "gone")\n',
+    replace: "    if (true)\n",
   },
   {
     id: "staff-send/fired-rows-not-units",
@@ -25010,8 +25032,9 @@ const MUTANTS = [
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
     why: "3c-i (D15) — the server says the batch is already with the kitchen; a window kept open after `expired` offers an Undo that can never land and keeps Pay waiting on a grace that is over",
-    find: '            close = "expired";\n',
-    replace: "",
+    // J37 — the answer is read in ONE place (`answer`, shared by the first tap and the confirm).
+    find: '        return "expired";\n',
+    replace: "        return null;\n",
   },
   {
     id: "undo-grace/interval-survives-unmount",
@@ -25058,7 +25081,7 @@ const MUTANTS = [
     id: "undo-grace/second-tap-re-fires-a-landed-undo",
     file: "apps/qr/components/useUndoGrace.ts",
     suite: "components/useUndoGrace.test.tsx",
-    why: "Codex round 4 on #313 (P2) — after an undo LANDED but every re-sync failed, the window stays open with Undo live; a second tap that re-fires finds nothing in grace, `undoFire` answers `expired`, and the hook says 'already with the kitchen' and closes as expired over dishes that are drafts. The landed batch is remembered; a later tap retries only the read",
+    why: "Codex round 4 on #313 (P2) — after an undo LANDED but every re-sync failed, the window stays open with Undo live; a second tap re-fired the write, which then answered `expired` — 'already with the kitchen' over dishes that are drafts. Since J37 a re-fire answers `gone` (lib/undo-miss.ts), so the shortcut now saves a redundant Server Action the read alone settles; the landed batch is remembered and a later tap retries only the read",
     find: "        const alreadyLanded = restoredRef.current === target;\n",
     replace: "        const alreadyLanded = false;\n",
   },
@@ -25095,6 +25118,68 @@ const MUTANTS = [
     why: "Codex round 8 on #313 (P2) — round 7 cleared the retry TARGET at unmount, but the undo's own continuation, still running, wrote it back and armed `retryRead` from the dead hook, reviving the 750 ms polling for the length of an outage. After an unmount the continuation says, closes and arms nothing",
     find: "        // waits on a screen nobody has.\n        if (!mountedRef.current) return;\n",
     replace: "        // waits on a screen nobody has.\n",
+  },
+  // ── J37 — a REJECTED undo is UNCERTAIN, not failed: the window and `pending` hold until a read applies,
+  // then the server is asked ONCE more (`undoFire` answers `gone` for a batch already brought back) and
+  // that answer — never the clock — decides the sentence and the close.
+  {
+    id: "undo-grace/thrown-undo-released-on-the-clock",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J37 — a rejected undo opened the gate, and the tick closed the window as 'elapsed' over a view that may predate a landed un-fire: Pay went live over drafts the server had restored, refused at create-intent, under 'Couldn't undo that'",
+    find: "          uncertainRef.current = target;\n          if (applied) await confirm(cartId, target);\n          else retryUncertain(cartId, target);\n",
+    replace: "          pendingRef.current = false;\n          setPending(false);\n",
+  },
+  {
+    id: "undo-grace/uncertain-confirm-skipped",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J37, the row's literal read-only form — the gate opens on a read and nobody asks the server: 'checking your order…' stands forever, and the Undo counts down over dishes it may already have brought back (a second tap then reads `gone`, but nothing prompts one)",
+    find: "          if (applied) await confirm(cartId, target);\n",
+    replace:
+      "          if (applied) {\n            pendingRef.current = false;\n            setPending(false);\n          }\n",
+  },
+  {
+    id: "undo-grace/unconfirmed-undo-closes-as-undone",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J37 — a confirm that ALSO rejected knows nothing; closing as undone says nothing more but shuts the Undo and runs 'Ready to pay.' logic over lines that may be cooking. The view decides and the window runs on",
+    find: "      const close = res === null ? null : answer(res);\n",
+    replace: '      const close = res === null ? "undone" : answer(res);\n',
+  },
+  {
+    id: "undo-grace/background-confirm-off-the-chain",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J37 — every undo write rides `graceWrites` (the `undo-write-not-chained` invariant); a background confirm off the chain is invisible to Pay's drain, which then decides against a server answer still in flight",
+    find: "        graceWrites.current = step;\n",
+    replace: "",
+  },
+  {
+    id: "undo-grace/unmounted-uncertain-hook-keeps-polling",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J37 · LEARNINGS #231 for the uncertain retry — the cleanup must cancel its TARGET: a read out at unmount resolves afterwards and re-arms the 750 ms loop from a hook nobody renders, polling for the length of an outage",
+    find: "      uncertainRef.current = null; // J37 — the uncertain retry's target, cancelled like the landed one\n",
+    replace: "",
+  },
+  // ── J34 — the count moved out of the hook's host into the Undo label's own leaf: Checkout re-rendered
+  // four times a second through every grace (`nowMs` was hook state set on each tick).
+  {
+    id: "undo-grace/countdown-never-ticks",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J34 — with the count out of the host, an UNSUBSCRIBED label freezes at its first number: 'Undo — 10s' standing still while the server's grace runs out under it",
+    find: "  return useSyncExternalStore(subscribeGraceTick, read, read);\n",
+    replace: "  return read();\n",
+  },
+  {
+    id: "undo-grace/countdown-ticker-survives-unmount",
+    file: "apps/qr/components/useUndoGrace.ts",
+    suite: "components/useUndoGrace.test.tsx",
+    why: "J34 — the label's ticker must leave with the label; one that survives fires every quarter second for as long as the tab lives, once per Undo ever drawn",
+    find: "  return () => clearInterval(id);\n",
+    replace: "  return () => {};\n",
   },
   {
     id: "checkout/pay-re-entered-during-the-drain",
@@ -25161,6 +25246,15 @@ const MUTANTS = [
     why: "3c-i (D13) — reversing is never the hero: an Undo wearing the filled CTA makes forfeiting the send the visual default during the ten seconds the bill is meant to be read",
     find: '          className="checkout-outline-btn mms-settle"',
     replace: '          className="checkout-cta mms-settle"',
+  },
+  {
+    id: "send-button/undo-label-reads-a-host-count",
+    file: "apps/qr/components/SendToKitchenButton.tsx",
+    suite: "components/SendToKitchenButton.test.tsx",
+    why: "J34 — a count computed in the BUTTON's render moves only when the host re-renders — the forty-renders-a-window shape the leaf retired; with the host quiet, the label freezes",
+    find: '          {grace.pending ? "Bringing it back…" : <UndoCountdown deadlineMs={grace.deadlineMs} />}\n',
+    replace:
+      '          {grace.pending ? "Bringing it back…" : `Undo — ${Math.max(0, Math.ceil(((grace.deadlineMs ?? 0) - Date.now()) / 1000))}s`}\n',
   },
   {
     id: "line-sheet/pills-live-under-a-freeze",

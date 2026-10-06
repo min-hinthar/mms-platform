@@ -30,6 +30,7 @@ const { FROZEN_NOTE } = await import("./useUndoGrace");
 afterEach(() => {
   cleanup();
   h.sendToKitchen.mockReset();
+  vi.useRealTimers();
 });
 
 /** A hand-built grace — the hook's shape, with every write a spy. */
@@ -37,7 +38,6 @@ function grace(over: Partial<UndoGrace> = {}): UndoGrace {
   return {
     deadlineMs: null,
     batch: null,
-    remaining: 0,
     pending: false,
     message: null,
     closedBy: null,
@@ -238,7 +238,7 @@ describe("Phase 3c-ii (D27) — the table gate inside send()", () => {
     cleanup();
     const { handle: undoHandle } = mount({
       verb: "undo",
-      grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 }),
+      grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" }),
     });
     undoHandle.current!.focus();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Undo — 7s" }));
@@ -247,7 +247,7 @@ describe("Phase 3c-ii (D27) — the table gate inside send()", () => {
 
 describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never the hero", () => {
   it("Undo is never the filled hero, counts down the grace's seconds, and targets the grace's batch", async () => {
-    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 });
+    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" });
     mount({ verb: "undo", grace: g });
     const undo = screen.getByRole("button", { name: "Undo — 7s" });
     // MUTATION (send-button/undo-is-rendered-as-the-hero): Undo gets `.checkout-cta` — reversing
@@ -264,7 +264,7 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
   });
 
   it("a frozen Undo stays reachable (aria-disabled) and hands the freeze to the grace, which refuses", async () => {
-    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1", remaining: 7 });
+    const g = grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" });
     mount({ verb: "undo", grace: g, frozen: true });
     const undo = screen.getByRole("button", { name: "Undo — 7s" });
     expect(undo.getAttribute("aria-disabled")).toBe("true");
@@ -275,10 +275,24 @@ describe("Phase 3c-i (D13/D15) — the Undo is controlled, outline, and never th
     expect(g.undo).toHaveBeenCalledWith("cart-1", true);
   });
 
+  it("the Undo counts down ON ITS OWN — the host never re-renders it (J34)", () => {
+    vi.useFakeTimers();
+    mount({ verb: "undo", grace: grace({ deadlineMs: Date.now() + 7_000, batch: "batch-1" }) });
+    expect(screen.getByRole("button", { name: "Undo — 7s" })).toBeTruthy();
+    // No rerender: the hook's host (Checkout) no longer re-renders per tick, so the label must move
+    // by its own subscription.
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    // MUTATION (send-button/undo-label-reads-a-host-count): the count is computed in the button's
+    // render, which nothing re-runs — frozen at 7s; red. (undo-grace/countdown-never-ticks: red too.)
+    expect(screen.getByRole("button", { name: "Undo — 5s" })).toBeTruthy();
+  });
+
   it("an undo in flight reads 'Bringing it back…'", () => {
     mount({
       verb: "undo",
-      grace: grace({ deadlineMs: Date.now() + 7_000, remaining: 7, pending: true }),
+      grace: grace({ deadlineMs: Date.now() + 7_000, pending: true }),
     });
     expect(screen.getByRole("button", { name: "Bringing it back…" })).toBeTruthy();
   });

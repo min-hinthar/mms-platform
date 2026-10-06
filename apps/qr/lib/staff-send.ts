@@ -10,6 +10,9 @@ import { touchCart } from "./order-lines";
 import { maybeRenewSession } from "./authz";
 import { getPostHogClient } from "./posthog-server";
 import { surfaceOpen } from "./surfaces";
+// J37 — the 0-row diagnosis moved to its own server-only module when the diner's `undoFire` became
+// its second reader. One verdict, both doors; see its docblock.
+import { undoMissReason } from "./undo-miss";
 import {
   sendRoute,
   undoRoute,
@@ -243,33 +246,6 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
     serverNow: new Date().toISOString(),
     undoBatch: row?.batch ?? null,
   };
-}
-
-/**
- * WHY an undo took back nothing. `mms_undo_fire` answers 0 for two different facts, and the console
- * must not tell them apart by guessing:
- *
- *  - `expired` — lines carrying this batch still exist: the grace ran out and the kitchen has them
- *    (the page steers to Void / Comp).
- *  - `gone` — NO line on the cart carries the batch any more. Undo clears `fire_batch`, so this is an
- *    earlier undo whose response was lost (the retry of the same tap), or a void that removed the
- *    lines. "Too late — the kitchen has it" there would send staff to Void a dish nobody is cooking.
- *
- * An unread check answers `expired`: of the two sentences it is the one that sends staff to LOOK at
- * the dishes, and "nothing is with the kitchen" must never be said on no evidence.
- */
-async function undoMissReason(cartId: string, batch: string): Promise<"expired" | "gone"> {
-  const { data, error } = await serviceClient()
-    .from("qr_cart_items")
-    .select("id")
-    .eq("cart_id", cartId)
-    .eq("fire_batch", batch)
-    .limit(1);
-  if (error) {
-    console.error("[staff-send] undo batch check failed", { message: error.message });
-    return "expired"; // deliberate: the conservative steer (see above)
-  }
-  return data?.length ? "expired" : "gone";
 }
 
 /**
