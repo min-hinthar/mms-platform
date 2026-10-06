@@ -39,3 +39,26 @@ beside the legitimate case it must not over-block. Rolls back. Every case is fal
 `scripts/verify-mode-authority.mjs` (suite `p2f`); the locks no single session can observe (the fire
 vs the name clear, the fire vs the sweeper) are falsified by
 `scripts/verify-counter-fire-race.mjs --mutants`.
+
+## p3c2_table_number_uniq_test.sql (Phase 3c-ii · D22)
+
+Pins `20261005120000_p3c2_table_number_uniq.sql`: one active dine-in session per table NUMBER —
+`table_sessions_active_table_uniq ON table_sessions(table_number) WHERE status='active' AND
+mode='dinein'`. Case 1 FIRST (two live dine-in rows on one number → `unique_violation`, SQLSTATE
+asserted) so the un-migrated run goes red on it; a closed row beside an active one accepted; two
+NULL-number rows coexist; an active PICKUP row carrying the number beside the dine-in one ACCEPTED (the
+mode scope); an UPDATE of a second session's NULL → the number raises 23505 (the bind path); the
+PREDICATE pinned from `pg_indexes`, not the name. Rolls back. The migration's own guard (close only
+EXPIRED dine-in rows carrying a number; RAISE naming the numbers on live duplicates) was proved by hand on
+a throwaway Postgres 16 before CI; CI's `supabase` job is the first run on the real schema.
+
+## m258_undo_fire_lock_guard_test.sql (Phase 3c-ii · D29 · M258)
+
+Pins `20261005120100_m258_undo_fire_lock_guard.sql`: `mms_undo_fire(p_cart_id, p_batch)` refuses under
+a FRESH pay lock (5 min) or a FRESH split freeze (10 min) — the `mms_void_line` idiom — and still
+reverses under a STALE lock (the legitimate undo a bare `locked = false` would over-block, W17's rule):
+fire two drafts → fresh lock → 0, both lines still fired with the batch; a 6-minute-old lock → 2; unlocked
+→ 2; `settle_at = now()` → 0; an 11-minute-old settle → reverses; `anon` has no execute, `service_role`
+does. `staff_fire_undo_test.sql` cases 1–7 stay green on the new body. Rolls back. Every case is
+falsified by name in `scripts/verify-mode-authority.mjs` (suite `p3c2`, four rows); the one-statement
+residual (the UPDATE reads its snapshot and locks nothing) is STATED in the migration header — M261.

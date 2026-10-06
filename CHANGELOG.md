@@ -4,6 +4,77 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 3c-ii — the table bound at SEND (2026-10-05)
+
+**The owner's ask:** "merge, continue 3c-ii" after #313. Row 3c's authority half (`docs/PHASE3_JOURNEYS.md`;
+J22 · J33 · M258): a dine-in diner was asked "Which table are you at?" BEFORE the menu, a seated table
+demanded the party's code there, and the table NUMBER was a nullable label beside the sticker TOKEN —
+three occupancy predicates, no uniqueness, every 23505 read as the token index, the picker's occupancy
+failing OPEN, and `mms_undo_fire` never reading the lock. Contract: `docs/PHASE3C_II_DESIGN.md` (D21–D30),
+written by a nine-agent panel (two mappers · four blind proposers · two judges · one synthesizer; the
+adversary's proposal won with both judges at 5/5 on contract); the lead spot-checked its load-bearing
+claims against source before adopting it. Two engineers built the disjoint slices in worktrees, red-first;
+the lead squashed and integrated.
+
+- **Browse first; the table is asked ONCE, inside the first Send (D27, D28).** The Dine-in door enters
+  the menu on the bare host-start; `/dine-in` redirects (its picker and skeleton retired); the first Send
+  on an unbound session opens `TableBindSheet` — `TableSection`, the DoorSheet's own section extracted
+  verbatim, hosted a second time — as a GATE inside `send()` after the frozen refusal; a chip BINDS the
+  live session through one bounded write and the SAME send runs; `seated` flips that chip and reveals
+  the inline join with the drafts note; "Send anyway" keeps a registry outage from ever dead-ending the
+  send; dismissal calls nothing. The hero stays `orderStageHero`'s one `.checkout-cta`. No live region in
+  the sheet: every sentence is stashed and said through the view's one region after the modal unmounts;
+  the host lands focus on both edges (the primitive restores nothing once a close handler exists — a
+  design claim refuted against `sheet.tsx` by the engineer, recorded as a BUILT deviation).
+- **The number is an identity beside the token (D21–D23, D25, D26).** `lib/seated.ts` — `seatedSessionFor`
+  (ONE live-dine-in-at-N predicate, throws on a read error), `sweepExpiredOnTable`, the one-column
+  row-count CAS `bindSessionTable`, the pure `claimDisposition`/`bindVerdict`/`occupancyFor`. `bindTable`
+  (`lib/bind-table.ts`): host-only, refusals in `sendToKitchen`'s order, `table_number` ONLY (never the
+  join code — re-keying would mint a phantom host session, the W9a shape), swept first, every 23505
+  re-read BY NUMBER. `/api/session` finds the table by number on the sticker, claim and home-card paths
+  (a late-bound table converges instead of 409ing its own host), a claim from a phone hosting a live
+  UNBOUND session binds it (J33's unbound half), a number-found reserved session meets the join refusal,
+  a failed number read is 503, the two sentences come from `BIND_COPY`. The register's Start a table and
+  the kiosk's claim read the one predicate; an inactive table is refused by name; the picker's occupancy
+  is by number and fails honest.
+- **SQL, as files (D22, D29).** `20261005120000_p3c2_table_number_uniq.sql` — close only expired dine-in
+  rows carrying a number, RAISE naming the numbers if two LIVE rows share one, then the partial unique
+  index `table_sessions_active_table_uniq`; `20261005120100_m258_undo_fire_lock_guard.sql` — M258 as the
+  void path's freshness idiom (a FRESH 5-minute lock · a FRESH 10-minute settle; the bare `locked = false`
+  rejected as sticky), body and grants restated, the one-statement residual STATED (M261). Both pinned by
+  SQL tests in CI's required list (run locally on a throwaway Postgres 16 before CI) and four
+  `verify-mode-authority.mjs` rows (suite `p3c2`). Nothing applied to prod — M260 is the owner's one-file
+  apply, M258's file first.
+- **The number is live on every surface (D30).** Checkout's `tableNumber` is state seeded from
+  `initialTableNumber`, written by `applyCartView` and the bind's CONFIRMED answer; the provider's context
+  reads `viewTable ?? session.tableNumber`; a later null view never un-names the table.
+- **The integration gate's two guards caught the slices' seam.** `check:freeze-parity` stopped for the
+  new lock-bearing mutation (registered after its guard was read); `check:child-freeze` found that a
+  tablemate's checkout could lock the cart while the table sheet was up, and a chip tap then reached the
+  server to be refused with the RACED sentence — the sheet now takes `editsFrozen` and refuses before the
+  write with `FROZEN_NOTE`, said after the close; the host owns the bind call (`onClaim`, the
+  `LineOptionsSheet` shape the guard can read). Red-first in both suites; mutant
+  `checkout-bind/frozen-chip-binds`.
+- **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
+  `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
+  `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when
+  a live holder is read, else `error` (retryable); the route maps a thrown `UNAVAILABLE()` to the
+  existing W10a 503 shape; the reserved-code block moved above the W5a member check; the kiosk also
+  sweeps before its pre-read; `bindRefusalCopy` takes `reasonCopy` as a parameter (`useUndoGrace` pulls
+  `@/lib/cart`'s `server-only` into every importer's suite); the Sheet's default opener restore is skipped
+  once `onCloseAutoFocus` exists, so the host lands focus on both edges.
+- **Proof:** every new test watched RED against the pre-change code, then green. Slice A 35 mutants ·
+  Slice B 19 · the integration fix 1 — fifty-five over seven new target files (`seated.ts` ·
+  `bind-table.ts` · `tables.ts` · `useTableSession.ts` · `app/api/session/route.ts` · `TableBindSheet.tsx`
+  · `TableGrid.tsx`): 3091 over 265 files, buckets measured (lib 179 · api 5 · components 78 · css 1 ·
+  staff page 1 · schemas 1); every family of every changed target run through `verify:slice --only=` on
+  the integrated head, one at a time, watched to the end; `bind-not-recorded` first SURVIVED on a
+  degenerate fixture (the post-send re-sync carried the number too) and the fixture was separated, never
+  the mutant dropped. Whole qr suite 6600 + 287 ui; tsc · eslint · `format:check` · `check:migration-
+versions` (105 migrations) · the fifteen-step fast lane · `check:mutant-anchors` clean. Filed: M260 ·
+  M261 · M262 · J38 · J39 · K41; J22 closed; J33's unbound half closed, bound half re-filed; M258 amended
+  (filed as a migration, the in-grace half retired, its retired-mutant citation corrected).
+
 ### Phase 3c-i — the bill is a receipt you can read (2026-10-04)
 
 **The owner's ask:** "continue good work" after 3b. The dine-in `/cart` audit (`docs/PHASE3_JOURNEYS.md`,

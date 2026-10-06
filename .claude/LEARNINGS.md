@@ -3576,3 +3576,22 @@ assertion saw `<body>` — a test red on a product behaviour that was correct. A
 produces (focus, an announcement, a scroll) is asserted inside its own `waitFor`; a wait on the DOM
 proves only the commit. The repo's "a failing test is never a flake" stands: the race was the test's
 own, and the fix is the test's — the product landing stayed as it was.
+
+## #233
+
+**A child that fires a mutation through a wrapper the guard cannot read is unaudited, and the
+integration gate is where a two-slice build meets its own guards (3c-ii, 2026-10-05).** Two engineers
+built disjoint slices against a design; each ran its suites, mutants and the fast checks it knew. The
+LEAD's gate on the merged tree was the first run of `check:freeze-parity` (a deliberate speed bump for a
+new lock-bearing mutation) and `check:child-freeze`, which found a real T9 hole: a tablemate's checkout
+could lock the cart while the Send-time sheet was up, and a chip tap then reached the server to be
+refused with the raced sentence. The fix was behaviour (refuse before the write with `FROZEN_NOTE`, the
+host's `editsFrozen` threaded, said after the close) — and a SHAPE: the guard reads
+`const r = await mutation(…)` and `r.ok` in a condition, not `boundWrite(mutation(…))`, so the host owns
+the mutation call (`onClaim`) and the sheet owns the bounded await, the `LineOptionsSheet`/`onMakeNow`
+precedent. Rules: run the WHOLE fast lane on the merged tree before calling a build integrated (the
+slices cannot see each other's seams, and `check:docs` counts move with every test); when two slices both
+append to `verify-slice.mjs`, the merge conflict's common suffix is the last entry's `},` — check
+`node --check` and the anchor count before trusting the seam; and a live `verify:slice --only=` run in
+the main checkout leaves a TARGET dirty (`Checkout.tsx` sat mutated under this docs pass) — read
+`git status` before every commit and never `git add -A` while a run lives.

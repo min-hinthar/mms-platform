@@ -442,8 +442,14 @@ the plan state.
         readable during the grace and only Pay waits, Pay keeping its name and stating its one reason
         (peer > unsent > grace), the Total row as the door named once, the line's For here / To go
         behind a ⋯ sheet, the table grid as a SECTION of the DoorSheet offered only OFF the table.
-  - [ ] **3c-ii — the table bound at SEND time** (authority: `seatedSessionFor`, the CAS bind, the
-        register refusal; and the `mms_undo_fire` `locked` guard, M258 — a prod migration behind M125).
+  - [x] **3c-ii — the table bound at SEND time** (2026-10-05, `docs/PHASE3C_II_DESIGN.md`, D21–D30):
+        browse first — the Dine-in door enters the menu and the table is asked ONCE, inside the first
+        Send, as a sheet whose chip binds the live session and then runs the same send; the NUMBER is an
+        identity beside the sticker token (`lib/seated.ts` — `seatedSessionFor`, the sweep by number, the
+        row-count CAS `bindTable`), the sticker scan, the `?table` claim, the home card, the register and
+        the kiosk all find a table by number; `/dine-in` redirects; two migration FILES (the partial unique
+        index on `table_sessions(table_number)` for live dine-in rows, and M258's lock guard in
+        `mms_undo_fire`) await the owner's one-file apply (M260 · M125).
   - [ ] **3d — staff, two PRs:** the kitchen's pass at two distances (Aa + bell as bar circles, the
         glance strip, "Late" in the badge); the counter's receipt stack, then the cash-sheet re-host.
   - [ ] **3e — to-go + account:** the Who/When slip (`payBlock`), contact messages named once, the

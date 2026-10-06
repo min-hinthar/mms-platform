@@ -1,10 +1,26 @@
 # Phase 3c-ii — the table bound at SEND (2026-10-05)
 
-> **DESIGN — not yet built.** Contract for the two 3c-ii worktree slices on the merged 3c-i head
-> (`686facd`). Continues `docs/PHASE3C_DESIGN.md` (D13–D20): D21–D30 below. Both migrations land as
-> FILES; the owner applies each one-file via the Supabase MCP (`apply_migration`, M125 context in
-> CLAUDE.md) — **the session never applies DDL to prod.** Owner questions are numbered under
-> _Dependencies · risks_ with the default each takes.
+> **BUILT (2026-10-05)** — two worktree slices squashed onto the branch (`d8a0c0c` authority ·
+> `fe5d0e2` bind-ux) plus the integration gate's fix (`b9c0274`); the CHANGELOG entry "Phase 3c-ii" is the
+> as-built list. Continues `docs/PHASE3C_DESIGN.md` (D13–D20): D21–D30 below. Both migrations landed as
+> FILES with their SQL tests; the owner applies each one-file (M260; M258's file first) — **the session
+> never applies DDL to prod.** Owner questions are numbered under _Dependencies · risks_ with the default
+> each took. **BUILT deviations, each against source:** `bindVerdict` is a pure export of `lib/seated.ts`
+> (a `"use server"` module exports only async functions — D24's placement); `liveDineIn(db, nowIso)` +
+> `liveDineInAt(db, n, nowIso)` replace D23's builder-typed `liveDineInAt(q, …)` (postgrest-js's generic
+> `eq` cannot be typed without `any`; the `counterQueueBase` idiom), and `seatedSessionFor` adds
+> `.limit(1)` so two anomalous live rows before the index is applied never turn into a `maybeSingle`
+> error; the bind's 23505 answers `seated` only when the re-read finds a live holder, else `error`
+> (retryable); the route maps a thrown `UNAVAILABLE()` to the existing W10a 503 shape; the reserved-code
+> block moved ABOVE the W5a member check so a number-found `kiosk-` row meets the join refusal on the
+> claim path too; the kiosk also sweeps the dead row off N before its pre-read; `bindRefusalCopy(result,
+reasonCopy)` takes the send's copy as a PARAMETER (`useUndoGrace` imports `@/lib/cart`, whose
+> `server-only` would poison every `table-pick` importer's suite); D28's "the primitive's default restore
+> to Send on dismissal" does not hold — `sheet.tsx` skips the W9e restore once `onCloseAutoFocus` exists —
+> so the host lands focus on BOTH edges through the button's handle; the integration gate added T9's
+> freeze gate to the sheet (`frozen` + `onFrozen`, `FROZEN_NOTE` before the write) and moved the bind
+> call to the host as `onClaim` (the `LineOptionsSheet` shape `check:child-freeze` can read); the
+> migration stamps are `20261005…`, not the doc's `20261006…`. The tap walk's 9 stayed 9, as scored.
 
 **The brief.** Row 3c of `docs/PHASE3_JOURNEYS.md` (J22 · J33 · M258). Today a dine-in diner is asked
 "Which table are you at?" BEFORE the menu (`/dine-in` → `TablePicker.tsx:42`) and a seated table demands
