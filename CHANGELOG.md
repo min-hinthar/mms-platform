@@ -53,7 +53,8 @@ caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own wor
   receipt's `buildReceiptRows`, and the Total row IS `settleTotalCents`: Subtotal · Discount · Tax · Total,
   "—" on every row while anything is pending, no stack before a read prices the order. Zero new strings
   ("Tax" — K40); 12 mutants; `StaffTicket.tsx` joins the mutate set. Filed K44 (the table page's same two
-  bases), J47, J48; K39 narrowed to the cash-sheet re-host.
+  bases), J47, J48; K39 narrowed to the cash-sheet re-host. Measured at 375 and 1366 in headless Chromium, EN and MY, light and
+  Night: four one-line rows, the dock's figure equal to the Total.
 - **J39 · J32 · J29.** The Menu tab off the threshold is `menuHref(mode)` everywhere (the no-cart arm to the
   retired `/dine-in` dropped — a tab names no session and claims no door). "Pick your table" is spaced by the
   stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's
