@@ -56,14 +56,16 @@ what runs:
   refuses a `.test.ts` declaring `@vitest-environment jsdom`. Local vitest honours that docblock, so
   the suite passed here and CI rejected it: `build` went red on a "twelve-step lane run in full".
   A count read off a pattern that cannot match every shape is not a measurement. The same grep also
-  surfaces SEVEN lines that are NOT fast lane (measured 2026-10-02, 22 matches = 15 fast lane + 7).
+  surfaces NINE lines that are NOT fast lane (measured 2026-10-06, 24 matches = 15 fast lane + 9).
   `node scripts/check-build-stamp.mjs` (ci.yml:184, Phase 2i) runs in the `build` job AFTER
   `pnpm turbo run lint typecheck build test`, because it reads the BUILD OUTPUT — the stamp in
   `/api/version`'s prerendered body and in a client chunk — so it can only follow the build; run it
-  locally right after `pnpm turbo … build`. The other six (`verify-merge-race.mjs --mutants`,
-  `verify-mode-authority.mjs`, `verify-line-guard-race.mjs` and `verify-counter-fire-race.mjs`, each
-  plain and `--mutants`) sit in the separate `supabase` job behind `supabase start` and need Docker,
-  which the agent environment does not have, so they are CI-only and cannot be run before a push.
+  locally right after `pnpm turbo … build`. The other eight (`verify-merge-race.mjs --mutants`,
+  `verify-mode-authority.mjs`, and `verify-line-guard-race.mjs`, `verify-counter-fire-race.mjs` and
+  #315's `verify-bind-race.mjs`, each plain and `--mutants`) sit in the separate `supabase` job behind
+  `supabase start`, which needs Docker the agent environment does not have — but they are NOT CI-only:
+  every one runs before a push against the throwaway Supabase-shaped Postgres 16 listening on
+  `127.0.0.1:54322`, the races with their own `*_ASSUME_DISPOSABLE=1` (LEARNINGS #95 · #243).
   A blind audit could not tell whether `check:staff-lang` was wired, because this enumeration stops
   at #240's six while `ci.yml` also runs `check:pay-attempt`, `check:freeze-parity`,
   `check:staff-lang`, `check:child-freeze`, `check:echo-coalesce`, `check:mutant-anchors` (which answers in

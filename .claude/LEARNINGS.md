@@ -3706,3 +3706,20 @@ COMPATIBLE with key share, so a join could land on the shell mid-adopt. Only the
 `SELECT … FOR UPDATE` on the shell's session orders them — measured: with that lock deleted (mutant M4)
 race order (f) did not wait. When a guard depends on blocking a child insert, take the lock that
 conflicts with the child's FK lock, and prove it with a two-session order, never by reading the docs.
+
+## #243
+
+**The CI-only harnesses are not CI-only (#315).** Every `supabase`-job script — `verify-mode-authority`,
+`verify-merge-race`, `verify-line-guard-race`, `verify-counter-fire-race`, `verify-bind-race`, plain and
+`--mutants` — runs against LEARNINGS #95's throwaway Postgres 16 when it LISTENS where the scripts'
+default DSN points, with each script's own documented `*_ASSUME_DISPOSABLE=1` (`M102_` · `LINE_RACE_` ·
+`COUNTER_RACE_` · `BIND_RACE_`), which skips ONLY the `supabase status` port check (the in-DB guards —
+loopback, TLS off, private address — stay on); the battery needs no override: `pg_ctl -o '-p 54322 -k /var/tmp -c listen_addresses=127.0.0.1'` under
+`initdb --auth=trust` (the password in the DSN is then ignored), all migrations applied in order, then
+`supabase/seed.sql`. A test file that `\i`s a migration by relative path needs the tests and migrations
+copied side by side where the postgres user can read them. Measured on #315's integrated head (2026-10-06): the battery 194/194 accounted;
+merge-race 14/14; line-guard 9 green + 6/6; counter-fire green + 14/14; bind-race 11 orders + 6/6. So a
+migration PR need not push to learn whether its battery passes. Two harness traps from the same build: a two-session harness that collects
+a BLOCKED session before releasing its peer deadlocks itself under a mutex mutant (and psql's close then
+waits forever — terminate the backend after a bound); and a decision-order mutant must move the WHOLE
+step, or it fails every case the step guards and reads as "wrong case", not "killed".
