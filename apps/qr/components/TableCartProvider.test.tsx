@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
 import {
@@ -1363,5 +1363,84 @@ describe("Phase 3c-ii · D30 — the table number is read from the latest confir
     mount();
     await drainDeferredAnnounces();
     expect(ctl.tableNumber).toBe(4);
+  });
+});
+
+/**
+ * Codex round 4 on #314 (P2) — the cart ref must advance IN THE COMMIT. React flushes a commit's
+ * passive effects in a LATER scheduler task whenever the commit overran the frame budget (5 ms), so a
+ * promise continuation queued during the commit runs BETWEEN the two. A `useEffect` ref is still the
+ * old cart in that window and an old cart's read lands on the new cart's state; a `useLayoutEffect`
+ * ref has already moved. The harness forces exactly that window: the re-mint is committed OUTSIDE
+ * `act` (so React schedules the effects itself), a child's layout effect resolves the old read during
+ * the commit and burns past the frame budget, and the new cart's first view never lands, so nothing
+ * repairs a stale acceptance.
+ */
+describe("TableCartProvider — the cart ref moves in the commit, not after it (Codex round 4 on #314)", () => {
+  it("an old cart's read that resolves between a re-mint's commit and its passive effects is still refused", async () => {
+    type V = ReturnType<typeof view>;
+    let oldResolve!: (v: V) => void;
+    const old = new Promise<V>((r) => {
+      oldResolve = r;
+    });
+    const fresh = new Promise<V>(() => {}); // cart-2's first view never lands
+    h.getCartView.mockResolvedValue(view({ tableNumber: null, items: [] }));
+    let bump!: (n: number) => void;
+    let fired = false;
+    function Yielding() {
+      // The commit's layout phase: resolve the old read NOW (its continuation is a microtask, which
+      // cannot run until this task's stack unwinds) and overrun the frame budget so the scheduler
+      // yields before the passive-effects task — the microtask then runs between the two.
+      useLayoutEffect(() => {
+        if (h.session.current?.cartId === "cart-2" && !fired) {
+          fired = true;
+          oldResolve(view({ tableNumber: 7, items: [line(1)] }));
+          const t0 = performance.now();
+          while (performance.now() - t0 < 12) {
+            // burn past the 5 ms frame
+          }
+        }
+      });
+      return null;
+    }
+    function Outer() {
+      const [, setTick] = useState(0);
+      useEffect(() => {
+        bump = setTick; // handed out from an effect, as `Probe` hands out `ctl`
+      }, []);
+      return (
+        <TableCartProvider mode="scango">
+          <Probe />
+          <Yielding />
+        </TableCartProvider>
+      );
+    }
+    render(<Outer />);
+    await drainDeferredAnnounces();
+    expect(ctl.items).toEqual([]);
+    // cart-1's public re-read goes out and hangs.
+    h.getCartView.mockImplementation((id: string) => (id === "cart-2" ? fresh : old));
+    let pendingRefresh!: Promise<unknown>;
+    await act(async () => {
+      pendingRefresh = ctl.refresh();
+    });
+    // The re-mint, committed outside act.
+    h.session.current = { ...h.session.current!, cartId: "cart-2", tableNumber: null };
+    const g = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    const prev = g.IS_REACT_ACT_ENVIRONMENT;
+    g.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      bump(1);
+      // Let the scheduler run its tasks: the commit, the yield, the stale continuation, the effects.
+      for (let i = 0; i < 6; i += 1) await new Promise((r) => setTimeout(r, 20));
+      await pendingRefresh;
+    } finally {
+      g.IS_REACT_ACT_ENVIRONMENT = prev;
+    }
+    await drainDeferredAnnounces();
+    expect(fired).toBe(true);
+    // MUTANT provider/cart-ref-advances-late: the ref moves in a passive effect — the old cart's rows
+    // land on the new cart's state in the window between the commit and its effects; red.
+    expect(ctl.items).toEqual([]);
   });
 });

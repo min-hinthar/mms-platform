@@ -124,6 +124,20 @@ the lead squashed and integrated.
   statements, M261's class one layer up — is filed as M263 with the fix: a `for update` on the cart with
   the freshness re-checked in-statement is an RPC, i.e. a migration PR of its own, not a round-3 commit.
   Three mutants (3128 over 265 files).
+- **Codex round 4 on #314 (`9045d3c`): one P1 and one P2 fixed red-first, one P2 filed.** The mint's two
+  `qr_tables` reads discarded their error: the sticker arm then read a registered sticker as a legacy
+  code, went token-only — blind to a late-bound generated-code party at that table — and minted a
+  SECOND, numberless session on the sticker (the stranded shape at its origin, LEARNINGS #234), and
+  the claim arm answered "pick another" for a read that did not happen; both now answer the W10a 503,
+  as the register and the kiosk already did. The provider's `cartIdRef` advanced in a passive effect:
+  React flushes a commit's passive effects in a later scheduler task when the commit overran the 5 ms
+  frame, so an old cart's read resolving in that window was accepted onto the new cart's rows — the
+  ref now moves in `useLayoutEffect`, proved by a harness that commits the re-mint outside `act` and
+  resolves the old read from a layout effect that burns past the frame (red first: the stale line
+  landed; LEARNINGS #236). Filed: J41 — a stranded sticker session bound at Send to a table other
+  than its sticker's is unreachable by its sticker code (the `IS NULL` token read excludes it); an
+  owner decision between a bind refusal, a wider token read and a membership-keyed persisted key.
+  Three mutants (3131 over 265 files).
 - **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
   `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
   `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when

@@ -295,7 +295,11 @@ await boundWrite(bindTable(cartId, n))` (`bounded-write.ts:68`; `busy` cleared i
   occupancy made the host's own numberless table read Seated with no way to bind it; the ask reveals on
   `seated`, the open ask collapses with no write, and under a freeze a Seated chip reveals the ask
   directly. Mutants `table-grid/seated-chip-skips-the-bind` · `open-ask-rebinds` ·
-  `checkout-bind/frozen-seated-chip-refused`.
+  `checkout-bind/frozen-seated-chip-refused`. **Codex round 4 (2026-10-06):** the mint's two
+  registry reads fail closed (the W10a 503 on both arms — the stranded shape's origin), `cartIdRef`
+  moves in `useLayoutEffect` (the passive-effect window), J41 filed. Mutants
+  `session-route/sticker-registry-outage-reads-as-legacy` · `claim-registry-outage-is-a-verdict` ·
+  `provider/cart-ref-advances-late`.
 
 **The tap walk (first-timer, no sticker, two one-tap dishes — `MenuBrowser.tsx:914-930` — card pay).**
 _Before (`PHASE3_JOURNEYS.md:19`):_ (1) Home → Dine-in (`doors.ts:35` → `/dine-in`); (2) "Which table are

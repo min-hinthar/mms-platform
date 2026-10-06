@@ -113,24 +113,32 @@ export async function POST(req: NextRequest) {
   const priorCode = claim ? qrCode : undefined;
   let resolvedQr = claim ? undefined : qrCode;
   let sessionTable: number | null = null;
+  // A FAILED registry read is an outage (W10a — unknowable ≠ "no row"), on BOTH arms (Codex round 4
+  // on #314, P1): discarded, the sticker arm read a registered sticker as a legacy code, went
+  // token-only — which cannot see a late-bound generated-code party at that table — and minted a
+  // SECOND, numberless session on the sticker: the stranded shape `seatedSessionFor`'s token read
+  // exists for, at its origin (LEARNINGS #234); and the claim arm answered "pick another", a verdict,
+  // for a read that did not happen. The register and the kiosk already fail closed on this read.
   if (mode === "dinein") {
     if (claim) {
-      const { data: tbl } = await db
+      const { data: tbl, error: regErr } = await db
         .from("qr_tables")
         .select("qr_code")
         .eq("table_number", tableNumber)
         .eq("active", true)
         .maybeSingle();
+      if (regErr) return unavailable();
       if (!tbl) return NextResponse.json({ error: BIND_COPY.unavailable }, { status: 400 });
       resolvedQr = tbl.qr_code;
       sessionTable = tableNumber;
     } else if (resolvedQr) {
-      const { data: tbl } = await db
+      const { data: tbl, error: regErr } = await db
         .from("qr_tables")
         .select("table_number")
         .eq("qr_code", resolvedQr)
         .eq("active", true)
         .maybeSingle();
+      if (regErr) return unavailable();
       sessionTable = tbl?.table_number ?? null;
     }
   }

@@ -25599,6 +25599,24 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "session-route/sticker-registry-outage-reads-as-legacy",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "Codex round 4 on #314 (P1) — the sticker arm drops a FAILED registry read: the registered sticker reads as a legacy code, the find goes token-only (blind to a late-bound generated-code party at that table) and the mint stamps a SECOND, numberless session on the sticker — the stranded shape at its origin (LEARNINGS #234); the register and the kiosk fail closed on the same read",
+    find: '        .eq("qr_code", resolvedQr)\n        .eq("active", true)\n        .maybeSingle();\n      if (regErr) return unavailable();\n',
+    replace:
+      '        .eq("qr_code", resolvedQr)\n        .eq("active", true)\n        .maybeSingle();\n',
+  },
+  {
+    id: "session-route/claim-registry-outage-is-a-verdict",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "Codex round 4 on #314 (P1) — the claim arm drops a FAILED registry read and answers 'That table isn’t available — pick another' (400), a verdict about a table it could not read, where every other unknowable in this route is the W10a 503",
+    find: '        .eq("table_number", tableNumber)\n        .eq("active", true)\n        .maybeSingle();\n      if (regErr) return unavailable();\n',
+    replace:
+      '        .eq("table_number", tableNumber)\n        .eq("active", true)\n        .maybeSingle();\n',
+  },
+  {
     id: "use-table-session/claim-drops-the-persisted-code",
     file: "apps/qr/lib/useTableSession.ts",
     suite: "lib/useTableSession.test.tsx",
@@ -25731,6 +25749,14 @@ const MUTANTS = [
     why: "Codex r2 on #314 (P2) — a read for the OLD cart landing after a re-mint, with the new cart's first view still out: the ticket alone admits it, and the new cart wears the old table, rows and totals",
     find: "      if (forCart !== undefined && forCart !== cartIdRef.current) return false;\n",
     replace: "",
+  },
+  {
+    id: "provider/cart-ref-advances-late",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "Codex round 4 on #314 (P2) — the cart ref moves in a PASSIVE effect: React schedules those as a later task when the commit overran the frame, so an old cart's read resolving in the microtask checkpoint between the commit and its effects passes the per-cart check and lands on the new cart's rows, totals and freeze",
+    find: "  useLayoutEffect(() => {\n    cartIdRef.current = cartId;\n  }, [cartId]);\n",
+    replace: "  useEffect(() => {\n    cartIdRef.current = cartId;\n  }, [cartId]);\n",
   },
   {
     id: "send-button/success-restores-focus-to-a-detached-send",

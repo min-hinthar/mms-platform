@@ -5,6 +5,7 @@ import {
   useMemo,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -276,9 +277,13 @@ export function TableCartProvider({
   // new cart while this provider stays mounted, and an unkeyed number would label the new session,
   // its guest list and its invite code as the old table until a later bind.
   const [viewTable, setViewTable] = useState<{ cartId: string; n: number } | null>(null);
-  // The cart the next applied view belongs to — a ref, so `applyView` keeps its empty deps.
+  // The cart the next applied view belongs to — a ref, so `applyView` keeps its empty deps. Moved
+  // IN THE COMMIT (`useLayoutEffect`, Codex round 4 on #314, P2): React flushes a commit's passive
+  // effects in a LATER scheduler task whenever the commit overran the frame budget, so a `useEffect`
+  // ref was still the OLD cart for the microtask checkpoint in between — and an old cart's read
+  // resolving right there passed the per-cart check and landed on the new cart's rows (LEARNINGS #236).
   const cartIdRef = useRef<string | null>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     cartIdRef.current = cartId;
   }, [cartId]);
 

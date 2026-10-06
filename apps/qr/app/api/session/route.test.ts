@@ -69,6 +69,8 @@ let bindHook: (() => void) | null = null;
 let numberReadFails = false;
 /** The membership read fails (an outage). */
 let membersReadFails = false;
+/** The registry (`qr_tables`) read fails (an outage) — the sticker arm's and the claim arm's. */
+let registryReadFails = false;
 /** A `table_sessions` read keyed on THIS token fails (an outage) — the prior-code read, the zero-row re-read. */
 let tokenReadFailsFor: string | null = null;
 /** The session's open cart's freeze columns, as `qr_carts` answers them. */
@@ -165,6 +167,7 @@ vi.mock("@mms/db/server", () => ({
           };
         }
         if (table === "qr_tables") {
+          if (registryReadFails) return { data: null, error: { message: "fetch failed" } };
           return { data: registry.filter((r) => matches(r, q)), error: null };
         }
         if (table === "qr_carts") {
@@ -273,6 +276,7 @@ beforeEach(() => {
   bindHook = null;
   numberReadFails = false;
   membersReadFails = false;
+  registryReadFails = false;
   tokenReadFailsFor = null;
   cartFreeze = { locked: false, locked_at: null, settle_at: null };
   cartReadFails = false;
@@ -840,5 +844,53 @@ describe("/api/session — a PERSISTED code re-joins only a session this seat be
     const res = await POST(req({ qrCode: "STICKER7", mode: "dinein", persisted: true }));
     expect(res.status).toBe(500);
     expect(writes).toEqual([]);
+  });
+});
+
+describe("/api/session — a failed REGISTRY read is an outage, never a legacy sticker and never a verdict (Codex round 4 on #314, P1)", () => {
+  // The sticker arm discarded the `qr_tables` error: `sessionTable` stayed null, the find went
+  // token-only — which cannot see a late-bound generated-code party at that table — and the mint
+  // stamped a SECOND, numberless session on the sticker: the stranded shape, at its origin
+  // (LEARNINGS #234). The register and the kiosk already fail closed on the same read.
+  it("a sticker scan while the registry read fails is a 503 — no token-only find, no insert", async () => {
+    registryReadFails = true;
+    // A late-bound party at 7 under a GENERATED code (bound at Send): the token-only find cannot
+    // see it, so the fail-open path minted beside it.
+    sessions = [{ ...row("ABCD1234", "dinein", OTHER), table_number: 7 }];
+    const res = await POST(req({ qrCode: "STICKER7", mode: "dinein" }));
+    // MUTANT session-route/sticker-registry-outage-reads-as-legacy: the error is dropped and the
+    // sticker reads as a legacy code — a second, numberless session is minted on STICKER7 beside the
+    // party at 7; red (a 200 with an insert).
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { kind: string }).kind).toBe("unavailable");
+    expect(sessionInserts()).toHaveLength(0);
+    expect(
+      queries.some(
+        (q) =>
+          q.table === "table_sessions" &&
+          q.op === "select" &&
+          q.eq.some(([c, v]) => c === "qr_code" && v === "STICKER7"),
+      ),
+    ).toBe(false);
+  });
+
+  it("a `?table=7` claim while the registry read fails is the same 503 — not the 400 verdict 'pick another'", async () => {
+    registryReadFails = true;
+    const res = await POST(req({ tableNumber: 7, mode: "dinein" }));
+    // MUTANT session-route/claim-registry-outage-is-a-verdict: the error is dropped and the claim
+    // answers BIND_COPY.unavailable as if the table were unregistered — a sentence that is a verdict
+    // ("pick another") for a read that did not happen; red (a 400).
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { kind: string }).kind).toBe("unavailable");
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("a registered sticker with NO registry row (a legacy/host-mint code) still takes the token path — only a failed read is refused", async () => {
+    registry = [];
+    sessions = [row("ABCD1234", "dinein", OTHER)];
+    members = [{ session_id: "sess-ABCD1234", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "ABCD1234", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect(sessionInserts()).toHaveLength(0);
   });
 });

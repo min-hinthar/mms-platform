@@ -3629,3 +3629,18 @@ have landed it one call away and unreachable. `bindTable`'s pre-read CAN tell th
 the host can act on BOTH answers, send the tap to the server and branch on the answer — never pick the
 path by the chip's word. The cost is one bounded round trip before a stranger's join ask; the
 alternative was a dead end the client had no way to see.
+
+## #236
+
+**A ref written in `useEffect` is stale for one microtask checkpoint after a commit that overran the
+frame (React 19.2, measured 2026-10-06 — Codex round 4 on #314).** React schedules a commit's passive
+effects as a separate scheduler task; when the commit itself took longer than the 5 ms frame budget
+the scheduler yields between the two, the macrotask ends, and every promise continuation queued
+during the commit runs with the DOM committed and the ref still holding the previous render's value.
+`TableCartProvider`'s per-cart view guard compared against such a ref, so an old cart's read
+resolving in that window was accepted onto the new cart's rows. `useLayoutEffect` runs inside the
+commit, before any microtask, and closes it. The proof needs the window FORCED, not awaited: commit
+the update outside `act` (`IS_REACT_ACT_ENVIRONMENT = false` around it, so React schedules the
+effects itself), resolve the stale promise from a child's layout effect, and busy-wait past the frame
+budget right there; a `rerender` inside `act` flushes the effects before any microtask and can never
+show it — which is why round 2's per-cart test was green on both shapes.
