@@ -60,9 +60,12 @@ reverses under a STALE lock (the legitimate undo a bare `locked = false` would o
 fire two drafts → fresh lock → 0, both lines still fired with the batch; a 6-minute-old lock → 2; unlocked
 → 2; `settle_at = now()` → 0; an 11-minute-old settle → reverses; `anon` has no execute, `service_role`
 does; and the INNER edges — a 4-minute-old lock and a 9-minute-old settle both still refuse (M7 · M8:
-the outer edges alone let a body reading `interval '1 minute'` pass — the blind pass on 3c-ii).
-`staff_fire_undo_test.sql` cases 1–7 stay green on the new body. Rolls back. Every case is falsified
-by name in `scripts/verify-mode-authority.mjs` (suite `p3c2`, six rows — each window removed, the
-strict `locked = false` form, the settle window widened, and each window NARROWED to one minute);
+the outer edges alone let a body reading `interval '1 minute'` pass — the blind pass on 3c-ii); and
+`locked = true, locked_at = NULL` still reverses (M9: the bare `locked and locked_at > …` is NULL under
+three-valued logic, so the UPDATE skipped the row — Codex r1 on #314). `staff_fire_undo_test.sql`
+cases 1–7 stay green on the new body. Rolls back. Every case is falsified by name in
+`scripts/verify-mode-authority.mjs` (suite `p3c2`, seven rows — each window removed, the strict
+`locked = false` form, the settle window widened, each window NARROWED to one minute, and the
+null-stamp form restored);
 the one-statement residual (the UPDATE reads its snapshot and locks nothing) is STATED in the
 migration header — M261.

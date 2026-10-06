@@ -20,6 +20,10 @@
 --       pass on 3c-ii, money lens);
 --   M8. `settle_at = now() - 9 minutes` (INSIDE the 10-minute window) → undo = 0, the same edge for
 --       the split freeze.
+--   M9. `locked = true, locked_at = NULL` (the schema permits it; `authz.ts` reads it as NOT fresh)
+--       → undo = 2 — SQL's three-valued logic made `not (locked and locked_at > …)` NULL for this
+--       row, so the UPDATE skipped it and every undo on such a cart read "expired" (Codex r1 on
+--       #314, P2).
 --
 -- ⚠️ `now()` is the TRANSACTION start and this file is ONE transaction, so every fire's deadline is
 -- now()+10s and `fire_at > now()` stays true throughout: the only thing that varies between cases is
@@ -85,6 +89,13 @@ begin
   select count(*) into n from public.qr_cart_items
     where id in (l1, l2) and state = 'draft' and fire_batch is null and fire_at is null;
   assert n = 2, format('M258.2 · %s of the 2 lines are clean drafts again', n);
+
+  -- ══ M9. a lock with NO timestamp is not fresh — the undo reverses (three-valued logic) ════════
+  update public.qr_carts set locked = true, locked_at = null, locked_by = ana where id = cart;
+  select f.fired, f.batch into v_fired, v_batch from public.mms_fire_cart(cart) f;
+  assert v_fired = 2, format('fixture: the null-timestamp send fired %s lines, expected 2', v_fired);
+  n := public.mms_undo_fire(cart, v_batch);
+  assert n = 2, format('M258.9 · an undo under locked=true with a NULL locked_at reversed %s lines, expected 2 — `not (locked and null > …)` is NULL, so the UPDATE skipped the row and the undo read "expired"', n);
 
   -- ══ M3. unlocked: a fresh send undoes in full ═════════════════════════════════════════════════
   update public.qr_carts set locked = false, locked_at = null, locked_by = null where id = cart;

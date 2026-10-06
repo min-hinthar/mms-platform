@@ -46,7 +46,7 @@ begin
     where ci.cart_id = p_cart_id
       and c.id = ci.cart_id
       and c.status = 'open'
-      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses
+      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)
       and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses
       and s.mode = 'dinein'
       and ci.state = 'fired'

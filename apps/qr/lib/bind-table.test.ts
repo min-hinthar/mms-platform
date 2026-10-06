@@ -383,6 +383,17 @@ describe("bindTable — the occupancy PRE-READ, before any write (the blind pass
     expect(byToken?.is).toContainEqual(["table_number", null]);
   });
 
+  it("the OWN numberless row on the table's sticker (this session is the stranded shape) is NOT 'already' — the CAS runs and lands it (Codex r1 on #314, P1)", async () => {
+    tokenHolderRow = {
+      id: "sess-1",
+      qr_code: "STICKER5",
+      table_number: null,
+      host_seat: "seat-host",
+    };
+    expect(await bindTable(CART, 5)).toEqual({ ok: true, tableNumber: 5, already: false });
+    expect(log).toEqual(["authz", "sweep", "cas", `touch:${CART}:bindTable`]);
+  });
+
   it("the OWN row already at n (two tabs) → ok, already — nothing written, no touch", async () => {
     holderRows = [{ id: "sess-1", host_seat: "seat-host", table_number: 5 }];
     expect(await bindTable(CART, 5)).toEqual({ ok: true, tableNumber: 5, already: true });

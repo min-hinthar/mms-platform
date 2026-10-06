@@ -429,6 +429,20 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
     await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
   });
 
+  it("`already_bound` whose send answers BEFORE the sheet has closed: the region says the destination AND the send's line — the stash composes, it never overwrites (Codex r1 on #314, P2)", async () => {
+    h.bindTable.mockResolvedValue({ ok: false, reason: "already_bound", tableNumber: 3 });
+    h.sendToKitchen.mockResolvedValue(SENT); // answers inside the same tick as the close
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], tableNumber: 3 }));
+    mount();
+    await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
+    expect(regionText()).toContain(BIND_COPY.alreadyBound(3));
+  });
+
   it("a refusal followed by a SUCCESSFUL chip in one open: the stale refusal is never said — only the send's own line (the blind pass on 3c-ii, product truth)", async () => {
     h.bindTable
       .mockResolvedValueOnce({ ok: false, reason: "seated" })

@@ -9,7 +9,8 @@ import {
 } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
-import { AuthzError, isTransportFailure } from "@/lib/authz";
+import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "@/lib/lock-ttl";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
@@ -136,16 +137,20 @@ export async function POST(req: NextRequest) {
   // Find an active AND non-expired session for the code. The expiry filter MUST match assertCartMember
   // + the is_member RLS fn (both reject `expires_at <= now()`): without it the mint would hand back a
   // still-'active' but expired session that every later cart write then 403s on (the strand bug).
-  const findActive = async (code: string): Promise<Sess | null> =>
-    (
-      await db
-        .from("table_sessions")
-        .select(cols)
-        .eq("qr_code", code)
-        .eq("status", "active")
-        .gt("expires_at", new Date().toISOString())
-        .maybeSingle()
-    ).data ?? null;
+  // A failed read THROWS `UNAVAILABLE()` (W10a — unknowable ≠ "no session"): discarded, it read as
+  // "this phone has no prior session" and the claim arm minted a SECOND session over the drafts the
+  // bind exists to keep (Codex r1 on #314, P1). Every caller answers it as the 503 or stands down.
+  const findActive = async (code: string): Promise<Sess | null> => {
+    const { data, error } = await db
+      .from("table_sessions")
+      .select(cols)
+      .eq("qr_code", code)
+      .eq("status", "active")
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (error) throw UNAVAILABLE();
+    return data ?? null;
+  };
 
   // D25 — a registered table is found BY NUMBER (the one predicate, handed the sticker token so a
   // NUMBERLESS live row on that sticker is a party too — the blind pass on 3c-ii: the mint itself
@@ -284,27 +289,65 @@ export async function POST(req: NextRequest) {
   // touch a peer's Checkout kept asking for a table already bound).
   let boundNow = false;
   if (!sess && claim && sessionTable != null) {
-    const mine =
-      priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;
+    let mine: Sess | null;
+    try {
+      mine = priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;
+    } catch (e) {
+      if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+      throw e;
+    }
     if (claimDisposition({ seated: false, mine, seat }) === "bind" && mine) {
-      const { count, error } = await bindSessionTable(db, mine.id, sessionTable);
-      if (error?.code === "23505")
-        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
-      if (error)
-        return NextResponse.json(
-          { error: "Could not check the table — try again." },
-          { status: 500 },
-        );
-      if ((count ?? 0) > 0) {
-        sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
-        boundNow = true;
+      // THE LOCK MODEL, here too (Codex r1 on #314, P1 — the same invariant `bindTable` keeps): no
+      // cart-adjacent write while a peer's charge or a settlement is live, because the fulfill RPCs
+      // snapshot the number and the payer's receipt must not change under them. Read the session's
+      // open cart with authz's own freshness (`CART_LOCK_TTL_MS` · `SETTLE_TTL_MS`; a null stamp is
+      // not fresh, W17's rule): FRESH → the phone REJOINS its session unbound, no bind, no mint — the
+      // next Send asks the table where `bindTable` answers `locked`/`settling` by name. An
+      // unknowable freeze is an outage, never "free".
+      const { data: cart, error: cartErr } = await db
+        .from("qr_carts")
+        .select("locked,locked_at,settle_at")
+        .eq("session_id", mine.id)
+        .eq("status", "open")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cartErr) return unavailable();
+      const now = Date.now();
+      const lockedFresh =
+        !!cart?.locked &&
+        cart.locked_at != null &&
+        new Date(cart.locked_at).getTime() > now - CART_LOCK_TTL_MS;
+      const settlingFresh =
+        cart?.settle_at != null && new Date(cart.settle_at).getTime() > now - SETTLE_TTL_MS;
+      if (lockedFresh || settlingFresh) {
+        sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send
       } else {
-        // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
-        // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or died.
-        // Re-read it: a live row is this phone's own party, rejoined at whatever number it holds —
-        // never a second session minted over its drafts. Dead → the mint below.
-        const live = await findActive(mine.qr_code);
-        if (live) sess = live;
+        const { count, error } = await bindSessionTable(db, mine.id, sessionTable);
+        if (error?.code === "23505")
+          return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+        if (error)
+          return NextResponse.json(
+            { error: "Could not check the table — try again." },
+            { status: 500 },
+          );
+        if ((count ?? 0) > 0) {
+          sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
+          boundNow = true;
+        } else {
+          // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
+          // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or
+          // died. Re-read it: a live row is this phone's own party, rejoined at whatever number it
+          // holds — never a second session minted over its drafts. Dead → the mint below.
+          let live: Sess | null;
+          try {
+            live = await findActive(mine.qr_code);
+          } catch (e) {
+            if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+            throw e;
+          }
+          if (live) sess = live;
+        }
       }
     }
   }
@@ -360,7 +403,12 @@ export async function POST(req: NextRequest) {
         throw e;
       }
       if (resolvedQr) {
-        sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session
+        try {
+          sess = await findActive(resolvedQr); // concurrent first-joiner won → converge on their session
+        } catch (e) {
+          if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+          throw e;
+        }
         break;
       }
       continue; // our generated code collided with a live session → try a fresh one
@@ -394,8 +442,9 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (claimed) sess = { ...sess, host_seat: claimed.host_seat };
     else {
-      // Lost the claim race — re-read so the role below reflects the real host.
-      const winner = await findActive(sess.qr_code);
+      // Lost the claim race — re-read so the role below reflects the real host. A failed re-read
+      // keeps the row we hold (the role may read guest for one response; the next join corrects it).
+      const winner = await findActive(sess.qr_code).catch(() => null);
       if (winner) sess = winner;
     }
   }

@@ -69,6 +69,16 @@ let bindHook: (() => void) | null = null;
 let numberReadFails = false;
 /** The membership read fails (an outage). */
 let membersReadFails = false;
+/** A `table_sessions` read keyed on THIS token fails (an outage) — the prior-code read, the zero-row re-read. */
+let tokenReadFailsFor: string | null = null;
+/** The session's open cart's freeze columns, as `qr_carts` answers them. */
+let cartFreeze: { locked: boolean; locked_at: string | null; settle_at: string | null } = {
+  locked: false,
+  locked_at: null,
+  settle_at: null,
+};
+/** The `qr_carts` read fails (an outage). */
+let cartReadFails = false;
 
 vi.mock("@/lib/rate", () => ({ withinJoinRate: () => Promise.resolve(true) }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
@@ -137,6 +147,11 @@ vi.mock("@mms/db/server", () => ({
         if (table === "table_sessions") {
           if (numberReadFails && q.eq.some(([c]) => c === "table_number"))
             return { data: null, error: { message: "fetch failed" } };
+          if (
+            tokenReadFailsFor &&
+            q.eq.some(([c, v]) => c === "qr_code" && v === tokenReadFailsFor)
+          )
+            return { data: null, error: { message: "fetch failed" } };
           const hit = sessions.filter((r) => matches(r, q)).map((r) => pick(r, q.cols));
           return { data: hit, error: null };
         }
@@ -152,7 +167,10 @@ vi.mock("@mms/db/server", () => ({
         if (table === "qr_tables") {
           return { data: registry.filter((r) => matches(r, q)), error: null };
         }
-        if (table === "qr_carts") return { data: [{ id: "cart-1" }], error: null };
+        if (table === "qr_carts") {
+          if (cartReadFails) return { data: null, error: { message: "fetch failed" } };
+          return { data: [{ id: "cart-1", ...cartFreeze }], error: null };
+        }
         return { data: [], error: null, count: 0 };
       };
       const one = () => {
@@ -255,6 +273,9 @@ beforeEach(() => {
   bindHook = null;
   numberReadFails = false;
   membersReadFails = false;
+  tokenReadFailsFor = null;
+  cartFreeze = { locked: false, locked_at: null, settle_at: null };
+  cartReadFails = false;
   nextId = 0;
 });
 
@@ -566,6 +587,62 @@ describe("/api/session — a claim from a phone with a live UNBOUND hosted sessi
     const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: string }).error).toBe(BIND_COPY.seated);
+    expect(sessionInserts()).toHaveLength(0);
+  });
+
+  it("a FAILED prior-code read is 503 'we're down', never a second session minted over the drafts (Codex r1 on #314, P1)", async () => {
+    sessions = [mine()];
+    tokenReadFailsFor = "MYCODE12";
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(503);
+    // The dead-row sweep by number (dead rows only) may have run; nothing is minted or bound.
+    expect(bindUpdates()).toHaveLength(0);
+    expect(sessionInserts()).toHaveLength(0);
+    expect(writes.filter((w) => w !== "table_sessions:update")).toEqual([]);
+  });
+
+  it("a FRESH pay lock or split freeze on the session's open cart holds the claim-arm bind: the phone REJOINS its session unbound (the next Send asks, under bindTable's lock model) — no bind, no mint (Codex r1 on #314, P1)", async () => {
+    for (const freeze of [
+      { locked: true, locked_at: new Date().toISOString(), settle_at: null },
+      { locked: false, locked_at: null, settle_at: new Date().toISOString() },
+    ]) {
+      sessions = [mine()];
+      members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+      writes = [];
+      queries = [];
+      cartFreeze = freeze;
+      const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+      expect(res.status).toBe(200);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        sessionId: "sess-MYCODE12",
+        tableNumber: null,
+        created: false,
+      });
+      expect(bindUpdates()).toHaveLength(0);
+      expect(sessionInserts()).toHaveLength(0);
+    }
+  });
+
+  it("a STALE lock (past CART_LOCK_TTL_MS) and a STALE settlement let the claim-arm bind land — W17: never over-block", async () => {
+    sessions = [mine()];
+    members = [{ session_id: "sess-MYCODE12", seat_id: SEAT }];
+    cartFreeze = {
+      locked: true,
+      locked_at: new Date(Date.now() - 6 * 60_000).toISOString(),
+      settle_at: new Date(Date.now() - 11 * 60_000).toISOString(),
+    };
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Record<string, unknown>).toMatchObject({ tableNumber: 7 });
+    expect(bindUpdates()).toHaveLength(1);
+  });
+
+  it("a FAILED cart read before the claim-arm bind is 503 — the freeze is unknowable, never 'free'", async () => {
+    sessions = [mine()];
+    cartReadFails = true;
+    const res = await POST(req({ qrCode: "MYCODE12", tableNumber: 7, mode: "dinein" }));
+    expect(res.status).toBe(503);
+    expect(bindUpdates()).toHaveLength(0);
     expect(sessionInserts()).toHaveLength(0);
   });
 

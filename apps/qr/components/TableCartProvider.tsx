@@ -271,8 +271,16 @@ export function TableCartProvider({
   // table bound at Send (`bindTable` → `touchCart`) reaches every phone through its `qr_carts`
   // watch, and the view names it; the context reads this over the mint's own number so the
   // eyebrow, the guest list and the invite sheet flip without a remount. Written only from a view
-  // that CARRIES a number — a thin read must never un-name a live table.
-  const [viewTable, setViewTable] = useState<number | null>(null);
+  // that CARRIES a number — a thin read must never un-name a live table — and KEYED BY THE CART it
+  // named (Codex r1 on #314, P2): a recovery `revalidate()` mints a fresh unbound session with a
+  // new cart while this provider stays mounted, and an unkeyed number would label the new session,
+  // its guest list and its invite code as the old table until a later bind.
+  const [viewTable, setViewTable] = useState<{ cartId: string; n: number } | null>(null);
+  // The cart the next applied view belongs to — a ref, so `applyView` keeps its empty deps.
+  const cartIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    cartIdRef.current = cartId;
+  }, [cartId]);
 
   // The diner's own display name (presence). Default "Guest"; hydrate from localStorage AFTER mount
   // (not in the initializer) so SSR and first client render agree — no hydration mismatch. The read
@@ -425,7 +433,8 @@ export function TableCartProvider({
       setSettling(v.settling);
       // 3c-ii (D30) — the table number rides every applied view (the realtime echo included), and
       // a null one never un-names a table a view already named.
-      if (v.tableNumber != null) setViewTable(v.tableNumber);
+      if (v.tableNumber != null && cartIdRef.current != null)
+        setViewTable({ cartId: cartIdRef.current, n: v.tableNumber });
       // T14 — the same three facts in a REF, because the write paths must read the CURRENT freeze
       // without taking it as a dependency: putting `locked` in `add`/`setItemQty`'s dep arrays would
       // re-create both callbacks on every lock flip and churn every consumer that memoizes on them.
@@ -1612,7 +1621,10 @@ export function TableCartProvider({
       role: session?.role ?? null,
       joinCode: session?.joinCode ?? null,
       // 3c-ii (D30) — the latest confirmed view's number first, the mint's own while none has.
-      tableNumber: viewTable ?? session?.tableNumber ?? null,
+      tableNumber:
+        (viewTable && viewTable.cartId === cartId ? viewTable.n : null) ??
+        session?.tableNumber ??
+        null,
       setName,
       locked,
       lockedByName,

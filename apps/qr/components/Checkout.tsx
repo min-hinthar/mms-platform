@@ -929,10 +929,14 @@ export function Checkout({
   const [bindNote, setBindNote] = useState<string | null>(null);
   // True from the ask until the sheet has unmounted (`onBindClosed`) — the stash's gate.
   const sheetUp = useRef(false);
-  const stashed = useRef<{ text: string; my?: string } | null>(null);
+  // Every sentence that lands while the sheet is up, IN ORDER — said as ONE announcement at the
+  // close edge (Codex r1 on #314, P2: a one-slot stash let the send's own line overwrite the
+  // `already_bound` destination when the send answered inside the sheet's exit, so a host who
+  // tapped 5 heard "Sent" and never "Table 3").
+  const stashed = useRef<{ text: string; my?: string }[]>([]);
   const sendHandle = useRef<SendHandle | null>(null);
   const sayOrStash = (text: string, my?: string) => {
-    if (sheetUp.current) stashed.current = { text, my };
+    if (sheetUp.current) stashed.current.push({ text, my });
     else sayOutcome(text, my);
   };
   // The Send's one question (lib/table-pick): dine-in · unbound · a registry with answers — and not
@@ -949,7 +953,7 @@ export function Checkout({
       // sheet closes, and the SAME send runs with the question answered. An earlier refusal's
       // sentence (a chip that answered `seated`, then an open one) is dropped — it would be said
       // through the region at the moment the order fires (the blind pass on 3c-ii).
-      stashed.current = null;
+      stashed.current = [];
       setBindNote(null);
       setTableNumber(r.tableNumber);
       setBindOpen(false);
@@ -957,7 +961,7 @@ export function Checkout({
       return;
     }
     const sentence = bindRefusalCopy(r, reasonCopy);
-    stashed.current = { text: sentence };
+    stashed.current = [{ text: sentence }];
     if (r.reason === "already_bound") {
       // Another tab (or a tablemate's claim) bound this session meanwhile: the re-read's number is
       // a confirmed answer too, so the SAME send runs — "this order goes there" is then true the
@@ -971,7 +975,7 @@ export function Checkout({
     setBindNote(sentence); // seated · unavailable · locked · … — the sheet stays open to pick again
   };
   const onSendAnyway = () => {
-    stashed.current = null; // an earlier refusal is not the send's sentence (as on the ok edge)
+    stashed.current = []; // an earlier refusal is not the send's sentence (as on the ok edge)
     setBindNote(null);
     setSentAnyway(true);
     setBindOpen(false);
@@ -980,14 +984,17 @@ export function Checkout({
   // T9 — a chip tapped under a freeze that landed while the sheet was up: seen in the sheet, said
   // through the region once it has closed (the same stash every in-sheet sentence rides).
   const onBindFrozen = (frozenNote: string) => {
-    stashed.current = { text: frozenNote };
+    stashed.current = [{ text: frozenNote }];
     setBindNote(frozenNote);
   };
   const onBindClosed = () => {
     sheetUp.current = false;
-    const s = stashed.current;
-    stashed.current = null;
-    if (s) sayOutcome(s.text, s.my);
+    const said = stashed.current;
+    stashed.current = [];
+    // One announcement: the sentences joined in the order they landed (a destination, then the
+    // send's line), the owner's Burmese half from the last one that carried it.
+    if (said.length)
+      sayOutcome(said.map((s) => s.text).join(" "), [...said].reverse().find((s) => s.my)?.my);
     // The landing after the modal: the Undo once a send opened the window, else the Send.
     sendHandle.current?.focus();
   };

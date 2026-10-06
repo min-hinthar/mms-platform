@@ -1657,7 +1657,7 @@ const MUTANTS = [
     suite: "p3c2",
     expect: "M258.1 ·",
     why: "the hole D20 filed — without the lock leg, host A's undo flips the batch back after guest B's create-intent locked and read zero drafts, and B's charge mints over dishes the gate would have refused",
-    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    find: "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
     replace: "",
   },
   {
@@ -1667,7 +1667,7 @@ const MUTANTS = [
     suite: "p3c2",
     expect: "M258.2 ·",
     why: "the strict form the row proposed — `locked` is sticky (acquireCartLock takes a stale lock over; authz ignores one past its TTL), so a bare locked=false refuses every undo after an abandoned pay tab and the action says 'already with the kitchen' over lines the kitchen never saw",
-    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    find: "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
     replace: "      and c.locked = false\n",
   },
   {
@@ -1692,15 +1692,26 @@ const MUTANTS = [
       "      and (c.settle_at is null or c.settle_at <= now() - interval '60 minutes')   -- M258: a FRESH split freeze refuses\n",
   },
   {
+    id: "undo/null-lock-timestamp-refuses",
+    fn: "mms_undo_fire",
+    src: "p3c2",
+    suite: "p3c2",
+    expect: "M258.9 ·",
+    why: "Codex r1 on #314 (P2) — the bare `locked and locked_at > …` is NULL for `locked = true, locked_at = NULL` (the schema permits it; authz.ts reads it as not fresh), so the UPDATE skips the row and every undo on such a cart reads 'expired'",
+    find: "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
+    replace:
+      "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
+  },
+  {
     id: "undo/lock-window-narrowed",
     fn: "mms_undo_fire",
     src: "p3c2",
     suite: "p3c2",
     expect: "M258.7 ·",
     why: "the blind pass on 3c-ii (money lens) — the outer edges alone (0 and 6 minutes) let a body reading `interval '1 minute'` pass: the hole D20 filed reopens for any lock older than a minute, inside the 5-minute pay window a create-intent still holds",
-    find: "      and not (c.locked and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses\n",
+    find: "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
     replace:
-      "      and not (c.locked and c.locked_at > now() - interval '1 minute')   -- M258: a FRESH pay lock refuses\n",
+      "      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '1 minute')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)\n",
   },
   {
     id: "undo/settle-window-narrowed",

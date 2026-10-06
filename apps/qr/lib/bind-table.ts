@@ -108,10 +108,12 @@ export async function bindTable(cartId: string, tableNumber: number): Promise<Bi
   } catch {
     return { ok: false, reason: "error" };
   }
-  if (holder)
-    return holder.id === sessionId
-      ? { ok: true, tableNumber: n, already: true } // two tabs of one phone: the other landed it
-      : { ok: false, reason: "seated" };
+  if (holder && holder.id !== sessionId) return { ok: false, reason: "seated" };
+  // The OWN row: already AT n (two tabs of one phone — the other landed it) is `already`; the own
+  // NUMBERLESS row on this table's sticker — the stranded shape the predicate's token read exists
+  // for — is NOT: nothing is bound yet, so the CAS below lands it (Codex r1 on #314, P1: reporting
+  // `already` here sent the order while the row, the floor and the ticket stayed numberless).
+  if (holder && holder.table_number === n) return { ok: true, tableNumber: n, already: true };
 
   // The index is partial on `status`, so an expired-but-active row holds N until the cron: close it
   // first (dead rows only), then the CAS.

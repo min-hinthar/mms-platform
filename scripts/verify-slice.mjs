@@ -25347,17 +25347,16 @@ const MUTANTS = [
     file: "apps/qr/lib/bind-table.ts",
     suite: "lib/bind-table.test.ts",
     why: "the blind pass on 3c-ii (money, CRITICAL 2) — without the pre-read a stale Open chip lands a SECOND live party on N for the whole deploy-before-apply window the migration header names, and two live rows at N make every number-keyed find arbitrary",
-    find: "  if (holder)\n    return holder.id === sessionId\n",
-    replace: "  if (holder && holder.id === sessionId)\n    return holder.id === sessionId\n",
+    find: '  if (holder && holder.id !== sessionId) return { ok: false, reason: "seated" };\n',
+    replace: "",
   },
   {
     id: "bind-table/own-row-holder-refused",
     file: "apps/qr/lib/bind-table.ts",
     suite: "lib/bind-table.test.ts",
     why: "two tabs of one phone: the pre-read finds the OWN session already at N and must answer ok/already — a `seated` here opens the join form against the diner's own party",
-    find: "      ? { ok: true, tableNumber: n, already: true } // two tabs of one phone: the other landed it\n",
-    replace:
-      '      ? { ok: false, reason: "seated" } // two tabs of one phone: the other landed it\n',
+    find: "  if (holder && holder.table_number === n) return { ok: true, tableNumber: n, already: true };\n",
+    replace: '  if (holder && holder.table_number === n) return { ok: false, reason: "seated" };\n',
   },
   {
     id: "bind-table/pre-read-without-the-token",
@@ -25366,6 +25365,14 @@ const MUTANTS = [
     why: "the pre-read without the registry's sticker token cannot see the stranded shape (a numberless live row on N's sticker), so the CAS lands a second party beside it — the index cannot refuse a null-number row",
     find: "    holder = await seatedSessionFor(db, n, reg.qr_code);\n",
     replace: "    holder = await seatedSessionFor(db, n);\n",
+  },
+  {
+    id: "bind-table/own-numberless-row-reads-as-bound",
+    file: "apps/qr/lib/bind-table.ts",
+    suite: "lib/bind-table.test.ts",
+    why: "Codex r1 on #314 (P1) — the OWN numberless row on the table's sticker (the stranded shape) reported `already` without the CAS: Checkout showed Table N and sent while the row, the floor and the kitchen ticket stayed numberless",
+    find: "  if (holder && holder.table_number === n) return { ok: true, tableNumber: n, already: true };\n",
+    replace: "  if (holder) return { ok: true, tableNumber: n, already: true };\n",
   },
   {
     id: "register/start-finds-by-token",
@@ -25471,8 +25478,8 @@ const MUTANTS = [
     file: "apps/qr/app/api/session/route.ts",
     suite: "app/api/session/route.test.ts",
     why: "3c-ii D25 — a forged `kiosk-`/`reg-` prior code is read as 'mine': the W6b rule that a client never attaches to a reserved identity, bypassed through the bind arm",
-    find: "      priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;",
-    replace: "      priorCode ? await findActive(priorCode) : null;",
+    find: "      mine = priorCode && !isReservedSessionCode(priorCode) ? await findActive(priorCode) : null;",
+    replace: "      mine = priorCode ? await findActive(priorCode) : null;",
   },
   {
     id: "session-route/number-found-reserved-joined",
@@ -25529,17 +25536,17 @@ const MUTANTS = [
     file: "apps/qr/app/api/session/route.ts",
     suite: "app/api/session/route.test.ts",
     why: "the blind pass on 3c-ii (concurrency) — a zero-row CAS read as 'the session died': the row was BOUND by another tab meanwhile, and the mint lands a second hosted session whose code overwrites the phone's key — the live cart with fired lines is then reachable by no phone (J33's bound half, re-created)",
-    find: "        const live = await findActive(mine.qr_code);\n        if (live) sess = live;\n",
-    replace: "        await findActive(mine.qr_code);\n",
+    find: "          if (live) sess = live;\n",
+    replace: "",
   },
   {
     id: "session-route/zero-row-cas-reads-as-bound",
     file: "apps/qr/app/api/session/route.ts",
     suite: "app/api/session/route.test.ts",
     why: "lock.ts's lesson at the claim arm — a blocked CAS reported as a landing: the response names the CLAIMED number while the row sits at the number another tab landed, and every surface on this phone reads the wrong table until a re-read",
-    find: "      if ((count ?? 0) > 0) {\n        sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below\n",
+    find: "        if ((count ?? 0) > 0) {\n          sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below\n",
     replace:
-      "      if (!error) {\n        sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below\n",
+      "        if (!error) {\n          sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below\n",
   },
   {
     id: "session-route/claim-bind-peers-not-resynced",
@@ -25547,6 +25554,31 @@ const MUTANTS = [
     suite: "app/api/session/route.test.ts",
     why: "D30 at the claim arm — the session's open cart is never touched after the bind, so a tablemate's Checkout keeps `tableNumber = null` and asks for a table already bound (the blind pass on 3c-ii)",
     find: "        boundNow = true;\n",
+    replace: "",
+  },
+  {
+    id: "session-route/claim-bind-under-a-fresh-lock",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "Codex r1 on #314 (P1) — the claim-arm bind under a peer's FRESH charge or a live settlement: the lock model `bindTable` keeps is skipped on this path, and the number lands while the fulfill RPC is snapshotting the order the payer is reading",
+    find: "      if (lockedFresh || settlingFresh) {\n        sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send\n",
+    replace:
+      "      if (false) {\n        sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send\n",
+  },
+  {
+    id: "session-route/prior-code-read-fails-open",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "Codex r1 on #314 (P1) — a failed prior-session read discarded as 'no prior session': the claim mints a SECOND session at the table and orphans the live unbound session's drafts — the case the bind arm exists to keep",
+    find: "    if (error) throw UNAVAILABLE();\n    return data ?? null;\n",
+    replace: "    return data ?? null;\n",
+  },
+  {
+    id: "session-route/unknowable-freeze-reads-as-free",
+    file: "apps/qr/app/api/session/route.ts",
+    suite: "app/api/session/route.test.ts",
+    why: "a failed cart read before the claim-arm bind treated as 'unfrozen': the bind lands under a charge the route could not see (W10a — unknowable ≠ free)",
+    find: "      if (cartErr) return unavailable();\n",
     replace: "",
   },
   {
@@ -25631,7 +25663,7 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "3c-ii (D30) — the context reads the mint's number alone: a table bound at Send (touchCart → every phone's watch → a view carrying the number) never reaches the menu's eyebrow, the guest list or the invite sheet until a reload",
-    find: "      tableNumber: viewTable ?? session?.tableNumber ?? null,",
+    find: "      tableNumber:\n        (viewTable && viewTable.cartId === cartId ? viewTable.n : null) ??\n        session?.tableNumber ??\n        null,",
     replace: "      tableNumber: session?.tableNumber ?? null,",
   },
   {
@@ -25639,8 +25671,17 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "3c-ii (D30) — a view's null overwrites a known number: one thin read and 'At table 7' reverts to 'At the table' over a live bound session; the number is READ, never un-derived",
-    find: "      if (v.tableNumber != null) setViewTable(v.tableNumber);",
-    replace: "      setViewTable(v.tableNumber);",
+    find: "      if (v.tableNumber != null && cartIdRef.current != null)\n        setViewTable({ cartId: cartIdRef.current, n: v.tableNumber });",
+    replace:
+      "      if (cartIdRef.current != null)\n        setViewTable(v.tableNumber == null ? null : { cartId: cartIdRef.current, n: v.tableNumber });",
+  },
+  {
+    id: "provider/table-cache-survives-a-re-mint",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "Codex r1 on #314 (P2) — the cached number read without its cart key: a recovery `revalidate()` mints a fresh unbound session with a new cart while the provider stays mounted, and the eyebrow, the guest list and the invite code keep naming the OLD table",
+    find: "        (viewTable && viewTable.cartId === cartId ? viewTable.n : null) ??",
+    replace: "        (viewTable ? viewTable.n : null) ??",
   },
   {
     id: "send-button/success-restores-focus-to-a-detached-send",
@@ -25715,16 +25756,16 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.bind.test.tsx",
     why: "3c-ii (D30) — the bind's CONFIRMED answer is sent on but never kept: the eyebrow stays silent and the next Send asks again, so the host picks a second time for a table the session already holds",
-    find: "      stashed.current = null;\n      setBindNote(null);\n      setTableNumber(r.tableNumber);\n      setBindOpen(false);\n      sendHandle.current?.send({ tableAnswered: true });",
+    find: "      stashed.current = [];\n      setBindNote(null);\n      setTableNumber(r.tableNumber);\n      setBindOpen(false);\n      sendHandle.current?.send({ tableAnswered: true });",
     replace:
-      "      stashed.current = null;\n      setBindNote(null);\n      setBindOpen(false);\n      sendHandle.current?.send({ tableAnswered: true });",
+      "      stashed.current = [];\n      setBindNote(null);\n      setBindOpen(false);\n      sendHandle.current?.send({ tableAnswered: true });",
   },
   {
     id: "send-button/refusal-said-under-the-scrim",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.bind.test.tsx",
     why: "3c-ii (D28) — a bind refusal is written to the view's region while the modal is open: it sits under Radix's aria-hidden where no reader hears it, and by the time the sheet unmounts the region already holds it, so nothing is announced at all",
-    find: "    stashed.current = { text: sentence };",
+    find: "    stashed.current = [{ text: sentence }];",
     replace: "    sayOutcome(sentence);",
   },
   {
@@ -25773,7 +25814,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.bind.test.tsx",
     why: "the blind pass on 3c-ii (product truth, CRITICAL) — a chip that answered `seated`, then an open one: the stashed refusal is said through the one region at the moment the order fires at the OTHER table — a reader hears a refusal about a table they did not take",
-    find: "      stashed.current = null;\n      setBindNote(null);\n      setTableNumber(r.tableNumber);\n",
+    find: "      stashed.current = [];\n      setBindNote(null);\n      setTableNumber(r.tableNumber);\n",
     replace: "      setBindNote(null);\n      setTableNumber(r.tableNumber);\n",
   },
   {
@@ -25781,7 +25822,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.bind.test.tsx",
     why: "the same stale stash on the escape: 'Send anyway' after a refused chip announces the refusal as the unbound order goes to the kitchen",
-    find: "    stashed.current = null; // an earlier refusal is not the send's sentence (as on the ok edge)\n",
+    find: "    stashed.current = []; // an earlier refusal is not the send's sentence (as on the ok edge)\n",
     replace: "",
   },
   {
@@ -25792,6 +25833,14 @@ const MUTANTS = [
     find: "      setTableNumber(r.tableNumber);\n      setBindOpen(false);\n      sendHandle.current?.send({ tableAnswered: true });\n      return;\n    }\n    setBindNote(sentence);",
     replace:
       "      setTableNumber(r.tableNumber);\n      setBindOpen(false);\n      return;\n    }\n    setBindNote(sentence);",
+  },
+  {
+    id: "checkout-bind/stash-overwritten",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.bind.test.tsx",
+    why: "Codex r1 on #314 (P2) — a one-slot stash: the send's own line answered inside the sheet's exit REPLACES the `already_bound` destination, so a host who tapped 5 hears 'Sent' and never 'Table 3'",
+    find: "    if (sheetUp.current) stashed.current.push({ text, my });\n",
+    replace: "    if (sheetUp.current) stashed.current = [{ text, my }];\n",
   },
 ];
 

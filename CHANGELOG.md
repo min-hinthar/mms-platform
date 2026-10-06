@@ -85,6 +85,24 @@ the lead squashed and integrated.
   prod measured read-only (0 live dine-in rows, 0 duplicates, neither migration applied — M260).
   Filed: J40 (a staff shell at N refuses the host's bind — hostile ordering, owner decision);
   J15 closed; J33's bound half amended; M260's pre-apply query.
+- **Codex round 1 on #314 (`95814db`): three P1, four P2 — six fixed red-first, one justified.** The bind's
+  pre-read answered `already` for the OWN numberless row on the table's sticker (the stranded shape) and
+  sent without the CAS — the row, the floor and the ticket stayed numberless; now only an own row AT n
+  is `already`, an own numberless one runs the CAS. The claim-arm bind (J33) now keeps `bindTable`'s
+  lock model: the session's open cart is read with authz's own freshness (`CART_LOCK_TTL_MS` ·
+  `SETTLE_TTL_MS`), a FRESH lock or settlement makes the claim a plain REJOIN (unbound; the next Send
+  asks under `bindTable`), an unknowable freeze is 503. `findActive` THROWS on a read error (W10a) —
+  discarded, it read as "no prior session" and the claim arm minted a second session over the drafts;
+  every caller answers the 503 or stands down. The provider's cached table number is KEYED BY THE CART
+  it came from, so a recovery re-mint (a new cart) stops reading as the old table. `mms_undo_fire`'s
+  lock guard spells out `locked_at is not null` — SQL's three-valued logic made the bare form NULL for
+  `locked = true, locked_at = null` (a state the schema permits and `authz.ts` reads as not fresh), so
+  the UPDATE skipped the row and every undo on it read "expired" (M258.9, red against the old form on a
+  throwaway Postgres 16; battery row `undo/null-lock-timestamp-refuses`). Checkout's stash is a LIST
+  said as one announcement at the close edge — the one-slot stash let the send's line overwrite the
+  `already_bound` destination when the send answered inside the sheet's exit. Justified: the bind's
+  `waiting` at the 15 s bound frees the sheet by contract (`LineOptionsSheet`'s shape; the raw action
+  stays in the stall ledger — M259 names the diner surfaces in it). Seven mutants (3122 over 265 files).
 - **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
   `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
   `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when

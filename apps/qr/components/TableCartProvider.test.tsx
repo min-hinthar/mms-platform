@@ -1300,6 +1300,21 @@ describe("Phase 3c-ii · D30 — the table number is read from the latest confir
     await drainDeferredAnnounces();
     expect(ctl.tableNumber).toBe(7);
   });
+  it("a RE-MINT (a new cartId after `revalidate()`) drops the cached number — the new session is not the old table (Codex r1 on #314, P2)", async () => {
+    h.getCartView.mockResolvedValue(view({ tableNumber: 7 }));
+    mount();
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBe(7);
+    // The recovery minted a FRESH unbound session: a new cart, no number.
+    h.session.current = { ...h.session.current!, cartId: "cart-2", tableNumber: null };
+    h.getCartView.mockResolvedValue(view({ tableNumber: null }));
+    await act(async () => {
+      await ctl.refresh();
+    });
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBeNull();
+  });
+
   it("the mint's own number still reads while no view has carried one (a sticker, a claim)", async () => {
     h.session.current = { ...h.session.current!, tableNumber: 4 };
     h.getCartView.mockResolvedValue(view({ tableNumber: null }));
