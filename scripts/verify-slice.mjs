@@ -25200,11 +25200,27 @@ const MUTANTS = [
     replace: "    .limit(1)\n    .maybeSingle();\n  if (stranded.error)",
   },
   {
+    id: "seated/stranded-row-reads-open",
+    file: "apps/qr/lib/seated.ts",
+    suite: "lib/seated.test.ts",
+    why: "Codex r2 on #314 (P2) — the numberless row's code dropped from the seated set: the picker offers a table as Open while a stranded party holds its sticker, the tap follows the claim path and the mint 409s the stranger",
+    find: "    else strandedCodes.add(s.qr_code);\n",
+    replace: "",
+  },
+  {
+    id: "seated/occupancy-ignores-stranded-codes",
+    file: "apps/qr/lib/seated.ts",
+    suite: "lib/seated.test.ts",
+    why: "the pure mapping without the sticker leg: the stranded codes are read and never consulted, so the same table reads Open",
+    find: "    occupied: seated.numbers.has(t.tableNumber) || seated.strandedCodes.has(t.qrCode),\n",
+    replace: "    occupied: seated.numbers.has(t.tableNumber),\n",
+  },
+  {
     id: "tables/occupancy-keyed-on-the-token",
     file: "apps/qr/lib/tables.ts",
     suite: "lib/tables.test.ts",
     why: "3c-ii D23 (finding 1) — the pre-3c-ii body, restored: occupancy keyed on the sticker TOKEN cannot see a generated-code session bound to 7 at Send, so every late-bound table is offered as Open and the next diner's bind meets `seated` after picking it",
-    find: '  const [{ data: tables, error }, seated] = await Promise.all([\n    db.from("qr_tables").select("table_number").eq("active", true).order("table_number"),\n    seatedTableNumbers(db),\n  ]);\n  if (error || !tables) return [];\n  return occupancyFor(\n    tables.map((t) => t.table_number),\n    seated,\n  );',
+    find: '  const [{ data: tables, error }, seated] = await Promise.all([\n    db.from("qr_tables").select("table_number,qr_code").eq("active", true).order("table_number"),\n    seatedTableNumbers(db),\n  ]);\n  if (error || !tables) return [];\n  return occupancyFor(\n    tables.map((t) => ({ tableNumber: t.table_number, qrCode: t.qr_code })),\n    seated,\n  );',
     replace:
       '  const [{ data: tables, error }, { data: active }] = await Promise.all([\n    db.from("qr_tables").select("table_number,qr_code").eq("active", true).order("table_number"),\n    db\n      .from("table_sessions")\n      .select("qr_code")\n      .eq("status", "active")\n      .gt("expires_at", new Date().toISOString()),\n  ]);\n  if (error || !tables) return [];\n  const seated = new Set((active ?? []).map((s) => s.qr_code));\n  return tables.map((t) => ({ tableNumber: t.table_number, occupied: seated.has(t.qr_code) }));',
   },
@@ -25213,8 +25229,9 @@ const MUTANTS = [
     file: "apps/qr/lib/tables.ts",
     suite: "lib/tables.test.ts",
     why: "3c-ii D23 (finding 6) — a failed sessions read treated as an empty set marks EVERY table Open; the honest degrade is no list at all",
-    find: "    tables.map((t) => t.table_number),\n    seated,\n  );",
-    replace: "    tables.map((t) => t.table_number),\n    seated ?? new Set(),\n  );",
+    find: "    tables.map((t) => ({ tableNumber: t.table_number, qrCode: t.qr_code })),\n    seated,\n  );",
+    replace:
+      "    tables.map((t) => ({ tableNumber: t.table_number, qrCode: t.qr_code })),\n    seated ?? { numbers: new Set(), strandedCodes: new Set() },\n  );",
   },
   {
     id: "bind-table/rekeys-the-session",
@@ -25682,6 +25699,14 @@ const MUTANTS = [
     why: "Codex r1 on #314 (P2) — the cached number read without its cart key: a recovery `revalidate()` mints a fresh unbound session with a new cart while the provider stays mounted, and the eyebrow, the guest list and the invite code keep naming the OLD table",
     find: "        (viewTable && viewTable.cartId === cartId ? viewTable.n : null) ??",
     replace: "        (viewTable ? viewTable.n : null) ??",
+  },
+  {
+    id: "provider/stale-cart-view-applied",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "Codex r2 on #314 (P2) — a read for the OLD cart landing after a re-mint, with the new cart's first view still out: the ticket alone admits it, and the new cart wears the old table, rows and totals",
+    find: "      if (forCart !== undefined && forCart !== cartIdRef.current) return false;\n",
+    replace: "",
   },
   {
     id: "send-button/success-restores-focus-to-a-detached-send",

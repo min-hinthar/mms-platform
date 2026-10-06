@@ -213,7 +213,10 @@ describe("seatedTableNumbers — the picker's occupancy read", () => {
       error: null,
     };
     const set = await seatedTableNumbers(db);
-    expect(set).toEqual(new Set([7, 9]));
+    expect(set?.numbers).toEqual(new Set([7, 9]));
+    // The numberless row's CODE rides along: the picker maps it to its registered table (the
+    // stranded shape — Codex r2 on #314).
+    expect(set?.strandedCodes).toEqual(new Set(["GENCODE7"]));
     const [q] = queries;
     expect(q?.eq).toContainEqual(["mode", "dinein"]);
     expect(q?.eq).toContainEqual(["status", "active"]);
@@ -228,18 +231,29 @@ describe("seatedTableNumbers — the picker's occupancy read", () => {
 });
 
 describe("occupancyFor — pure", () => {
+  const reg = (...ns: number[]) => ns.map((n) => ({ tableNumber: n, qrCode: `STICKER${n}` }));
+  const seatedAt = (numbers: number[], codes: string[] = []) => ({
+    numbers: new Set(numbers),
+    strandedCodes: new Set(codes),
+  });
   it("marks exactly the numbers in the set", () => {
-    expect(occupancyFor([7, 8, 9], new Set([7, 9]))).toEqual([
+    expect(occupancyFor(reg(7, 8, 9), seatedAt([7, 9]))).toEqual([
       { tableNumber: 7, occupied: true },
       { tableNumber: 8, occupied: false },
       { tableNumber: 9, occupied: true },
     ]);
   });
+  it("a numberless row on a registered sticker marks THAT table (the stranded shape, Codex r2 on #314)", () => {
+    expect(occupancyFor(reg(7, 8), seatedAt([], ["STICKER8", "GENCODE1"]))).toEqual([
+      { tableNumber: 7, occupied: false },
+      { tableNumber: 8, occupied: true },
+    ]);
+  });
   it("a null set (a failed read) is NO list — never every table Open", () => {
-    expect(occupancyFor([7, 8], null)).toEqual([]);
+    expect(occupancyFor(reg(7, 8), null)).toEqual([]);
   });
   it("an empty set marks nothing", () => {
-    expect(occupancyFor([7], new Set())).toEqual([{ tableNumber: 7, occupied: false }]);
+    expect(occupancyFor(reg(7), seatedAt([]))).toEqual([{ tableNumber: 7, occupied: false }]);
   });
 });
 

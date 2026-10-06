@@ -84,25 +84,39 @@ export async function seatedSessionFor(
   return stranded.data ?? null;
 }
 
+/** The picker's occupancy read: the NUMBERS with a live dine-in party, and the CODES of the live
+ *  numberless rows — a numberless row on a registered sticker (the stranded shape) is the party
+ *  `seatedSessionFor`'s token read finds, so the picker maps it to its table (Codex r2 on #314). */
+export type SeatedSet = { numbers: ReadonlySet<number>; strandedCodes: ReadonlySet<string> };
+
 /**
- * The numbers with a live dine-in party, for the picker's occupancy — or null when the read failed,
- * which the caller renders as NO list (`occupancyFor`), never as every table Open (finding 6).
+ * The live dine-in parties, for the picker's occupancy — or null when the read failed, which the
+ * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6).
  */
-export async function seatedTableNumbers(db: Db): Promise<Set<number> | null> {
+export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
   const { data, error } = await liveDineIn(db, new Date().toISOString());
   if (error) return null;
-  const seated = new Set<number>();
-  for (const s of data ?? []) if (s.table_number != null) seated.add(s.table_number);
-  return seated;
+  const numbers = new Set<number>();
+  const strandedCodes = new Set<string>();
+  for (const s of data ?? []) {
+    if (s.table_number != null) numbers.add(s.table_number);
+    else strandedCodes.add(s.qr_code);
+  }
+  return { numbers, strandedCodes };
 }
 
-/** PURE: the registry's numbers against the seated set. A null set is a failed read → `[]`. */
+/** PURE: the registry (number + sticker code) against the seated set — a table is occupied when a
+ *  party holds its NUMBER, or a numberless party holds its STICKER. A null set is a failed read →
+ *  `[]`. The code never leaves this function's input: the output carries numbers and occupancy. */
 export function occupancyFor(
-  tableNumbers: readonly number[],
-  seated: ReadonlySet<number> | null,
+  tables: readonly { tableNumber: number; qrCode: string }[],
+  seated: SeatedSet | null,
 ): { tableNumber: number; occupied: boolean }[] {
   if (seated === null) return [];
-  return tableNumbers.map((n) => ({ tableNumber: n, occupied: seated.has(n) }));
+  return tables.map((t) => ({
+    tableNumber: t.tableNumber,
+    occupied: seated.numbers.has(t.tableNumber) || seated.strandedCodes.has(t.qrCode),
+  }));
 }
 
 /**

@@ -416,7 +416,16 @@ export function TableCartProvider({
   // OWN read needs to know it was not overtaken; `readView` is the only consumer that uses the
   // answer, and it converts it into a `ReadOutcome` so the two questions stay apart.
   const applyView = useCallback(
-    (v: Awaited<ReturnType<typeof getCartView>>, seq?: number): boolean => {
+    (
+      v: Awaited<ReturnType<typeof getCartView>>,
+      seq?: number,
+      forCart?: string | null,
+    ): boolean => {
+      // THE CART IT WAS READ FOR (Codex r2 on #314, P2): a `revalidate()` re-mint swaps the cart while
+      // a read for the old one is still out, and the ticket alone cannot tell — the old answer lands
+      // on the new cart's state with the old table, rows and totals. Every caller names the cart it
+      // asked for; a view for a cart that is no longer this provider's is refused outright.
+      if (forCart !== undefined && forCart !== cartIdRef.current) return false;
       // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
       // read still in flight. A ticket that is no longer current = a read another view has overtaken.
       if (!acceptView(viewSeqRef.current, seq)) return false;
@@ -485,7 +494,7 @@ export function TableCartProvider({
       // committed. The recovery path was handing that snapshot to a queued op as proof of its own
       // add. `readReachedServer` / `readIsOurs` (view-seq.ts) are the two questions, named apart.
       const v = await getCartView(cartId);
-      const applied = applyView(v, seq);
+      const applied = applyView(v, seq, cartId);
       // ⚠️ The union makes "rows exist exactly when the read won" a COMPILER-CHECKED fact rather
       // than a comment — the first draft of this fix stated it in prose and `tsc` immediately found
       // the call site that would have trusted it. Encoding the invariant is the whole lesson of
@@ -532,7 +541,7 @@ export function TableCartProvider({
         // Route the FIRST view through `applyView` too (it used to hand-copy the same six setters).
         // The duplicate was exactly the drift the helper's own comment warns about, and W9b needs one
         // place that also seeds the settle baseline.
-        applyView(v, seq);
+        applyView(v, seq, cartId);
         // W5e: no slot sheet at the menu. Pickup timing is an explicit ASAP↔scheduled choice at
         // CHECKOUT (ASAP is a first-class default — a null slot fires immediately at settlement), so
         // a diner is never blocked behind "pick a time" before ordering. Phase 3b · D10 retired the
@@ -927,7 +936,7 @@ export function TableCartProvider({
       const seq = issueRead(viewSeqRef.current);
       try {
         const v = await getCartView(id);
-        viewIsCurrent = applyView(v, seq);
+        viewIsCurrent = applyView(v, seq, id);
         // `fresh` is kept even when overtaken: it is what we OBSERVED, and the refusal it classifies
         // is a fact about that moment. Only its use as a threadable list is gated, one layer out.
         fresh = v.items;
@@ -1213,7 +1222,7 @@ export function TableCartProvider({
           announceShortfall(itemsBefore, reread.items, menuItemId, qty);
           return { state: "applied", view: reread.items };
         }
-        applyView(view);
+        applyView(view, undefined, cartId);
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
         // region and the count agree with what actually landed.
         //
@@ -1380,7 +1389,7 @@ export function TableCartProvider({
           // `view: null` says exactly that — the next queued op re-reads rather than threading.
           return { state: "applied", view: reread.items };
         }
-        applyView(view);
+        applyView(view, undefined, cartId);
         return { state: "applied", view: view.items };
       } catch {
         // Re-sync from server truth (like Checkout's changeQty): a rejected remove — line already

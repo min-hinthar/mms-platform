@@ -103,6 +103,16 @@ the lead squashed and integrated.
   `already_bound` destination when the send answered inside the sheet's exit. Justified: the bind's
   `waiting` at the 15 s bound frees the sheet by contract (`LineOptionsSheet`'s shape; the raw action
   stays in the stall ledger — M259 names the diner surfaces in it). Seven mutants (3122 over 265 files).
+- **Codex round 2 on #314 (`8eeed25`): two P2, both fixed red-first.** The picker's occupancy read dropped
+  a NUMBERLESS live row on a registered sticker (the stranded shape `seatedSessionFor`'s token read
+  finds), so that table read Open, the tap followed the claim path and the mint 409'd the stranger:
+  `seatedTableNumbers` now returns the numbers AND the numberless rows' codes, the registry read
+  carries each table's sticker code into the pure `occupancyFor`, and a table is occupied when a party
+  holds its number or a numberless party holds its sticker — the code never leaves the mapping. And
+  `applyView` is PER-CART: every caller names the cart it read for, and a view for a cart that is no
+  longer this provider's is refused outright — the ticket alone admitted an old cart's `refresh` that
+  answered after a re-mint, with the new cart's first view still out, so the new cart wore the old
+  table, rows and totals. Three mutants (3125 over 265 files).
 - **BUILT deviations from the design, each against source:** `bindVerdict` is a pure export of
   `lib/seated.ts` (a `"use server"` module may export only async functions); `liveDineIn(db)` +
   `liveDineInAt(db, n)` instead of a builder-typed parameter; the bind's 23505 answers `seated` only when

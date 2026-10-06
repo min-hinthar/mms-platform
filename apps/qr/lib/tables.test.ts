@@ -66,15 +66,33 @@ describe("getDineInTables — occupancy by NUMBER, through the one predicate", (
     ]);
   });
 
-  it("a live session with a NULL number marks nothing — even one carrying a table's own sticker code", async () => {
+  it("a NUMBERLESS live session on a table's own sticker (the stranded shape) reads OCCUPIED — the same party `seatedSessionFor`'s token read finds (Codex r2 on #314)", async () => {
     sessions = {
       data: [{ id: "s1", mode: "dinein", host_seat: "a", qr_code: "STICKER7", table_number: null }],
+      error: null,
+    };
+    expect(await getDineInTables()).toEqual([
+      { tableNumber: 7, occupied: true },
+      { tableNumber: 8, occupied: false },
+    ]);
+  });
+
+  it("a numberless session on a GENERATED code marks nothing (no sticker to map it to)", async () => {
+    sessions = {
+      data: [
+        { id: "s1", mode: "dinein", host_seat: "a", qr_code: "GENCODE12", table_number: null },
+      ],
       error: null,
     };
     expect(await getDineInTables()).toEqual([
       { tableNumber: 7, occupied: false },
       { tableNumber: 8, occupied: false },
     ]);
+  });
+
+  it("the token never reaches the client: the output carries numbers and occupancy only", async () => {
+    const out = await getDineInTables();
+    for (const t of out) expect(Object.keys(t).sort()).toEqual(["occupied", "tableNumber"]);
   });
 
   it("the sessions read is the live-dine-in predicate, never keyed on qr_code", async () => {

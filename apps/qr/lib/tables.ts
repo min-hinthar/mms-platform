@@ -15,19 +15,22 @@ export type DineInTable = { tableNumber: number; occupied: boolean };
  * never the sticker's code, so a token-keyed read would have offered that table as Open. Read via
  * the service client from an RSC ONLY (never a client component) so the tokens stay server-side.
  * A failed read is NO list (`[]`) — the picker degrades to "scan your sticker" — never a list with
- * every table Open (finding 6: the sessions read used to have no error branch).
+ * every table Open (finding 6: the sessions read used to have no error branch). The registry's
+ * sticker code is read HERE so a NUMBERLESS live row on it (the stranded shape — the party
+ * `seatedSessionFor`'s token read finds) marks its table too (Codex r2 on #314); `occupancyFor`
+ * consumes the code and never emits it.
  */
 export async function getDineInTables(): Promise<DineInTable[]> {
   const db = serviceClient();
   // Two independent reads, issued TOGETHER (blind pass on 3c-i · perf): the sheet now reads this on
   // the to-go menu's RSC too, so a serial pair was one round trip of TTFB for nothing (J30).
   const [{ data: tables, error }, seated] = await Promise.all([
-    db.from("qr_tables").select("table_number").eq("active", true).order("table_number"),
+    db.from("qr_tables").select("table_number,qr_code").eq("active", true).order("table_number"),
     seatedTableNumbers(db),
   ]);
   if (error || !tables) return [];
   return occupancyFor(
-    tables.map((t) => t.table_number),
+    tables.map((t) => ({ tableNumber: t.table_number, qrCode: t.qr_code })),
     seated,
   );
 }

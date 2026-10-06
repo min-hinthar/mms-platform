@@ -1315,6 +1315,48 @@ describe("Phase 3c-ii · D30 — the table number is read from the latest confir
     expect(ctl.tableNumber).toBeNull();
   });
 
+  it("an OLD cart's read that lands AFTER a re-mint is refused — never the new cart's table, never its rows (Codex r2 on #314)", async () => {
+    // cart-1's first read is still out when `revalidate()` mints cart-2; the old read answers
+    // BEFORE cart-2's own first view. Acceptance is per-cart, not only per-ticket.
+    type V = ReturnType<typeof view>;
+    let oldResolve!: (v: V) => void;
+    let newResolve!: (v: V) => void;
+    const old = new Promise<V>((r) => {
+      oldResolve = r;
+    });
+    const fresh = new Promise<V>((r) => {
+      newResolve = r;
+    });
+    h.getCartView.mockResolvedValue(view({ tableNumber: null, items: [] }));
+    const r = mount();
+    await drainDeferredAnnounces();
+    // A public re-read of cart-1 (`refresh`) goes out and hangs — the first-load effect has its own
+    // cancel guard; `readView` has only the ticket.
+    h.getCartView.mockImplementation((id: string) => (id === "cart-2" ? fresh : old));
+    let pendingRefresh!: Promise<unknown>;
+    await act(async () => {
+      pendingRefresh = ctl.refresh();
+    });
+    h.session.current = { ...h.session.current!, cartId: "cart-2", tableNumber: null };
+    r.rerender(
+      <TableCartProvider mode="scango">
+        <Probe />
+      </TableCartProvider>,
+    );
+    // The OLD cart's read answers first — with cart-2's own first view still out, so the ticket
+    // alone would let it land (its seq is newer than anything applied).
+    await act(async () => {
+      oldResolve(view({ tableNumber: 7, items: [line(1)] }));
+      await pendingRefresh;
+    });
+    await act(async () => {
+      newResolve(view({ tableNumber: null, items: [] }));
+    });
+    await drainDeferredAnnounces();
+    expect(ctl.tableNumber).toBeNull();
+    expect(ctl.items).toEqual([]);
+  });
+
   it("the mint's own number still reads while no view has carried one (a sticker, a claim)", async () => {
     h.session.current = { ...h.session.current!, tableNumber: 4 };
     h.getCartView.mockResolvedValue(view({ tableNumber: null }));
