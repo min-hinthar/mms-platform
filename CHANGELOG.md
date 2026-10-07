@@ -4,6 +4,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### C27 — functions pinned next to the database (2026-10-07)
+
+- **`apps/qr/vercel.json` pins the QR app's functions to `pdx1` (Portland).** The QR Supabase project is in
+  `us-west-2` (Oregon), but prod's dynamic responses answer `x-vercel-id: iad1::iad1::…`, and the second
+  segment is the function region. So each serial server read crossed the country (C27, found while
+  measuring J30).
+  - Owner ruling #23: yes, if the plan allows. The plan allows it: the PR's preview deployment reports
+    `regions: ["pdx1"]`, and a dynamic route there answered `x-vercel-id: iad1::pdx1::…`. The first
+    segment is the edge the request entered, which stays `iad1` from this proxy.
+  - No code changes. Outbound Stripe and Resend calls now leave from Portland; money-rails measures the
+    Stripe round trip after this pin (ruling #23). Inbound webhooks do not depend on the region.
+  - After the prod deploy: confirm prod's second segment reads `pdx1`, re-measure `/menu?mode=pickup`'s
+    time to content with J30's method, then close C27.
+
 ### Owner rulings for the parallel wave (2026-10-07)
 
 - **The owner answered the wave's decision brief: "yes to all recommended defaults."**
