@@ -41,6 +41,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     Stripe round trip after this pin (ruling #23). Inbound webhooks do not depend on the region.
   - After the prod deploy: confirm prod's second segment reads `pdx1`, re-measure `/menu?mode=pickup`'s
     time to content with J30's method, then close C27.
+  - **Done 2026-10-07 (#317 merged as `e48468c`; C27 closed):** prod answers `iad1::pdx1::…`. The to-go
+    menu's median server streaming fell from 460 to 138 ms and its time to content from 716 to 447 ms.
+    First byte rose 229 → 288 ms from this east-coast proxy, with the CDN control unchanged.
 
 ### Owner rulings for the parallel wave (2026-10-07)
 

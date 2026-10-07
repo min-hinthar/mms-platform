@@ -121,7 +121,7 @@ https://qr.mandalaymorningstar.com/api/stripe/webhook".**
 - **C18 is closed, and #3 is withdrawn** (see _C18 — closed_ below). M163's sequencing gate (#3) and the
   C18 half of C2's gate (#8) are met.
 - **#4 (C25):** no C18 redeploy will happen. The trigger is the first production deploy after
-  2026-10-07 07:13Z from any merge, #317's included.
+  2026-10-07 07:13Z from any merge. That was #317's merge, whose production deploy started at 2026-10-07 09:43Z.
 
 **Session notes (the planning session's measurements and readings, not owner rulings):**
 
