@@ -40,9 +40,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > glanceable, each elevated with the best of all three directions.
 > [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) is the record (rulings file, section E), with
 > one refined spec per moment in [`path-design-2026-10-07/`](path-design-2026-10-07/). For those eight
-> moments' design it wins over a stream card's. Streams touched: diner-cart · counter-floor ·
-> kitchen-ops · post-pay · grocery · staff-authority. Open for the owner: who owns moment 1's /menu half
-> (`CartBar.tsx`, `ArrivalBeat`), and moment 8's asker-by-PIN seam.
+> moments' design it wins over a stream card's. Streams touched: diner-cart · money-rails ·
+> counter-floor · kitchen-ops · post-pay · grocery · staff-authority (OPEN-ITEMS PD1–PD8). Open for the
+> owner (the file's last section): owners for four unowned pieces (`CartBar.tsx` + `ArrivalBeat`,
+> `surfaces.ts`, `tokens.css`, the Sheet's `initialFocus`), how a manager request closed after payment is
+> recorded, one Undo word, and moment 8's asker-by-PIN seam.
 >
 > **Owner's hands (not code):**
 >

@@ -149,11 +149,13 @@ In short:
 - Diner moments are guided and staff moments glanceable, each elevated with the best of the other two
   directions.
 - Until live card keys are switched on (C2), the dine-in Bill offers only "Pay at the counter" (a new
-  parked surface, refused in create-intent; a money-path merge line under #1).
+  parked surface, refused in create-intent; that refusal is money-path, so #1's Codex line applies when
+  the blind pass flags it).
 - A guest whose dish waits on the host's Send gets the words, a "Show a server" card for Dad, and a quiet
   "Let Aye know" nudge.
-- A dish waiting for a manager never blocks payment: staff are warned, may take payment, and a later
-  approval becomes a refund.
+- A dish waiting for a manager never blocks payment: staff are warned and may take payment. The dish
+  stays charged, and if a manager agrees after the table has paid, it is refunded from Today's payments
+  & refunds. How that close is recorded is an open owner question, listed in that file with the others.
 
 ## C18 — closed (2026-10-07)
 
