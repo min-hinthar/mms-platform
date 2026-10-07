@@ -1,6 +1,7 @@
 import type { serviceClient } from "@mms/db/server";
 import { UNAVAILABLE } from "./authz";
 import type { BindTableResult } from "./bind-table";
+import { isReservedSessionCode } from "./session-code";
 
 /**
  * Phase 3c-ii (D21–D25) — the table NUMBER as an identity beside the sticker TOKEN, named ONCE.
@@ -11,7 +12,9 @@ import type { BindTableResult } from "./bind-table";
  * register (finding 1). Every number-keyed read now goes through `liveDineInAt`, every number-
  * stamping write sweeps the dead row off N first (`sweepExpiredOnTable` — the partial index
  * `table_sessions_active_table_uniq` is on `status`, so an expired-but-active row holds N until the
- * 15-minute cron), and the bind is ONE column under a row-count CAS (`bindSessionTable`).
+ * 15-minute cron), and the bind is ONE call — `mms_bind_session_table` (M263), the freeze read under
+ * the binder's cart lock, the sticker rule (J41), an untouched staff shell's adopt (J40) and the
+ * one-column CAS in one transaction — reached through `bindSessionTable` and read by `bindOutcome`.
  *
  * Server-only by construction (like `tables.ts`): the callers hand in the service client, and a
  * read error THROWS `UNAVAILABLE()` (W10a) — an unknowable table is an outage, never "free".
@@ -91,18 +94,54 @@ export type SeatedSet = { numbers: ReadonlySet<number>; strandedCodes: ReadonlyS
 
 /**
  * The live dine-in parties, for the picker's occupancy — or null when the read failed, which the
- * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6).
+ * caller renders as NO list (`occupancyFor`), never as every table Open (finding 6). A row that
+ * `awaitsFirstDiner` (a table a server started) with NOTHING and NOBODY on it is not a party yet:
+ * its table reads Open, and the tap that follows makes the diner its host or adopts it (J40). A
+ * touched one reads Seated — the Send sheet's bind answers `held`, the DoorSheet asks for the
+ * party's code or the sticker scan.
  */
 export async function seatedTableNumbers(db: Db): Promise<SeatedSet | null> {
   const { data, error } = await liveDineIn(db, new Date().toISOString());
   if (error) return null;
+  const rows = data ?? [];
+  // J40 — a table a server started is OPEN only while it is UNTOUCHED: the ONE SQL predicate
+  // (`mms_shell_untouched`, batched as `mms_untouched_shells`) decides, asked only when the read
+  // returned a hostless, non-kiosk shell. A touched shell — anything on its open cart (a line, a
+  // name, a promo, a tab, a split, a pay attempt), an earlier order, no open cart, or anyone joined
+  // — reads Seated, and a FAILED ask reads every shell Seated: fail-honest, never Open.
+  const shells = rows.filter(awaitsFirstDiner).map((s) => s.id);
+  let untouched: ReadonlySet<string> = new Set();
+  if (shells.length > 0) {
+    const { data: open, error: openErr } = await db.rpc("mms_untouched_shells", {
+      p_sessions: shells,
+    });
+    if (!openErr && Array.isArray(open)) untouched = new Set(open);
+  }
   const numbers = new Set<number>();
   const strandedCodes = new Set<string>();
-  for (const s of data ?? []) {
+  for (const s of rows) {
+    if (awaitsFirstDiner(s) && untouched.has(s.id)) continue;
     if (s.table_number != null) numbers.add(s.table_number);
     else strandedCodes.add(s.qr_code);
   }
   return { numbers, strandedCodes };
+}
+
+/**
+ * PURE (J40) — a live dine-in row no diner has claimed yet: `host_seat` null (the register's Start,
+ * register.ts) and not a reserved `kiosk-` order — a SHELL. Whether anything is ON it is the SQL's
+ * one predicate (`mms_shell_untouched`), never re-derived here: an untouched shell reads Open in the
+ * picker and every path that reaches it makes the diner its host or hands it to them — a sticker
+ * scan claims host (W6a), a DoorSheet claim takes host through `mms_claim_untouched_shell` (the
+ * predicate in its UPDATE's WHERE) or, from a phone with an unbound session of its own, ADOPTS it
+ * with the drafts, and a Send-time pick adopts it (`mms_bind_session_table`). A touched one reads
+ * Seated, and a Send-time bind or a `?table=N` claim on it answers `held` (a sticker scan still
+ * claims host — W6a, the table's own physical code). Named ONCE: the picker's occupancy, the bind's
+ * holder verdict and the claim arm all read it, and `seatedSessionFor` still FINDS the row — the
+ * bind needs it.
+ */
+export function awaitsFirstDiner(s: Pick<SeatedSession, "host_seat" | "qr_code">): boolean {
+  return s.host_seat == null && !isReservedSessionCode(s.qr_code);
 }
 
 /** PURE: the registry (number + sticker code) against the seated set — a table is occupied when a
@@ -138,28 +177,112 @@ export async function sweepExpiredOnTable(db: Db, n: number): Promise<void> {
     console.error("[seated] expired-row sweep failed", { tableNumber: n, message: error.message });
 }
 
+/** The RPC's answers (M263 · J41 · J40). `sticker` carries the sticker's OWN table. */
+export type BindOutcome =
+  | { kind: "bound" | "adopted" | "unmoved" | "locked" | "settling" | "gone" | "held" }
+  | { kind: "sticker"; stickerTable: number };
+
+const PLAIN_OUTCOMES = [
+  "bound",
+  "adopted",
+  "unmoved",
+  "locked",
+  "settling",
+  "gone",
+  "held",
+] as const;
+
 /**
- * The bind (D21): `table_number` ONLY — `qr_code` is never rewritten, because every phone's
- * persisted key, the stripped URL and the invite link name that code (finding 4). A row-count CAS
- * (`lock.ts`'s `{ count: "exact" }` idiom — a bare `.update()` reports a blocked write as success)
- * under `id = S AND table_number IS NULL AND status = 'active' AND mode = 'dinein' AND expires_at >
- * now()`: bound once, live only. The error rides back untouched so the caller reads 23505 (the
- * number is seated) and 23503 (the registry FK) by CODE, never by constraint name.
+ * PURE (M263) — the RPC's one row, guarded. `database.types` reads a RETURNS TABLE's columns as
+ * non-null, but `at_table` is null on every answer except bound / adopted / sticker, and a deploy
+ * skew can hand back a word this build does not know. Anything unrecognised is null, which every
+ * caller reads as `error` — never as a landing.
+ */
+export function bindOutcome(rows: unknown): BindOutcome | null {
+  const row: unknown = Array.isArray(rows) ? rows[0] : null;
+  if (!row || typeof row !== "object") return null;
+  const { outcome, at_table } = row as { outcome?: unknown; at_table?: unknown };
+  const plain = PLAIN_OUTCOMES.find((k) => k === outcome);
+  if (plain) return { kind: plain };
+  if (outcome === "sticker" && typeof at_table === "number")
+    return { kind: "sticker", stickerTable: at_table };
+  return null;
+}
+
+/**
+ * The bind (D21 · M263): ONE call, `mms_bind_session_table` — `table_number` only (`qr_code` is
+ * never rewritten: every phone's persisted key, the stripped URL and the invite link name that code,
+ * finding 4), under `table_number IS NULL · active · dine-in · live`, decided in the SAME transaction
+ * as the freeze read under the binder's open cart lock (a read in one statement and a write in
+ * another let a pay lock land between them — Codex r3 on #314). `shellId` asks the RPC to adopt an
+ * untouched staff-started row at N (J40); null never closes anything. The error rides back untouched
+ * so the caller reads 23505 (the number is seated) and 23503 (the registry FK) by CODE, never by
+ * constraint name; an unreadable answer is a null outcome.
  */
 export async function bindSessionTable(
   db: Db,
   sessionId: string,
   n: number,
-): Promise<{ count: number | null; error: { code?: string; message: string } | null }> {
-  const { count, error } = await db
-    .from("table_sessions")
-    .update({ table_number: n }, { count: "exact" })
-    .eq("id", sessionId)
-    .is("table_number", null)
-    .eq("status", "active")
-    .eq("mode", "dinein")
-    .gt("expires_at", new Date().toISOString());
-  return { count, error };
+  shellId: string | null = null,
+): Promise<{ outcome: BindOutcome | null; error: { code?: string; message: string } | null }> {
+  const { data, error } = await db.rpc("mms_bind_session_table", {
+    p_session: sessionId,
+    p_table: n,
+    p_shell: shellId ?? undefined,
+  });
+  if (error) return { outcome: null, error };
+  return { outcome: bindOutcome(data), error: null };
+}
+
+/** What the bind does about the session the pre-read found at N (J40). */
+export type HolderVerdict =
+  | { kind: "free" }
+  | { kind: "own" }
+  | { kind: "refuse"; result: Extract<BindTableResult, { ok: false }> }
+  | { kind: "shell"; shellId: string };
+
+/**
+ * PURE (J40) — the holder at N decides. Nobody, or this session's own NUMBERLESS row on N's sticker
+ * (the stranded shape `seatedSessionFor`'s token read finds) → the CAS (`free`); this session already
+ * AT n (two tabs) → ok/already (`own`); a `kiosk-` order → `kiosk` (no phone joins one —
+ * `/api/session` refuses the join); a row with a host → `seated` (the join form); a HOSTLESS row —
+ * a table a server started (register.ts: `host_seat` null) — has no code a diner holds, and a `?j=`
+ * joiner of it becomes a guest who cannot send, so it is handed to the RPC (`shell`), which adopts
+ * it only if nothing and nobody is on it.
+ */
+export function holderVerdict(
+  holder: SeatedSession | null,
+  sessionId: string,
+  n: number,
+): HolderVerdict {
+  if (!holder) return { kind: "free" };
+  if (holder.id === sessionId)
+    return holder.table_number === n ? { kind: "own" } : { kind: "free" };
+  if (awaitsFirstDiner(holder)) return { kind: "shell", shellId: holder.id };
+  if (isReservedSessionCode(holder.qr_code))
+    return { kind: "refuse", result: { ok: false, reason: "kiosk", tableNumber: n } };
+  return { kind: "refuse", result: { ok: false, reason: "seated" } };
+}
+
+/**
+ * PURE (J40 · red-team #5) — the answer after a FRESH read of who is at N, when the write could not
+ * say it: a 23505 (the number was taken between the pre-read and the write), or the RPC's `gone` /
+ * `held`. This session's own row at n → ok/already (another tab landed it, or adopted the shell); a
+ * kiosk order or a party → that refusal, by name; a hostless shell → `held` only when the RPC said
+ * so under its locks (`held`), else `error`; nobody → `error`. `error` is the retryable sentence: the
+ * next tap re-decides, and nothing on another session was written.
+ */
+export function rereadVerdict(
+  taken: SeatedSession | null,
+  sessionId: string,
+  n: number,
+  held = false,
+): BindTableResult {
+  const v = holderVerdict(taken, sessionId, n);
+  if (v.kind === "own") return { ok: true, tableNumber: n, already: true };
+  if (v.kind === "refuse") return v.result;
+  if (v.kind === "shell" && held) return { ok: false, reason: "held", tableNumber: n };
+  return { ok: false, reason: "error" };
 }
 
 /**

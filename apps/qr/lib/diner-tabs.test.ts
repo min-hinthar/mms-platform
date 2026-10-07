@@ -170,9 +170,11 @@ describe("dinerTabs — three places, their hrefs and claims", () => {
     expect(dinerTabs({ ...base, stars: 0 })[2]!.badge).toBeNull();
     expect(dinerTabs({ ...base, stars: null })[2]!.badge).toBeNull();
   });
-  it("a dine-in diner with no table entered is led to the PICKER, never the code-free menu (deep pass on #312)", () => {
-    // The code-free `/menu?mode=dinein` is the J15 entrance 3b retired: a numberless host-start. A
-    // remembered dine-in door with no cart published through it means no table was entered yet.
+  it("a dine-in diner with no cart gets the dine-in menu like every door — never the retired /dine-in redirect (J39)", () => {
+    // 3c-ii (D27): the dine-in menu is browse-first and `/dine-in` only redirects into it, so a tab
+    // that linked it cost a redirect hop. The tab cannot name the session — the menu resolves the
+    // persisted code exactly as the door does (J15, at the server) — and a tab tap is not an
+    // entrance, so it carries no `door` tag (K0: unclaimed is null). Cart or not, the same menu.
     const base = {
       pathname: "/account",
       mode: "dinein",
@@ -180,25 +182,29 @@ describe("dinerTabs — three places, their hrefs and claims", () => {
       order: null,
       stars: null,
     };
+    // MUTATION diner-tabs/menu-tab-takes-the-retired-redirect → "/dine-in"; red.
     expect(dinerTabs({ ...base, cartId: null })[0]).toMatchObject({
       label: "Menu",
-      href: "/dine-in",
+      href: "/menu?mode=dinein",
     });
     expect(dinerTabs({ ...base, cartId: "c1" })[0]).toMatchObject({
       label: "Menu",
       href: "/menu?mode=dinein",
     });
-    // Other doors keep their menu whether or not a cart exists: nothing to enter first.
+    // Every door keeps its menu whether or not a cart exists: nothing to enter first.
     expect(dinerTabs({ ...base, mode: "pickup", cartId: null })[0]?.href).toBe("/menu?mode=pickup");
   });
-  it("a LIT Menu tab is a self-link to where you are — on a table or invite URL the picker fallback never fires while the mint still runs (Codex round 2 on #313)", () => {
-    // `/menu?mode=dinein&t=…`: cartId is null until useTableSession mints and CartPublisher publishes;
-    // in that window the current tab's href was `/dine-in`, so a re-tap abandoned the scanned flow.
+  it("a LIT Menu tab is a self-link to where you are — on a table or invite URL it keeps the URL's code while the mint still runs (Codex round 2 on #313)", () => {
+    // `/menu?mode=dinein&t=…`: cartId is null until useTableSession mints and CartPublisher publishes.
+    // Before J39 the current tab's href in that window was `/dine-in`; any non-self href (the bare
+    // menu included) drops the URL's `t=` code, so a re-tap would abandon the scanned flow.
+    // MUTATION diner-tabs/lit-menu-tab-leaves-the-join → "/menu?mode=dinein"; red.
     const here = "/menu?mode=dinein&t=TBL7";
     expect(
       dinerTabs({ ...base, pathname: "/menu", here, mode: "dinein", cartId: null })[0],
     ).toMatchObject({ key: "menu", current: true, href: here });
-    // Off the menu the picker rule stands: a remembered dine-in door with no cart leads to /dine-in.
+    // Off the menu the tab is the bare dine-in menu (J39): the lit tab's code-carrying href is the
+    // current place's own, never a destination offered from elsewhere.
     expect(
       dinerTabs({
         ...base,
@@ -207,7 +213,7 @@ describe("dinerTabs — three places, their hrefs and claims", () => {
         mode: "dinein",
         cartId: null,
       })[0]?.href,
-    ).toBe("/dine-in");
+    ).toBe("/menu?mode=dinein");
   });
   it("a LIT Account tab is a self-link to where you are — the Rewards panel stays put (deep pass on #312)", () => {
     const base = { mode: "pickup", cartId: null, cartCount: null, order: null, stars: null };

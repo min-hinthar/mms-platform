@@ -44,6 +44,11 @@ import {
  * (`TableBindSheet`). Routed through `onJoin` as the DoorSheet's chip is, the stranded table read
  * Seated forever and its ask could only rejoin the same numberless row. The chip whose ask is already
  * OPEN collapses it through `onJoin` — a toggle, never a second write.
+ *
+ * J40 — a Seated chip in `noJoin` (the Send sheet's: its bind answered an order no code joins, a
+ * kiosk order or a table a server is holding) has no form to reveal, so it is NOT a disclosure — no
+ * `aria-expanded`, no `aria-controls` — and its name drops the join clause (`tableChipLabel`). Its tap
+ * still binds first: the table may have been cleared since.
  */
 export function TableGrid({
   tables,
@@ -56,6 +61,7 @@ export function TableGrid({
   markMine = true,
   expandedTable,
   controls,
+  noJoin,
 }: {
   tables: DineInTable[];
   /** `true` on /dine-in keeps the K2 cascade (`mms-stagger` + per-chip delay); `false` inside the
@@ -78,11 +84,14 @@ export function TableGrid({
    *  session being bound has no number, so no chip can honestly be "yours" there. */
   markMine?: boolean;
   /** A host that reveals the join INLINE says so on the chip: the seated table whose ask is open, or
-   *  null for none — every SEATED chip then wears `aria-expanded`, and the open one `aria-controls`
-   *  → `controls` (the form's id). Omit it when the join would open a dialog instead: a chip that
-   *  opens a dialog is not a disclosure (blind pass on 3c-i · a11y). */
+   *  null for none — every SEATED chip outside `noJoin` then wears `aria-expanded`, and the open
+   *  one `aria-controls` → `controls` (the form's id). Omit it when the join would open a dialog
+   *  instead: a chip that opens a dialog is not a disclosure (blind pass on 3c-i · a11y). */
   expandedTable?: number | null;
   controls?: string;
+  /** J40 — Seated tables NO code joins (the Send sheet's `kiosk` · `held` answers): no disclosure
+   *  state and no join clause in the name. Absent, every Seated chip offers the join. */
+  noJoin?: ReadonlySet<number>;
 }) {
   const router = useJourneyRouter();
   // W5a — is one of these "seated" tables OURS? A swipe-back diner re-entering the picker used to
@@ -133,7 +142,7 @@ export function TableGrid({
     // The registry read failed or is empty — never dead-end the dine-in door; offer the sticker
     // scan + a plain host-start (a session with no table number, exactly today's behavior).
     return (
-      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginTop: 20 }}>
+      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
         Couldn’t load the tables. Scan your table’s sticker, or{" "}
         <button type="button" onClick={startPlain} style={inlineLink}>
           start without a number
@@ -152,6 +161,9 @@ export function TableGrid({
             action === "resume" ? "is-mine" : action === "join" ? "is-seated" : "is-open";
           // The Send sheet's Seated chip binds first (docblock); its open ask collapses instead.
           const bindsFirst = action === "join" && !!onClaim && expandedTable !== t.tableNumber;
+          // J40 — no code joins this table: no form to reveal, so no disclosure (docblock).
+          const noJoinHere = noJoin?.has(t.tableNumber) ?? false;
+          const discloses = action === "join" && !noJoinHere;
           return (
             <li key={t.tableNumber}>
               <button
@@ -160,15 +172,13 @@ export function TableGrid({
                 style={
                   stagger ? ({ animationDelay: `calc(${i} * 40ms)` } as CSSProperties) : undefined
                 }
-                aria-label={tableChipLabel(t.tableNumber, action)}
+                aria-label={tableChipLabel(t.tableNumber, action, noJoinHere)}
                 aria-expanded={
-                  action === "join" && expandedTable !== undefined
+                  discloses && expandedTable !== undefined
                     ? expandedTable === t.tableNumber
                     : undefined
                 }
-                aria-controls={
-                  action === "join" && expandedTable === t.tableNumber ? controls : undefined
-                }
+                aria-controls={discloses && expandedTable === t.tableNumber ? controls : undefined}
                 onClick={(e: MouseEvent<HTMLButtonElement>) =>
                   action === "join" && !bindsFirst
                     ? askCode(t.tableNumber, e.currentTarget)
@@ -194,10 +204,11 @@ export function TableGrid({
   );
 }
 
+// No top margin of its own (J32): TableGrid's one host is `TableSection`, whose --s3 gap is the
+// rhythm; the 20/18px tops were the retired TablePicker page's spacing and doubled inside it.
 const inlineLink: CSSProperties = {
   display: "block",
   width: "100%",
-  marginTop: 18,
   minHeight: 44,
   background: "none",
   border: "none",

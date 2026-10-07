@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { cssDeclarations } from "@/lib/css-declarations";
 import { DOORS, currentDoor } from "@/lib/doors";
 import { t } from "@/lib/i18n";
 import { menuHref } from "@/lib/menu-href";
@@ -406,6 +407,11 @@ describe("DoorSheet — the table grid section (3c-i)", () => {
     expect(text(sec)).toContain(
       "Couldn’t load the tables. Scan your table’s sticker, or start without a number.",
     );
+    // J32 — the line and its in-sentence button bring no top margin into the section's gap (the
+    // retired picker page's 20px / 18px).
+    const start = within(sec).getByRole("button", { name: "start without a number" });
+    expect(start.style.marginTop).toBe("");
+    expect(start.closest("p")!.style.marginTop).toBe("");
     fireEvent.click(within(sec).getByRole("button", { name: "start without a number" }));
     expect(grid.push).toHaveBeenCalledWith(dineInMenuHref({}));
     expect(capture).toHaveBeenCalledWith("mode_selected", {
@@ -413,6 +419,16 @@ describe("DoorSheet — the table grid section (3c-i)", () => {
       door: "dinein",
       source: "sheet",
     });
+  });
+
+  it("J32 — no inline spacing: the section names its host for the stylesheet, and the escape brings no top margin", () => {
+    render(<DoorSheet mode="pickup" tables={TABLES} />);
+    const sec = section(open())!;
+    expect(sec.className.split(/\s+/)).toContain("door-sheet-tables");
+    // The hairline and top rhythm ride `[data-host="sheet"]` (the stylesheet test below).
+    expect(sec.getAttribute("data-host")).toBe("sheet");
+    expect(sec.getAttribute("style")).toBeNull();
+    expect(sec.querySelector<HTMLElement>(".table-start-plain")!.style.marginTop).toBe("");
   });
 });
 
@@ -500,5 +516,36 @@ describe("DoorSheet — the stylesheet", () => {
     expect(blocks.some((b) => b.selectors.includes(".door-sheet-exits"))).toBe(true);
     expect(blocks.some((b) => b.selectors.includes(".door-sheet-exits-note"))).toBe(true);
     expect(CODE).not.toMatch(/\.table-options/);
+  });
+
+  it("J32 — 'Pick your table' is spaced by the stylesheet in tokens, and inside it the --s3 gap is the one rhythm", () => {
+    // Parsed (comments stripped, every declaration bound to its own selector block), never scanned.
+    const decls = cssDeclarations(CSS);
+    const at = (sel: string) =>
+      Object.fromEntries(
+        decls
+          .filter((d) => d.media === null && d.selector.split(",").some((s) => s.trim() === sel))
+          .map((d) => [d.prop, d.value]),
+      );
+    // The stack on the bare class — exactly this, so a hairline here (it would land under the Send
+    // sheet's dialog title) is refused. MUTATION door-sheet/send-section-takes-the-hairline → red.
+    expect(at(".door-sheet-tables")).toEqual({
+      display: "grid",
+      gap: "var(--s3)",
+      "padding-bottom": "var(--s2)",
+    });
+    // The DoorSheet's own section, under the doors: the exits' hairline and top rhythm.
+    expect(at('.door-sheet-tables[data-host="sheet"]')).toEqual({
+      "margin-top": "var(--s4)",
+      "padding-top": "var(--s4)",
+      "border-top": "1px solid var(--bd)",
+    });
+    // The grid's ONE host is this section, so NO rule that can reach `.table-grid` — bare, compound
+    // or descendant, at any width — gives it a margin but its own `margin: 0`; the retired picker
+    // page's 20px top added to the gap. MUTATION door-sheet/grid-margin-doubles-in-the-section → red.
+    const gridMargins = decls
+      .filter((d) => /\.table-grid(?![\w-])/.test(d.selector) && /^margin/.test(d.prop))
+      .map((d) => [d.media, d.selector, d.prop, d.value]);
+    expect(gridMargins).toEqual([[null, ".table-grid", "margin", "0"]]);
   });
 });

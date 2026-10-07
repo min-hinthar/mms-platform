@@ -52,12 +52,18 @@ export function tableChipWord(action: TableChipAction): "Your table" | "Seated" 
   }
 }
 
-/** The full sentence that names each chip button (TablePicker.tsx:93-96, verbatim). */
-export function tableChipLabel(n: number, action: TableChipAction): string {
+/**
+ * The full sentence that names each chip button (TablePicker.tsx:93-96, verbatim). `noJoin` (J40) —
+ * a Seated chip whose bind answered an order NO code joins (`seatedAnswer` → `occupied`: a kiosk
+ * order, a table a server is holding) is named by the K2 prefix alone: the join clause would promise
+ * a code nobody at that table holds. It speaks for a Seated chip only.
+ */
+export function tableChipLabel(n: number, action: TableChipAction, noJoin = false): string {
   switch (action) {
     case "resume":
       return `Table ${n}, your table — pick up where you left off`;
     case "join":
+      if (noJoin) return `Table ${n}, someone is sitting here`;
       return `Table ${n}, someone is sitting here — join with the table code`;
     case "claim":
       return `Table ${n}, open — sit here`;
@@ -142,6 +148,20 @@ export function tablePlainLabel(source: TableGridSource): string {
   return source === "send" ? BIND_COPY.sendAnyway : "Not at a numbered table? Start anyway";
 }
 
+/**
+ * J40 — what a bind refusal does to the chip it came from. A party with a host (`seated`) flips it
+ * to Seated and opens the join form (the party's code joins it). A table NO code joins — a kiosk
+ * order (`kiosk`), or a table a server started that is no longer untouched, anything on it or anyone
+ * joined (`held`) — flips it to Seated with NO form: a form there would ask for a code nobody at the
+ * table holds. Every other answer leaves the chip as it was (its sentence is the host's to say).
+ */
+export function seatedAnswer(r: BindTableResult): "join" | "occupied" | null {
+  if (r.ok) return null;
+  if (r.reason === "seated") return "join";
+  if (r.reason === "kiosk" || r.reason === "held") return "occupied";
+  return null;
+}
+
 /** The send's refusal sentences a bind shares (`reasonCopy`, components/useUndoGrace.ts), by key. */
 export type SendReasonCopy = Record<
   "not_host" | "locked" | "settling" | "rate_limited" | "error",
@@ -149,9 +169,9 @@ export type SendReasonCopy = Record<
 >;
 
 /**
- * Phase 3c-ii (D28) — a bind refusal names its recovery. The bind's OWN three sentences are
- * `BIND_COPY`'s (the mint's `seated` / `unavailable` byte-identical to /api/session's, and
- * `already_bound`'s new line); the five it shares with the send are the send's own `reasonCopy`,
+ * Phase 3c-ii (D28) — a bind refusal names its recovery. The bind's OWN sentences are `BIND_COPY`'s
+ * (the mint's `seated` / `unavailable` byte-identical to /api/session's, `already_bound`'s line, and
+ * J40 · J41's `kiosk` · `held` · `sticker_table`, each naming its table); the five it shares with the send are the send's own `reasonCopy`,
  * handed in by the caller — a bind that fails is a send that did not happen, so each of those
  * sentences is true here too. `session_expired` takes the send's `error` sentence: it is the state
  * the shipped send already answers with (`assertCartMember` throws → SendToKitchenButton's catch
@@ -170,6 +190,12 @@ export function bindRefusalCopy(
       return BIND_COPY.unavailable;
     case "already_bound":
       return BIND_COPY.alreadyBound(result.tableNumber);
+    case "kiosk":
+      return BIND_COPY.kioskOrder(result.tableNumber);
+    case "held":
+      return BIND_COPY.held(result.tableNumber);
+    case "sticker_table":
+      return BIND_COPY.stickerTable(result.tableNumber);
     case "not_host":
     case "locked":
     case "settling":

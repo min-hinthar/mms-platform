@@ -986,6 +986,12 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // M22's reward-first clamp; a second computation here would be a second answer to the same money
   // question, which is precisely the drift the W17 rules forbid.
   let settlePromoCents: number | null = null;
+  // Phase 3d · counter — the receipt stack's PARTS, off that SAME totals object: the pad's ticket
+  // prints Subtotal · Discount · Tax over them and reads its Total from `settleTotalCents`, so the
+  // stack adds up to the figure Take payment names. Never from `runningSubtotalCents` (the LINES read
+  // — a write landing between the two reads leaves a stack that does not add up), and null exactly
+  // when the total is: nothing priced, nothing claimed.
+  let settleBreakdown: TableDetail["settleBreakdown"] = null;
   if (cart && itemCount > 0) {
     const settleTotals = await getCartTotals(cart.id, 0).catch((e: unknown) => {
       console.error("[floor] getTableDetail settle total unreadable", {
@@ -998,6 +1004,13 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     settleTotalCents = settleTotals.totalCents;
     settleTipBaseCents = settleTotals.subtotalCents - settleTotals.discountCents;
     settlePromoCents = settleTotals.promoCents;
+    settleBreakdown = {
+      subtotalCents: settleTotals.subtotalCents,
+      discountCents: settleTotals.discountCents,
+      serviceChargeCents: settleTotals.serviceChargeCents,
+      taxCents: settleTotals.taxCents,
+      tipCents: settleTotals.tipCents,
+    };
   }
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
@@ -1036,6 +1049,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     runningSubtotalCents,
     settleTotalCents,
     settleTipBaseCents,
+    settleBreakdown,
     // W17c-3 — what the KIOSK guest chose, if they were asked. null = never asked (every non-kiosk
     // cart), which the settle UI renders differently from 0 = asked and chose nothing.
     //

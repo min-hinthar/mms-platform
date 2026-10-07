@@ -14,10 +14,10 @@ import { orderNoun, slotCount } from "./order-noun";
  * is sometimes empty. Three places, always the same three, on every diner route:
  *
  *   Menu    — the diner's own menu (`menuHref` carries the mode; unknown → the door picker). In the
- *             market the first tab IS the market: "Market" → /grocery. On the THRESHOLD (`/`, the
- *             table picker) it leads UP to the doors — never to a menu the route has not entered: on
- *             `/dine-in` the lit tab used to offer the code-free `/menu?mode=dinein`, J15's
- *             phantom-table link, as the current place (D8).
+ *             market the first tab IS the market: "Market" → /grocery. On the THRESHOLD (`/`; and
+ *             `/dine-in`, though since 3c-ii it only redirects) it leads UP to the doors — never to a
+ *             menu the route has not entered (D8). Off it, the remembered mode's menu, dine-in with
+ *             or without a cart (J39): the tab names no session and claims no door.
  *   Order   — `orderTab`: the open cart (`/cart?cart=`, `slotCount`'s badge — never a shared dine-in
  *             count, never a zero, never without a cart id); else the live order (its resume href,
  *             the dot); else the bare /cart, whose own slip is honest about having nothing. Named by
@@ -129,20 +129,21 @@ export function dinerTabs(s: {
     {
       key: "menu",
       label: mode === "scango" ? "Market" : "Menu",
-      // On the threshold, "up" is the doors (D8) — the route has entered no menu to return to. A
-      // remembered dine-in door with NO cart published through it means no table was entered yet, so
-      // Menu leads to the picker — never the code-free `/menu?mode=dinein`, the numberless host-start
-      // J15 retired (deep pass on #312). A LIT Menu tab is a self-link to where you are, the Order
-      // and Account rule (Codex round 2 on #313): on a table or invite URL (`/menu?mode=dinein&t=…`)
-      // the cart is null until the mint lands and CartPublisher publishes, and the picker fallback
-      // turned the CURRENT tab into a door out of the join flow for exactly that window.
+      // On the threshold, "up" is the doors (D8) — the route has entered no menu to return to. Off
+      // it, the remembered mode's menu — dine-in with no cart included (J39). Since 3c-ii (D27) the
+      // dine-in menu is browse-first and `/dine-in` only redirects into it, so the old no-cart arm
+      // to `/dine-in` cost a redirect hop to a route that is no longer a place. The tab cannot name
+      // the session; the menu works it out from the persisted code, exactly as the door does (J15,
+      // closed at the server: a persisted code re-joins only a session this seat belongs to). A tab
+      // tap is not an entrance, so it claims no `door` (K0: unclaimed is null, never invented). A LIT
+      // Menu tab is a self-link to where you are, the Order and Account rule (Codex round 2 on #313):
+      // on a table or invite URL (`/menu?mode=dinein&t=…`) the bare menu would drop the URL's code
+      // and turn the CURRENT tab into a door out of the join flow.
       href: isThreshold(s.pathname)
         ? "/"
         : active === "menu"
           ? (s.here ?? menuHref(mode))
-          : mode === "dinein" && !s.cartId
-            ? "/dine-in"
-            : menuHref(mode),
+          : menuHref(mode),
       badge: null,
       current: active === "menu",
     },

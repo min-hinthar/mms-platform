@@ -1887,6 +1887,13 @@ export type Database = {
         Args: { p_cart: string; p_code: string; p_user: string }
         Returns: string
       }
+      mms_bind_session_table: {
+        Args: { p_session: string; p_shell?: string; p_table: number }
+        Returns: {
+          at_table: number
+          outcome: string
+        }[]
+      }
       mms_bump_ticket: {
         Args: { p_cart: string; p_lines: string[] }
         Returns: number
@@ -1915,6 +1922,10 @@ export type Database = {
       mms_cart_item_set_qty_if_open: {
         Args: { p_id: string; p_qty: number }
         Returns: number
+      }
+      mms_claim_untouched_shell: {
+        Args: { p_seat: string; p_shell: string }
+        Returns: boolean
       }
       mms_clear_cart_name: { Args: { p_session_id: string }; Returns: string }
       mms_clear_counter_cart: { Args: { p_cart_id: string }; Returns: string }
@@ -2197,6 +2208,7 @@ export type Database = {
           reason: string
         }[]
       }
+      mms_shell_untouched: { Args: { p_shell: string }; Returns: boolean }
       mms_snapshot_ebt_eligibility: {
         Args: { p_order: string }
         Returns: number
@@ -2236,6 +2248,10 @@ export type Database = {
       mms_undo_fire: {
         Args: { p_batch: string; p_cart_id: string }
         Returns: number
+      }
+      mms_untouched_shells: {
+        Args: { p_sessions: string[] }
+        Returns: string[]
       }
       mms_usual_lines: {
         Args: { p_since: string; p_uid: string }

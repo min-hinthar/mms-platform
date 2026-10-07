@@ -4,6 +4,7 @@ import {
   JOIN_COPY,
   bindRefusalCopy,
   dineInMenuHref,
+  seatedAnswer,
   sendNeedsTable,
   tableChipAction,
   tableChipLabel,
@@ -64,6 +65,19 @@ describe("tableChipWord / tableChipLabel — the K2 sentences, verbatim from Tab
     );
     expect(tableChipLabel(3, "resume")).toBe("Table 3, your table — pick up where you left off");
     expect(tableChipLabel(12, "claim")).toBe("Table 12, open — sit here");
+  });
+  it("a Seated chip whose order NO code joins (its bind answered `held` or `kiosk`) is named by the K2 prefix alone — never the join clause it cannot keep", () => {
+    // MUTANT table-pick/no-join-label-offers-the-join: the no-join form ignored — the chip is named
+    // "join with the table code" at a table no code joins; red here.
+    expect(tableChipLabel(7, "join", true)).toBe("Table 7, someone is sitting here");
+    expect(tableChipLabel(7, "join", false)).toBe(
+      "Table 7, someone is sitting here — join with the table code",
+    );
+    // The flag speaks for a Seated chip only: Open and Your-table keep their sentences.
+    expect(tableChipLabel(12, "claim", true)).toBe("Table 12, open — sit here");
+    expect(tableChipLabel(3, "resume", true)).toBe(
+      "Table 3, your table — pick up where you left off",
+    );
   });
 });
 
@@ -205,5 +219,53 @@ describe("bindRefusalCopy — a refusal that names its way out (3c-ii, D28)", ()
   it("an expired session (and a not-dine-in cart — neither reachable from the sheet) is the send's `error` sentence: the state the shipped send already answers with (SendToKitchenButton's catch arm)", () => {
     expect(bindRefusalCopy({ ok: false, reason: "session_expired" }, SEND)).toBe(SEND.error);
     expect(bindRefusalCopy({ ok: false, reason: "not_dinein" }, SEND)).toBe(SEND.error);
+  });
+  it("J40 · J41 — `kiosk`, `held` and `sticker_table` are BIND_COPY's own builders, each naming ITS table (never `seated`, which promises a code)", () => {
+    expect(bindRefusalCopy({ ok: false, reason: "kiosk", tableNumber: 7 }, SEND)).toBe(
+      BIND_COPY.kioskOrder(7),
+    );
+    expect(bindRefusalCopy({ ok: false, reason: "held", tableNumber: 7 }, SEND)).toBe(
+      BIND_COPY.held(7),
+    );
+    expect(bindRefusalCopy({ ok: false, reason: "sticker_table", tableNumber: 4 }, SEND)).toBe(
+      BIND_COPY.stickerTable(4),
+    );
+    // Each names the number it was given — a builder that ignored it would still match itself.
+    expect(bindRefusalCopy({ ok: false, reason: "kiosk", tableNumber: 7 }, SEND)).toContain(
+      "Table 7",
+    );
+    expect(bindRefusalCopy({ ok: false, reason: "held", tableNumber: 7 }, SEND)).toContain(
+      "Table 7",
+    );
+    // `held` is said for EVERY touched shell — a line, a name, a promo, a tab, a pay attempt, or only
+    // a joiner — and on /api/session's claim arm to a diner with no order of its own. So it claims
+    // no order on the table and none of the diner's to add: who has the table, and the two ways out.
+    expect(bindRefusalCopy({ ok: false, reason: "held", tableNumber: 7 }, SEND)).toBe(
+      "A server has Table 7 open — ask them to seat you there, or pick another.",
+    );
+    expect(bindRefusalCopy({ ok: false, reason: "sticker_table", tableNumber: 4 }, SEND)).toBe(
+      "This order started from Table 4’s sticker — if you’re at Table 4, pick it; otherwise send anyway.",
+    );
+  });
+});
+
+describe("seatedAnswer — what a bind refusal does to its chip (J40)", () => {
+  it("a party with a host → `join` (the form: the party's code joins it)", () => {
+    expect(seatedAnswer({ ok: false, reason: "seated" })).toBe("join");
+  });
+  it("an order NO code joins — a kiosk order, a held staff table → `occupied` (Seated, no form)", () => {
+    expect(seatedAnswer({ ok: false, reason: "kiosk", tableNumber: 7 })).toBe("occupied");
+    expect(seatedAnswer({ ok: false, reason: "held", tableNumber: 7 })).toBe("occupied");
+  });
+  it("every other answer leaves the chip alone — including the sticker rule (the table is not taken)", () => {
+    for (const r of [
+      { ok: true, tableNumber: 5, already: false },
+      { ok: false, reason: "locked" },
+      { ok: false, reason: "unavailable" },
+      { ok: false, reason: "error" },
+      { ok: false, reason: "sticker_table", tableNumber: 4 },
+      { ok: false, reason: "already_bound", tableNumber: 3 },
+    ] as const)
+      expect(seatedAnswer(r)).toBeNull();
   });
 });

@@ -4,6 +4,123 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### After 3c-ii — the follow-ups and Phase 3d (2026-10-06)
+
+**The owner's ask:** "plan and continue session per docs/HANDOFF.md: the full escorted verify:slice on the
+merge head, the M260 one-file apply of the two 3c-ii migrations (yours, M258's file first), the owner
+decisions on J40, J41 and M263, then J37, J28/J32, J29, J30, J34, J39, and Phase 3d."
+
+- **M260 — both 3c-ii migrations are ON PROD (2026-10-06), applied by the session under the owner's
+  delegation, one file at a time, M258's first, each verified before the next.** Measured before: 0 active
+  dine-in rows, 0 live duplicates, 0 stranded rows, the index absent, prod's `mms_undo_fire` equal to the
+  s4 body. `m258_undo_fire_lock_guard` (prod stamp `20261006045935`): one overload, both freshness legs in
+  the body, `search_path=""`, EXECUTE for `service_role` only. `p3c2_table_number_uniq` (`20261006050018`):
+  `table_sessions_active_table_uniq` unique · valid · ready with the exact predicate; step 1 closed nothing.
+  No new advisor lint. M258 and M260 close; M125 records the two stamps (106 prod rows vs 105 files, both
+  new pairs matching by name).
+- **The owed full `verify:slice` on the #314 merge head `b391dc8`: `✓ verify:slice passed — 3131 mutants
+caught, no orphans`** (04:45 → 07:24 UTC, 2 h 40 min), detached in its own worktree and escorted per
+  LEARNINGS #229 (re-armed once at the tool's 2 h ceiling), with no vitest beside it; the worktree came back
+  clean.
+- **J30 measured on prod — the to-go menu's two extra reads cost no measurable time** (40 interleaved samples
+  per URL; the paired content − TTFB difference +4 ms, 95% CI [−41, +42]); the on-demand fetch is not needed.
+  The measurement found the bigger lever, filed as **C27**: the functions run in `iad1` while the database is
+  in `us-west-2`, so every serial read crosses the country. **J28** settled statically down to one owner
+  device pass (the sticky strip's ancestors, the 61px reserve, the remount, the drain race all retired).
+- **Phase 3d · kitchen — the pass at two distances (K38 closed).** The KDS volume slider is retired. Sound is
+  a bar circle with the counter's three postures (off · on under the lit cap · paused with a warn ring and a
+  dot); its tap is its own bounded arm; a refusal is said in the board's one region; a mute silences
+  `play()` through a predicate the chime reads at every call (default open — the TV wall shares the
+  engine); the level is fixed at 0.8. An Aa circle opens Help straight onto Text size (two taps). The head is
+  two numbers at the identity tier, Open · Late; Avg today moved to the Served view (drawn only when
+  something was served). A red ticket says "Late" in its badge and spoken name (WCAG 1.4.1 under reduced
+  motion). Only a sounding board holds the reload (a muted-but-armed board used to hold it forever). Zero
+  new strings, two retired; 29 mutants; `kds-sound.ts` joins the mutate set. **Measured at 1366 and 390** in
+  headless Chromium with the production CSS and the real fonts, EN and MY, every text size: one bar row, no
+  sideways scroll, no badge wrap (DESIGN-LANGUAGE §34).
+- **J37 · M261 · J34 — the undo grace, finished.** A rejected undo holds the window and Pay until a read
+  reaches the screen, then asks the server once more: `undoFire` is idempotent on a batch already brought
+  back (`lib/undo-miss.ts`, the console's diagnosis made the one copy for both undos), and that answer
+  decides the sentence and the close. `mms_undo_fire` takes the cart row lock first, like its counter twin
+  (`20261006120000_m261_undo_fire_cart_lock.sql` — no deploy order; its SQL test probes a line-less cart's
+  `xmax`, because a line's FK check stamps any cart with lines; **on prod since 2026-10-06, `20261006191844`**). The
+  Undo's count moved into its own leaf on a `useSyncExternalStore` ticker, so Checkout no longer re-renders
+  four times a second through the grace (measured: 0 host renders across 36 ticks; the old shape 38). The
+  region's pay-error rule is written down (DESIGN-LANGUAGE §7). Filed J43–J46.
+- **Phase 3d · counter — the receipt stack (K46 closed).** The pad's ticket printed the lines read's pre-tax
+  subtotal a thumb from the dock's tax-inclusive "Take payment · {m}". `TableDetail.settleBreakdown` now comes
+  off the same `getCartTotals` call (one call per read, asserted), `padReceiptRows` feeds it to the guest
+  receipt's `buildReceiptRows`, and the Total row IS `settleTotalCents`: Subtotal · Discount · Tax · Total,
+  "—" on every row while anything is pending, no stack before a read prices the order. Zero new strings
+  ("Tax" — K40); 12 mutants; `StaffTicket.tsx` joins the mutate set. Filed K44 (the table page's same two
+  bases), J47, J48; K39 narrowed to the cash-sheet re-host. Measured at 375 and 1366 in headless Chromium, EN and MY, light and
+  Night: four one-line rows, the dock's figure equal to the Total.
+- **J40 · J41 · M263 · M264 — one bind authority, decided under its locks (owner decisions taken under
+  delegation).** `mms_bind_session_table` (`20261006120100_m263_bind_session_table.sql`) is the ONE bind for
+  the Send sheet and the `?table` claim: the binder's cart `FOR SHARE`, freshness on the DB clock, the
+  sticker rule, an untouched staff shell's adopt and the CAS in one transaction. **J40:** an untouched table
+  a server started reads Open and yields to its first diner (adopted at Send, hosted from the grid by a
+  predicate-guarded claim); a touched one reads Seated and answers `held` ("A server has Table N open — ask
+  them to seat you there, or pick another.") — never hosted from the grid (`mms_shell_untouched`, one predicate, three readers); a kiosk order has no join
+  form. **J41:** a sticker session binds only to its own table (a session bound elsewhere wedged its own
+  table through the token index). **M264:** the host claim is status-guarded. `scripts/verify-bind-race.mjs`
+  joins the CI `supabase` job (11 orders, 6 mutants); battery suite `m263` (54 rows). **The four functions
+  are on prod since 2026-10-06 (`20261006191633`), applied BEFORE the merge** — the TS calls them. Filed J42 ·
+  J49 · M265 · M266 · M267.
+- **J39 · J32 · J29.** The Menu tab off the threshold is `menuHref(mode)` everywhere (the no-cart arm to the
+  retired `/dine-in` dropped — a tab names no session and claims no door). "Pick your table" is spaced by the
+  stylesheet: the section's `--s3` gap is the one rhythm, the 32/30/20px steps 12px in both sheets. J29's
+  three lines are KEPT (v7.2 draws none of those surfaces — DESIGN-LANGUAGE §9 says so now), `floor.back`
+  pinned by a test and a mutant.
+- **The capped blind pass on #315 — three auditors (money · concurrency · product truth + a11y), all
+  REJECT; every finding checked against source, fixed red-first or recorded (the PR comment is the
+  record).** The undo's `gone` ("Brought back") now needs the cart still OPEN and no batch line the kitchen
+  could have: a staff MERGE re-parents the in-grace batch and cancels the cart, so the old reading said
+  "Brought back" over dishes cooking at the merged table; a VOIDED line (it keeps `fire_batch`) no longer
+  counts, a COMPED one still does; the lines are read before the cart, so the merge's one commit cannot
+  fall between the reads (`lib/undo-miss.ts`, LEARNINGS #244). **J45 closed:** a 0 under a pay lock or
+  split freeze that landed after authz's read answers `locked` / `settling`, so the window stays open
+  instead of closing "already with the kitchen" (decided from the lines since the self-review — below). The Send sheet's chip whose bind
+  answered `kiosk` / `held` is named "Table N, someone is sitting here" with no `aria-expanded` (J42
+  narrowed); `BIND_COPY.held` is true for every held case ("A server has Table N open — ask them to seat
+  you there, or pick another." — the old sentence claimed an order and a fold-in a member-only shell does
+  not have). SQL J37.3 · J37.4 pin the comped and voided legs of an in-grace undo; M261's lock ORDER is a
+  documented survivor (P2fj); M263's header now says what fulfillment and the grid claim actually do
+  (comments only — every `md5(prosrc)` unchanged, the file's sha256 now `d242011c…`). The receipt tests
+  cite the real `p3d-receipt/` ids. 10 new mutants, 3 re-anchored; the battery 197 rows. Filed J50 (the
+  console's undo has J45's shape) and J51 (ACCEPTED — any phone can host an untouched staff shell from
+  the grid, J40's trade-off).
+
+- **The self-review on #315 (the owner's "review yourself, fix all, and then merge when ready" — the Codex
+  per-head round was blocked on the account's quota).** The capped pass again: three blind auditors (money ·
+  concurrency · product truth + a11y) over `51838ad..d30b4a4`, every finding checked against source. **Two
+  lenses found the same regression in the blind pass's own fix:** filtering voided lines out of the undo's
+  diagnosis made a batch staff VOIDED read `gone` — the diner heard "Brought back to your order" over a dish
+  removed from it. `undoMissReason` now rests every verdict on a line read: `expired` (the kitchen has the
+  batch and none of it is undoable), `frozen` (a batch line is still fired, not comped and in its grace — so
+  the 0 was the freshness legs' refusal), `voided` (only voided lines carry it: "Nothing from that send is
+  with the kitchen now — check your order.") and `gone` (nothing carries it on an open cart). **J45 is now
+  decided by the lines, not a later lock re-read** — the re-read missed a lock taken and freed inside one
+  checkout, and answered "please try again" over a grace that had run out under a lock. **J43 closed:** a
+  refused undo says the undo's sentence, never the Send's. The console keeps its two sentences (`voided` →
+  its `gone`, `frozen` → `expired`, J50 unchanged). Text corrected: the merge folds as well as re-parents and
+  leaves comped lines behind; a comped dish un-fired is pulled off the KDS, not made billable (every total
+  excludes comped lines); DESIGN-LANGUAGE's held chip is no disclosure only once its bind has answered.
+  The cart-undo mock now carries `comped` and `fire_at` and evaluates `gt`; 12 of its 20 cases red on the
+  old code, both new hook cases red. Filed J52 · J53 · J54; LEARNINGS #245.
+
+- **M263 and M261 ON PROD (2026-10-06, the owner's go: "apply M263 and M261").** One file at a time via the
+  MCP, M263 first: `m263_bind_session_table` (**`20261006191633`**) at sha256 `d242011c…`, the bytes CI ran
+  green on `172ef48`, then `m261_undo_fire_cart_lock` (**`20261006191844`**) at `e60728fa…`. Read-only
+  pre-checks first (none of the four functions existed; prod's `mms_undo_fire` was the M258 body; the
+  active-number index present; 0 live dine-in sessions; every column the bodies touch present). Verified
+  after: one overload each, the definer/invoker split as designed, `search_path=""`, EXECUTE for
+  `service_role` only, every `md5(prosrc)` equal to the throwaway-Postgres measurement; write-free SQL
+  smokes (`unmoved` · `gone` · false · `{}` · false · 0); the anon key refused 42501 on all five through
+  PostgREST (a made-up name answers PGRST202 — the schema cache has them); no new security advisor. The
+  service-key REST leg was not run (no key in the agent environment). M125: 108 prod rows vs 107 files,
+  the same 3 + 4 unmatched names. M261 and M263 closed.
+
 ### Phase 3c-ii — the table bound at SEND (2026-10-05)
 
 **The owner's ask:** "merge, continue 3c-ii" after #313. Row 3c's authority half (`docs/PHASE3_JOURNEYS.md`;

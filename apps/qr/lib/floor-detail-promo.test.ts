@@ -59,8 +59,14 @@ let totals: Record<string, number> | null = {
   tipCents: 0,
   totalCents: 3930,
 };
+/** A spy, so a case can assert ONE call per detail read (Phase 3d · counter): the receipt stack's
+ *  parts and the settle total must come off the SAME totals object, and a second read — the drift
+ *  the W17 rules name — returns identical values here, so only the call count can see it. */
+const getCartTotals = vi.hoisted(() =>
+  vi.fn<(cartId: string, tipRate: number) => Promise<unknown>>(),
+);
 vi.mock("./totals", () => ({
-  getCartTotals: () => (totals ? Promise.resolve(totals) : Promise.reject(new Error("unreadable"))),
+  getCartTotals: (cartId: string, tipRate: number) => getCartTotals(cartId, tipRate),
 }));
 
 type Row = Record<string, unknown>;
@@ -140,6 +146,10 @@ const { getTableDetail } = await import("./floor");
 const SESSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 beforeEach(() => {
+  getCartTotals.mockReset();
+  getCartTotals.mockImplementation(() =>
+    totals ? Promise.resolve(totals) : Promise.reject(new Error("unreadable")),
+  );
   totals = {
     subtotalCents: 5000,
     discountCents: 1400,
@@ -213,6 +223,8 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.cartId).toBeNull();
     expect(res.detail.promoCode).toBeNull();
+    // Phase 3d · counter — and no receipt stack: a settled table has no open cart to price.
+    expect(res.detail.settleBreakdown).toBeNull();
   });
 
   it("reports NO code when the cart has none", async () => {
@@ -239,11 +251,56 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     expect(res.detail.promoCode).toBe("PILOT15");
     expect(res.detail.settlePromoCents).toBeNull();
     expect(res.detail.settleTotalCents).toBeNull();
+    expect(getCartTotals).not.toHaveBeenCalled();
+    // Phase 3d · counter — null exactly when the total is: the pad draws no stack, never a row of
+    // "$0.00". MUTATION p3d-receipt/floor-parts-default-to-zeros → red.
+    expect(res.detail.settleBreakdown).toBeNull();
   });
 
   it("reports an OUTAGE rather than a detail when the totals read fails", async () => {
     totals = null;
     const res = await getTableDetail(SESSION);
     expect(res.kind).toBe("outage");
+  });
+});
+
+/**
+ * Phase 3d · counter — the receipt stack's PARTS. The pad's ticket prints Subtotal · Discount · Tax
+ * over `settleBreakdown` and reads its Total from `settleTotalCents`, so the two must be one read:
+ * the fixture's promo (900) ≠ discount (1400) and its tax ≠ 0, so every plausible wrong field reads
+ * a different number.
+ */
+describe("getTableDetail — the receipt stack's parts", () => {
+  it("carries the breakdown off the ONE getCartTotals call that prices settleTotalCents", async () => {
+    const res = await getTableDetail(SESSION);
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    // MUTATIONS p3d-receipt/floor-drops-the-tax · p3d-receipt/floor-discount-is-the-promo-alone ·
+    // p3d-receipt/floor-detail-drops-the-receipt → red on the shape.
+    expect(res.detail.settleBreakdown).toEqual({
+      subtotalCents: 5000,
+      discountCents: 1400,
+      serviceChargeCents: 0,
+      taxCents: 330,
+      tipCents: 0,
+    });
+    expect(res.detail.settleTotalCents).toBe(3930);
+    // MUTATION p3d-receipt/floor-reads-a-second-total: the parts off a SECOND call — identical values
+    // on this fake, a different basket in production if a write lands between the two → red here.
+    expect(getCartTotals).toHaveBeenCalledTimes(1);
+    expect(getCartTotals).toHaveBeenCalledWith("c-1", 0);
+  });
+
+  it("the Subtotal is the totals read's, never the lines read's", async () => {
+    // The two reads DISAGREE in this fixture (4000 from the lines, 5000 from the totals), as they do
+    // for one poll when a write lands between them. The stack must add up to the dock's Total, so
+    // its Subtotal comes from the read that produced it.
+    itemRows = [{ ...itemRows[0]!, qty: 2, unit_price_cents: 2000 }];
+    const res = await getTableDetail(SESSION);
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    expect(res.detail.runningSubtotalCents).toBe(4000);
+    // MUTATION p3d-receipt/floor-subtotal-from-the-lines-read → 4000; red.
+    expect(res.detail.settleBreakdown?.subtotalCents).toBe(5000);
   });
 });

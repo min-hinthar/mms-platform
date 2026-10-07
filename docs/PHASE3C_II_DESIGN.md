@@ -3,8 +3,8 @@
 > **BUILT (2026-10-05)** — two worktree slices squashed onto the branch (`d8a0c0c` authority ·
 > `fe5d0e2` bind-ux) plus the integration gate's fix (`b9c0274`); the CHANGELOG entry "Phase 3c-ii" is the
 > as-built list. Continues `docs/PHASE3C_DESIGN.md` (D13–D20): D21–D30 below. Both migrations landed as
-> FILES with their SQL tests; the owner applies each one-file (M260; M258's file first) — **the session
-> never applies DDL to prod.** Owner questions are numbered under _Dependencies · risks_ with the default
+> FILES with their SQL tests; each was applied one-file (M260; M258's file first) — **on 2026-10-06, by the
+> session under the owner's explicit delegation ("yours"), verified object by object (OPEN-ITEMS M260).** Owner questions are numbered under _Dependencies · risks_ with the default
 > each took. **BUILT deviations, each against source:** `bindVerdict` is a pure export of `lib/seated.ts`
 > (a `"use server"` module exports only async functions — D24's placement); `liveDineIn(db, nowIso)` +
 > `liveDineInAt(db, n, nowIso)` replace D23's builder-typed `liveDineInAt(q, …)` (postgrest-js's generic
@@ -375,7 +375,10 @@ update` by default** (both judges' letter; `20260929000000:33-37`'s "fires never
   `20260929000000:20-30` describes; the counter twin takes `perform 1 from public.qr_carts … for update`
   first (`20261001000000:171`) for exactly this reason. Upgrading to that lock (cart → line, the order every
   settlement uses) is **owner question 1**, recommended, with the 20260929 prose restated and the lock
-  listed as a two-session survivor as the battery lists the counter undo's. The TS stays: a lock-refused 0
+  listed as a two-session survivor as the battery lists the counter undo's. **BUILT #315 (2026-10-06) as
+  M261** — `20261006120000_m261_undo_fire_cart_lock.sql`, the counter twin's line first, no deploy order;
+  M261.1 probes a line-less cart's `xmax` (a line's FK check stamps any cart with lines); the prod apply
+  waits on the owner's go (OPEN-ITEMS M261). The TS stays: a lock-refused 0
   rows reads `expired` — true in effect; naming the lock needs a return-shape change (nice-to-do). THE
   IN-GRACE PREDICATE stays filed: it would 409 a GUEST's legitimate pay for ≤10 s after every host send
   with no money benefit — with the guard, whichever side wins, the charge equals the cart and nothing is

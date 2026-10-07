@@ -68,10 +68,32 @@
  * `mms_bump_ticket` (§6) join TARGETS: the migration defines both, so a restore re-applies them too.
  *
  * Phase 3c-ii · M258 (D29) adds suite `p3c2`: `mms_undo_fire` restated with the two freshness legs
- * (a fresh pay lock, a fresh split freeze — `mms_void_line`'s idiom) and FOUR killed mutants, each
- * beside the legitimate case its leg must not over-block, with NO new survivor: the function takes
- * no row lock by default (owner question 1), and the one-statement residual that leaves is STATED
- * in the migration header rather than claimed closed by a row here.
+ * (a fresh pay lock, a fresh split freeze — `mms_void_line`'s idiom) and SEVEN killed mutants (four
+ * at first; the blind pass on 3c-ii added the two narrowed windows, Codex r1 on #314 the null stamp),
+ * each beside the legitimate case its leg must not over-block, with NO new survivor: the function
+ * took no row lock then (owner question 1), and the one-statement residual that left was STATED in
+ * the migration header rather than claimed closed by a row here.
+ *
+ * M261 · J37 adds suite `m261`: `mms_undo_fire` restated AGAIN, now taking the cart row lock first
+ * (`mms_undo_counter_fire`'s line) — so M258's seven mutants patch THAT file (`src: "m261"`) and are
+ * still judged by `p3c2`, or the chain would overwrite each mutation and every one would read NO-OP.
+ * Five killed mutants: the lock dropped (M261.1 — a line-less cart's `xmax`, the lock TAKEN), the
+ * un-fire that keeps `fire_batch` (J37.1 — the fact `lib/undo-miss.ts` reads as "an earlier undo
+ * landed"), the grace leg dropped (J37.2 — a late undo must leave the batch on the lines, the fact it
+ * reads as "the kitchen has it"), and — from the blind pass on #315 — the comped and the voided legs
+ * (J37.3 · J37.4: both lines are skipped and keep the batch; `undoMissReason` counts the first and
+ * not the second). ONE documented survivor: the lock moved AFTER the update still stamps `xmax`, so
+ * M261.1 cannot see it — its ORDER against a claim is two-session work (OPEN-ITEMS P2fj).
+ *
+ * M263 · J41 · J40 adds suite `m263`: `mms_bind_session_table`, the one bind authority (the freeze
+ * read under the binder's cart lock, the sticker rule, the adopt of an untouched staff shell, the
+ * CAS) and the ONE "untouched" predicate's three readers (`mms_shell_untouched` itself, the
+ * picker's batched `mms_untouched_shells`, the grid claim's `mms_claim_untouched_shell`) — one
+ * killed mutant per named `M263.<n> ·` / `J41.<n> ·` / `J40.<n> ·` / `SH.<n> ·` case, and FIVE new
+ * documented survivors, all row locks no single session can observe: the binder cart's FOR SHARE,
+ * the adopt's shell-cart and shell-session locks, and the claim's two. All five are KILLED by
+ * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
+ * in all (with M261's lock order, above).
  *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
@@ -137,9 +159,21 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261005120100_m258_undo_fire_lock_guard.sql"),
     test: path.join(ROOT, "supabase/tests/m258_undo_fire_lock_guard_test.sql"),
   },
+  // M261 · J37 — `mms_undo_fire` restated with the cart row lock first. Its LAST definition moves
+  // here, so M258's seven mutants patch THIS file now (`src: "m261"`) and are still judged by p3c2.
+  m261: {
+    migration: path.join(ROOT, "supabase/migrations/20261006120000_m261_undo_fire_cart_lock.sql"),
+    test: path.join(ROOT, "supabase/tests/m261_undo_fire_cart_lock_test.sql"),
+  },
+  // M263 · J41 · J40 — `mms_bind_session_table`, a NEW function (no earlier definition), so the
+  // chain only grows by its own file.
+  m263: {
+    migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
+    test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -240,6 +274,27 @@ function functionDef(fn) {
  * differently at 2am.
  */
 const M109_GATE = "  if v_src_mode is null or v_tgt_mode is null or v_src_mode <> v_tgt_mode then";
+
+/** M263's two freshness legs, named once because several mutants below patch each. */
+const BIND_LOCK_LEG =
+  "  if v_locked and v_locked_at is not null and v_locked_at > now() - interval '5 minutes' then   -- M263: a FRESH pay lock refuses";
+const BIND_SETTLE_LEG =
+  "  if v_settle_at is not null and v_settle_at > now() - interval '10 minutes' then   -- M263: a FRESH split freeze refuses";
+/**
+ * The two decision-order mutants move a whole STEP of the migration (its freeze read, its sticker
+ * rule) to just before the CAS — inside the adopt's subtransaction, after the shell has yielded. The
+ * blocks are sliced from the migration's own text between its step markers, so a step that is
+ * reworded or renumbered leaves the slice empty and the mutant reports STALE, never a silent pass.
+ */
+const M263_TEXT = readFileSync(SUITES.m263.migration, "utf8");
+function stepBlock(from, to) {
+  const a = M263_TEXT.indexOf(from);
+  const b = M263_TEXT.indexOf(to);
+  return a >= 0 && b > a ? M263_TEXT.slice(a, b) : "\u0000(stale step markers)\u0000";
+}
+const BIND_FREEZE_BLOCK = stepBlock("  -- 2. M263 —", "  -- 3. J41 —");
+const BIND_J41_BLOCK = stepBlock("  -- 3. J41 —", "  -- 4. J40 —");
+const BIND_CAS_HEAD = "    update public.table_sessions s\n       set table_number = p_table\n";
 
 const MUTANTS = [
   {
@@ -818,7 +873,7 @@ const MUTANTS = [
     src: "p2f",
     suite: "p2f",
     expect: "P2F.12 ·",
-    why: "a comped line is an audited loss; the undo turning it back into a draft makes it billable again with the comp row still standing",
+    why: "a comped line is an audited loss the kitchen is making; the undo turning it back into a draft pulls the dish off the KDS as an unsent draft while its comp row still describes a fired line (no charge — every total excludes a comped line in any state, totals-math.ts — but the kitchen stops making food the floor promised free)",
     find: "      and ci.state = 'fired'\n      and not ci.comped\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
     replace:
       "      and ci.state = 'fired'\n      and ci.fire_at > now()\n      and ci.fire_batch = p_batch;",
@@ -1648,12 +1703,12 @@ const MUTANTS = [
   // ── Phase 3c-ii · M258 (D29) — the undo's two freshness legs, each beside the legitimate case it
   // must not over-block. Both legs read the SAME columns `mms_void_line` reads, so a leg written in
   // the strict form (bare `c.locked = false`) passes M1 and fails M2 — the over-blocking direction
-  // W17 named. No row lock by default (owner question 1): the one-statement residual is stated in
-  // the migration header, not claimed closed here.
+  // W17 named. M261 restated the function with the cart row lock, so these patch THAT file now
+  // (`src: "m261"`) — a patch to 20261005120100 is overwritten by the chain's last entry and reads NO-OP.
   {
     id: "undo/locked-cart-undone",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.1 ·",
     why: "the hole D20 filed — without the lock leg, host A's undo flips the batch back after guest B's create-intent locked and read zero drafts, and B's charge mints over dishes the gate would have refused",
@@ -1663,7 +1718,7 @@ const MUTANTS = [
   {
     id: "undo/stale-lock-blocks-undo",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.2 ·",
     why: "the strict form the row proposed — `locked` is sticky (acquireCartLock takes a stale lock over; authz ignores one past its TTL), so a bare locked=false refuses every undo after an abandoned pay tab and the action says 'already with the kitchen' over lines the kitchen never saw",
@@ -1673,7 +1728,7 @@ const MUTANTS = [
   {
     id: "undo/settling-cart-undone",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.4 ·",
     why: "a split in flight captures each share against the CURRENT base — an undo under a fresh settle freeze re-drafts lines the shares already priced",
@@ -1683,7 +1738,7 @@ const MUTANTS = [
   {
     id: "undo/settle-window-widened",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.5 ·",
     why: "the freeze lifetime is SETTLE_TTL_MS (10 min) in lib/lock-ttl.ts, lib/authz.ts and every mms_split_* — a wider window here refuses the undo of a table whose settlement the app already treats as abandoned",
@@ -1694,7 +1749,7 @@ const MUTANTS = [
   {
     id: "undo/null-lock-timestamp-refuses",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.9 ·",
     why: "Codex r1 on #314 (P2) — the bare `locked and locked_at > …` is NULL for `locked = true, locked_at = NULL` (the schema permits it; authz.ts reads it as not fresh), so the UPDATE skips the row and every undo on such a cart reads 'expired'",
@@ -1705,7 +1760,7 @@ const MUTANTS = [
   {
     id: "undo/lock-window-narrowed",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.7 ·",
     why: "the blind pass on 3c-ii (money lens) — the outer edges alone (0 and 6 minutes) let a body reading `interval '1 minute'` pass: the hole D20 filed reopens for any lock older than a minute, inside the 5-minute pay window a create-intent still holds",
@@ -1716,7 +1771,7 @@ const MUTANTS = [
   {
     id: "undo/settle-window-narrowed",
     fn: "mms_undo_fire",
-    src: "p3c2",
+    src: "m261",
     suite: "p3c2",
     expect: "M258.8 ·",
     why: "the same inner edge for the split freeze: a body reading `interval '1 minute'` passes M4 (0 min) and M5 (11 min) while a 9-minute-old settlement — inside SETTLE_TTL_MS — no longer refuses the undo",
@@ -1724,6 +1779,531 @@ const MUTANTS = [
     replace:
       "      and (c.settle_at is null or c.settle_at <= now() - interval '1 minute')   -- M258: a FRESH split freeze refuses\n",
   },
+  // ── M261 · J37 — the undo's cart row lock, and the two batch facts `lib/undo-miss.ts` reads after a
+  // 0-row answer (now for the diner's undo too): a landed un-fire CLEARS the batch, a late undo KEEPS it.
+  {
+    id: "undo/cart-lock-dropped",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "M261.1 ·",
+    why: "M261 — without the cart row lock the freshness legs read a snapshot one statement wide: a pay lock committing after it is invisible, and the undo flips a batch back under a create-intent that read zero drafts. M261.1 sees the lock TAKEN (a line-less cart's xmax); its ORDER against a claim is P2fj's two-session harness",
+    find: "  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire\n",
+    replace: "",
+  },
+  {
+    id: "undo/unfire-keeps-the-batch",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.1 ·",
+    why: "J37 — `undoMissReason` reads 'no line still carries the batch' as 'an earlier undo landed'; an un-fire that keeps fire_batch makes every re-ask after a lost answer read `expired` — 'already with the kitchen' over dishes that are drafts",
+    find: "    set state = 'draft', fire_at = null, fire_batch = null\n",
+    replace: "    set state = 'draft', fire_at = null\n",
+  },
+  {
+    id: "undo/grace-leg-dropped",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.2 ·",
+    why: "the grace leg is what makes a 0 after the deadline mean 'the kitchen has it' — dropped, a late undo un-fires (and un-batches) dishes the KDS already shows, and `undoMissReason` then answers `gone` ('brought back') over food being cooked",
+    find: "      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)\n",
+    replace: "",
+  },
+  // ── The blind pass on #315 — the two lines an in-grace undo must SKIP, both of which keep the batch
+  // (the facts `undoMissReason` now reads: a comped line counts, a voided one does not).
+  {
+    id: "undo/comped-line-unfired",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.3 ·",
+    why: "a comped line is an audited loss the kitchen is making; an undo that turns it back into a draft pulls the dish off the KDS as an unsent draft, clears the batch `undoMissReason` reads it by, and leaves the comp row describing a line no longer fired (no charge — every total excludes a comped line in any state, totals-math.ts)",
+    find: "      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)\n",
+    replace: "",
+  },
+  {
+    id: "undo/voided-line-unvoided",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    expect: "J37.4 ·",
+    why: "only a FIRED line comes back; without the state leg an in-grace undo turns a voided dish back into a draft on the order",
+    find: "      and ci.state = 'fired'\n",
+    replace: "",
+  },
+  {
+    id: "undo/cart-lock-after-the-update",
+    fn: "mms_undo_fire",
+    src: "m261",
+    suite: "m261",
+    // DOCUMENTED SURVIVOR (the blind pass on #315, concurrency). The lock moved AFTER the un-fire still
+    // stamps the cart's `xmax`, so M261.1 — which proves the lock TAKEN — passes; what this breaks is
+    // the ORDER (cart → line, the freshness legs read under the cart lock), and that needs a second
+    // session holding the pay lock mid-statement: OPEN-ITEMS P2fj's two-session harness. Listed so a
+    // maintainer who reworks the lock sees this row rather than a silently-absent one.
+    expect: null,
+    why: "the cart lock must come FIRST — taken after the update, the freshness legs read a snapshot one statement wide again; unkillable single-session (P2fj)",
+    find: `  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire
+  update public.qr_cart_items ci
+    set state = 'draft', fire_at = null, fire_batch = null
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where ci.cart_id = p_cart_id
+      and c.id = ci.cart_id
+      and c.status = 'open'
+      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)
+      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses
+      and s.mode = 'dinein'
+      and ci.state = 'fired'
+      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)
+      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)
+      and ci.fire_batch = p_batch;     -- ONLY this send's batch (the UI's Undo corresponds to one send)
+  get diagnostics n = row_count;
+`,
+    replace: `  update public.qr_cart_items ci
+    set state = 'draft', fire_at = null, fire_batch = null
+    from public.qr_carts c
+    join public.table_sessions s on s.id = c.session_id
+    where ci.cart_id = p_cart_id
+      and c.id = ci.cart_id
+      and c.status = 'open'
+      and not (c.locked and c.locked_at is not null and c.locked_at > now() - interval '5 minutes')   -- M258: a FRESH pay lock refuses (a NULL stamp is not fresh — three-valued logic)
+      and (c.settle_at is null or c.settle_at <= now() - interval '10 minutes')   -- M258: a FRESH split freeze refuses
+      and s.mode = 'dinein'
+      and ci.state = 'fired'
+      and not ci.comped                -- a comped line is a committed loss; undo must skip it (S2-audit S4)
+      and ci.fire_at > now()           -- still in grace; the kitchen has NOT pulled it (else removal → void)
+      and ci.fire_batch = p_batch;     -- ONLY this send's batch (the UI's Undo corresponds to one send)
+  get diagnostics n = row_count;
+  perform 1 from public.qr_carts where id = p_cart_id for update;   -- M261: the cart row first (cart → line), as mms_undo_counter_fire
+`,
+  },
+  // ── M263 · J41 · J40 — `mms_bind_session_table`: the bind decided once, under locks. Each leg is
+  // killed by its NAMED case; the three row locks are documented survivors here and killed by
+  // scripts/verify-bind-race.mjs --mutants (one session cannot interleave a second writer).
+  ...[
+    {
+      id: "bind/lock-leg-deleted",
+      expect: "M263.1 ·",
+      why: "M263 — the in-transaction pay-lock leg gone: a lock acquired after the action's own read lets the number land under a live charge, and fulfillment snapshots it onto the order the payer is reading",
+      find: `${BIND_LOCK_LEG}\n`,
+      replace: "  if false then   -- M263: a FRESH pay lock refuses\n",
+    },
+    {
+      id: "bind/lock-window-narrowed",
+      expect: "M263.2 ·",
+      why: "the inner edge — a 1-minute window passes the 0- and 6-minute cases while a 4-minute-old lock, inside CART_LOCK_TTL_MS, no longer refuses",
+      find: "interval '5 minutes' then   -- M263: a FRESH pay lock refuses",
+      replace: "interval '1 minute' then   -- M263: a FRESH pay lock refuses",
+    },
+    {
+      id: "bind/stale-lock-refuses",
+      expect: "M263.3 ·",
+      why: "W17 — the bare `locked` flag is sticky (acquireCartLock takes a stale lock over, authz ignores one past its TTL), so a bind after an abandoned pay tab is refused forever",
+      find: `${BIND_LOCK_LEG}\n`,
+      replace: "  if v_locked then   -- M263: a FRESH pay lock refuses\n",
+    },
+    {
+      id: "bind/null-lock-stamp-reads-fresh",
+      expect: "M263.4 ·",
+      why: "a NULL stamp read as fresh: locked=true with no locked_at (authz.ts reads it as NOT fresh) refuses every bind on that cart",
+      find: "v_locked and v_locked_at is not null and v_locked_at > now()",
+      replace: "v_locked and coalesce(v_locked_at, now()) > now()",
+    },
+    {
+      id: "bind/settle-leg-deleted",
+      expect: "M263.5 ·",
+      why: "M263 — the split-freeze leg gone: a bind lands while every share is captured against the current table",
+      find: `${BIND_SETTLE_LEG}\n`,
+      replace: "  if false then   -- M263: a FRESH split freeze refuses\n",
+    },
+    {
+      id: "bind/settle-window-narrowed",
+      expect: "M263.6 ·",
+      why: "the inner edge — a 9-minute-old settlement is inside SETTLE_TTL_MS and must still refuse",
+      find: "interval '10 minutes' then   -- M263: a FRESH split freeze refuses",
+      replace: "interval '1 minute' then   -- M263: a FRESH split freeze refuses",
+    },
+    {
+      id: "bind/settle-window-widened",
+      expect: "M263.7 ·",
+      why: "the outer edge — the app treats an 11-minute-old settlement as abandoned (lib/lock-ttl.ts), so a wider window refuses a legitimate bind (W17)",
+      find: "interval '10 minutes' then   -- M263: a FRESH split freeze refuses",
+      replace: "interval '60 minutes' then   -- M263: a FRESH split freeze refuses",
+    },
+    {
+      id: "bind/cas-drops-the-null-guard",
+      expect: "M263.8 ·",
+      why: "D21 — a bound session re-tabled by a second tap: the fulfill RPCs snapshot the number, so a re-bind moves a paid order to another table",
+      find: "       and s.table_number is null\n",
+      replace: "",
+    },
+    {
+      id: "bind/blocked-cas-reads-bound",
+      expect: "M263.8 ·",
+      why: "lock.ts's lesson in SQL — a CAS that moved no row answered as a landing: the sheet closes on 'Table N' while the row sits elsewhere",
+      find: "    if n = 0 then   -- D21: a blocked CAS is never a landing, and it takes the adopt back with it\n",
+      replace:
+        "    if false then   -- D21: a blocked CAS is never a landing, and it takes the adopt back with it\n",
+    },
+    {
+      id: "bind/paid-cart-freeze-read",
+      expect: "M263.9 ·",
+      why: "the freeze read off ANY cart: a paid cart's leftover lock (history, not a charge) refuses the bind of the next order",
+      edits: [
+        {
+          find: "     where c.status = 'open'\n       and (c.session_id = p_session or c.session_id = p_shell)\n",
+          replace: "     where (c.session_id = p_session or c.session_id = p_shell)\n",
+        },
+        {
+          find: "       where c.id = v_cart.id and c.status = 'open'\n         for share;",
+          replace: "       where c.id = v_cart.id\n         for share;",
+        },
+      ],
+    },
+    {
+      id: "bind/cas-any-status",
+      expect: "M263.10 ·",
+      why: "a CLOSED session bound: a cleared table's row re-seats N for a party that left",
+      find: "       and s.status = 'active'\n",
+      replace: "",
+    },
+    {
+      id: "bind/cas-any-mode",
+      expect: "M263.11 ·",
+      why: "a PICKUP session bound: a to-go order seated on the floor",
+      find: "       and s.mode = 'dinein'\n",
+      replace: "",
+    },
+    {
+      id: "bind/cas-revives-expired",
+      expect: "M263.12 ·",
+      why: "an EXPIRED session bound: N held by a row every cart write already refuses, until the cron",
+      find: "       and s.mode = 'dinein'\n       and s.expires_at > now();\n",
+      replace: "       and s.mode = 'dinein';\n",
+    },
+    {
+      id: "bind/rekeys-the-session",
+      expect: "M263.13 ·",
+      why: "D21 (finding 4) — the bind rewrites qr_code: every phone's persisted key, the stripped URL and the invite name a code with no active row, and the next bare mint inserts a phantom host session",
+      find: "       set table_number = p_table\n",
+      replace: "       set table_number = p_table, qr_code = s.qr_code || '-T'\n",
+    },
+    {
+      id: "bind/slides-the-expiry",
+      expect: "M263.13 ·",
+      why: "a second writer of the session's expiry beside assertCartMember's renewal",
+      find: "       set table_number = p_table\n",
+      replace: "       set table_number = p_table, expires_at = now() + interval '4 hours'\n",
+    },
+    {
+      id: "bind/collision-swallowed",
+      expect: "M263.14 ·",
+      why: "a 23505 caught as 'unmoved': the caller re-reads its own row, finds it numberless and answers `error`, and the seated party's join form never opens",
+      find: "  exception when sqlstate 'MMSB0' then\n",
+      replace:
+        "  exception when unique_violation then\n    return query select 'unmoved'::text, null::integer;\n    return;\n  when sqlstate 'MMSB0' then\n",
+    },
+    {
+      id: "bind/registry-fk-swallowed",
+      expect: "M263.15 ·",
+      why: "a 23503 caught as 'unmoved': a table retired between the read and the write reads 'try again' instead of 'pick another'",
+      find: "  exception when sqlstate 'MMSB0' then\n",
+      replace:
+        "  exception when foreign_key_violation then\n    return query select 'unmoved'::text, null::integer;\n    return;\n  when sqlstate 'MMSB0' then\n",
+    },
+    {
+      id: "bind/sticker-check-deleted",
+      expect: "J41.1 ·",
+      why: "J41 — a session on table T's sticker bound to N wedges T on the token index: its sticker scan, a claim and a staff Start all fail while the picker shows T Open",
+      find: "    if v_sticker is not null and v_sticker <> p_table then   -- J41: its own table binds\n",
+      replace: "    if false then   -- J41: its own table binds\n",
+    },
+    {
+      id: "bind/sticker-refuses-its-own-table",
+      expect: "J41.2 ·",
+      why: "J41 over-blocking — the sticker session refused at its OWN table (W17)",
+      find: "    if v_sticker is not null and v_sticker <> p_table then   -- J41: its own table binds\n",
+      replace: "    if v_sticker is not null then   -- J41: its own table binds\n",
+    },
+    {
+      id: "bind/sticker-checks-bound-rows",
+      expect: "J41.3 ·",
+      why: "the sticker rule applied to a BOUND row: the caller reads `sticker` for a session already seated, where the honest answer is the CAS's re-read (already / already_bound)",
+      find: "  if v_cur is null then   -- J41: a bound row is the CAS's to answer (the caller re-reads where it is)\n",
+      replace:
+        "  if true then   -- J41: a bound row is the CAS's to answer (the caller re-reads where it is)\n",
+    },
+    {
+      id: "bind/sticker-ignores-active",
+      expect: "J41.4 ·",
+      why: "an INACTIVE registration refuses: the sticker arm never treated that row as the table's, so the refusal names a table the diner cannot reach",
+      find: "\n       and q.active;   -- J41: the sticker arm resolves ACTIVE stickers only\n",
+      replace: ";   -- J41: the sticker arm resolves ACTIVE stickers only\n",
+    },
+    {
+      id: "bind/adopt-cancel-dropped",
+      expect: "J40.1 ·",
+      why: "J40 — the adopted shell's empty cart left open on a closed session: a staff pad write lands on a table nobody holds",
+      find: "      update public.qr_carts c set status = 'cancelled' where c.id = v_shell_cart;   -- J40: the empty cart\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-close-dropped",
+      expect: "J40.1 ·",
+      why: "J40 — the shell never yields: the CAS meets the index and the party staff seated cannot bind its own table",
+      find: "      update public.table_sessions s set status = 'closed' where s.id = p_shell;   -- J40: the shell yields\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopted-reads-bound",
+      expect: "J40.1 ·",
+      why: "the adopt reported as a plain bind: the caller cannot log or say that a staff-started table changed hands",
+      find: "(case when p_shell is null then 'bound' else 'adopted' end)::text",
+      replace: "'bound'::text",
+    },
+    {
+      id: "bind/adopt-a-joined-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.2 ·",
+      why: "J40 — a shell someone JOINED is closed under its member",
+      find: "       and not exists (select 1 from public.session_members m where m.session_id = p_shell)   -- J40: nobody joined it\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-claimed-shell",
+      expect: "J40.3 ·",
+      why: "J40 — a shell a diner has claimed is a PARTY: closing it evicts a host",
+      find: "and s.host_seat is null   -- J40: no diner has claimed it",
+      replace: "and true   -- J40: no diner has claimed it",
+    },
+    {
+      id: "bind/gone-said-as-held",
+      expect: "J40.3 ·",
+      why: "the two refusals merged: a claimed (or vanished) shell answers `held` ('A server has Table N open — ask them to seat you there') where the caller should re-read and name the party at N",
+      find: "      return query select 'gone'::text, null::integer;\n",
+      replace: "      return query select 'held'::text, null::integer;\n",
+    },
+    {
+      id: "bind/adopt-a-touched-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.4 ·",
+      why: "J40 — a shell with a line (a void included: the kitchen's record) cancelled with its cart",
+      find: "       and not exists (select 1 from public.qr_cart_items ci where ci.cart_id = c.id)   -- J40: no line, voided included\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-shell-with-history",
+      fn: "mms_shell_untouched",
+      expect: "J40.5 ·",
+      why: "J40 — a shell with an earlier (paid) order closed: that order's table reads closed",
+      find: "       and not exists (select 1 from public.qr_carts o where o.session_id = p_shell and o.id <> c.id)   -- J40: no earlier order\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-named-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.6 ·",
+      why: "J40 — the name staff typed for the call-out discarded",
+      find: "       and c.customer_name is null   -- J40: no name staff typed\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-promo-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.7 ·",
+      why: "J40 — a promo staff applied discarded",
+      find: "       and c.promo_code is null   -- J40: no promo\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-tab-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.8 ·",
+      why: "J40 — an open tab (a card on file, a trust tab) cancelled with its cart",
+      find: "       and c.tab_type = 'none'   -- J40: no tab\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-paying-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.9 ·",
+      why: "J40 — a cart with a pay attempt cancelled: a charge in flight on a cart that no longer exists",
+      find: "       and not c.locked   -- J40: no pay attempt\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-a-splitting-shell",
+      fn: "mms_shell_untouched",
+      expect: "J40.10 ·",
+      why: "J40 — a cart that has ever been split cancelled: its shares' records orphaned",
+      find: "       and c.settle_at is null   -- J40: no split\n",
+      replace: "",
+    },
+    {
+      id: "bind/adopt-without-a-cart",
+      expect: "J40.11 ·",
+      why: "J40 — a shell whose open cart vanished (adopted under us, mid-clear, mid-Start) adopted on null comparisons that read every leg as clean",
+      find: "    if v_shell_cart is null   -- J40: the shell's open cart\n",
+      replace: "    if false   -- J40: the shell's open cart\n",
+    },
+    {
+      id: "bind/adopt-another-tables-row",
+      expect: "J40.12 ·",
+      why: "J40 — a shell at another number closed by a bind of N: a table the diner never picked is emptied",
+      find: "and s.table_number = p_table)   -- J40: the row that holds THIS number",
+      replace: "and true)   -- J40: the row that holds THIS number",
+    },
+    {
+      id: "bind/adopt-a-pickup-row",
+      expect: "J40.13 ·",
+      why: "J40 — a hostless counter order (`reg-`, pickup) closed as if it were a table",
+      find: "and s.mode = 'dinein'   -- J40: never a pickup or counter order",
+      replace: "and true   -- J40: never a pickup or counter order",
+    },
+    {
+      id: "bind/adopt-a-closed-row",
+      expect: "J40.14 ·",
+      why: "J40 — a closed shell's leftover open cart cancelled by a bind that should have re-read the table",
+      find: "and s.status = 'active'   -- J40: a live row",
+      replace: "and true   -- J40: a live row",
+    },
+    {
+      id: "bind/adopt-survives-a-blocked-cas",
+      expect: "J40.15 ·",
+      why: "J40 · D21 — the adopt committed under a CAS that moved no row: the table reads empty while nobody holds it",
+      find: "      raise exception using errcode = 'MMSB0', message = 'mms_bind_session_table: the CAS moved no row';\n",
+      replace: "      return query select 'unmoved'::text, null::integer;\n      return;\n",
+    },
+    {
+      id: "bind/sticker-after-the-adopt",
+      expect: "J40.16 ·",
+      why: "the decision order: the sticker rule read AFTER the shell has yielded (step 3 moved into the adopt's subtransaction), so a refused bind has already emptied a table",
+      edits: [
+        { find: BIND_J41_BLOCK, replace: "" },
+        { find: BIND_CAS_HEAD, replace: `${BIND_J41_BLOCK}${BIND_CAS_HEAD}` },
+      ],
+    },
+    {
+      id: "bind/freeze-after-the-adopt",
+      expect: "J40.17 ·",
+      why: "the decision order: the binder's freeze read AFTER the shell has yielded (step 2 moved into the adopt's subtransaction), so a frozen bind has already emptied a table",
+      edits: [
+        { find: BIND_FREEZE_BLOCK, replace: "" },
+        { find: BIND_CAS_HEAD, replace: `${BIND_FREEZE_BLOCK}${BIND_CAS_HEAD}` },
+      ],
+    },
+    {
+      id: "bind/held-check-dropped",
+      expect: "J40.2 ·",
+      why: "J40 — the adopt never asks the predicate: any shell at N, whatever is on it, is closed with its cart",
+      find: "    if not public.mms_shell_untouched(p_shell) then   -- J40: the ONE predicate, read under the locks above\n",
+      replace: "    if false then   -- J40: the ONE predicate, read under the locks above\n",
+    },
+    {
+      id: "bind/untouched-any-cart",
+      fn: "mms_shell_untouched",
+      expect: "SH.3 ·",
+      why: "J40 — the predicate reads ANY cart of the session: a shell whose only cart is cancelled (history) reads as an empty table",
+      find: "       and c.status = 'open'   -- J40: the shell's one open cart\n",
+      replace: "",
+    },
+    {
+      id: "bind/batch-ignores-the-predicate",
+      fn: "mms_untouched_shells",
+      expect: "SH.4 ·",
+      why: "J40 — the picker's batched call answers every candidate untouched: a shell with an order on it reads Open, and a stranger's tap is offered the order a server took",
+      find: "   where public.mms_shell_untouched(x.id)   -- J40: the ONE predicate, per candidate\n",
+      replace: "   where true   -- J40: the ONE predicate, per candidate\n",
+    },
+    {
+      id: "bind/claim-ignores-the-predicate",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.6 ·",
+      why: "J40 — the grid claim's host claim without the predicate: a stranger becomes host of the order a server took for the party at N",
+      find: "     and public.mms_shell_untouched(s.id);   -- J40: only a table nothing and nobody is on\n",
+      replace: "     and true;   -- J40: only a table nothing and nobody is on\n",
+    },
+    {
+      id: "bind/claim-reads-refused-as-claimed",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.6 ·",
+      why: "J40 — a claim the WHERE refused answers `true`: the route hands a cart on a table this phone does not host",
+      find: "  return n > 0;\n",
+      replace: "  return true;\n",
+    },
+    {
+      id: "bind/claim-takes-a-hosted-row",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.7 ·",
+      why: "W6a — the first claim no longer wins: a second claimant overwrites the host of a live party",
+      find: "     and s.host_seat is null   -- W6a: the first claim wins\n",
+      replace: "     and true   -- W6a: the first claim wins\n",
+    },
+    {
+      id: "bind/claim-takes-a-closed-row",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.8 ·",
+      why: "M264 — host_seat lands on a CLOSED row (adopted or cleared under the claim)",
+      find: "     and s.status = 'active'   -- M264: never a closed row\n",
+      replace: "     and true   -- M264: never a closed row\n",
+    },
+    {
+      id: "bind/claim-takes-a-counter-order",
+      fn: "mms_claim_untouched_shell",
+      expect: "SH.9 ·",
+      why: "J40 — a hostless counter order (pickup) gets a diner host from a table grid",
+      find: "     and s.mode = 'dinein'   -- J40: a table, never a counter order\n",
+      replace: "     and true   -- J40: a table, never a counter order\n",
+    },
+    // DOCUMENTED SURVIVORS — the five row locks. One session cannot interleave the writer each
+    // lock orders; scripts/verify-bind-race.mjs --mutants kills each (orders a–d · e · f and g ·
+    // j · k).
+    {
+      id: "bind/for-share-deleted",
+      expect: null,
+      why: "the binder cart's FOR SHARE: a lock acquire committing mid-call is invisible to the freshness read — killed by verify-bind-race.mjs (a–d)",
+      find: "         for share;   -- M263: a freeze writer's UPDATE or fulfillment's flip waits, or is seen below\n",
+      replace:
+        "         ;   -- M263: a freeze writer's UPDATE or fulfillment's flip waits, or is seen below\n",
+    },
+    {
+      id: "bind/shell-cart-lock-deleted",
+      expect: null,
+      why: "the shell cart's row-exclusive lock: a staff line inserted mid-adopt lands on a cart the adopt then cancels — killed by verify-bind-race.mjs (e)",
+      find: "         for update;   -- J40: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen below\n",
+      replace:
+        "         ;   -- J40: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen below\n",
+    },
+    {
+      id: "bind/shell-row-lock-deleted",
+      expect: null,
+      why: "the shell session's row-exclusive lock: a membership insert or a host claim mid-adopt lands on a session the adopt then closes — killed by verify-bind-race.mjs (f, g)",
+      find: "       for update;   -- J40: a membership insert (its FK's KEY SHARE) or a host claim waits, or is seen below\n",
+      replace:
+        "       ;   -- J40: a membership insert (its FK's KEY SHARE) or a host claim waits, or is seen below\n",
+    },
+    {
+      id: "bind/claim-cart-lock-deleted",
+      fn: "mms_claim_untouched_shell",
+      expect: null,
+      why: "the grid claim's shell-cart lock: a staff line landing mid-claim is invisible to the predicate in its WHERE — killed by verify-bind-race.mjs (j)",
+      find: "     for update;   -- J40 claim: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen by the predicate\n",
+      replace:
+        "     ;   -- J40 claim: a staff line (P2cy's FOR SHARE) or a cart write waits, or is seen by the predicate\n",
+    },
+    {
+      id: "bind/claim-row-lock-deleted",
+      fn: "mms_claim_untouched_shell",
+      expect: null,
+      why: "the grid claim's shell-session lock: a join landing mid-claim is invisible to the predicate (the claim's own UPDATE takes NO KEY UPDATE, compatible with the FK's KEY SHARE) — killed by verify-bind-race.mjs (k)",
+      find: "     for update;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
+      replace:
+        "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
+    },
+  ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -1781,6 +2361,10 @@ const TARGETS = [
   "mms_line_transition",
   "mms_bump_ticket",
   "mms_undo_fire",
+  "mms_bind_session_table",
+  "mms_shell_untouched",
+  "mms_untouched_shells",
+  "mms_claim_untouched_shell",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

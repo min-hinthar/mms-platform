@@ -10,13 +10,15 @@ import {
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
 import { withinJoinRate } from "@/lib/rate";
 import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "@/lib/lock-ttl";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
+import type { BindTableResult } from "@/lib/bind-table";
 import {
+  awaitsFirstDiner,
   bindSessionTable,
   claimDisposition,
+  rereadVerdict,
   seatedSessionFor,
   sweepExpiredOnTable,
 } from "@/lib/seated";
@@ -35,6 +37,22 @@ const unavailable = () =>
     { error: "We’re having trouble on our end — try again in a moment", kind: "unavailable" },
     { status: 503, headers: { "Retry-After": "20" } },
   );
+
+/** J40 — a claim at table N the re-read refused, said by name: a party → `BIND_COPY.seated` (its
+ *  code joins it), a kiosk order → `kioskOrder(N)`, a table a server started that is no longer
+ *  untouched (anything on it, or anyone joined) → `held(N)` (ask that server to seat you, or pick
+ *  another) — never a join form for a table no code joins; nobody → "try again" (500). */
+function refusedAt(v: Extract<BindTableResult, { ok: false }>, n: number) {
+  const said =
+    v.reason === "seated"
+      ? BIND_COPY.seated
+      : v.reason === "kiosk"
+        ? BIND_COPY.kioskOrder(n)
+        : v.reason === "held"
+          ? BIND_COPY.held(n)
+          : "Could not check the table — try again.";
+  return NextResponse.json({ error: said }, { status: v.reason === "error" ? 500 : 409 });
+}
 
 /**
  * Table-session mint/join (closes red-team C2). A scanned QR — or, for the dine-in group cart
@@ -160,6 +178,37 @@ export async function POST(req: NextRequest) {
     return data ?? null;
   };
 
+  // J40 — a `?table=N` claim taking a table a server started as its FIRST diner. The grid offered it
+  // Open because nothing was on it; the host claim lands ONLY if that is still true — the ONE SQL
+  // predicate in its UPDATE's WHERE, after the shell's cart and session are taken row-exclusive
+  // (`mms_claim_untouched_shell`) — so a stranger's tap never becomes host of an order a server
+  // took. A refused claim is re-read by number and said by name: this seat's other tab already
+  // hosting it → rejoin; a still-hostless (touched) shell → `held`; a party → `seated`; nobody →
+  // "try again". (A STICKER scan keeps W6a's own claim below: the table's physical code.)
+  const takeShell = async (sh: Sess, n: number): Promise<Sess | NextResponse> => {
+    const { data: claimed, error: claimErr } = await db.rpc("mms_claim_untouched_shell", {
+      p_shell: sh.id,
+      p_seat: seat,
+    });
+    if (claimErr && isTransportFailure(claimErr)) return unavailable();
+    if (claimErr)
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 500 },
+      );
+    if (claimed === true) return { ...sh, host_seat: seat };
+    let now: Sess | null;
+    try {
+      now = await seatedSessionFor(db, n, resolvedQr);
+    } catch (e) {
+      if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+      throw e;
+    }
+    if (now && now.host_seat === seat) return now;
+    const v = rereadVerdict(now, "", n, true);
+    return v.ok ? NextResponse.json({ error: BIND_COPY.seated }, { status: 409 }) : refusedAt(v, n);
+  };
+
   // D25 — a registered table is found BY NUMBER (the one predicate, handed the sticker token so a
   // NUMBERLESS live row on that sticker is a party too — the blind pass on 3c-ii: the mint itself
   // stamps null when its registry read fails, and that party was then reachable by nobody), a
@@ -246,6 +295,14 @@ export async function POST(req: NextRequest) {
   // active session, converge on it — a rejoin, not a takeover; the stranger refusal below is intact.
   // D25: the session is found by NUMBER now, so the home card's `?resume=1&table=N` converges on a
   // late-bound table instead of 409ing its own host.
+  //
+  // J40 — UNLESS the row is a table a server STARTED (`awaitsFirstDiner`: no host yet, not a kiosk
+  // order — a kiosk row met the reserved refusal above). It is no stranger's party: the picker shows
+  // it Open while it is untouched, a sticker scan of it makes the scanner its host (W6a, below), and
+  // so does this claim while it is STILL untouched (`takeShell`; a touched one answers `held`) — or,
+  // from a phone with an unbound session of its own, the bind arm below ADOPTS it and keeps the
+  // drafts (`mms_bind_session_table` with the shell). Held aside as `shell`; nothing is written yet.
+  let shell: Sess | null = null;
   if (claim && sess) {
     const { data: mine, error: mineErr } = await db
       .from("session_members")
@@ -260,7 +317,12 @@ export async function POST(req: NextRequest) {
         { error: "Could not check the table — try again." },
         { status: 500 },
       );
-    if (!mine) return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+    if (!mine) {
+      if (!awaitsFirstDiner(sess))
+        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      shell = sess;
+      sess = null;
+    }
   }
 
   // Turned-over table: the same physical sticker code can be reused, but the prior session may be
@@ -273,7 +335,10 @@ export async function POST(req: NextRequest) {
   // the sticker flow already trusts, not a new takeover vector against a live table.
   // Phase 2f (D10) — never on a reserved code: a forged `?t=reg-…` must not close a counter order.
   // (`resolvedQr &&` only narrows the type for the update below — the predicate already requires it.)
-  if (resolvedQr && sweepsExpiredSquatter({ found: sess !== null, code: resolvedQr, joinOnly })) {
+  if (
+    resolvedQr &&
+    sweepsExpiredSquatter({ found: sess !== null || shell !== null, code: resolvedQr, joinOnly })
+  ) {
     await db
       .from("table_sessions")
       .update({ status: "closed" })
@@ -287,11 +352,12 @@ export async function POST(req: NextRequest) {
   if (!sess && sessionTable != null) await sweepExpiredOnTable(db, sessionTable);
 
   // D25 — J33's unbound half. A claim from a phone whose persisted code names a live UNBOUND dine-in
-  // session THIS seat hosts binds that session to the table (one column, `bindSessionTable`) and
-  // rejoins it — its drafts come along, where a second mint would have orphaned them. Decided by the
-  // pure `claimDisposition`: a guest's session, a bound one, a pickup one, a reserved code or no
-  // prior session at all mints as today. The CAS can refuse: 23505 → the number was taken between
-  // the read and the write (the shipped 409); 0 rows → the session died under us → mint.
+  // session THIS seat hosts binds that session to the table (ONE call, `mms_bind_session_table`
+  // through `bindSessionTable` — M263) and rejoins it — its drafts come along, where a second mint
+  // would have orphaned them. Decided by the pure `claimDisposition`: a guest's session, a bound one,
+  // a pickup one, a reserved code or no prior session at all mints as today. The call can refuse:
+  // 23505 → the number was taken between the read and the write (the shipped 409); `unmoved` → the
+  // session moved or died under us → re-read; a fresh freeze or the sticker rule → rejoin unbound.
   // D30 — true once the bind below landed: the session's open cart is touched after it is resolved,
   // so every tablemate's `qr_carts` watch re-reads the view (the blind pass on 3c-ii: without the
   // touch a peer's Checkout kept asking for a table already bound).
@@ -305,58 +371,75 @@ export async function POST(req: NextRequest) {
       throw e;
     }
     if (claimDisposition({ seated: false, mine, seat }) === "bind" && mine) {
-      // THE LOCK MODEL, here too (Codex r1 on #314, P1 — the same invariant `bindTable` keeps): no
-      // cart-adjacent write while a peer's charge or a settlement is live, because the fulfill RPCs
-      // snapshot the number and the payer's receipt must not change under them. Read the session's
-      // open cart with authz's own freshness (`CART_LOCK_TTL_MS` · `SETTLE_TTL_MS`; a null stamp is
-      // not fresh, W17's rule): FRESH → the phone REJOINS its session unbound, no bind, no mint — the
-      // next Send asks the table where `bindTable` answers `locked`/`settling` by name. An
-      // unknowable freeze is an outage, never "free".
-      const { data: cart, error: cartErr } = await db
-        .from("qr_carts")
-        .select("locked,locked_at,settle_at")
-        .eq("session_id", mine.id)
-        .eq("status", "open")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (cartErr) return unavailable();
-      const now = Date.now();
-      const lockedFresh =
-        !!cart?.locked &&
-        cart.locked_at != null &&
-        new Date(cart.locked_at).getTime() > now - CART_LOCK_TTL_MS;
-      const settlingFresh =
-        cart?.settle_at != null && new Date(cart.settle_at).getTime() > now - SETTLE_TTL_MS;
-      if (lockedFresh || settlingFresh) {
-        sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send
-      } else {
-        const { count, error } = await bindSessionTable(db, mine.id, sessionTable);
-        if (error?.code === "23505")
-          return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
-        if (error)
-          return NextResponse.json(
-            { error: "Could not check the table — try again." },
-            { status: 500 },
-          );
-        if ((count ?? 0) > 0) {
-          sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
-          boundNow = true;
-        } else {
-          // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
-          // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or
-          // died. Re-read it: a live row is this phone's own party, rejoined at whatever number it
-          // holds — never a second session minted over its drafts. Dead → the mint below.
-          let live: Sess | null;
-          try {
-            live = await findActive(mine.qr_code);
-          } catch (e) {
-            if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
-            throw e;
-          }
-          if (live) sess = live;
+      // THE LOCK MODEL, here too (Codex r1 on #314, P1 — the same invariant `bindTable` keeps), now
+      // decided where the lock is (M263): `mms_bind_session_table` reads the session's open cart
+      // freeze under its FOR SHARE and CASes in the SAME transaction, so a pay lock or a split
+      // freeze that commits between a read and a write can no longer land the number under a live
+      // charge. A fresh freeze, or J41's sticker rule (this session started on ANOTHER table's
+      // sticker) → the phone REJOINS its session unbound — no bind, no mint over its drafts — and the
+      // next Send asks, where `bindTable` answers by name. J40 — with a `shell` (a table a server
+      // started, found at N above) the SAME call ADOPTS it: nothing and nobody on it → it closes with
+      // its empty cart and THIS session is bound to N, drafts and all, under the shell's row locks.
+      const { outcome, error } = await bindSessionTable(
+        db,
+        mine.id,
+        sessionTable,
+        shell?.id ?? null,
+      );
+      if (error?.code === "23505")
+        return NextResponse.json({ error: BIND_COPY.seated }, { status: 409 });
+      // W10a — an outage is the 503, never a verdict.
+      if (error && isTransportFailure(error)) return unavailable();
+      if (error || !outcome)
+        return NextResponse.json(
+          { error: "Could not check the table — try again." },
+          { status: 500 },
+        );
+      if (outcome.kind === "bound" || outcome.kind === "adopted") {
+        sess = { ...mine, table_number: sessionTable }; // a JOIN: the expiry slides below
+        boundNow = true;
+      } else if (outcome.kind === "unmoved") {
+        // Zero rows (the blind pass, concurrency lens): the row moved under the write — BOUND by
+        // another tab meanwhile (J33's bound half: this phone is at the number IT landed), or
+        // died. Re-read it: a live row is this phone's own party, rejoined at whatever number it
+        // holds — never a second session minted over its drafts. Dead → the shell, joined as its
+        // first diner (the adopt rolled back with the CAS), or with no shell the mint below.
+        let live: Sess | null;
+        try {
+          live = await findActive(mine.qr_code);
+        } catch (e) {
+          if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+          throw e;
         }
+        if (live) sess = live;
+        else if (shell) {
+          const took = await takeShell(shell, sessionTable);
+          if (took instanceof NextResponse) return took;
+          sess = took;
+        }
+      } else if (outcome.kind === "gone" || outcome.kind === "held") {
+        // J40 · red-team #5 — the shell changed under the call (`gone`) or is no longer untouched
+        // (`held`): re-read who holds N NOW and answer that, by name — this phone's own row there
+        // (another tab) is a rejoin; a party, a kiosk order or a held table is refused with its own
+        // sentence; nobody is a retry. Never a join form: no code joins a table a server started.
+        let now: Sess | null;
+        try {
+          now = await seatedSessionFor(db, sessionTable, resolvedQr);
+        } catch (e) {
+          if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+          throw e;
+        }
+        const v = rereadVerdict(now, mine.id, sessionTable, outcome.kind === "held");
+        if (v.ok && now) sess = now;
+        else if (!v.ok) return refusedAt(v, sessionTable);
+      } else {
+        sess = mine; // a JOIN, unbound: the expiry slides below, the number is asked at Send
       }
+    } else if (shell) {
+      // J40 — no unbound session of this phone's to keep: take the shell as its first diner.
+      const took = await takeShell(shell, sessionTable);
+      if (took instanceof NextResponse) return took;
+      sess = took;
     }
   }
 
@@ -440,12 +523,18 @@ export async function POST(req: NextRequest) {
   // claimed it yet. The FIRST diner to scan the sticker claims host, atomically (first-writer-wins on
   // the null), mirroring the "first scanner provisions" trust the sticker flow already has. Without
   // this, a staff-started table has NO host forever: nobody can start a split or edit others' lines.
+  // M264 — a hostless row is also the one row another phone's Send can ADOPT (J40,
+  // `mms_bind_session_table`) or staff can clear while this join is in flight, so the claim is
+  // guarded on the row still being live, and the join re-checks it below before handing out a cart.
+  // (A shell this claim just took host of is one too: the re-check below still runs for it.)
+  const wasShell = sess.host_seat == null || sess.id === shell?.id;
   if (sess.host_seat == null && !joinOnly) {
     const { data: claimed } = await db
       .from("table_sessions")
       .update({ host_seat: seat })
       .eq("id", sess.id)
       .is("host_seat", null)
+      .eq("status", "active")
       .select("host_seat")
       .maybeSingle();
     if (claimed) sess = { ...sess, host_seat: claimed.host_seat };
@@ -497,6 +586,28 @@ export async function POST(req: NextRequest) {
       if (memErr.code !== "23505")
         return NextResponse.json({ error: "Could not join session" }, { status: 500 });
     }
+  }
+
+  // M264 (red-team #3 on J40) — a HOSTLESS row this join found may have been adopted by a
+  // tablemate's Send (or cleared by staff) between the find and the writes above: the adopt waits on
+  // nothing this route holds once the slide has committed, and it sees no member until the insert
+  // above lands. Once it has landed no adopt can follow (the RPC refuses a shell with a member), so
+  // ONE read here is definitive. A closed row is never handed out — its cart is cancelled, and a fresh
+  // one minted on it would carry this diner's order on a session every write refuses. The retry
+  // re-resolves the table from the top (a sticker scan finds whoever holds N now; a claim meets the
+  // party that adopted it). Hosted rows skip this: nothing adopts a party.
+  if (wasShell) {
+    const { data: live, error: liveErr } = await db
+      .from("table_sessions")
+      .select("status")
+      .eq("id", sess.id)
+      .maybeSingle();
+    if (liveErr && isTransportFailure(liveErr)) return unavailable();
+    if (liveErr || live?.status !== "active")
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 409 },
+      );
   }
 
   // Find-or-create the session's OPEN cart (P1.2 "create-cart"). Idempotent: returns the existing

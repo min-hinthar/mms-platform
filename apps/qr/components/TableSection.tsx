@@ -38,6 +38,7 @@ export function TableSection({
   onPlain,
   markMine,
   joinNote,
+  noJoin,
 }: {
   tables: DineInTable[];
   /** `sheet` (the DoorSheet) or `send` (the bind sheet) — on the capture and the escape's verb. */
@@ -59,6 +60,9 @@ export function TableSection({
   markMine?: boolean;
   /** Rendered under the join form only (the Send sheet's drafts note). */
   joinNote?: ReactNode;
+  /** J40 — the Send sheet's Seated tables whose order no code joins (`TableGrid`): no disclosure,
+   *  no join clause. The DoorSheet passes none. */
+  noJoin?: ReadonlySet<number>;
 }) {
   const tablesTitleId = useId();
   const joinFormId = useId();
@@ -79,13 +83,15 @@ export function TableSection({
   };
 
   return (
-    // 3c-i (D18) — the grid as a SECTION, under the doors, under a hairline. Spacing is the
-    // exits' idiom in tokens; `.table-chip.is-mine` is availability (the clay wash), never the
-    // lit cap — the current door above stays the one selected thing on this surface.
+    // 3c-i (D18) — the grid as a SECTION, under the doors, under a hairline. Its spacing is the
+    // stylesheet's (J32): `.door-sheet-tables` beside `.door-sheet-exits`, the DoorSheet's hairline
+    // on `[data-host="sheet"]`, none under the Send sheet's title — and inside it the --s3 gap is the
+    // one rhythm, so no child carries a top margin. `.table-chip.is-mine` is availability (the clay
+    // wash), never the lit cap — the current door above stays the one selected thing on this surface.
     <section
       aria-labelledby={source === "send" ? undefined : tablesTitleId}
       className="door-sheet-tables"
-      style={source === "send" ? sendSection : tablesSection}
+      data-host={source}
     >
       {/* Under the DoorSheet the section sits beneath the door's title and names itself; the Send
           sheet IS this section and its dialog title is the one name — a second "Pick your table"
@@ -112,6 +118,7 @@ export function TableSection({
         markMine={markMine}
         expandedTable={joinNum}
         controls={joinFormId}
+        noJoin={noJoin}
       />
       {joinNum != null && (
         <JoinForm key={joinNum} id={joinFormId} tableNumber={joinNum} onJoin={submitJoin}>
@@ -208,18 +215,8 @@ function JoinForm({
   );
 }
 
-// 3c-i — the section's spacing in tokens (the `.door-sheet-exits` idiom: a hairline, then the
-// stack). Inline until a stylesheet carries a `.door-sheet-tables` rule; no literal sizes.
-const tablesSection = {
-  display: "grid",
-  gap: "var(--s3)",
-  marginTop: "var(--s4)",
-  paddingTop: "var(--s4)",
-  paddingBottom: "var(--s2)",
-  borderTop: "1px solid var(--bd)",
-} as const;
-// The Send sheet's section: the dialog's title is directly above, so no hairline and no top gap.
-const sendSection = { display: "grid", gap: "var(--s3)", paddingBottom: "var(--s2)" } as const;
 const sectionTitle = { margin: 0, fontSize: "var(--fs-h3)" } as const;
 const flush = { margin: 0 } as const;
-const joinForm = { display: "grid", gap: "var(--s3)", marginTop: "var(--s2)" } as const;
+// No top margin (J32): the form is a direct child of the section's grid, whose --s3 gap is the one
+// rhythm — its old `--s2` top made the escape-to-form step 20px where every other step is 12px.
+const joinForm = { display: "grid", gap: "var(--s3)" } as const;

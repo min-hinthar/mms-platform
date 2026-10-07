@@ -9,6 +9,7 @@ import {
   padCategories,
   padDishName,
   padPickCat,
+  padReceiptRows,
   padSections,
   padSendView,
   padCounterDock,
@@ -388,6 +389,49 @@ describe("padAmountsSettled — one predicate for every amount the pad names", (
     expect(padAmountsSettled(NONE, { writing: 1, unread: false })).toBe(false);
     // MUTATION: shown again the moment the write answers — the figure still predates it; red.
     expect(padAmountsSettled(NONE, { writing: 0, unread: true })).toBe(false);
+  });
+});
+
+describe("padReceiptRows — the ticket speaks the receipt, and its Total is the dock's figure (Phase 3d · counter)", () => {
+  /** The server's parts as `getTableDetail` reads them off ONE `getCartTotals` call. Promo + reward
+   *  are combined in `discountCents` (M22), tax is on the discounted base: 5000 − 1400 = 3600 before
+   *  tax, 3600 + 330 = 3930 tax-inclusive. Service and tip are 0 on this read (W16a · tipRate 0). */
+  const priced = {
+    settleBreakdown: {
+      subtotalCents: 5000,
+      discountCents: 1400,
+      serviceChargeCents: 0,
+      taxCents: 330,
+      tipCents: 0,
+    },
+    settleTotalCents: 3930,
+  };
+
+  it("no stack until the server priced the order — never a fabricated $0.00", () => {
+    // An empty or all-comped open order, and a settled record: the read prices nothing.
+    expect(padReceiptRows({ settleBreakdown: null, settleTotalCents: null })).toBeNull();
+  });
+
+  it("the Total row is settleTotalCents itself — the figure Take payment names, tax included", () => {
+    // MUTATION p3d-receipt/pad-total-is-pre-tax: the Total re-derived as subtotal − discount = 3600 —
+    // the two-bases bug back, one row down (a pre-tax figure under "Total", the dock's 3930 beside
+    // it); red. The fixture separates them: tax is not 0.
+    const rows = padReceiptRows(priced)!;
+    expect(rows.at(-1)).toEqual({ key: "total", label: "Total", amountCents: 3930, grand: true });
+    expect(rows.filter((r) => r.grand)).toHaveLength(1);
+  });
+
+  it("the receipt's own rows, in its order, zero-gated: Subtotal · Discount (signed) · Tax · Total", () => {
+    const rows = padReceiptRows(priced)!;
+    expect(rows.map((r) => r.key)).toEqual(["subtotal", "discount", "tax", "total"]);
+    expect(rows.map((r) => r.amountCents)).toEqual([5000, 1400, 330, 3930]);
+    expect(rows.find((r) => r.key === "discount")?.negative).toBe(true);
+    // No discount, no tax (an all-exempt basket): Subtotal and Total only — no "$0.00" rows.
+    const bare = padReceiptRows({
+      settleBreakdown: { ...priced.settleBreakdown, discountCents: 0, taxCents: 0 },
+      settleTotalCents: 5000,
+    })!;
+    expect(bare.map((r) => r.key)).toEqual(["subtotal", "total"]);
   });
 });
 

@@ -386,6 +386,24 @@ describe("one concept, one word — across namespaces that draw on ONE screen", 
   });
 });
 
+describe("J29 (kept) — a way back names the place it lands on", () => {
+  // Deep pass on #312: every `floor.back` lands on the counter home (`/staff?floor=1`), whose bar and
+  // tab read `floor.door.counter` ("Counter & tables"). The back link used to say "Floor" — a word
+  // that screen never shows — so a new hire could not learn the two are one place. Its word is that
+  // title's head word, in both tongues. The Burmese is a PREFIX match on purpose: both values are
+  // K15 drafts, and a native reviewer re-joining the title (a space before နဲ့, or နှင့်) must not
+  // redden a correct pair. MUTATION staff-copy/counter-back-names-the-wrong-place → red.
+  it("floor.back is the head word of floor.door.counter, both tongues", () => {
+    const back = STAFF["floor.back"];
+    const dest = STAFF["floor.door.counter"];
+    expect(back.en.startsWith("← ")).toBe(true);
+    expect(back.my.startsWith("← ")).toBe(true);
+    expect(dest.en.split(/\s/)[0]).toBe(back.en.slice(2));
+    expect(back.my.slice(2).length).toBeGreaterThan(0);
+    expect(dest.my.startsWith(back.my.slice(2))).toBe(true);
+  });
+});
+
 describe("Phase 2h review c (C2) — a refusal that DID NOT happen is never said as 'not yet'", () => {
   // `out.stalled` is said when a tap was refused BEFORE it was sent: nothing will ever land from it.
   // ရသေး ("…yet") reads as PENDING — "hasn't done anything yet" — so a cashier waits for it, or

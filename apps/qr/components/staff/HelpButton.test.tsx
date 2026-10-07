@@ -319,6 +319,73 @@ describe("HelpButton", () => {
     );
   });
 
+  describe("Phase 3d — the Aa circle: Text size two taps from the board (K38)", () => {
+    const kitchen = (onPick = vi.fn()) =>
+      render(
+        <HelpButton
+          lang="en"
+          screen="kitchen"
+          size={{ value: "m", onPick }}
+          cardVars={kitchenVars}
+        />,
+      );
+    const aaCircle = () => screen.getByRole("button", { name: "Text size" });
+
+    it("opens the sheet STRAIGHT onto Text size; a pick closes it and focus returns to the Aa", async () => {
+      seen("kitchen");
+      stubMatchMedia(true);
+      const onPick = vi.fn();
+      kitchen(onPick);
+      // Before any open the only "Text size" control is the circle — a plain one (gold is Help's),
+      // named by sr-only dictionary text, never an aria-label (rule 3).
+      const aa = aaCircle();
+      expect(aa.className).toContain("staff-circ");
+      expect(aa.className).not.toContain("staff-circ-gold");
+      expect(aa.getAttribute("aria-label")).toBeNull();
+      expect(aa.getAttribute("aria-haspopup")).toBe("dialog");
+      expect(aa.getAttribute("aria-expanded")).toBe("false");
+      aa.focus();
+      fireEvent.click(aa);
+      // MUTATIONS (p3d/help/aa-opens-the-menu · p3d/help/open-forgets-the-view): the sheet opens on
+      // the rows — three taps to a size again, red.
+      const d = await screen.findByRole("dialog", { name: "Text size" });
+      const sizes = await within(d).findByRole("group", { name: "Text size" });
+      expect(within(d).queryByRole("list", { name: "Help topics" })).toBeNull();
+      expect(sizes.querySelectorAll('[aria-pressed="true"]')).toHaveLength(1);
+      expect(sizes.querySelector('[aria-pressed="true"]')!.textContent).toMatch(/Medium/);
+      expect(aa.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(within(d).getByRole("button", { name: /Large/ }));
+      expect(onPick).toHaveBeenCalledWith("l");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(aa));
+    });
+
+    it("renders only where there is a dial, and sits BEFORE the gold ?", () => {
+      // MUTATION (p3d/help/aa-on-every-screen): a dead Aa circle on the counter, which has no dial
+      // (§16 — a control that does nothing), red.
+      seen("counter");
+      render(<HelpButton lang="en" screen="counter" />);
+      expect(screen.queryByRole("button", { name: "Text size" })).toBeNull();
+      cleanup();
+      seen("kitchen");
+      kitchen();
+      const aa = aaCircle();
+      expect(aa.compareDocumentPosition(circle()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("an Aa open never leaks into the next ? open — the gold circle still lands on the rows", async () => {
+      seen("kitchen");
+      kitchen();
+      fireEvent.click(aaCircle());
+      await screen.findByRole("group", { name: "Text size" });
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      fireEvent.click(circle());
+      expect(await screen.findByRole("list", { name: "Help topics" })).not.toBeNull();
+      expect(screen.queryByRole("group", { name: "Text size" })).toBeNull();
+    });
+  });
+
   describe("P7·4 — Something’s wrong", () => {
     const openReport = async (props: Partial<Parameters<typeof HelpButton>[0]> = {}) => {
       seen("counter");

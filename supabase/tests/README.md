@@ -67,5 +67,52 @@ cases 1–7 stay green on the new body. Rolls back. Every case is falsified by n
 `scripts/verify-mode-authority.mjs` (suite `p3c2`, seven rows — each window removed, the strict
 `locked = false` form, the settle window widened, each window NARROWED to one minute, and the
 null-stamp form restored);
+the one-statement residual (the UPDATE reads its snapshot and locks nothing) was STATED in the
+migration header and is closed by M261 (below) — so since M261 this file runs against
+`20261006120000`'s body, and those seven rows patch THAT file (`src: "m261"`, still `suite: "p3c2"`).
+
+## m261_undo_fire_cart_lock_test.sql (M261 · J37)
+
+Pins `20261006120000_m261_undo_fire_cart_lock.sql`: `mms_undo_fire` takes the cart row lock FIRST
+(`perform 1 … for update`, `mms_undo_counter_fire`'s line) — M261.1: an undo that matches nothing on a
+cart NO line has touched still stamps that cart row's `xmax` (a cart with lines is useless here: every
+line write in the transaction runs the FK check, whose `FOR KEY SHARE` stamps the same `xmax`). It proves
+the lock is TAKEN, never its ORDER against a concurrent claim (two sessions — OPEN-ITEMS P2fj). And the
+two facts `lib/undo-miss.ts` reads after a 0-row answer — for the diner's undo too since J37: J37.1, a
+landed undo leaves NO line carrying the batch (so a re-ask reads `gone`, "brought back") and the re-ask
+reverses 0; J37.2, an undo after the grace reverses 0 and the late lines KEEP the batch (so it reads
+`expired`, "the kitchen has it"). Rolls back. Every case is falsified by name in
+`scripts/verify-mode-authority.mjs` (suite `m261`, three rows — the lock dropped, the un-fire that keeps
+`fire_batch`, the grace leg dropped). Run by hand on a throwaway Postgres 16 carrying every repo
+migration — M261.1 red against the M258 body, green after; CI's `supabase` job is its first run on the
+real schema.
+
 the one-statement residual (the UPDATE reads its snapshot and locks nothing) is STATED in the
 migration header — M261.
+
+## m263_bind_session_table_test.sql (Phase 3c-ii · M263 · J41 · J40)
+
+Pins `20261006120100_m263_bind_session_table.sql`: `mms_bind_session_table(p_session, p_table,
+p_shell)`, the ONE bind both binders call (`bindTable` and `/api/session`'s claim arm). M263 — the
+binder's open cart freeze read under its own row lock and the CAS in one transaction: a fresh lock (0
+and 4 minutes) refuses, a stale one (6) and a NULL stamp land; a fresh split freeze (0 and 9) refuses, a
+stale one (11) lands; a bound row is never re-tabled; a PAID cart's leftover lock does not refuse; a
+closed, pickup or expired binder is `unmoved`; the bind writes the number only (`qr_code`,
+`expires_at`, `host_seat` unchanged); 23505 and 23503 propagate; the grants, SECURITY DEFINER and the
+empty search_path. J41 — an unbound row on table T's ACTIVE sticker binds to T only (`sticker:T`), a
+bound one is the CAS's, an INACTIVE registration does not refuse. J40 — an untouched staff shell is
+adopted (closed, its empty cart cancelled, the binder's own draft untouched); `held` for a member, an
+earlier cart, a (voided) line, a name, a promo, a tab, a pay attempt, a split; `gone` for a claimed
+shell, no open cart, another number, a pickup row, a closed row; a CAS that moves no row takes the
+adopt back; the sticker rule and the freeze are decided before the adopt. SH — "untouched" is ONE
+predicate, `mms_shell_untouched` (the untouched shell → true; each of a member, an earlier cart, a
+voided line, a pay attempt, a split, a name, a promo, a tab → false; a cancelled-only cart and an
+unknown id → false), read by the adopt above, by the picker's batched `mms_untouched_shells` (exactly
+the untouched candidate comes back) and by the grid claim's `mms_claim_untouched_shell` (the predicate
+in its UPDATE's WHERE: an untouched shell is claimed, a touched, hosted, closed or pickup row is not),
+with their grants. Every session carries its own code and every case closes what it opened
+(red-team #10). Rolls back. Every case is falsified by name in `scripts/verify-mode-authority.mjs`
+(suite `m263`); the five row locks no single session can observe (the binder cart's FOR SHARE, the
+adopt's and the claim's shell-cart and shell-session locks) are the suite's documented survivors and
+are falsified by `scripts/verify-bind-race.mjs --mutants`. Red on M263.1 (`raised:42883`) without the
+migration, and on SH.1 against the body before the predicate was factored out.

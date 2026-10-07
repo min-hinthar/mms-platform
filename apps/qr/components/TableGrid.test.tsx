@@ -191,6 +191,55 @@ describe("TableGrid — the seated chip as a DISCLOSURE, only for a host that re
     expect(chip(5).getAttribute("aria-controls")).toBe("join-form");
     expect(chip(3).hasAttribute("aria-controls")).toBe(false);
   });
+  it("a Seated chip in `noJoin` (its bind answered `held` / `kiosk` — no code joins it) is NO disclosure and drops the join clause from its name; every other Seated chip keeps both; its tap still binds first", () => {
+    const onClaim = vi.fn();
+    const onJoin = vi.fn();
+    const { rerender } = render(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={null}
+        controls="join-form"
+        noJoin={new Set([5])}
+      />,
+    );
+    const five = chip(5);
+    // MUTANT table-grid/no-join-chip-claims-expanded: the chip says "collapsed" over a form that
+    // does not exist — a screen reader is told a disclosure is there to open; red here.
+    expect(five.hasAttribute("aria-expanded")).toBe(false);
+    expect(five.hasAttribute("aria-controls")).toBe(false);
+    // MUTANT table-grid/no-join-label-not-threaded: the grid names it "join with the table code"; red.
+    expect(five.getAttribute("aria-label")).toBe(tableChipLabel(5, "join", true));
+    expect(five.className.split(/\s+/)).toContain("is-seated");
+    expect(five.textContent).toContain("Seated");
+    // Table 3 — occupied, not in the set: still the join's disclosure, still named for it.
+    expect(chip(3).getAttribute("aria-expanded")).toBe("false");
+    expect(chip(3).getAttribute("aria-label")).toBe(tableChipLabel(3, "join"));
+    // The tap re-asks the bind (the table may have been cleared since) — never the join.
+    fireEvent.click(five);
+    expect(onClaim).toHaveBeenCalledWith(5);
+    expect(onJoin).not.toHaveBeenCalled();
+    // Even were a host to point the ask at it, a no-join chip controls no form.
+    rerender(
+      <TableGrid
+        tables={TABLES}
+        stagger={false}
+        source="send"
+        onJoin={onJoin}
+        onClaim={onClaim}
+        markMine={false}
+        expandedTable={5}
+        controls="join-form"
+        noJoin={new Set([5])}
+      />,
+    );
+    expect(chip(5).hasAttribute("aria-expanded")).toBe(false);
+    expect(chip(5).hasAttribute("aria-controls")).toBe(false);
+  });
   it("without it (the /dine-in page opens a dialog), no chip claims to be a disclosure", () => {
     render(<TableGrid tables={TABLES} stagger source="page" onJoin={() => {}} />);
     for (const n of [3, 5, 8]) {

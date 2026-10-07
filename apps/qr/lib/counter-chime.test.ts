@@ -7,7 +7,9 @@ import {
   COUNTER_TONES,
   soundPosture,
   soundTapIntent,
+  soundWord,
 } from "./counter-chime";
+import { STAFF } from "./i18n/staff";
 import { KDS_DEFAULT_VOLUME, KdsChime } from "./kds-sound";
 
 /**
@@ -130,5 +132,17 @@ describe("soundPosture / soundTapIntent — wanted and armed are two facts (§15
     expect(soundTapIntent("on")).toBe("mute");
     expect(soundTapIntent("off")).toBe("arm");
     expect(soundTapIntent("paused")).toBe("arm");
+  });
+
+  it("the word each posture says — one map for the counter's chip and the kitchen's circle (Phase 3d)", () => {
+    // MUTATION (counter-chime/paused-says-turn-on): the paused arm says "Turn on sound" — a control
+    // that LOST wanted sound reads exactly like one nobody ever asked for, and on the kitchen's
+    // icon-only circle the word is the only thing (beside the dot) telling the two apart.
+    expect(soundWord("on")).toBe("board.sound.on");
+    expect(soundWord("paused")).toBe("kds.sound.off");
+    expect(soundWord("off")).toBe("kds.sound.enable");
+    // Three postures, three different words, every one in the dictionary.
+    const words = (["on", "paused", "off"] as const).map(soundWord);
+    expect(new Set(words.map((k) => STAFF[k].en)).size).toBe(3);
   });
 });

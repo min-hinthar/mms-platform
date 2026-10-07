@@ -10,6 +10,9 @@ import { touchCart } from "./order-lines";
 import { maybeRenewSession } from "./authz";
 import { getPostHogClient } from "./posthog-server";
 import { surfaceOpen } from "./surfaces";
+// J37 — the 0-row diagnosis moved to its own server-only module when the diner's `undoFire` became
+// its second reader. One verdict, both doors; see its docblock.
+import { undoMissReason } from "./undo-miss";
 import {
   sendRoute,
   undoRoute,
@@ -246,37 +249,11 @@ export async function staffFireCart(raw: unknown): Promise<StaffFireResult> {
 }
 
 /**
- * WHY an undo took back nothing. `mms_undo_fire` answers 0 for two different facts, and the console
- * must not tell them apart by guessing:
- *
- *  - `expired` — lines carrying this batch still exist: the grace ran out and the kitchen has them
- *    (the page steers to Void / Comp).
- *  - `gone` — NO line on the cart carries the batch any more. Undo clears `fire_batch`, so this is an
- *    earlier undo whose response was lost (the retry of the same tap), or a void that removed the
- *    lines. "Too late — the kitchen has it" there would send staff to Void a dish nobody is cooking.
- *
- * An unread check answers `expired`: of the two sentences it is the one that sends staff to LOOK at
- * the dishes, and "nothing is with the kitchen" must never be said on no evidence.
- */
-async function undoMissReason(cartId: string, batch: string): Promise<"expired" | "gone"> {
-  const { data, error } = await serviceClient()
-    .from("qr_cart_items")
-    .select("id")
-    .eq("cart_id", cartId)
-    .eq("fire_batch", batch)
-    .limit(1);
-  if (error) {
-    console.error("[staff-send] undo batch check failed", { message: error.message });
-    return "expired"; // deliberate: the conservative steer (see above)
-  }
-  return data?.length ? "expired" : "gone";
-}
-
-/**
  * Take back the batch THIS console's send fired, while it is still in the grace. The grace, the
  * batch, the not-comped rule and the open dine-in cart are all re-checked in `mms_undo_fire`'s one
  * statement; 0 rows is never a silent success — `expired` (the kitchen has it → Void / Comp) or
- * `gone` (nothing from that send is still fired: an earlier undo landed), per `undoMissReason`.
+ * `gone` (nothing from that send is still fired: an earlier undo landed, or staff voided it), per
+ * `undoMissReason`.
  */
 export async function staffUndoFire(raw: unknown): Promise<StaffUndoResult> {
   const gate = await sendGate();
@@ -305,7 +282,15 @@ export async function staffUndoFire(raw: unknown): Promise<StaffUndoResult> {
     });
     return { ok: false, reason: "failed" };
   }
-  if (!unfired) return { ok: false, reason: await undoMissReason(table.cart.id, batch) };
+  if (!unfired) {
+    // The ONE diagnosis (lib/undo-miss.ts), said in the console's own two sentences. `voided` is its
+    // `gone` — "Nothing from that send is still with the kitchen — the dishes above show where each one
+    // is." is true of a voided batch too (staff see the struck lines). `frozen` stays `expired` here:
+    // the console's twin of the diner's J45 is OPEN-ITEMS J50, and its "under way" sentence is the
+    // SEND's, not an undo's.
+    const miss = await undoMissReason(table.cart.id, batch);
+    return { ok: false, reason: miss === "voided" ? "gone" : miss === "frozen" ? "expired" : miss };
+  }
 
   await afterCommit(sessionId, table.cart.id, table.session.expires_at, "staffUndoFire");
   capture(gate.caller, "staff_undo_fire", { sessionId, lines: unfired });

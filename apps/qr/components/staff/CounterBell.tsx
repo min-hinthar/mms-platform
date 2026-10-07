@@ -21,6 +21,7 @@ import {
   SOUND_HINT_MS,
   soundPosture,
   soundTapIntent,
+  soundWord,
   type SoundPosture,
 } from "@/lib/counter-chime";
 import {
@@ -290,12 +291,8 @@ export function CounterSoundChip() {
     });
   };
 
-  const word =
-    posture === "on"
-      ? "board.sound.on"
-      : posture === "paused"
-        ? "kds.sound.off"
-        : "kds.sound.enable";
+  // Phase 3d — the one word map (`lib/counter-chime.ts`), shared with the kitchen's bar circle.
+  const word = soundWord(posture);
   return (
     <>
       <button

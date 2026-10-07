@@ -7312,11 +7312,14 @@ html[data-seen-surface] .mms-stagger {
   padding: 1px 6px;
 }
 
-/* ── K2 · Dine-in table picker (docs/JOURNEY2_PLAN.md) ───────────────────────────────────────────── */
+/* ── K2 · the dine-in table grid (docs/JOURNEY2_PLAN.md) ─────────────────────────────────────────── */
+/* Its one host since 3c-i is `TableSection` — "Pick your table" in the DoorSheet and the Send sheet —
+   whose --s3 gap is the rhythm, so the grid carries no margin of its own: the 20px top was the
+   retired TablePicker page's spacing and doubled inside the section (J32). */
 .table-grid {
   list-style: none;
   padding: 0;
-  margin: 20px 0 0;
+  margin: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(94px, 1fr));
   gap: 10px;
@@ -7743,8 +7746,10 @@ a .chrome-en {
   justify-items: center;
   gap: 2px;
 }
+/* Phase 3d — the glance strip (Open · Late) is read from across the kitchen, so its numbers are
+   drawn at the IDENTITY tier, the table number's size (32/36/40 with the dial), not the clock's. */
 .kds-stat b {
-  font-size: var(--kfs-clock);
+  font-size: var(--kfs-id);
   font-weight: var(--fw-heavy);
   line-height: 1;
 }
@@ -7758,6 +7763,16 @@ a .chrome-en {
 }
 .kds-stat-late b {
   color: var(--warn);
+}
+/* Phase 3d — "Avg today" moved off the glance strip into the Served view of the rail: a stat at the
+   rail's own scale (the clock tier, like the rail's counts), left-aligned under the view's heading. */
+.kds-served-avg {
+  justify-items: start;
+  margin: 0 0 var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+.kds-served-avg b {
+  font-size: var(--kfs-clock);
 }
 .kds-controls {
   margin-left: auto;
@@ -7790,17 +7805,36 @@ a .chrome-en {
    `.kds-chip[aria-pressed]` at (0,2,0) and paints the fill transparent, so the pressed station was
    a faint sheen ring — the "grey disc" two reviewers saw. Listed explicitly at (0,3,1) so the track
    can never swallow it again. The language switch, the Help sheet's size rows, (counter-4) the
-   register's OPEN arm — `aria-expanded`, the state it already carries — and (manager-7) every
-   `.staff-chip` on the manager rails and the drill-down sheets share this rule
+   register's OPEN arm — `aria-expanded`, the state it already carries — (manager-7) every
+   `.staff-chip` on the manager rails and the drill-down sheets, and (Phase 3d) the kitchen's sound
+   circle in the bar when it sounds (`.staff-circ[aria-pressed]`) share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
    `.app-header-order-open`. */
 /* kitchen-8 — a device that WANTED sound and lost it to a reload: a warn hairline + warn ink, so
-   the chip is never the ghost twin of the filter beside it. Not a selection — a state tone. */
-.kds-chip[data-muted="true"] {
+   the control is never the ghost twin of an off one. Not a selection — a state tone. Phase 3d: the
+   kitchen's sound control is a bar circle now (the counter's chip keeps `.staff-chip[data-muted]`). */
+.staff-circ[data-muted="true"] {
+  position: relative;
   border-color: var(--warn);
   color: var(--warn);
+}
+/* Phase 3d — paused differs from off by a SHAPE, never by hue alone (WCAG 1.4.1): a warn dot on the
+   ring. `::before`, never `::after` — `.staff-press::after` is the press sheen (opacity 0, inset 0,
+   translated off), which would swallow the dot — and set INSIDE the circle, because `.staff-press`
+   clips to the round (`overflow: hidden`): a dot on the bounding box's corner would be cut away. */
+.staff-circ[data-muted="true"]::before {
+  content: "";
+  position: absolute;
+  top: var(--s2);
+  right: var(--s2);
+  width: var(--s2);
+  height: var(--s2);
+  border-radius: var(--r-full);
+  background: var(--warn);
+  box-shadow: 0 0 0 2px var(--cd);
+  pointer-events: none;
 }
 .kds-chip[aria-pressed="true"],
 .staff-seg > .kds-chip[aria-pressed="true"],
@@ -7809,6 +7843,7 @@ a .chrome-en {
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
 .staff-chip[aria-pressed="true"],
+.staff-circ[aria-pressed="true"],
 .staff-zone-chip[aria-current="location"],
 .floor-card[aria-current="true"] .floor-card-label,
 .orb-table-up {
@@ -7818,11 +7853,6 @@ a .chrome-en {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     0 0 14px -6px var(--glow-gold);
-}
-.kds-vol {
-  accent-color: var(--ac);
-  width: 110px;
-  min-height: 44px;
 }
 
 .kds-body {
@@ -11216,9 +11246,10 @@ html[data-fx="lite"] .mms-scrim {
     overflow: visible;
     scroll-snap-type: none;
   }
-  /* The table picker: ten tables were 3 + 3 + 3 + 1 with the tenth alone on its row at every
-     wide viewport. 124px tiles fill five across at the tablet width and six at the desktop's —
-     two even rows either way. The phone keeps its 94px three-up. */
+  /* The table grid (measured on the retired picker page, before 3c-i moved it into the sheets): ten
+     tables were 3 + 3 + 3 + 1 with the tenth alone on its row at every wide viewport. 124px tiles
+     filled five across at the tablet width and six at the desktop's — two even rows either way. The
+     phone keeps its 94px three-up. */
   .table-grid {
     grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
   }
@@ -12199,6 +12230,21 @@ a.door-sheet-row {
   font-weight: var(--fw-medium);
   letter-spacing: normal;
   opacity: 0.85;
+}
+/* 3c-i (D18) → 3c-ii (D27) — "Pick your table", the ONE section `TableSection` hosts in the DoorSheet
+   and the Send sheet: the exits' idiom, a stack on the --s3 gap, and inside it that gap is the ONE
+   rhythm — no child brings a top margin of its own (J32). The DoorSheet's section sits under the
+   doors, so it takes the exits' hairline and top rhythm (`[data-host="sheet"]`); the Send sheet IS
+   this section, its dialog title directly above, so it takes neither. */
+.door-sheet-tables {
+  display: grid;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+}
+.door-sheet-tables[data-host="sheet"] {
+  margin-top: var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--bd);
 }
 
 /* The picks row — lens pills on the menu's own selection vocabulary (.menu-tab / .menu-tab-on),
@@ -13788,10 +13834,24 @@ html[data-reloading] body::after {
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
-.pad-note {
+/* Phase 3d · counter — the guest receipt's rows on the ticket (§28): a list, one leader per row, the
+   Total last under its own rule, in body ink and one step up the scale (--fs-h3 over the rows'
+   --fs-body) so the figure Take payment names is the one that leads. */
+.pad-receipts {
+  display: grid;
+  gap: var(--s1);
   margin: 0;
-  font-size: var(--fs-caption);
-  color: var(--t3);
+  padding: 0;
+  list-style: none;
+}
+.pad-receipt[data-grand] {
+  padding-top: var(--s2);
+  border-top: 1px solid var(--bd);
+  color: var(--tx);
+  font-weight: var(--fw-bold);
+}
+.pad-receipt[data-grand] .pad-receipt-amt {
+  font-size: var(--fs-h3);
 }
 .pad-stale {
   margin: 0;
@@ -14567,7 +14627,7 @@ html[data-reloading] body::after {
   gap: var(--s2);
 }
 /* PAUSED — the counter wanted the bell and the context is not running: a warn hairline + warn ink,
-   the kitchen chip's `data-muted` idiom (a state tone, not a selection). */
+   the kitchen sound control's `data-muted` idiom (a state tone, not a selection). */
 .staff-chip[data-muted="true"] {
   border-color: var(--warn);
   color: var(--warn);

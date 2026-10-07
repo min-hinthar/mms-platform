@@ -16,6 +16,7 @@ import { staffSettleBlockedByUnsent } from "./checkout-stage";
 import type { PendingAdd, PendingCounts } from "./pad-pending";
 import type { StaffLang } from "./staff-lang";
 import type { StaffKey } from "./i18n/staff";
+import { buildReceiptRows, type ReceiptRow } from "./receipt-view";
 
 /**
  * Phase 2c · pad — the ORDER PAD's decisions, pure (DESIGN-LANGUAGE §28).
@@ -186,13 +187,30 @@ export type PadLineWrites = {
   unread: boolean;
 };
 
-/** Every amount the pad names (the ticket's subtotal, Take payment's figure) is shown only when
- *  nothing is pending — no add flying, landed but not yet read, unconfirmed or lost, and no line
- *  write in flight or unread. One predicate, so the two can never disagree about whether a figure
- *  is current (§23: amounts are never intent; a quantity just changed beside the old total is one). */
+/** Every amount the pad names (the ticket's receipt stack, Take payment's figure) is shown only
+ *  when nothing is pending — no add flying, landed but not yet read, unconfirmed or lost, and no
+ *  line write in flight or unread. One predicate, so the two can never disagree about whether a
+ *  figure is current (§23: amounts are never intent; a quantity just changed beside the old total
+ *  is one). */
 export function padAmountsSettled(p: PendingCounts, lines: PadLineWrites): boolean {
   const adds = p.flying + p.unseen + p.unconfirmed + p.lost === 0;
   return adds && lines.writing === 0 && !lines.unread;
+}
+
+// ── the ticket's receipt (Phase 3d · counter) ────────────────────────────────────────────────────
+
+/** Phase 3d · counter — the rows the ticket's foot prints: the guest receipt's ONE derivation
+ *  (`buildReceiptRows` — Subtotal first, Discount/Tax only when charged, Total last) over the
+ *  server's breakdown, its Total read from `settleTotalCents` — the SAME binding Take payment names.
+ *  Never re-derived from the parts here: a second computation of the collected figure is the W17
+ *  drift, and the plausible one — the two-bases bug coming back — is a Total that stops before the
+ *  tax. Null when the read priced nothing (no open cart with a chargeable unit; a settled record),
+ *  so the ticket claims no figure — never a fabricated $0.00. */
+export function padReceiptRows(
+  d: Pick<TableDetail, "settleBreakdown" | "settleTotalCents">,
+): ReceiptRow[] | null {
+  if (d.settleBreakdown === null || d.settleTotalCents === null) return null;
+  return buildReceiptRows(d.settleBreakdown, d.settleTotalCents);
 }
 
 /**

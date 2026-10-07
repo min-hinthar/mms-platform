@@ -12,7 +12,7 @@ import { Icon } from "@mms/ui";
 import { sendToKitchen } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
 import { sentCopy } from "@/lib/confirm-copy";
-import { FROZEN_NOTE, reasonCopy, type UndoGrace } from "./useUndoGrace";
+import { FROZEN_NOTE, reasonCopy, useGraceCountdown, type UndoGrace } from "./useUndoGrace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
 // example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
@@ -174,7 +174,8 @@ export function SendToKitchenButton({
       )}
       {verb === "undo" ? (
         // The undo window: "Undo — Ns" counting down the server-measured grace. The changing count lives
-        // in the BUTTON label (never a live region), so it isn't re-announced every second.
+        // in the BUTTON label (never a live region), so it isn't re-announced every second — and it is
+        // the label's own leaf (`UndoCountdown`, J34): the host never re-renders for it.
         // W22a `.mms-settle` — the control that replaces Send drops in with a soft settle (RM: instant).
         <button
           // The hook's callback ref, called from OURS at commit: `ref={grace.undoBtnRef}` would make the
@@ -201,7 +202,7 @@ export function SendToKitchenButton({
             cursor: grace.pending || frozen ? "default" : "pointer",
           }}
         >
-          {grace.pending ? "Bringing it back…" : `Undo — ${grace.remaining}s`}
+          {grace.pending ? "Bringing it back…" : <UndoCountdown deadlineMs={grace.deadlineMs} />}
         </button>
       ) : verb === "send" ? (
         <button
@@ -273,6 +274,13 @@ export function SendToKitchenButton({
       ) : null}
     </div>
   );
+}
+
+/** J34 — the Undo label's count, the ONLY reader of the tick (`useGraceCountdown`): this text re-renders
+ *  once a second; Checkout, the hook's host, does not (it re-rendered four times a second). */
+function UndoCountdown({ deadlineMs }: { deadlineMs: number | null }) {
+  const left = useGraceCountdown(deadlineMs);
+  return <>{`Undo — ${left}s`}</>;
 }
 
 // W19 — surface colors moved to `.checkout-outline-btn` (a class so :hover/:active press states

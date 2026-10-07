@@ -193,7 +193,6 @@ export const STAFF = {
   // ── KDS: the status line and stats ─────────────────────────────────────────
   // Stat LABELS are Burmese; their VALUES stay Latin (tabular-nums column).
   "kds.stat.open": { en: "Open", my: "ဖွင့်ထား" },
-  "kds.stat.oldest": { en: "Oldest", my: "အကြာဆုံး" },
   "kds.stat.late": { en: "Late", my: "နောက်ကျ" }, // K15-HIGH — the one stat that demands action now
   "kds.stat.avg": { en: "Avg today", my: "ဒီနေ့ ပျမ်းမျှ" },
   "kds.allclear": { en: "All clear", my: "ရှင်းပြီ" },
@@ -327,7 +326,7 @@ export const STAFF = {
   },
 
   // ── KDS: accessible names with no visible text to pair with ───────────────
-  // These sit on glyph-only or region elements (a slider, a ‹ › pager, a <ul>), where WCAG 2.5.3
+  // These sit on glyph-only or region elements (a ‹ › pager, a <ul>), where WCAG 2.5.3
   // has no visible label to contain. Every LABELLED control's name comes from `lib/staff-labels.ts`.
   "kds.a11y.stats": { en: "Service stats", my: "ဝန်ဆောင်မှု စာရင်း" },
   "kds.a11y.stationFilter": { en: "Station filter", my: "စတေရှင် စစ်ထုတ်" },
@@ -336,7 +335,6 @@ export const STAFF = {
   "kds.a11y.allDay": { en: "Count of each dish", my: "စုစုပေါင်း အရေအတွက်" },
   "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.a11y.railView": { en: "Side panel view", my: "ဘေးဘား အမြင်" },
-  "kds.a11y.volume": { en: "Chime volume", my: "အသံ အတိုးအကျယ်" },
   // A4·5 — the wall's link is a circle in this bar, named by sr-only text like the counter's
   // approvals circle (the glyph is a TV). It was the doors' `floor.nav.board` tile from P7 to
   // A4·5, and reachable only by bookmark before that.
@@ -354,9 +352,11 @@ export const STAFF = {
   "kds.size.l": { en: "Large", my: "ကြီး" },
 
   // ── the floor: the console home and the live table board ──────────────────
-  // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
-  // per-key native check: the kitchen's only exit and one link in a console header may want
-  // different wording, and one key would force them to move together.
+  // `floor.back` began as `kds.back`'s two words ("← Floor") and was kept its OWN key because K15 is
+  // a per-key native check — one key would have forced the two to move together, and they have since
+  // parted (below). `kds.back` itself has no reader left outside this file (J29, 2026-10-06 — a
+  // dictionary key, so knip cannot see it); every way back up to the counter home is this key. The
+  // arrow lives INSIDE the value — it is part of the label, not a decorative glyph beside it.
   // Deep pass on #312: the link's destination is the counter home, whose bar title and tab title
   // read `floor.door.counter` ("Counter & tables") — the control said "Floor", a word the screen it
   // lands on never shows, so a new hire had no way to learn they were one place. The MY word is the
@@ -1609,10 +1609,6 @@ export const STAFF = {
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════
   // ── the register (FOH counter): identity and the page's own frame ─────────
-  // `reg.back` carries the same two words as `kds.back`/`floor.back` and stays its OWN key for the
-  // reason stated there: K15 is a per-key native check, and the counter's exit may want different
-  // wording from the kitchen's. The arrow lives INSIDE the value — it is part of the label, not a
-  // decorative glyph beside it.
   // A4·2 — the register is a ZONE of the counter's one screen now (`/staff/register` redirects), so
   // it has no title and no back link of its own; `reg.sub` is the line under the Start heading.
   "reg.sub": {
@@ -3166,7 +3162,7 @@ export const STAFF = {
   // A COUNTER order closed while a cash settle's outcome was unknown (critic finding): settleCash
   // closes a counter session only after a landed settle, so it most likely went through — said as
   // "most likely", never as certain (staff clearing it from another tablet also closes it). "The
-  // floor" is ခန်းမ (grounded: floor.back).
+  // floor" is ခန်းမ (grounded: what.floor).
   "settle.cash.unknownClosed": {
     en: "This order has closed — the payment most likely went through. Find it on the floor before taking payment again.",
     my: "ဒီအော်ဒါ ပိတ်သွားပါပြီ — ငွေရှင်းတာ ဖြစ်သွားပုံရပါတယ်။ ထပ်ငွေမယူခင် ခန်းမမှာ ရှာကြည့်ပါ။",

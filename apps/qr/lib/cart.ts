@@ -26,6 +26,8 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 // P3 — the refusal diagnosis moved to its own server-only module when `lib/staff-promo.ts`
 // became the second writer of `qr_carts.promo_code`. One verdict, both doors; see its docblock.
 import { refusedPromoReason } from "./promo-refusal";
+// J37 — an undo that took back nothing: the ONE diagnosis both undos read (lib/undo-miss.ts).
+import { undoMissReason } from "./undo-miss";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
@@ -313,10 +315,10 @@ export async function sendToKitchen(cartId: string): Promise<SendToKitchenResult
 }
 
 export type UndoFireResult =
-  | { ok: true; unfired: number }
+  | { ok: true; unfired: number; gone: boolean }
   | {
       ok: false;
-      reason: "not_host" | "expired" | "locked" | "settling" | "rate_limited" | "error";
+      reason: "not_host" | "expired" | "voided" | "locked" | "settling" | "rate_limited" | "error";
     };
 
 /**
@@ -325,8 +327,14 @@ export type UndoFireResult =
  * null; a line whose grace already passed is left fired, so undo can't un-send food the kitchen already
  * has). S4-audit P1-3: undo targets the SPECIFIC `batch` sendToKitchen handed back — so a host's Undo
  * reverses only the host's batch, never a guest's make-it-now (S4.2) line sharing the grace window.
- * `expired` (0 rows un-fired) is the honest signal that the window closed / nothing was undoable → the UI
- * steers to "ask a server", never a silent success. Returned (not thrown) for the same prod-redaction reason.
+ * A 0 is read by `undoMissReason` (lib/undo-miss.ts), never guessed: `expired` (the kitchen has the
+ * batch and none of it is still undoable) is the honest signal that the window closed → the UI steers
+ * to "ask a server", never a silent success; `frozen` (lines the un-fire could move are still in their
+ * grace — J45) is the freshness legs' REFUSAL, answered with the lock's own reason so the window stays;
+ * `voided` (staff voided what was sent) closes it with a sentence that claims nothing came back; `gone`
+ * (the cart still open and NO line carries the batch) is a SUCCESS: an earlier undo of this batch
+ * landed and its answer was lost (J37), so asking again is idempotent. Returned (not thrown) for the
+ * same prod-redaction reason.
  */
 export async function undoFire(cartId: string, batch: string): Promise<UndoFireResult> {
   const input = undoFireInput.parse({ cartId, batch });
@@ -344,7 +352,25 @@ export async function undoFire(cartId: string, batch: string): Promise<UndoFireR
     console.error("[cart] mms_undo_fire failed", { cartId: input.cartId, message: error.message });
     return { ok: false, reason: "error" };
   }
-  if (!unfired) return { ok: false, reason: "expired" }; // grace passed / nothing in grace to undo
+  if (!unfired) {
+    // J37 — a 0 is several facts, and a diner's re-ask after a LOST response is one of them: un-fire
+    // clears `fire_batch`, so no line carrying the batch on an open cart means an earlier undo of it
+    // LANDED. One diagnosis for both undos (lib/undo-miss.ts); an unread check stays `expired`.
+    const miss = await undoMissReason(input.cartId, input.batch);
+    if (miss === "gone") return { ok: true, unfired: 0, gone: true }; // already brought back — not a second undo (no touch, no count)
+    // Staff voided the batch: nothing is cooking and nothing came back — never "Brought back".
+    if (miss === "voided") return { ok: false, reason: "voided" };
+    if (miss === "frozen") {
+      // J45 — dishes the un-fire could move are still in their grace, so the RPC's freshness legs
+      // (M258) refused it: a pay lock or split freeze. The window stays for the rest of the grace and a
+      // re-tap lands once the freeze lifts. Authz's EFFECTIVE flags pick only the SENTENCE (never
+      // re-derived here), and a lock already freed again — taken and released inside one checkout —
+      // still reads `locked`: "That didn't go through — please try again." is true of it.
+      const again = await assertCartMember(input.cartId).catch(() => null);
+      return { ok: false, reason: again?.settling ? "settling" : "locked" };
+    }
+    return { ok: false, reason: "expired" };
+  }
   await touchCart(input.cartId, "undoFire");
 
   getPostHogClient().capture({
@@ -352,7 +378,7 @@ export async function undoFire(cartId: string, batch: string): Promise<UndoFireR
     event: "undo_fire",
     properties: { cart_id: input.cartId, lines: unfired },
   });
-  return { ok: true, unfired };
+  return { ok: true, unfired, gone: false };
 }
 
 /** Reasons the cart UI maps to specific copy. SQL returns the validity reasons; the action adds the

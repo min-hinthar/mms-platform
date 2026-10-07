@@ -545,6 +545,37 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
     expect(dialog.textContent).toContain("That table isn’t available — pick another.");
     expect(dialog.textContent).not.toContain("scan its sticker");
   });
+
+  it("J40 `held` (5): the sheet stays open with BIND_COPY.held(5), NO join form, NO send; the sentence reaches the region only after the close", async () => {
+    h.bindTable.mockResolvedValue({ ok: false, reason: "held", tableNumber: 5 });
+    mount();
+    const dialog = await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(dialog.textContent).toContain(BIND_COPY.held(5));
+    expect(regionText()).not.toContain(BIND_COPY.held(5));
+    await dismiss(dialog);
+    await waitFor(() => expect(regionText()).toContain(BIND_COPY.held(5)));
+    expect(screen.queryByText("Table 5")).toBeNull();
+  });
+
+  it("J41 `sticker_table` (4) on a tap of 5: NO send, the eyebrow never reads a table, BIND_COPY.stickerTable(4) said after the close", async () => {
+    h.bindTable.mockResolvedValue({ ok: false, reason: "sticker_table", tableNumber: 4 });
+    mount();
+    const dialog = await askTable();
+    await act(async () => {
+      fireEvent.click(chip(5));
+    });
+    expect(h.sendToKitchen).not.toHaveBeenCalled();
+    expect(dialog.textContent).toContain(BIND_COPY.stickerTable(4));
+    await dismiss(dialog);
+    await waitFor(() => expect(regionText()).toContain(BIND_COPY.stickerTable(4)));
+    expect(screen.queryByText("Table 4")).toBeNull();
+  });
 });
 
 describe("3c-ii (D30) — the table number is LIVE on /cart", () => {

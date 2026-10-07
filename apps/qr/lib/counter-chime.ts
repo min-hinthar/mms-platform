@@ -10,7 +10,8 @@ import type { CounterRingKind } from "./counter-attention";
  *
  *   · level — 0.6: a working device, so louder than a guest's phone (0.22), but it sits in the
  *     DINING ROOM, so quieter than a hot line's 0.8. Fixed: the device's own volume buttons are the
- *     dial (owner decision 5c) — one control fewer than the kitchen's slider;
+ *     dial (owner decision 5c) — and since Phase 3d the kitchen's level is fixed the same way (its
+ *     slider is retired);
  *   · arming — an explicit tap, like the kitchen (a working device, a shift start), never the
  *     diner's "the toggle is the gesture";
  *   · vocabulary — two phrases, each opening on a pitch no other phrase in the app opens on, so the
@@ -76,4 +77,20 @@ export function soundPosture(wanted: boolean, armed: boolean): SoundPosture {
  *  back to sound, never a second mute). */
 export function soundTapIntent(posture: SoundPosture): "arm" | "mute" {
   return posture === "on" ? "mute" : "arm";
+}
+
+/**
+ * Phase 3d — the word each posture says, named ONCE for both sound controls (the counter's chip,
+ * where it is the visible label, and the kitchen's bar circle, where it is the sr-only name). "One
+ * word per action" (§17): the OFF word is the same "turn on" the paused posture says, and a paused
+ * control must never read like a fresh one — it is WANTED sound the device lost.
+ */
+export function soundWord(
+  posture: SoundPosture,
+): "board.sound.on" | "kds.sound.off" | "kds.sound.enable" {
+  return posture === "on"
+    ? "board.sound.on"
+    : posture === "paused"
+      ? "kds.sound.off"
+      : "kds.sound.enable";
 }

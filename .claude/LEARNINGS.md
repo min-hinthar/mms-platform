@@ -3644,3 +3644,113 @@ the update outside `act` (`IS_REACT_ACT_ENVIRONMENT = false` around it, so React
 effects itself), resolve the stale promise from a child's layout effect, and busy-wait past the frame
 budget right there; a `rerender` inside `act` flushes the effects before any microtask and can never
 show it — which is why round 2's per-cart test was green on both shapes.
+
+## #237
+
+**A design written without running anything ships tests that cannot fail — the implementer's first job
+is to make each one go red (#315, 2026-10-06).** Three read-only specs, three such tests, each caught
+only because the build ran red-first: the M261.1 lock probe asserted `xmax = '0'` on a cart that had
+lines, but a line insert's foreign-key check stamps the parent cart's `xmax`, and a later UPDATE carries
+that self-held key-share lock onto the new row version — so the probe was red on BOTH bodies; it now
+probes a cart no line references (measured: red on the M258 body, green after). The J34 render-count
+test wrapped nine seconds of fake timers in ONE `act`, which batches every interval tick into one render
+— 3 renders on the old shape, indistinguishable from the fix; one `act` per tick measured 38. And the
+kitchen spec put a status dot on `::after` of a `.staff-press` control, whose `::after` is the press
+sheen and whose round clips everything outside it — the dot rides `::before`, inside. Rule: a spec's
+test is a hypothesis about a guard; induce the violation before believing either.
+
+## #238
+
+**A shared engine has two callers — hand it the screen's gate, default it OPEN (#315, 3d · kitchen).**
+`KdsChime` is the KDS's chime AND the TV wall's. A mute read inside the class from the kitchen's stored
+flag would have silenced every wall on every device where that flag was never set. The predicate is
+passed in by the screen that owns it and defaults to "always play"; the class reads it at every
+`play()`, never captured.
+
+## #239
+
+**The PostToolUse format hook runs `eslint --fix` on every TS edit — it is a process beside your run,
+and it rewrites code between edits (#315).** `.claude/settings.json`'s hook ran eslint while the full
+`verify:slice` was live (the "nothing beside the run" rule, LEARNINGS #229, did not know about it), and
+its `prefer-const` rewrote a `let` declared in one Edit and reassigned in the next into a `const` — a
+suite went 97/97 red with "Assignment to constant variable" inside a `vi.mock` factory. Declare and
+reassign in the SAME edit, re-read a declaration you split across edits, and count the hook among the
+processes a detached run shares the container with.
+
+## #240
+
+**Measure a layout with the real CSS and the real fonts, in a real engine — it is available here
+(#315, 3d · kitchen).** jsdom has no layout, and "no browser in this container" was false: Chromium is
+pre-installed (`/opt/pw-browsers`) and `playwright-core` drives it. The recipe: dump a component's REAL
+markup from a jsdom render (the suite's own mocks), compile `apps/qr/app/globals.css` with the app's own
+`@tailwindcss/postcss`, fetch the app's Google fonts locally, load the three under `.dark`, and read
+rows/overflow/wraps from `getBoundingClientRect` at each viewport. It settled the 3d merge condition
+(the bar one row at 1366 in EN and MY at every text size) that every earlier phase had left to "a device".
+
+## #241
+
+**A sticker code bound to ANOTHER table wedges its own table through the token index (J41, #315).** The
+bind writes only `table_number` and never rewrites `qr_code`, and the token index is unique on `qr_code`
+for active rows. So a stranded sticker session bound at Send to M ≠ N held N's sticker code at M: N's
+sticker scan inserted S, took 23505, re-read BY NUMBER, found nobody and answered 500; the claim did the
+same; the register's Start read an outage — while the picker showed N Open. A rule about one row ("a
+sticker row is bound to its own number or to none") is also a rule about every OTHER writer of that
+key; check the invariant from the index's side, not only the row's.
+
+## #242
+
+**It is the row-exclusive lock on the PARENT that an FK's KEY SHARE conflicts with — not the UPDATE you
+are about to make (J40's adopt, #315).** A `session_members` insert takes `FOR KEY SHARE` on its
+`table_sessions` row; the adopt's close (`UPDATE … SET status`) takes `FOR NO KEY UPDATE`, which is
+COMPATIBLE with key share, so a join could land on the shell mid-adopt. Only the explicit
+`SELECT … FOR UPDATE` on the shell's session orders them — measured: with that lock deleted (mutant M4)
+race order (f) did not wait. When a guard depends on blocking a child insert, take the lock that
+conflicts with the child's FK lock, and prove it with a two-session order, never by reading the docs.
+
+## #243
+
+**The CI-only harnesses are not CI-only (#315).** Every `supabase`-job script — `verify-mode-authority`,
+`verify-merge-race`, `verify-line-guard-race`, `verify-counter-fire-race`, `verify-bind-race`, plain and
+`--mutants` — runs against LEARNINGS #95's throwaway Postgres 16 when it LISTENS where the scripts'
+default DSN points, with each script's own documented `*_ASSUME_DISPOSABLE=1` (`M102_` · `LINE_RACE_` ·
+`COUNTER_RACE_` · `BIND_RACE_`), which skips ONLY the `supabase status` port check (the in-DB guards —
+loopback, TLS off, private address — stay on); the battery needs no override: `pg_ctl -o '-p 54322 -k /var/tmp -c listen_addresses=127.0.0.1'` under
+`initdb --auth=trust` (the password in the DSN is then ignored), all migrations applied in order, then
+`supabase/seed.sql`. A test file that `\i`s a migration by relative path needs the tests and migrations
+copied side by side where the postgres user can read them. Measured on #315's integrated head (2026-10-06): the battery 194/194 accounted;
+merge-race 14/14; line-guard 9 green + 6/6; counter-fire green + 14/14; bind-race 11 orders + 6/6. So a
+migration PR need not push to learn whether its battery passes. Two harness traps from the same build: a two-session harness that collects
+a BLOCKED session before releasing its peer deadlocks itself under a mutex mutant (and psql's close then
+waits forever — terminate the backend after a bound); and a decision-order mutant must move the WHOLE
+step, or it fails every case the step guards and reads as "wrong case", not "killed".
+
+## #244
+
+**An absence is evidence only inside a container you have proved still exists (the blind pass on #315).**
+J37's `undoMissReason` read "no line on this cart carries the batch" as "an earlier undo landed" — true
+for the one writer it was built around (un-fire clears `fire_batch`) and false for three others: a
+MERGE re-parents the batch, intact, onto another cart and cancels this one; a VOID keeps the batch on a
+line nothing is cooking; a COMP keeps it on a line the kitchen IS cooking. Before reading "nothing here"
+as a fact about what happened, list every writer that can empty the place you are looking — and read
+the side such a writer EMPTIES first: the merge cancels the cart and moves the lines in one commit, so
+lines-then-cart cannot straddle it, while cart-then-lines can (`undo-miss/cart-read-before-lines` is
+that swap, killed by a mock that commits a merge between the two reads). Two corollaries from the same
+round: a mock that RECORDS filters but returns rows regardless of them can never falsify a missing
+filter — evaluate the predicate in the mock; and when two honest rules collide ("a re-ask says what the
+first ask said" vs "never 'brought back' over food being cooked" — a batch whose other lines came back
+beside a comped one), keep the rule whose failure sends people to LOOK at the dishes: a comped line
+counts, so an all-comped batch can never read "brought back".
+
+## #245
+
+**A filter that removes evidence must be paired with a probe for what it removed (the self-review on
+#315).** The blind pass caught `undoMissReason` reading "no line carries the batch" as "an earlier undo
+landed" while a void kept the batch on a line nothing was cooking — and the fix filtered voided lines
+out. That made "every line was voided" indistinguishable from "the undo landed", so a batch staff voided
+told the diner "Brought back to your order": the fix for one absence-reading was a new absence-reading,
+and two blind lenses found it independently. When a predicate drops rows to sharpen a verdict, ask what
+the dropped rows would have proved, and read for them explicitly (here a third probe, `state = 'voided'`,
+and its own verdict). The same round showed the cost of deciding a race by a LATER re-read: "was the
+undo refused by a lock?" asked of authz after the fact misses a lock taken and freed inside one request,
+while the LINES still answer it — dishes still fired and in their grace that the un-fire did not move
+were refused. Decide from the state the failed write left behind, not from a second look at its cause.

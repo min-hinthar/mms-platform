@@ -30,6 +30,7 @@ type Q = {
   limit: number[];
 };
 let queries: Q[] = [];
+let rpcs: { name: string; args: Record<string, unknown> }[] = [];
 type Answer = { data: unknown; error: { message: string; code?: string } | null; count?: number };
 /** What the next read answers. */
 let answer: Answer = { data: null, error: null };
@@ -90,13 +91,22 @@ const db = {
       return chain(q);
     },
   }),
+  // M263 — the bind is ONE call; recorded like a query so the args are asserted, answered by `next`.
+  rpc: (name: string, args: Record<string, unknown>) => {
+    rpcs.push({ name, args });
+    return Promise.resolve(next());
+  },
 } as unknown as Parameters<typeof seatedSessionFor>[0];
 
 const {
+  awaitsFirstDiner,
+  bindOutcome,
   bindSessionTable,
   bindVerdict,
   claimDisposition,
+  holderVerdict,
   occupancyFor,
+  rereadVerdict,
   seatedSessionFor,
   seatedTableNumbers,
   sweepExpiredOnTable,
@@ -113,6 +123,7 @@ const SESS = {
 
 beforeEach(() => {
   queries = [];
+  rpcs = [];
   answer = { data: null, error: null };
   answers = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -228,6 +239,82 @@ describe("seatedTableNumbers — the picker's occupancy read", () => {
     answer = { data: null, error: { message: "fetch failed" } };
     expect(await seatedTableNumbers(db)).toBeNull();
   });
+
+  // J40 — a hostless shell reads Open ONLY when the ONE SQL predicate says nothing is on it
+  // (`mms_untouched_shells`, batched): a shell with an order on it reads Seated, and a failed ask
+  // reads every shell Seated — fail-honest, never Open.
+  const LIVE = [
+    { ...SESS, id: "shell-4", host_seat: null, qr_code: "STICKER4", table_number: 4 },
+    { ...SESS, id: "shell-x", host_seat: null, qr_code: "STICKER5", table_number: null },
+    { ...SESS, id: "k6", host_seat: null, qr_code: "kiosk-AB12", table_number: 6 },
+    { ...SESS, id: "shell-8", host_seat: null, qr_code: "STICKER8", table_number: 8 },
+    SESS,
+  ];
+  const map = (set: Awaited<ReturnType<typeof seatedTableNumbers>>) =>
+    occupancyFor(
+      [4, 5, 6, 7, 8].map((n) => ({ tableNumber: n, qrCode: `STICKER${n}` })),
+      set,
+    );
+
+  it("J40 — the predicate is asked ONCE, for exactly the hostless non-kiosk shells; an UNTOUCHED shell reads Open, a TOUCHED one reads Seated; a kiosk order and a party read Seated", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: ["shell-4", "shell-x"], error: null }, // shell-8 has an order on it
+    ];
+    const set = await seatedTableNumbers(db);
+    expect(rpcs).toHaveLength(1);
+    expect(rpcs[0]?.name).toBe("mms_untouched_shells");
+    expect(rpcs[0]?.args.p_sessions).toEqual(["shell-4", "shell-x", "shell-8"]);
+    expect(set?.numbers).toEqual(new Set([6, 7, 8]));
+    expect(set?.strandedCodes).toEqual(new Set());
+    expect(map(set ?? null)).toEqual([
+      { tableNumber: 4, occupied: false },
+      { tableNumber: 5, occupied: false },
+      { tableNumber: 6, occupied: true },
+      { tableNumber: 7, occupied: true },
+      { tableNumber: 8, occupied: true },
+    ]);
+  });
+
+  it("J40 — a FAILED predicate call reads every shell Seated (never Open), and the rest of the set still stands", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: null, error: { message: "fetch failed" } },
+    ];
+    const set = await seatedTableNumbers(db);
+    expect(set?.numbers).toEqual(new Set([4, 6, 7, 8]));
+    expect(set?.strandedCodes).toEqual(new Set(["STICKER5"]));
+  });
+
+  it("J40 — the predicate only answers for the shells it was asked about: a hosted party's id in the answer never opens its table", async () => {
+    answers = [
+      { data: LIVE, error: null },
+      { data: ["sess-7", "k6"], error: null },
+    ];
+    const set = await seatedTableNumbers(db);
+    expect(set?.numbers).toEqual(new Set([4, 6, 7, 8]));
+  });
+
+  it("J40 — no hostless shell in the read → no predicate call at all (no round trip on the common path)", async () => {
+    answer = { data: [SESS, { ...SESS, id: "s9", table_number: 9 }], error: null };
+    const set = await seatedTableNumbers(db);
+    expect(rpcs).toEqual([]);
+    expect(set?.numbers).toEqual(new Set([7, 9]));
+  });
+});
+
+describe("awaitsFirstDiner — the ONE 'a table a server started' predicate (J40)", () => {
+  it("a hostless, non-reserved row → true", () => {
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "STICKER4" })).toBe(true);
+  });
+  it("a row with a host → false (a party)", () => {
+    expect(awaitsFirstDiner({ host_seat: "seat-a", qr_code: "STICKER4" })).toBe(false);
+  });
+  it("a reserved code, hostless or not → false (a kiosk or counter order is never a shell)", () => {
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "kiosk-AB12" })).toBe(false);
+    expect(awaitsFirstDiner({ host_seat: null, qr_code: "reg-AB12" })).toBe(false);
+    expect(awaitsFirstDiner({ host_seat: "kiosk-uid", qr_code: "kiosk-AB12" })).toBe(false);
+  });
 });
 
 describe("occupancyFor — pure", () => {
@@ -275,30 +362,137 @@ describe("sweepExpiredOnTable — dead rows only, by NUMBER", () => {
   });
 });
 
-describe("bindSessionTable — the row-count CAS (D21)", () => {
-  it("writes table_number ONLY, counted exactly, under the unbound·active·dinein·live predicate", async () => {
-    answer = { data: null, error: null, count: 1 };
+describe("bindSessionTable — ONE call, `mms_bind_session_table` (M263)", () => {
+  it("calls the RPC once with exactly the session and the number (no shell), and parses its row — no table_sessions write of its own", async () => {
+    answer = { data: [{ outcome: "bound", at_table: 5 }], error: null };
     const r = await bindSessionTable(db, "sess-1", 5);
-    expect(r).toEqual({ count: 1, error: null });
-    const [q] = queries;
-    expect(q?.op).toBe("update");
-    expect(q?.table).toBe("table_sessions");
-    // The join identity is the row's qr_code for its whole life (finding 4); the NUMBER is the seat.
-    expect(Object.keys(q?.payload ?? {})).toEqual(["table_number"]);
-    expect(q?.payload?.table_number).toBe(5);
-    // `.update()` with no count reports a blocked write as success (lock.ts's lesson).
-    expect(q?.opts).toEqual({ count: "exact" });
-    expect(q?.eq).toContainEqual(["id", "sess-1"]);
-    expect(q?.is).toContainEqual(["table_number", null]);
-    expect(q?.eq).toContainEqual(["status", "active"]);
-    expect(q?.eq).toContainEqual(["mode", "dinein"]);
-    expect(q?.gt[0]?.[0]).toBe("expires_at");
+    expect(r).toEqual({ outcome: { kind: "bound" }, error: null });
+    expect(rpcs).toHaveLength(1);
+    expect(rpcs[0]?.name).toBe("mms_bind_session_table");
+    expect(rpcs[0]?.args.p_session).toBe("sess-1");
+    expect(rpcs[0]?.args.p_table).toBe(5);
+    // Red-team #10 on the design: the key rides as `undefined` (PostgREST drops it, the SQL default
+    // is null) — assert the VALUE, never the key's absence.
+    expect(rpcs[0]?.args.p_shell === undefined).toBe(true);
+    expect(queries).toEqual([]);
   });
 
-  it("hands the error back untouched — the caller reads 23505 / 23503 by code", async () => {
-    answer = { data: null, error: { message: "dup", code: "23505" }, count: 0 };
-    const r = await bindSessionTable(db, "sess-1", 5);
-    expect(r.error?.code).toBe("23505");
+  it("a shell id rides as `p_shell` (J40 — the RPC adopts it only if nothing is on it)", async () => {
+    answer = { data: [{ outcome: "adopted", at_table: 5 }], error: null };
+    const r = await bindSessionTable(db, "sess-1", 5, "shell-5");
+    expect(rpcs[0]?.args.p_shell).toBe("shell-5");
+    expect(r.outcome).toEqual({ kind: "adopted" });
+  });
+
+  it("an error rides back untouched with a null outcome — the caller reads 23505 / 23503 by code", async () => {
+    for (const code of ["23505", "23503"]) {
+      answer = { data: [{ outcome: "bound", at_table: 5 }], error: { message: "x", code } };
+      const r = await bindSessionTable(db, "sess-1", 5);
+      expect(r.error?.code).toBe(code);
+      expect(r.outcome).toBeNull();
+    }
+  });
+});
+
+describe("bindOutcome — the RPC's row, guarded (M263)", () => {
+  it("reads each plain answer", () => {
+    for (const k of ["bound", "adopted", "unmoved", "locked", "settling", "gone", "held"]) {
+      expect(bindOutcome([{ outcome: k, at_table: null }])).toEqual({ kind: k });
+    }
+  });
+  it("`sticker` carries the sticker's own table", () => {
+    expect(bindOutcome([{ outcome: "sticker", at_table: 7 }])).toEqual({
+      kind: "sticker",
+      stickerTable: 7,
+    });
+  });
+  it("`sticker` without a number is unreadable (never 'Table NaN')", () => {
+    expect(bindOutcome([{ outcome: "sticker", at_table: null }])).toBeNull();
+    expect(bindOutcome([{ outcome: "sticker", at_table: "7" }])).toBeNull();
+  });
+  it("an unknown word, no row, or no array is null — every caller reads `error`, never a landing", () => {
+    expect(bindOutcome([{ outcome: "weird", at_table: 5 }])).toBeNull();
+    expect(bindOutcome([])).toBeNull();
+    expect(bindOutcome(null)).toBeNull();
+    expect(bindOutcome({ outcome: "bound", at_table: 5 })).toBeNull();
+    expect(bindOutcome([null])).toBeNull();
+  });
+});
+
+describe("holderVerdict — who holds N decides (J40)", () => {
+  const at5 = { mode: "dinein", qr_code: "GENX", table_number: 5 };
+  it("nobody → free (the CAS)", () => {
+    expect(holderVerdict(null, "sess-1", 5)).toEqual({ kind: "free" });
+  });
+  it("this session already AT n → own (two tabs: ok/already)", () => {
+    expect(holderVerdict({ ...at5, id: "sess-1", host_seat: "seat-a" }, "sess-1", 5)).toEqual({
+      kind: "own",
+    });
+  });
+  it("this session's own NUMBERLESS row on N's sticker → free (the CAS lands it — Codex r1 on #314)", () => {
+    expect(
+      holderVerdict(
+        { ...at5, id: "sess-1", host_seat: "seat-a", qr_code: "STICKER5", table_number: null },
+        "sess-1",
+        5,
+      ),
+    ).toEqual({ kind: "free" });
+  });
+  it("a `kiosk-` order (with its kiosk host) → kiosk NAMING n — no phone joins it", () => {
+    expect(
+      holderVerdict(
+        { ...at5, id: "k", host_seat: "kiosk-uid", qr_code: "kiosk-AB12" },
+        "sess-1",
+        5,
+      ),
+    ).toEqual({ kind: "refuse", result: { ok: false, reason: "kiosk", tableNumber: 5 } });
+  });
+  it("a party with a host → seated (the join form)", () => {
+    expect(holderVerdict({ ...at5, id: "p", host_seat: "seat-x" }, "sess-1", 5)).toEqual({
+      kind: "refuse",
+      result: { ok: false, reason: "seated" },
+    });
+  });
+  it("a HOSTLESS row (a table a server started) → the shell, by id", () => {
+    expect(holderVerdict({ ...at5, id: "shell-5", host_seat: null }, "sess-1", 5)).toEqual({
+      kind: "shell",
+      shellId: "shell-5",
+    });
+  });
+});
+
+describe("rereadVerdict — the answer after a fresh read of N (J40 · red-team #5)", () => {
+  const at5 = { mode: "dinein", qr_code: "GENX", table_number: 5 };
+  it("a party now → seated; a kiosk order now → kiosk naming n", () => {
+    expect(rereadVerdict({ ...at5, id: "p", host_seat: "seat-x" }, "sess-1", 5)).toEqual({
+      ok: false,
+      reason: "seated",
+    });
+    expect(
+      rereadVerdict({ ...at5, id: "k", host_seat: "kiosk-uid", qr_code: "kiosk-AB" }, "sess-1", 5),
+    ).toEqual({ ok: false, reason: "kiosk", tableNumber: 5 });
+  });
+  it("this session's own row at n now (another tab landed or adopted it) → ok, already", () => {
+    expect(rereadVerdict({ ...at5, id: "sess-1", host_seat: "seat-a" }, "sess-1", 5)).toEqual({
+      ok: true,
+      tableNumber: 5,
+      already: true,
+    });
+  });
+  it("a hostless shell → held naming n ONLY when the RPC said held; otherwise error", () => {
+    const shell = { ...at5, id: "shell-5", host_seat: null };
+    expect(rereadVerdict(shell, "sess-1", 5, true)).toEqual({
+      ok: false,
+      reason: "held",
+      tableNumber: 5,
+    });
+    expect(rereadVerdict(shell, "sess-1", 5)).toEqual({ ok: false, reason: "error" });
+  });
+  it("nobody (and the own numberless row) → error, held or not — a retry, never a landing", () => {
+    expect(rereadVerdict(null, "sess-1", 5, true)).toEqual({ ok: false, reason: "error" });
+    expect(
+      rereadVerdict({ ...at5, id: "sess-1", host_seat: "seat-a", table_number: null }, "sess-1", 5),
+    ).toEqual({ ok: false, reason: "error" });
   });
 });
 

@@ -470,3 +470,132 @@ describe("TableBindSheet — a SEATED chip binds first (Codex round 3 on #314)",
     expect(onFrozen).toHaveBeenCalledWith(FROZEN_NOTE);
   });
 });
+
+describe("TableBindSheet — J40: an order NO code joins flips the chip with no form", () => {
+  for (const answer of [
+    { ok: false, reason: "held", tableNumber: 9 },
+    { ok: false, reason: "kiosk", tableNumber: 9 },
+  ] as const) {
+    it(`\`${answer.reason}\`: the chip turns Seated with NO join form, no join clause in its name and no aria-expanded; the note shows; the sheet stays open; a second tap binds again`, async () => {
+      const s = spies();
+      h.bindTable.mockResolvedValue(answer);
+      render(<Host {...s} />);
+      const dialog = openSheet();
+      await act(async () => {
+        fireEvent.click(chip(9));
+      });
+      expect(s.onOutcome).toHaveBeenCalledWith(answer);
+      const nine = chip(9);
+      expect(nine.className.split(/\s+/)).toContain("is-seated");
+      // MUTATION (checkout-bind/occupied-answer-opens-the-join): the form asks for a party's code
+      // that nobody at this table holds (a kiosk order, a table a server started); red.
+      expect(dialog.querySelector("form")).toBeNull();
+      // The chip's NAME and STATE tell the same truth: no join clause (no code joins this table) and
+      // no `aria-expanded` (there is no form for it to expand).
+      // MUTANT checkout-bind/no-join-set-not-passed: the sheet stops handing `noJoinAt` to the grid —
+      // the chip is named "join with the table code" and announced collapsed; red.
+      expect(screen.getByRole("button", { name: "Table 9, someone is sitting here" })).toBe(nine);
+      expect(nine.hasAttribute("aria-expanded")).toBe(false);
+      expect(nine.hasAttribute("aria-controls")).toBe(false);
+      expect(text(dialog)).toContain(`note:${answer.reason}`);
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+      // Nothing to collapse: the next tap asks the bind again (the shell may have been cleared).
+      await act(async () => {
+        fireEvent.click(nine);
+      });
+      expect(h.bindTable).toHaveBeenCalledTimes(2);
+      expect(dialog.querySelector("form")).toBeNull();
+    });
+  }
+
+  it("`seated`, by contrast, keeps the join's name and its disclosure: the label offers the code and the chip says expanded, controlling the form", async () => {
+    h.bindTable.mockResolvedValue({ ok: false, reason: "seated" });
+    render(<Host {...spies()} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    const nine = screen.getByRole("button", {
+      name: "Table 9, someone is sitting here — join with the table code",
+    });
+    expect(nine.getAttribute("aria-expanded")).toBe("true");
+    expect(nine.getAttribute("aria-controls")).toBe(dialog.querySelector("form")!.id);
+  });
+
+  it("`sticker_table` (J41): the chip stays Open — the table is not taken — and no form opens; the note shows", async () => {
+    const s = spies();
+    h.bindTable.mockResolvedValue({
+      ok: false,
+      reason: "sticker_table",
+      tableNumber: 4,
+    });
+    render(<Host {...s} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    expect(chip(9).className.split(/\s+/)).toContain("is-open");
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(text(dialog)).toContain("note:sticker_table");
+  });
+
+  it("a chip that answered `held`, tapped after a freeze lands: FROZEN_NOTE, NO join form, no second bind", async () => {
+    const s = spies();
+    const onFrozen = vi.fn();
+    h.bindTable.mockResolvedValue({
+      ok: false,
+      reason: "held",
+      tableNumber: 9,
+    });
+    const { rerender } = render(<Host {...s} onFrozen={onFrozen} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    rerender(<Host {...s} frozen onFrozen={onFrozen} />);
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    // MUTATIONS (checkout-bind/held-chip-asks-under-a-freeze · held-chip-not-remembered): the
+    // frozen Seated path reveals the ask — a form for a code nobody holds; red.
+    expect(h.bindTable).toHaveBeenCalledTimes(1);
+    expect(dialog.querySelector("form")).toBeNull();
+    expect(onFrozen).toHaveBeenCalledWith(FROZEN_NOTE);
+  });
+
+  it("red-team #7: a chip that answered `held` and THEN `seated` (a host claimed it) reveals the join under a later freeze — never FROZEN_NOTE", async () => {
+    const s = spies();
+    const onFrozen = vi.fn();
+    h.bindTable
+      .mockResolvedValueOnce({ ok: false, reason: "held", tableNumber: 9 })
+      .mockResolvedValueOnce({ ok: false, reason: "seated" });
+    const { rerender } = render(<Host {...s} onFrozen={onFrozen} />);
+    const dialog = openSheet();
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    expect(chip(9).hasAttribute("aria-expanded")).toBe(false);
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    expect(dialog.querySelector("form")).not.toBeNull();
+    // The `seated` answer clears the no-join mark from the chip's name and state too.
+    expect(chip(9).getAttribute("aria-label")).toBe(
+      "Table 9, someone is sitting here — join with the table code",
+    );
+    expect(chip(9).getAttribute("aria-expanded")).toBe("true");
+    await act(async () => {
+      fireEvent.click(chip(9)); // collapse the ask
+    });
+    expect(dialog.querySelector("form")).toBeNull();
+    rerender(<Host {...s} frozen onFrozen={onFrozen} />);
+    await act(async () => {
+      fireEvent.click(chip(9));
+    });
+    // MUTATION (checkout-bind/join-answer-keeps-the-no-join-mark): the `held` mark outlives the
+    // `seated` answer, and the frozen path walls the join off with FROZEN_NOTE; red.
+    expect(onFrozen).not.toHaveBeenCalled();
+    expect(dialog.querySelector("form")).not.toBeNull();
+    expect(h.bindTable).toHaveBeenCalledTimes(2);
+  });
+});

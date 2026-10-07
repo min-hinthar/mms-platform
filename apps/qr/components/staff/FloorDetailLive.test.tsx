@@ -130,6 +130,7 @@ const DETAIL: TableDetail = {
   runningSubtotalCents: 2400,
   settleTotalCents: null,
   settleTipBaseCents: null,
+  settleBreakdown: null,
   intendedTipCents: null,
   counterRequestedAt: null,
   paidTotalCents: null,

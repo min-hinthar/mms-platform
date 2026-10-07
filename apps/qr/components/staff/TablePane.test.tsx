@@ -114,6 +114,7 @@ const detail = (sessionId: string, tableNumber: number, over: Partial<TableDetai
     runningSubtotalCents: 1200,
     settleTotalCents: null,
     settleTipBaseCents: null,
+    settleBreakdown: null,
     intendedTipCents: null,
     counterRequestedAt: null,
     paidTotalCents: null,

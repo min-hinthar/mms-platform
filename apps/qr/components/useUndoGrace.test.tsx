@@ -6,19 +6,28 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
  * Phase 3c-i (D15) — the send's undo window, lifted out of the leaf into a hook Checkout owns, so a
  * stage flip no longer destroys the only UI that can recall the send. Three invariants, each with a
  * mutant: the window is never shortened by a freeze; the undo targets exactly `batch`; `graceWrites`
- * never rejects. Observed through the hook's own state — never by reaching into an internal.
+ * never rejects — and J37's fourth: a REJECTED undo never opens the gate on the clock. J34 moved the
+ * seconds count out of the hook's host into `useGraceCountdown` (the Undo label's own leaf). Observed
+ * through the hook's own state — never by reaching into an internal.
  */
 const h = vi.hoisted(() => ({ undoFire: vi.fn() }));
 vi.mock("@/lib/cart", () => ({ undoFire: h.undoFire, sendToKitchen: vi.fn() }));
 
 const {
   useUndoGrace,
+  useGraceCountdown,
   BROUGHT_BACK_NOTE,
   FROZEN_NOTE,
   RESYNC_FAILED_NOTE,
   RESYNC_RETRY_MS,
+  UNDO_UNCONFIRMED_NOTE,
+  UNDO_UNCONFIRMED_FINAL,
+  VOIDED_NOTE,
   reasonCopy,
+  undoReasonCopy,
 } = await import("./useUndoGrace");
+const { graceRemainingSec } = await import("@/lib/send-grace");
+const KITCHEN_LINE = "That’s already with the kitchen — ask a server to change it.";
 
 afterEach(() => {
   cleanup();
@@ -133,6 +142,46 @@ describe("useUndoGrace — the window", () => {
     expect(result.current.message).toEqual({ kind: "err", text: reasonCopy.rate_limited });
   });
 
+  it("a VOIDED batch closes the window with a sentence that claims nothing came back — never 'Brought back' (self-review on #315)", async () => {
+    const say = vi.fn();
+    const { result } = renderHook(() => useUndoGrace({ say }));
+    act(() => result.current.open(receipt(), Date.now()));
+    h.undoFire.mockResolvedValueOnce({ ok: false, reason: "voided" });
+    // MUTATION (undo-grace/voided-keeps-the-window): the voided answer falls through to the refusal
+    // branch — an `undefined` sentence and an Undo left live over a dish staff removed; red.
+    await act(async () => {
+      await result.current.undo("cart-1", false);
+    });
+    expect(result.current.message).toEqual({ kind: "ok", text: VOIDED_NOTE });
+    expect(say).toHaveBeenLastCalledWith({ kind: "ok", text: VOIDED_NOTE });
+    expect(VOIDED_NOTE).not.toBe(BROUGHT_BACK_NOTE);
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("expired");
+  });
+
+  it("a refused UNDO says the undo's sentence, never the Send's (J43): error · settling · not_host; the lock's and the rate limit's are shared", async () => {
+    const { result } = renderHook(() => useUndoGrace());
+    act(() => result.current.open(receipt(), Date.now()));
+    const before = result.current.deadlineMs;
+    for (const reason of ["error", "settling", "not_host"] as const) {
+      h.undoFire.mockResolvedValueOnce({ ok: false, reason });
+      await act(async () => {
+        await result.current.undo("cart-1", false);
+      });
+      // MUTATION (undo-grace/undo-refusal-says-the-send): the Send's `reasonCopy` — "Couldn't send
+      // that just now" over a tap that tried to bring something back; red.
+      expect(result.current.message).toEqual({ kind: "err", text: undoReasonCopy[reason] });
+      expect(undoReasonCopy[reason]).not.toBe(reasonCopy[reason]);
+      expect(result.current.deadlineMs).toBe(before); // nothing un-fired: the window stays
+    }
+    expect(undoReasonCopy.error).toBe("Couldn’t bring that back just now — please try again.");
+    expect(undoReasonCopy.settling).toBe(
+      "Your table is paying — that can’t change while everyone pays.",
+    );
+    expect(undoReasonCopy.locked).toBe(reasonCopy.locked);
+    expect(undoReasonCopy.rate_limited).toBe(reasonCopy.rate_limited);
+  });
+
   it("graceWrites.current resolves only AFTER the undo (and its re-sync) — and never rejects on a thrown action", async () => {
     const fire = deferred<{ ok: true }>();
     h.undoFire.mockReturnValueOnce(fire.promise);
@@ -168,16 +217,19 @@ describe("useUndoGrace — the window", () => {
     expect(drained).toBe(true);
     expect(result.current.pending).toBe(false);
 
-    // A thrown action is a message, never a rejection — each write owns its errors.
-    h.undoFire.mockRejectedValueOnce(new Error("boom"));
+    // A thrown action is a message, never a rejection — each write owns its errors. J37: the read
+    // applied, so the ONE confirm runs, and it throws too — still a message, never a rejection.
+    h.undoFire.mockRejectedValueOnce(new Error("boom")).mockRejectedValueOnce(new Error("boom"));
     act(() => result.current.open(receipt(), Date.now()));
     await act(async () => {
       await result.current.undo("cart-1", false);
     });
     await expect(result.current.graceWrites.current).resolves.toBeUndefined();
-    expect(result.current.message?.text).toBe("Couldn’t undo that just now — please try again.");
-    // Uncertain outcome: the window is left to expire on its own.
+    expect(result.current.message?.text).toBe(UNDO_UNCONFIRMED_FINAL);
+    // Unconfirmable twice: the window runs on for the view to decide — nothing closed, nothing held.
     expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.closedBy).toBeNull();
+    expect(result.current.pending).toBe(false);
   });
 
   it("the window and `pending` stay until the re-sync LANDS — the answer is said at once, the state that gates Pay moves with the view", async () => {
@@ -229,7 +281,7 @@ describe("useUndoGrace — the window", () => {
     });
     // MUTATION (undo-grace/tick-closes-a-window-mid-undo): the tick closes it as "elapsed" — the
     // Bill says "Ready to pay." over an undo that is about to put the dishes back; red.
-    expect(result.current.remaining).toBe(0);
+    expect(graceRemainingSec(result.current.deadlineMs, Date.now())).toBe(0);
     expect(result.current.deadlineMs).not.toBeNull();
     expect(result.current.isOpen()).toBe(true);
     expect(result.current.closedBy).toBeNull();
@@ -340,7 +392,7 @@ describe("useUndoGrace — the window", () => {
     // MUTATION (undo-grace/landed-undo-released-at-the-deadline): `pending` released after the
     // failed attempts — the tick closes the expired deadline as "elapsed" over a view that still
     // shows the lines fired: Pay live over drafts the server restored, refused at create-intent; red.
-    expect(result.current.remaining).toBe(0);
+    expect(graceRemainingSec(result.current.deadlineMs, Date.now())).toBe(0);
     expect(result.current.deadlineMs).not.toBeNull();
     expect(result.current.closedBy).toBeNull();
     expect(result.current.isOpen()).toBe(true);
@@ -354,11 +406,11 @@ describe("useUndoGrace — the window", () => {
     expect(result.current.pending).toBe(false);
   });
 
-  it("a second Undo tap after a LANDED undo whose re-syncs all failed retries only the READ — never re-fires (a re-fire finds nothing in grace and reads `expired` over dishes that are drafts)", async () => {
+  it("a second Undo tap after a LANDED undo whose re-syncs all failed retries only the READ — never re-fires (since J37 a re-fire answers `gone`: a redundant Server Action the read alone settles)", async () => {
     vi.useFakeTimers();
     h.undoFire
-      .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: false, reason: "expired" }); // what a re-fire WOULD get
+      .mockResolvedValueOnce({ ok: true, unfired: 2, gone: false })
+      .mockResolvedValueOnce({ ok: true, unfired: 0, gone: true }); // what a re-fire WOULD get (J37)
     const onChanged = vi
       .fn<() => Promise<string>>()
       .mockResolvedValueOnce("failed")
@@ -387,9 +439,9 @@ describe("useUndoGrace — the window", () => {
       await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS);
       await second;
     });
-    // MUTATION (undo-grace/second-tap-re-fires-a-landed-undo): `undoFire` runs again, finds nothing
-    // in grace, answers `expired` — "already with the kitchen" said and the window closed as expired
-    // over dishes that are drafts; red here (called twice, closedBy expired).
+    // MUTATION (undo-grace/second-tap-re-fires-a-landed-undo): `undoFire` runs again — a second
+    // Server Action for a batch already brought back (before J37 it answered `expired` and closed the
+    // window as expired over drafts); red here (called twice).
     expect(h.undoFire).toHaveBeenCalledTimes(1);
     expect(onChanged).toHaveBeenCalledTimes(4);
     expect(result.current.deadlineMs).toBeNull();
@@ -544,11 +596,11 @@ describe("useUndoGrace — the window", () => {
     vi.useFakeTimers();
     const { result, unmount } = renderHook(() => useUndoGrace());
     act(() => result.current.open(receipt(), Date.now()));
-    expect(result.current.remaining).toBe(10);
+    expect(graceRemainingSec(result.current.deadlineMs, Date.now())).toBe(10);
     act(() => {
       vi.advanceTimersByTime(4_000);
     });
-    expect(result.current.remaining).toBe(6);
+    expect(graceRemainingSec(result.current.deadlineMs, Date.now())).toBe(6);
     act(() => {
       vi.advanceTimersByTime(6_250);
     });
@@ -562,5 +614,253 @@ describe("useUndoGrace — the window", () => {
     // flip that unmounts mid-grace leaves a timer setting state on a dead component; red.
     unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("useUndoGrace — a REJECTED undo is uncertain, never failed (J37)", () => {
+  it("a THROWN undo holds `pending` and the window through an outage — past the deadline, the tick may not close it — and once a read applies the server is asked ONCE more (`gone` → undone)", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockRejectedValueOnce(new Error("lost")); // the answer, lost — the un-fire may have landed
+    const onChanged = vi.fn<() => Promise<string>>(() => Promise.resolve("failed"));
+    const say = vi.fn();
+    const { result } = renderHook(() => useUndoGrace({ onChanged, say }));
+    act(() => result.current.open(receipt(), Date.now())); // a 10 s measured grace
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(11_000); // past the deadline, every read failed
+      await undoPromise;
+    });
+    // MUTATION (undo-grace/thrown-undo-released-on-the-clock): the rejection releases `pending` —
+    // the tick closes the window as "elapsed" over a view that may predate a landed un-fire: Pay live
+    // over drafts the server restored, refused at create-intent; red here (closedBy "elapsed").
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.closedBy).toBeNull();
+    expect(result.current.pending).toBe(true);
+    expect(result.current.isOpen()).toBe(true);
+    expect(result.current.message).toEqual({ kind: "err", text: UNDO_UNCONFIRMED_NOTE });
+    expect(say).toHaveBeenCalledWith({ kind: "err", text: UNDO_UNCONFIRMED_NOTE });
+    expect(h.undoFire).toHaveBeenCalledTimes(1); // no write is looped through the outage
+    // The reads come back — and the confirm learns the first undo HAD landed (`gone`).
+    onChanged.mockImplementation(() => Promise.resolve("applied"));
+    h.undoFire.mockResolvedValueOnce({ ok: true, unfired: 0, gone: true });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS + 10);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS + 10);
+    });
+    expect(h.undoFire).toHaveBeenCalledTimes(2);
+    expect(h.undoFire).toHaveBeenNthCalledWith(1, "cart-1", "batch-1");
+    expect(h.undoFire).toHaveBeenNthCalledWith(2, "cart-1", "batch-1");
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("undone");
+    expect(result.current.pending).toBe(false);
+    expect(result.current.message).toEqual({ kind: "ok", text: BROUGHT_BACK_NOTE });
+  });
+
+  it("an uncertain undo whose confirm answers `expired` closes as expired with the kitchen line", async () => {
+    h.undoFire
+      .mockRejectedValueOnce(new Error("lost"))
+      .mockResolvedValueOnce({ ok: false, reason: "expired" });
+    const onChanged = vi.fn(() => Promise.resolve("applied"));
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    await act(async () => {
+      await result.current.undo("cart-1", false);
+    });
+    // MUTATION (undo-grace/uncertain-confirm-skipped): the gate opens on the read and nobody asks
+    // the server — "checking your order…" stands and the window runs on; red here (one call).
+    expect(h.undoFire).toHaveBeenCalledTimes(2);
+    expect(h.undoFire).toHaveBeenLastCalledWith("cart-1", "batch-1");
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("expired");
+    expect(result.current.message?.text).toBe(KITCHEN_LINE);
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("an uncertain undo whose confirm ALSO throws releases WITHOUT a close once a read has applied — the view decides, and the window runs out on its own", async () => {
+    vi.useFakeTimers();
+    h.undoFire
+      .mockRejectedValueOnce(new Error("lost"))
+      .mockRejectedValueOnce(new Error("session closed"));
+    const onChanged = vi.fn(() => Promise.resolve("applied"));
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    await act(async () => {
+      await result.current.undo("cart-1", false);
+    });
+    expect(h.undoFire).toHaveBeenCalledTimes(2);
+    // MUTATION (undo-grace/unconfirmed-undo-closes-as-undone): a confirm that knows nothing closes
+    // the window as undone — the Undo shut over lines that may be cooking; red here.
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.closedBy).toBeNull();
+    expect(result.current.pending).toBe(false);
+    expect(result.current.message).toEqual({ kind: "err", text: UNDO_UNCONFIRMED_FINAL });
+    act(() => {
+      vi.advanceTimersByTime(10_500);
+    });
+    expect(result.current.deadlineMs).toBeNull();
+    expect(result.current.closedBy).toBe("elapsed");
+    expect(h.undoFire).toHaveBeenCalledTimes(2); // never a third: the confirm is asked ONCE
+  });
+
+  it("a confirm answered `locked` says why and releases with the window open", async () => {
+    h.undoFire
+      .mockRejectedValueOnce(new Error("lost"))
+      .mockResolvedValueOnce({ ok: false, reason: "locked" });
+    const onChanged = vi.fn(() => Promise.resolve("applied"));
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    await act(async () => {
+      await result.current.undo("cart-1", false);
+    });
+    expect(result.current.message).toEqual({ kind: "err", text: reasonCopy.locked });
+    expect(result.current.deadlineMs).not.toBeNull();
+    expect(result.current.closedBy).toBeNull();
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("the BACKGROUND confirm rides the write chain — Pay's drain waits for the server's answer", async () => {
+    vi.useFakeTimers();
+    const confirmAnswer = deferred<{ ok: false; reason: "expired" }>();
+    h.undoFire.mockRejectedValueOnce(new Error("lost")).mockReturnValueOnce(confirmAnswer.promise);
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValue("applied");
+    const { result } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 2 + 10);
+      await undoPromise;
+    });
+    expect(onChanged).toHaveBeenCalledTimes(3);
+    expect(h.undoFire).toHaveBeenCalledTimes(1); // no read applied yet — nothing asked
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS + 10);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(4);
+    expect(h.undoFire).toHaveBeenCalledTimes(2); // the read applied → the confirm is out
+    let drained = false;
+    void result.current.graceWrites.current.then(() => {
+      drained = true;
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // MUTATION (undo-grace/background-confirm-off-the-chain): the confirm runs beside the chain —
+    // Pay's drain resolves at once and decides against a server answer still in flight; red.
+    expect(drained).toBe(false);
+    expect(result.current.pending).toBe(true);
+    await act(async () => {
+      confirmAnswer.resolve({ ok: false, reason: "expired" });
+      await result.current.graceWrites.current;
+    });
+    expect(drained).toBe(true);
+    expect(result.current.closedBy).toBe("expired");
+    expect(result.current.pending).toBe(false);
+  });
+
+  it("an unmounted hook stops the UNCERTAIN retry — a read OUT at unmount re-arms nothing and sends no confirm", async () => {
+    vi.useFakeTimers();
+    h.undoFire.mockRejectedValueOnce(new Error("lost"));
+    const inFlight = deferred<string>();
+    const onChanged = vi
+      .fn<() => Promise<string>>()
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockResolvedValueOnce("failed")
+      .mockImplementationOnce(() => inFlight.promise) // the background read that is out at unmount
+      .mockResolvedValue("failed"); // the outage goes on
+    const { result, unmount } = renderHook(() => useUndoGrace({ onChanged }));
+    act(() => result.current.open(receipt(), Date.now()));
+    let undoPromise!: Promise<void>;
+    act(() => {
+      undoPromise = result.current.undo("cart-1", false);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 2 + 10);
+      await undoPromise;
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS + 10);
+    });
+    expect(onChanged).toHaveBeenCalledTimes(4);
+    unmount(); // the diner leaves mid-read
+    inFlight.resolve("failed");
+    await vi.advanceTimersByTimeAsync(RESYNC_RETRY_MS * 4);
+    // MUTATION (undo-grace/unmounted-uncertain-hook-keeps-polling): the cleanup leaves the uncertain
+    // TARGET standing — the failed read re-arms the 750 ms loop from a hook nobody renders; red here.
+    expect(onChanged).toHaveBeenCalledTimes(4);
+    expect(h.undoFire).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useGraceCountdown — the Undo label's own ticker (J34)", () => {
+  it("counts the window down on its own subscription — 10, 6 after 4 s, 0 past the deadline; a new deadline reads at once; a null deadline is 0", () => {
+    vi.useFakeTimers();
+    const initialProps: { d: number | null } = { d: Date.now() + 10_000 };
+    const { result, rerender } = renderHook(({ d }: { d: number | null }) => useGraceCountdown(d), {
+      initialProps,
+    });
+    expect(result.current).toBe(10);
+    act(() => {
+      vi.advanceTimersByTime(4_000);
+    });
+    // MUTATION (undo-grace/countdown-never-ticks): the label reads the clock only when its parent
+    // renders — and nothing renders it: frozen at 10; red here.
+    expect(result.current).toBe(6);
+    act(() => {
+      vi.advanceTimersByTime(6_500);
+    });
+    expect(result.current).toBe(0);
+    rerender({ d: Date.now() + 5_000 });
+    expect(result.current).toBe(5);
+    rerender({ d: null });
+    expect(result.current).toBe(0);
+  });
+
+  it("its ticker is torn down on unmount", () => {
+    vi.useFakeTimers();
+    const { unmount } = renderHook(() => useGraceCountdown(Date.now() + 10_000));
+    expect(vi.getTimerCount()).toBe(1);
+    unmount();
+    // MUTATION (undo-grace/countdown-ticker-survives-unmount): the unsubscribe keeps the interval —
+    // a quarter-second timer per Undo ever drawn, for the life of the tab; red here.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("the countdown never re-renders the hook's HOST — a ten-second window costs the host its open and its close, not forty renders", () => {
+    vi.useFakeTimers();
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders++;
+      return useUndoGrace();
+    });
+    act(() => result.current.open(receipt(), Date.now()));
+    const opened = renders;
+    // One `act` PER TICK, as the browser runs them (each interval callback its own task): a single
+    // `act` around 9 s would batch every tick's setState into ONE render and hide the storm.
+    for (let tick = 0; tick < 36; tick++)
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    // Red-first BY HAND, not a verify-slice mutant: restoring the pre-J34 `nowMs` state and its
+    // per-tick `setNowMs(now)` (two edits, not adjacent) renders the host 36 more times here.
+    expect(renders).toBe(opened);
+    act(() => {
+      vi.advanceTimersByTime(1_250);
+    });
+    expect(result.current.closedBy).toBe("elapsed");
+    expect(renders - opened).toBeLessThanOrEqual(1);
   });
 });
