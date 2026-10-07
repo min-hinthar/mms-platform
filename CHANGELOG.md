@@ -24,6 +24,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   merges when ready.
 - **Session notes there, not rulings:** Codex has quota again (measured), with the recommendation that code
   PRs wait for Codex again; and by #2's own terms C16's advisory fallback has ended.
+- **C18 and C27 move to OPEN-ITEMS' Closed section** (the file's own rule), each with its full text and
+  source as the trail.
 - **Corrected in place:** ruling #3 (withdrawn, struck through), the rulings file's C18 section, HANDOFF's
   heading and owner list, the C18 row (both cells) and the C2 · M160 · M161 · M163 rows, ENV.md's failure
   modes and PILOT_PLAN's P7 line.

@@ -43,7 +43,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   set and correct. What caused and ended the 2026-09-07 failures is not measured. Never resend the five
 >   2026-09-07 test-pass events.
 > - C25: reload every staff screen once, at a quiet moment. The trigger has happened: #317's merge started
->   the first production deploy after 07:13Z, at 2026-10-07 09:43Z.
+>   the first production deploy after 07:13Z, at 2026-10-07 09:43Z, and that deploy is READY
+>   (`dpl_3AxhwqjU…`; prod answers `iad1::pdx1::…`).
 > - C16: make `codex-review` (never `codex-reviewed`) a required check. With Codex's quota back, #2's
 >   "advisory until Codex has quota" fallback has ended, so it no longer waits on the admin bypass (the
 >   rulings file, D's session notes).
