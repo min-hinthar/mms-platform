@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### C27 — functions pinned next to the database (2026-10-07)
+
+- **`apps/qr/vercel.json` pins the QR app's functions to `pdx1` (Portland).** The QR Supabase project is in
+  `us-west-2` (Oregon), but every dynamic response carried `x-vercel-id: iad1::…` (US East), so each
+  serial server read crossed the country (C27, measured while answering J30).
+  - Owner ruling #23: yes, if the plan allows. The PR's preview build is that check.
+  - No code changes. Stripe webhooks are region-agnostic.
+  - After the prod deploy: re-measure `/menu?mode=pickup`'s time to content with J30's method, then close C27.
+
 ### Owner rulings for the parallel wave (2026-10-07)
 
 - **The owner answered the wave's decision brief: "yes to all recommended defaults."**

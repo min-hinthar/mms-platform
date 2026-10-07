@@ -1,4 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "ignoreCommand": "npx turbo-ignore @mms/qr"
+  "ignoreCommand": "npx turbo-ignore @mms/qr",
+  "regions": ["pdx1"]
 }
