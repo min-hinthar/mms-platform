@@ -19,20 +19,24 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **The owner answered the wave's decision brief on 2026-10-07: "yes to all recommended defaults."**
 > [`OWNER_RULINGS_2026-10-07.md`](OWNER_RULINGS_2026-10-07.md) is the record, and each affected
-> OPEN-ITEMS row carries an `Owner 2026-10-07` note. Every default in a card's ASK THE OWNER list is
-> decided; build it and don't ask again. Three things still go to the owner:
+> OPEN-ITEMS row carries an `Owner 2026-10-07` note. The owner answered the brief, so every question is
+> decided **as worded in that file**: where a card's ASK line differs, the file wins, and a conditional
+> ruling keeps its condition. Build it and don't ask again. What still goes to the owner:
 >
-> - the per-merge-window message: each ready PR as `#N @ head SHA`, answered yes or hold;
-> - the moment to apply each approved migration;
-> - the facts only the owner holds.
+> - the per-merge-window message: each ready PR as `#N @ head SHA`, answered yes or hold. A PR that
+>   changes charges, orders, cash or approvals still waits for Codex when the blind pass flagged that
+>   path. `.md`-only PRs merge without the Codex wait;
+> - the moment to apply each approved migration, and the go for M168's and T4's;
+> - the facts only the owner holds, listed in the file.
 >
 > **Owner's hands (not code):**
 >
-> - C18: the test endpoint's signing secret as `STRIPE_WEBHOOK_SECRET_TEST` in Vercel Production, then
->   a redeploy, before counter-floor's M163 merges. The steps are in the rulings file.
-> - C25: one reload of every staff screen after the first production deploy after 07:13Z on 2026-10-07.
-> - C16: make `codex-review` a required check.
+> - C18: set `STRIPE_WEBHOOK_SECRET_TEST` in Vercel Production to the test endpoint's signing secret,
+>   then redeploy, before counter-floor's M163 merges. The steps are in the rulings file.
+> - C25: reload every staff screen once after the first production deploy after 2026-10-07 07:13Z.
+> - C16: make `codex-review` a required check, but only if branch protection lets admins bypass it.
 > - C1: the auth settings (confirmations ON, Google open to any account).
+> - #13: once money-rails' M160 cron lands, add `CRON_SECRET` in Vercel Production.
 > - The device sitting (#12), and the native Burmese sitting at the end of the wave.
 > - The Codex quota.
 >

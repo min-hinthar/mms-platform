@@ -14,8 +14,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **HANDOFF's next-session block now describes the nine parallel streams.** It gives each stream one
   bullet under "Parallel streams".
 - **C18's endpoints, measured through the Stripe connector (read-only).** The test endpoint
-  `we_1TkFUz…` and the live endpoint `we_1U7KIJ…` are both enabled. The safer form of the fix is the
-  `STRIPE_WEBHOOK_SECRET_TEST` variable, which test mode reads first.
+  `we_1TkFUz…` and the live endpoint `we_1U7KIJ…` are both enabled.
+  - What Vercel holds was not measured.
+  - Test mode verifies with exactly one secret: `STRIPE_WEBHOOK_SECRET_TEST` when it is set, otherwise
+    `STRIPE_WEBHOOK_SECRET`.
+  - So the suggested form of the fix sets the `_TEST` name and leaves the live secret in place.
 
 ### After 3c-ii — the follow-ups and Phase 3d (2026-10-06)
 
