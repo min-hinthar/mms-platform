@@ -1,0 +1,592 @@
+# picked-m4 — "Let's Find It Together", elevated: the tag on the lens, the tag for the counter
+
+Moment m4: a shelf jar's code won't scan (the market's miss). The shopper is on their own phone in the
+market and reads Burmese, English or both. Dad is at the one counter, which is also the kitchen pass.
+
+**Backbone: GUIDED** (owner answer 1: diner moments are guided). Every state says its one next step in
+plain words, in both languages. The tag on the lens says **Search by name**. The sheet's dead end says
+**Try one word from the name, or ask at the counter**, then **Back to the camera**. Nothing is a
+dashboard, and nothing asks two questions at once.
+
+**Grafted from QUIET ("The Lens Stays Put"):**
+
+- The camera never scrolls away. The Scan door loses the search field that sat above the stage and pushed
+  it down. Search on the Scan door is a sheet laid over the still-running lens.
+- The miss lives inside the lens and has ONE primary. The counter is a quiet line, not a second button.
+- No ✕ on the miss, no drawn toast for it, and no re-rise when the same jar is re-read.
+- The fewest new claims. The sheet's states reuse the product's shipped words where they exist
+  (`Search by name`, `Searching…`, `Search unavailable — please try again.`, the kiosk's counter sentence).
+
+**Grafted from GLANCEABLE ("Paper Tag, Live Lens"):**
+
+- One shape language, readable at arm's length. **A tag means "not added — this one goes to the counter".**
+  **A round disc means "in your basket".** Words always ride with the shape, and colour is never the only cue.
+- The tag is §27's own "paper for recovery" (DESIGN-LANGUAGE.md:2069-2071), cut as a shop tag. It is
+  not a new vocabulary.
+- The one moment of delight: **the tag's punched hole shows the live camera through it.** The lens is
+  literally still there, under the paper. No new animation is added for it.
+
+**Fixed from guided's judged weaknesses** (m4.json → judgement.scores[1].note):
+
+- No step rail ("Code read › Find it › Keep scanning") for a one-step task.
+- No two equal buttons. Search is the primary and the counter is a quiet line.
+- The search field no longer sits above the stage.
+- No counter-card digits staff cannot act on.
+- No proxy-input focus trick.
+
+**What the best in the world do at this exact moment, brought down to this family's room:**
+
+- **A Japanese konbini self-checkout.** When an item won't read, the machine never blames you and never says
+  "error". It names the next step and that a person will help. Here that becomes "It's not you", search
+  by name, or the counter.
+- **A price tag or luggage tag.** A tag is the universal sign for "priced, not yet rung up". A miss becomes
+  a tag pinned under the jar, and the item, once in the basket, becomes a coin-like disc. In the
+  cross-moment vocabulary, a tag is the paper you carry to the counter (m3's claim tag) and a disc is done
+  (m1's sent disc).
+- **A good grocer handing off.** When self-service fails, the handoff carries its own context, so a shopper
+  never has to explain in a second language. The tag in the sheet says, in Burmese at 22px, the one thing
+  Dad needs to know.
+- **A wallet boarding pass.** One look on every phone. Both tags are constant cream with ink in both themes,
+  so Dad learns that look once.
+
+The design stays inside the family's constraints. It adds no hardware, no new staff screen and no
+promise of a sale. Ruling #11 is unanswered, and M189 keeps market items off the pad.
+
+**Example data (every number measured, not transcribed):**
+
+- **Basket (2 lines).** Both rows come from supabase/data/grocery_catalog.json, both are EBT-eligible, and
+  the arithmetic was computed in the shell. This is the same $14.95 / $8.03 example as every m4 artboard.
+  - Instant Noodle Sauce (Monhinga)400g / စိန်ဟင်္သာမုန့်ဟင်းခါး(ဗူး)400g, $7.80, compare at $11.99.
+  - Coconut Milk (400g) / အုန်းနို့-400g, $7.15, compare at $10.99.
+  - Totals: Subtotal · before tax **$14.95**, saving **$8.03**, EBT-eligible **$14.95**.
+- **The missed jar.** A real shelf label. Every catalog code is a store-internal 299-prefix EAN-13
+  (grocery_catalog.json `barcode_note`).
+- **The query on screen 2 is "durian".** Measured against the 405 seed items, it has zero substring hits in
+  `name`, `name_my` or `synonyms`. Its best trigram similarity is 0.13 ("Marian Plum - Shanma"), under
+  `mms_grocery_search`'s 0.25 bar (20260718000000_w4e_compare_at.sql:31-36). The RPC returns 0 rows.
+- **The after-add example (states only).** Tea Leaves -400g / ဇယန်းလက်ဖက်ချိုနှပ်-400g, $6.44. Its
+  synonyms are `laphet · lahpet · letphet · pickled tea`, which is why "laphet" or "tea leaf" finds it.
+
+**Light tokens used (hex):**
+
+- Ground and surfaces: --pg #faf9f5 · --cd #fffdf8 · --cd-raised #ffffff · --sf #f2efe7
+- Text: --tx #1b1714 · --t2 #6e6358 · --t3 #726859
+- Accent: --ac #a65f10 · --ac-strong #8f5009 · --oa #fffdf8 · --ok #346e47
+- Lines and glass: --bd rgba(58,35,23,0.1) · --sheen rgba(255,255,255,0.55) · --scrim-glass rgba(15,10,5,0.3)
+- Constant in both themes: --ink #1b1714 · --on-ink #fffdf8 · --scan-scrim = ink 72% (rgba(27,23,20,0.72))
+  · --scan-dim = ink 40% (rgba(27,23,20,0.4)) (tokens.css:112, 401-405)
+
+---
+
+## CLAIMS VERIFIED AGAINST THE CODE (HEAD f6e81ce)
+
+Where a claim failed, the design changed, never the claim.
+
+| Claim the design depends on                                                                                                                       | Verdict             | Evidence → design consequence                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Today's miss is a not-live bar inside the stage with a bilingual sentence, a visible "Search" (named "Search by name" by aria-label only) and a ✕ | TRUE                | `components/grocery/ScanResult.tsx:92-124` (aria-label at :108, visible "Search" at :112, ✕ "Dismiss" at :115-122); `.scan-result` sits inset 8 at the stage foot on `--scan-scrim` (`app/globals.css:12812-12826`). → The tag replaces the notice in that same slot. Its button's name IS its visible bilingual text, and the ✕ goes. |
+| The stage is 262px tall at 390px, and the reticle is 62% wide at 2.4:1, centred at 38%                                                            | TRUE                | `globals.css:12551-12560`: min((390−40)×0.75, 36svh) = min(262.5, 303.8). `:12586-12596`: the window spans stage y 54.6–144.9, so page y 332–422 with the stage at 277. → The tag has ≤109px below the reticle. It is 107px. The reticle never moves.                                                                                  |
+| The search field sits ABOVE the stage, outside both tab panels, and "Search" scrolls it to the centre                                             | TRUE                | `app/grocery/page.tsx:1088-1100` (the field), `:1105-1190` (results, above the Scan panel), `:788-796` (`focusSearch`, `scrollIntoView` centre). → On the Scan door the field is gone (Browse keeps it), and the stage moves up 58px to y 277. Every Scan-door "Search by name" opens the Name sheet.                                  |
+| Three focus fallbacks park on that field                                                                                                          | TRUE — must change  | `page.tsx:425` (row removed), `:1015` (fresh-basket retry), `:1533` (basket sheet close with no lines). → On the Scan door they must park on `#scan-stage` instead (see OPEN RISKS).                                                                                                                                                   |
+| A sheet over the stage SWALLOWS sightings, and closing it never announces the jar in frame                                                        | TRUE                | `lib/camera-state.ts:151-156` (`decodeHold` → `swallow` first), `:158-165` (`gateOnHoldChange` keeps the throttle on swallow→none); `ScanStage.tsx:257`; `page.tsx:1234` (`sheetOpen` = basket ∨ door sheet). → The Name sheet joins `sheetOpen`. The lens keeps streaming but adds nothing, and nothing charges on close.             |
+| The stage hint hides while a result shows; the result renders only while streaming                                                                | TRUE                | `ScanStage.tsx:370` (`cam === "live" && !result`), `:386`.                                                                                                                                                                                                                                                                             |
+| The live stage's accessible name                                                                                                                  | TRUE                | `ScanStage.tsx:87`: "Scanner on — point your camera at the code on the package".                                                                                                                                                                                                                                                       |
+| The same jar re-announces after any 1.5s gap, and every outcome re-keys the bar (a re-rise)                                                       | TRUE — fixed in lib | `lib/scan-gate.ts:47` (`SCAN_QUIET_MS = 1500`), `:65`; `lib/scan-notice.ts:56-75` (`slotAfter` always takes the new key). → `slotAfter` keeps the current key when a notice repeats the same barcode, so there is no second rise and no second announcement.                                                                           |
+| A search add never plants a notice; an ok add turns the slot into the chip, named from the basket                                                 | TRUE                | `scan-notice.ts:44` (`fromCamera`), `:61` (ok → chip); `page.tsx:613` (`setLastScanned` on ok), `:1246-1258` (chip named from the basket line; meta "In your basket ×{qty}" or "Waiting for a connection"). → After a rescue add the tag becomes the disc chip with no new branch.                                                     |
+| The haptic is post-verdict and on ok only; there is no sound                                                                                      | TRUE                | `page.tsx:603-607`; DESIGN-LANGUAGE.md:2078-2079 (§27 "The lock says read, never added", no sound §15). → A miss never buzzes.                                                                                                                                                                                                         |
+| A repeat has a shipped sentence (M186)                                                                                                            | TRUE                | `page.tsx:536`: "{name} is already in your basket (×{qty}) — tap “Add another” for a second." → Graft 3's pairing reuses it. `check:scan-repeat` exists (`scripts/check-scan-repeat.mjs`).                                                                                                                                             |
+| Today's miss toast is drawn, English only, 1.8s                                                                                                   | TRUE — replaced     | `page.tsx:644` "We couldn’t find that item — search by name."; `:274` (1800 ms). → Spoken through the Toast's `quiet` mode, not drawn.                                                                                                                                                                                                 |
+| The page has ONE live region that still speaks while a Radix sheet is open; it has `quiet` and `action`                                           | TRUE                | `packages/ui/src/toast.tsx:11-16` (role=status + aria-live, exempt from Radix's aria-hidden sweep), `:44-48` (`quiet`), `:24-35` (`action`, hold on keyboard focus); `page.tsx:1467`. → No second region inside the sheet.                                                                                                             |
+| `grocery_scan_miss` fires once per barcode; `grocery_item_scanned` carries `via`                                                                  | TRUE                | `page.tsx:645-649`, `:626-634`. → Graft 2 adds `miss_barcode` and `since_miss_ms` to the existing event, and only on adds from a miss-opened sheet.                                                                                                                                                                                    |
+| Name search matches English, Burmese and synonyms, with fuzzy English; it excludes weighed and unavailable items; max 20                          | TRUE                | `supabase/migrations/20260718000000_w4e_compare_at.sql:19-45`. → Weighed and unavailable tags carry NO search button, because search could never return that item.                                                                                                                                                                     |
+| A failed search is told apart from zero results                                                                                                   | TRUE                | `lib/grocery.ts:276-282` (throws); `page.tsx:851-857` (`searchFailed`). → Separate "unavailable" and "no match" states.                                                                                                                                                                                                                |
+| Shipped search strings                                                                                                                            | TRUE                | `page.tsx:1096` ("Search grocery items by name"), `:1097` (placeholder), `:1109` ("Searching…"), `:1111` ("Search unavailable — please try again."), `:1113` ("No matches — try fewer letters."), result rows `:1116-1180` (a button that adds; "Compare at" strike).                                                                  |
+| Most shelf codes aren't in the app yet, and "yet" is backed                                                                                       | TRUE                | grocery_catalog.json `barcode_note`: "store-internal EAN-13 (prefix 299) … replace per item when the real shelf UPC is scanned in"; `docs/OPEN-ITEMS.md:31` (C6: real shelf UPCs still needed from Min).                                                                                                                               |
+| "Not in the app yet" (quiet's headline) is true of the JAR                                                                                        | FALSE               | The jar's ITEM is usually in the app under its synthetic code; only the real code is missing. Tea Leaves -400g is in the catalog, but its shelf code is not. → Headline changed to **"This code isn’t in the app yet."** The words now motivate the search instead of contradicting it.                                                |
+| The Sheet: Radix dialog with sticky head (grab ≥44, title, 44/32 ✕), focus restore to the opener, `onCloseAutoFocus` override                     | TRUE                | `packages/ui/src/sheet.tsx:248-255`, `:266`, `:300-330`; `globals.css:234-310`.                                                                                                                                                                                                                                                        |
+| The Sheet can open with the FIELD focused, so the keyboard rises in the same tap                                                                  | FALSE today         | `sheet.tsx:241-246, 267-272`: initial focus is pinned to the container. → The sheet is designed to read fully with the keyboard DOWN. The field is one more tap until Sheet gains a one-prop `initialFocus` (OPEN RISKS).                                                                                                              |
+| The defocus scrim (blur 28, saturate .85) is the shipped scrim in both themes, with fallbacks                                                     | TRUE                | `globals.css:9689-9711`; `tokens.css:229` (`--fx-glass-far` on :root), `:272` / `:601` (`--scrim-glass`).                                                                                                                                                                                                                              |
+| A bilingual sheet title has a precedent                                                                                                           | TRUE                | `components/DoorSheet.tsx:127-133` (title = EN + `<span lang="my">`).                                                                                                                                                                                                                                                                  |
+| Paper recovery panels use the bilingual button pattern, and "Search by name" is already their action                                              | TRUE                | `ScanStage.tsx:288-302` (`<Bi k="searchByName" />`).                                                                                                                                                                                                                                                                                   |
+| A count is allowed on the market basket (it is not a shared cart)                                                                                 | TRUE                | `lib/order-noun.ts:36-38` (`slotCount` is null only for dine-in); tabs read Market · Basket · Account (`lib/diner-tabs.ts:131, 152, 160`).                                                                                                                                                                                             |
+| Undo can ride the existing quantity path                                                                                                          | TRUE                | `page.tsx:406` (`stepQty`), `:426` ("Removed {name}"); `lib/undo-hold.ts` exists; "ထည့်ပြီးပါပြီ" is the shipped add claim (`lib/add-feedback.ts:41`); "ပြန်ဖျက်" is shipped (`lib/i18n/staff.ts:255`).                                                                                                                                |
+| The counter can ring a market item into the app                                                                                                   | FALSE               | `docs/OWNER_RULINGS_2026-10-07.md:58` (#11, no answer: default holds), `:79` (M189: market items only on scan-and-go carts). → The counter line promises a PERSON, never a sale. The card for Dad shows no digits, because no staff screen can act on them.                                                                            |
+| Every market Burmese string is Claude-authored and awaits Min's read                                                                              | TRUE                | `lib/i18n/market.ts:6-8`. The kiosk lines are K15 drafts too (`lib/kiosk/strings.ts:107`). → Every Burmese line below is listed with its source; none is invented.                                                                                                                                                                     |
+
+---
+
+## SCREEN picked-m4-1.dc.html — The miss, answered inside the lens: a paper tag with one way forward
+
+**Device:** phone 390×844. **Theme:** light. Night is described under STATES.
+**Who and when:** A shopper on the Scan door points at a jar of Burmese tea-leaf pickle. Its real shelf
+code reads (the reticle corners flashed gold for 900 ms: "read", never "added"). The server answers
+`unknown_barcode`. The basket already holds two lines.
+
+### LAYOUT (page coordinates, top to bottom; page column x 20–370)
+
+- **0–47.** Empty ground #faf9f5 (safe area). Draw nothing.
+- **47–103 AppHeader**, as built.
+  - 56px tall, padding 0 14px, #faf9f5, 1px rgba(58,35,23,0.1) bottom line.
+  - Brand link (min-height 44, gap 6): the logo `<img src="/_blob/e7e27a9553079ddb61cfec7bd9f82c9f" alt="">` at 51×34, then "Morning Star" in Fraunces 16/800, -0.01em.
+  - Nothing on the right.
+- **`main`**: padding 123px 20px 0, a flex column with gap 12.
+- **123–167, the door eyebrow** (unchanged; the DoorSheet trigger).
+  - A `<button aria-haspopup="dialog">`, min-height 44, margin-left −8, padding 0 8, transparent.
+  - Label: "SCAN & GO" 11/700, 0.13em, uppercase, #a65f10. Then "·", then 'စျေး' Padauk 13/700 (no uppercase), then a 14px chevron. Gap 6.
+  - sr-only tail: " — change how you’re ordering".
+- **171–199, h1 "Shop the market"**: Fraunces 26/600, lh 1.08, -0.02em, #1b1714.
+- **211–265, the Browse | Scan tablist** (unchanged).
+  - A pill track: 4px padding, 1px rgba(58,35,23,0.1), #f2efe7, two 44px tabs.
+  - Scan is current: #a65f10 fill, #fffdf8 text 16/700, inset 0 1px 0 rgba(255,255,255,0.55). It holds an 18px scan glyph and "Scan".
+  - Browse is at rest (#6e6358, basket glyph).
+  - **There is NO search field below the tabs on the Scan door.** It lives on Browse only, so the stage rises from y 335 to y 277.
+- **277–539, THE STAGE** (unchanged geometry). `section#scan-stage`, x 20–370, 350×262, radius 20, #1b1714, overflow hidden, isolation isolate.
+  - **The camera scene.** The same 350×262 aria-hidden SVG as m4-quiet-1 and m4-guided-1: the shelf, and a jar whose paper label carries a barcode inside the window. The refined screen reads as the same lens.
+  - **The window and the reticle**: x 86–303, y 332–422 (stage-relative left 66, top 55, 217×90).
+    - The static dim outside it: `box-shadow: 0 0 0 400px rgba(27,23,20,0.4)`.
+    - Four L-corners, each arm 22×3 with radius 999, #fffdf8 with a 1px rgba(27,23,20,0.72) halo.
+    - The corners are white: the 900 ms gold lock has ended.
+  - **The top hint pill is hidden** (a result is showing: one message at a time).
+  - **THE TAG: x 28–362, y 424–531 (334×107)**, anchored inset 8px at the stage's foot. Its top edge clears the reticle's bottom (422) by 2px. Tag-local coordinates:
+    - **Silhouette.** One aria-hidden SVG, 334×107: a shop tag.
+      - The right corners have radius 20. The left corners are chamfered 16px: the top edge starts at x 16, the left edge runs y 16–91, and the bottom edge starts at x 16.
+      - Fill #fffdf8 (--on-ink, constant in both themes). Rim 1px rgba(27,23,20,0.18).
+      - Shadow: `drop-shadow(0 1px 1.5px rgba(35,24,16,0.07)) drop-shadow(0 10px 14px rgba(0,0,0,0.3))`.
+      - Build it as one path, e.g. `M16.5 .5 H313.5 A20 20 0 0 1 333.5 20.5 V86.5 A20 20 0 0 1 313.5 106.5 H16.5 L.5 90.5 V16.5 Z`, with the hole subtracted (evenodd).
+    - **The punched hole**: a 10px circle at (17, 53.5), cut THROUGH the paper. The live camera shows through it, which is the moment's one delight. A grommet ring around it: a circle r 8.5, 1.5px stroke rgba(27,23,20,0.3), no fill.
+    - **Content box**: padding 8px 12px 8px 34px, so x 34–322 (288 wide) and y 8–99.
+    - **Headline `<p>` (y 8–47)**:
+      - "This code isn’t in the app yet." in Fraunces 16/600, lh 1.1, -0.01em, #1b1714. One line, about 250px.
+      - Beneath it, display block: 'ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။' in Padauk 13/400, lh 1.6, #1b1714.
+    - **Action row (y 47–99, 52 tall)**: flex, align-items centre, gap 12.
+      - **THE ONE PRIMARY, an ink pill.** A `<button aria-haspopup="dialog">`, flex none, min-height 52, padding 6px 14px, radius 999, background #1b1714, colour #fffdf8, no border, no icon (the words say it).
+        - Label: a centred column. "Search by name" 14/800, -0.01em, lh 1.22, nowrap. Then 'နာမည်နဲ့ ရှာမယ်' Padauk 13/700, lh 1.6.
+        - About 140px wide.
+        - It is constant ink-on-cream for the same reason `.scan-on-ink` is constant cream-on-ink (globals.css:12772-12779): a constant surface takes the constant pair.
+      - **THE QUIET LINE.** A `<p>`, flex 1, min-width 0. It is NOT interactive.
+        - "Or ask at the counter" 13/500, lh 1.22, #1b1714. Beneath it, display block, 'ကောင်တာမှာ မေးကြည့်ပါနော်' Padauk 13/400, lh 1.6, #1b1714.
+        - The column is about 136px.
+        - Hierarchy comes from size and weight, never dimming.
+        - If the Burmese wraps (large text, phones ≤375px), the row grows and the TAG GROWS UPWARD. Text never shrinks or clips.
+    - **No ✕.** The tag is not modal, and the next outcome replaces it.
+    - In page coordinates: headline 432–471, action row 471–523, tag foot 531.
+- **555–623, the Subtotal box** (unchanged; aria-hidden).
+  - Radius 20, 1px rgba(132,76,18,0.26), `linear-gradient(180deg,#fbf5ec,#fffdf8)`, inset sheen, padding 12px 16px, baseline row.
+  - "SUBTOTAL · BEFORE TAX" 12/800, 0.05em, uppercase, #6e6358. Then "$14.95" 40/800, lh 1.05, tabular, #1b1714.
+- **629–649**: "You’re saving $8.03 vs. typical market prices", 13/700, #8f5009, tabular figures.
+- **655–694, the EBT line**.
+  - An "EBT" tag: 11/800, #346e47, 1px rgba(52,110,71,0.5), radius 6, padding 1px 6px, aria-hidden.
+  - Then "$14.95 of your basket is EBT-eligible — SNAP checkout coming; pay by card today.", 13px, #6e6358, wrapping to 2 lines.
+- **710 →, the basket rows** (scroll under the dock; drawn as m4-quiet-1 drew them).
+  - Card row: 56px photo placeholder `linear-gradient(135deg,#f1e7d6,#fbf4e8)`.
+  - Text: "Instant Noodle Sauce (Monhinga)400g" 15/700. Beneath it, 'စိန်ဟင်္သာမုန့်ဟင်းခါး(ဗူး)400g' Padauk 13 #726859 (G20, ruling #19). Then "1 × $7.80" 13px #726859.
+  - "$7.80" 700 on the right.
+- **678–734, the checkout dock** (fixed, x 12–378, gap 8; unchanged).
+  - Paper basket button: 56px, cart glyph and "2", `aria-label="Review basket — 2 items"`.
+  - Clay "Check out · 2 items · $14.95": #a65f10, #fffdf8 16/800, `aria-label="Check out — 2 items, subtotal $14.95 before tax"`.
+- **750–844, the tab bar** (unchanged).
+  - **Market** is current: `aria-current="page"`, #8f5009, bag glyph.
+  - **Basket**: receipt glyph with a "2" capsule (18px, radius 999, #a65f10, #fffdf8 12/800). Allowed, because this cart is not shared.
+  - **Account**: star glyph.
+  - The bottom 34px is empty.
+- **The toast draws nothing.** The page's one region (role=status, aria-live=polite, sr-only here) holds the spoken sentence: "This code isn’t in the app yet — search by name, or ask at the counter."
+
+### STATES (described, not drawn)
+
+- **Arrival.** The tag rises once (`.mms-rise`, globals.css:1079, reduced-motion gated at :1084). The Toast speaks once, quietly.
+- **The same jar re-read while its tag shows.** Nothing changes: same key, no rise, no second announcement (the `slotAfter` change). The server call still runs. `grocery_scan_miss` still fires once per barcode (page.tsx:645-649).
+- **A different jar.** Its outcome replaces the tag, re-keyed.
+- **"Search by name"** opens screen 2's Name sheet in its just-opened state. The tag stays mounted under the sheet, and focus returns to its button on close.
+- **After an add from the sheet (the server's ok only).** The sheet closes itself, and **the tag becomes the CHIP: the disc**.
+  - Ink-glass bar: --scan-scrim, radius 20, padding 10px 12px, about 76px tall.
+  - Left: a **32px round cream disc** (#fffdf8) with a 2.5px #346e47 ring and a 16px ink check (aria-hidden).
+  - Then "Tea Leaves -400g" 14/700 (ellipsis), 'ဇယန်းလက်ဖက်ချိုနှပ်-400g' Padauk 13 (G20), and "In your basket ×1" 13px.
+  - Then "Add another", the shipped `.scan-on-ink` pill, 44px.
+  - Tag → disc is the story "not added → in your basket", told by shape and words.
+  - The Toast DRAWS (it carries an action): "Added Tea Leaves -400g · ထည့်ပြီးပါပြီ" with [Undo / ပြန်ဖျက်].
+    - It lasts 6 s and is held while it has keyboard focus (toast.tsx:24-35; lib/undo-hold.ts).
+    - Undo = `stepQty(line, qty − 1)` (page.tsx:406), which says "Removed Tea Leaves -400g" (:426) and forgets the pairing.
+    - Undo is offered only when the add's response carried the server's lines.
+  - The dock's dollar figure moves only when the server's view lands (amounts never optimistic).
+- **Pairing (graft 3).** For this page's life, the missed shelf code maps to the barcode of the first item added from the sheet that miss opened.
+  - Re-reading the jar resolves to that barcode BEFORE `classifyScan` (scan-gate.ts:105). It gets M186's repeat verdict and its shipped sentence (page.tsx:536): the disc chip, never a second miss, never a second charge.
+  - The pairing lives in a page ref and is never stored or sent.
+- **Weighed tag.** The same silhouette, with the kiosk's "That one needs the scale — please bring it to the counter." and its Burmese.
+  - No button: search excludes weighed items (migration :31).
+  - No quiet line: the sentence is the way out.
+- **Unavailable tag.** "That item isn’t available today." and its Burmese. No button (search excludes it) and no quiet line.
+- **Offline, and the code is absent from a complete cached catalog fetched under 24 h ago** (graft 1; `fetchedAt`, grocery-catalog-cache.ts:19).
+  - The tag shows the headline and the quiet line but NO button: search needs a connection.
+  - The code is not queued.
+  - The button appears when the phone is back online, with no focus move.
+- **Offline, with no cache or a stale one.** The code is queued, and its chip carries a DASHED 2px disc ring with "Waiting for a connection" (shipped meta, page.tsx:1255).
+  - There is no "Add another" for an unknown code.
+  - The toast "Saved — we’ll check this code when you’re back online." replaces "Saved — adds when you’re back online." (page.tsx:501).
+- **Basket not ready, or transport failure.** Unchanged: the slot stays as it was (scan-notice.ts:62).
+- **Ring-up seam (OFF).** The owner's question is unanswered, so default (a) holds. On a yes, one constant swaps the quiet line to "Or bring it to the counter — we’ll ring it up." / 'ဒါမှမဟုတ် ကောင်တာဆီ ယူလာခဲ့ပါ — အဲဒီမှာ ရှင်းပေးပါမယ်'. A verify:slice mutant pins that the default can never render it.
+- **Night.**
+  - Identical: the stage (constant ink), the tag (constant cream, ink text), its ink pill, and the disc.
+  - Around it: --pg #100c19, text #f3ecdf, tabs #211a30. Scan is lit #e7a53a with #130d1e. The dock and tab bar are on Night tokens.
+- **Phones ≤375px or 200% text.** The tag grows upward over the window's lower edge. The detector reads the whole frame, so the next scan still works. The reticle never moves.
+
+### COPY (English)
+
+- This code isn’t in the app yet. — new. It replaces `noticeUnknown`'s English for the unknown tag (`lib/i18n/market.ts:89`).
+- Search by name — shipped `searchByName` (`market.ts:44`), now the button's VISIBLE label (today it shows "Search", `ScanResult.tsx:112`).
+- Or ask at the counter — the owner's default. The words come from the kiosk's shipped `scanUnknown`, "please ask at the counter" (`lib/kiosk/strings.ts:105-106`).
+- Spoken only (Toast `quiet`): This code isn’t in the app yet — search by name, or ask at the counter.
+- Page chrome, unchanged:
+  - Scan & go
+  - Shop the market
+  - Browse
+  - Scan
+  - Subtotal · before tax
+  - $14.95
+  - You’re saving $8.03 vs. typical market prices
+  - $14.95 of your basket is EBT-eligible — SNAP checkout coming; pay by card today.
+  - Check out · 2 items
+  - Market
+  - Basket
+  - Account
+- States:
+  - That one needs the scale — please bring it to the counter.
+  - That item isn’t available today.
+  - In your basket ×1
+  - Add another
+  - Added Tea Leaves -400g
+  - Undo
+  - Removed Tea Leaves -400g
+  - Waiting for a connection
+  - Saved — we’ll check this code when you’re back online.
+
+### COPY (Burmese) — shipped strings or the briefs' drafts only
+
+- ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။ — brief draft (m4.json → concepts[guided] screen "5 · Nothing by that name…", copy_my "DRAFT: ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။"). It literally says "this code isn't in the app yet".
+- နာမည်နဲ့ ရှာမယ် — shipped (`market.ts:44`).
+- ကောင်တာမှာ မေးကြည့်ပါနော် — shipped words, the tail of the kiosk's `scanUnknown` (`kiosk/strings.ts:107`), exactly as the quiet brief's floor draws it (brief-m4.md:87). If Min prefers it, the full K15 draft with "or" is ဒါမှမဟုတ် ကောင်တာမှာ မေးကြည့်ပါနော် (brief-m4.md:102, :313).
+- စျေး — shipped (the masthead eyebrow word, `market.ts:11`).
+- States:
+  - ဒီပစ္စည်းက ချိန်ဖို့လိုပါတယ် — ကောင်တာဆီ ယူသွားပေးပါနော်။ (shipped kiosk `scanWeighed`, `kiosk/strings.ts:115`)
+  - ဒီပစ္စည်း ဒီနေ့ မရသေးပါ။ (shipped kiosk `scanUnavailable`, `:111`)
+  - ထည့်ပြီးပါပြီ (shipped add claim, `lib/add-feedback.ts:41`)
+  - ပြန်ဖျက် (shipped `kds.undo`, `lib/i18n/staff.ts:255`)
+  - သိမ်းထားပါတယ် — အင်တာနက် ပြန်ရရင် ဒီကုဒ်ကို စစ်ပေးပါမယ်။ (m4.json guided screen 6 draft)
+  - the item's Burmese name from `name_my` (G20)
+  - the ring-up seam ဒါမှမဟုတ် ကောင်တာဆီ ယူလာခဲ့ပါ — အဲဒီမှာ ရှင်းပေးပါမယ် (brief-m4.md:103, OFF)
+- "In your basket ×1" and "Add another" stay English, as shipped. Their drafts exist (စျေးခြင်းထဲမှာ ×1 / နောက်တစ်ခု ထပ်ထည့်မယ်, brief-m4.md:315-316), but G23 owns making the chip bilingual.
+
+### A11Y
+
+- **Region.** `section#scan-stage`, tabIndex −1, named by its sr-only h2 "Scanner on — point your camera at the code on the package" (`ScanStage.tsx:87, 362`).
+- **The tag.**
+  - A plain `div`, deliberately NOT a live region (the shipped rule, `ScanResult.tsx:8-13`).
+  - Reading order: headline `<p>` (English, then the `lang="my"` block), then the button, then the quiet `<p>`.
+  - The silhouette SVG, the hole and the grommet are aria-hidden.
+- **The button's accessible name is its visible text**, "Search by name နာမည်နဲ့ ရှာမယ်" (the Burmese span `lang="my"`), so WCAG 2.5.3 holds. Today's aria-label/visible mismatch ("Search by name" over "Search") is gone. It is `aria-haspopup="dialog"`, 52px tall.
+- **Focus.**
+  - `focusHandoffRef` carries focus across the tag's own remount (`ScanResult.tsx:54-68`).
+  - With no ✕, the button is the tag's only stop.
+  - After a rescue add, focus lands on the chip's "Add another" (an `onCloseAutoFocus` override, because the opener unmounted with the tag).
+- **One live region.** The page Toast (`page.tsx:1467`) speaks the miss once, quietly. A re-read of the same jar is never re-spoken. The chip's "Added …" is spoken by the same region when its Undo pill draws.
+- **Never colour alone.** A tag means not added, and a disc with a check means in your basket. Every state also says it in words. The --ok ring is a third cue only.
+- **Contrast.**
+  - #1b1714 on #fffdf8: 17.5:1 (headline, quiet line, and the pill's inverse).
+  - Cream tag against the dimmed ink stage: about 15:1 boundary.
+  - Tab "Market" #8f5009 on #faf9f5: as shipped.
+- **Targets.** Button 52 × about 140, dock 56, tabs 44.
+- **Motion.** `.mms-rise` is reduced-motion gated (globals.css:1084). The lock corners are static under reduced motion (:12940-12944). Dropping the re-rise means less motion overall. No sound (§15), and no haptic on a miss.
+- **Burmese.** Padauk 400/700 only, ≥13px, lh 1.6. Separated by block or gap, never a whitespace node (§6). Digits Latin.
+
+---
+
+## SCREEN picked-m4-2.dc.html — The Name sheet over the live lens: nothing by that name, "It's not you", and the tag for the counter
+
+**Device:** phone 390×844. **Theme:** light. Night is described under STATES.
+**Who and when:** The shopper tapped the tag's "Search by name". The Name sheet rose over the
+still-streaming lens. They typed "durian", and the debounced search came back with zero rows. They
+lowered the keyboard (the field is unfocused, so no keyboard is drawn) to read the sheet, and perhaps to
+carry the phone to Dad.
+
+### LAYOUT (page coordinates)
+
+- **Underneath, 0–844.** Screen 1's page exactly (header, masthead, tabs, the live stage with its tag, the summary, the dock, the tab bar), DEFOCUSED.
+  - **Scrim**: fixed, inset 0, rgba(15,10,5,0.3) with `backdrop-filter: blur(28px) saturate(0.85)` (the shipped `.mms-scrim`).
+  - The stage keeps streaming under it (`decodeHold` swallow). Nothing is added behind the sheet or when it closes.
+  - The sheet covers y 232 down. The blurred header, masthead and the lit Scan tab remain recognisable above it.
+- **THE SHEET: x 0–390, y 232–844.**
+  - #fffdf8 (--cd), radius 26 26 0 0, `box-shadow: 0 24px 60px rgba(35,24,16,0.16)` (--sh-xl).
+  - Padding 0 20px 58px (24 + the 34 home inset). Height follows content.
+- **232–346, the sticky head.**
+  - #ffffff (--cd-raised), inset 0 1px 0 rgba(255,255,255,0.55), padding 8px 20px 8px, spanning the full width.
+  - **240–284 grab zone** (44), with a 38×5 bar, radius 3, rgba(58,35,23,0.1), centred at y 262. Margin-bottom 2.
+  - **290–338, the title h2**:
+    - "Search by name" in Fraunces 22/600, lh 1.2, -0.02em, #1b1714.
+    - Beneath it, display block inside the same h2: 'နာမည်နဲ့ ရှာမယ်' Padauk 13/400, lh 1.6, #6e6358.
+    - The sheet's title is the button's words: the door you tapped is the room you are in.
+  - **✕**: 44×44 at x 336–380, y 238–282 (top 6, right 10). A 32px #f2efe7 disc (background-clip content-box) and an 18px close glyph, #1b1714.
+- **358–406, the field.** x 20–370, a 48px pill.
+  - #fffdf8, 1px rgba(58,35,23,0.1), inset 0 1px 0 rgba(255,255,255,0.55), padding 0 14px, gap 10.
+  - An 18px search glyph, #726859.
+  - The input, 16px (the iOS no-zoom floor), value **"durian"** in #1b1714.
+  - Unfocused: no ring, keyboard down.
+  - sr-only `<label>`: "Search grocery items by name".
+- **422–594, the state block** (`div#name-state`, start-aligned, x 20–370; NOT a live region). It is the "It's not you" empty state:
+  - **422–462**: "It’s not you — most shelf codes aren’t in the app yet." Hanken 15/600, lh 1.33, #1b1714, 2 lines.
+  - **464–506**: 'သင့်အမှား မဟုတ်ပါဘူး — ဆိုင်က ကုဒ်အများစု အက်ပ်ထဲ မရောက်သေးလို့ပါ။' Padauk 13/400, lh 1.6, #6e6358, display block, margin-top 2.
+  - Gap 8.
+  - **514–552**: "Try one word from the name — or ask at the counter." 14/500, lh 1.35, #6e6358, 2 lines. This is the spoken next step.
+  - **552–594**: 'နာမည်ထဲက စကားလုံး တစ်လုံးနဲ့ ထပ်ရှာကြည့်ပါ — ဒါမှမဟုတ် ကောင်တာမှာ မေးပါ။' Padauk 13/400, lh 1.6, #6e6358.
+- **608–718, THE TAG FOR THE COUNTER** (x 20–370, 350×110). The same object as the tag on the lens, now lying on the sheet's paper, so the shopper can hold it up to Dad.
+  - **Silhouette**: an aria-hidden SVG 350×110.
+    - Right radius 20, left chamfers 16.
+    - Fill #fffdf8 (constant cream), rim 1px rgba(27,23,20,0.18).
+    - Shadow --sh-paper, as `drop-shadow(0 1px 1.5px rgba(35,24,16,0.07)) drop-shadow(0 14px 14px rgba(35,24,16,0.14))` (the paper tier: `0 1px 3px -1px rgba(35,24,16,0.07), 0 14px 28px -18px rgba(35,24,16,0.28)`, tokens.css:197).
+    - The punched hole: a 10px circle at (17, 55), cut through to the sheet. Grommet ring r 8.5, 1.5px rgba(27,23,20,0.3).
+  - **Content**: padding 14px 16px 14px 36px, so x 56–354 (298 wide).
+  - **622–643, the kicker row** (flex, gap 8, baseline):
+    - "FOR THE COUNTER" 11/800, 0.13em, uppercase, #1b1714.
+    - "·" #1b1714, aria-hidden.
+    - 'ကောင်တာအတွက်' Padauk 13/700, #1b1714.
+  - **647–668**: "This code isn’t in the app yet." 16/700, lh 1.3, #1b1714. These are the tag-on-the-lens's own words: one vocabulary.
+  - **668–704**: 'ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။' Padauk **22/700**, lh 1.6, #1b1714. This is the line Dad reads from across the counter.
+    - English still leads (D12), but Burmese is the bigger line, because the reader is Dad.
+  - Nothing else: no code digits, no query, no price, no promise of a sale.
+- **734–786, the ONE primary** (`.ui-btn-primary`): x 20–370, min-height 52, radius 999.
+  - Fill `linear-gradient(180deg,#a65f10,#8f5009)`, text #fffdf8.
+  - Shadow `inset 0 1px 0 rgba(255,255,255,0.55), 0 2px 8px -1px rgba(166,95,16,0.42)`.
+  - Label: a centred row with gap 8 (the shipped Bi pattern). "Back to the camera" 15/800, -0.01em, then 'ကင်မရာဆီ ပြန်သွားမယ်' Padauk 13/700. No icon (width).
+- **786–844**: sheet padding and home inset, empty.
+
+### STATES (described, not drawn)
+
+- **Just opened** (from the tag's button).
+  - The field is empty, with the shipped placeholder "Search in English or မြန်မာ…".
+  - The state block holds:
+    - "It’s not you — most shelf codes aren’t in the app yet." and its Burmese. This repeats the coverage truth where the miss happens, because the primer is only seen before the first camera grant (graft 4).
+    - Then "One word from the name is enough — like “tea leaf” or “လက်ဖက်”." and its Burmese.
+  - No counter tag and no CTA. The sheet hugs its content, and the ✕ is the way back.
+  - Initial focus goes to the sheet container (sheet.tsx:241-246), so the keyboard rises on the field tap. With the proposed `initialFocus`, it rises in the opening tap.
+- **Typing** (≥2 characters; 220 ms debounce, page.tsx:832-859).
+  - "Searching…" / 'ရှာနေပါတယ်…' sits in the state slot.
+  - Then up to 20 rows: the ONE shared `.grocery-result` row, extracted from page.tsx:1116-1180 so Browse and the sheet cannot drift.
+    - Radius 20, ≥56px.
+    - Name 16/600. Then 'name_my' · brand · size at 13px #726859.
+    - Price 16/800 tabular, with the shipped "Compare at" strike.
+  - Tapping a row runs `add(barcode, "search")`, the one server-priced `scanAdd` path.
+    - The busy row is aria-busy at 0.55 opacity. Other rows are aria-disabled, never natively disabled.
+    - The sheet closes ONLY on the server's ok, to screen 1's disc chip and the Undo toast.
+- **8–14 digits typed.** Package 2's line, "That looks like a barcode — search by the item’s name (English or Burmese)." It never fires `grocery_scan_miss`.
+- **No match.** As drawn. The field keeps "durian", so retyping stays one tap away.
+- **Offline.**
+  - The state line reads "Search needs a connection — or ask at the counter." with its Burmese.
+  - The counter tag shows (it needs no network), and the primary is "Back to the camera".
+- **Search failed.**
+  - "Search unavailable — please try again." with its Burmese.
+  - The ONE primary becomes "Try again / ထပ်ကြိုးစား".
+  - The counter tag shows. "Back to the camera" is withheld; the ✕ is the way back.
+- **Add refused** (locked or settling). The shipped sentence replaces the state line, because a bottom toast would sit behind the keyboard. The sheet stays open.
+- **Basket finished.** The sheet closes, and the page's "Start a fresh basket" banner owns the story.
+- **Ring-up seam (OFF).** On the owner's yes, the counter tag gains "Bring it to the counter — we’ll ring it up there." / 'ကောင်တာဆီ ယူလာခဲ့ပါ — အဲဒီမှာ ငွေရှင်းပေးပါမယ်။' (m4.json guided screen 5 SEAM draft).
+- **Analytics (graft 2).** An add from a sheet that a miss opened carries `miss_barcode` and `since_miss_ms` on the existing `grocery_item_scanned` (page.tsx:626-634). These are properties, not a new event, and lens rule 6 allows barcodes. They give Min the real-code → item pairs C6 asks for. The pairs are never auto-applied.
+- **Night.**
+  - Sheet --cd #2b213c, head --cd-raised #362848, text #f3ecdf / #bcafc8.
+  - Field #2b213c with a rgba(243,236,223,0.13) rim. Primary gold #e7a53a with #130d1e.
+  - The scrim is rgba(0,0,0,0.44) with the same blur.
+  - **The counter tag stays constant cream with ink text**: the same paper on every phone, so Dad learns one look.
+- **Reduced motion.** The sheet's entrance and exit are instant (globals.css:347-352). No animation is added. Under `data-fx="lite"|"off"` or reduced transparency, the scrim falls back to the plain veil (globals.css:9703-9711).
+
+### COPY (English)
+
+- Search by name — sheet title, shipped `searchByName` (`market.ts:44`)
+- Search grocery items by name — the field's name, shipped (`page.tsx:1096`)
+- durian — the shopper's query (example; verified zero rows)
+- It’s not you — most shelf codes aren’t in the app yet. — the guided brief's draft (graft 4)
+- Try one word from the name — or ask at the counter. — the guided brief's draft
+- For the counter — the guided brief's draft
+- This code isn’t in the app yet. — the same words as screen 1's tag
+- Back to the camera — the guided brief's draft
+- Close — the ✕'s name (Sheet default, `sheet.tsx:322`)
+- Spoken only (Toast `quiet`): No matches for “durian” — try one word from the name, or ask at the counter.
+- States:
+  - Search in English or မြန်မာ… (shipped placeholder, `page.tsx:1097`)
+  - One word from the name is enough — like “tea leaf” or “လက်ဖက်”.
+  - Searching… (shipped, `:1109`)
+  - Compare at (shipped)
+  - That looks like a barcode — search by the item’s name (English or Burmese).
+  - Search needs a connection — or ask at the counter.
+  - Search unavailable — please try again. (shipped, `:1111`)
+  - Try again (shipped `COMMON.tryAgain`)
+  - Hang on — this basket’s being checked out.
+  - Hang on — this basket’s being paid for.
+
+### COPY (Burmese) — shipped strings or the briefs' drafts only
+
+- နာမည်နဲ့ ရှာမယ် — shipped (`market.ts:44`).
+- သင့်အမှား မဟုတ်ပါဘူး — ဆိုင်က ကုဒ်အများစု အက်ပ်ထဲ မရောက်သေးလို့ပါ။ — brief draft (m4.json concepts[guided] screen 3 copy_my).
+- နာမည်ထဲက စကားလုံး တစ်လုံးနဲ့ ထပ်ရှာကြည့်ပါ — ဒါမှမဟုတ် ကောင်တာမှာ မေးပါ။ — brief draft (m4.json guided screen 5 copy_my).
+- ကောင်တာအတွက် — brief draft (m4.json guided screen 5).
+- ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။ — brief draft (m4.json guided screen 5).
+- ကင်မရာဆီ ပြန်သွားမယ် — brief draft (m4.json guided screens 3 and 5).
+- States:
+  - ရှာနေပါတယ်… (K15 draft, brief-m4.md:141, :348)
+  - နာမည်ထဲက စကားလုံး တစ်လုံးဆို ရပါပြီ — “tea leaf” ဒါမှမဟုတ် “လက်ဖက်” လိုမျိုးပေါ့။ (m4.json guided screen 3; လက်ဖက် is the shipped aisle word)
+  - ရှာဖို့ အင်တာနက် လိုပါတယ် — ဒါမှမဟုတ် ကောင်တာမှာ မေးကြည့်ပါနော် (brief-m4.md:143)
+  - ရှာလို့ မရသေးပါ — ထပ်ကြိုးစားပါ။ (m4.json guided screen 3)
+  - ထပ်ကြိုးစား (shipped `COMMON.tryAgain`, `lib/i18n/common.ts:21`)
+  - the rows' `name_my` (catalog)
+  - the seam ကောင်တာဆီ ယူလာခဲ့ပါ — အဲဒီမှာ ငွေရှင်းပေးပါမယ်။ (m4.json guided screen 5, OFF)
+- No Burmese for: the spoken no-match sentence, the barcode-typed line, the two "Hang on" refusals, and "Close". These stay English, as listed.
+
+### A11Y
+
+- **The dialog.**
+  - The @mms/ui Sheet (Radix Dialog): `role="dialog"`, `aria-modal="true"`, named by the h2 "Search by name နာမည်နဲ့ ရှာမယ်" (the Burmese span `lang="my"`, the DoorSheet precedent).
+  - Focus is trapped.
+  - All four exits work (§16): ✕, Esc, a scrim tap, and a drag from the handle. "Back to the camera" is a fifth, named exit.
+- **The field.** `<input type="search">`, named "Search grocery items by name" (shipped), `aria-describedby="name-state"`. A screen-reader user returning to the field hears the coaching or the no-match line after its name.
+- **One live region.**
+  - The page Toast stays the view's only announcer. It still speaks under the modal: Radix's sweep exempts `[aria-live]`, toast.tsx:11-16.
+  - It says each dead end ONCE, quietly. There is no `role="status"` inside the sheet.
+- **The counter tag.**
+  - `role="note"`, `aria-labelledby` its kicker ("For the counter ကောင်တာအတွက်").
+  - Its silhouette SVG, hole and grommet are aria-hidden.
+  - It has no tab stop: it is read, not operated.
+- **Tab order**: ✕ → field → "Back to the camera" (results rows sit between the field and the primary when present).
+- **Close.**
+  - Focus returns to the tag's "Search by name": the opener is still mounted (sheet.tsx:248-255).
+  - The camera resumes. The jar still in frame stays silent, because swallow→none keeps the throttle (camera-state.ts:158-165).
+  - After an add, `onCloseAutoFocus` sends focus to the chip's "Add another".
+- **Targets.** ✕ 44×44 (32 visible disc), field 48, primary 52, result rows ≥56.
+- **Contrast.**
+  - #1b1714 on #fffdf8: 17.5:1.
+  - #6e6358 on #fffdf8: 5.8:1.
+  - #fffdf8 on #a65f10: 4.84:1 (15/800).
+  - The kicker 11/800 in ink on cream: 17.5:1.
+  - Night: text #f3ecdf on #2b213c, as asserted in contrast-audit.test.ts.
+- **Burmese.** `lang="my"` on every run, Padauk 400/700 only, ≥13px (22px on the counter line), lh 1.6, separated by block or gap, never whitespace (§6).
+- **Motion.** None added.
+
+---
+
+## DECISIONS
+
+1. GUIDED is the backbone: every state speaks its one next step in plain words, in both languages (owner answer 1).
+2. No step rail. A one-step task needs no map, and the button's label IS the step. This fixes guided's judged "second step vocabulary" (task brief; m4.json scores[1].note).
+3. One primary on the tag (Search by name). The counter is a quiet, NON-interactive line. This fixes guided's "counter button as prominent as search" (task brief; owner default "Or ask at the counter").
+4. The Scan door loses its search field (Browse keeps it), and the Name sheet is the Scan door's only search. The stage rises 58px and never scrolls away (quiet graft; task: "the search field does not push the stage down").
+5. Every "Search by name" on the Scan door opens the same Name sheet, including the paper recovery panels' (ScanStage.tsx:294-301). The panels lose `focusSearch`'s scroll-to-field (one search surface; judges on guided: "paper panels still scroll the field into view").
+6. The miss is a paper TAG and the basket a round DISC: shape plus words, never colour alone. The tag is §27's "paper for recovery" cut as a shop tag, not a new vocabulary (glanceable graft; DESIGN-LANGUAGE.md:2069).
+7. The cross-moment vocabulary: a tag is the paper you carry to the counter (m3's claim tag, m4's miss), and a disc is done (m1's sent disc, m4's in-basket). One meaning per shape across moments.
+8. The one moment of delight is the hole: the live camera shows through the tag's punched hole, with no new motion (glanceable graft: "its one moment of delight").
+9. The headline is "This code isn’t in the app yet.", not quiet's "Not in the app yet" or the shipped "We couldn’t find that item". The ITEM is usually in the app under its synthetic code, so precise words make "Search by name" make sense (honesty; grocery_catalog.json barcode_note).
+10. No ✕ on the tag: it is not modal, the next outcome replaces it, and a keyboard user meets one stop (quiet graft).
+11. The same jar re-read keeps its tag: no re-rise and no re-announce, fixed in `slotAfter` (quiet graft; scan-gate.ts:47, scan-notice.ts:56-75).
+12. The miss toast is spoken (Toast `quiet`), never drawn, because the tag already says it where the eye is (quiet graft; toast.tsx:44-48).
+13. The tag's button is a constant ink pill, not the clay primary. A constant surface takes the constant pair (as `.scan-on-ink` does), and Night's gold on cream would leave the button's edge too faint (§27; contrast).
+14. "It’s not you — most shelf codes aren’t in the app yet." appears in both the just-opened and the no-match states of the sheet, because the primer is seen only before the first camera grant (graft 4).
+15. The arm's-length counter card IS the tag, held up for Dad. It carries the lens tag's own sentence, with the Burmese at 22px/700 beneath 16px English. It has no digits, no query and no sale (owner pick "the arm's-length Burmese counter card"; judges: digits unactionable; ruling #11 default).
+16. The counter tag is constant cream with ink in both themes, so Dad reads one look on every phone (owner: staff moments glanceable; boarding-pass consistency).
+17. The counter tag appears only at the sheet's dead ends (no match, offline, failed), never as a door competing with search. The guided funnel is: try the cheap path, then hand off with context (owner default; judges on counter load).
+18. "Back to the camera" is the dead end's one primary. In the failed state "Try again" takes that role (one hero verb per state).
+19. The sheet title is "Search by name", not guided's "What does the label say?". The room you enter carries the words of the door you tapped, and the guided coaching lives in the state lines (continuity; quiet and glance).
+20. The sheet closes only on the server's ok, and an add gets guided's 6-second Undo on the one Toast. Undo is offered only when the server's lines came back (owner pick "back where you were with a forgiving Undo"; amounts never optimistic).
+21. Pairing resolves before `classifyScan`, so a re-read of the rescued jar gets M186's shipped repeat sentence. There is no second branch beside check:scan-repeat (graft 3).
+22. Analytics: `miss_barcode` and `since_miss_ms` are properties on the existing `grocery_item_scanned`, not a new event (graft 2).
+23. Offline honesty: a code absent from a complete cache under 24 h old is not queued and never promised. A stale or missing cache says "we’ll check this code", never "adds" (graft 1; page.tsx:501 retired).
+24. Weighed and unavailable tags carry no search button, because `mms_grocery_search` excludes both (migration :31). Unlike guided, no search is offered where it cannot succeed.
+25. The ring-up seam stays OFF behind one constant, because the owner's question is unanswered and default (a) holds (m4.json owner_question; ruling #11).
+26. The quiet line's Burmese uses the kiosk's shipped words (ကောင်တာမှာ မေးကြည့်ပါနော်), as the quiet brief drew it, over the longer "or" draft. Fewest new claims, and it fits the tag.
+27. No Scan-door search trigger is drawn. Graft 5's 48px trigger waits for evidence: Scan→Browse switches right after landing.
+28. The aisle grid stays parked for G1 (graft 6).
+
+## OPEN RISKS
+
+1. **iOS keyboard.**
+   - The Sheet pins initial focus to its container (sheet.tsx:241-246, 267-272), so the field needs one extra tap. Search becomes 3 taps (tag → field → row), not 2.
+   - The fix is a one-prop opt-in `initialFocus` on `@mms/ui` Sheet. That is a shared primitive owned outside the grocery stream, and it must never be forked.
+   - The design reads correctly with the keyboard down either way.
+2. **Focus fallbacks aim at the hidden field.** `page.tsx:425, 1015, 1533` park focus on `#grocery-search`. On the Scan door the field is gone, so each must fall back to `#scan-stage`, or a keyboard or screen-reader shopper lands on `<body>` (WCAG 2.4.3).
+3. **Tag height is at the limit.**
+   - At 390px the tag clears the reticle by 2px.
+   - On phones ≤375px, at large text, or when the Burmese counter line wraps, it grows upward over the window's lower edge. The detector reads the whole frame, but this is unverified on hardware: ruling #20 parks the device pass.
+   - Padauk widths were not measured: no Padauk font exists on the agent machine.
+4. **"yet" leans on C6** (Min capturing real shelf UPCs). If C6 is abandoned, drop "yet" in both languages: ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။ and the "It's not you" line both carry it.
+5. **No search on the Scan door before a miss.** Removing the field means a shopper who wants search first must switch to Browse. Watch Scan→Browse switches. Graft 5's trigger is the ready fix.
+6. **Wrong pairing.** A shopper who misses jar A and adds unrelated item B sees "B is already in your basket" when A is re-read. This is bounded:
+   - it pairs only the first ok add from that miss's sheet;
+   - it lasts the page's life only;
+   - it never charges;
+   - the chip names B, so the mismatch is visible;
+   - Undo clears it.
+7. **check:scan-repeat parses page.tsx.** The pairing and offline branches must sit before `classifyScan` and before the one `scanAdd`. Their decisions belong in `lib/` (scan-notice / a pairing helper) with verify:slice mutants. Each new lib module grows CLAUDE.md's measured mutate-set enumeration.
+8. **All Burmese here is K15.** Even the "shipped" market lines are Claude-authored and await Min's read (market.ts:6-8). The quiet line uses a fragment of a shipped sentence. The 22px counter line will be read by Dad, the one person who will notice a wrong word first.
+9. **The counter card asks Dad to act with no in-app tool.** M189 keeps market items off the pad, and ruling #11 is unanswered. Dad can help find the item by name on the shopper's phone (search matches Burmese and synonyms), or handle it off-app. A volume of these interrupts a counter that is also the kitchen pass, and that volume is UNKNOWN (grocery is outside the pilot).
+10. **The first diner Toast with an action.** The staff lane is the only `action` caller today (toast.tsx:33-35). Grocery's Undo is the first diner one, and it adopts `lib/undo-hold.ts`. The menu's quiet-claim conventions must not regress.
+11. **Constant cream in Night.** On the dark sheet, the counter tag is a bright paper slab. That is intended (one look for Dad), but its comfort in a dim room is untested. The composite-contrast suite needs rows for the cream tag over the live video (the scan-stage bounds, packages/ui composite-contrast.test.ts).
+12. **The example query is verified against the seed, not live prod.** "durian" was checked against supabase/data/grocery_catalog.json (405 items). The live `grocery_items` table is seeded from it, but the live import is gated on price confirmation (OPEN-ITEMS G1).
+13. **Spoken lines are English-only until G23** (every /grocery toast is EN-only today). A Burmese-only screen-reader user gets the visible tag in both languages, but the spoken summary in English.
+14. **Cross-moment tag meaning.** If m3's picked spec keeps the Claim Tag, both tags must stay "the paper you carry to the counter". A tag must never come to mean "done" on one screen and "not added" on another.
+15. **Grocery package ordering.** This lands after package 2 (the barcode-typed line) and with or after package 3 (the primer's "Most shelf codes…" line, G23 bilingual toasts). It is the same stream and the same files: `app/grocery/**`, `components/grocery/**`, `lib/scan-notice.ts`, `lib/i18n/market.ts`.
+
+---
+
+## Appendix — what changed after this spec (applied in the drawn screens)
+
+The spec above was written first. Two later passes changed it, and the screens on the canvas were drawn
+with both applied. **Where an item below contradicts the spec above, the item below wins.**
+
+### A · System amendments (the cross-moment consistency pass)
+
+1. The counter tag's kicker ('FOR THE COUNTER · ကောင်တာအတွက်') leads with the 14px receipt glyph, the same 'for the counter' cue m1's card and m2's door wear. Every object a guest holds up for Dad then opens with one cue.
+2. The tag's constant-cream rule becomes the house rule for every Dad-facing pass (m1 and m2 adopt it). Add the composite-contrast rows once, for the shared CounterPass and the tag together.
+
+### B · The adversarial critic's blocking fixes (verdict: fix)
+
+1. **The pairing can charge on sight, which contradicts the spec's 'never a second charge' and 'it never charges'.**
+   - Evidence: picked-m4.md:211-213 says the missed code resolves to the paired barcode BEFORE classifyScan and gets 'the disc chip, never a second miss, never a second charge'. OPEN RISK 6 (:515-520) bounds a wrong pairing with 'it never charges' and 'Undo clears it'. But classifyScan (apps/qr/lib/scan-gate.ts:105-112) returns {kind:'add'} when the barcode is not in lines, queued or billed. stepQty drops billedRef on any removal (app/grocery/page.tsx:413). So if the paired item B leaves the basket by any path other than the toast Undo (the basket sheet's stepper or remove, a Browse row), re-reading jar A maps to B and scanAdd charges B from a camera sighting of a jar whose code is NOT in the app. With the wrong pairing the spec itself admits (A missed, unrelated B added), that charges an item the shopper never pointed at.
+   - Fix: A pairing may only ever produce a REPEAT verdict. If classifyScan(paired) is 'add', drop the pairing and fall through to the unknown tag. Clear the pairing whenever the paired barcode leaves lines, queued and billed, by any path. Put the rule in a lib helper with a verify:slice mutant that makes the pairing→'add' path go red, and correct :212 and :518.
+2. **Undo rides an optimistic path: the dollar figure moves and 'Removed …' is spoken before the server confirms.**
+   - Evidence: picked-m4.md:208 says 'Undo = stepQty(line, qty − 1) (page.tsx:406), which says "Removed Tea Leaves -400g" (:426)'. :210 claims 'The dock's dollar figure moves only when the server's view lands (amounts never optimistic)'. In the code, stepQty flips `lines` before the write (page.tsx:416-420) and flashes 'Removed {name}' at :426, before `await ledger.track(setQty(...))` at :429. totalCents is `lines.reduce(unitPriceCents*qty)` (page.tsx:901). It feeds the Subtotal (:1356) and the dock CTA (:1491-1502), so both drop before the server confirms. This breaks 'amounts never optimistic' and the tense rule ('Past tense comes only after a confirmed write').
+   - Fix: Give the add-Undo a non-optimistic path. Hold the line and both figures until setQty's confirmed read lands. Say 'Removing…' while it is in flight and 'Removed {name}' only after the write confirms. State this in the spec instead of citing stepQty.
+3. **Undo is drawn as a filled toast action. That breaks the shared rule 'UNDO is one thing everywhere', and the same-gesture guard is missing.**
+   - Evidence: picked-m4.md:206-209, DECISION 20 (:492) and OPEN RISK 10 (:524) put '[Undo / ပြန်ဖျက်]' inside the page Toast pill, docked at the bottom. The shared vocabulary says Undo is 'Undo · ပြန်ဖျက်' with the seconds as an aria-hidden leaf. It 'sits in the slot of the act it reverses, on --sf with a 1.5px dashed accent edge, never filled', and 'arms only after the same-gesture guard (350 ms on phones)'. The KDS cream pill is the ONE shipped exception, so a diner toast Undo would be a second one. The spec gives no seconds leaf, no dashed edge, no slot and no 350 ms arm. The pill appears the instant a result-row tap succeeds, so the second half of a double-tap can land on it and undo the add.
+   - Fix: Put the 6-s Undo in the slot of the act: the lens chip's action slot while the window is open, as the dashed --sf pill with the aria-hidden seconds leaf. Arm it after 350 ms (Toast `shield` already supports this). The Toast only speaks 'Added … · ထည့်ပြီးပါပြီ'.
+4. **Offline, the spec leaves shipped 'it will add' promises standing that its own offline rule now makes false.**
+   - Evidence: The spec rewrites only the uncached toast at page.tsx:501 (:223-224). It no longer saves a code that is absent from a fresh cache (:218-221), and it promises only 'we'll check this code' for a stale or missing cache. Four things still say otherwise. (1) The live lens hint scanHintOfflineSaved, 'Offline — scans are saved and add when you’re back' (market.ts:34-37, mapped at ScanStage.tsx:80, shown at :370), still says 'saved' and 'add'. (2) The pending strip still says 'They’ll add when you’re back online' and names uncached codes by raw barcode (page.tsx:1305-1312, :1309). (3) drainSummary reports an unknown_barcode reject as '(2990…) — no longer available' (grocery-queue.ts:56, :163-171), which is a false reason with raw digits, on exactly the 'check' the new toast promises. (4) The chip's name falls back to the raw barcode (`lastScannedName ?? lastScanned`, page.tsx:1253) under the dashed in-basket disc. brief-m4.md Today #7 names these defects. The judges marked glanceable down for this exact contradiction, and guided screen 6 in m4.json already drafted every replacement, with Burmese.
+   - Fix: Adopt guided screen 6's rewrites: the hint ('…saved and checked when you’re back' and its draft), the strip wording, and drainSummary's '1 saved scan wasn’t in our list, so it wasn’t added.' with no digits, keeping drainSummary's unit test and mutants. Give an uncached queued code the chip label 'A saved scan' (draft: သိမ်းထားတဲ့ စကင်), never digits.
+5. **The spec calls the offline cache a 'complete cached catalog', but it excludes weighed and unavailable items. Offline, a real item is then told 'This code isn’t in the app yet.'**
+   - Evidence: picked-m4.md:218-221: 'Offline, and the code is absent from a complete cached catalog… The tag shows the headline… The code is not queued.' The cache is written only by Browse's fetch (GroceryBrowse.tsx:229). That fetch is getGroceryCatalog, which filters `.eq("available", true).eq("weighed", false)` (lib/grocery.ts:333-334). So every weighed item and every item unavailable today is absent from a fresh cache, even though it is in the app. The spec would say it isn't and refuse to save it. This is the failure graft 1 exists to prevent ('must never say "not in the app" about a real item').
+   - Fix: Either cache every code with its weighed and available flags (still display-only), so absence really means unknown. Or treat cache-absence as unknown and route it to the queued 'we’ll check this code' path, never to the 'isn’t in the app' headline. Fix the claim's wording too.
+6. **A Name sheet opened from a camera-failure panel shows Dad a false counter tag, and its after-add focus target never mounts.**
+   - Evidence: DECISION 5 (:477) sends the paper recovery panels' 'Search by name' (ScanStage.tsx:296, :301) into the same Name sheet. No code was scanned there, yet the no-match, offline and failed states (:339-353, :380-386) still draw 'This code isn’t in the app yet. / ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။' at 22px for Dad. That is a claim about a code that does not exist. After an add, :289 and :458 send focus to the chip's 'Add another'. But a paper state returns the panel early (ScanStage.tsx:262-264), and `result` renders only at :386 (`{streaming && result}`), so the chip never mounts and focus falls to <body> (WCAG 2.4.3). The same happens when `r.lines` is null, because the chip needs lastScannedLine or a queued scan (page.tsx:1246, :776-784).
+   - Fix: Draw the counter tag only in a sheet a miss opened. A panel-opened sheet ends with the quiet 'Or ask at the counter' line. Give onCloseAutoFocus a fallback to the chip, then #scan-stage, then the panel's own button, and state it in A11Y.
+7. **Neither system amendment is applied: the receipt-glyph cue and the shared constant-cream / composite-contrast rule.**
+   - Evidence: The kicker row (picked-m4.md:346-349) is 'FOR THE COUNTER' · 'ကောင်တာအတွက်' with no glyph. The amendment says it leads with the 14px receipt glyph that m1's card (picked-m1.md:189) and m2's door wear. DECISION 16 (:488) keeps constant cream as an m4-local choice, and OPEN RISK 11 (:525) scopes the contrast rows to 'the cream tag over the live video'. The amendment makes constant cream the house rule for every Dad-facing pass, with rows added ONCE for the shared CounterPass and the tag together.
+   - Fix: Lead the kicker with a 14px aria-hidden receipt glyph in ink. Restate DECISION 16 as the house rule shared with m1/m2's CounterPass. Change OPEN RISK 11 to one composite-contrast row set (packages/ui composite-contrast.test.ts) covering CounterPass + tag, both themes.
+8. **The unavailable tag is a dead end. That breaks the owner default 'the miss says "Or ask at the counter"' and the spec's own 'every state says its one next step'.**
+   - Evidence: picked-m4.md:217: 'Unavailable tag. "That item isn’t available today."… No button… and no quiet line.' lib/scan-notice.ts:14 names unavailable as one of 'the three catalog misses a shopper can act on'. The spec's backbone line (:6-7) says 'Every state says its one next step'. Weighed says 'bring it to the counter'. Unavailable gives no way forward and no human fallback.
+   - Fix: Add the quiet line 'Or ask at the counter · ကောင်တာမှာ မေးကြည့်ပါနော်' (the same shipped fragment) to the unavailable tag.
+9. **The DINER register (NOW heading, then an actor-first NEXT sentence directly above the hero, then the human fallback last) is not applied.**
+   - Evidence: Screen 2's dead ends (picked-m4.md:333-357) run in this order: the state lines, then 'Try one word from the name — or ask at the counter.', then the counter tag (the human fallback), then the hero 'Back to the camera'. The fallback is not last. The thing directly above the hero is the tag, not a sentence that explains it. The NEXT sentence explains the field, not the hero, and folds the fallback inside itself. The sheet's heading stays the door name 'Search by name' (:322-325) and never says NOW. On screen 1 the tag has no NEXT sentence at all: the step lives only in the button label (:6-8, :161-165), which is the STAFF register ('the next step lives inside the control's own words').
+   - Fix: Screen 2: say NOW as the heading or state title, put one actor-first NEXT sentence directly above the one hero it explains, and put the counter tag (the fallback) last. Screen 1: within the 109px budget, give the tag a NOW line plus an actor-first NEXT sentence above the ink pill, or state why the spoken quiet line stands in for it. Keep 'Or ask at the counter' last.
+10. **The busy result row is specified at 0.55 opacity, which drops its text below 4.5:1 and breaks the house rule 'busy keeps full ink'.**
+
+- Evidence: picked-m4.md:376: 'The busy row is aria-busy at 0.55 opacity.' This is inherited from page.tsx:1122 (`opacity: 0.55`). Measured: #1b1714 at 55% over #fffdf8 gives 3.96:1, and the --t3 secondary line gives 2.24:1. globals.css:7561-7563 and DESIGN-LANGUAGE.md:1451 say busy is not disabled and the control keeps its full ink (a dim was rejected at 2.84:1). The extraction into ONE shared `.grocery-result` (:371) is the moment to stop carrying the dim forward.
+- Fix: Keep full ink on the busy row. Signal busy with the visible word ('Adding…', the guided draft ထည့်နေပါတယ်…) or the shipped stripe treatment, never opacity.
+
+11. **Some cited file:line references are wrong or incomplete.**
+
+- Evidence: (a) :222 cites page.tsx:1255 for 'Waiting for a connection'. It is at :1256; :1255 is the 'In your basket ×' arm. (b) The claims row at :90 says 'Three focus fallbacks… page.tsx:425, :1015, :1533 — TRUE'. There is a fourth, page.tsx:897: addHit re-focuses searchRef after EVERY hit add, and that is the path the Name sheet's rows reuse. It will fight the spec's onCloseAutoFocus → 'Add another', and OPEN RISK 2 (:508) omits it. (c) :94 cites scan-notice.ts:56-75 for slotAfter. slotAfter ends at :66, and :68-79 is scanHint. (d) 'complete cached catalog' (:218) is false (see the cache finding).
+- Fix: Correct (a) and (c). Add page.tsx:897 to the claims row and OPEN RISK 2, with its Scan-door fallback. Reword (d).
+
+### C · The critic's suggestions (not blocking; take them where the build agrees)
+
+- Copy: 'One word from the name is enough — like “tea leaf” or “လက်ဖက်”.' calls a two-word query, which is not even in the name ('Tea Leaves'), 'one word'. Use 'laphet' (a real synonym) or လက်ဖက် alone. The Burmese draft carries the same 'tea leaf', so you only need to swap the example word.
+- A same-gesture risk on the chip: on a fast server ok the sheet closes under the finger, and the second half of a double-tap can land on the chip's 'Add another' (the stage y 455–531 sits under the first result rows). That would be a deliberate second charge. Give 'Add another' the same 350 ms arm after a sheet close.
+- The page Toast has one slot (page.tsx:270-275). Re-sighting the paired jar inside the 6-s window flashes M186's repeat sentence and clobbers the Undo. Once Undo moves into the chip slot this goes away; otherwise specify the priority.
+- The weighed and unavailable misses still flash a DRAWN toast (page.tsx:651) while the tag already shows the same words. Make them `quiet` like the unknown miss so the fact is said once.
+- 'Close' has shipped Burmese ပိတ် (lib/i18n/common.ts:20). It does not need to be listed as English-only.
+- The Basket tab already wears the receipt glyph (components/nav/DinerTabs.tsx:43). Now that the receipt is the system's 'for the counter' cue, check that the two meanings don't collide on /grocery.
+- Measure Padauk before claiming the 2px reticle clearance. At 390px the 136px quiet column very likely wraps ကောင်တာမှာ မေးကြည့်ပါနော်, so the tag is about 128px and covers about 19px of the window on the DEFAULT phone, not only at ≤375px.
+- The counter tag claims the grocer's 'handoff carries its own context' (:46-48), but it gives Dad only 'this code isn't in the app'. Consider carrying the shopper's query, or the aisle they were in, so Dad can help without a second-language exchange. Do not show a code or a price.
+- The no-match state says the coverage fact twice on one sheet ('most shelf codes aren't in the app yet' and the tag's 'This code isn't in the app yet'). Trim one.

@@ -135,6 +135,26 @@ https://qr.mandalaymorningstar.com/api/stripe/webhook".**
   required check with no bypass would also hold every `.md`-only PR for a Codex verdict, which #1's waiver
   does not ask for. So wiring it without a bypass is the owner's call, not this note's.
 
+## E · The owner's design picks (2026-10-07, later still)
+
+**The owner's words, after seeing three concept directions drawn for eight diner and staff moments: "I
+prefer diner moments guided and staff moments glanceable. I actually love all 3 directions but could be
+more enhanced, elevated, world-class design-thinking."**
+
+[`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) is the record: the direction, the owner's three
+answers, the defaults that stand, the shared design vocabulary, and one refined spec per moment. **For
+those eight moments' design, that file wins over a stream card's.** These rulings still win on rulings.
+In short:
+
+- Diner moments are guided and staff moments glanceable, each elevated with the best of the other two
+  directions.
+- Until live card keys are switched on (C2), the dine-in Bill offers only "Pay at the counter" (a new
+  parked surface, refused in create-intent; a money-path merge line under #1).
+- A guest whose dish waits on the host's Send gets the words, a "Show a server" card for Dad, and a quiet
+  "Let Aye know" nudge.
+- A dish waiting for a manager never blocks payment: staff are warned, may take payment, and a later
+  approval becomes a refund.
+
 ## C18 — closed (2026-10-07)
 
 **Closed by measurement: every succeeded test payment since 2026-09-09 has its order. Only the owner's

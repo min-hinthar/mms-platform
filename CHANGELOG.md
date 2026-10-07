@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The owner's path-design picks (2026-10-07)
+
+- **The owner picked a direction for eight diner and staff moments:** diner moments guided, staff moments
+  glanceable, each "more enhanced, elevated, world-class". The record is the new
+  [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md), with one refined spec per moment in
+  [`docs/path-design-2026-10-07/`](docs/path-design-2026-10-07/).
+- **Three owner answers recorded there:**
+  - a counter-only dine-in Bill until live card keys (C2);
+  - "Show a server" plus a "Let Aye know" nudge for a guest waiting on the host's Send;
+  - payment never blocked by a dish waiting for a manager.
+- **The shared design vocabulary** (one voice in two registers, the CounterPass, one Undo, the staff
+  loudness ladder) is set once for all eight moments, so the four glanceable staff moments stop inventing
+  four loud vocabularies for one counter.
+- **Each spec checks its product claims against the code at `f6e81ce`.** A cross-moment consistency pass
+  and an adversarial critic then amended it; the appendix wins over the spec body.
+- **The rulings file gains section E;** HANDOFF points to it. OPEN-ITEMS gains PD1–PD8, one row per
+  moment, naming the stream that builds it. Docs only: no code changed.
+
 ### C18 corrected — the webhook was not dead (2026-10-07)
 
 - **C18 is closed by measurement, and the fix this wave recorded for it is withdrawn.**

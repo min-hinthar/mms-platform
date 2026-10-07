@@ -36,6 +36,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - the facts only the owner holds, listed in the file;
 > - anything a ruling's condition leaves open, such as #2's admin bypass.
 >
+> **The owner picked the path designs (2026-10-07, later):** diner moments guided, staff moments
+> glanceable, each elevated with the best of all three directions.
+> [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) is the record (rulings file, section E), with
+> one refined spec per moment in [`path-design-2026-10-07/`](path-design-2026-10-07/). For those eight
+> moments' design it wins over a stream card's. Streams touched: diner-cart · counter-floor ·
+> kitchen-ops · post-pay · grocery · staff-authority. Open for the owner: who owns moment 1's /menu half
+> (`CartBar.tsx`, `ArrivalBeat`), and moment 8's asker-by-PIN seam.
+>
 > **Owner's hands (not code):**
 >
 > - C18: nothing to do. It is closed by measurement: every succeeded test payment since 2026-09-09 has
@@ -2068,7 +2076,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > **3270 `verify:slice` mutants** · **268 target modules** (181 under `apps/qr/lib`, 5 API routes,
 > 79 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6798 + 287 today)** ·
-> 105 tracked docs files ·
+> 114 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -3428,7 +3436,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (105 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (114 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
