@@ -19,10 +19,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   four loud vocabularies for one counter.
 - **Each spec checks its product claims against the code at `f6e81ce`.** A cross-moment consistency pass
   and an adversarial critic then amended it; the appendix wins over the spec body.
-- **Reviewed twice before merge.** A blind adversarial pass corrected the record's own summaries, and
-  Codex's round added seven required corrections (reward redemption and the saved-card note on the
-  counter-only Bill, a stable kitchen key, the pad's handoff stash, Seat next's mint hold and bell, and
-  `ASKER_BY_PIN` off until the owner answers).
+- **Reviewed before merge.** A blind adversarial pass corrected the record's own summaries. Codex's two
+  rounds added fifteen required corrections that win over the specs, among them:
+  - reward redemption and the saved-card note on the counter-only Bill;
+  - stable kitchen keys and Bring-back labels;
+  - the pad's handoff stash, and a till layout that fits its width;
+  - Seat next's mint reservation and bell, and no no-loss clear on an unknown kitchen read;
+  - a durable stop-cooking record;
+  - every payment door acknowledging its own pending snapshot;
+  - `ASKER_BY_PIN` off until the owner answers.
 - **The rulings file gains section E;** HANDOFF points to it. OPEN-ITEMS gains PD1–PD8, one row per
   moment, naming the stream that builds it. Docs only: no code changed.
 

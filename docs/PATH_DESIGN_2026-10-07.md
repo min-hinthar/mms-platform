@@ -180,6 +180,46 @@ is a required part of its moment, not a suggestion:
    shows which staff have a PIN, and spends the caller's step-up budget. It stays off until the owner
    answers the question below.
 
+Codex's second round found eight more, each checked against the code and the specs:
+
+8. **Moment 6 — the till layout only where its grid fits.** The tray's body grid is 460 + 32 + 300 + 32 +
+   438 = 1262px plus 64px of padding, but the spec applies it from `(min-width: 64em)` (1024px). Apply
+   `layout="till"` only from a breakpoint at or above the grid's real minimum width, or make its columns
+   responsive. Below that width, today's single-column sheet is used, so cash entry and the Change
+   readout are never clipped.
+9. **Moment 7 — "Seat next party" reserves the mint across the clear.** Checking the hold at the tap
+   (correction 5) still leaves a race: another Walk-up or table start can take the shared mint lock
+   before the clear answers. Reserve the mint lock from the tap until the new party's session opens or
+   the clear refuses, and release it on refusal. Any busy refusal after the clear is said out loud, with
+   the table already cleared and a way to start the party by hand.
+10. **Moment 1 — the session code reaches the pass.** A table with no number before its first Send shows
+    its session code on the "Show a server" pass, but `getSplitContext` reads only `mode` and
+    `table_number` (`lib/split.ts:79-80`), and the join code lives only in `/menu`'s provider. Carry the
+    session's `qr_code` (the value InviteSheet shows) into Checkout beside the table number, read
+    server-side.
+11. **Moment 7 — an unknown kitchen read is never a no-loss clear.** m7's appendix B13 puts a
+    "kitchen-unknown" table on the direct no-loss path. That contradicts its own rule that an unknown
+    kitchen read is never "go". Before choosing the no-loss path, Clear takes a fresh, authoritative read
+    of the table's sent lines. If it is still unknown, the pane refuses with its "couldn't check" line and
+    clears nothing.
+12. **Moments 5 and 7 — the stop-cooking card is durable.** The kitchen read selects only `fired` /
+    `in_progress` lines on `open` / `paid` carts (`lib/kitchen.ts:180-211`), so a cleared, cancelled cart's
+    lines vanish on the next poll, before Mom sees the warning. The table-clear migration (ruling #5's go,
+    M182 · P2hf) also writes a durable stop record for the voided fired lines that the kitchen read
+    selects whatever the cart's status. "Got it" writes its acknowledgement. Until both ship, the slip's
+    "tells the kitchen to stop" stays unclaimed (as m7 already conditions it).
+13. **Moment 8 — every payment door acknowledges its own snapshot.** With a reader or a secure tab,
+    staff can tap `TerminalSettle` or `CloseSecureTabButton` directly, with no Take cash tap first. Each
+    settle trigger sends the pending-request ids it displayed at its own tap, so no door meets
+    `approval_pending` after the owner's "never blocked" decision.
+14. **Moment 5 — Bring-back chips are always told apart.** When the round number is unknown (`n: null`),
+    two chips from the same table could both read only "Table 4". Each chip captures a distinct label at
+    bump time: the round number when known, otherwise the card's first fire time ("Table 4 · 7:42",
+    Latin digits), so no new words are needed.
+15. **Moment 4 — the post-add chip ignores the closing double-tap.** When the add lands between two taps,
+    the second tap can hit the chip's "Add another" that mounts under the finger. The chip arms only 350
+    ms after the sheet closes (the same-gesture guard), as part of the success transition.
+
 ## The eight moments
 
 ### 1 · A tablemate's dish waits for the Send — guided, elevated
