@@ -27,7 +27,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >   changes charges, orders, cash or approvals still waits for Codex when the blind pass flagged that
 >   path. `.md`-only PRs merge without the Codex wait;
 > - the moment to apply each approved migration, and the go for M168's and T4's;
-> - the facts only the owner holds, listed in the file.
+> - the facts only the owner holds, listed in the file;
+> - anything a ruling's condition leaves open, such as #2's admin bypass.
 >
 > **Owner's hands (not code):**
 >
@@ -40,7 +41,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - The device sitting (#12), and the native Burmese sitting at the end of the wave.
 > - The Codex quota.
 >
-> **Each stream edits only its own bullet under "Parallel streams" below. Never rewrite this block.**
+> **Each stream edits only its own bullet under "Parallel streams" below, plus the measured-count
+> lines `pnpm check:docs` names (refresh them from its output, never by hand). Never rewrite this block.**
 
 ## Parallel streams (wave of 2026-10-07)
 
