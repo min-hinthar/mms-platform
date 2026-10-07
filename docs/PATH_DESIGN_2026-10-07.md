@@ -55,7 +55,8 @@ the rules and the owner's answers, and the screens were drawn with its blocking 
 **Reading a spec:** each file is the spec, then an appendix holding (A) the consistency pass's amendments,
 (B) the critic's blocking fixes, and (C) its suggestions. **Where the appendix contradicts the spec body,
 the appendix wins**, and the drawn screens follow the appendix. **Where two specs' appendices disagree,
-the _Cross-spec reconciliations_ section below wins over both.** The specs are the design each stream
+the _Cross-spec reconciliations_ section below wins over both, and the _Required corrections from
+Codex's review_ win over every spec.** The specs are the design each stream
 starts from. Where the code disproves a claim, change the design and say why in the PR.
 
 **Where a pick changes an earlier design rule, the PR that builds it amends that document in the same
@@ -145,6 +146,39 @@ settle them:
    unchanged.
 7. **"No count on a shared cart" covers everything before the Send.** After it, `sentCopy` may still
    report the server's fired count (m1's A5).
+
+## Required corrections from Codex's review (these win over every spec and appendix)
+
+Codex reviewed the specs and found seven gaps. Each was checked against the code at `f6e81ce`, and each
+is a required part of its moment, not a suggestion:
+
+1. **Moment 2 — reward redemption stays reachable.** `RewardField` sits under `showPayControls` today
+   (`components/Checkout.tsx:3446-3447`), beside the promo field. When `dineInPhonePay` parks the pay
+   controls, keep `RewardField` drawn with the promo field: a reward is server-authoritative and changes
+   the counter total.
+2. **Moment 2 — the saved-card note follows the flag.** The secure-tab note "Your card is saved — pay here
+   anytime, or just leave and we'll charge the bill to it" is gated by `showPayFurniture`
+   (`Checkout.tsx:4152-4165`), not by the pay controls the design removes. While `dineInPhonePay` is
+   false, hide it. If the stream verifies that staff can still close a secure tab with the flag off, it
+   may keep only a true clause instead, as a new string with a K15 draft.
+3. **Moment 5 — a stable key for a line with no batch and no fire time.** `kitchen.ts:341` fills a
+   missing `fire_at` with the poll's `nowIso`, so `firedAt` changes on every poll. A line whose
+   `fire_batch` and `fire_at` are both null keys to one deterministic bucket per cart, computed from the
+   raw row, never from `firedAt`. Otherwise its card remounts, flashes and chimes on every poll.
+4. **Moment 6 — the pad writes the handoff stash.** Today only `FloorDetailLive.tsx:253` and
+   `ReaderCollectProvider.tsx:280` call `stashHandoff`. The walk-up landing on the pad must call it
+   too, or the seal's Cash received and Change are lost on a same-tab reload.
+5. **Moment 7 — "Seat next party" checks the mint hold first.** `useCounterMint`'s `run` returns
+   silently while another mint is in flight (`components/staff/CounterMint.tsx:170`). Check the hold
+   before skipping the Undo window and sending the clear. If it is held, refuse at the tap with the
+   shipped waiting line and leave the table and its Undo as they were.
+6. **Moment 7 — "Seat next party" keeps the counter bell.** Routing to `/staff/table/{id}/add`
+   (`CounterMint.tsx:136`) leaves the counter home, the only page that mounts `CounterBellProvider`
+   (`app/staff/page.tsx:327`). At tablet width, open the new party in the counter's pane instead, so the
+   bell stays live. Below that width, the route keeps m6's honest bell note.
+7. **Moment 8 — `ASKER_BY_PIN` ships OFF.** The asker-by-PIN seam changes who is recorded as asking,
+   shows which staff have a PIN, and spends the caller's step-up budget. It stays off until the owner
+   answers the question below.
 
 ## The eight moments
 
@@ -254,7 +288,9 @@ settle them:
   one hero (decision 8). Walk-up is a quiet secondary with the true note "Their food shows up on the
   counter page when it's ready." The green bloom plays only on the landing. A dine-in settle gets the
   same seal at pane width, with no #CODE.
-- Cash received and Change are what Dad typed, kept in this tab only. The pad host keeps one live region.
+- Cash received and Change are what Dad typed, kept in this tab only. The pad's landing writes the
+  handoff stash, so they survive a same-tab reload (Codex correction 4). The pad host keeps one live
+  region.
 
 ### 7 · Clearing a table — glanceable, elevated
 
@@ -307,8 +343,8 @@ settle them:
   phones and the kitchen board say ပြန်ဖျက်, where ပြန်ယူ means "Bring back". Keep the console's word
   (the default), or move it to ပြန်ဖျက် at the native sitting.
 - **Moment 8's asker-by-PIN seam:** should the person asking for a void name themselves with their own
-  PIN? It is designed to ship on behind `ASKER_BY_PIN`, drawn only on a manager-signed tablet, but it is
-  an open question.
+  PIN? It is designed behind `ASKER_BY_PIN`, drawn only on a manager-signed tablet, and **ships off**
+  until the owner answers (Codex correction 7).
 - **At the device sitting (#12):** the Burmese-only round stub at the pass; the grocery tag's size in
   Padauk at 375px; the till tray above the tablet's on-screen keyboard; whether the Walk-up secondary
   leaves bags waiting (dropping it is one constant).
