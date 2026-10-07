@@ -4,6 +4,30 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### C18 corrected — the webhook was not dead (2026-10-07)
+
+- **C18 is closed by measurement, and the fix this wave recorded for it is withdrawn.**
+  - Stripe's test-mode log: the 47 failed deliveries all fall on 2026-09-07 08:59–12:53Z, the owner's
+    test pass, and none ever cleared. Every subscribed event created since reads delivered.
+  - Prod `qr_orders`: all seven succeeded test payments since 2026-09-09 have a `paid` order, written
+    within two seconds.
+  - The owner reported that `STRIPE_WEBHOOK_SECRET_TEST` was always set and correct, and on 2026-10-07
+    edited the test endpoint's URL to the QR domain. Payments were already reaching their orders before
+    that edit. What caused and ended the 2026-09-07 failures is not measured: the route then read only
+    `STRIPE_WEBHOOK_SECRET`.
+  - Never resend the five test-pass payments of 2026-09-07. Their carts no longer exist, and they were
+    test cards.
+- **The webhook handler is safe on the test endpoint's older API version (2022-08-01).** No field it reads
+  differs from the live endpoint's `2026-05-27.dahlia` shape (audited 2026-10-07).
+- **The owner's follow-up is recorded** in the rulings file's new section D: yes to the two open process
+  questions (`.md`-only PRs skip the full `verify:slice`; a counts-only rebase keeps its yes), and #317
+  merges when ready.
+- **Session notes there, not rulings:** Codex has quota again (measured), with the recommendation that code
+  PRs wait for Codex again; and by #2's own terms C16's advisory fallback has ended.
+- **Corrected in place:** ruling #3 (withdrawn, struck through), the rulings file's C18 section, HANDOFF's
+  heading and owner list, the C18 row (both cells) and the C2 · M160 · M161 · M163 rows, ENV.md's failure
+  modes and PILOT_PLAN's P7 line.
+
 ### C27 — functions pinned next to the database (2026-10-07)
 
 - **`apps/qr/vercel.json` pins the QR app's functions to `pdx1` (Portland).** The QR Supabase project is in
@@ -33,6 +57,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Test mode verifies with exactly one secret: `STRIPE_WEBHOOK_SECRET_TEST` when it is set, otherwise
     `STRIPE_WEBHOOK_SECRET`.
   - So the suggested form of the fix sets the `_TEST` name and leaves the live secret in place.
+    **Withdrawn the same day:** see "C18 corrected" above.
 
 ### After 3c-ii — the follow-ups and Phase 3d (2026-10-06)
 

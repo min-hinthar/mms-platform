@@ -73,7 +73,7 @@ Three things this buys, each of which had already gone wrong at least once:
 - **The modes must agree.** `getStripe()` refuses to construct a client when the secret key and the
   publishable key are from different Stripe modes. Nothing in the values prevents that pairing, and
   the dangerous half is silent: a **live** secret beside a **test** webhook secret charges real cards
-  whose fulfilment webhook can never verify — C18 with real guests' money. A signing secret carries
+  whose fulfilment webhook can never verify — a dead webhook (C18's symptom) with real guests' money. A signing secret carries
   no mode marker of its own (`whsec_…` is identical in both), which is why the check compares the two
   keys that do.
 
@@ -87,7 +87,7 @@ Three things this buys, each of which had already gone wrong at least once:
 > remove the two `_TEST` KEY variables but leave `STRIPE_WEBHOOK_SECRET_TEST`, and `getStripe()` sees
 > a live secret beside a live publishable key — they AGREE, so it raises nothing — while the webhook
 > picks the TEST signing secret. Every live delivery then fails `constructEvent`: real cards
-> captured, zero orders. C18 with real money. `modeDisagreement` structurally cannot see it, because
+> captured, zero orders. C18's symptom with real money. `modeDisagreement` structurally cannot see it, because
 > a `whsec_…` is identical in both modes and carries no marker to compare.
 >
 > `webhookCandidatesForMode` closes it by judging the only evidence there is — the NAME. In **live**
@@ -166,9 +166,12 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
    (`status='paid'`, `pickup_slot`/`fire_at` set) and a **200** on the delivery in Stripe → Webhooks.
 
 > Failure modes (all self-heal — Stripe retries non-2xx for up to 72h and `mms_fulfill_order` is
-> idempotent on the PI id, so fixing the secret drains the backlog): a **400 "Bad signature"** on
+> idempotent on the PI id, so a fix inside that window drains the backlog): a **400 "Bad signature"** on
 > every live event ⇒ Production `STRIPE_WEBHOOK_SECRET` is still the test/preview secret (per-endpoint
-> AND per-mode); a **500 "Webhook not configured"** ⇒ it's unset in Production.
+> AND per-mode); a **500 "Webhook not configured"** ⇒ it's unset in Production; deliveries failing in
+> Stripe → Webhooks while prod logs no `[stripe webhook]` rejection ⇒ check the endpoint's **URL**
+> (`https://qr.mandalaymorningstar.com/api/stripe/webhook`). C18 (2026-09-07, 08:59–12:53Z) failed every
+> test delivery for a cause that was never measured; see `OWNER_RULINGS_2026-10-07.md` _C18 — closed_.
 
 > When QR gets a dedicated **staging** project (BACKEND_ARCHITECTURE §7), point **Production → prod
 > Supabase** and **Preview → staging** so a preview PR can never write the live ledger.

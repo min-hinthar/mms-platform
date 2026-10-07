@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSIONS — the parallel wave (2026-10-07 · #315 MERGED `76501c0` · nine streams queued)
+> ## ⏭️ NEXT SESSIONS — the parallel wave (2026-10-07 · #315 MERGED `76501c0` · nine streams planned · one card pending)
 >
 > **#315 is merged** (`76501c0`, a merge commit). A full `verify:slice` on its tree caught 3270 of 3270
 > with no orphans, watched to the end, and CI was green on the head. `codex-review` stayed red (quota)
@@ -16,6 +16,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > money-rails · counter-floor · diner-cart · grocery · staff-authority · kitchen-ops · post-pay ·
 > table-door · guards-style. Each card names its packages, the files it owns, the files it must not edit,
 > and the shared hot-file rules. guards-style's docs-only registry reconcile goes first.
+>
+> **Measured 2026-10-07 ~06:37Z through the task-card tool:** the eight re-queued cards left the pending
+> list within about 90 seconds, leaving only guards-style's. A probe of table-door's card returned
+> "already dismissed", and none of the eight shows as a started remote session. The other seven were not
+> probed one by one. The owner has not said what this means for those streams, so ask before re-queuing
+> them or treating them as cancelled.
 >
 > **The owner answered the wave's decision brief on 2026-10-07: "yes to all recommended defaults."**
 > [`OWNER_RULINGS_2026-10-07.md`](OWNER_RULINGS_2026-10-07.md) is the record, and each affected
@@ -32,14 +38,18 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > **Owner's hands (not code):**
 >
-> - C18: set `STRIPE_WEBHOOK_SECRET_TEST` in Vercel Production to the test endpoint's signing secret,
->   then redeploy, before counter-floor's M163 merges. The steps are in the rulings file.
-> - C25: reload every staff screen once after the first production deploy after 2026-10-07 07:13Z.
-> - C16: make `codex-review` a required check, but only if branch protection lets admins bypass it.
+> - C18: nothing to do. It is closed by measurement: every succeeded test payment since 2026-09-09 has
+>   its order (the rulings file, _C18 — closed_). The owner reports `STRIPE_WEBHOOK_SECRET_TEST` was always
+>   set and correct. What caused and ended the 2026-09-07 failures is not measured. Never resend the five
+>   2026-09-07 test-pass events.
+> - C25: reload every staff screen once after the first production deploy after 2026-10-07 07:13Z
+>   (#317's merge, if it lands first).
+> - C16: make `codex-review` (never `codex-reviewed`) a required check. With Codex's quota back, #2's
+>   "advisory until Codex has quota" fallback has ended, so it no longer waits on the admin bypass (the
+>   rulings file, D's session notes).
 > - C1: the auth settings (confirmations ON, Google open to any account).
 > - #13: once money-rails' M160 cron lands, add `CRON_SECRET` in Vercel Production.
 > - The device sitting (#12), and the native Burmese sitting at the end of the wave.
-> - The Codex quota.
 >
 > **Each stream edits only its own bullet under "Parallel streams" below, plus the measured-count
 > lines `pnpm check:docs` names (refresh them from its output, never by hand). Never rewrite this block.**
