@@ -462,7 +462,8 @@ the plan state.
         honest history foot, the receipt link on a row.
   - [ ] **3f — the craft coherence pass, last:** bilingual empties through one `EmptyState`, the
         `said-once` guard, one paper on `/` and `/dine-in`, the post-pay stack with the goodbye last.
-  - [ ] **market** — parked until G1's real UPCs (G24 · G20 · G7).
+  - [ ] **market** — parked until G1's real UPCs (G24 · G7). G20 (Burmese names on basket lines) was
+        unparked by the owner on 2026-10-07 and ships in the grocery stream.
 - [ ] **Phase 4 — production signals** (photos, live Stripe keys, RUM).
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`

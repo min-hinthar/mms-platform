@@ -5,7 +5,52 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-10-06, late · #315 MERGES on the owner's go — "merge once CI and verify:slice are green" · check `git log origin/main` first)
+> ## ⏭️ NEXT SESSIONS — the parallel wave (2026-10-07 · #315 MERGED `76501c0` · nine streams queued)
+>
+> **#315 is merged** (`76501c0`, a merge commit). A full `verify:slice` on its tree caught 3270 of 3270
+> with no orphans, watched to the end, and CI was green on the head. `codex-review` stayed red (quota)
+> under the owner's waiver for that PR. Its record is the CHANGELOG entry "After 3c-ii — the follow-ups and
+> Phase 3d".
+>
+> **Next comes nine parallel streams, one Claude session each, queued as task cards on 2026-10-07:**
+> money-rails · counter-floor · diner-cart · grocery · staff-authority · kitchen-ops · post-pay ·
+> table-door · guards-style. Each card names its packages, the files it owns, the files it must not edit,
+> and the shared hot-file rules. guards-style's docs-only registry reconcile goes first.
+>
+> **The owner answered the wave's decision brief on 2026-10-07: "yes to all recommended defaults."**
+> [`OWNER_RULINGS_2026-10-07.md`](OWNER_RULINGS_2026-10-07.md) is the record, and each affected
+> OPEN-ITEMS row carries an `Owner 2026-10-07` note. Every default in a card's ASK THE OWNER list is
+> decided; build it and don't ask again. Three things still go to the owner:
+>
+> - the per-merge-window message: each ready PR as `#N @ head SHA`, answered yes or hold;
+> - the moment to apply each approved migration;
+> - the facts only the owner holds.
+>
+> **Owner's hands (not code):**
+>
+> - C18: the test endpoint's signing secret as `STRIPE_WEBHOOK_SECRET_TEST` in Vercel Production, then
+>   a redeploy, before counter-floor's M163 merges. The steps are in the rulings file.
+> - C25: one reload of every staff screen after the first production deploy after 07:13Z on 2026-10-07.
+> - C16: make `codex-review` a required check.
+> - C1: the auth settings (confirmations ON, Google open to any account).
+> - The device sitting (#12), and the native Burmese sitting at the end of the wave.
+> - The Codex quota.
+>
+> **Each stream edits only its own bullet under "Parallel streams" below. Never rewrite this block.**
+
+## Parallel streams (wave of 2026-10-07)
+
+- **money-rails** — not started.
+- **counter-floor** — not started.
+- **diner-cart** — not started.
+- **grocery** — not started.
+- **staff-authority** — not started.
+- **kitchen-ops** — not started.
+- **post-pay** — not started.
+- **table-door** — not started.
+- **guards-style** — not started.
+
+> ## ✅ (superseded 2026-10-07) NEXT SESSION as of (2026-10-06, late · #315 MERGES on the owner's go — "merge once CI and verify:slice are green" · check `git log origin/main` first)
 >
 > **First, measure where #315 is** — `git log origin/main --oneline -3`. The owner's last word was "merge
 > once CI and verify:slice are green": CI was green on `3a4210a`, and a full `verify:slice` was running on
@@ -2006,7 +2051,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > **3270 `verify:slice` mutants** · **268 target modules** (181 under `apps/qr/lib`, 5 API routes,
 > 79 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6798 + 287 today)** ·
-> 104 tracked docs files ·
+> 105 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -3366,7 +3411,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (104 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (105 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
