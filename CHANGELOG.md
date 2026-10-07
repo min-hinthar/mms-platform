@@ -23,7 +23,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   questions (`.md`-only PRs skip the full `verify:slice`; a counts-only rebase keeps its yes), and #317
   merges when ready.
 - **Session notes there, not rulings:** Codex has quota again (measured), with the recommendation that code
-  PRs wait for Codex again; and by #2's own terms C16's advisory fallback has ended.
+  PRs wait for Codex again. C16 stays conditional on the admin bypass, as #2 words it.
 - **C18 and C27 move to OPEN-ITEMS' Closed section** (the file's own rule), each with its full text and
   source as the trail.
 - **Corrected in place:** ruling #3 (withdrawn, struck through), the rulings file's C18 section, HANDOFF's

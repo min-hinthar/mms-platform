@@ -130,10 +130,10 @@ https://qr.mandalaymorningstar.com/api/stripe/webhook".**
   for code PRs only because the quota was empty, so the planning session recommends that every code PR
   waits for Codex's review of its head again (CLAUDE.md's ritual), alongside #1's merge-window line. The
   owner has not ruled on this.
-- **C16 (#2):** #2 keeps `codex-review` advisory "until Codex has quota" when admins cannot bypass it. By
-  #2's own terms that fallback ended when the quota came back, so wiring the check no longer waits on the
-  bypass. Once it is required, every PR, `.md`-only included, waits for Codex's verdict on its head unless
-  an admin bypasses.
+- **C16 (#2) stays as worded:** make `codex-review` required if branch protection lets admins bypass it.
+  #2's "advisory until Codex has quota" fallback could be read as lapsed now that the quota is back. But a
+  required check with no bypass would also hold every `.md`-only PR for a Codex verdict, which #1's waiver
+  does not ask for. So wiring it without a bypass is the owner's call, not this note's.
 
 ## C18 — closed (2026-10-07)
 

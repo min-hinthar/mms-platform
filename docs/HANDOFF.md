@@ -45,9 +45,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - C25: reload every staff screen once, at a quiet moment. The trigger has happened: #317's merge started
 >   the first production deploy after 07:13Z, at 2026-10-07 09:43Z, and that deploy is READY
 >   (`dpl_3AxhwqjU…`; prod answers `iad1::pdx1::…`).
-> - C16: make `codex-review` (never `codex-reviewed`) a required check. With Codex's quota back, #2's
->   "advisory until Codex has quota" fallback has ended, so it no longer waits on the admin bypass (the
->   rulings file, D's session notes).
+> - C16: make `codex-review` (never `codex-reviewed`) a required check if branch protection lets admins
+>   bypass it (#2). Wiring it without a bypass is your call now that Codex has quota again (the rulings
+>   file, D's session notes).
 > - C1: the auth settings (confirmations ON, Google open to any account).
 > - #13: once money-rails' M160 cron lands, add `CRON_SECRET` in Vercel Production.
 > - The device sitting (#12), and the native Burmese sitting at the end of the wave.
