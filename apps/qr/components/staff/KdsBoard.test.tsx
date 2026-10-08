@@ -66,8 +66,12 @@ const played = vi.fn();
 const queue = (firedAt = NOW): KitchenQueue => ({
   tickets: [
     {
+      key: "cart-1|b|batch-1",
       cartId: "cart-1",
       sessionId: "sess-1",
+      fireBatch: "batch-1",
+      round: { kind: "n", n: 1 },
+      stampIso: firedAt,
       channel: "dinein",
       label: "T4",
       tableNumber: 4,
@@ -577,8 +581,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -619,8 +625,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -664,8 +672,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -705,8 +715,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -740,8 +752,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -771,8 +785,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -804,8 +820,10 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -1108,8 +1126,11 @@ describe("Phase 2b — lateness is `kdsUrgency`, read by the ticket's OWN channe
     q.thresholds = { ...q.thresholds, pickupAmberMin: 2, pickupRedMin: 4 };
     q.tickets.push({
       ...q.tickets[0]!,
+      key: "cart-p|b|batch-p",
       cartId: "cart-p",
       sessionId: "sess-p",
+      fireBatch: "batch-p",
+      round: { kind: "none" },
       channel: "pickup",
       label: "#A1",
       tableNumber: null,
@@ -1131,8 +1152,10 @@ const nineTickets = (heldLast = false): KitchenQueue => {
   const nine = queue();
   nine.tickets = Array.from({ length: 9 }, (_, i) => ({
     ...nine.tickets[0]!,
+    key: `cart-${i}|b|batch-${i}`,
     cartId: `cart-${i}`,
     sessionId: `sess-${i}`,
+    fireBatch: `batch-${i}`,
     tableNumber: i + 1,
     label: `T${i + 1}`,
     held: heldLast && i === 8,
@@ -1317,8 +1340,11 @@ function ticketAt(
   const firedAt = new Date(Date.parse(NOW) - minAgo * 60_000).toISOString();
   return {
     ...base,
+    key: `${cartId}|b|batch-${cartId}`,
     cartId,
     sessionId: `sess-${cartId}`,
+    fireBatch: `batch-${cartId}`,
+    stampIso: firedAt,
     tableNumber: table,
     label: `T${table}`,
     firedAt,
@@ -1888,8 +1914,11 @@ describe("Phase 2f — a counter order sent before it was paid", () => {
     const base = queue().tickets[0]!;
     return {
       ...base,
+      key: "cart-reg|b|batch-reg",
       cartId: "cart-reg",
       sessionId: "sess-reg",
+      fireBatch: "batch-reg",
+      round: { kind: "none" },
       channel: "pickup" as const,
       label: "reg-7f3a9c",
       tableNumber: null,
@@ -2106,8 +2135,10 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -2253,8 +2284,10 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -2309,8 +2342,10 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -2423,8 +2458,10 @@ describe("Phase 2h (9b · 9e) — a kitchen write that hangs frees its control a
     const two = queue();
     two.tickets.push({
       ...two.tickets[0]!,
+      key: "cart-2|b|batch-2",
       cartId: "cart-2",
       sessionId: "sess-2",
+      fireBatch: "batch-2",
       tableNumber: 5,
       label: "T5",
       lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
@@ -2752,5 +2789,240 @@ describe("Phase 2i — what a reload for a new build would lose here holds it", 
       spy.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// ── PD5 — one Send, one card ──────────────────────────────────────────────────────────────────────
+const { staffClockSeconds } = await import("@/lib/staff-clock");
+describe("PD5 — round two lands on a ticket that's still cooking: one Send, one card", () => {
+  const R1_AT = new Date(Date.parse(NOW) - 9 * 60_000).toISOString();
+  const R2_AT = new Date(Date.parse(NOW) - 4_000).toISOString();
+  /** Table 4's two Sends on ONE open cart: round 1 (Mohinga ×2, started) and round 2 (Milk Tea). */
+  const roundOne = (extra: Partial<KitchenTicket> = {}) =>
+    ticketAt("cart-1", 4, 9, {
+      key: "cart-1|b|b1",
+      sessionId: "sess-1",
+      fireBatch: "b1",
+      round: { kind: "n", n: 1 },
+      stampIso: R1_AT,
+      lines: [
+        {
+          ...queue().tickets[0]!.lines[0]!,
+          id: "line-r1",
+          qty: 2,
+          state: "in_progress",
+          firedAt: R1_AT,
+        },
+      ],
+      ...extra,
+    });
+  const roundTwo = (extra: Partial<KitchenTicket> = {}) =>
+    ticketAt("cart-1", 4, 0, {
+      key: "cart-1|b|b2",
+      sessionId: "sess-1",
+      fireBatch: "b2",
+      round: { kind: "n", n: 2 },
+      firedAt: R2_AT,
+      stampIso: R2_AT,
+      lines: [
+        {
+          ...queue().tickets[0]!.lines[0]!,
+          id: "line-r2",
+          menuItemId: "mi-tea",
+          name: "Burmese Milk Tea",
+          nameMy: "လက်ဖက်ရည်",
+          firedAt: R2_AT,
+          station: "drinks",
+        },
+      ],
+      ...extra,
+    });
+  const both = (r1 = roundOne(), r2 = roundTwo()): KitchenQueue => ({
+    ...queue(),
+    tickets: [r1, r2],
+  });
+  const cards = (c: HTMLElement) => [...c.querySelectorAll<HTMLLIElement>("li.kds-ticket")];
+
+  it("two cards for one table: round 2 wears the stub with a Latin digit, round 1 is drawn exactly as today, and only the NAMES carry the round", () => {
+    currentQueue = both();
+    const { container } = mount("my");
+    const [c1, c2] = cards(container);
+    expect(cards(container)).toHaveLength(2);
+    // Round 1: no stub, no second strip row — byte-identical face (decision 5).
+    expect(c1!.querySelector(".kds-round")).toBeNull();
+    expect(c1!.querySelector("header")!.className).not.toContain("kds-strip-rows");
+    // Round 2: row B holds the stub, a <p> (never a control), "အလှည့် 2" with the digit marked Latin.
+    const stub = c2!.querySelector("p.kds-round")!;
+    expect(c2!.querySelector("header")!.className).toContain("kds-strip-rows");
+    expect(stub.textContent).toBe(tf("my", "kds.round", { id: 2 }));
+    expect(stub.querySelector('[lang="en"]')?.textContent).toBe("2");
+    expect(stub.querySelector("button")).toBeNull();
+    // Both names carry the round while a sibling is live; the strip's identity does not.
+    expect(c1!.getAttribute("aria-label")).toContain(
+      `${tf("my", "kds.table", { id: 4 })} · ${tf("my", "kds.round", { id: 1 })}`,
+    );
+    expect(c2!.getAttribute("aria-label")).toContain(`· ${tf("my", "kds.round", { id: 2 })}`);
+    expect(c1!.querySelector(".kds-id")!.textContent).toBe(tf("my", "kds.table", { id: 4 }));
+    // The line lists are named with the round too (two "Items for Table 4" would be one name twice).
+    expect(c2!.querySelector("ul.kds-lines")!.getAttribute("aria-label")).toBe(
+      tf("my", "kds.a11y.lines", {
+        x: `${tf("my", "kds.table", { id: 4 })} · ${tf("my", "kds.round", { id: 2 })}`,
+      }),
+    );
+  });
+
+  it("a lone card is today's: no stub, no round in its name", () => {
+    currentQueue = { ...queue(), tickets: [roundTwo()] };
+    const { container } = mount("en");
+    const [c] = cards(container);
+    // Round 2 and up wears its stub even alone (the number is a fact of the session) …
+    expect(c!.querySelector(".kds-round")?.textContent).toBe("Round 2");
+    // … but its NAME is bare: nothing on the board to tell it from.
+    expect(c!.getAttribute("aria-label")).toBe(`Table 4 — ${ts("en", "kds.channel.dinein")}`);
+  });
+
+  it("All done on round 1 sends ONLY round 1's ids; the pill names the round and says the table still has a card; the chip is told apart", async () => {
+    currentQueue = both();
+    const q = mount("en");
+    const { container, getByRole } = q;
+    const bumps = bumpButtons(q);
+    expect(bumps).toHaveLength(2);
+    expect(bumps[0]!.getAttribute("aria-label")).toContain("Table 4 · Round 1");
+    // After the bump, the board reflows: round 2 alone.
+    currentQueue = { ...queue(), tickets: [roundTwo()] };
+    fireEvent.click(bumps[0]!);
+    await waitFor(() => expect(bumpTicket).toHaveBeenCalledTimes(1));
+    // MUTATION: `lineIds = tickets.flatMap(...)` by cart — round 2's tea is served too, red.
+    expect(bumpTicket).toHaveBeenCalledWith({ cartId: "cart-1", lineIds: ["line-r1"] });
+    await waitFor(() => expect(container.querySelector(".kds-undo")).not.toBeNull());
+    const pill = container.querySelector(".kds-undo")!;
+    expect(pill.textContent).toContain(tf("en", "kds.undo.bumped", { x: "Table 4 · Round 1" }));
+    // Decision 12: the second line, because round 2 was on the board at the bump.
+    expect(pill.querySelector(".kds-undo-sub")?.textContent).toBe(
+      tf("en", "kds.undo.stillOn", { x: "Table 4" }),
+    );
+    expect(getByRole("button", { name: /^Undo/ }).getAttribute("aria-label")).toContain(
+      "Table 4 · Round 1",
+    );
+    // The ONE live region says both sentences, once.
+    expect(getByRole("status").textContent).toBe(
+      `${tf("en", "kds.live.bumped", { x: "Table 4 · Round 1" })} ${tf("en", "kds.undo.stillOn", { x: "Table 4" })}`,
+    );
+    // Round 2 keeps its card, its stub and its own bump; the chip names round 1.
+    await waitFor(() => expect(cards(container)).toHaveLength(1));
+    expect(cards(container)[0]!.querySelector(".kds-round")?.textContent).toBe("Round 2");
+    const chip = container.querySelector(".kds-recall-btn")!;
+    expect(chip.textContent).toContain("Table 4 · Round 1");
+    expect(chip.getAttribute("aria-label")).toBe(`${ts("en", "kds.recall")} — Table 4 · Round 1`);
+  });
+
+  it("a bump that leaves no card of the table behind says nothing about a card still on the board", async () => {
+    currentQueue = { ...queue(), tickets: [roundTwo()] };
+    const q = mount("en");
+    currentQueue = { ...queue(), tickets: [] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    // MUTATION: `stillOn: true` — a promise about a card that is not there, red.
+    expect(q.container.querySelector(".kds-undo-sub")).toBeNull();
+    expect(q.getByRole("status").textContent).toBe(tf("en", "kds.live.bumped", { x: "Table 4" }));
+  });
+
+  it("two chips on the rail are told apart, and bringing round 1 back leaves round 2's chip and pill (keyed by card, never by cart)", async () => {
+    currentQueue = both();
+    const q = mount("en");
+    const { container } = q;
+    currentQueue = { ...queue(), tickets: [roundTwo()] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(container.querySelectorAll(".kds-recall-btn")).toHaveLength(1));
+    await waitFor(() => expect(cards(container)).toHaveLength(1));
+    // Round 2 is bumped next (its chip still sees round 1's chip on the rail: the twin rule).
+    currentQueue = { ...queue(), tickets: [] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(container.querySelectorAll(".kds-recall-btn")).toHaveLength(2));
+    const labels = [...container.querySelectorAll(".kds-recall-btn")].map((b) => b.textContent);
+    expect(labels).toEqual(["Table 4 · Round 2", "Table 4 · Round 1"]);
+    expect(container.querySelector(".kds-undo")!.textContent).toContain("Table 4 · Round 2");
+    // Bring round 1 back: its own ids, its own chip gone, round 2's chip AND pill untouched.
+    const older = container.querySelectorAll(".kds-recall-btn")[1]!;
+    fireEvent.click(older);
+    await waitFor(() => expect(recallTicket).toHaveBeenCalledTimes(1));
+    expect(recallTicket).toHaveBeenCalledWith({ cartId: "cart-1", lineIds: ["line-r1"] });
+    // MUTATION: `prev.filter((r) => r.cartId !== entry.cartId)` — both chips vanish, red.
+    await waitFor(() => expect(container.querySelectorAll(".kds-recall-btn")).toHaveLength(1));
+    expect(container.querySelector(".kds-recall-btn")!.textContent).toContain("Table 4 · Round 2");
+    expect(container.querySelector(".kds-undo")!.textContent).toContain("Table 4 · Round 2");
+  });
+
+  it("an unknown round number is never drawn as a number: 'next round' only beside an older card, and the chip falls back to the stamp to the second", async () => {
+    const r1 = roundOne({ round: { kind: "unknown" } });
+    const r2 = roundTwo({ round: { kind: "unknown" } });
+    currentQueue = both(r1, r2);
+    const q = mount("my");
+    const [c1, c2] = cards(q.container);
+    expect(c1!.querySelector(".kds-round")).toBeNull();
+    expect(c2!.querySelector(".kds-round")?.textContent).toBe(ts("my", "kds.round.next"));
+    // The names fall back to the raw stamp, never the poll clock and never "1".
+    const stamp1 = `${tf("my", "kds.table", { id: 4 })} · ${staffClockSeconds(R1_AT)}`;
+    expect(c1!.getAttribute("aria-label")).toContain(stamp1);
+    expect(c1!.getAttribute("aria-label")).not.toContain(tf("my", "kds.round", { id: 1 }));
+    currentQueue = { ...queue(), tickets: [r2] };
+    fireEvent.click(q.getAllByRole("button", { name: new RegExp(`^${ts("my", "kds.bump")}`) })[0]!);
+    await waitFor(() => expect(q.container.querySelector(".kds-recall-btn")).not.toBeNull());
+    expect(q.container.querySelector(".kds-recall-btn")!.textContent).toContain(stamp1);
+  });
+
+  it("a stub is decided once: a drawn number is frozen across polls, and a card that landed without one never gains one", async () => {
+    currentQueue = {
+      ...queue(),
+      tickets: [roundTwo(), roundOne({ round: { kind: "unknown" }, key: "cart-1|b|b1" })],
+    };
+    const q = mount("en");
+    const { container } = q;
+    expect(cards(container).map((c) => c.querySelector(".kds-round")?.textContent ?? null)).toEqual(
+      ["Round 2", null],
+    );
+    // The next snapshot renumbers round 2 to 4 (a merge) and numbers round 1 as 3: nothing changes.
+    currentQueue = {
+      ...queue(),
+      tickets: [
+        roundTwo({ round: { kind: "n", n: 4 } }),
+        roundOne({ round: { kind: "n", n: 3 }, key: "cart-1|b|b1" }),
+      ],
+    };
+    // A line tap refreshes the board (no timers): the snapshot lands.
+    fireEvent.click(container.querySelector("#kds-line-line-r2")!);
+    await waitFor(() => expect(bumpLine).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getKitchenQueue).toHaveBeenCalled());
+    // MUTATION: `setStubs(nextStubs(new Map(), queue.tickets))` — "Round 4" and "Round 3", red.
+    await waitFor(() =>
+      expect(
+        cards(container).map((c) => c.querySelector(".kds-round")?.textContent ?? null),
+      ).toEqual(["Round 2", null]),
+    );
+  });
+
+  it("round 2 arrives as its OWN card: it flashes and chimes once, round 1 does not re-flash, and a repeated poll re-arrives nothing", async () => {
+    soundWanted = true;
+    armOk = true;
+    ctxRunning = true;
+    currentQueue = { ...queue(), tickets: [roundOne()] };
+    const q = mount("en");
+    const { container } = q;
+    await hydrate();
+    expect(container.querySelector(".kds-flash")).toBeNull();
+    currentQueue = both();
+    fireEvent.click(container.querySelector("#kds-line-line-r1")!);
+    await waitFor(() => expect(cards(container)).toHaveLength(2));
+    // MUTATION: `prevLive` keyed by `cartId` — round 2 is "the same ticket", no flash, no chime, red.
+    const [c1, c2] = cards(container);
+    expect(c1!.querySelector(".kds-flash")).toBeNull();
+    expect(c2!.querySelector(".kds-flash")).not.toBeNull();
+    await waitFor(() => expect(played).toHaveBeenCalledWith("dinein"));
+    const chimes = played.mock.calls.length;
+    // The same snapshot again: nothing new landed, nothing chimes.
+    fireEvent.click(container.querySelector("#kds-line-line-r1")!);
+    await waitFor(() => expect(bumpLine).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getKitchenQueue.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(played.mock.calls.length).toBe(chimes);
   });
 });

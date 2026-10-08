@@ -19,10 +19,12 @@ import type {
   KitchenErrCode,
   KitchenLine,
   KitchenPoll,
+  KitchenRound,
   KitchenStation,
   KitchenQueue,
   KitchenTicket,
 } from "./kitchen-types";
+import { cardStamp, roundOrdinals, ticketKey } from "./kitchen-rounds";
 import { catalogNameMy, pairModifiersMy, UUID_RE } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { dayStartIso, resolveServiceTz } from "./day-window";
@@ -57,6 +59,11 @@ const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound 
 /** Codex r4 on #308 — the owing read's bound: every line of the board's OPEN counter carts (a handful
  *  of carts, tens of lines). Past it the read did not answer, and the board refuses (`outage`). */
 const OWING_LINE_CAP = 500;
+/** PD5 — the round read's bounds: the non-cancelled carts of the board's dine-in sessions (a table
+ *  visit is one open cart plus its paid ones), then every batched line on them. Past either cap the
+ *  read did not answer, and every round is `unknown` — ADVISORY, never `outage` (m5 decision 9). */
+const ROUND_CART_CAP = 200;
+const ROUND_LINE_CAP = 500;
 /**
  * M180 — the service window the queue reads, and why an unbounded cap was a lie waiting to happen.
  *
@@ -86,14 +93,19 @@ const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
 };
 
 /**
- * The live fire queue, grouped into per-CART tickets (the ticket bump needs one unambiguous parent).
- * Bounded reads assembled in TS — a fixed round-trip count regardless of volume (four always, a fifth
- * only when the board holds an open counter cart; never more):
+ * The live fire queue, grouped into per-SEND cards (PD5: one Send, one card — keyed by `cart_id` +
+ * `fire_batch` through `ticketKey`; the bump still names the cart, the RPC's one unambiguous parent,
+ * plus the line ids the card displays). Bounded reads assembled in TS — a fixed round-trip count
+ * regardless of volume (four always, a fifth only when the board holds an open counter cart, and two
+ * ADVISORY ones only when it holds a dine-in table; never more):
  *   1) config + stats + DB clock (parallel)   2) fired/in_progress lines
  *   3) their open/paid carts                  4) sessions + orders + menu stations (parallel)
  *   5) Codex r4 on #308 — ONLY when step 3 found an OPEN counter (`reg-`) cart: every line of those
  *      carts, once (capped at OWING_LINE_CAP; a failed or saturated read is `outage`), so each such
  *      ticket's Unpaid is the cart's `counterOwes` — not a flag derived from the lines still cooking.
+ *   6) PD5 — ONLY when step 4 found a dine-in session: its non-cancelled carts, then their batched
+ *      lines (any state, voided included), so each card's round is the session's ordinal
+ *      (`roundOrdinals`). A failed or saturated read makes every round `unknown`, never `outage`.
  *
  * Channel rules (W3a): dine-in tickets require an ACTIVE session (a cleared table drops off) and hide
  * lines still inside the 10s undo grace (fire_at > now — the diner may still pull the send back).
@@ -174,8 +186,10 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const floorIso = queueFloorIso(nowIso);
   const { data: lines, error: linesError } = await db
     .from("qr_cart_items")
+    // PD5 — `fire_batch` keys the card and `created_at` stamps the no-fire-time bucket (m5 §F);
+    // both are read RAW here and never re-derived from the shaped line.
     .select(
-      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,cart_id,fulfillment,notes,menu_item_id,comped",
+      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,fire_batch,created_at,cart_id,fulfillment,notes,menu_item_id,comped",
     )
     .in("state", ["fired", "in_progress"])
     // Phase 2f review M2 — a fired line with NO fire_at (`mms_line_transition`'s draft→fired edge
@@ -303,8 +317,25 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     for (const [cartId, ls] of linesByCart) if (counterOwes(ls)) owingCarts.add(cartId);
   }
 
-  // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
-  const ticketByCart = new Map<string, KitchenTicket>();
+  // ── PD5 — the session's round numbers (m5 decision 9), one ADVISORY read ──────────────────────
+  // The ordinal is the rank, by first fire time, of a card's `fire_batch` among its session's Sends
+  // that have cleared the grace and carry a dine-in line, on the session's non-cancelled carts (a
+  // table that paid and kept ordering still says round 3). Voided lines keep their batch and still
+  // count, so a number Mom has read never shifts down; an undone Send has no batch and never counts.
+  // Bounded to the dine-in sessions on the board and capped; a failure or saturation makes every
+  // dine-in card's round `unknown` (the stub's fallback rules), never `outage` — a round is a label,
+  // and freezing a working kitchen over a label would be the over-blocking direction.
+  const rounds = await readRounds(
+    db,
+    [...sessById.values()].filter((s) => s.mode === "dinein").map((s) => s.id),
+    nowIso,
+  );
+
+  // Assemble cards, preserving the oldest-first line order (lines is already sorted by fire_at).
+  // Keyed by `ticketKey` from the RAW row — never the shaped `firedAt`, which is the poll clock for
+  // a line with no fire time and would remount, flash and chime its card on every poll (correction 3).
+  const ticketByKey = new Map<string, KitchenTicket>();
+  const rawByKey = new Map<string, { fire_at: string | null; created_at: string }[]>();
   for (const l of lines) {
     const cart = cartById.get(l.cart_id);
     if (!cart) continue; // cart cancelled/cleared — not a live kitchen line
@@ -344,7 +375,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       soldOut: soldOutItems.has(l.menu_item_id),
       station: stationByItem.get(l.menu_item_id) ?? "wok",
     };
-    const existing = ticketByCart.get(l.cart_id);
+    const key = ticketKey(l);
+    rawByKey.set(key, [
+      ...(rawByKey.get(key) ?? []),
+      { fire_at: l.fire_at, created_at: l.created_at },
+    ]);
+    const existing = ticketByKey.get(key);
     if (existing) {
       existing.lines.push(line);
       // A ticket is HELD only while EVERY line is future-fired (mms_fire_pending_food stamps one
@@ -354,9 +390,26 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // the first line's answer — a comp's included — is the ticket's.
     } else {
       const orderId = orderByCart.get(l.cart_id);
-      ticketByCart.set(l.cart_id, {
+      // The card's round (round 3 D4): only a dine-in table's batched Send can be numbered; the
+      // read answering nothing is `unknown` (never a guessed "1"); a batch the ordinal map does not
+      // hold carried no dine-in line, so it is a to-go or settlement card with its channel tag.
+      const ordinal =
+        l.fire_batch === null ? undefined : rounds?.get(cart.session_id)?.get(l.fire_batch);
+      const round: KitchenRound =
+        channel !== "dinein"
+          ? { kind: "none" }
+          : rounds === null || l.fire_batch === null
+            ? { kind: "unknown" }
+            : ordinal === undefined
+              ? { kind: "none" }
+              : { kind: "n", n: ordinal };
+      ticketByKey.set(key, {
+        key,
         cartId: l.cart_id,
         sessionId: cart.session_id,
+        fireBatch: l.fire_batch,
+        round,
+        stampIso: "", // filled below, once every raw row of the card is known
         channel,
         label: sess.qr_code,
         tableNumber: channel === "dinein" ? (sess.table_number ?? null) : null,
@@ -371,8 +424,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     }
   }
 
+  // The fallback label's stamp, from the card's RAW rows (m5 §F): its earliest fire time, or the
+  // bucket's earliest `created_at` — never the shaped `firedAt`.
+  for (const [key, t] of ticketByKey) t.stampIso = cardStamp(rawByKey.get(key) ?? []);
+
   // Live tickets oldest-first (work head-down); HELD tickets after, soonest-due first.
-  const all = [...ticketByCart.values()];
+  const all = [...ticketByKey.values()];
   const byFire = (a: KitchenTicket, b: KitchenTicket) =>
     new Date(a.firedAt).getTime() - new Date(b.firedAt).getTime();
   const tickets = [
@@ -380,6 +437,71 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     ...all.filter((t) => t.held).sort(byFire),
   ];
   return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
+}
+
+/** PD5 — session id → (`fire_batch` → ordinal); `null` when the advisory read did not answer. */
+type RoundsRead = ReadonlyMap<string, ReadonlyMap<string, number>> | null;
+
+/**
+ * PD5 — the round read (m5 decision 9, risk 5): the dine-in sessions' non-cancelled carts, then every
+ * batched line on them (any state — a void keeps its batch). Two bounded reads, only when a dine-in
+ * table is on the board. Any failure or saturation answers `null`: every dine-in card then reads
+ * `unknown` and the board keeps rendering; a round is never worth a frozen kitchen.
+ */
+async function readRounds(
+  db: ReturnType<typeof serviceClient>,
+  sessionIds: readonly string[],
+  nowIso: string,
+): Promise<RoundsRead> {
+  if (sessionIds.length === 0) return new Map();
+  const { data: carts, error: cartsError } = await db
+    .from("qr_carts")
+    .select("id,session_id,status")
+    .in("session_id", [...sessionIds])
+    .neq("status", "cancelled")
+    .limit(ROUND_CART_CAP);
+  if (cartsError || !carts) {
+    console.error("[kitchen] round read (carts) failed — rounds unknown this poll", {
+      message: cartsError?.message,
+    });
+    return null;
+  }
+  if (queueEmptiness(carts.length, ROUND_CART_CAP) === "cannot-say") {
+    console.error("[kitchen] round read (carts) saturated — rounds unknown this poll", {
+      cap: ROUND_CART_CAP,
+    });
+    return null;
+  }
+  if (carts.length === 0) return new Map();
+  const sessionByCart = new Map(carts.map((c) => [c.id, c.session_id]));
+  const { data: batched, error: linesError } = await db
+    .from("qr_cart_items")
+    .select("cart_id,fire_batch,fire_at,fulfillment")
+    .in("cart_id", [...sessionByCart.keys()])
+    .not("fire_batch", "is", null)
+    .limit(ROUND_LINE_CAP);
+  if (linesError || !batched) {
+    console.error("[kitchen] round read (lines) failed — rounds unknown this poll", {
+      message: linesError?.message,
+    });
+    return null;
+  }
+  if (queueEmptiness(batched.length, ROUND_LINE_CAP) === "cannot-say") {
+    console.error("[kitchen] round read (lines) saturated — rounds unknown this poll", {
+      cap: ROUND_LINE_CAP,
+    });
+    return null;
+  }
+  const bySession = new Map<
+    string,
+    { fire_batch: string | null; fire_at: string | null; fulfillment: string | null }[]
+  >();
+  for (const r of batched) {
+    const sid = sessionByCart.get(r.cart_id);
+    if (sid === undefined) continue;
+    bySession.set(sid, [...(bySession.get(sid) ?? []), r]);
+  }
+  return new Map([...bySession].map(([sid, ls]) => [sid, roundOrdinals(ls, nowIso)]));
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };

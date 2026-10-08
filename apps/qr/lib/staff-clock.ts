@@ -44,6 +44,27 @@ export function staffClock(iso: string): string {
   return clock.format(new Date(iso));
 }
 
+const clockSeconds = new Intl.DateTimeFormat("en-US", {
+  timeZone: RESTAURANT_TZ,
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+/**
+ * `7:42:05` — a stamp to the SECOND, with no day part (PD5, m5 §E): the kitchen board's fallback
+ * card label, which tells two Sends of one table apart inside the two-minute Bring-back window; a
+ * minute is not enough (two Sends inside one minute would read alike). An identifier, not a clock
+ * to act on, so it carries no AM/PM.
+ */
+export function staffClockSeconds(iso: string): string {
+  return clockSeconds
+    .formatToParts(new Date(iso))
+    .filter((p) => p.type === "hour" || p.type === "minute" || p.type === "second")
+    .map((p) => p.value)
+    .join(":");
+}
+
 /** `Tue, Sep 15` — the service day. */
 export function staffDate(iso: string): string {
   return date.format(new Date(iso));

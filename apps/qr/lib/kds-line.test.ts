@@ -32,8 +32,12 @@ const line = (over: Partial<KitchenLine> = {}): KitchenLine => ({
   ...over,
 });
 const ticket = (cartId: string, lines: KitchenLine[]): KitchenTicket => ({
+  key: `${cartId}|b|batch-${cartId}`,
   cartId,
   sessionId: `s-${cartId}`,
+  fireBatch: `batch-${cartId}`,
+  round: { kind: "n", n: 1 },
+  stampIso: "2026-09-20T18:00:00.000Z",
   channel: "dinein",
   label: "T4",
   tableNumber: 4,

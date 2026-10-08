@@ -55,11 +55,35 @@ export type KitchenLine = {
  *  Urgency (the color dimension) ages dine-in from the send and pickup/scango from fire time. */
 export type KitchenChannel = "dinein" | "pickup" | "scango";
 
-/** One cart's worth of live kitchen lines — a ticket. Grouped by CART (not session) so the ticket-level
- *  bump has one unambiguous parent; ordered oldest-fire-first so the kitchen works the queue head-down. */
+/**
+ * PD5 — the card's round as the board carries it: a numbered dine-in Send; `unknown` when the
+ * advisory ordinal read did not answer (the fallback rules apply, m5 decision 10); `none` for a card
+ * that is never numbered (a pickup or scan-and-go ticket, a to-go-only or settlement batch — round 3
+ * D4). The rules live in `lib/kitchen-rounds.ts`.
+ */
+export type KitchenRound = { kind: "n"; n: number } | { kind: "unknown" } | { kind: "none" };
+
+/**
+ * One SEND's worth of live kitchen lines — a card (PD5: one Send, one card). Keyed by `cart_id` +
+ * `fire_batch` (`ticketKey`, lib/kitchen-rounds.ts), so a table's second round lands as its own card
+ * with its own clock, chime and All done; the bump and recall RPCs still take the cart plus the
+ * line ids the card displays, so the cart stays the RPC's parent. Ordered oldest-fire-first so the
+ * kitchen works the queue head-down.
+ */
 export type KitchenTicket = {
+  /** The card key — `cart_id` + `fire_batch`, or the raw `fire_at` when the batch is null, or the
+   *  cart's one no-fire-time bucket (PATH_DESIGN correction 3). The React key, the arrival diff,
+   *  the chime, the undo pill and the Bring-back rail all key on THIS, never on the cart. */
+  key: string;
   cartId: string;
   sessionId: string;
+  /** The Send's batch (`qr_cart_items.fire_batch`), or null for a batchless legacy card. */
+  fireBatch: string | null;
+  /** The session's round this card is (dine-in Sends only; m5 decision 9, round 3 D4). */
+  round: KitchenRound;
+  /** The card's earliest RAW stamp — `fire_at`, or `created_at` for the no-fire-time bucket — for
+   *  the fallback label "Table 4 · 7:42:05" (m5 §F). Never the poll clock. */
+  stampIso: string;
   channel: KitchenChannel;
   /** The table sticker id / label the expo calls out (dine-in fallback identity). */
   label: string;

@@ -834,3 +834,108 @@ The round-3 consistency pass gave this moment these changes:
      - extended one character at a time while two cards on the board still tie.
 
    It is never the rail position and never a count, as E says.
+
+### H · Build notes (2026-10-08, `claude/feat/pd5-kitchen-round-two`)
+
+What the kitchen-ops stream built from this record, what it took from the appendix, what it did not,
+and the questions the build raised. Precedence as the record says: round 3 > Codex corrections >
+cross-spec reconciliations > this appendix > the body.
+
+**Built, by section.**
+
+- **The re-key (decision 1; risk 1; corrections 3, 14, 17; §E, §F).** `getKitchenQueue` assembles
+  cards by `ticketKey` (`lib/kitchen-rounds.ts`): `cart_id` + `fire_batch`; a batchless line by its
+  raw `fire_at`; a line with neither to ONE bucket per cart — always from the raw row, never the
+  shaped `firedAt`. The board is re-keyed in one change: the React key, `prevLive` / the arrival
+  flash / the chime, the re-chime timers, the held write subjects (`cardKey`), the undo pill, the
+  rail chips, the recall success filter, the undo clear and the held slot id all read `ticket.key`.
+  No RPC change: the bump and the recall still take the cart plus the ids the card displayed.
+- **The stub (decisions 2–8, 13; B4, B5).** `.kds-round`, a `<p>` in a second strip row
+  (`.kds-strip-rows`, a two-column grid whose row A draws the same two ends the flex row did): a 2px
+  --t2 outline (--tx on amber/red, the badge's own promotion), a 4px dotted right edge, 12px coupon
+  notches whose holes are the strip's own ground — `--kds-strip-bg`, the strip's three tints named
+  once so the notches follow the tint and the red pulse — at --kfs-clock, Padauk 700 for the word
+  and Hanken 800 for the digit (`<Chrome>`'s `lang="en"` wrap). No wash (B4), no echo (decision 13),
+  no motion of its own. Round 1 wears nothing; a lone round-2 card still wears "Round 2" (the number
+  is a fact of the session), while its NAME stays bare.
+- **The ordinal (decision 9; round 3 D4).** One advisory read, bounded to the board's dine-in
+  sessions and capped (carts ≤ 200, batched lines ≤ 500): a failure or saturation makes every
+  dine-in card's round `unknown`, never `outage`. `roundOrdinals` ranks a session's batches by first
+  `fire_at` among those past the grace that carry a dine-in line; voided lines count (a void keeps its
+  batch), an undone Send never, a cancelled cart never, a paid cart does. The card carries a
+  three-way `round`: `{ n }`, `unknown` (the fallback rules), or `none` (a pickup card, a to-go-only
+  or settlement batch — its channel tag, no number).
+- **Decided once (decision 5; the mutant list).** `stubFor` / `nextStubs`: a card's stub is decided at
+  its FIRST landing (the server render is one) and carried forward in the same batch as each
+  snapshot; "next round" sharpens to the number, a number is frozen, and a card that landed with no
+  stub never gains one (the record's own mutant, "stub added after first render"). A card that leaves
+  and returns (a recall) lands fresh, as STATES says.
+- **Names, pill and chips (decisions 11, 12, 14; §E, §F).** `ticketId(lang, t, tag)` composes the
+  label once: the round when a sibling is live — or a chip of the same session sits on the rail (see
+  the decisions below) — else the card's raw stamp to the second (`staffClockSeconds`, "7:42:05")
+  plus, only while two labels would still tie, a discriminator from the card's own key (its batch's
+  hex, or a stable FNV hash of a batchless key), extended one character at a time. The pill keeps
+  today's cream shape and words and gains line 2, `kds.undo.stillOn`, in Padauk 400 (decision 14);
+  the one region says the bump sentence and the still-on sentence once, in the device language.
+- **`KDS_UNDO_MS`** (`lib/kds-undo.ts`): the board imports it; the help card quotes it; the TV
+  (PD9) and the pay door (PD10) import it next. **`lib/kitchen-track.ts`**: `trackStage` ·
+  `groupStage` · `rollUp` · `passSentAt`, the served rule waiting out `KDS_UNDO_MS` on the DB clock,
+  "round 1 served, round 2 inside the grace → sending" owned and tested (m10 C). **`KdsStopCard`**:
+  the shape of A1/B1 — the Late tint with no pulse, struck rows, the warn word `kds.stop`, "Got it"
+  (`help.done`) — rendered from props and mounted by nothing until PD7's durable stop record.
+
+**Appendix C, taken.** The raw-`fire_at` key with a deterministic null bucket (the fourth
+suggestion; it is correction 3). The composed label under `n: null` is now specified (the time,
+then the discriminator — §E/§F). Line 2 is frozen for the pill's life (see the decisions). The
+to-go / settlement batches do not count toward the number (round 3 D4 decided it). The claim that the
+only new words are "the round word and one sentence" is corrected: four keys ship as drafts
+(`K15 · kitchen-ops`).
+
+**Appendix C, not taken, and why.** F21's focus hold on the pill (the first suggestion): out of
+scope — the pill's window is unchanged and no copy promises a hold (decision 17). Padauk 700 on line
+2 (the second): decision 14's 400 is kept; the line is the quieter of the two by design and 400 is a
+cut Padauk ships. "No fact marked twice" (the third): the head's `role="status"` IS the visible
+status line, so the sentence shows there and on the pill for 4 s, as the body draws it; a second
+region would break the one-region rule. The single-dish Done chip (decision 15): not in PD5's row;
+its `kds.a11y.recall` re-word is a shipped-string change D3 forbids and B6's capacity promise is
+undefined — filed in the PD5 row as not taken. The composite-contrast bound (risk 6 / B4): with the
+wash gone the stub composites nothing new — its outline is --t2 on --sf and --tx on the tinted
+strips, both pairs the badge already pins. The re-chime count (K42) and the merge rehearsal (risk 4)
+are Day-0 watches, not code.
+
+**Decided under the owner's delegation (decided by: the kitchen-ops stream).**
+
+1. **A chip on the rail is a twin.** Decision 5 names the round "while a sibling is live"; two solo
+   bumps of one table (round 1 bumped alone, then round 2 bumped alone) would still put two chips
+   reading "Table 4" on the rail, which correction 14 forbids. So a card is tagged when another card
+   of its session is on the board OR a chip of its session is on the rail (`cardTags`'s
+   `railSessions`); a lone card with no chip stays bare.
+2. **Line 2 is captured at the bump and frozen for the pill's life** (appendix C's fourth
+   suggestion over STATES' "recomputed from each snapshot"): a centred pill that loses a line slides
+   its Undo under a finger — the mis-tap class decision 8 rejects; the one-shot region said it once
+   either way, and the pill leaves six seconds later.
+3. **`kds.undo.stillOn`'s slot is `{x}`, not the spec's `{t}`.** `fill.ts` reserves `{t}` for a clock
+   time and shows the braces to Mom and Dad on the glossary; the value is the table label, a ticket
+   id — `{x}`, the slot its sibling `kds.undo.bumped` uses. No visible word changes.
+4. **A counter walk-up that sends twice is NOT numbered.** The body's STATES bullet ("Walk-up plus
+   the stub") predates round 3 D4; `mms_fire_counter_cart` fires `togo` lines only, so a counter
+   order's Sends carry no dine-in line and get no ordinal — and the round read runs for dine-in
+   sessions only (m9 data 3), so a pickup poll reads nothing extra.
+5. **`bumped_at` is not added to the kitchen read.** The read selects only `fired` / `in_progress`
+   lines, where `bumped_at` is null by construction; `trackStage` takes the raw row shape, and the
+   readers that hold served lines (`/api/board` already selects `bumped_at`; the Bill's read is
+   PD10's) feed it from their own rows.
+6. **The stub's geometry is local CSS, not the `@mms/ui` CounterPass primitive.** Post-pay's
+   primitive lands in parallel (Sequencing); the stub draws the vocabulary's one shape (dotted edge,
+   12px notches, holes in the host's ground) in `.kds-round` with the KDS's own inks (B4: --t2/--tx,
+   not the pass's paper inks, which belong to a pass). When the primitive merges, a follow-up may
+   swap the class for its stub form if the two drift.
+
+**Where the code disproved a claim.** `fire_batch` was not in the live-line select (CODE CHECK): it
+is now, with `created_at` for the bucket's stamp. The counter walk-up stub (STATES) — see decision 4
+above. Decision 13's "no English echo" holds; the stub's digit is still wrapped `lang="en"` by
+`<Chrome>`'s rule 3, so the Latin face and tabular figures apply.
+
+**Day-0 watch (HANDOFF):** Open now counts Sends (risk 2); make-it-now to-go lines and settlement
+food are their own un-numbered cards (decision 19 as revised by D4); the re-chime count on tea-only
+round cards (K42); the dotted edge on the real iPad (risk 11).
