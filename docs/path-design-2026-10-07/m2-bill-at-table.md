@@ -1067,7 +1067,7 @@ Precedence as read: D > the Codex corrections > the cross-spec reconciliations >
   merged into this branch once it reached the remote): `PayAtCounterPass` renders it at the
   `counter` tier (one figure at `--fs-pass` under "Table · စားပွဲ", the dotted seam and notches with
   `--pass-hole` set to the page ground, the torn foot) with the unsent mark as `KitchenTrack
-  stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
+stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
   body. A numberless table prints its session code at the holder's 40px tier, spelt for a screen
   reader (reconciliation 6). The primitive's prop surface: m10's `### H`.
 - Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
