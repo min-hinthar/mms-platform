@@ -40,6 +40,7 @@
     "check:mutant-anchors": "node scripts/check-mutant-anchors.mjs",
     "check:style-literals": "node scripts/check-style-literals.mjs",
     "check:photo-filter": "node scripts/check-photo-filter.mjs",
+    "check:shard-partition": "node scripts/check-shard-partition.mjs",
     "check:money-coverage": "node scripts/check-money-coverage.mjs"
   },
   "devDependencies": {

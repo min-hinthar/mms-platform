@@ -1034,3 +1034,24 @@ The round-3 consistency pass gave this moment these changes:
    - **Taking the tap back** inside its 6 seconds deletes the entry before anything is sent.
    - The route stays idempotent on the order, so a beacon, a reconcile and a second tab never record two
      arrivals.
+
+### G · The blind pass on #320 (2026-10-08) — these win over everything above
+
+1. **The pending entry is written when the arrival COMMITS, never at the tap.** F kept it from the tap,
+   so it existed through the 6-second window. Three cases then sent an arrival nobody committed, and
+   Dad's bell rang `here:` for a guest who was not there:
+   - a tab killed inside the window left the entry behind, which the body calls the safe direction
+     ("the tap is lost … with no false 'Here now'");
+   - a refused write left the entry behind after the card had said "try again" and the guest gave up;
+   - a second /track tab could send another tab's tap while it could still be taken back.
+
+   So the entry is written only at the commit: when the window ends, or when the page hides inside it
+   (the body's commit-at-once rule, where the beacon goes out too).
+   - **Killed inside the window:** nothing was written, so the tap is lost, as the body says.
+   - **Taking the tap back:** nothing has been written, so there is nothing to delete.
+   - **A second tab** only ever finds a committed arrival.
+
+2. **A refused answer clears the entry.** "Refused" is an answer: the card is back at the question, and
+   the guest's next tap is the only arrival. The entry is kept only for a send that got no answer at
+   all — a beacon, or a reconcile that failed or was cut off — and that send is retried on the next
+   visit. The success and no-longer-takes-an-arrival answers still clear it (F1).

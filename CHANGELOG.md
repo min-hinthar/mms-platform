@@ -19,8 +19,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   pre-push step is `--only=<substring>` for the modules you touched.
 - **The runner.** The package's own vitest binary (no `npx` per mutant), one multi-file baseline,
   `--bail=1` per mutant, a per-mutant timeout (`VERIFY_SLICE_TIMEOUT_MS`, default 180000) and restore on
-  SIGTERM/SIGHUP as well as SIGINT. New flags `--shard=<i>/<n>` (whole owning suites bin-packed, so the
-  shards are disjoint and their union is the selection) and `--list`; argv is strict (an unknown
+  SIGTERM/SIGHUP as well as SIGINT. New flags `--shard=<i>/<n>` (balanced by estimated cost: owning
+  suites bin-packed, a heavy suite cut into chunks; the shards are disjoint and their union is the
+  selection, which the new `check:shard-partition` proves in CI) and `--list`; argv is strict (an unknown
   argument, a bare `--only` or a malformed `--shard` prints usage and exits 2). Verdicts gain TIMEOUT
   and ERROR: a timed-out or crashed runner is never scored as a kill, which "any throw = caught" used to
   do.
@@ -41,6 +42,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   2b-appendix writes the shared vocabulary into every appendix A. PD3's pending "I'm here" is kept in
   `localStorage` keyed by order (m3 §F), and PD5's Bring-back fallback label is precise to the second
   with a stable tie-breaker (m5 §E).
+- **The blind pass on this PR (three lenses, all REJECT), fixed:**
+  - A draft's `verify-slice` is now RED ("not run — DRAFT"), not a green stand-down. A draft-era green
+    stayed the newest `verify-slice` on that head for the ~10 minutes after the mark-ready (the shards' first measured run), and re-running
+    the draft-era run would have landed a fresh green on a head whose battery was red.
+  - Each shard's number comes from `strategy.job-index`, so a repeated matrix label cannot drop a shard.
+  - A new fast-lane guard, `check:shard-partition`, proves the shards are disjoint and cover the battery
+    for n = 1, 2, 5, 12 and 13. Before it, a dropped mutant passed as "0 mutants caught". It went red on
+    two induced partition bugs.
+  - A test file under `.claude/` is code, not docs-only (the orphan guard reads it).
+  - A mutant is CAUGHT only when its OWNING suite's own row is red in the report. vitest's positional
+    filter is a substring match, so a failure in another file used to count.
+  - `VERIFY_SLICE_TIMEOUT_MS` is capped at 2147483647 (Node clamps a larger timer to 1 ms) and `--shard`
+    at n <= 1000. Both exit 2.
+  - PD3: the pending "I'm here" is written when it commits, and a refused answer clears it (m3 §G).
+  - PD5: every card-key kind gets a label, read from the raw row (m5 §F).
+  - The design-prototyping templates take every path as an argument and refuse a missing one.
+  - C16's false "blocked" text is gone.
+- **The Codex gate sees a clean auto-review.** A round Codex starts by itself (a draft marked ready)
+  that finds nothing posts no "Reviewed commit:" comment. It only edits its summary comment from Running
+  to Completed and adds a 👍, so `codex-review` stayed red forever (#316, and this PR's first round).
+  `hasCodexReview` now also reads the summary's Completed Code Review row for the head, and the gate
+  wakes on `edited` Codex comments. Five new cases went red-first.
 
 ### The owner's path-design picks (2026-10-07)
 

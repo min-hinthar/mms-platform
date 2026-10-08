@@ -13,6 +13,9 @@ export const meta = {
 const REPO = args.repo
 if (!REPO) throw new Error('1-diverge needs args.repo: the repository root (e.g. the output of `git rev-parse --show-toplevel`)')
 const LENS_PATH = args.lens // a design-lens brief in your scratchpad (the 2026-10-07 run used cards/lens-final.md)
+// Unguarded, a missing lens interpolates as "undefined" into every prompt and the run still returns a
+// full, lens-less result (the blind pass on #320).
+if (!LENS_PATH) throw new Error('1-diverge needs args.lens: the design-lens brief every map, concept and judge reads')
 const READ = `Repository: ${REPO} (Turborepo; the QR app is apps/qr). READ-ONLY: never edit, write, commit, run the app, mint sessions, or touch prod. Sources of truth for design: docs/DESIGN-LANGUAGE.md (as-built language: lit-gold selection cap, paper layer, motion idioms, optimistic doctrine, honesty, bilingual rules), docs/context/RUBRIC.md, docs/context/DESIGN-RESEARCH.md, docs/context/ORDER-MODEL.md, docs/PHASE3_JOURNEYS.md, docs/PHASE3B_DESIGN.md, docs/PHASE3C_DESIGN.md, docs/PHASE3C_II_DESIGN.md, docs/prototype/v7.2.html, docs/PILOT_PLAN.md, docs/OWNER_RULINGS_2026-10-07.md (the owner's rulings — binding), docs/OPEN-ITEMS.md (the open friction registry), and the family-business design lens at ${LENS_PATH}. Cite evidence as repo-relative file:line, OPEN-ITEMS ids, or doc sections. Quote on-screen copy EXACTLY from code (lib/i18n/*.ts, components). Never invent facts: hours, volume, headcount and table count are UNKNOWN.`
 
 const STEP = {

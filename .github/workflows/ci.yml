@@ -29,10 +29,12 @@ jobs:
   # Decides the lanes. Outputs are always the strings 'true' / 'false'.
   #
   #   docs_only  true only when EVERY changed path is `*.md` (any depth) or under `.claude/` — and
-  #              none of them is in the sql lane. NOT `docs/**`: apps/qr/lib/doors.test.ts reads
-  #              docs/prototype/v7.2.html and gen-menu-reference.mjs reads docs/data/*.json, so a
-  #              non-.md file under docs/ is code. Nothing reads a .md or a .claude/ path except
-  #              check:docs (and gen-menu-reference --check inside it), which the docs lane runs.
+  #              none of them is in the sql lane, and none is a `*.test.*` / `*.spec.*` file.
+  #              NOT `docs/**`: apps/qr/lib/doors.test.ts reads docs/prototype/v7.2.html and
+  #              gen-menu-reference.mjs reads docs/data/*.json, so a non-.md file under docs/ is
+  #              code. Nothing reads a .md or a .claude/ path except check:docs (and
+  #              gen-menu-reference --check inside it), which the docs lane runs — and a test file,
+  #              which the build job's orphan guard reads wherever it sits.
   #   code       = !docs_only.
   #   sql        any changed path the `migrations-check + types-fresh` job reads: supabase/**, the
   #              generated types, the race and mode-authority harnesses, or a workflow file.
@@ -83,6 +85,9 @@ jobs:
           sql=false
           while IFS= read -r f; do
             case "$f" in
+              # A test file is code wherever it sits: the orphan guard (build job) enumerates every
+              # tracked *.test.ts/.tsx, .claude/ included, and only the code lane runs it.
+              *.test.* | *.spec.*) docs_only=false ;;
               *.md | .claude/*) ;;
               *) docs_only=false ;;
             esac
@@ -264,6 +269,11 @@ jobs:
       # with --update) but never rise. Parses — CSS with comments stripped, TSX through the AST — so
       # a literal in a comment satisfies nothing. File-read only, ~1s.
       - run: pnpm check:style-literals
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # The verify-slice shards PARTITION the battery (2026-10-08 blind pass): a shard that drops a
+      # mutant passes with "0 mutants caught", so a broken partition reads as a battery that caught
+      # everything. `--list` only — no gate, no mutation — so seconds.
+      - run: pnpm check:shard-partition
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
@@ -532,8 +542,9 @@ jobs:
   # another shard's suite imports. `--shard=i/n` is a deterministic partition balanced by
   # estimated cost (a jsdom mutant weighs 9, a node one 1; a suite heavier than half a shard's share is
   # cut into contiguous chunks; the union over i is exactly the battery), so every shard green means
-  # every mutant was CAUGHT. Twelve shards measured ~16.3 min of estimated mutant time each (2026-10-08),
-  # ~19 min with install and baseline. `--no-gate`: the build job runs lint/typecheck/build/test; no
+  # every mutant was CAUGHT. Twelve shards were ESTIMATED at ~16.3 min of mutant time
+  # each; the first real run (2026-10-08, cd525de) MEASURED 4.1–10.1 min per shard job, install and
+  # baseline included — ~10.5 min wall. Re-measure when the battery grows. `--no-gate`: the build job runs lint/typecheck/build/test; no
   # build is needed here because @mms/ui and @mms/db export src/ (their package.json `exports`).
   #
   # Runs in the code lane, on non-draft PR heads and on main pushes. Drafts are skipped for the
@@ -551,9 +562,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The denominator below is `strategy.job-total`, not a second literal 10, so the list is the
-        # ONE place the shard count lives. A list that is not exactly 1..N holds a value above N,
-        # which verify-slice rejects as a malformed --shard (exit 2) — a gap cannot pass silently.
+        # The LENGTH of this list is the shard count, and its values are only the jobs' labels: the
+        # step passes `strategy.job-index + 1` over `strategy.job-total`, which GitHub numbers 0..N-1
+        # whatever the values are, so a repeated or skipped label cannot drop a shard. That the N
+        # shards partition the battery is checked in the build job (check:shard-partition).
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@v4
@@ -569,17 +581,29 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Mutation battery, shard ${{ matrix.shard }}/${{ strategy.job-total }}
+      # The shard number is the job's INDEX + 1 (GitHub numbers jobs 0..N-1), not the matrix label —
+      # expressions have no arithmetic, so the shell adds the 1.
+      - name: Mutation battery (job ${{ strategy.job-index }} of ${{ strategy.job-total }}, 0-based)
         env:
           MONEY_COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: node scripts/verify-slice.mjs --no-gate --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+          JOB_INDEX: ${{ strategy.job-index }}
+          JOB_TOTAL: ${{ strategy.job-total }}
+        run: node scripts/verify-slice.mjs --no-gate --shard=$((JOB_INDEX + 1))/$JOB_TOTAL
 
   # THE check to require (beside `codex-review`, `build` and `migrations-check + types-fresh`): one
   # stable name however many shards there are. A skipped matrix reports "skipped", which reads as
   # success to branch protection — so this job decides explicitly, from each `needs.*.result`, and
-  # passes ONLY when every shard succeeded, or the shards were skipped for a reason this lane
-  # names: the PR is docs-only, or it is a draft. Anything else — a failed, timed-out or cancelled
-  # shard, or a skip nobody can explain — is red.
+  # passes ONLY when every shard succeeded, or the PR is docs-only (a verdict that holds for that
+  # head). Anything else — a failed, timed-out or cancelled shard, a DRAFT, or a skip nobody can
+  # explain — is red.
+  #
+  # ⚠️ A draft is RED, not a green stand-down (the blind pass on this lane's PR, 2026-10-08). A
+  # check is read by name and conclusion on the SHA: a draft's green "not run" stayed the newest
+  # `verify-slice` on that head from the mark-ready until the ready run's shards finished (~10 min measured,
+  # and this job is not created until its `needs` are done), and re-running the draft-era run
+  # (its payload still says draft) would land a fresh green on a head whose battery went red. A
+  # draft cannot merge whatever this says, so red costs nothing there and is what makes the
+  # stale verdict fail closed.
   verify-slice:
     name: verify-slice
     needs: [changes, verify-slice-shard]
@@ -609,8 +633,8 @@ jobs:
               exit 0
             fi
             if [ "$EVENT" = "pull_request" ] && [ "$DRAFT" = "true" ]; then
-              say "verify-slice: not run — this PR is a DRAFT. This is NOT a statement that the mutants pass; the battery runs when the PR is marked ready for review."
-              exit 0
+              say "verify-slice: not run — this PR is a DRAFT, so this check is RED on purpose (a green here would outlive the mark-ready on this head). The battery runs when the PR is marked ready for review."
+              exit 1
             fi
             echo "::error title=verify-slice::the shards were skipped for no reason this gate recognises (changes=$CHANGES code=$CODE docs_only=$DOCS_ONLY event=$EVENT draft=$DRAFT)."
             exit 1

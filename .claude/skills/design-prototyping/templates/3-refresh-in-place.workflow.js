@@ -29,7 +29,7 @@ phase('Refresh')
 const out = await parallel(MOMENTS.map((m) => () => agent(
   `You are updating existing hi-fi design artboards so they match decisions made after they were drawn. Repo ${REPO} is READ-ONLY for you.
 
-Read: ${BRIEF}/RULES.md and ${BRIEF}/RULES2.md (format rules — they still apply), ${AMEND} — the section headed "######## ${m.id} ·" is YOUR list, and the "record" section's vocabulary points apply too — then this round's shared vocabulary and decisions, below. Where they name a word (an Undo word, a dismiss word, a label), use exactly that word.
+Read: ${BRIEF}/RULES.md and ${BRIEF}/RULES2.md (format rules — they still apply), ${AMEND} — the section headed "######## ${m.id} ·" is YOUR list (and any section that names every moment applies too) — then this round's shared vocabulary and decisions, below. Where they name a word (an Undo word, a dismiss word, a label), use exactly that word.
 
 THE SHARED VOCABULARY (this round's):
 ${VOCAB}

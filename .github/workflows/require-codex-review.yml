@@ -27,7 +27,11 @@ on:
   pull_request_review:
     types: [submitted]
   issue_comment:
-    types: [created]
+    # `edited` because a CLEAN round Codex starts by itself (a draft marked ready) speaks only by
+    # editing its one summary comment from Running to Completed (plus a 👍 reaction, which wakes no
+    # workflow) — measured on #316 and #320, 2026-10-08. `hasCodexReview` reads that Completed row.
+    # Like `created`, it runs only for Codex's own comments (the job's `if`).
+    types: [created, edited]
 
 permissions:
   contents: read
@@ -80,7 +84,9 @@ jobs:
     # review/comment runs since 2026-10-04 (73%) came from other authors (the owner, vercel[bot]).
     # `pull_request` events still always run — they are what re-reds the gate on a new head.
     # If Codex's login ever changes, this fails CLOSED: its reviews stop waking the job and the
-    # check stays red ("Waiting on Codex") — visibly, never a silent green.
+    # check stays red ("Waiting on Codex") — visibly, never a silent green. A human comment no longer
+    # re-evaluates a stuck gate (a Codex-woken run that failed on a transient API error, say): re-run
+    # the latest `publish-codex-verdict` run instead — it re-reads the PR's live reviews and comments.
     if: >-
       github.event_name == 'pull_request' ||
       (github.event_name == 'pull_request_review' &&

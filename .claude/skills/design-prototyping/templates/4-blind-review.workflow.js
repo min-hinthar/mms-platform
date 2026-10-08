@@ -1,6 +1,6 @@
 export const meta = {
-  name: 'blind-review-round3',
-  description: 'One capped blind adversarial pass over the round-3 docs delta: three lenses, one auditor each',
+  name: 'design-blind-review',
+  description: "One capped blind adversarial pass over a design round's docs delta: three lenses, one auditor each",
   phases: [{ title: 'Audit', detail: 'three blind auditors, one lens each, bundle only' }],
 }
 const FINDINGS = {
@@ -28,11 +28,17 @@ const FINDINGS = {
 // The repository root comes from args.repo, never a hard-coded checkout path (Codex round 6 on #319).
 const REPO = args.repo
 if (!REPO) throw new Error('4-blind-review needs args.repo: the repository root holding .review-bundle/ (run `pnpm review:bundle` there first)')
+// The round's record and spec dir are arguments too: a lens told to check the 2026-10-07 record while
+// a later round's docs are under review would report a complete pass over the wrong files (the blind
+// pass on #320).
+const RECORD = args.record // e.g. docs/PATH_DESIGN_<date>.md
+const SPECS = args.specs // e.g. docs/path-design-<date>/
+if (!RECORD || !SPECS) throw new Error("4-blind-review needs args.record (the round's record, docs/PATH_DESIGN_<date>.md) and args.specs (its spec dir, docs/path-design-<date>/)")
 const BASE = `Audit the change bundle at ${REPO}/.review-bundle/ — start with PROMPT.md and MANIFEST.md; the diff is DIFF.patch and the full text of every changed file is under FILES/. You may read the rest of the repository at ${REPO} to verify any claim against source. You have been told nothing about the change's intent; judge only what the files say. Report only defects you can evidence by quoting both sides (the claim and the contradicting source or passage). Cap your work at about 15 minutes. Your single lens:`
 const LENSES = [
   { key: 'product-truth', text: 'PRODUCT TRUTH — every claim about the current code (file:line references, function and flag names, statuses, shipped strings, behaviour) must match the repository source. Flag any claim the code contradicts, any cited line that does not hold what is claimed, and any shipped string quoted wrongly.' },
   { key: 'money', text: 'MONEY SEMANTICS — any described payment gating, refusal order, fail-open/fail-closed choice, flip or cutover condition, or settle path that would let money move wrongly, strand a charge, gate a door that must never be gated, or that contradicts another part of the same record (including docs/ENV.md and docs/OPEN-ITEMS.md).' },
-  { key: 'consistency', text: 'INTERNAL CONSISTENCY — contradictions between the record (docs/PATH_DESIGN_2026-10-07.md), the per-moment specs under docs/path-design-2026-10-07/, the OPEN-ITEMS rows, the rulings file, ENV, HANDOFF and CHANGELOG: who owns what, what is decided versus left open, what wins over what, counts, and words (including the Burmese words used for each act).' },
+  { key: 'consistency', text: `INTERNAL CONSISTENCY — contradictions between the record (${RECORD}), the per-moment specs under ${SPECS}, the OPEN-ITEMS rows, the rulings file, ENV, HANDOFF and CHANGELOG: who owns what, what is decided versus left open, what wins over what, counts, and words (including the Burmese words used for each act).` },
 ]
 phase('Audit')
 const results = await parallel(LENSES.map(l => () =>

@@ -20,8 +20,9 @@
  * the whole battery measured 164-180 min (the three runs that finished, 2026-10-06/07 — one cold
  * `npx vitest` per mutant, every suite run to its end). The 2026-10-08 runner (the package's own
  * vitest binary, ONE multi-file baseline, `--bail=1` per mutant) is ESTIMATED at roughly 105-125 min
- * serial; that figure is an estimate, not a measurement. So CI runs the battery as a 10-shard matrix
- * (the `verify-slice` check), and a local pre-PR run is an `--only=` subset of what you touched.
+ * serial; that figure is an estimate, not a measurement. So CI runs the battery as a sharded matrix
+ * (the `verify-slice` check; the shard count is the length of ci.yml's matrix list), and a local
+ * pre-PR run is an `--only=` subset of what you touched.
  * Measure the battery's size, never quote it: `node scripts/verify-slice.mjs --list | wc -l`.
  * Run it FIRST either way, and let the review spend its attention on what only a reader can judge —
  * reachability, copy honesty, cross-surface coupling.
@@ -35,7 +36,8 @@
  *   2. the baseline: ONE vitest run over the selected owning suites; if it is not green, each suite
  *      is re-run alone to name the red ones, and any red suite aborts the run
  *   3. a mutation battery over the money/authority modules — each mutation is applied, the suite that
- *      OWNS it must go red, then the file is restored. Verdicts: CAUGHT · SURVIVED · STALE ·
+ *      OWNS it must go red (its own row in the JSON report, not merely some failure in the run),
+ *      then the file is restored. Verdicts: CAUGHT · SURVIVED · STALE ·
  *      UNPARSEABLE · TIMEOUT · ERROR, and only CAUGHT passes (`scoreMutant` says what earns it)
  *   4. the orphan-suite guard (mirrors ci.yml, so it fails here rather than on the runner)
  *
@@ -44,12 +46,15 @@
  *   --no-gate          skip step 1
  *   --only=<substr>    the mutants whose id contains <substr> (case-sensitive); one that matches
  *                      nothing exits 2
- *   --shard=<i>/<n>    shard i of n (1-based) of the selection: whole owning suites, bin-packed
- *                      greedy largest-first by mutant count, so the shards are disjoint and their
- *                      union is the selection (`shardMutants`)
+ *   --shard=<i>/<n>    shard i of n (1-based, n <= 1000) of the selection, balanced by estimated
+ *                      cost: owning suites bin-packed greedy largest-first, a suite heavier than half
+ *                      a shard's share cut into contiguous chunks that may land in different shards.
+ *                      The shards are disjoint and their union is the selection (`shardMutants`;
+ *                      checked by `check:shard-partition`)
  *   --list             print the selected ids (after --only and --shard) one per line, exit 0 —
  *                      no gate, no pre-checks, no mutation
- *   env VERIFY_SLICE_TIMEOUT_MS   per-mutant timeout, default 180000; a timeout is never a catch
+ *   env VERIFY_SLICE_TIMEOUT_MS   per-mutant timeout, default 180000, at most 2147483647 (Node's
+ *                                 setTimeout ceiling); a timeout is never a catch
  * Exit 0 pass · 1 fail · 2 usage. SIGINT / SIGTERM / SIGHUP kill the running vitest process group,
  * restore every target from memory and exit 130 / 143 / 129.
  *
@@ -27151,17 +27156,23 @@ const MUTANTS = [
 // argument is now either understood or refused with exit 2, and so is an `--only` that selects
 // nothing — a typo'd filter used to "pass" with zero mutants run.
 const DEFAULT_TIMEOUT_MS = 180_000;
+// Node clamps a setTimeout delay above 2^31-1 to 1 ms, which would kill every mutant at once and
+// score the whole battery TIMEOUT — so a larger value is refused, not silently honoured.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+// More shards than this cannot help (the battery is ~3k mutants) and `new Array(n)` for a huge n
+// throws or hangs — refused with exit 2 like any other malformed argument.
+const MAX_SHARDS = 1000;
 const USAGE = [
   "usage: node scripts/verify-slice.mjs [--no-gate] [--only=<substr>] [--shard=<i>/<n>] [--list]",
   "",
   "  --no-gate          skip the turbo lint · typecheck · build · test gate",
   "  --only=<substr>    select the mutants whose id contains <substr> (case-sensitive)",
-  "  --shard=<i>/<n>    run shard i of n (1 <= i <= n) of the selection; every mutant of one owning",
-  "                     suite lands in the same shard, and the n shards partition the selection",
+  "  --shard=<i>/<n>    run shard i of n (1 <= i <= n <= 1000) of the selection; the n shards",
+  "                     partition it (a suite heavier than half a shard's share is cut into chunks)",
   "  --list             print the selected ids (after --only and --shard), one per line, and exit 0:",
   "                     no gate, no pre-checks, no mutation",
   "",
-  `  env VERIFY_SLICE_TIMEOUT_MS=<ms>   per-mutant timeout (default ${DEFAULT_TIMEOUT_MS})`,
+  `  env VERIFY_SLICE_TIMEOUT_MS=<ms>   per-mutant timeout (default ${DEFAULT_TIMEOUT_MS}, max ${MAX_TIMEOUT_MS})`,
   "",
   "exit: 0 pass · 1 fail · 2 usage",
 ].join("\n");
@@ -27188,8 +27199,10 @@ function parseArgs(argv) {
       const m = /^--shard=([1-9]\d*)\/([1-9]\d*)$/.exec(a);
       const i = Number(m?.[1]);
       const n = Number(m?.[2]);
-      if (!m || !Number.isSafeInteger(n) || i > n)
-        usage(`malformed ${a} — expected --shard=<i>/<n> with integers 1 <= i <= n`);
+      if (!m || !Number.isSafeInteger(n) || i > n || n > MAX_SHARDS)
+        usage(
+          `malformed ${a} — expected --shard=<i>/<n> with integers 1 <= i <= n <= ${MAX_SHARDS}`,
+        );
       opts.shard = { i, n };
     } else usage(`unknown argument: ${a}`);
   }
@@ -27198,8 +27211,10 @@ function parseArgs(argv) {
 
 function timeoutFromEnv(raw) {
   if (raw === undefined) return DEFAULT_TIMEOUT_MS;
-  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)))
-    usage(`VERIFY_SLICE_TIMEOUT_MS must be a positive integer of milliseconds, got "${raw}"`);
+  if (!/^[1-9]\d*$/.test(raw) || Number(raw) > MAX_TIMEOUT_MS)
+    usage(
+      `VERIFY_SLICE_TIMEOUT_MS must be a positive integer of milliseconds <= ${MAX_TIMEOUT_MS}, got "${raw}"`,
+    );
   return Number(raw);
 }
 
@@ -27269,7 +27284,7 @@ const c = {
 };
 
 // Every mutant must carry a UNIQUE id, checked before anything else runs — `--list` included, since
-// a listing (and the shard union it is checked by) is only as good as the ids in it.
+// a listing (and the shard union `check:shard-partition` checks) is only as good as the ids in it.
 //
 // This is here because it already happened, and a full run could not see it. A new mutant was
 // written with TWO `id:` keys; the later one won, so the object was fine — but the duplicate had
@@ -27617,7 +27632,11 @@ if (suites.length) {
  * AND its JSON report counts a failed test or a failed suite. The old check was "the call threw", so
  * ENOBUFS, a spawn failure, a missing suite, an interrupted child and a Ctrl-C all scored "caught".
  *   exit 0                        → SURVIVED  (the suite stayed green with the mutation in)
- *   exit 1 + a failure counted    → CAUGHT
+ *   exit 1 + the OWNING suite's
+ *   row in the report "failed"    → CAUGHT
+ *   exit 1, the failure elsewhere → ERROR     (vitest's positional filter is a substring match, so
+ *                                              another file whose path contains the suite's can run
+ *                                              beside it — its failure is not this mutant's catch)
  *   exit 1, report missing/empty  → ERROR     (vitest failed, but not on a test — e.g. no file matched)
  *   any other exit, a signal,
  *   a spawn error                 → ERROR
@@ -27641,7 +27660,15 @@ async function scoreMutant(m, k) {
   const report = readReport(file);
   rmSync(file, { force: true });
   if (!report) return verdict("ERROR", "exit 1 with no readable JSON report");
-  if (report.numFailedTests > 0 || report.numFailedTestSuites > 0) return verdict("CAUGHT");
+  const own = report.testResults.filter(
+    (t) => t.name === path.join(QR, m.suite) || t.name === path.join(realQR, m.suite),
+  );
+  if (own.length === 1 && own[0].status === "failed") return verdict("CAUGHT");
+  if (report.numFailedTests > 0 || report.numFailedTestSuites > 0)
+    return verdict(
+      "ERROR",
+      `exit 1, but the owning suite ${m.suite} did not fail — another file did`,
+    );
   return verdict("ERROR", "exit 1 but the report counts no failed test or suite");
 }
 

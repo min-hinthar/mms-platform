@@ -24,7 +24,7 @@ const REVIEWED_COMMIT = /Reviewed commit:\s*\**\s*`?([0-9a-f]{7,40})`?/i;
  * @param {string} input.headSha            the FULL sha the PR would merge right now
  * @param {{user?: {login?: string}, commit_id?: string}[]} input.reviews
  * @param {{user?: {login?: string}, body?: string}[]} input.comments
- * @returns {{ reviewed: boolean, via: "review" | "comment" | null }}
+ * @returns {{ reviewed: boolean, via: "review" | "comment" | "summary" | null }}
  */
 export function hasCodexReview({ headSha, reviews = [], comments = [] }) {
   // A gate that answers "yes" for an unknown head is worse than no gate — it would pass every PR
@@ -49,5 +49,38 @@ export function hasCodexReview({ headSha, reviews = [], comments = [] }) {
     const m = REVIEWED_COMMIT.exec(c?.body ?? "");
     return !!m && head.startsWith(m[1].toLowerCase());
   });
-  return commented ? { reviewed: true, via: "comment" } : { reviewed: false, via: null };
+  if (commented) return { reviewed: true, via: "comment" };
+
+  // Or Codex's own summary comment, with its Code Review row marked Completed for this commit. A
+  // clean round Codex starts by itself (a draft marked ready) posts NO "Reviewed commit:" comment —
+  // only this summary, edited from Running to Completed, plus a 👍 reaction, which wakes no workflow.
+  // Measured on #316 and on #320's first round (2026-10-08): with only the two paths above, that
+  // clean round could never turn the gate green. A round WITH findings also submits a review pinned
+  // to the commit (the first path), so a Completed row on the head means Codex reviewed it either way.
+  const summarized = comments.some(
+    (c) => c?.user?.login === CODEX_LOGIN && summaryCompleted(c?.body, head),
+  );
+  return summarized ? { reviewed: true, via: "summary" } : { reviewed: false, via: null };
+}
+
+/** The marker Codex puts at the top of its one, edited-in-place summary comment. */
+const SUMMARY_MARKER = "<!-- codex-pull-request-review-summary -->";
+
+/**
+ * Does this summary carry a Code Review row marked Completed for `head`? The row reads
+ * `| 📝 **Code Review** | ✅ **Completed** <relative-time …> | \`cd525de\` | Draft marked ready |`.
+ * Parsed as table cells, so a Completed row for another commit, or a Running row for this one, says
+ * nothing — and the body must carry Codex's summary marker, not merely the words.
+ */
+function summaryCompleted(body, head) {
+  if (typeof body !== "string" || !body.includes(SUMMARY_MARKER)) return false;
+  return body.split("\n").some((line) => {
+    const cells = line.split("|").map((x) => x.trim());
+    // ["", review, status, commit, trigger, ""] — a line with fewer cells is not a row of this table.
+    if (cells.length < 5) return false;
+    const [, review, status, commit] = cells;
+    if (!/Code Review/.test(review ?? "") || !/\bCompleted\b/.test(status ?? "")) return false;
+    const m = /^`([0-9a-f]{7,40})`$/i.exec(commit ?? "");
+    return !!m && head.startsWith(m[1].toLowerCase());
+  });
 }

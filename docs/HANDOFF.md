@@ -51,7 +51,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > this long ... we can't take more than 30 minutes for each PR merge."_ Measured: a full serial
 > `verify:slice` took 164–180 min (the three runs that finished, 2026-10-06..08), and 8 of 11 attempts
 > died before the end. **The owner's two decisions:** ① keep `verify:slice` as a merge gate, made fast
-> and moved into CI as the sharded `verify-slice` check (12 cost-balanced shards, ~19 min estimated, non-draft
+> and moved into CI as the sharded `verify-slice` check (12 cost-balanced shards, ~10.5 min wall on the first measured run, non-draft
 > heads and main pushes, code lane only) — the merge now waits for `verify-slice` AND `codex-review`
 > green on the merge head, and the adversarial pass runs beside it; ② make the repo **public again**
 > (it was measured private, which also left `main` unprotected) — **done 2026-10-08** (re-measured
@@ -725,7 +725,7 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 >
 > **Gate today:** 3270 `verify:slice` mutants · 268 target modules (179 `apps/qr/lib`, 5 API routes,
 > **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6798 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6803 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ✅ Phase 2i — staff screens take new builds without losing work — MERGED (PR #311, 2026-10-02, on the owner's go)
 >
@@ -786,7 +786,7 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 >
 > **Gate today:** 3270 `verify:slice` mutants · 268 target modules (179 `apps/qr/lib`, 5 API routes,
 > **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6798 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6803 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-10-01 · Phase 2g — the counter screen keeps its promises — on branch `claude/inspiring-cori-4rf37k`, PR #309)
 >
@@ -825,7 +825,7 @@ claude/ui-ux-design-improvements-l2b0c0 origin/main`.
 >
 > **Gate today:** 3270 `verify:slice` mutants · 268 target modules (179 `apps/qr/lib`, 5 API routes,
 > **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6798 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
+> · 6803 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-30 · Phase 2f — counter orders cook before they're paid — on branch `claude/inspiring-cori-4rf37k`)
 >
@@ -1003,7 +1003,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >
 > **Gate today:** 3270 `verify:slice` mutants · 268 target modules (179 `apps/qr/lib`, 5 API routes,
 > **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 130 mode-authority mutants · 26 SQL test files
-> · 6798 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
+> · 6803 qr tests + 287 ui tests · `check:docs` clean · `check:mutant-anchors` clean. The full
 > `verify:slice` run with the gate at this head is not recorded here. `--no-gate --only=` runs: the
 > build's `p2f-lib/` + `p2f-ui/` 84 of 84 caught on the merged tree at the integration (the four
 > `p2f-ui/floor-detail/*` had first run against a local stub in the ui worktree); the review areas'
@@ -1093,7 +1093,7 @@ p_initiator uuid)` → `text` (§9); `proconfig` `{search_path=""}` on all three
 >   page it opens — or it is red.
 >
 > **Gate today:** 3270 `verify:slice` mutants · 268 target modules (179 `apps/qr/lib`, 5 API routes,
-> **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6798 qr tests + 287 ui tests · `check:docs`
+> **78** components, 1 stylesheet, 1 staff page, 1 `packages/db`) · 6803 qr tests + 287 ui tests · `check:docs`
 > clean · `check:mutant-anchors` clean. The full 1446-mutant `verify:slice` run with the gate at this
 > head is not recorded here; the lang branch's `--no-gate --only=p2e-lang` run killed all 49
 > mutants it added, and each review area's `--no-gate --only=p2e-rev/` run caught all of its own
@@ -2140,7 +2140,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **3270 `verify:slice` mutants** · **268 target modules** (181 under `apps/qr/lib`, 5 API routes,
-> 79 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6798 + 287 today)** ·
+> 79 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6803 + 287 today)** ·
 > 121 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -2609,7 +2609,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (3270 today)**, **1372 qr + 138 ui tests at the time (6798 + 287 today)**, 69 target modules at the time (181 under `apps/qr/lib` today, 268 in all), 97 local
+> **334 mutants at the time (3270 today)**, **1372 qr + 138 ui tests at the time (6803 + 287 today)**, 69 target modules at the time (181 under `apps/qr/lib` today, 268 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -3501,7 +3501,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (121 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (121 files, 6803 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

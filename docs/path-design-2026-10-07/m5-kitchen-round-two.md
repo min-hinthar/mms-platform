@@ -816,3 +816,21 @@ The round-3 consistency pass gave this moment these changes:
    the same label on every poll, on its chip and on its pill, and recalling one chip can never retitle
    the other. The label is still captured once at bump time (PATH_DESIGN correction 14), so it adds no
    new words and no new strings beyond the composed identifier.
+
+### F · The blind pass on #320 (2026-10-08) — these win over everything above
+
+1. **The fallback label covers all three card-key kinds, not two.** A card is keyed in one of three ways
+   (Decision 1 and appendix C): by `cart_id + fire_batch`; by the raw `fire_at` when the batch is null;
+   or as the cart's one bucket for lines with neither (PATH_DESIGN correction 3). E covered only the
+   first and third. Read every kind from the RAW row, never from the shaped `firedAt`, which is the poll
+   clock for a line with no `fire_at` (`kitchen.ts:341`).
+   - **The time** in "Table 4 · 7:42:05" is the card's earliest raw `fire_at`. The no-batch,
+     no-fire-time bucket has no `fire_at`, so it uses its lines' earliest raw `created_at` (the board's
+     read already filters on it, `kitchen.ts:186`; add it to the select if the select lacks it).
+   - **The discriminator,** when two labels would tie:
+     - the first four hex characters of `fire_batch` for a batch-keyed card;
+     - otherwise the first four hex characters of a stable hash of the card's own key (its raw
+       `fire_at`, or its cart's bucket key);
+     - extended one character at a time while two cards on the board still tie.
+
+   It is never the rail position and never a count, as E says.
