@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
+import { SAME_GESTURE_MS } from "@mms/ui";
 import type { getCartView } from "@/lib/cart";
 
 /**
@@ -72,6 +73,16 @@ vi.mock("./WalletChip", () => ({ WalletChip: () => null }));
 vi.mock("./menu/BlurUpImage", () => ({ BlurUpImage: () => null }));
 vi.mock("./menu/PhotoPlaceholder", () => ({ PhotoPlaceholder: () => null }));
 vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart }));
+// PD2 — these cases pin the Bill that returns verbatim after C2's flip (Pay · $X, the grace reason
+// on it); the shipped PARKED Bill is Checkout.test.tsx's "PD2" describe. The door runs OPEN here.
+vi.mock("@/lib/surfaces", async (orig) => {
+  const real = await orig<typeof import("@/lib/surfaces")>();
+  return {
+    ...real,
+    surfaceOpen: (k: Parameters<typeof real.surfaceOpen>[0]) =>
+      k === "dineInPhonePay" ? true : real.surfaceOpen(k),
+  };
+});
 
 const { Checkout } = await import("./Checkout");
 
@@ -168,6 +179,11 @@ function mount(items: CartItem[] = [DRAFT]) {
   );
 }
 
+/** PD2 · PD1 (P2y) — the Send→Undo relabel holds taps for `SAME_GESTURE_MS` (the double-tap's
+ *  second half); a test that presses the new Undo waits that gesture out first, in real time. */
+async function afterGesture() {
+  await new Promise((r) => setTimeout(r, SAME_GESTURE_MS + 20));
+}
 async function press(name: string | RegExp) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -204,7 +220,7 @@ async function sendAndOpenGrace(receipt: typeof SENT = SENT) {
   h.sendToKitchen.mockResolvedValue(receipt);
   h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
   await press(/^Send to kitchen · 1 item/);
-  await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+  await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
 }
 
 const payReason = () => {
@@ -261,7 +277,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await sendAndOpenGrace();
     await press("Total · $12.00 — View bill");
     // ONE Undo on screen, above the receipt.
-    const undos = screen.getAllByRole("button", { name: /^Undo — \d+s$/ });
+    const undos = screen.getAllByRole("button", { name: /^Undo/ });
     expect(undos).toHaveLength(1);
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
     await act(async () => {
@@ -271,7 +287,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     // the grace is clawed back; red.
     expect(h.undoFire).toHaveBeenCalledWith(CART, BATCH);
     await waitFor(() => expect(regionText()).toContain("Brought back to your order"));
-    expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
   });
 
   it("an undo whose re-sync is still out keeps Pay HELD with the grace sentence; when the read lands, the drafts it put back hold Pay with theirs — never a mint", async () => {
@@ -283,11 +299,12 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     h.undoFire.mockResolvedValue({ ok: true });
     const slowSync = deferred<View>();
     h.getCartView.mockReturnValueOnce(slowSync.promise);
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(regionText()).toContain("Brought back to your order"));
     // MUTATION (undo-grace/window-closes-before-the-re-sync): the window shuts on the ANSWER — the
     // Undo is gone, Pay reads live over a line the view still shows `fired`, and a tap mints; red.
-    expect(screen.getByRole("button", { name: "Bringing it back…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Bringing it back…/ })).toBeTruthy();
     const { pay, reason } = payReason();
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     expect(reason).toContain("Pay opens when the undo window closes.");
@@ -303,7 +320,7 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /Bringing it back/ })).toBeNull(),
     );
-    expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
     const after = payReason();
     expect(after.reason).toContain(
       "Send everything to the kitchen first — then the bill is ready to pay.",
@@ -346,8 +363,8 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     mount();
     await sendAndOpenGrace(SHORT_GRACE);
     // The hook parked focus on the Undo when the window opened (B4).
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Undo — \d+s$/ }));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull(), {
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Undo/ }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull(), {
       timeout: 3000,
     });
     // MUTATION: drop the `focusWasLost()` landing — the Undo unmounted under the reader and focus
@@ -362,14 +379,15 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     mount();
     await sendAndOpenGrace();
     await press("Total · $12.00 — View bill");
-    const undo = screen.getByRole("button", { name: /^Undo — \d+s$/ });
+    const undo = screen.getByRole("button", { name: /^Undo/ });
     undo.focus();
     expect(document.activeElement).toBe(undo);
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: /Bringing it back|^Undo — / })).toBeNull(),
+      expect(screen.queryByRole("button", { name: /Bringing it back|^Undo/ })).toBeNull(),
     );
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 })),
@@ -401,10 +419,10 @@ describe("Phase 3c-i (D15) — the Bill is readable during the send's undo windo
     h.sendToKitchen.mockResolvedValue(SHORT_GRACE);
     h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: asked }));
     await press(/^Send to kitchen · 1 item/);
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
     await press("Total · $12.00 — View bill");
     expect(screen.queryByRole("button", { name: /^Pay · / })).toBeNull();
-    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo — /i })).toBeNull(), {
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull(), {
       timeout: 3000,
     });
     // MUTATION (checkout/ready-to-pay-over-a-counter-ask): drop the `counterAt` guard — "Ready to
@@ -428,9 +446,9 @@ describe("Phase 3c-i (D13 · D14) — one hero per state, one morph target per v
     // MUTATION (checkout/two-heroes-on-the-order-stage): the door wears `.checkout-cta` while the
     // hero is Send or Undo — two filled verbs on one stage; red (count 1 → 2 above, 0 → 1 here).
     expect(document.querySelectorAll(".checkout-cta")).toHaveLength(0);
-    expect(
-      screen.getByRole("button", { name: /^Undo — /i }).classList.contains("checkout-cta"),
-    ).toBe(false);
+    expect(screen.getByRole("button", { name: /^Undo/ }).classList.contains("checkout-cta")).toBe(
+      false,
+    );
     expect(document.querySelectorAll(".vt-cart-total")).toHaveLength(1);
   });
 

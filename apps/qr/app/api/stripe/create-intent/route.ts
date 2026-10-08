@@ -13,7 +13,8 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
-import { payBlockedByUnsent } from "@/lib/checkout-stage";
+import { payBlockedByUnsent, phonePayParked } from "@/lib/checkout-stage";
+import { surfaceOpen } from "@/lib/surfaces";
 import { kitchenDraftUnits } from "@/lib/unsent-read";
 import { manualCaptureMode } from "@/lib/manual-capture";
 import { tipWithinAmountCap } from "@/lib/tip";
@@ -159,6 +160,32 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "Couldn’t start checkout — please try again." },
         { status: 500 },
+      );
+    }
+    // PD2 (the owner, PATH_DESIGN_2026-10-07 decision 2) — THE PARKED DOOR, ANSWERED. Until the
+    // live keys are switched on (C2) a dine-in table pays only at the counter: the Bill draws no
+    // card hero (`phonePayParked`, the SAME rule Checkout reads with the SAME switch,
+    // `SURFACES.dineInPhonePay`), and this is the refusal behind the sign — a raw POST from a
+    // table mints nothing. 410 like the other parked doors (`create-share-intent`, `setup-intent`).
+    //
+    // ⚠️ PLACED HERE, AND NOWHERE HIGHER (PATH_DESIGN round 3, D5; #257's CRITICAL, M151): it
+    // sits AFTER `supersedeCartIntent` and its captured / unknown exits, because like every
+    // pre-mint refusal it frees the lock, and freeing the lock while a predecessor intent can
+    // still be confirmed is the double-charge shape M151 closed. It sits after the mode read
+    // because the rule IS the mode (an unreadable mode already refused above, fail-closed), and
+    // BEFORE the availability gate and the shipped unsent refusal: a parked door is refused before
+    // any further read is spent on the attempt. `scripts/check-phone-pay-door.mjs` parses this
+    // file and pins that order (awaited supersede, in a statement that finishes first; the lock
+    // released on the refusal). The D5 served-gate verdict (PD10) takes the unsent refusal's slot
+    // below once the flag flips; nothing about it rides here.
+    if (phonePayParked(sess.mode, surfaceOpen("dineInPhonePay"))) {
+      await freeLock();
+      return NextResponse.json(
+        {
+          error:
+            "Paying on your phone isn’t on at the table yet — pay at the counter, and they’ll settle the whole bill there.",
+        },
+        { status: 410 },
       );
     }
     // W23a — THE AVAILABILITY GATE. Asked before ANY state is consumed on this order's behalf.

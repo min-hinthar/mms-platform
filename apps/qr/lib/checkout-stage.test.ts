@@ -4,6 +4,7 @@ import {
   kitchenDraftQty,
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
+  phonePayParked,
   staffSettleBlockedByUnsent,
   staffSettleUnsentVerdict,
   unsentFoodQty,
@@ -151,5 +152,25 @@ describe("staffSettleUnsentVerdict — P2dc: the staff doors fail CLOSED on an u
     expect(staffSettleUnsentVerdict("dinein", 2)).toBe("unsent");
     expect(staffSettleUnsentVerdict("dinein", 0)).toBeNull();
     expect(staffSettleUnsentVerdict("pickup", 2)).toBeNull();
+  });
+});
+
+describe("PD2 — phonePayParked: the dine-in phone-pay door, parked until live keys (decision 2)", () => {
+  it("a dine-in table with the door parked: parked", () => {
+    // MUTATION (checkout-stage/parked-door-admits-a-table): the switch ignored — the Bill draws
+    // its card hero and create-intent mints at a table on TEST keys; red.
+    expect(phonePayParked("dinein", false)).toBe(true);
+  });
+  it("the flip opens it with nothing else changed", () => {
+    expect(phonePayParked("dinein", true)).toBe(false);
+  });
+  it("only a table reads the switch — pickup, scan-and-go and an unreadable mode are never parked", () => {
+    // MUTATION (checkout-stage/parked-door-refuses-pickup): the mode check dropped — every pickup
+    // and market payment is refused at create-intent behind a rule meant for tables; red.
+    expect(phonePayParked("pickup", false)).toBe(false);
+    expect(phonePayParked("scango", false)).toBe(false);
+    expect(phonePayParked(null, false)).toBe(false);
+    expect(phonePayParked(undefined, false)).toBe(false);
+    expect(phonePayParked("", false)).toBe(false);
   });
 });

@@ -148,6 +148,13 @@ None started (2026-10-08): money-rails · counter-floor · diner-cart · grocery
 kitchen-ops · post-pay · table-door · guards-style. Only if the owner picks parallel sessions, each
 stream adds one bullet of its own below this line and edits only that bullet.
 
+- **diner-cart (2026-10-08):** PD2 on `claude/feat/pd2-pd1-diner-cart` (base `claude/feat/pd-tokens-pass`,
+  #326) — the parked `SURFACES.dineInPhonePay`, the docked counter door, the pass (its paper a marked
+  stand-in until post-pay's `CounterPass` lands on `claude/feat/pd-pass-primitives`), the create-intent
+  refusal with `check-phone-pay-door.mjs`; PD1 stacked on it (`claude/feat/pd1-tablemate-send`). Both
+  money paths: "recommend: wait for Codex (ruling #1)"; PD1 carries the nudge-stamp migration for the
+  owner's go. Build notes: m2 / m1 specs' `### H`.
+
 ## Environment facts (measured 2026-10-08 unless cited)
 
 - **QR's own Supabase project is `fasnpdhtvqtzjlvruqcu`** (delivery's is `ukuzkhuppqwtrdkjqrkv`).

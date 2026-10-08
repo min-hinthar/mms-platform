@@ -109,3 +109,27 @@ describe("getCartTotals — never returns a total it isn't sure of (M30)", () =>
     await expect(getCartTotals("cart-1", 0)).rejects.toThrow(/reward discount unreadable/);
   });
 });
+
+describe("PD2 (PATH_DESIGN moment 2) — two reads, ONE derivation: the guest's pass and Dad's pane agree", () => {
+  // The guest's pass shows `totals.totalCents` from `getCartTotals(id)` (the view read, default tip);
+  // Dad's pane reads `getCartTotals(cart.id, 0)` (lib/floor.ts). The same promo'd cart must answer
+  // the same figure from both calls, with the promo actually IN it — otherwise the family holds up
+  // a phone that says one total while the register names another.
+  it("a promo'd cart answers the same total from the default call and the explicit tip-0 call", async () => {
+    const PROMO = 450;
+    script.promo = { data: PROMO, error: null };
+    const guest = await getCartTotals("cart-1");
+    const pane = await getCartTotals("cart-1", 0);
+    // MUTATION (totals/default-tip-not-zero): the default tip rate drifts off 0 — the guest's
+    // figure grows by a tip no one chose while Dad's stays; red.
+    expect(guest).toEqual(pane);
+    expect(guest.promoCents).toBe(PROMO);
+    expect(guest.tipCents).toBe(0);
+    // …and the figure is the DISCOUNTED one, measured against the undiscounted run of the same cart
+    // (never a transcribed total: tax follows the discounted base, so only the direction is pinned).
+    script.promo = { data: 0, error: null };
+    const undiscounted = await getCartTotals("cart-1", 0);
+    expect(undiscounted.promoCents).toBe(0);
+    expect(guest.totalCents).toBeLessThan(undiscounted.totalCents);
+  });
+});

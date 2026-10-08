@@ -166,6 +166,15 @@ const MUTANTS = [
     find: 'i.state !== "voided" && !i.comped',
     replace: 'i.state !== "voided"',
   },
+  {
+    id: "totals/default-tip-not-zero",
+    file: "apps/qr/lib/totals.ts",
+    suite: "lib/totals.test.ts",
+    why: "PD2 (PATH_DESIGN moment 2: two reads, ONE derivation) — the guest's pass shows getCartTotals(id) and Dad's pane getCartTotals(id, 0); a default tip that drifts off 0 puts a tip nobody chose on the phone the family holds up, beside a register that names a smaller figure",
+    find: "export async function getCartTotals(cartId: string, tipRate = 0): Promise<CartTotals> {",
+    replace:
+      "export async function getCartTotals(cartId: string, tipRate = 0.15): Promise<CartTotals> {",
+  },
 
   // ── the per-seat split charge (what each card is actually billed) ────────────────────────────────
   {
@@ -6492,6 +6501,22 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "surfaces/dine-in-phone-pay-reopened",
+    file: "apps/qr/lib/surfaces.ts",
+    suite: "lib/surfaces.test.ts",
+    why: "PD2 (the owner, PATH_DESIGN decision 2) — the dine-in phone-pay door is parked until live keys, and the flip is its own PR after C2, PD10 and the device sitting (D5). A constant is the cheapest thing in the repo to flip by accident in a merge: with it true every table draws a card hero on TEST keys and a raw POST mints. This pins the decision so re-opening is a diff to a test and a conversation",
+    find: "  dineInPhonePay: false,\n",
+    replace: "  dineInPhonePay: true,\n",
+  },
+  {
+    id: "surfaces/create-intent-route-answers-open",
+    file: "apps/qr/app/api/stripe/create-intent/route.ts",
+    suite: "app/api/stripe/create-intent/route.test.ts",
+    why: "PD2 — create-intent is directly POST-able with the Bill's card hero gone; parking the door only where it is DRAWN leaves the whole mint live behind a missing button (lib/surfaces: a door with the sign taken down, not a parked one). Deleting the refusal is exactly that: a table on TEST keys mints a PaymentIntent",
+    find: '    if (phonePayParked(sess.mode, surfaceOpen("dineInPhonePay"))) {\n      await freeLock();\n      return NextResponse.json(\n        {\n          error:\n            "Paying on your phone isn’t on at the table yet — pay at the counter, and they’ll settle the whole bill there.",\n        },\n        { status: 410 },\n      );\n    }\n',
+    replace: "",
+  },
+  {
     id: "counter/ask-counts-voided-lines",
     file: "apps/qr/lib/counter-pay.ts",
     suite: "lib/counter-pay.test.ts",
@@ -6514,6 +6539,22 @@ const MUTANTS = [
     why: "A1 (blind audit, CRITICAL 1) — a tablemate's CARD flips the cart to `paid` too. If the outcome reports every settle as `counter`, every other phone at the table reads 'This bill was settled at the counter' for a bill paid by card on a phone — a false sentence about where the money went, on the screen that closes the meal",
     find: '      : (COUNTER_TENDERS as readonly string[]).includes(order.tender)\n        ? "counter"\n        : "card";\n',
     replace: '      : "counter";\n',
+  },
+  {
+    id: "counter/settling-sentence-names-a-parked-split",
+    file: "apps/qr/lib/counter-pay-state.ts",
+    suite: "lib/counter-pay-state.test.ts",
+    why: "PD2 (m2 decision 15) — with the self-serve split parked only the REGISTER holds the settlement freeze; ignoring the flag tells a family whose bill Dad is taking in cash that 'the table's splitting the bill', a door no phone can open (DESIGN-LANGUAGE §5: a screen may only promise what the code keeps)",
+    find: '  if (refusal === "settling" && !selfServeSplitOpen) return REGISTER_SETTLING_COPY;\n',
+    replace: "",
+  },
+  {
+    id: "counter/reader-ignored-by-the-tender-sentence",
+    file: "apps/qr/lib/counter-pay-state.ts",
+    suite: "lib/counter-pay-state.test.ts",
+    why: "PD2 (m2 decision 7) — the tender truth is derived: a register with a configured reader that still tells every table 'The counter takes cash.' is a false statement about how the house takes money, on the screen that sends the family to it",
+    find: "  return readerConfigured || COUNTER_CARD_OUTSIDE_APP;",
+    replace: "  return COUNTER_CARD_OUTSIDE_APP;",
   },
   {
     id: "order/fallback-membership-admits-a-card-order",
@@ -8912,6 +8953,22 @@ const MUTANTS = [
     replace: "  return payBlockedByUnsent(mode, sendableUnits, false);",
   },
   {
+    id: "checkout-stage/parked-door-admits-a-table",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "PD2 (decision 2) — the switch is the whole rule for a table: ignoring it draws the card hero on the Bill and lets create-intent mint at a table on TEST keys, the promise the house cannot keep until C2",
+    find: '  return mode === "dinein" && !dineInPhonePayOpen;',
+    replace: '  return mode === "dinein" && false;',
+  },
+  {
+    id: "checkout-stage/parked-door-refuses-pickup",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "PD2 — only a table has a counter to walk to. Dropping the mode check refuses every pickup and scan-and-go payment at create-intent behind a rule meant for tables: a revenue outage, paying IS ordering there",
+    find: '  return mode === "dinein" && !dineInPhonePayOpen;',
+    replace: "  return !dineInPhonePayOpen;",
+  },
+  {
     id: "settle/cash-over-unsent",
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/settle-unsent.test.ts",
@@ -9461,8 +9518,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "Phase 2c · gate — the Bill hands the tap copy WHO can send. Always null, a guest's tap on the dimmed counter button tells them to send dishes only the host can",
-    find: "                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),\n",
-    replace: "                            null,\n",
+    find: "                          en: counterUnsentTapCopy(\n                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),\n                          ),\n",
+    replace: "                          en: counterUnsentTapCopy(null),\n",
   },
   // ── Phase 2c · review fixes · pad2 ──
   {
@@ -25336,7 +25393,7 @@ const MUTANTS = [
     file: "apps/qr/lib/checkout-verb.ts",
     suite: "lib/checkout-verb.test.ts",
     why: "3c-i (D14, P4's graft) — the Total door's name says what the next screen allows; 'View bill & pay' while Pay is held promises a verb the Bill refuses on arrival",
-    find: '  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";',
+    find: '  return block === null && !s.counterAsk && s.phonePayOpen ? "viewBillAndPay" : "viewBill";',
     replace: '  return "viewBillAndPay";',
   },
   {
@@ -25344,8 +25401,16 @@ const MUTANTS = [
     file: "apps/qr/lib/checkout-verb.ts",
     suite: "lib/checkout-verb.test.ts",
     why: "Codex round 3 on #313 (P2) — a standing counter ask hides Pay behind the counter card on the Bill; a door reading 'View bill & pay' over it promises a verb the next screen does not offer",
-    find: '  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";',
-    replace: '  return block === null ? "viewBillAndPay" : "viewBill";',
+    find: '  return block === null && !s.counterAsk && s.phonePayOpen ? "viewBillAndPay" : "viewBill";',
+    replace: '  return block === null && s.phonePayOpen ? "viewBillAndPay" : "viewBill";',
+  },
+  {
+    id: "checkout-verb/door-promises-pay-while-parked",
+    file: "apps/qr/lib/checkout-verb.ts",
+    suite: "lib/checkout-verb.test.ts",
+    why: "PD2 (m1 B9, reconciliation 3) — while the phone-pay door is parked the Bill has no Pay in ANY arm; a Total door reading 'View bill & pay' leads a hostless table, or a guest after the host's send, to a Bill that cannot keep the verb",
+    find: '  return block === null && !s.counterAsk && s.phonePayOpen ? "viewBillAndPay" : "viewBill";',
+    replace: '  return block === null && !s.counterAsk ? "viewBillAndPay" : "viewBill";',
   },
   {
     id: "checkout-verb/guest-unsent-copy-orders-the-guest-to-send",
@@ -25578,8 +25643,18 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.grace.test.tsx",
     why: "Codex round 3 on #313 (P2) — the rule is lib's, the WIRING is here: a door that does not hand the standing counter ask to `billDoorLabel` reads 'View bill & pay' from 'Back to your order' and opens a Bill whose Pay the counter card has replaced",
-    find: "  const doorLabel = billDoorLabel(block, counterAt != null);\n",
-    replace: "  const doorLabel = billDoorLabel(block);\n",
+    find: "  const doorLabel = billDoorLabel(block, {\n    counterAsk: counterAt != null,\n    phonePayOpen: !phonePayOff,\n  });\n",
+    replace:
+      "  const doorLabel = billDoorLabel(block, {\n    counterAsk: false,\n    phonePayOpen: !phonePayOff,\n  });\n",
+  },
+  {
+    id: "checkout/door-ignores-the-parked-door",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "PD2 — the rule is lib's, the WIRING is here: a door that hands `billDoorLabel` an always-open flag reads 'View bill & pay' on a counter-only Bill that has no Pay at all",
+    find: "  const doorLabel = billDoorLabel(block, {\n    counterAsk: counterAt != null,\n    phonePayOpen: !phonePayOff,\n  });\n",
+    replace:
+      "  const doorLabel = billDoorLabel(block, {\n    counterAsk: counterAt != null,\n    phonePayOpen: true,\n  });\n",
   },
   {
     id: "checkout/total-door-drops-the-previewed-tip",
@@ -25612,17 +25687,17 @@ const MUTANTS = [
     file: "apps/qr/components/SendToKitchenButton.tsx",
     suite: "components/SendToKitchenButton.test.tsx",
     why: "3c-i (D13) — reversing is never the hero: an Undo wearing the filled CTA makes forfeiting the send the visual default during the ten seconds the bill is meant to be read",
-    find: '          className="checkout-outline-btn mms-settle"',
-    replace: '          className="checkout-cta mms-settle"',
+    find: '          className="checkout-outline-btn checkout-undo mms-settle"',
+    replace: '          className="checkout-cta checkout-undo mms-settle"',
   },
   {
     id: "send-button/undo-label-reads-a-host-count",
     file: "apps/qr/components/SendToKitchenButton.tsx",
     suite: "components/SendToKitchenButton.test.tsx",
     why: "J34 — a count computed in the BUTTON's render moves only when the host re-renders — the forty-renders-a-window shape the leaf retired; with the host quiet, the label freezes",
-    find: '          {grace.pending ? "Bringing it back…" : <UndoCountdown deadlineMs={grace.deadlineMs} />}\n',
+    find: "            {!grace.pending && <UndoCountdown deadlineMs={grace.deadlineMs} />}\n",
     replace:
-      '          {grace.pending ? "Bringing it back…" : `Undo — ${Math.max(0, Math.ceil(((grace.deadlineMs ?? 0) - Date.now()) / 1000))}s`}\n',
+      '            {!grace.pending && (\n              <span aria-hidden className="checkout-undo-leaf">{` — ${Math.max(0, Math.ceil(((grace.deadlineMs ?? 0) - Date.now()) / 1000))}s`}</span>\n            )}\n',
   },
   {
     id: "line-sheet/pills-live-under-a-freeze",
@@ -27102,8 +27177,17 @@ const MUTANTS = [
     file: "apps/qr/components/SendToKitchenButton.tsx",
     suite: "components/SendToKitchenButton.test.tsx",
     why: "the handle bypasses the tap path's disable: two bind answers (or a bind landing after 'Send anyway') reach the server twice — two grace windows, two sentences, the second overwriting the one-slot stash",
-    find: "    if (pending) return;\n    if (frozen) {\n",
-    replace: "    if (frozen) {\n",
+    find: "    if (pending) return;\n    // P2y — a tap inside the same gesture as the relabel is the double-tap's second half.\n",
+    replace:
+      "    // P2y — a tap inside the same gesture as the relabel is the double-tap's second half.\n",
+  },
+  {
+    id: "send-button/undo-tap-not-held",
+    file: "apps/qr/components/SendToKitchenButton.tsx",
+    suite: "components/SendToKitchenButton.test.tsx",
+    why: "PD2 · PD1 (P2y) — the control relabels under the finger: without the same-gesture hold the second half of a double-tap on Send lands on the Undo that replaced it and un-sends the round the host just sent",
+    find: "            // P2y — the second half of a double-tap on the Send lands on this Undo: held.\n            if (undoTapHeld(armedAt.current, Date.now())) return;\n",
+    replace: "",
   },
   {
     id: "send-button/pending-send-natively-disabled",
@@ -27388,6 +27472,15 @@ try {
 // call leaves every other gate in this repo green while M70 silently regresses.
 try {
   execFileSync("node", ["scripts/check-promo-grant-pin.mjs"], { cwd: ROOT, stdio: "inherit" });
+} catch {
+  process.exit(1);
+}
+
+// PD2 — the sixth cheap parse: the parked dine-in phone-pay door is ANSWERED in `create-intent`,
+// after the awaited supersede (M151) and before the unsent gate. The route has no runner of its own
+// for ORDER (its suite sees what its mocks let it see), so the sequence is pinned on the source.
+try {
+  execFileSync("node", ["scripts/check-phone-pay-door.mjs"], { cwd: ROOT, stdio: "inherit" });
 } catch {
   process.exit(1);
 }

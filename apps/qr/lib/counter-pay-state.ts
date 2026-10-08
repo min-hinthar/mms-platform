@@ -61,6 +61,43 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
 };
 
 /**
+ * PD2 (m2 decision 15) — the sentence a `settling` refusal shows depends on WHO holds the freeze.
+ * While the self-serve split is parked (`SURFACES.selfServeSplit`, A1) nothing but the REGISTER
+ * takes the settlement freeze (`settleCash` / the reader / the secure-tab close acquire it for the
+ * length of their write), so "The table's splitting the bill" was a sentence about a door that no
+ * phone can open. The flag is an input, never read here, so the test flips it; the register
+ * sentence is the Bill's own held reason (`registerSettling`, lib/i18n/cart) and the ask's refusal
+ * says the same thing, once.
+ */
+export const REGISTER_SETTLING_COPY =
+  "The counter is taking your table’s payment right now — this screen updates when it’s done.";
+
+export function counterPayRefusalCopy(
+  refusal: CounterPayRefusal,
+  selfServeSplitOpen: boolean,
+): string {
+  if (refusal === "settling" && !selfServeSplitOpen) return REGISTER_SETTLING_COPY;
+  return COUNTER_PAY_REFUSAL_COPY[refusal];
+}
+
+/**
+ * PD2 (m2 decision 7, the "tender truth") — does the register take a CARD today? Derived, never a
+ * literal in copy: the Bill's one sentence says "The counter takes cash." only while this is false,
+ * and the pass says the shipped "cash or card, either works" only while it is true. `COUNTER_TENDERS`
+ * cannot drive it — it lists `terminal` whether or not a reader exists. Two sources: the Stripe
+ * Terminal reader env the staff page already reads (`STRIPE_TERMINAL_READER_ID`, passed in by the
+ * server page — a client component cannot read it), OR a card taken outside the app, which the
+ * owner has NOT named (ruling #11, 2026-10-07: the counter is cash only by default; #26: no reader
+ * within a month) — so that half is a parked constant beside the rule it belongs to, flipped by a
+ * one-line commit when the owner says otherwise.
+ */
+export const COUNTER_CARD_OUTSIDE_APP = false;
+
+export function counterTakesCard(readerConfigured: boolean): boolean {
+  return readerConfigured || COUNTER_CARD_OUTSIDE_APP;
+}
+
+/**
  * Phase 2c · gate — what a tap on the Bill's dimmed "Pay at the counter" says: the host is told the
  * fix (they can send), a guest is told WHO sends (they cannot) — the unsent note's own split above
  * the button. `sender` is null for the person who can send, else the name the note uses.

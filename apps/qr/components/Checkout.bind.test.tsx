@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
+import { SAME_GESTURE_MS } from "@mms/ui";
 import type { getCartView } from "@/lib/cart";
 import { BIND_COPY } from "@/lib/bind-copy";
 import type { BindTableResult } from "@/lib/bind-table";
@@ -243,6 +244,11 @@ function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
 }
 
 const sendButton = () => screen.getByRole("button", { name: /^Send to kitchen · 1 item/ });
+/** PD2 · PD1 (P2y) — the Send→Undo relabel holds taps for `SAME_GESTURE_MS` (the double-tap's
+ *  second half); a test that presses the new Undo waits that gesture out first, in real time. */
+async function afterGesture() {
+  await new Promise((r) => setTimeout(r, SAME_GESTURE_MS + 20));
+}
 async function press(name: string | RegExp) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -341,7 +347,7 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
       sending.resolve(SENT);
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    const undo = await screen.findByRole("button", { name: /^Undo — \d+s$/ });
+    const undo = await screen.findByRole("button", { name: /^Undo/ });
     // Said through the view's ONE region, after the modal — never under its aria-hidden.
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
     await waitFor(() => expect(document.activeElement).toBe(undo));
@@ -349,8 +355,10 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     // The NEXT send never asks: undo the batch (drafts back), press Send — straight to the server.
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT], tableNumber: 5 }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
+    await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
     await press(/^Send to kitchen · 1 item/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
@@ -409,11 +417,13 @@ describe("3c-ii (D27) — the first Send on an unbound session asks, and the her
     expect(h.sendToKitchen).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.queryByText(/^Table \d+$/)).toBeNull(); // still unbound, honestly
-    await screen.findByRole("button", { name: /^Undo — \d+s$/ });
+    await screen.findByRole("button", { name: /^Undo/ });
     h.undoFire.mockResolvedValue({ ok: true });
     h.getCartView.mockResolvedValue(view({ items: [DRAFT] }));
-    await press(/^Undo — \d+s$/);
+    await afterGesture();
+    await press(/^Undo/);
     await waitFor(() => expect(sendButton()).toBeTruthy());
+    await afterGesture(); // the Undo→Send relabel holds the same gesture (P2y)
     await press(/^Send to kitchen · 1 item/);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(h.sendToKitchen).toHaveBeenCalledTimes(2);
@@ -489,7 +499,7 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo — \d+s$/ })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Undo/ })).toBeTruthy());
   });
 
   it("`already_bound` whose send answers BEFORE the sheet has closed: the region says the destination AND the send's line — the stash composes, it never overwrites (Codex r1 on #314, P2)", async () => {

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  COUNTER_CARD_OUTSIDE_APP,
   COUNTER_PAY_REFUSAL_COPY,
+  REGISTER_SETTLING_COPY,
   counterAskLive,
   counterPayRefusal,
+  counterPayRefusalCopy,
+  counterTakesCard,
   counterUnsentTapCopy,
 } from "./counter-pay-state";
 
@@ -108,5 +112,33 @@ describe("counterAskLive", () => {
     expect(counterAskLive(null)).toBe(false);
     expect(counterAskLive(undefined)).toBe(false);
     expect(counterAskLive("")).toBe(false);
+  });
+});
+
+describe("PD2 (m2 decision 15) — the settling sentence names who holds the freeze", () => {
+  it("with the self-serve split PARKED, a settling refusal is the register's sentence", () => {
+    // MUTATION (counter/settling-sentence-names-a-parked-split): the flag ignored — a family whose
+    // bill Dad is taking in cash reads "The table's splitting the bill", a door no phone can open; red.
+    expect(counterPayRefusalCopy("settling", false)).toBe(REGISTER_SETTLING_COPY);
+    expect(REGISTER_SETTLING_COPY).toBe(
+      "The counter is taking your table’s payment right now — this screen updates when it’s done.",
+    );
+  });
+  it("with the split OPEN the shipped split sentence stands, and every other refusal is unchanged either way", () => {
+    expect(counterPayRefusalCopy("settling", true)).toBe(COUNTER_PAY_REFUSAL_COPY.settling);
+    for (const r of ["not_dinein", "paying", "empty", "unsent"] as const) {
+      expect(counterPayRefusalCopy(r, false)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
+      expect(counterPayRefusalCopy(r, true)).toBe(COUNTER_PAY_REFUSAL_COPY[r]);
+    }
+  });
+});
+
+describe("PD2 (m2 decision 7) — the tender truth is derived, never a literal", () => {
+  it("the counter is cash-only by default (ruling #11; no reader, #26), and a configured reader takes a card", () => {
+    expect(COUNTER_CARD_OUTSIDE_APP).toBe(false);
+    expect(counterTakesCard(false)).toBe(false);
+    // MUTATION (counter/reader-ignored-by-the-tender-sentence): the reader dropped — a register
+    // with a card reader still tells every table "The counter takes cash."; red.
+    expect(counterTakesCard(true)).toBe(true);
   });
 });

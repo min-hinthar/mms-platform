@@ -51,6 +51,10 @@ export type SplitContext = {
   members: { seat: string; name: string; role: "host" | "guest" }[];
   /** K2: the registered table (1–10) this dine-in session is seated at, or null. */
   tableNumber: number | null;
+  /** PD1/PD2 (PATH_DESIGN Codex correction 10) — the session's join code (the value InviteSheet
+   *  shows), so a table with no number yet can print its code on the counter pass. Read here,
+   *  server-side, beside the table number; null when the session row could not be read. */
+  qrCode: string | null;
 };
 
 /** One payer's row on the live settlement board (M3·P3.3b). `amountCents` is the PI target (base, then
@@ -77,7 +81,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
   const db = serviceClient();
   const { data: sess } = await db
     .from("table_sessions")
-    .select("mode,table_number")
+    .select("mode,table_number,qr_code")
     .eq("id", sessionId)
     .maybeSingle();
   const { data: members } = await db
@@ -97,6 +101,7 @@ export async function getSplitContext(cartId: string): Promise<SplitContext> {
       role: m.role === "host" ? "host" : "guest",
     })),
     tableNumber: sess?.table_number ?? null,
+    qrCode: sess?.qr_code ?? null,
   };
 }
 

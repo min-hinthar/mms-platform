@@ -77,6 +77,29 @@ export function payBlockedByUnsent(
   return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;
 }
 
+/**
+ * PD2 (the owner, PATH_DESIGN_2026-10-07 decision 2: "until live card keys are switched on, the
+ * dine-in Bill offers only Pay at the counter") — is the PHONE-PAY door parked for this session?
+ *
+ * The switch is `SURFACES.dineInPhonePay` (lib/surfaces), passed IN by the caller so a test can
+ * falsify the wiring against the table and the flip stays a one-line commit. The rule itself is
+ * the mode: only a dine-in table has a counter to walk to, so only dine-in reads the switch —
+ * pickup and scan-and-go pay before the kitchen ever sees the order (paying IS ordering), and a
+ * parked door there would be a revenue outage behind a rule meant for tables. `mode` is read the
+ * way `payBlockedByUnsent` reads it: a string the session row answers (`table_sessions.mode`), null
+ * or undefined when the read missed — and a missed read is NOT a table, so it is never parked by
+ * this function (the callers that must fail closed on an unreadable mode do so before asking).
+ *
+ * Read on BOTH sides of the door (lib/surfaces: "drawn AND answered"): `Checkout` draws the Bill
+ * without a card hero while it is true, and `create-intent` refuses the mint while it is true.
+ */
+export function phonePayParked(
+  mode: string | null | undefined,
+  dineInPhonePayOpen: boolean,
+): boolean {
+  return mode === "dinein" && !dineInPhonePayOpen;
+}
+
 /** The same count from raw `qr_cart_items` rows (`state`, not the view's `lineState`) — the server
  *  gate's input. */
 export function kitchenDraftUnitsFromRows(

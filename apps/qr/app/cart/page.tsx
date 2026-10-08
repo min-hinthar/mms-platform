@@ -202,6 +202,9 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       prepMinutes={prepMinutes}
       initialPickupSlot={initialPickupSlot}
       asapAvailable={asapAvailable}
+      // PD2 (m2 decision 7) — the tender truth: the same env the staff page reads for its reader
+      // (`app/staff/page.tsx`); a client component cannot read it, so the RSC says so once.
+      readerConfigured={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
     />
   );
 }

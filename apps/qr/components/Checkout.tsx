@@ -11,12 +11,19 @@ import {
   type FormEvent,
 } from "react";
 import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
-import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
+import {
+  CounterSettledCard,
+  PayAtCounterButton,
+  PayAtCounterCard,
+  PayAtCounterDock,
+  PayAtCounterPass,
+} from "./PayAtCounter";
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
-import { counterUnsentTapCopy } from "@/lib/counter-pay-state";
+import { counterTakesCard, counterUnsentTapCopy } from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
+import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, EmptyState, Icon, NumberFlow, Stepper, useSheetSubject } from "@mms/ui";
 import {
@@ -99,6 +106,7 @@ import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
   payBlockedByUnsent,
+  phonePayParked,
   unsentFoodQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
@@ -254,6 +262,7 @@ export function Checkout({
   prepMinutes = 12,
   initialPickupSlot = null,
   asapAvailable = true,
+  readerConfigured = false,
 }: {
   cartId: string;
   initialItems: CartItem[];
@@ -292,6 +301,10 @@ export function Checkout({
   initialPickupSlot?: string | null;
   /** W5e: is the kitchen taking ASAP right now (open + capacity)? Server-computed; gates the ASAP pill. */
   asapAvailable?: boolean;
+  /** PD2 (m2 decision 7) — a Stripe Terminal reader is configured for the register
+   *  (`STRIPE_TERMINAL_READER_ID`, read by the server page; a client component cannot). Feeds
+   *  `counterTakesCard`: the one sentence says "The counter takes cash." only while it is false. */
+  readerConfigured?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
   // Blind pass on #300 — the header's "Your order · N" is only as fresh as its last publisher, and
@@ -438,6 +451,18 @@ export function Checkout({
   // W5e — the ASAP↔scheduled timing choice is pickup-only: pickup lines fire to the KITCHEN (so timing
   // matters), whereas scango is self-scanned grocery retail (no kitchen fire to schedule).
   const isPickupMode = sessionMode === "pickup";
+  // PD2 (the owner, PATH_DESIGN decision 2) — the phone-pay door is PARKED on a dine-in table until
+  // live keys (`SURFACES.dineInPhonePay`). DRAWN here: no card hero, no tip ask, no separate total
+  // row and no "& pay" door — the receipt's own foot carries the total and the docked counter door
+  // is the one way to pay; after the ask, the phone becomes the counter pass. ANSWERED in
+  // create-intent (lib/surfaces: a hidden button with a live action behind it is not parked).
+  const phonePayOff = phonePayParked(sessionMode, surfaceOpen("dineInPhonePay"));
+  // PD2 (m2 decision 7) — the tender truth, DERIVED: the counter is cash-only unless a reader is
+  // configured (or the owner names a card taken outside the app — a parked constant).
+  const counterCard = counterTakesCard(readerConfigured);
+  // PD2 — the promo field has focus: the dock and its fade hide so they never ride the keyboard,
+  // and return on blur (the keyed pay furniture below reads it).
+  const [promoFocused, setPromoFocused] = useState(false);
   const [firstName, setFirstName] = useState("");
   // W21 (owner: "pickup should need name and phone number") — the pickup contact phone. PICKUP
   // only (scango is a self-scanned walk-out — nothing to call anyone about); required at the pay
@@ -497,6 +522,10 @@ export function Checkout({
   // diner's own tap (instant flip, revert-to-confirmed on refusal), never a money value.
   const [counterAt, setCounterAt] = useState<string | null>(initialCounterRequestedAt);
   const [counterBusy, setCounterBusy] = useState(false);
+  // PD2 — THIS phone asked (set beside the optimistic stamp, in the same render): the pass rises on
+  // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
+  // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
+  const [ownAsk, setOwnAsk] = useState(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
   // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
   const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
@@ -1266,8 +1295,20 @@ export function Checkout({
   // (focus moves to this heading on every view flip).
   // Phase 3a (D6) — in the market the thing on the slip is a BASKET (`orderNoun`), from the first
   // scan to the pay step; it was "Your order" here while every market surface said basket.
-  const headingKey: DictKey =
-    staged && viewKey !== "settle" && (onPay || stage === "bill")
+  // PD2 (m2 decision 8) — after the ask the phone IS the counter pass, so the heading names that
+  // moment: the shipped `counterTitle` pair ("Pay at the counter"). The eyebrow and the back link
+  // step aside with it; the way back is the pass's quiet withdraw, last.
+  const passShowing =
+    staged &&
+    viewKey !== "settle" &&
+    !onPay &&
+    stage === "bill" &&
+    counterAt != null &&
+    phonePayOff &&
+    settledClose === null;
+  const headingKey: DictKey = passShowing
+    ? "counterTitle"
+    : staged && viewKey !== "settle" && (onPay || stage === "bill")
       ? "yourBill"
       : sessionMode === "scango"
         ? "yourBasket"
@@ -1283,6 +1324,8 @@ export function Checkout({
     step,
     settle: viewKey === "settle" || settledClose !== null,
     noun: orderNoun(sessionMode),
+    // PD2 — the ask IS the paying step, and paying happens at the counter: Pay current, Bill done.
+    counterAsk: passShowing,
   });
 
   // J4 (residual) — the freeze comes from ONE binding that mirrors the server's own predicate.
@@ -1970,10 +2013,14 @@ export function Checkout({
     setStatus(null);
     setCounterBusy(true);
     const confirmed = counterAt;
+    // PD2 — THIS phone asked: the pass rises on its first mount here (and only here — a
+    // tablemate's phone flips without the entrance), and the remote-ask edge below stays quiet.
+    setOwnAsk(true);
     setCounterAt(new Date().toISOString());
     try {
       const r = await requestCounterPay({ cartId });
       if (!r.ok) {
+        setOwnAsk(false);
         setCounterAt(confirmed);
         setPayError(r.error);
         return;
@@ -1988,12 +2035,52 @@ export function Checkout({
       setStatus("We’ll pay at the counter — show them this screen whenever you’re ready.");
       void refresh();
     } catch {
+      setOwnAsk(false);
       setCounterAt(confirmed);
       setPayError("Couldn’t reach the counter just now — please try again.");
     } finally {
       setCounterBusy(false);
     }
   }
+  /**
+   * PD2 (m2 screen 2 STATES · A11Y) — the ask's null→stamp edge, seen on THIS phone.
+   *
+   * Own ask: focus lands on the <h1>, now "Pay at the counter" (the dock that held focus has
+   * unmounted). A TABLEMATE's ask: the Bill flips to the pass as a view flip, the one region says
+   * "Your table asked to pay at the counter." once, and focus moves to the <h1> only if it was lost
+   * with an unmounted control (the dock or the promo field) — never stolen from a control the diner
+   * moved to. An Order-stage phone stays where it is and hears the sentence. Keyed on the edge, not
+   * the view: a standing ask at mount is not an event. Through a frame, like every announcement on
+   * this screen (the region must be on screen before its text changes).
+   */
+  const prevCounterAt = useRef(counterAt);
+  // The remote ask's frame, cancelled on UNMOUNT only: the optimistic stamp is replaced by the
+  // server's a beat later (one more run of the effect below, no edge), and a per-run cleanup would
+  // cancel the frame the edge had just armed.
+  const askFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (askFrame.current !== null) cancelAnimationFrame(askFrame.current);
+    },
+    [],
+  );
+  useEffect(() => {
+    const was = prevCounterAt.current;
+    prevCounterAt.current = counterAt;
+    if (was != null || counterAt == null || !phonePayOff) return;
+    if (ownAsk) {
+      // This phone's own tap: the dock that held focus has unmounted — land on the heading now.
+      headingRef.current?.focus();
+      return;
+    }
+    askFrame.current = requestAnimationFrame(() => {
+      askFrame.current = null;
+      sayOutcome(T("tableAskedCounter"), t("my", "tableAskedCounter"));
+      if (focusWasLost()) headingRef.current?.focus();
+    });
+    // `sayOutcome`, `ownAsk` and `phonePayOff` are this render's; the edge is keyed on the stamp.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterAt]);
   async function withdrawCounter() {
     if (counterBusy) return;
     setPayError(null);
@@ -2018,7 +2105,11 @@ export function Checkout({
       // does.
       confirmedWrite(viewSeqRef.current);
       setCounterAt(null);
-      setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
+      setOwnAsk(false);
+      // PD2 (m2 decision 14) — while phone pay is parked there is no tip and no Pay to pick, so
+      // the shipped sentence would name two parked controls; the quiet "No rush" says the truth.
+      if (phonePayOff) sayOutcome(T("noRushBill"), t("my", "noRushBill"));
+      else setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
       void refresh();
     } catch {
       setCounterAt(confirmed);
@@ -2502,7 +2593,11 @@ export function Checkout({
   });
   // The Total door's ONE name key: never "& pay" while Pay is held, nor over a standing counter ask —
   // the Bill it opens hides Pay behind the counter card then (Codex round 3 on #313).
-  const doorLabel = billDoorLabel(block, counterAt != null);
+  // PD2 — and never "& pay" while the phone-pay door is parked: the Bill has no Pay to reach.
+  const doorLabel = billDoorLabel(block, {
+    counterAsk: counterAt != null,
+    phonePayOpen: !phonePayOff,
+  });
   const payReasonId = "pay-reason";
   const blockCopy = block
     ? payBlockCopy(block, { lockedByName, canSend: canSendToKitchen, hostName })
@@ -2654,7 +2749,10 @@ export function Checkout({
   // Uses the EFFECTIVE rate (preset OR derived custom) so the preview matches what create-intent charges.
   // A1 — under a counter ask the app charges no tip (the register records a cash tip in hand), so
   // no amount on this screen previews one.
-  const tipPreviewCents = pureGrocery || counterAt != null ? 0 : tipPreview(effectiveTipRate);
+  // PD2 — and none while the phone-pay door is parked: the tip ask is not drawn, so no total may
+  // preview one (the cash tip lives in Dad's sheet, `settle.cash.tipLabel`).
+  const tipPreviewCents =
+    pureGrocery || counterAt != null || phonePayOff ? 0 : tipPreview(effectiveTipRate);
   // W2d → Phase 3c-i (D14) — the estimated tip-inclusive total, named ONCE (W17): the Order stage's
   // Total door, the Bill's hero total and the Pay label all read this binding, so a previewed tip
   // can never show on one and not another. Presentation only — a labelled PREVIEW; the charged figure
@@ -2701,7 +2799,19 @@ export function Checkout({
   return (
     // W22a — the paper ambient behind the whole bill/pay column (no isolation: the page ground
     // lives on <html>, so the fixed z:-1 layer is visible without trapping fixed overlays).
-    <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
+    <main
+      className="page-col page-col-narrow"
+      // PD2 — while the counter door is docked the page clears it (`--cta-dock-h`, published by the
+      // dock through `useCtaDock`: its height + 16) plus its 24px paper fade, so the promo form
+      // scrolls clear of the dock on a short phone.
+      style={{
+        padding: "24px 20px 40px",
+        paddingBottom:
+          showPayControls && isDineIn && phonePayOff
+            ? "calc(var(--cta-dock-h, 0px) + 24px + 24px)"
+            : undefined,
+      }}
+    >
       <PaperAmbient />
       {/* tabIndex={-1} = programmatic focus target (focus lands here when the view swaps — the last
           line removed or restored — or a fired line drops focus; a removed line's focus lands on its
@@ -2710,7 +2820,10 @@ export function Checkout({
           the pay moment; hidden for anon). */}
       {/* Phase 1b — table context on the bill, the same eyebrow the menu wears ("At table 7"): at a
           shared table the one fact every screen should answer is WHICH table this is. */}
-      {isDineIn && tableNumber != null && <p className="eyebrow">Table {tableNumber}</p>}
+      {/* PD2 — not while the counter pass shows: the pass IS the table, named once on its stub. */}
+      {isDineIn && tableNumber != null && !passShowing && (
+        <p className="eyebrow">Table {tableNumber}</p>
+      )}
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
@@ -2887,7 +3000,10 @@ export function Checkout({
             {/* W12 — the way back from the Bill moment, mirroring the pay step's quiet `.nav-link`
                 (never a second filled CTA above "Pay · $X"). A state flip, not a route — same
                 pattern (and same rationale) as the pay step's own back control. */}
-            {!settledClose && staged && stage === "bill" && (
+            {/* PD2 — not while the counter pass shows (decision 8): the one way back is the pass's
+                quiet withdraw, last; the tab bar's Menu still adds dishes, and their prices join
+                the total. */}
+            {!settledClose && staged && stage === "bill" && !passShowing && (
               <button
                 type="button"
                 className="nav-link"
@@ -3282,7 +3398,34 @@ export function Checkout({
                 payment lands — money is safe, timing is the surprise). The host gets the way back;
                 a guest cannot send, so for them the sentence alone is the honest whole story.
                 Plain content, not a live region — this view keeps its one. */}
-            {!settledClose && staged && stage === "bill" && noteQty > 0 && (
+            {/* PD2 (m2 decisions 11 · 12, appendix A2) — on the counter-only Bill the note is the
+                shared mark, count-free: a hollow ring and the console's own two words
+                (`pad.group.unsent`), on --sf, never warn — a guest is not alarmed by a dish the
+                host has not sent. The NEXT STEP is said once, in the dock's one line slot (the
+                door's held reason), not here. The host keeps the quiet way back. The ask over
+                unsent dishes stays refused until counter-floor's P2do lands (decision 12). */}
+            {!settledClose && staged && stage === "bill" && noteQty > 0 && phonePayOff && (
+              <div className="checkout-unsent-mark">
+                <p className="checkout-unsent-capsule">
+                  <span aria-hidden className="mark-ring" />
+                  {STAFF["pad.group.unsent"].en}
+                  <span aria-hidden className="checkout-unsent-dot">
+                    ·
+                  </span>
+                  <span lang="my">{STAFF["pad.group.unsent"].my}</span>
+                </p>
+                {canSendToKitchen && (
+                  <button type="button" className="nav-link" onClick={backToOrder}>
+                    <span aria-hidden className="nav-arrow nav-arrow-back">
+                      ←
+                    </span>{" "}
+                    {T("backToSendThem")}
+                    <My k="backToSendThem" inline color="var(--t3)" />
+                  </button>
+                )}
+              </div>
+            )}
+            {!settledClose && staged && stage === "bill" && noteQty > 0 && !phonePayOff && (
               <div className="card checkout-unsent-note mms-rise">
                 <p
                   style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
@@ -3354,7 +3497,7 @@ export function Checkout({
                 textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
                 the owner, and the comped/voided treatment carried over from the cards. Editing lives
                 one tap back on the Order moment — a bill you can quietly read is the point. */}
-            {!settledClose && staged && stage === "bill" && (
+            {!settledClose && staged && stage === "bill" && !passShowing && (
               <div className="card card-textured checkout-receipt">
                 {/* W21 — grouped by destination (BillLines): "At your table" vs "To-go" vs
                     "Grocery", headings only when the basket really spans 2+. */}
@@ -3368,8 +3511,44 @@ export function Checkout({
                     cents={totals.taxCents}
                     note={totals.taxCents > 0 ? TAX_NOTE : undefined}
                   />
+                  {/* PD2 (m2 decision 5) — while phone pay is parked the total is the slip's OWN
+                      foot: the separate Total row below only ever existed to preview a tip, and no
+                      tip exists on this screen — so it is never "Estimated total". The server's
+                      `totals.totalCents`, the same figure Dad's pane reads (`getCartTotals`). */}
+                  {phonePayOff && <Row k="rowTotal" cents={totals.totalCents} strong roll />}
                 </dl>
               </div>
+            )}
+            {/* PD2 (m2 screen 2) — after the ask, EVERY phone at the table becomes the counter
+                pass: the table figure, the total, the receipt folded into a "View bill"
+                disclosure, and the quiet withdraw last. The ask is a state every phone agrees on
+                (`counterAt` from every view read), so a tablemate's ask lands here as a view flip.
+                The pass total is `totals.totalCents` — the SAME `getCartTotals` figure the slip's
+                foot and Dad's pane show; never computed here. */}
+            {passShowing && (
+              <PayAtCounterPass
+                tableNumber={tableNumber}
+                tableCode={splitContext?.qrCode ?? null}
+                totalCents={totals.totalCents}
+                sentenceKey={counterCard ? "counterBody" : "counterShowCash"}
+                settling={settling}
+                unsent={kitchenDraftQty > 0}
+                busy={counterBusy}
+                rise={ownAsk}
+                onWithdraw={withdrawCounter}
+              >
+                <BillLines items={viewItems} isGroup={isGroup} splitContext={splitContext} />
+                <dl style={{ borderTop: "1px solid var(--bd)", paddingTop: 6, marginTop: 8 }}>
+                  <Row k="rowSubtotal" cents={totals.subtotalCents} />
+                  {totals.promoCents > 0 && <Row k="rowPromo" cents={-totals.promoCents} />}
+                  {totals.rewardCents > 0 && <Row k="rowReward" cents={-totals.rewardCents} />}
+                  <Row
+                    k="rowTax"
+                    cents={totals.taxCents}
+                    note={totals.taxCents > 0 ? TAX_NOTE : undefined}
+                  />
+                </dl>
+              </PayAtCounterPass>
             )}
 
             {showPayFurniture && isGroup && splitContext && (
@@ -3409,6 +3588,10 @@ export function Checkout({
                   readOnly={editsFrozen}
                   autoCapitalize="characters"
                   maxLength={40}
+                  // PD2 — the docked counter door hides while this field has focus (it would
+                  // otherwise ride the keyboard) and returns on blur.
+                  onFocus={() => setPromoFocused(true)}
+                  onBlur={() => setPromoFocused(false)}
                   className="checkout-promo-input"
                   style={{
                     flex: 1,
@@ -3627,7 +3810,9 @@ export function Checkout({
                 breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
                 the amount rides as a rate (customCents / net) so the server path is identical. Hidden on
                 a pure-grocery basket — self-scanned retail is not table service (W1). */}
-            {showPayControls && !pureGrocery && (
+            {/* PD2 (m2 decision 6) — no tip ask on a dine-in phone while phone pay is parked: the
+                app charges nothing here, and the cash tip lives in Dad's sheet. */}
+            {showPayControls && !pureGrocery && !phonePayOff && (
               <>
                 {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
                     the ask had no visible label, and the group's aria-label meant accessible name
@@ -3833,7 +4018,9 @@ export function Checkout({
                 standalone grand-total bar (not a second receipt card) so the total reads as the hero
                 figure; the tip is folded into a subline. `.vt-cart-total` makes THIS the single
                 cart-total morph target (J1). Presentation only — the charge stays server-authoritative. */}
-            {showPayFurniture && (
+            {/* PD2 (m2 decision 5) — not while phone pay is parked: the total is the slip's own
+                foot then, and this row existed only to preview a tip. */}
+            {showPayFurniture && !phonePayOff && (
               <div
                 style={{
                   display: "flex",
@@ -4020,7 +4207,10 @@ export function Checkout({
                 send > the send's undo window) is a static line it is `aria-describedby`, and every
                 blocked tap re-says that same sentence through the view's region. `aria-disabled`, never
                 native — the control stays reachable and reads why. */}
-            {showPayControls && (
+            {/* PD2 (decision 2) — the card hero is NOT DRAWN while the phone-pay door is parked:
+                no card button, no card words, no "coming soon". The docked counter door below is
+                the Bill's one door then, and create-intent refuses a raw POST the same way. */}
+            {showPayControls && !phonePayOff && (
               <>
                 <button
                   type="button"
@@ -4094,7 +4284,7 @@ export function Checkout({
                 "Everything sent" rule too (`sendBlocksPay`); the unsent note above says why whenever
                 this button is on screen (both render only on the Bill stage of a dine-in table),
                 and a tap on it repeats the reason — the server refuses the ask the same way. */}
-            {showPayControls && isDineIn && (
+            {showPayControls && isDineIn && !phonePayOff && (
               <PayAtCounterButton
                 disabled={block !== null}
                 busy={counterBusy}
@@ -4116,7 +4306,39 @@ export function Checkout({
                 }
               />
             )}
-            {counterAsk && (
+            {/* PD2 (m2 screen 1, appendix A1 · B1) — THE ONE DOOR, docked in the CartBar's own
+                slot, with the Bill's one line slot directly above it: at rest "The counter takes
+                cash." (or, with a reader, "Ready for the bill?"); held, the hero's ONE reason —
+                dishes still to send, the send's undo window, or the register mid-settle — never
+                both. Held states are `aria-disabled` with the reason as the description, and every
+                blocked tap re-says it through the view's one region. No amount on the door: it
+                charges nothing, and the total sits on the slip above. */}
+            {showPayControls && isDineIn && phonePayOff && (
+              <PayAtCounterDock
+                lineKey={counterCard ? "readyForBill" : "counterTakesCash"}
+                reason={
+                  settling
+                    ? { en: T("registerSettling"), my: t("my", "registerSettling") }
+                    : block === "unsent"
+                      ? {
+                          en: counterUnsentTapCopy(
+                            canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
+                          ),
+                          my: null,
+                        }
+                      : block === "grace"
+                        ? { en: T("payOpensAfterUndo"), my: t("my", "payOpensAfterUndo") }
+                        : block === "peer" && blockCopy
+                          ? { en: blockCopy, my: null }
+                          : null
+                }
+                busy={counterBusy}
+                hidden={promoFocused}
+                onClick={askCounter}
+                onRefusedTap={(reason) => sayRefusal(reason)}
+              />
+            )}
+            {counterAsk && !phonePayOff && (
               <PayAtCounterCard
                 tableNumber={tableNumber}
                 totalCents={totals.totalCents}
@@ -4149,7 +4371,12 @@ export function Checkout({
                 <SecureTabButton cartId={cartId} onSecured={refresh} />
               </>
             )}
-            {showPayFurniture && tabType === "secure" && (
+            {/* PD2 (PATH_DESIGN Codex correction 2; round 3 D4) — the saved-card note follows the
+                phone-pay door: hidden while it is parked or held, because "pay here" is then a
+                promise this Bill does not keep. Staff can still close the secure tab from the
+                console (`closeSecureTab` is never gated by the flag), so the card is never
+                stranded — and nothing here needs to say so. English-only when it shows. */}
+            {showPayFurniture && tabType === "secure" && !phonePayOff && block === null && (
               <p
                 style={{
                   ...tabNote,
@@ -4160,8 +4387,7 @@ export function Checkout({
                 }}
               >
                 <Icon name="check" size={15} />
-                Your card is saved — pay here anytime, or just leave and we’ll charge the bill to
-                it.
+                Your card is saved — pay here, or just leave and we’ll charge the bill to it.
               </p>
             )}
 
