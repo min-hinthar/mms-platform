@@ -4,6 +4,52 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The owner's path-design picks (2026-10-07)
+
+- **Design-thinking prototyping is now a standard loop (owner, 2026-10-08: "make this standard").**
+  `.claude/skills/design-prototyping/SKILL.md` writes down the process this record went through: map,
+  diverge three directions on a canvas, ask the owner once, refine with a consistency pass and a critic,
+  record, blind pass, Codex, merge on the owner's go. It carries the artboard rules and the four workflow
+  templates. CLAUDE.md and WORKFLOW.md point to it; HANDOFF's top block hands the build to the next
+  session; LEARNINGS #246 records the review lessons. Codex's fourth round made the templates take each round's own inputs, fail when a lens or a moment is missing, and gain the brief and draw steps; it also made "served" wait out Mom's undo window on the server, kept the TV's tables, dishes and to-go rows stable, gave a no-tender cash settle an honest seal, and put `lib/kitchen-track.ts` with kitchen-ops in the handoff.
+
+- **The owner picked a direction for eight diner and staff moments:** diner moments guided, staff moments
+  glanceable, each "more enhanced, elevated, world-class". The record is the new
+  [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md), with one refined spec per moment in
+  [`docs/path-design-2026-10-07/`](docs/path-design-2026-10-07/).
+- **Three owner answers recorded there:**
+  - a counter-only dine-in Bill until live card keys (C2);
+  - "Show a server" plus a "Let Aye know" nudge for a guest waiting on the host's Send;
+  - payment never blocked by a dish waiting for a manager.
+- **The shared design vocabulary** (one voice in two registers, the CounterPass, one Undo, the staff
+  loudness ladder) is set once for all eight moments, so the four glanceable staff moments stop inventing
+  four loud vocabularies for one counter.
+- **Each spec checks its product claims against the code at `f6e81ce`.** A cross-moment consistency pass
+  and an adversarial critic then amended it; the appendix wins over the spec body.
+- **Reviewed before merge.** A blind adversarial pass corrected the record's own summaries. Codex's two
+  rounds added fifteen required corrections that win over the specs, among them:
+  - reward redemption and the saved-card note on the counter-only Bill;
+  - stable kitchen keys and Bring-back labels;
+  - the pad's handoff stash, and a till layout that fits its width;
+  - Seat next's mint reservation and bell, and no no-loss clear on an unknown kitchen read;
+  - a durable stop-cooking record;
+  - every payment door acknowledging its own pending snapshot;
+  - `ASKER_BY_PIN` off until the owner answers.
+- **The rulings file gains section E;** HANDOFF points to it. OPEN-ITEMS gains PD1–PD8, one row per
+  moment, naming the stream that builds it. Docs only: no code changed.
+- **Round 3 — the owner delegated every open design question (rulings section F).** The record decides
+  D1–D5:
+  - owners for the unowned pieces;
+  - a manager request closed after payment recorded as `superseded`, never `denied`;
+  - two Undo words, ပြန်ယူ (take back a Send) and ပြန်ဖျက် (erase a mark just made);
+  - moment 8's asker-by-PIN seam left unbuilt (PD13);
+  - card / Apple Pay on the guest's phone once nothing on the bill is waiting on the kitchen (D5's hold set, hostless tables and to-go drafts included), enforced in create-intent after the intent supersede and parked behind `SURFACES.dineInPhonePay` until live keys; the flag flips in its own PR and is then proved by one refunded Apple Pay sale (C2; ENV step 7).
+- **Four new moments, one spec each:** the TV board with per-item, per-table kitchen progress (m9 ·
+  PD9), the guest's live pass and pay after served (m10 · PD10), and animated step guides for diners
+  (m11 · PD11) and staff (m12 · PD12). They share one pass, one kitchen track (Sent · Cooking · Served,
+  never gold) and one motion language, set in the record's round-3 section, which wins over everything
+  before it. Each m1–m8 spec gains a section D with its round-3 amendments. A blind three-lens review then corrected the record before review by Codex: the flip's order (the proof sale cannot precede the flip), PD10's id in three specs, the refusals' place after the supersede, hostless tables, and the round-2 text the round-3 rows had left standing. Codex's third round then made a to-go draft hold the phone door too, the host nudge a durable stamp on the cart, the till slip freeze with its quote, both guides arm per step and teach only reachable controls, and the parked kiosk print its board code before it reopens. Docs only.
+
 ### C18 corrected — the webhook was not dead (2026-10-07)
 
 - **C18 is closed by measurement, and the fix this wave recorded for it is withdrawn.**

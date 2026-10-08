@@ -135,6 +135,56 @@ https://qr.mandalaymorningstar.com/api/stripe/webhook".**
   required check with no bypass would also hold every `.md`-only PR for a Codex verdict, which #1's waiver
   does not ask for. So wiring it without a bypass is the owner's call, not this note's.
 
+## E · The owner's design picks (2026-10-07, later still)
+
+**The owner's words, after seeing three concept directions drawn for eight diner and staff moments: "I
+prefer diner moments guided and staff moments glanceable. I actually love all 3 directions but could be
+more enhanced, elevated, world-class design-thinking."**
+
+[`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) is the record: the direction, the owner's three
+answers, the defaults that stand, the shared design vocabulary, and one refined spec per moment. **For
+those eight moments' design, that file wins over a stream card's.** These rulings still win on rulings.
+In short:
+
+- Diner moments are guided and staff moments glanceable, each elevated with the best of the other two
+  directions.
+- Until live card keys are switched on (C2), the dine-in Bill offers only "Pay at the counter" (a new
+  parked surface, refused in create-intent; that refusal is money-path, so #1's Codex line applies when
+  the blind pass flags it).
+- A guest whose dish waits on the host's Send gets the words, a "Show a server" card for Dad, and a quiet
+  "Let Aye know" nudge.
+- A dish waiting for a manager never blocks payment: staff are warned and may take payment. The dish
+  stays charged, and if a manager agrees after the table has paid, it is refunded from Today's payments
+  & refunds. That close is recorded as `superseded` ("Table paid first"), never `denied` (section F, D2).
+
+## F · The owner's delegation (2026-10-07, latest)
+
+**The owner's words: "I trust you to apply world-class design-thinking best standards on all open
+decisions. staff board also needs moment designs integration so TV board display shows live order
+progress in details (per item per table etc.,) for customers and staff. after food items served,
+customers should be allowed to pay by card/apple pay. I really like the direction of premium iOS
+designs, wallet boarding pass, One pass and progress updates, visual animated step guides for customers
+and staff to get familiar with the new app."**
+
+The planning session decided every open design question under that delegation, and designed the new
+moments the owner asked for. [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md)'s round-3 section is
+the record. Each decision is reversible on the owner's word. In short:
+
+- **D1 · Owners:** `CartBar.tsx`, `ArrivalBeat` and `lib/surfaces.ts` → diner-cart; `tokens.css` and the
+  Sheet's opt-in `initialFocus` stay with guards-style, which already owns them. Handoffs are on PD1, PD2,
+  PD4 and PD6.
+- **D2 · A request closed after the table paid** records `superseded`, never `denied`, through a `close`
+  arm carried in M184's migration. **Annotation to #5, not a re-ruling:** same function, signature and
+  grants, no CHECK change; the owner's apply-time go and the per-SHA merge line (#1) still govern, and
+  holding that line moves the arm into its own file with its own go.
+- **D3 · One act, one word:** ပြန်ယူ for taking back a Send (console and phone), ပြန်ဖျက် for erasing a
+  mark just made. No shipped string changes; the native sitting confirms it.
+- **D4 · The asker-by-PIN seam** is not built this wave; PD13 holds its reopen trigger.
+- **D5 · Card / Apple Pay after the food is served:** a dine-in phone pays once nothing on the bill is waiting to be sent or still with the kitchen (D5's hold set in PATH_DESIGN), enforced in create-intent. It is parked until C2, then flipped by its own PR after the three conditions in PATH_DESIGN, and proved right after by one refunded Apple Pay payment at a table. Ruling #8 is unchanged: D5 adds nothing to the key swap,
+  only to the dine-in flag.
+- **New moments (PD9–PD12):** the TV board showing each table's dishes live; the guest's live pass; the
+  first-run step guides for guests, the counter and the kitchen.
+
 ## C18 — closed (2026-10-07)
 
 **Closed by measurement: every succeeded test payment since 2026-09-09 has its order. Only the owner's

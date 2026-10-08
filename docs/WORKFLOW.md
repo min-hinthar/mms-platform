@@ -29,8 +29,18 @@ flowchart LR
   E -->|green + both rounds triaged| G[Mark ready → squash-merge]
   G --> H[Vercel: production]
   H --> I[ROADMAP + CHANGELOG ticked<br/>leftovers → OPEN-ITEMS.md]
-  I --> A
+    I --> A
 ```
+
+## Design-thinking prototyping (the standard, owner 2026-10-08)
+
+When the owner asks for design thinking, prototypes or an elevated path, run the loop in
+[`.claude/skills/design-prototyping/SKILL.md`](../.claude/skills/design-prototyping/SKILL.md): map the
+paths, diverge three directions per moment on the owner's design canvas, ask the owner once, refine with
+one consistency pass and an adversarial critic, record it in a docs-only PR (a record, one spec per
+moment, OPEN-ITEMS rows naming the stream that builds each), then the blind pass and Codex as above, and
+merge on the owner's go. The worked example is `docs/PATH_DESIGN_2026-10-07.md` (#319). Streams then
+build from the record; it wins over a stream card for the moments it covers.
 
 ## Roles
 

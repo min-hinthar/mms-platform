@@ -9,6 +9,7 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 - **Verify before "done."** Run the full check (`pnpm turbo lint typecheck build`) and confirm nothing else broke. **Never trade correctness for speed; flag regressions proactively** — regressions are the #1 frustration.
 - **UI/UX polish is a core requirement**, not a follow-up — build every screen to `docs/prototype/v7.2.html` + `docs/context/DESIGN-RESEARCH.md` and the `docs/context/RUBRIC.md` ≥4.3 bar in the **first commit** (tokens not hardcoded colors, animation timing, spacing, contrast, real semantics/44px/a11y per QA-CHECKLIST §A, brand-voice microcopy); run the **Pre-PR self-review sweep** (below) on your diff before the PR — don't let the review surface craft gaps (the review/adversarial gates now cross-check fidelity).
 - **Vendor choices:** when proposing a lib, give the trade-off + evidence (bundle size, activity).
+- **Design-thinking prototyping has a standard loop** (owner, 2026-10-08: "make this standard"): map → diverge three directions on a canvas → one sharp owner question → refine with a consistency pass and a critic → record → blind pass → Codex → merge on the owner's go. Follow `.claude/skills/design-prototyping/SKILL.md` (worked example: `docs/PATH_DESIGN_2026-10-07.md`, #319).
 
 ## What this is
 

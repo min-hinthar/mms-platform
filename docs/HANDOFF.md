@@ -5,6 +5,46 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — build the path designs (2026-10-08 · #319 merged on the owner's go)
+>
+> **The design record is merged:** [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) with twelve
+> specs in [`path-design-2026-10-07/`](path-design-2026-10-07/) and OPEN-ITEMS **PD1–PD13**. It went
+> through two blind passes and three Codex rounds, every thread answered. Read its round-3 section first:
+> it wins over everything before it, and over a stream card for the moments it covers. The owner's
+> canvas ("MMS paths — design prototypes", private, in their claude.ai artifacts; find it by title with
+> `Artifact` `action: "list"`) holds the 20 refined screens of moments 1–8 and the 8 of moments 9–12.
+>
+> **The owner's words on handing off (2026-10-08):** "I love the workflows, outputs, and collaborations on
+> this: Let’s make this standard for future design-thinking prototyping. Merge and handoff for next
+> session to build and improve plans." The loop is now the standard:
+> [`.claude/skills/design-prototyping/SKILL.md`](../.claude/skills/design-prototyping/SKILL.md) (CLAUDE.md
+> and WORKFLOW.md point to it). Any new design ask runs it.
+>
+> **Build in the record's sequence (its "Sequencing" section), smallest safe step first:**
+>
+> 1. **guards-style's token-only PR:** `--fs-pass`, `--till-fs-hand` and the `--pass-*` constant inks in
+>    `packages/ui/src/tokens.css` (D1(c)). No money path, no migration.
+> 2. **post-pay's primitives:** the one CounterPass and the kitchen-track UI (ONE PASS · ONE KITCHEN
+>    TRACK), rendering a stage they are handed.
+> 3. **PD5's re-key with `lib/kitchen-track.ts`** (kitchen-ops): the one stage derivation, and
+>    `KDS_UNDO_MS` moved to `lib/`. Then PD1–PD8 by their streams, then the TV board (PD9) and the live
+>    pass (PD10), then the guides last (PD11, PD12), each after every control it teaches.
+> 4. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first; the D5 served gate (PD10)
+>    is built behind it; the flip is its own PR after C2 and ENV step 7, never earlier.
+>
+> **Improve the plans as you build:** each spec's appendix C holds suggestions not yet taken; take them
+> where the build agrees and record what you took in the spec. A design question the build raises goes
+> through the standard loop (a quick round is fine), not into code by guess.
+>
+> **Before re-queuing the nine stream cards,** read the stream-card note in the block below: the
+> 2026-10-07 re-queue was not confirmed as started, and the owner has not said whether the streams run
+> as parallel sessions or in this sequence in one session. Recommend the sequence above (steps 1–2
+> unblock everything and carry no money risk) and ask once.
+>
+> **Migrations still need the owner's go, one file at a time:** PD1's nudge stamp (Codex round 3) and
+> M184's widened `close` arm (D2). The owner's other items are unchanged: C2 and the flip, the device
+> sitting (including whether drinks get bumped), and the native Burmese sitting.
+
 > ## ⏭️ NEXT SESSIONS — the parallel wave (2026-10-07 · #315 MERGED `76501c0` · nine streams planned · one card pending)
 >
 > **#315 is merged** (`76501c0`, a merge commit). A full `verify:slice` on its tree caught 3270 of 3270
@@ -35,6 +75,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - the moment to apply each approved migration, and the go for M168's and T4's;
 > - the facts only the owner holds, listed in the file;
 > - anything a ruling's condition leaves open, such as #2's admin bypass.
+>
+> **The owner picked the path designs (2026-10-07, later):** diner moments guided, staff moments
+> glanceable, each elevated with the best of all three directions.
+> [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md) is the record (rulings file, section E), with
+> one refined spec per moment in [`path-design-2026-10-07/`](path-design-2026-10-07/). For those eight
+> moments' design it wins over a stream card's. Streams touched: diner-cart · money-rails ·
+> counter-floor · kitchen-ops · post-pay · grocery · staff-authority (OPEN-ITEMS PD1–PD8).
+>
+> **Round 3 (2026-10-07, latest — rulings file, section F):** the owner delegated every open design
+> question, and the record decides them (D1–D5): owners for the unowned pieces, a close after payment
+> recorded as `superseded`, the two Undo words (ပြန်ယူ · ပြန်ဖျက်), the asker-by-PIN seam left unbuilt,
+> and card / Apple Pay at the table once nothing on the bill is waiting on the kitchen (D5's hold set) — built behind a flag that stays off until
+> live keys are verified (C2). It adds four moments: the TV board (PD9), the guest's live pass and pay
+> after served (PD10), and step guides for diners (PD11) and staff (PD12); PD13 parks the asker seam.
+> Left for the owner (the record's "What still goes to the owner"): C2 and the flag flip, M184's widened merge line, and
+> the device and native-speaker sittings.
 >
 > **Owner's hands (not code):**
 >
@@ -2068,7 +2124,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > **3270 `verify:slice` mutants** · **268 target modules** (181 under `apps/qr/lib`, 5 API routes,
 > 79 components, 1 stylesheet, 1 staff page, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (6798 + 287 today)** ·
-> 105 tracked docs files ·
+> 121 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -3428,7 +3484,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (105 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 3270 `verify:slice` mutants green · `pnpm check:docs` clean (121 files, 6798 qr tests + 287 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
