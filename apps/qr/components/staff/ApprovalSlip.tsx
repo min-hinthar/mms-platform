@@ -6,7 +6,7 @@ import {
   useRef,
   type CSSProperties,
   type ReactNode,
-  type Ref,
+  type RefObject,
 } from "react";
 import { Button, Icon } from "@mms/ui";
 import type { Approver } from "@/lib/voids";
@@ -25,7 +25,8 @@ import { useStaffLang } from "./StaffLangProvider";
  *     Exactly one eligible arrives lit; two or more arrive with none lit (a pre-lit wrong name spends
  *     someone else's lockout). The lit tile wears the console's ONE cap (`.staff-chip[aria-pressed]`).
  *   · The PIN field is labelled with the person — "Aye, your PIN" — once a name is lit; the shipped
- *     "PIN" otherwise. It is READ-ONLY under a lockout, never disabled (§17).
+ *     "PIN" otherwise (while the roster loads or could not be read, so a PIN typed early is kept and
+ *     focus put there is never taken). It is READ-ONLY under a lockout, never disabled (§17).
  *   · Zero eligible says one of the two TRUE sentences (never "none are signed in"): the asker is the
  *     only signer here, or no manager has a tablet PIN yet — on plain ground, no flag, no warn fill
  *     (appendix B8). A roster that could not be READ says so, with Try again — never "nobody".
@@ -122,19 +123,23 @@ export function ApprovalSlip({
   pin: string;
   onPinChange: (pin: string) => void;
   locked: boolean;
-  pinRef?: Ref<HTMLInputElement>;
-  firstTileRef?: Ref<HTMLButtonElement>;
+  /** The parent's refs to the PIN field and the first tile — its focus targets, and the slip's own
+   *  (a recovery's focus lands through them, so nothing is assigned into a prop). */
+  pinRef: RefObject<HTMLInputElement | null>;
+  firstTileRef: RefObject<HTMLButtonElement | null>;
 }) {
   const lang = useStaffLang();
   const legendId = useId();
   const litName = eligible?.find((e) => e.staffId === lit)?.displayName ?? null;
   const loading = !rosterFailed && eligible === null;
   const showTiles = !rosterFailed && eligible !== null && eligible.length > 0;
-  // Codex r1 follow-up on #310 (V2), kept from the shipped fields — a recovery (a Try again's answer,
-  // or a late one) unmounts the Try again under whatever focus it holds: when focus was ON it as it
-  // left, the spoken next step takes it — the PIN once a name is lit, else the first tile. Focus
-  // the person put anywhere else is never taken. The ref cleanup reads `activeElement` BEFORE the
-  // node is removed, which is the only moment the fact can be read.
+  // Kept from the shipped fields (Codex round 2 on #308; the r1 follow-up on #310, V2) — a recovery
+  // unmounts the Try again under whatever focus it holds: after the tap that asked (`focusPicker`),
+  // or when focus was ON it as a LATE answer took it away (`retryHadFocus`), the spoken next step
+  // takes focus — the PIN once a name is lit, else the first tile. Focus the person put anywhere
+  // else is never taken. The ref cleanup reads `activeElement` BEFORE the node is removed, which is
+  // the only moment the fact can be read; the tap's flag is dropped when the retry fails again.
+  const focusPicker = useRef(false);
   const retryHadFocus = useRef(false);
   const retryBox = useCallback((el: HTMLDivElement | null) => {
     if (el === null) return;
@@ -142,13 +147,12 @@ export function ApprovalSlip({
       retryHadFocus.current = el.contains(document.activeElement);
     };
   }, []);
-  const pinNode = useRef<HTMLInputElement | null>(null);
-  const tileNode = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
-    if (rosterFailed || !retryHadFocus.current) return;
+    if (rosterFailed || !(focusPicker.current || retryHadFocus.current)) return;
+    focusPicker.current = false;
     retryHadFocus.current = false;
-    (litName !== null ? pinNode.current : tileNode.current)?.focus({ preventScroll: true });
-  }, [rosterFailed, litName]);
+    (litName !== null ? pinRef.current : firstTileRef.current)?.focus({ preventScroll: true });
+  }, [rosterFailed, litName, pinRef, firstTileRef]);
 
   return (
     <fieldset className="appr-slip" style={fieldset}>
@@ -185,13 +189,7 @@ export function ApprovalSlip({
               return (
                 <button
                   key={a.staffId}
-                  ref={(el) => {
-                    if (i === 0) {
-                      tileNode.current = el;
-                      if (typeof firstTileRef === "function") firstTileRef(el);
-                      else if (firstTileRef) firstTileRef.current = el;
-                    }
-                  }}
+                  ref={i === 0 ? firstTileRef : undefined}
                   type="button"
                   className="staff-btn staff-chip appr-tile"
                   aria-pressed={on}
@@ -222,7 +220,10 @@ export function ApprovalSlip({
                 block
                 busy={retrying}
                 busyLabel={<Chrome lang={lang} k="out.shell.retrying" />}
-                onClick={() => void onRetry()}
+                onClick={async () => {
+                  focusPicker.current = true;
+                  if (!(await onRetry())) focusPicker.current = false;
+                }}
               >
                 <Chrome lang={lang} k="out.shell.retry" echo="stack" />
               </Button>
@@ -243,7 +244,7 @@ export function ApprovalSlip({
           {zeroTail && <p style={{ ...noteCopy, marginTop: 6 }}>{zeroTail}</p>}
         </div>
       )}
-      {(showTiles || loading) && (
+      {(showTiles || loading || rosterFailed) && (
         <div className="appr-slip-pin">
           <label htmlFor={`${idPrefix}-pin`} className="appr-slip-pin-label">
             {litName !== null ? (
@@ -253,11 +254,7 @@ export function ApprovalSlip({
             )}
           </label>
           <input
-            ref={(el) => {
-              pinNode.current = el;
-              if (typeof pinRef === "function") pinRef(el);
-              else if (pinRef) pinRef.current = el;
-            }}
+            ref={pinRef}
             id={`${idPrefix}-pin`}
             className="appr-slip-pin-field"
             type="password"

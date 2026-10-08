@@ -532,8 +532,6 @@ export const STAFF = {
     en: "Deny this request — confirm with your PIN",
     my: "ဒီ တောင်းဆိုချက်ကို ငြင်းပယ်မယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
-  "table.appr.verb.confirmApprove": { en: "Confirm approve", my: "ခွင့်ပြုကြောင်း အတည်ပြု" },
-  "table.appr.verb.confirmDeny": { en: "Confirm deny", my: "ငြင်းပယ်ကြောင်း အတည်ပြု" },
   "table.appr.verb.cancel": { en: "Cancel", my: "မလုပ်တော့" },
   "table.appr.working": { en: "Working…", my: "လုပ်နေပါတယ်…" }, // as table.loss.working — 44 values use ပါတယ်, 3 used သည်
   // A4·3 — the card's six server verdicts, keys rather than the English literals they were.

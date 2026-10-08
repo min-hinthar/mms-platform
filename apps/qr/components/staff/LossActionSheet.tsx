@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
@@ -195,19 +195,28 @@ export function LossActionSheet({
   const noManagers = zero !== null;
 
   /** A chip tap: the action AND the reason in one tap; on a gated line, the slip comes into view. */
+  const slipFocusWanted = useRef(false);
   function pickChip(a: Action, r: Reason) {
     setAction(a);
     setReason(r);
     setReasonInvalid(false);
-    const gated = a === "comp" || cooked || stepUp;
-    if (!gated) return;
+    // The slip may MOUNT on this very tap (a comp chip after a void one), so the focus waits for the
+    // render that holds it (the effect below), never the tap's closure.
+    if (a === "comp" || cooked || stepUp) slipFocusWanted.current = true;
+  }
+  useEffect(() => {
+    if (!showStepUp || !slipFocusWanted.current) return;
+    slipFocusWanted.current = false;
     const reduce =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     // Optional call: jsdom has no scrollIntoView (the SettledToday precedent).
     slipRef.current?.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
-    (lit !== "" ? pinRef.current : firstTileRef.current)?.focus({ preventScroll: true });
-  }
+    // The PIN once a name is lit; else the first tile; else (the list still loading) the PIN.
+    (lit !== "" ? pinRef.current : (firstTileRef.current ?? pinRef.current))?.focus({
+      preventScroll: true,
+    });
+  });
 
   /**
    * The void/comp's ANSWER — on time, or late (9e: the answer to an attempt the region already said
@@ -505,7 +514,6 @@ export function LossActionSheet({
                       key={`${a}-${r.value}`}
                       type="button"
                       aria-pressed={on}
-                      aria-invalid={reasonInvalid || undefined}
                       onClick={() => pickChip(a, r.value)}
                     >
                       <KindMark kind={a} size="sm" />

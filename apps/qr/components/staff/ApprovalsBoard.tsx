@@ -41,7 +41,7 @@ import { ReloadButton } from "./ReloadOffer";
 import { useResaid } from "./useResaid";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
-import { al, sx, type VerbKey } from "@/lib/staff-labels";
+import { al, sx } from "@/lib/staff-labels";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 /**
@@ -992,8 +992,8 @@ export function ApprovalDecision({
   // replaces the region's content, so the re-said sentence is announced, not swallowed as no change.
   const said = useResaid(msg);
   const legendId = `appr-q-${request.id}`;
-  const keyName = (verb: VerbKey) =>
-    al(lang, { kind: "verb", echo: "stack", shown: echoes, verb, subject: request.lineName }).aria;
+  // Each key's name holds a LITERAL verb (check:staff-lang rule 3c reads the label it must contain).
+  const subject = request.lineName;
   const keyStyle = (on: boolean): CSSProperties => ({
     ...actionBtn,
     opacity: canConfirm || on ? 1 : 0.6,
@@ -1079,7 +1079,15 @@ export function ApprovalDecision({
               aria-busy={pending || undefined}
               className="staff-btn"
               style={{ ...keyStyle(decision === "close"), ...paperKey }}
-              aria-label={keyName("table.appr.verb.close")}
+              aria-label={
+                al(lang, {
+                  kind: "verb",
+                  echo: "stack",
+                  shown: echoes,
+                  verb: "table.appr.verb.close",
+                  subject,
+                }).aria
+              }
             >
               {pending ? (
                 <Chrome lang={lang} k="table.appr.working" />
@@ -1096,7 +1104,15 @@ export function ApprovalDecision({
                 aria-busy={(pending && decision === "deny") || undefined}
                 className="staff-btn"
                 style={{ ...keyStyle(decision === "deny"), ...paperKey }}
-                aria-label={keyName("table.appr.verb.deny")}
+                aria-label={
+                  al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    shown: echoes,
+                    verb: "table.appr.verb.deny",
+                    subject,
+                  }).aria
+                }
               >
                 <Icon name="close" size={20} className="appr-key-glyph" />
                 {pending && decision === "deny" ? (
@@ -1112,7 +1128,15 @@ export function ApprovalDecision({
                 aria-busy={(pending && decision === "approve") || undefined}
                 className="staff-btn"
                 style={{ ...keyStyle(decision === "approve"), ...approveKey }}
-                aria-label={keyName("table.appr.verb.approve")}
+                aria-label={
+                  al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    shown: echoes,
+                    verb: "table.appr.verb.approve",
+                    subject,
+                  }).aria
+                }
               >
                 {/* The request's kind mark on Approve (appendix C3): a check never means an approval. */}
                 <KindMark kind={request.kind} size="sm" />
