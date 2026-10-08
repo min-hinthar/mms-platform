@@ -3769,3 +3769,21 @@ by the guest's presence, which dies when they lock their phone. For a design doc
 this happen in the state the system is in right then?" and of each state "what carries it, and does that
 carrier outlive the person who set it?" The standard loop now lives in
 `.claude/skills/design-prototyping/SKILL.md`.
+
+## #247
+
+**A gate's cost is a measurement, not a description — and "any throw = caught" is a hole (2026-10-08,
+the merge-gate audit after #319).** `verify:slice` was documented as "a few minutes" in CLAUDE.md and
+WORKFLOW.md and "~2 minutes" in its own header; a full serial run measured 164–180 min. Because the docs
+said minutes, runs kept being launched into windows too short for them: 8 of the 11 attempts since
+2026-10-06 died with EXIT 143 (inferred: the agent tool's 2 h ceiling), and every restart began again at
+mutant 1, re-proving inputs a green run had already proved. Nothing was wrong with WHAT the battery
+proves; it was a serial queue of cold `npx vitest` processes, run on the honour system because no
+workflow ran it. The same audit found the runner scoring ANY throw from the child as a kill — a buffer
+overflow, a spawn error or a signal (Ctrl-C killed the vitest child mid-battery and that mutant scored
+"caught") counted exactly like a red suite. A crashed runner reads as a guard that works. So: measure a
+gate's wall-clock before writing its cost into a doc, and re-measure when the thing it runs grows;
+put a gate that cannot fit the budget where it can run in parallel (separate CI runners, each with its
+own checkout) rather than asking a session to sit through it; and score a guard's success only on the
+evidence it was built for — here, exit 1 plus a report counting a failed test or suite — with timeouts and
+infrastructure failures as their own failing verdicts, never as passes.

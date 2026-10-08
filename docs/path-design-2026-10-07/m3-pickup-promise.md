@@ -1017,3 +1017,20 @@ The round-3 consistency pass gave this moment these changes:
    because a Server Action started on `pagehide` dies with the page), and the pending tap is also kept
    in `sessionStorage` and reconciled on return, so a beacon the browser drops is still sent. The route
    is idempotent on the order, so a beacon and a reconcile never record two arrivals.
+
+### F · Codex round 6 (2026-10-08) — these win over everything above
+
+1. **The pending "I'm here" is kept in `localStorage`, keyed by order — not `sessionStorage`.** E1 kept
+   the pending tap in `sessionStorage`, which belongs to one tab and is gone when that tab closes — the
+   very case E1 exists for, so a beacon the browser dropped on close was lost with the record meant to
+   repair it. Keep the pending arrival in `localStorage` under a key that carries the order (one entry
+   per order; it holds the order id and the tap time), behind try/catch like every other storage read in
+   the app.
+   - **Reconciled on the next visit.** When that order's /track mounts again on the same phone (any tab,
+     any later visit), a pending entry is sent to the same idempotent route.
+   - **Cleared only once the route confirms** — a success answer, or an answer that the order no longer
+     takes an arrival (collected, cancelled, past its pickup day). Never on send and never on
+     `pagehide`, so a dropped beacon or a failed reconcile is retried on the following visit.
+   - **Taking the tap back** inside its 6 seconds deletes the entry before anything is sent.
+   - The route stays idempotent on the order, so a beacon, a reconcile and a second tab never record two
+     arrivals.

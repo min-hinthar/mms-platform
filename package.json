@@ -38,7 +38,9 @@
     "check:echo-coalesce": "node scripts/check-echo-coalesce.mjs",
     "check:scan-repeat": "node scripts/check-scan-repeat.mjs",
     "check:mutant-anchors": "node scripts/check-mutant-anchors.mjs",
-    "check:style-literals": "node scripts/check-style-literals.mjs"
+    "check:style-literals": "node scripts/check-style-literals.mjs",
+    "check:photo-filter": "node scripts/check-photo-filter.mjs",
+    "check:money-coverage": "node scripts/check-money-coverage.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",

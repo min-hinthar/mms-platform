@@ -239,6 +239,16 @@ Return the shared vocabulary (a compact paragraph) and, per moment, the concrete
   { label: "consistency", phase: "Consistency", schema: CONSIST_SCHEMA },
 );
 
+// No consistency result, no critique (Codex round 6 on #319). The fallback that used to stand here
+// ("keep each spec as written") let N specs refined in isolation reach the critics and the canvas as
+// if one system designer had reconciled them. Re-run; the finished specs replay from cache.
+if (!consist || !consist.shared_vocabulary) {
+  throw new Error(
+    "refine incomplete: the consistency pass returned no shared vocabulary — re-run it before any critique or drawing",
+  );
+}
+const vocab = consist.shared_vocabulary;
+
 const amendFor = (id) => {
   const a = ((consist && consist.amendments) || []).find(
     (x) => x.moment === id,
@@ -247,9 +257,6 @@ const amendFor = (id) => {
     ? a.changes.map((c) => `- ${c}`).join("\n")
     : "- (none)";
 };
-const vocab = consist
-  ? consist.shared_vocabulary
-  : "(consistency pass unavailable — keep each spec as written)";
 
 const results = await pipeline(
   okSpecs,
@@ -265,8 +272,11 @@ Find BLOCKING defects only, each with evidence (spec line + code file:line or ru
       { label: `critic:${s.moment}`, phase: "Critique", schema: CRITIC_SCHEMA },
     ),
   (crit, s) => {
+    // A missing critic fails the moment before anything is drawn (Codex round 6 on #319): drawing on
+    // "(none)" would publish screens no critic read, wrapped as a success.
+    if (!crit) throw new Error(`${s.moment}: no critic result — re-run (finished moments replay from cache)`);
     const fixes =
-      crit && crit.blocking && crit.blocking.length
+      crit.blocking && crit.blocking.length
         ? crit.blocking
             .map((b, i) => `${i + 1}. ${b.issue} — FIX: ${b.fix}`)
             .join("\n")
@@ -285,15 +295,19 @@ Shared vocabulary: ${vocab}
 
 Write exactly these files with the Write tool into ${PROJ}/ : ${s.screens.map((x) => x.file).join(", ")} — phone 390×844, tablet 1366×1024 or tv 1920×1080 (Night-forced; read RULES2.md) per the spec, root fixed at that size, $preview to match. No annotations or rationale on the artboard; draw the screen as the guest or staff member sees it. Never render, verify, or read your files back. Finish with one line per file: file name + what it shows (≤14 words).`,
       { label: `draw:${s.moment}`, phase: "Draw" },
-    ).then((drawn) => ({
-      moment: s.moment,
-      screens: s.screens,
-      decisions: s.decisions,
-      new_copy_without_burmese: s.new_copy_without_burmese,
-      open_risks: s.open_risks,
-      critic: crit,
-      drawn,
-    }));
+    ).then((drawn) => {
+      // ...and a draw that returned nothing fails too, before the success wrapper (Codex round 6).
+      if (!drawn) throw new Error(`${s.moment}: the draw returned nothing — re-run`);
+      return {
+        moment: s.moment,
+        screens: s.screens,
+        decisions: s.decisions,
+        new_copy_without_burmese: s.new_copy_without_burmese,
+        open_risks: s.open_risks,
+        critic: crit,
+        drawn,
+      };
+    });
   },
 );
 
@@ -307,6 +321,6 @@ if (drawnOk.length !== okSpecs.length) {
 }
 return {
   vocab,
-  amendments: consist ? consist.amendments : [],
+  amendments: consist.amendments,
   results: drawnOk,
 };

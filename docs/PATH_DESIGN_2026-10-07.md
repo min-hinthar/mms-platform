@@ -219,8 +219,11 @@ Codex's second round found eight more, each checked against the code and the spe
     `approval_pending` after the owner's "never blocked" decision.
 14. **Moment 5 — Bring-back chips are always told apart.** When the round number is unknown (`n: null`),
     two chips from the same table could both read only "Table 4". Each chip captures a distinct label at
-    bump time: the round number when known, otherwise the card's first fire time ("Table 4 · 7:42",
-    Latin digits), so no new words are needed.
+    bump time: the round number when known, otherwise the card's first fire time **to the second**
+    ("Table 4 · 7:42:05", Latin digits), so no new words are needed. **Codex round 6 (2026-10-08):** a
+    minute is not enough — two Sends inside one minute would collide — and even a second can tie, so when two
+    chips would still carry the same label, each also takes a stable card discriminator from its own
+    card key, never from its position on the rail (m5 §E).
 15. **Moment 4 — the post-add chip ignores the closing double-tap.** When the add lands between two taps,
     the second tap can hit the chip's "Add another" that mounts under the finger. The chip arms only 350
     ms after the sheet closes (the same-gesture guard), as part of the success transition.

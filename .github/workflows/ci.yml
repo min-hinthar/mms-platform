@@ -1,15 +1,110 @@
 name: CI
+# LANES (2026-10-08 — owner: "we can't take more than 30 minutes for each PR merge"). One `changes`
+# job decides, every other job reads it through a job-level `if` — never a workflow-level `paths:`
+# filter, because a workflow that never starts leaves a required check PENDING forever, while a job
+# skipped by `if` reports success.
+#
+#   changes ─┬─ docs                              docs-only PR: check:docs + format:check, nothing else
+#            ├─ build                             code lane: fast lane + lint/typecheck/build/test
+#            ├─ migrations-check + types-fresh    sql lane: supabase/**, the DB types, the race harnesses
+#            └─ verify-slice shard ×12 ─ verify-slice    code lane, non-draft heads + main pushes
+#
+# push:main and workflow_dispatch are UNFILTERED — every lane runs — so a filter mistake on a PR costs
+# a red main, never a silent gap. Every way the `changes` job can fail lands on "check everything".
 on:
   push:
     branches: [main]
   pull_request:
+    # `ready_for_review` is listed because the verify-slice shards skip drafts: marking a PR ready
+    # must start a run that includes them. The other three are GitHub's defaults, spelled out
+    # because naming any type replaces the default list.
+    types: [opened, reopened, synchronize, ready_for_review]
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
+  # Decides the lanes. Outputs are always the strings 'true' / 'false'.
+  #
+  #   docs_only  true only when EVERY changed path is `*.md` (any depth) or under `.claude/` — and
+  #              none of them is in the sql lane. NOT `docs/**`: apps/qr/lib/doors.test.ts reads
+  #              docs/prototype/v7.2.html and gen-menu-reference.mjs reads docs/data/*.json, so a
+  #              non-.md file under docs/ is code. Nothing reads a .md or a .claude/ path except
+  #              check:docs (and gen-menu-reference --check inside it), which the docs lane runs.
+  #   code       = !docs_only.
+  #   sql        any changed path the `migrations-check + types-fresh` job reads: supabase/**, the
+  #              generated types, the race and mode-authority harnesses, or a workflow file.
+  #
+  # Deletions and renames count on BOTH sides (`--no-renames`, no diff filter): moving
+  # apps/x.ts to docs/x.md deletes a code file, and that is a code change.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.lanes.outputs.docs_only }}
+      code: ${{ steps.lanes.outputs.code }}
+      sql: ${{ steps.lanes.outputs.sql }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - name: Decide the lanes
+        id: lanes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # NOT `set -e`: every failure below must land on "run everything", never on a dead step
+          # whose missing outputs a later `if` has to interpret.
+          set -uo pipefail
+          lanes() {
+            { echo "docs_only=$1"; echo "code=$2"; echo "sql=$3"; } >> "$GITHUB_OUTPUT"
+            echo "lanes: docs_only=$1 code=$2 sql=$3"
+            { echo "### CI lanes"; echo "docs_only=\`$1\` · code=\`$2\` · sql=\`$3\`"; } >> "$GITHUB_STEP_SUMMARY"
+          }
+          everything() {
+            echo "::notice title=CI lanes::$1 — running every lane."
+            lanes false true true
+            exit 0
+          }
+          [ "$EVENT" = "pull_request" ] || everything "$EVENT is unfiltered (the backstop)"
+          { [ -n "$BASE_SHA" ] && [ -n "$HEAD_SHA" ]; } || everything "the PR payload carries no base/head sha"
+          # Three dots: from the merge base, so commits that landed on main after the branch point
+          # are not counted as this PR's changes.
+          if ! changed=$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA" 2>&1); then
+            everything "git diff $BASE_SHA...$HEAD_SHA failed: $changed"
+          fi
+          [ -n "$changed" ] || everything "the diff is empty"
+          docs_only=true
+          sql=false
+          while IFS= read -r f; do
+            case "$f" in
+              *.md | .claude/*) ;;
+              *) docs_only=false ;;
+            esac
+            case "$f" in
+              supabase/* | packages/db/src/database.types.ts | scripts/verify-merge-race.mjs | \
+                scripts/verify-mode-authority.mjs | scripts/verify-*-race.mjs | .github/workflows/*)
+                sql=true ;;
+            esac
+          done <<< "$changed"
+          # A .md inside the sql lane (supabase/migrations/NOTES.md) is NOT docs-only:
+          # check:migration-versions rejects every non-migration entry in that directory, and it
+          # runs in the code lane, not the docs lane.
+          [ "$sql" = true ] && docs_only=false
+          echo "$(echo "$changed" | wc -l) changed path(s):"
+          echo "$changed"
+          if [ "$docs_only" = true ]; then lanes true false false; else lanes false true "$sql"; fi
+
+  # Docs-only PRs: the two checks that can fail on a .md / .claude diff, and nothing else.
+  # `!cancelled()` on the second so a red check:docs does not hide a red format:check.
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,15 +115,50 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - id: install
+        run: pnpm install --frozen-lockfile
+      - run: pnpm check:docs
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      - run: pnpm format:check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+
+  build:
+    needs: changes
+    # `!= 'false'` rather than `== 'true'`, with `!cancelled()`: if the `changes` job itself fails,
+    # its outputs are empty and the build RUNS. Identical to `code == 'true'` whenever `changes`
+    # succeeded, because its outputs are then always 'true' or 'false'.
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check:money-coverage diffs against MONEY_COVERAGE_BASE with `base...HEAD`, which needs
+          # the base AND their merge base in the clone. The repo is ~23 MB packed (measured).
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      # Every step after this one carries `if: !cancelled() && install succeeded`. Under the
+      # default `success()` one red guard (usually a stale check:docs count, step one) SKIPPED every
+      # guard behind it and the build — each further failure then cost its own push cycle. Now each
+      # guard reports in the same run; the job is still red if any one of them is.
+      - id: install
+        run: pnpm install --frozen-lockfile
       # W22-docs — the docs gate, in CI at last. `check:docs` proves GFM table parity across every
       # tracked .md (prettier INTRODUCES header/delimiter breaks, and GFM then refuses the WHOLE
       # table) and re-MEASURES every count the live-state docs quote (`vitest list` + the mutant
       # registry) instead of trusting the prose. It had been a local-only convention, so a stale
       # count could — and did — sail through every required check; README's test count was wrong for
-      # five arcs. Pure file + `vitest list` work: no build, no DB, no network. Runs FIRST because
-      # it costs seconds and fails on exactly the kind of drift a reviewer's eye skims past.
+      # five arcs. Pure file + `vitest list` work: no build, no DB, no network. It is NOT seconds any
+      # more: measured p50 180 s (107–189 s, 2026-10-04..08, 2-vCPU runners), nearly all of it
+      # `vitest list` collecting every test file — the slowest step in this lane. Order no longer
+      # matters for coverage: with `!cancelled()` a red count here no longer hides the guards below.
       - run: pnpm check:docs
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # W22d-1 (adversarial review, LOW but real) — the theme-parity guard shipped wired ONLY into
       # `verify:slice`, and `verify:slice` is in ZERO workflows. So a hex drift on any of the five
       # surfaces that cannot read a CSS custom property would merge green for anyone who did not run
@@ -36,6 +166,7 @@ jobs:
       # in the first place. A guard with no teeth on the merge path is a guard that documents a rule
       # rather than enforcing it. Same cost profile as check:docs: pure file reads, no build, no DB.
       - run: pnpm check:theme
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # M70 — same cost profile, same reason. `database.types.ts` is hand-edited whenever the session
       # has no Docker, and the only thing that checks the edit is the `migrations-check + types-fresh`
       # job below: six image pulls and 120 migrations, ~3 minutes, to reject a misplaced line. And
@@ -43,6 +174,7 @@ jobs:
       # with every `supabase/tests/*.sql` assertion still unrun — so a migration reads "checked" when
       # nothing about it was. This says the same thing in milliseconds, and names the exact pair.
       - run: pnpm check:types-sorted
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # T6 — `format:check` ran in ZERO workflows, so prettier drift merged silently. `lint` is
       # plain `eslint .` with no prettier plugin, and the three guards above read docs, tokens and
       # generated types — none of them reads general source formatting. Proven live, not theorised:
@@ -51,18 +183,38 @@ jobs:
       # run. ⚠️ The generated docs are in `.prettierignore` on purpose — prettier INTRODUCES GFM
       # header/delimiter breaks, which is the drift `check:docs` above exists to catch.
       - run: pnpm format:check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # M149 (Codex P2 on #233 and #227, both post-merge, neither answered) — these two guards were
-      # reachable ONLY through the local `pnpm verify:slice`, which no workflow invokes. A
+      # reachable ONLY through the local `pnpm verify:slice`, which no workflow invoked then. A
       # contributor who does not run it could merge green with the promo-pin call deleted, or with a
       # malformed migration filename that the Supabase CLI then SILENTLY SKIPS — the exact failure
       # M17 already cost a CI cycle for. Both are file-read-only and take about a second, so the
       # only reason they were not here was that nobody wired them.
       - run: pnpm check:migration-versions
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm check:promo-pin
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm check:pay-attempt
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # The two guards that were STILL reachable only through `verify:slice` (the M149 gap again).
+      # money-coverage: a changed money-path file must have a mutant (or an in-file exemption). It
+      # used to fall back to `return []` when no base resolved — and actions/checkout's default
+      # depth-1 clone resolves none, so in CI it would have printed `clean` having compared NOTHING.
+      # Now it diffs against MONEY_COVERAGE_BASE (the PR's base sha; the push's `before`; unset on
+      # workflow_dispatch, where it falls back to origin/main — fetch-depth: 0 above provides both)
+      # and, with CI set and no base, FAILS.
+      - run: pnpm check:money-coverage
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          MONEY_COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      # photo-filter (W16d review BLOCK): no code outside lib/media-url.ts may name `fallback.jpg` —
+      # W13 hid ~34 real dish photos behind the placeholder with every test green. A file walk.
+      - run: pnpm check:photo-filter
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # J4 (residual) — cross-FILE parity: the client freeze mirrors the server's bare `locked`.
       # File-read-only and parsed, so it rides the fast lane beside the other correctness guards.
       - run: pnpm check:freeze-parity
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # P2 — the staff device locale is read on /staff and /board ONLY. Two parsed rules: the two
       # reader modules are unreachable from every non-staff route root (transitively — a two-hop
       # import through a shared component is the realistic break), and the cookie NAME literal lives
@@ -70,12 +222,14 @@ jobs:
       # walk). W16b retired the app-wide locale toggle by owner directive; "staff only" is worth what
       # the mechanism proving it is worth.
       - run: pnpm check:staff-lang
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # T9 — the same question one layer out: every CHILD component that can fire one of those
       # mutations takes the freeze fact, refuses in its handler, and surfaces the refusal. Its
       # subject set is DERIVED from the lib modules (never a file list — that is what made
       # check:freeze-parity blind to pickup.ts, OPEN-ITEMS T13), so a new lock-bearing module and a
       # new component that fires one both join it automatically.
       - run: pnpm check:child-freeze
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # M193 — every `useCartRealtime` consumer coalesces its echoes, and the window is declared
       # once. The row was closed by #275 with `Checkout.tsx` still re-reading per event, on the
       # PRE-PAYMENT screen, because /cart is a different route and no /menu test can reach it. The
@@ -83,16 +237,20 @@ jobs:
       # call must be a direct, unconditional statement — a dead `if (false) schedule()` and a
       # commented-out one both fail, which a substring matcher would have accepted.
       - run: pnpm check:echo-coalesce
-      # `verify:slice` already reports a STALE mutant — but only at the END of a full run, ~20
-      # minutes in, after every other mutation has been applied and its suite re-run. This asks the
-      # same question in about a second, reading no test and running no build. A stale anchor is not
-      # cosmetic: the rule it guards is UNGUARDED while its suite stays green, which is the
-      # "green for the wrong reason" shape the mutant harness exists to catch, in the harness itself.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # `verify:slice` already reports a STALE mutant — but only when its run reaches that mutant:
+      # a full serial run measured 164–180 min locally (the three runs that finished, 2026-10-06..08
+      # — not the "~20 minutes" this line used to say), and even sharded below it starts only after
+      # an install. This asks the same question in about a second, reading no test and running no
+      # build. A stale anchor is not cosmetic: the rule it guards is UNGUARDED while its suite stays
+      # green, which is the "green for the wrong reason" shape the mutant harness exists to catch, in
+      # the harness itself.
       # Ambiguity fails too, because an anchor matching twice is rejected as STALE and substitutes
       # nothing — it guards NOTHING while its `why` still claims the rule is covered.
       # The usual cause is `pnpm format` reflowing the target after the anchor was written
       # (LEARNINGS #106), which is why this sits AFTER format:check rather than before it.
       - run: pnpm check:mutant-anchors
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # M186 — the /grocery camera scan's repeat guard. The charge RULE is a pure module with nine
       # mutants; its WIRING sits in a component, outside `check-money-coverage`'s MONEY_PATHS and
       # with no suite, so deleting the four-line guard clause in `page.tsx` restores the double-bill
@@ -100,12 +258,13 @@ jobs:
       # blocked M186's first attempt on. Parses (comments and `{false && …}` branches satisfy
       # nothing) and binds the `if` test to the verdict's own binding.
       - run: pnpm check:scan-repeat
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # Phase 0 — the style-literal RATCHET. Weights, sizes and tracking are tokens (tokens.css);
       # this holds the remaining hardcoded values to a recorded baseline: a count may fall (re-record
       # with --update) but never rise. Parses — CSS with comments stripped, TSX through the AST — so
       # a literal in a comment satisfies nothing. File-read only, ~1s.
       - run: pnpm check:style-literals
-      # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
       # it. A plain shell check, not a vitest test — a test that reads outside its own workspace is
@@ -123,6 +282,7 @@ jobs:
       # change, no timing change and no other symptom. The pragma block below refuses that, using a
       # verbatim copy of vitest's own regex: the guarded fact IS text, because vitest matches text.
       - name: No orphaned test files
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           # Enumerated through git, not `find`: only files git would SHIP can answer "a test no
           # config runs". `find` also walks build artifacts and gitignored working directories —
@@ -173,19 +333,31 @@ jobs:
       # NEXT line is honoured by vitest, caught by verify:slice, and MISSED here — the looser
       # mirror being the one that gates the merge. Measured on both matchers.
       - name: Test files run in the environment their suffix promises
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: node scripts/check-test-env.mjs
-      - run: pnpm turbo run lint typecheck build test
+      # Turborepo runs lint, typecheck, build and test across the workspaces. NOT cached in CI:
+      # there is no actions/cache and no TURBO_TOKEN, and every sampled log (8 of 8, 2026-10-04..08)
+      # reports "Cached: 0 cached, 8 total" — measured p50 ~7 min, qr:test the critical path.
+      - id: turbo
+        run: pnpm turbo run lint typecheck build test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # Phase 2i (P2bi) — the build stamp reached BOTH places a staff screen compares: the
       # prerendered /api/version body (parsed with the app's own parseServed) and a client chunk. A
       # build script that lost its NEXT_PUBLIC_BUILD_STAMP assignment, or a client that stopped
       # inlining CLIENT_BUILD, ships screens that never learn of a deploy — with every check above
       # green. NOT fast lane: it reads the build output, so it runs after the build, never before it.
       - name: The build stamp reached /api/version and the client bundle
+        if: ${{ !cancelled() && steps.turbo.outcome == 'success' }}
         run: node scripts/check-build-stamp.mjs
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.
+  # The sql lane: nothing in this job reads apps/**, so it runs only when a path it DOES read changed
+  # (see the `changes` job) — 12 of PRs #270–#319 would have run it (measured). Same `!= 'false'`
+  # fail-open-to-checking shape as the build job.
   supabase:
     name: migrations-check + types-fresh
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.sql != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -349,6 +521,99 @@ jobs:
       - name: Counter-fire race mutants (can the locks fail?)
         timeout-minutes: 9
         run: node scripts/verify-counter-fire-race.mjs --mutants
-      - name: Stop stack
-        if: always()
-        run: supabase stop || true
+      # (No "Stop stack" step: it was `supabase stop || true` on a hosted VM that is discarded after
+      # the job — it could never fail and guarded nothing, for ~19 s per run.)
+
+  # verify:slice in CI — the money/authority mutation battery, sharded. The owner (2026-10-08) kept
+  # it as a merge gate and moved it here: run serially in one checkout it measured 164–180 min, and
+  # 8 of 11 local attempts since 10-06 were killed by a 2 h ceiling before finishing.
+  #
+  # Each shard is its own runner and its own checkout, so its mutants cannot rewrite a module
+  # another shard's suite imports. `--shard=i/n` is a deterministic partition balanced by
+  # estimated cost (a jsdom mutant weighs 9, a node one 1; a suite heavier than half a shard's share is
+  # cut into contiguous chunks; the union over i is exactly the battery), so every shard green means
+  # every mutant was CAUGHT. Twelve shards measured ~16.3 min of estimated mutant time each (2026-10-08),
+  # ~19 min with install and baseline. `--no-gate`: the build job runs lint/typecheck/build/test; no
+  # build is needed here because @mms/ui and @mms/db export src/ (their package.json `exports`).
+  #
+  # Runs in the code lane, on non-draft PR heads and on main pushes. Drafts are skipped for the
+  # same reason the Codex gate stands down on them: a draft is mid-iteration, and ~100+ runner-min
+  # per push of unfinished code buys nothing. `ready_for_review` (in the triggers) starts the run.
+  verify-slice-shard:
+    name: verify-slice shard
+    needs: changes
+    if: >-
+      ${{ !cancelled()
+      && needs.changes.outputs.code != 'false'
+      && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # The denominator below is `strategy.job-total`, not a second literal 10, so the list is the
+        # ONE place the shard count lives. A list that is not exactly 1..N holds a value above N,
+        # which verify-slice rejects as a malformed --shard (exit 2) — a gap cannot pass silently.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # verify-slice's pre-checks include check:money-coverage, which needs the base and the
+          # merge base in the clone (see the build job).
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Mutation battery, shard ${{ matrix.shard }}/${{ strategy.job-total }}
+        env:
+          MONEY_COVERAGE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/verify-slice.mjs --no-gate --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # THE check to require (beside `codex-review`, `build` and `migrations-check + types-fresh`): one
+  # stable name however many shards there are. A skipped matrix reports "skipped", which reads as
+  # success to branch protection — so this job decides explicitly, from each `needs.*.result`, and
+  # passes ONLY when every shard succeeded, or the shards were skipped for a reason this lane
+  # names: the PR is docs-only, or it is a draft. Anything else — a failed, timed-out or cancelled
+  # shard, or a skip nobody can explain — is red.
+  verify-slice:
+    name: verify-slice
+    needs: [changes, verify-slice-shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every shard passed, or the lane says why none ran
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          SHARDS: ${{ needs.verify-slice-shard.result }}
+          CODE: ${{ needs.changes.outputs.code }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -u
+          say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          echo "changes=$CHANGES shards=$SHARDS code=$CODE docs_only=$DOCS_ONLY event=$EVENT draft=$DRAFT"
+          if [ "$SHARDS" = "success" ]; then
+            say "verify-slice: every shard passed — every selected mutant was CAUGHT."
+            exit 0
+          fi
+          if [ "$SHARDS" = "skipped" ]; then
+            if [ "$CHANGES" = "success" ] && [ "$DOCS_ONLY" = "true" ] && [ "$CODE" = "false" ]; then
+              say "verify-slice: not run — docs-only lane (every changed path is *.md or .claude/**)."
+              exit 0
+            fi
+            if [ "$EVENT" = "pull_request" ] && [ "$DRAFT" = "true" ]; then
+              say "verify-slice: not run — this PR is a DRAFT. This is NOT a statement that the mutants pass; the battery runs when the PR is marked ready for review."
+              exit 0
+            fi
+            echo "::error title=verify-slice::the shards were skipped for no reason this gate recognises (changes=$CHANGES code=$CODE docs_only=$DOCS_ONLY event=$EVENT draft=$DRAFT)."
+            exit 1
+          fi
+          echo "::error title=verify-slice::the shards concluded '$SHARDS' — at least one failed, timed out or was cancelled. Open the red 'verify-slice shard (N)' log: a SURVIVED, STALE, UNPARSEABLE, TIMEOUT or ERROR verdict, an orphan, or a bad pragma fails it."
+          exit 1

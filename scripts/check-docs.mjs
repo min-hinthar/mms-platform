@@ -443,7 +443,9 @@ export function countFailures(text, truth, name = "<doc>") {
   return out;
 }
 
-/** Measure, never assume: `vitest list` enumerates without executing, so this costs ~10s, not a run. */
+/** Measure, never assume: `vitest list` enumerates without executing, so this is not a test run — but
+ *  it is not ~10s either: measured p50 180 s (107–189 s) in CI on 2026-10-04..08, nearly all of it
+ *  collecting every apps/qr test file. */
 /**
  * Deep pass on #312 — `## #N` headings in LEARNINGS are its citation keys (CLAUDE.md and the
  * CHANGELOG say "LEARNINGS #60"); a second `## #200` was appended after #214, so every citation of

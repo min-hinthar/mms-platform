@@ -15,23 +15,52 @@
  *   • an ESLint rule proven for one selector shape while a real violation survived in another.
  *
  * A multi-agent review finds these. It also costs ~1M tokens and 30-55 minutes. Mutation testing finds
- * the same class in ~2 minutes for free. So: run this FIRST, and let the review spend its attention on
- * what only a reader can judge — reachability, copy honesty, cross-surface coupling.
+ * the same class for zero tokens — but NOT in minutes at this size. This header used to say
+ * "~2 minutes", true of the first battery and false of the one it grew into: a FULL SERIAL run of
+ * the whole battery measured 164-180 min (the three runs that finished, 2026-10-06/07 — one cold
+ * `npx vitest` per mutant, every suite run to its end). The 2026-10-08 runner (the package's own
+ * vitest binary, ONE multi-file baseline, `--bail=1` per mutant) is ESTIMATED at roughly 105-125 min
+ * serial; that figure is an estimate, not a measurement. So CI runs the battery as a 10-shard matrix
+ * (the `verify-slice` check), and a local pre-PR run is an `--only=` subset of what you touched.
+ * Measure the battery's size, never quote it: `node scripts/verify-slice.mjs --list | wc -l`.
+ * Run it FIRST either way, and let the review spend its attention on what only a reader can judge —
+ * reachability, copy honesty, cross-surface coupling.
  *
  * WHAT IT DOES
  * ------------
+ *   0. cheap pre-checks (money coverage · migration versions · photo filter · theme parity · promo
+ *      pin · generated-types order) and the mutant-id uniqueness check — seconds, and EVERY shard
+ *      runs them
  *   1. the standard gate (lint · typecheck · build · test)          [skip with --no-gate]
- *   2. a mutation battery over the money/authority modules — each mutation is applied, the suite that
- *      OWNS it must go red, then the file is restored. A SURVIVING mutant is a failure.
- *   3. the orphan-suite guard (mirrors ci.yml, so it fails here rather than on the runner)
+ *   2. the baseline: ONE vitest run over the selected owning suites; if it is not green, each suite
+ *      is re-run alone to name the red ones, and any red suite aborts the run
+ *   3. a mutation battery over the money/authority modules — each mutation is applied, the suite that
+ *      OWNS it must go red, then the file is restored. Verdicts: CAUGHT · SURVIVED · STALE ·
+ *      UNPARSEABLE · TIMEOUT · ERROR, and only CAUGHT passes (`scoreMutant` says what earns it)
+ *   4. the orphan-suite guard (mirrors ci.yml, so it fails here rather than on the runner)
+ *
+ * FLAGS — anything else, a bare `--only`, or a malformed `--shard` prints usage and exits 2
+ * -----
+ *   --no-gate          skip step 1
+ *   --only=<substr>    the mutants whose id contains <substr> (case-sensitive); one that matches
+ *                      nothing exits 2
+ *   --shard=<i>/<n>    shard i of n (1-based) of the selection: whole owning suites, bin-packed
+ *                      greedy largest-first by mutant count, so the shards are disjoint and their
+ *                      union is the selection (`shardMutants`)
+ *   --list             print the selected ids (after --only and --shard) one per line, exit 0 —
+ *                      no gate, no pre-checks, no mutation
+ *   env VERIFY_SLICE_TIMEOUT_MS   per-mutant timeout, default 180000; a timeout is never a catch
+ * Exit 0 pass · 1 fail · 2 usage. SIGINT / SIGTERM / SIGHUP kill the running vitest process group,
+ * restore every target from memory and exit 130 / 143 / 129.
  *
  * ADDING A MUTANT
  * ---------------
  * Add a row to MUTANTS. `find` must match EXACTLY ONCE in `file` — if it matches zero times the script
  * FAILS rather than skipping, because a silently-stale mutant is the same rot it exists to prevent.
  */
-import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -27115,9 +27144,122 @@ const MUTANTS = [
   },
 ];
 
-const args = new Set(process.argv.slice(2));
-const skipGate = args.has("--no-gate");
-const only = [...args].find((a) => a.startsWith("--only="))?.slice("--only=".length);
+// ── argv — strict, because a silently-ignored flag is a silently-different run ──────────────────────
+//
+// Until 2026-10-08 argv went into a Set and anything unrecognised was dropped: `--only totals` (a
+// space, not `=`) set no filter and ran the whole battery, and `--nogate` ran the gate. Every
+// argument is now either understood or refused with exit 2, and so is an `--only` that selects
+// nothing — a typo'd filter used to "pass" with zero mutants run.
+const DEFAULT_TIMEOUT_MS = 180_000;
+const USAGE = [
+  "usage: node scripts/verify-slice.mjs [--no-gate] [--only=<substr>] [--shard=<i>/<n>] [--list]",
+  "",
+  "  --no-gate          skip the turbo lint · typecheck · build · test gate",
+  "  --only=<substr>    select the mutants whose id contains <substr> (case-sensitive)",
+  "  --shard=<i>/<n>    run shard i of n (1 <= i <= n) of the selection; every mutant of one owning",
+  "                     suite lands in the same shard, and the n shards partition the selection",
+  "  --list             print the selected ids (after --only and --shard), one per line, and exit 0:",
+  "                     no gate, no pre-checks, no mutation",
+  "",
+  `  env VERIFY_SLICE_TIMEOUT_MS=<ms>   per-mutant timeout (default ${DEFAULT_TIMEOUT_MS})`,
+  "",
+  "exit: 0 pass · 1 fail · 2 usage",
+].join("\n");
+
+function usage(problem) {
+  console.error(`verify:slice: ${problem}\n\n${USAGE}`);
+  process.exit(2);
+}
+
+function parseArgs(argv) {
+  const opts = { skipGate: false, only: undefined, shard: undefined, list: false };
+  const seen = new Set();
+  for (const a of argv) {
+    const key = a.includes("=") ? a.slice(0, a.indexOf("=")) : a;
+    if (seen.has(key)) usage(`${key} given more than once`);
+    seen.add(key);
+    if (a === "--no-gate") opts.skipGate = true;
+    else if (a === "--list") opts.list = true;
+    else if (a === "--only") usage("--only needs a value: --only=<substr>");
+    else if (a.startsWith("--only=")) {
+      opts.only = a.slice("--only=".length);
+      if (!opts.only) usage("--only= needs a non-empty substring");
+    } else if (key === "--shard") {
+      const m = /^--shard=([1-9]\d*)\/([1-9]\d*)$/.exec(a);
+      const i = Number(m?.[1]);
+      const n = Number(m?.[2]);
+      if (!m || !Number.isSafeInteger(n) || i > n)
+        usage(`malformed ${a} — expected --shard=<i>/<n> with integers 1 <= i <= n`);
+      opts.shard = { i, n };
+    } else usage(`unknown argument: ${a}`);
+  }
+  return opts;
+}
+
+function timeoutFromEnv(raw) {
+  if (raw === undefined) return DEFAULT_TIMEOUT_MS;
+  if (!/^[1-9]\d*$/.test(raw) || !Number.isSafeInteger(Number(raw)))
+    usage(`VERIFY_SLICE_TIMEOUT_MS must be a positive integer of milliseconds, got "${raw}"`);
+  return Number(raw);
+}
+
+/**
+ * The shard partition — pure, and exercised by `--list --shard=i/n` (no gate, no mutation).
+ *
+ * Balanced by estimated COST, not by count: a jsdom (.test.tsx) mutant measured ~7.2 s against
+ * ~0.8 s for a node one (2026-10-08, this runner, one mutant at a time — `MUTANT_COST`), so equal
+ * counts gave shards whose wall times differed several-fold. Mutants are grouped by OWNING SUITE so
+ * a shard cold-starts each suite's baseline once; a suite heavier than half a shard's share
+ * (TablePane alone is 86 jsdom mutants) is cut into contiguous chunks, which costs one extra baseline
+ * of that suite per extra shard (seconds) and keeps the slowest shard near the mean.
+ *
+ * Deterministic: suites are taken in the selection's (the MUTANTS array's) order, chunks are
+ * contiguous, and units are placed greedily largest-first — ties by key in code-unit order, never
+ * `localeCompare`, whose answer depends on the runner's locale — on the currently LIGHTEST shard,
+ * ties to the lowest index. The same selection and n give the same partition on every machine; the
+ * n shards are disjoint and their union is exactly the selection. A shard keeps the MUTANTS order.
+ */
+const MUTANT_COST = (m) => (m.suite.endsWith(".tsx") ? 9 : 1);
+
+function shardMutants(selection, i, n) {
+  const bySuite = new Map();
+  for (const m of selection) {
+    const group = bySuite.get(m.suite);
+    if (group) group.push(m);
+    else bySuite.set(m.suite, [m]);
+  }
+  const cost = (ms) => ms.reduce((a, m) => a + MUTANT_COST(m), 0);
+  const total = cost(selection);
+  const cap = Math.max(1, total / n / 2);
+  const units = [];
+  for (const [suite, ms] of bySuite) {
+    const w = cost(ms);
+    if (w <= cap) {
+      units.push({ key: suite, ms, w });
+      continue;
+    }
+    const pieces = Math.ceil(w / cap);
+    const size = Math.ceil(ms.length / pieces);
+    for (let j = 0; j < ms.length; j += size) {
+      const part = ms.slice(j, j + size);
+      units.push({ key: `${suite}#${String(j).padStart(5, "0")}`, ms: part, w: cost(part) });
+    }
+  }
+  const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  units.sort((a, b) => b.w - a.w || byKey(a, b));
+  const load = new Array(n).fill(0);
+  const mine = new Set();
+  for (const u of units) {
+    let lightest = 0;
+    for (let k = 1; k < n; k++) if (load[k] < load[lightest]) lightest = k;
+    load[lightest] += u.w;
+    if (lightest === i - 1) for (const m of u.ms) mine.add(m);
+  }
+  return selection.filter((m) => mine.has(m));
+}
+
+const opts = parseArgs(process.argv.slice(2));
+const TIMEOUT_MS = timeoutFromEnv(process.env.VERIFY_SLICE_TIMEOUT_MS);
 
 const c = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
@@ -27126,17 +27268,49 @@ const c = {
   bold: (s) => `\x1b[1m${s}\x1b[0m`,
 };
 
+// Every mutant must carry a UNIQUE id, checked before anything else runs — `--list` included, since
+// a listing (and the shard union it is checked by) is only as good as the ids in it.
+//
+// This is here because it already happened, and a full run could not see it. A new mutant was
+// written with TWO `id:` keys; the later one won, so the object was fine — but the duplicate had
+// silently taken the id of the NEXT mutant in the list, which was left with none. A full run stayed
+// green (it filters nothing, so it never reads `m.id`), while `--only=lock` crashed on
+// `undefined.includes` and the W6c settle_by mutant became untargetable. A count of 228 caught
+// proved 228 mutations still fail their suites; it could not prove they are still ADDRESSABLE, and
+// an id is how a human re-runs the one mutant they are iterating on.
+{
+  const seen = new Map();
+  const bad = [];
+  MUTANTS.forEach((m, i) => {
+    if (typeof m.id !== "string" || !m.id) bad.push(`#${i} (${m.file}) has no id`);
+    else if (seen.has(m.id)) bad.push(`"${m.id}" is used by #${seen.get(m.id)} and #${i}`);
+    else seen.set(m.id, i);
+  });
+  if (bad.length) {
+    console.error(c.red(c.bold("\n\u2717 mutant ids are not unique:\n")));
+    for (const b of bad) console.error(`  ${b}`);
+    console.error(
+      c.dim("\n  A duplicate key silently steals the next mutant's id — JS keeps the last one.\n"),
+    );
+    process.exit(1);
+  }
+}
+
+const selected = MUTANTS.filter((m) => !opts.only || m.id.includes(opts.only));
+if (opts.only && selected.length === 0) usage(`--only=${opts.only} matches no mutant id`);
+const targets = opts.shard ? shardMutants(selected, opts.shard.i, opts.shard.n) : selected;
+
+if (opts.list) {
+  // Awaited, not followed by a bare exit: a pipe can be asynchronous, and `process.exit` would cut a
+  // long listing short.
+  await new Promise((resolve) =>
+    process.stdout.write(targets.map((m) => `${m.id}\n`).join(""), resolve),
+  );
+  process.exit(0);
+}
+
 function run(cmd, cmdArgs, cwd) {
   return execFileSync(cmd, cmdArgs, { cwd, encoding: "utf8", stdio: "pipe" });
-}
-/** Run a vitest file; true = the suite PASSED. */
-function suitePasses(suite) {
-  try {
-    run("npx", ["vitest", "run", suite], QR);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** Refuse to mutate a file that has uncommitted changes — a crash must never eat real work. */
@@ -27218,40 +27392,17 @@ try {
   process.exit(1);
 }
 
-// Every mutant must carry a UNIQUE id, checked before anything else runs.
-//
-// This is here because it already happened, and a full run could not see it. A new mutant was
-// written with TWO `id:` keys; the later one won, so the object was fine — but the duplicate had
-// silently taken the id of the NEXT mutant in the list, which was left with none. A full run stayed
-// green (it filters nothing, so it never reads `m.id`), while `--only=lock` crashed on
-// `undefined.includes` and the W6c settle_by mutant became untargetable. A count of 228 caught
-// proved 228 mutations still fail their suites; it could not prove they are still ADDRESSABLE, and
-// an id is how a human re-runs the one mutant they are iterating on.
-{
-  const seen = new Map();
-  const bad = [];
-  MUTANTS.forEach((m, i) => {
-    if (typeof m.id !== "string" || !m.id) bad.push(`#${i} (${m.file}) has no id`);
-    else if (seen.has(m.id)) bad.push(`"${m.id}" is used by #${seen.get(m.id)} and #${i}`);
-    else seen.set(m.id, i);
-  });
-  if (bad.length) {
-    console.error(c.red(c.bold("\n\u2717 mutant ids are not unique:\n")));
-    for (const b of bad) console.error(`  ${b}`);
-    console.error(
-      c.dim("\n  A duplicate key silently steals the next mutant's id — JS keeps the last one.\n"),
-    );
-    process.exit(1);
-  }
-}
-
-const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
 const files = [...new Set(targets.map((m) => m.file))];
+const suites = [...new Set(targets.map((m) => m.suite))];
 
 console.log(c.bold("\nverify:slice — the mechanical pre-PR gate\n"));
+if (opts.shard)
+  console.log(
+    `shard ${opts.shard.i}/${opts.shard.n} — ${targets.length} of ${selected.length} selected mutant(s), ${suites.length} owning suite(s)`,
+  );
 
 // ── 1 · the standard gate ─────────────────────────────────────────────────────────────────────────
-if (!skipGate) {
+if (!opts.skipGate) {
   process.stdout.write("gate (lint · typecheck · build · test) … ");
   try {
     run("pnpm", ["turbo", "run", "lint", "typecheck", "build", "test"], ROOT);
@@ -27266,44 +27417,252 @@ if (!skipGate) {
 }
 
 // ── 2 · the mutation battery ──────────────────────────────────────────────────────────────────────
-assertClean(files);
+// `git status --porcelain --` with NO pathspec reports the whole tree, so an empty shard must not ask.
+if (files.length) assertClean(files);
+
+/**
+ * The vitest child — the package's own binary, never `npx`.
+ *
+ * `npx vitest` resolved this same binary through npm's CLI on every launch (~0.35 s each, measured),
+ * once per mutant. It is spawned ASYNCHRONOUSLY into its OWN process group (`detached`), for two
+ * reasons the old `execFileSync` could not serve:
+ *   • a timeout can kill the whole group — vitest and every worker it forked — with one
+ *     `kill(-pgid)`, so a mutant that hangs costs one TIMEOUT, not a stalled run (a ~5 h
+ *     alive-but-idle stall is on record in .claude/LEARNINGS.md, "one run per checkout");
+ *   • the event loop stays live while the child runs, so SIGINT / SIGTERM / SIGHUP handlers can
+ *     actually fire MID-BATTERY. Under `execFileSync` the loop was blocked: a Ctrl-C killed the
+ *     vitest child (same process group), that mutant scored "caught", and the loop carried on.
+ * The group being its own also means a terminal Ctrl-C no longer reaches vitest directly; the
+ * handlers below kill it.
+ */
+const VITEST = path.join(QR, "node_modules/.bin/vitest");
+/** A whole-suite baseline run's ceiling. Fixed, NOT the per-mutant knob: VERIFY_SLICE_TIMEOUT_MS=1
+ *  must time out a mutant, not the baseline that has to pass before any mutant runs. */
+const BASELINE_TIMEOUT_MS = 30 * 60 * 1000;
+let activeChild = null;
+
+const killGroup = (child) => {
+  if (!child?.pid) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // ESRCH — the group already exited between the decision and the kill. Deliberate swallow.
+  }
+};
+
+/**
+ * Run `vitest run <args>` in apps/qr. Resolves — never rejects — with { code, signal, error,
+ * timedOut, ms, output }, where `output` is a bounded tail of stdout+stderr: the pipes are drained
+ * as the child writes, so a chatty suite can neither fill a pipe and stall nor overflow a buffer
+ * (execFileSync's 1 MiB `maxBuffer` used to throw ENOBUFS, which scored "caught").
+ */
+function runVitest(vitestArgs, timeoutMs) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tail = [];
+    let tailBytes = 0;
+    const keep = (chunk) => {
+      tail.push(chunk);
+      tailBytes += chunk.length;
+      while (tailBytes > 16_384 && tail.length > 1) tailBytes -= tail.shift().length;
+    };
+    let child = null;
+    let settled = false;
+    let timedOut = false;
+    let timer = null;
+    let grace = null;
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(grace);
+      if (activeChild === child) activeChild = null;
+      resolve({
+        ...r,
+        timedOut,
+        ms: Date.now() - started,
+        output: Buffer.concat(tail).toString("utf8").slice(-4000),
+      });
+    };
+    try {
+      child = spawn(VITEST, ["run", ...vitestArgs], {
+        cwd: QR,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      finish({ code: null, signal: null, error });
+      return;
+    }
+    activeChild = child;
+    child.stdout.on("data", keep);
+    child.stderr.on("data", keep);
+    child.on("error", (error) => finish({ code: null, signal: null, error }));
+    child.on("close", (code, signal) => finish({ code, signal, error: null }));
+    timer = setTimeout(() => {
+      timedOut = true;
+      killGroup(child);
+      // A grandchild that left the group could hold the pipes open, and `close` waits on the pipes.
+      grace = setTimeout(() => finish({ code: null, signal: "SIGKILL", error: null }), 10_000);
+    }, timeoutMs);
+  });
+}
+
+/** The JSON reporter's file, or null when it is missing or not the shape vitest writes. */
+function readReport(file) {
+  try {
+    const r = JSON.parse(readFileSync(file, "utf8"));
+    const counts = ["numFailedTests", "numFailedTestSuites", "numTotalTests"];
+    if (counts.every((k) => Number.isInteger(r[k])) && Array.isArray(r.testResults)) return r;
+  } catch {
+    // Missing or truncated — the caller scores that as ERROR (mutant) or red (baseline).
+  }
+  return null;
+}
+
+// Reports land in a private temp dir, deleted before every run that writes one, so a report can only
+// ever be the one THIS run wrote — never a stale file from the previous mutant.
+const scratch = mkdtempSync(path.join(tmpdir(), "verify-slice-"));
+const reportFile = (name) => path.join(scratch, `${name}.json`);
+const dropScratch = () => rmSync(scratch, { recursive: true, force: true });
 
 const originals = new Map(files.map((f) => [f, readFileSync(path.join(ROOT, f), "utf8")]));
 const restoreAll = () => {
   for (const [f, src] of originals) writeFileSync(path.join(ROOT, f), src);
 };
-process.on("SIGINT", () => {
-  restoreAll();
-  console.log(c.red("\ninterrupted — files restored"));
-  process.exit(130);
-});
-
-// A red baseline would make every mutant look "caught" for the wrong reason.
-process.stdout.write("\nbaseline suites … ");
-const suites = [...new Set(targets.map((m) => m.suite))];
-const redBaseline = suites.filter((s) => !suitePasses(s));
-if (redBaseline.length) {
-  console.log(c.red("RED"));
-  console.error(c.red(`\n✗ These suites fail BEFORE any mutation: ${redBaseline.join(", ")}`));
-  console.error(
-    c.dim("  Every mutant would appear 'caught' for the wrong reason. Fix these first.\n"),
-  );
-  process.exit(1);
+// All three, not just SIGINT: a tool timeout or a cancelled CI job sends SIGTERM, a closed terminal
+// sends SIGHUP, and with no handler Node exits WITHOUT running `finally` — the in-flight mutant stayed
+// on disk as a deliberately-broken module (LEARNINGS #74). Kill the child group first, so nothing is
+// still running against a file when it is restored.
+for (const [sig, code] of [
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+  ["SIGHUP", 129],
+]) {
+  process.on(sig, () => {
+    killGroup(activeChild);
+    restoreAll();
+    dropScratch();
+    console.log(c.red(`\n${sig} — vitest killed, files restored`));
+    process.exit(code);
+  });
 }
-console.log(c.green(`green (${suites.length} suite${suites.length === 1 ? "" : "s"})`));
+
+// ── baseline: one multi-file run, then names ──────────────────────────────────────────────────────
+// A red baseline would make every mutant look "caught" for the wrong reason. Each suite used to get
+// its own cold `npx vitest` here; ONE run over all of them proves the same thing when it is green
+// (vitest isolates every file's module scope). Only when it is NOT green is each suite re-run alone —
+// and alone is the condition every mutant runs under, so a suite red only in company does not abort.
+const realQR = realpathSync(QR);
+/** Green = clean exit AND the report shows this suite's file, exactly once, passed. A filter that
+ *  matched no file is red here, not a silent zero. */
+const suiteGreen = (r, report, suite) => {
+  if (r.timedOut || r.error || r.signal || r.code !== 0 || !report) return false;
+  const names = [path.join(QR, suite), path.join(realQR, suite)];
+  const rows = report.testResults.filter((t) => names.includes(t.name));
+  return rows.length === 1 && rows[0].status === "passed";
+};
+const why = (r) =>
+  r.timedOut
+    ? "timed out"
+    : r.error
+      ? `spawn failed: ${r.error.message}`
+      : r.signal
+        ? `killed by ${r.signal}`
+        : r.code === 0
+          ? "exit 0 but not in the report as passed"
+          : `exit ${r.code}`;
+
+if (suites.length) {
+  process.stdout.write("\nbaseline suites … ");
+  rmSync(reportFile("baseline"), { force: true });
+  const all = await runVitest(
+    [...suites, "--reporter=json", `--outputFile=${reportFile("baseline")}`],
+    BASELINE_TIMEOUT_MS,
+  );
+  const allReport = readReport(reportFile("baseline"));
+  let note = `${(all.ms / 1000).toFixed(1)}s`;
+  if (!suites.every((s) => suiteGreen(all, allReport, s))) {
+    process.stdout.write(
+      c.dim(`multi-file run not green (${why(all)}) — re-running each alone … `),
+    );
+    const redBaseline = [];
+    for (const s of suites) {
+      const file = reportFile("baseline-one");
+      rmSync(file, { force: true });
+      const one = await runVitest(
+        [s, "--reporter=json", `--outputFile=${file}`],
+        BASELINE_TIMEOUT_MS,
+      );
+      if (!suiteGreen(one, readReport(file), s)) redBaseline.push(`${s} (${why(one)})`);
+    }
+    if (redBaseline.length) {
+      console.log(c.red("RED"));
+      console.error(c.red(`\n✗ These suites fail BEFORE any mutation: ${redBaseline.join(", ")}`));
+      console.error(
+        c.dim("  Every mutant would appear 'caught' for the wrong reason. Fix these first.\n"),
+      );
+      if (all.output) console.error(c.dim(all.output));
+      restoreAll();
+      dropScratch();
+      process.exit(1);
+    }
+    note = "each green alone";
+  }
+  console.log(c.green(`green (${suites.length} suite${suites.length === 1 ? "" : "s"}, ${note})`));
+}
+
+/**
+ * Score one applied mutant. ONLY `CAUGHT` passes, and it has to be earned twice over: vitest exits 1
+ * AND its JSON report counts a failed test or a failed suite. The old check was "the call threw", so
+ * ENOBUFS, a spawn failure, a missing suite, an interrupted child and a Ctrl-C all scored "caught".
+ *   exit 0                        → SURVIVED  (the suite stayed green with the mutation in)
+ *   exit 1 + a failure counted    → CAUGHT
+ *   exit 1, report missing/empty  → ERROR     (vitest failed, but not on a test — e.g. no file matched)
+ *   any other exit, a signal,
+ *   a spawn error                 → ERROR
+ *   no exit within the timeout    → TIMEOUT   (checked FIRST — a killed run is never a catch)
+ * `--bail=1` stops the suite at its first failing test: a catch needs one red test, not all of them.
+ */
+async function scoreMutant(m, k) {
+  const file = reportFile(`mutant-${k}`);
+  rmSync(file, { force: true });
+  const r = await runVitest(
+    [m.suite, "--bail=1", "--reporter=json", `--outputFile=${file}`],
+    TIMEOUT_MS,
+  );
+  const verdict = (v, detail = "") => ({ verdict: v, detail, ms: r.ms, output: r.output });
+  if (r.timedOut)
+    return verdict("TIMEOUT", `no verdict in ${TIMEOUT_MS} ms — process group killed`);
+  if (r.error) return verdict("ERROR", `spawn failed: ${r.error.message}`);
+  if (r.signal) return verdict("ERROR", `vitest killed by ${r.signal}`);
+  if (r.code === 0) return verdict("SURVIVED");
+  if (r.code !== 1) return verdict("ERROR", `vitest exited ${r.code}`);
+  const report = readReport(file);
+  rmSync(file, { force: true });
+  if (!report) return verdict("ERROR", "exit 1 with no readable JSON report");
+  if (report.numFailedTests > 0 || report.numFailedTestSuites > 0) return verdict("CAUGHT");
+  return verdict("ERROR", "exit 1 but the report counts no failed test or suite");
+}
 
 console.log(c.bold(`\nmutating (${targets.length}) — each must turn its suite RED\n`));
 const survived = [];
 const stale = [];
 const unparseable = [];
+const timedOut = [];
+const errored = [];
+let caughtCount = 0;
+let batteryMs = 0;
 
 /**
  * Does the mutated source still PARSE?
  *
  * ⚠️ ADDED BY THE BLIND ADVERSARIAL PASS ON #254 (CRITICAL), and the defect it caught is the reason
  * this exists rather than a style note. A retargeted mutant cut the `if` out of an `if/else` pair,
- * leaving a bare `else` — a SyntaxError. `suitePasses` is an exit-code check, so a file that will not
- * parse reddens EVERY test in its suite, the mutant scores `caught`, and the operator reads green.
+ * leaving a bare `else` — a SyntaxError. The catch test was then a bare exit-code check, so a file
+ * that will not parse reddened EVERY test in its suite, the mutant scored `caught`, and the operator
+ * read green. (A failed IMPORT is still a failed suite in vitest's report, so `scoreMutant`'s stricter
+ * test does not close this — the parse check does.)
  *
  * A mutation that does not parse measures the PARSER, not the guard. It is scored `caught` for a
  * reason that has nothing to do with the proposition it exists to prove, and the assertion it was
@@ -27336,7 +27695,8 @@ const parses = async (rel, code) => {
   return sf.parseDiagnostics.length === 0;
 };
 try {
-  for (const m of targets) {
+  for (const [k, m] of targets.entries()) {
+    const tag = c.dim(`[${k + 1}/${targets.length}]`);
     const abs = path.join(ROOT, m.file);
     const src = originals.get(m.file);
     const hits = src.split(m.find).length - 1;
@@ -27345,7 +27705,7 @@ try {
       // exactly the silent rot the whole script exists to prevent.
       stale.push({ ...m, hits });
       console.log(
-        `  ${c.red("STALE")}  ${m.id} ${c.dim(`— pattern matched ${hits}× (expected 1)`)}`,
+        `  ${tag} ${c.red("STALE")}  ${m.id} ${c.dim(`— pattern matched ${hits}× (expected 1)`)}`,
       );
       continue;
     }
@@ -27354,23 +27714,41 @@ try {
       // Not a pass and not a failure of the CODE — a failure of the MUTATION. See `parses` above.
       unparseable.push(m);
       console.log(
-        `  ${c.red("UNPARSEABLE")}  ${m.id} ${c.dim("— the mutated file does not parse; it would score `caught` off a SyntaxError")}`,
+        `  ${tag} ${c.red("UNPARSEABLE")}  ${m.id} ${c.dim("— the mutated file does not parse; it would score `caught` off a SyntaxError")}`,
       );
       continue;
     }
     writeFileSync(abs, mutated);
-    const caught = !suitePasses(m.suite);
-    writeFileSync(abs, src);
-    if (caught) {
-      console.log(`  ${c.green("caught")} ${m.id} ${c.dim(`— ${m.why}`)}`);
-    } else {
+    let s;
+    try {
+      s = await scoreMutant(m, k);
+    } finally {
+      writeFileSync(abs, src);
+    }
+    batteryMs += s.ms;
+    const secs = c.dim(`(${(s.ms / 1000).toFixed(1)}s)`);
+    if (s.verdict === "CAUGHT") {
+      caughtCount++;
+      console.log(`  ${tag} ${c.green("CAUGHT")} ${m.id} ${secs} ${c.dim(`— ${m.why}`)}`);
+    } else if (s.verdict === "SURVIVED") {
       survived.push(m);
-      console.log(`  ${c.red("SURVIVED")} ${m.id} ${c.dim(`— ${m.why}`)}`);
+      console.log(`  ${tag} ${c.red("SURVIVED")} ${m.id} ${secs} ${c.dim(`— ${m.why}`)}`);
+    } else {
+      (s.verdict === "TIMEOUT" ? timedOut : errored).push({ ...m, detail: s.detail });
+      console.log(`  ${tag} ${c.red(s.verdict)} ${m.id} ${secs} ${c.dim(`— ${s.detail}`)}`);
+      if (s.verdict === "ERROR" && s.output) console.log(c.dim(s.output.replace(/^/gm, "      ")));
     }
   }
 } finally {
   restoreAll();
+  dropScratch();
 }
+if (targets.length)
+  console.log(
+    c.dim(
+      `\n  battery: ${targets.length} mutant(s), ${(batteryMs / 60000).toFixed(1)} min in vitest, ${(batteryMs / 1000 / targets.length).toFixed(2)} s mean`,
+    ),
+  );
 
 // ── 3 · the orphan-suite guard (mirrors ci.yml) ───────────────────────────────────────────────────
 process.stdout.write("\norphan-suite guard … ");
@@ -27455,10 +27833,19 @@ for (const b of badPragma) console.log(`  ${c.red("environment")} ${b}`);
 
 // ── verdict ───────────────────────────────────────────────────────────────────────────────────────
 const failed =
-  survived.length + stale.length + unparseable.length + orphans.length + badPragma.length;
+  survived.length +
+  stale.length +
+  unparseable.length +
+  timedOut.length +
+  errored.length +
+  orphans.length +
+  badPragma.length;
 if (failed === 0) {
+  const scope = opts.shard ? ` (shard ${opts.shard.i}/${opts.shard.n})` : "";
   console.log(
-    c.green(c.bold(`\n✓ verify:slice passed — ${targets.length} mutants caught, no orphans\n`)),
+    c.green(
+      c.bold(`\n✓ verify:slice passed${scope} — ${caughtCount} mutants caught, no orphans\n`),
+    ),
   );
   process.exit(0);
 }
@@ -27474,6 +27861,29 @@ if (survived.length) {
       ) +
       c.dim("  Find inputs that separate them (search numerically), don't just add assertions.\n"),
   );
+}
+if (timedOut.length) {
+  console.log(
+    c.red(
+      `  ${timedOut.length} mutant(s) TIMEOUT — no verdict within ${TIMEOUT_MS} ms, so NOT caught:`,
+    ),
+  );
+  for (const m of timedOut) console.log(`    · ${m.id}\n      suite: apps/qr/${m.suite}`);
+  console.log(
+    c.dim(
+      "\n  A hang is not a red test. If the suite is just slow, raise VERIFY_SLICE_TIMEOUT_MS;\n",
+    ) +
+      c.dim(
+        "  if the mutation makes it loop, the suite needs a test that fails instead of hanging.\n",
+      ),
+  );
+}
+if (errored.length) {
+  console.log(
+    c.red(`  ${errored.length} mutant(s) ERROR — vitest did not give a scorable answer:`),
+  );
+  for (const m of errored)
+    console.log(`    · ${m.id} — ${m.detail}\n      suite: apps/qr/${m.suite}`);
 }
 if (unparseable.length) {
   console.log(

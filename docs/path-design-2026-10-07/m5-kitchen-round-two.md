@@ -801,3 +801,18 @@ The round-3 consistency pass gave this moment these changes:
 
 5. The stop card's button reuses help.done 'ရပြီ · Got it'. The card stays ALARM without motion and never reaches the wall.
 6. Device sitting #12: drinks are bumped on Mom's board. A station that is never bumped pins a table on the wall and keeps the phone's door shut (D5 flip condition).
+
+### E · Codex round 6 (2026-10-08) — these win over everything above
+
+1. **The Bring-back fallback label is precise to the second, and a tie takes a stable discriminator.**
+   When a card's round number is unknown (`n: null`), its chip, its undo pill and their accessible names
+   fall back to the card's FIRST fire time to the second — "Table 4 · 7:42:05" / "စားပွဲ 4 · 7:42:05",
+   Latin digits in the identifier face — not to the minute, because two Sends inside one minute
+   would give two chips that both read "Table 4 · 7:42". If two cards on the board would still carry the
+   same label (the same table, the same second), each also takes a stable card discriminator taken from
+   its own card key (`ticketKey`): the first four hex characters of its `fire_batch`
+   ("Table 4 · 7:42:05 · 3f2a"), or a fixed mark for the one per-cart no-batch bucket of PATH_DESIGN
+   correction 3. Never its position on the rail or the board, and never a count: the same card reads
+   the same label on every poll, on its chip and on its pill, and recalling one chip can never retitle
+   the other. The label is still captured once at bump time (PATH_DESIGN correction 14), so it adds no
+   new words and no new strings beyond the composed identifier.

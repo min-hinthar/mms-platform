@@ -119,19 +119,75 @@ function run(cmd, args) {
   });
 }
 
-/** Files changed against the merge base with origin/main (or against HEAD~1 when that is unavailable). */
-function changedFiles() {
-  let base;
-  try {
-    base = run("git", ["merge-base", "HEAD", "origin/main"]).trim();
-  } catch {
+/**
+ * Refuse to answer. A coverage check that cannot name what it compared against has checked NOTHING,
+ * and "nothing to check" and "nothing wrong" print the same word — so in CI the absence of a base is
+ * a failure, never an empty list.
+ */
+function failClosed(why) {
+  console.error(c.red(c.bold("\n✗ money-path coverage cannot run: ")) + why);
+  console.error(
+    c.dim(
+      "\n  Set MONEY_COVERAGE_BASE to the commit this change is measured against (CI: the PR's\n" +
+        "  base sha, or the push's `before`) and make sure the checkout holds it — actions/checkout's\n" +
+        "  default depth-1 clone has neither origin/main nor HEAD~1, so the old fallback checked an\n" +
+        "  empty list and printed `clean`.\n",
+    ),
+  );
+  process.exit(1);
+}
+
+/**
+ * The commit to diff against, and where it came from. In order:
+ *
+ *   1. `MONEY_COVERAGE_BASE` — CI sets it explicitly. Set but unresolvable is a FAILURE wherever it
+ *      runs, never a fallback: falling back would silently check something other than what was asked.
+ *      GitHub's all-zero `before` (a newly created branch) counts as unset.
+ *   2. the merge base with origin/main — the local default.
+ *   3. HEAD~1 — LOCAL ONLY. On CI it would quietly check one commit of a many-commit change, and a
+ *      depth-1 checkout does not have it anyway; with `CI` set, reaching this point fails closed.
+ *
+ * Returns null only locally, in a repo with nothing to compare against (a fresh single-commit clone).
+ */
+function resolveBase() {
+  const asked = (process.env.MONEY_COVERAGE_BASE ?? "").trim();
+  if (asked && !/^0+$/.test(asked)) {
     try {
-      base = run("git", ["rev-parse", "HEAD~1"]).trim();
+      const sha = run("git", ["rev-parse", "--verify", "--quiet", `${asked}^{commit}`]).trim();
+      return { sha, from: `MONEY_COVERAGE_BASE=${asked}` };
     } catch {
-      return []; // a fresh repo with one commit — nothing to compare against
+      failClosed(
+        `MONEY_COVERAGE_BASE=${asked} does not name a commit in this checkout (shallow clone?).`,
+      );
     }
   }
-  return run("git", ["diff", "--name-only", "--diff-filter=ACMR", `${base}...HEAD`])
+  try {
+    return { sha: run("git", ["merge-base", "HEAD", "origin/main"]).trim(), from: "origin/main" };
+  } catch {
+    // fall through
+  }
+  if (process.env.CI) {
+    failClosed(
+      "CI is set, MONEY_COVERAGE_BASE is unset or empty, and origin/main is not in this checkout.",
+    );
+  }
+  try {
+    return { sha: run("git", ["rev-parse", "HEAD~1"]).trim(), from: "HEAD~1" };
+  } catch {
+    return null; // local only: a fresh repo with one commit — nothing to compare against
+  }
+}
+
+/** Files changed between the base (via the merge base, `...`) and HEAD. */
+function changedFiles(base) {
+  let out;
+  try {
+    out = run("git", ["diff", "--name-only", "--diff-filter=ACMR", `${base.sha}...HEAD`]);
+  } catch (e) {
+    // `...` needs a merge base, which a shallow checkout may not hold even when both ends exist.
+    failClosed(`git diff ${base.sha.slice(0, 10)}...HEAD failed: ${String(e.stderr || e).trim()}`);
+  }
+  return out
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -150,7 +206,15 @@ const covered = coveredFiles();
 const gaps = [];
 const exempted = [];
 
-for (const rel of changedFiles()) {
+const base = resolveBase();
+const changed = base ? changedFiles(base) : [];
+// Say what was compared, so a vacuous pass is visible as one ("0 changed files") instead of reading
+// exactly like a real one.
+const against = base
+  ? `${changed.length} changed file${changed.length === 1 ? "" : "s"} vs ${base.sha.slice(0, 10)} (${base.from})`
+  : "no base — a single-commit repo, nothing compared";
+
+for (const rel of changed) {
   if (!MONEY_PATHS.some((re) => re.test(rel))) continue;
   if (/\.(test|spec)\.[tj]sx?$/.test(rel)) continue; // a test needs no mutant of its own
   const abs = path.join(ROOT, rel);
@@ -169,11 +233,15 @@ if (exempted.length) {
 }
 
 if (gaps.length === 0) {
-  console.log(c.green("clean") + c.dim(" — every changed money-path file has a mutant"));
+  console.log(
+    c.green("clean") + c.dim(` — every changed money-path file has a mutant (${against})`),
+  );
   process.exit(0);
 }
 
-console.error(c.red(c.bold("\n✗ changed money-path files with no mutant in MUTANTS:\n")));
+console.error(
+  c.red(c.bold(`\n✗ changed money-path files with no mutant in MUTANTS (${against}):\n`)),
+);
 for (const f of gaps) console.error(`    ${f}`);
 console.error(
   c.dim(

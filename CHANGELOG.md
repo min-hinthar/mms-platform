@@ -4,6 +4,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The merge gate fits in 30 minutes: `verify:slice` sharded in CI, CI split into lanes (2026-10-08)
+
+- **The owner's budget (2026-10-08):** _"verify:slice should not take this long ... we can't take more
+  than 30 minutes for each PR merge."_ Measured first: a full serial `verify:slice` took 164–180 min (the
+  three runs that finished, 2026-10-06..08), 8 of 11 attempts died before the end and restarted from the
+  top, and the docs still called it "a few minutes". The owner chose to **keep it as a merge gate**, made
+  fast and moved into CI, and to **make the repo public again** — flipped by the owner the same day
+  (re-measured `private: false`; `main` has no protection rule yet, so C28 ② stays open).
+- **`verify:slice` in CI.** The battery runs as twelve cost-balanced `verify-slice shard` jobs, each in its own checkout,
+  behind one aggregate check named **`verify-slice`**, on non-draft PR heads (`ready_for_review` starts
+  it) and pushes to main, in the code lane only. The merge waits for it green on the merge head beside
+  `codex-review`; the adversarial pass now runs in parallel with it instead of after it. Locally, the
+  pre-push step is `--only=<substring>` for the modules you touched.
+- **The runner.** The package's own vitest binary (no `npx` per mutant), one multi-file baseline,
+  `--bail=1` per mutant, a per-mutant timeout (`VERIFY_SLICE_TIMEOUT_MS`, default 180000) and restore on
+  SIGTERM/SIGHUP as well as SIGINT. New flags `--shard=<i>/<n>` (whole owning suites bin-packed, so the
+  shards are disjoint and their union is the selection) and `--list`; argv is strict (an unknown
+  argument, a bare `--only` or a malformed `--shard` prints usage and exits 2). Verdicts gain TIMEOUT
+  and ERROR: a timed-out or crashed runner is never scored as a kill, which "any throw = caught" used to
+  do.
+- **CI lanes.** A `changes` job routes each PR: a docs-only PR (every path `*.md` or under `.claude/`)
+  runs only `check:docs` + `format:check`; code runs the build job; the Supabase job runs only when a
+  path it reads changed. Pushes to main run everything. Every fast-lane step now carries
+  `if: !cancelled()`, so one red guard no longer hides the rest, and `check:money-coverage` (now failing
+  closed when no diff base resolves) and `check:photo-filter` run in CI instead of only inside
+  `verify:slice`. The Codex gate wakes only on Codex's own reviews and comments.
+- **Docs.** CLAUDE.md, docs/WORKFLOW.md and docs/ARCHITECTURE.md carry the measured costs and the new
+  ritual; OPEN-ITEMS gains **C28** (public again, then require `codex-review`, `verify-slice`, `build`,
+  `migrations-check + types-fresh`, `docs`) and the deferred plan steps **T48** (a content-hash verdict
+  ledger), **T49** (local worktree runs with `--jobs`/`--changed`) and **T50** (build-job headroom).
+  LEARNINGS #247 records the lesson.
+- **Codex round 6 on #319, held for this PR, fixed:** the design-prototyping templates take the repo root
+  from `args.repo` and fail loudly on a missing map, visual system, pick, consistency result, critic, draw
+  or refresh report; concepts need two screens; 3-refresh takes `args.vocab` and `args.decisions`; and
+  2b-appendix writes the shared vocabulary into every appendix A. PD3's pending "I'm here" is kept in
+  `localStorage` keyed by order (m3 §F), and PD5's Bring-back fallback label is precise to the second
+  with a stable tie-breaker (m5 §E).
+
 ### The owner's path-design picks (2026-10-07)
 
 - **Design-thinking prototyping is now a standard loop (owner, 2026-10-08: "make this standard").**

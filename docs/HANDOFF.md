@@ -45,6 +45,23 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > M184's widened `close` arm (D2). The owner's other items are unchanged: C2 and the flip, the device
 > sitting (including whether drinks get bumped), and the native Burmese sitting.
 
+> ### ⚙️ In flight (2026-10-08) — the merge gate, fitted to 30 minutes
+>
+> **#319 merged as `8dc5210`** (a squash), and the owner then set a budget: _"verify:slice should not take
+> this long ... we can't take more than 30 minutes for each PR merge."_ Measured: a full serial
+> `verify:slice` took 164–180 min (the three runs that finished, 2026-10-06..08), and 8 of 11 attempts
+> died before the end. **The owner's two decisions:** ① keep `verify:slice` as a merge gate, made fast
+> and moved into CI as the sharded `verify-slice` check (12 cost-balanced shards, ~19 min estimated, non-draft
+> heads and main pushes, code lane only) — the merge now waits for `verify-slice` AND `codex-review`
+> green on the merge head, and the adversarial pass runs beside it; ② make the repo **public again**
+> (it was measured private, which also left `main` unprotected) — **done 2026-10-08** (re-measured
+> `private: false`; `/branches/main/protection` → 404, i.e. no rule yet) — then wire the required checks,
+> which is still the owner's step — OPEN-ITEMS **C28** ② (with C16). The gate change itself (CI lanes, the runner fixes, `--shard` /
+> `--list` / strict argv, TIMEOUT and ERROR verdicts) is the PR after #319; the deferred plan steps are
+> **T48** (a verdict ledger), **T49** (local worktree runs) and **T50** (build-job headroom). Codex's
+> round-6 findings held from #319 are fixed in the same PR (the design-prototyping templates, PD3's
+> pending "I'm here" in `localStorage`, PD5's Bring-back label to the second).
+
 > ## ⏭️ NEXT SESSIONS — the parallel wave (2026-10-07 · #315 MERGED `76501c0` · nine streams planned · one card pending)
 >
 > **#315 is merged** (`76501c0`, a merge commit). A full `verify:slice` on its tree caught 3270 of 3270
