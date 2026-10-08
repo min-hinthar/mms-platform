@@ -3754,3 +3754,18 @@ and its own verdict). The same round showed the cost of deciding a race by a LAT
 undo refused by a lock?" asked of authz after the fact misses a lock taken and freed inside one request,
 while the LINES still answer it — dishes still fired and in their grace that the un-fire did not move
 were refused. Decide from the state the failed write left behind, not from a second look at its cause.
+
+## #246
+
+**A design record is a contract the money streams will build, so review it like code — and check that
+every runbook step is possible in the state it runs in (#319, path design round 3).** The record made
+"one real Apple Pay sale at a table, refunded" a PRECONDITION of flipping `SURFACES.dineInPhonePay` —
+while the flag it gates refuses every dine-in phone payment, so the step could never be met, and C2 had
+the opposite order. Every reviewer before the blind pass read the sentence as sensible because each step
+was sensible alone. The same review found the design letting both new create-intent refusals drift above
+`supersedeCartIntent` (#257's CRITICAL shape), and Codex found two product holes no consistency pass
+could see: a to-go draft that let a phone pay before the dish was cooked, and a host nudge carried only
+by the guest's presence, which dies when they lock their phone. For a design doc, ask of each step "can
+this happen in the state the system is in right then?" and of each state "what carries it, and does that
+carrier outlive the person who set it?" The standard loop now lives in
+`.claude/skills/design-prototyping/SKILL.md`.

@@ -6,6 +6,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The owner's path-design picks (2026-10-07)
 
+- **Design-thinking prototyping is now a standard loop (owner, 2026-10-08: "make this standard").**
+  `.claude/skills/design-prototyping/SKILL.md` writes down the process this record went through: map,
+  diverge three directions on a canvas, ask the owner once, refine with a consistency pass and a critic,
+  record, blind pass, Codex, merge on the owner's go. It carries the artboard rules and the four workflow
+  templates. CLAUDE.md and WORKFLOW.md point to it; HANDOFF's top block hands the build to the next
+  session; LEARNINGS #246 records the review lessons.
+
 - **The owner picked a direction for eight diner and staff moments:** diner moments guided, staff moments
   glanceable, each "more enhanced, elevated, world-class". The record is the new
   [`docs/PATH_DESIGN_2026-10-07.md`](docs/PATH_DESIGN_2026-10-07.md), with one refined spec per moment in
