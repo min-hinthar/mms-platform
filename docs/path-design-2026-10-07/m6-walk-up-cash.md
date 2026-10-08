@@ -1065,3 +1065,7 @@ The round-3 consistency pass gave this moment these changes:
 3. The green bloom is the staff twin of the phone's STAMP. It plays once, on the in-place landing or a matching same-tab stash reload, and never on a revisit. On the counter the ✓ disc means paid only.
 4. D5 and D4: the till tray is never gated by served and never dimmed by a pending approval. After C2 only the pane's cash-only line changes (m2), and the tray does not.
 5. Expose the tray's readout as a component that m12 can render inert, for counter step 4.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **The slip freezes with the quote.** The tray's item slip renders the same frozen snapshot as the DUE figure, never the live cart. When the live cart diverges (a colleague's add, a void, a manager decision), the slip gains one line, "The order changed — tap to update" (English; MY to K15), and Take is disabled until Dad re-quotes. Cash is never collected against a screen whose items and total disagree; the server's moved refusal stays the backstop, not the first notice. This supersedes section C's "consider freezing the slip".

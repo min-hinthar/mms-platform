@@ -534,3 +534,7 @@ The round-3 consistency pass gave this moment these changes:
 
 5. D5, after C2 only: the Order stage's Total door reads 'View bill' while the kitchen hold is up, and 'View bill & pay' once the door opens. billDoorLabel reads payBlock's new kitchen arm, with precedence peer > unsent > kitchen > grace. Before C2, PD2's label is unchanged.
 6. --fs-pass lands in guards-style's early token-only PR (D1(c)). PATH_DESIGN's pick of counter-floor for tokens.css is withdrawn.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **The nudge is durable.** "Let Aye know" writes a stamp on the cart (the nudger's seat and time) through a member-authorized server action, status-guarded in the SQL (cart open, a host named, the nudger not the host; at most once a minute); `mms_fire_cart` clears it in the same statement as the fire. A presence flag dies when the guest locks their phone (`useGroupCart` removes the channel on unmount, `lib/realtime.ts:90-93`), which is exactly the face-down-host case. The column pair is a migration riding PD1, applied on the owner's go; "Aye can see you're waiting" still shows only while the host's surface draws the line.

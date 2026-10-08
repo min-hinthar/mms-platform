@@ -1469,3 +1469,8 @@ Cite the decided docs/path-design-2026-10-07 files, not the canvas-brief bodies.
 - Measure the kitchen pictures inside the 34rem Help sheet headless as well. Risk 9 only covers the 432px pane, and the 696px stage crops harder there.
 - Keep counts out of the teaching focus in counter step 2 ('၂ ခု မပို့ရသေး', 'Send to kitchen · 2 items'). They are shipped console copy, but the step teaches the ring and its word.
 - The counter step 4 picture places the Change readout directly under the notes. In m6 it sits in the band, far below (m6-walk-up-cash.md:332). Say 'composed crop' honestly, or crop truthfully.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **The arm resets on every step change,** not only at mount. Each new step re-arms its controls for 400 ms, and a pointer sequence that began before the newly rendered control armed is ignored, so a double-tap on step 4's Next never also fires step 5's Finish (the guide is marked seen at open and would never return).
+2. **The guide card is not a second landmark with the pane's name.** It renders inside `TablePane`'s `<section aria-labelledby="table-pane-h">` (`TablePane.tsx:357-361`), so the card is a plain `div` with `role="group"`, labelled by its own step title (`aria-labelledby` on the guide's heading, a distinct id) and described by `guide-step`. On the kitchen's empty board the same rule holds: one region per surface.

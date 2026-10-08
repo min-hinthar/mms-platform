@@ -1045,3 +1045,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - Page 4 shows two filled gold pills (the picture's inert Pay and the dock's Next). Consider rendering the tray picture at reduced scale with pointer-events:none and no hover affordance, so the inert Pay is never tapped as a door.
 - Measure the five pages headless at 390, 375 and 320 at 200% text before merge (open risk 13), including the Burmese heading wraps. The fit numbers are estimates.
 - In the pre-C2 counter variant, read the quiet line and the Bill's tender line from the same PR2 binding, as specified, and include that binding in the equality test from the first blocking fix.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **Page 1's quiet line follows the table's capacity.** It reads `GuestList`'s own `atCap` predicate (`GuestList.tsx:223-240`). At capacity the Invite control is replaced by "Table’s full", so the guide drops the line entirely and keeps only "Everyone at the table adds to one shared order." Below capacity the line stands as written. A component case pins both.

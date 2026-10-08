@@ -987,7 +987,7 @@ The round-3 consistency pass gave this moment these changes:
 2. D5 server order in create-intent: after `supersedeCartIntent` and its captured / unknown exits (route.ts:125-136), and before the slot, the promo pin and paymentIntents.create; each refusal releases the lock:
    - a. The parked refusal while the flag is false.
    - b. D5's verdict, from ONE error-aware read of qr_cart_items, in the shipped unsent refusal's dine-in slot, which it replaces. It fails CLOSED with the shipped 503 sentence.
-   - A host with drafts gets 'Send everything to the kitchen first — Pay opens once everything’s served.'; a hostless table with drafts gets 'A server will send these to the kitchen — or pay at the counter.'; everyone else gets 'Pay opens once everything’s served.' (409).
+   - A host with drafts gets 'Send everything to the kitchen first — Pay opens once everything’s served.'; a hostless table with drafts gets 'A server will send these to the kitchen — or pay at the counter.'; a to-go draft gets 'Send your to-go dish to the kitchen first (More ⋯) — Pay opens once everything’s served.'; everyone else gets 'Pay opens once everything’s served.' (409).
    - A parse-based check script verifies the call and that both refusals run after the supersede statement finishes.
    - The Take cash, reader and secure-tab doors are never gated by served.
 

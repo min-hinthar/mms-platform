@@ -1082,3 +1082,12 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - Screen 1's 'played once on load' FILL is an artboard demo that contradicts 'never on a first read'. Label it demo-only so the builder does not animate on first paint.
 - The bare 'Partly refunded' string is refund-view.ts:119. :85 is the 'Partly refunded · {tender}' form.
 - Roll-up step 4 ('only fired inside the grace') is ambiguous when round 1 is served and round 2 is inside the grace. kitchen-track.ts should own and test that case.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **A to-go draft holds the door** (PATH_DESIGN D5's hold set, revised). It otherwise fires only when
+   the bill is paid (`mms_fire_pending_food`), so a phone could pay before that dish was cooked and the
+   head could read Served beside an unsent row. After the flip its held reason is "Send your to-go dish
+   to the kitchen first (More ⋯) — Pay opens once everything’s served.", pointing at the shipped "Send
+   to kitchen now". Its row keeps the shipped "Not sent yet — goes to the kitchen when you pay", which
+   stays true at the counter. The head reads Served only when nothing holds the door.

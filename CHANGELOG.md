@@ -36,12 +36,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - a manager request closed after payment recorded as `superseded`, never `denied`;
   - two Undo words, ပြန်ယူ (take back a Send) and ပြန်ဖျက် (erase a mark just made);
   - moment 8's asker-by-PIN seam left unbuilt (PD13);
-  - card / Apple Pay on the guest's phone once nothing on the bill is waiting on the kitchen (D5's hold set, hostless tables included), enforced in create-intent after the intent supersede and parked behind `SURFACES.dineInPhonePay` until live keys; the flag flips in its own PR and is then proved by one refunded Apple Pay sale (C2; ENV step 7).
+  - card / Apple Pay on the guest's phone once nothing on the bill is waiting on the kitchen (D5's hold set, hostless tables and to-go drafts included), enforced in create-intent after the intent supersede and parked behind `SURFACES.dineInPhonePay` until live keys; the flag flips in its own PR and is then proved by one refunded Apple Pay sale (C2; ENV step 7).
 - **Four new moments, one spec each:** the TV board with per-item, per-table kitchen progress (m9 ·
   PD9), the guest's live pass and pay after served (m10 · PD10), and animated step guides for diners
   (m11 · PD11) and staff (m12 · PD12). They share one pass, one kitchen track (Sent · Cooking · Served,
   never gold) and one motion language, set in the record's round-3 section, which wins over everything
-  before it. Each m1–m8 spec gains a section D with its round-3 amendments. A blind three-lens review then corrected the record before review by Codex: the flip's order (the proof sale cannot precede the flip), PD10's id in three specs, the refusals' place after the supersede, hostless tables, and the round-2 text the round-3 rows had left standing. Docs only.
+  before it. Each m1–m8 spec gains a section D with its round-3 amendments. A blind three-lens review then corrected the record before review by Codex: the flip's order (the proof sale cannot precede the flip), PD10's id in three specs, the refusals' place after the supersede, hostless tables, and the round-2 text the round-3 rows had left standing. Codex's third round then made a to-go draft hold the phone door too, the host nudge a durable stamp on the cart, the till slip freeze with its quote, both guides arm per step and teach only reachable controls, and the parked kiosk print its board code before it reopens. Docs only.
 
 ### C18 corrected — the webhook was not dead (2026-10-07)
 

@@ -1047,3 +1047,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    TV that is not 1920 wide, density is board-fit's step-down (fewer passes per page), never a smaller
    figure. The pickup code keeps the 54px row tier.
 2. **D5's phone door is PD10** (money-rails' served gate), not PD9; PD9 is this board.
+
+### E · Codex round 3 (2026-10-08) — these win over everything above
+
+1. **Kiosk pickup guests must see their code before the board drops names.** The kiosk handoff shows only "Pay at the counter — we’ll call your name" (`KioskOrderFlow.tsx:248-251`; `lib/kiosk/strings.ts`) and never the board code. The kiosk is parked (`SURFACES.kiosk = false`, C20), so no kiosk order reaches the wall today; reopening it now requires the handoff to print the order's board code (the same UUID-tail code the wall shows). This joins C20's reopen prerequisites. Phone pickup guests already hold the code on their claim ticket (m3).
