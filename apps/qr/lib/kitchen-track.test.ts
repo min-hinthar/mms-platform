@@ -81,7 +81,7 @@ describe("trackStage — one line's stamp", () => {
 });
 
 describe("groupStage — a same-name group reads its least-advanced line", () => {
-  it("one dish served and one still sent reads sent (`kitchen-track/group-takes-the-most-advanced`)", () => {
+  it("one dish served and one still sent reads sent (`kitchen-track/least-advanced-takes-the-most-advanced`)", () => {
     const served = line({ state: "served", bumped_at: at(-60_000) });
     expect(groupStage([served, line()], NOW)).toBe("sent");
     expect(groupStage([line({ state: "in_progress" }), served], NOW)).toBe("cooking");

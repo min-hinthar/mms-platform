@@ -79,17 +79,26 @@ describe("KdsStopCard — the reserved shape", () => {
     expect(card.className).not.toContain("kds-ticket-held");
     expect(card.querySelector(".kds-round")).toBeNull();
     expect(card.querySelector(".kds-flash")).toBeNull();
-    // The stylesheet: the stop strip declares no animation, and the stop card's border is solid
-    // (the held card's `border-style: dashed` is the one dashed ticket). Comments stripped first.
+    // The stylesheet, every block that names each selector (never the first by position — a later
+    // block could re-declare what the first refused; comments stripped first): no stop strip
+    // declares an animation, the stop card's border is solid (the held card's `border-style: dashed`
+    // is the one dashed ticket), Got it never takes the pill's cream ground, and the rows are struck.
     const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
-    const stopStrip = rules.match(/\.kds-strip-stop\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(stopStrip).not.toMatch(/animation/);
-    expect(stopStrip).toMatch(/--kds-strip-bg:\s*color-mix\([^)]*--warn/);
-    const stopCard = rules.match(/\.kds-ticket-stop\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(stopCard).not.toMatch(/dashed/);
-    const ack = rules.match(/\.kds-stop-ack\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(ack).not.toMatch(/background:\s*var\(--tx\)/); // the pill's cream ground is never a button's
-    expect(ack).toMatch(/background:\s*var\(--sf\)/);
-    expect(rules.match(/\.kds-stop-line\s*\{([^}]*)\}/)?.[1]).toMatch(/line-through/);
+    const blocks = (selector: string) =>
+      [...rules.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+        .filter((m) => m[1]!.split(",").some((s) => s.trim() === selector))
+        .map((m) => m[2]!);
+    const stopStrips = blocks(".kds-strip-stop");
+    expect(stopStrips.length).toBeGreaterThan(0);
+    for (const b of stopStrips) expect(b).not.toMatch(/animation/);
+    expect(stopStrips.some((b) => /--kds-strip-bg:\s*color-mix\([^)]*--warn/.test(b))).toBe(true);
+    const stopCards = blocks(".kds-ticket-stop");
+    expect(stopCards.length).toBeGreaterThan(0);
+    for (const b of stopCards) expect(b).not.toMatch(/dashed/);
+    const acks = blocks(".kds-stop-ack");
+    expect(acks.length).toBeGreaterThan(0);
+    for (const b of acks) expect(b).not.toMatch(/background:\s*var\(--tx\)/);
+    expect(acks.some((b) => /background:\s*var\(--sf\)/.test(b))).toBe(true);
+    expect(blocks(".kds-stop-line").some((b) => /line-through/.test(b))).toBe(true);
   });
 });

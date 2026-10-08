@@ -46,6 +46,7 @@ const ROUND_CART_COLS = "id,session_id,status";
 function query(name: string) {
   const filters: ((r: Row) => boolean)[] = [];
   let cols = "";
+  let lim: number | null = null;
   const api: Record<string, unknown> = {
     select: (c: string) => {
       cols = c;
@@ -92,7 +93,10 @@ function query(name: string) {
     },
     gte: () => api,
     order: () => api,
-    limit: () => api,
+    limit(n: number) {
+      lim = n;
+      return api;
+    },
     maybeSingle: () => Promise.resolve({ data: null, error: null }),
     then(res: (v: unknown) => unknown) {
       const boom = Promise.resolve({ data: null, error: { message: "boom" } });
@@ -101,7 +105,9 @@ function query(name: string) {
         return boom.then(res);
       if (failRoundRead === "lines" && name === "qr_cart_items" && cols === ROUND_LINE_COLS)
         return boom.then(res);
-      const rows = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
+      const all = (tables[name] ?? []).filter((r) => filters.every((f) => f(r)));
+      // PD5 (G1) — the cap is REAL in the fake, so a saturated read answers exactly `cap` rows.
+      const rows = lim === null ? all : all.slice(0, lim);
       return Promise.resolve({ data: rows, error: null }).then(res);
     },
   };
@@ -414,7 +420,7 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     const t = await tickets();
     expect(t).toHaveLength(2);
     expect(t[0]).toMatchObject({
-      key: `cart-1|b|${B1}`,
+      key: `b|${B1}`,
       cartId: "cart-1",
       fireBatch: B1,
       round: { kind: "n", n: 1 },
@@ -425,7 +431,7 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     });
     expect(t[0]!.lines.map((l) => l.id)).toEqual(["l1", "l2"]);
     expect(t[1]).toMatchObject({
-      key: `cart-1|b|${B2}`,
+      key: `b|${B2}`,
       fireBatch: B2,
       round: { kind: "n", n: 2 },
       firedAt: at(-4),
@@ -436,19 +442,62 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(itemReads).toEqual([expect.stringContaining("modifiers"), ROUND_LINE_COLS]);
   });
 
-  it("a failed round read — either leg — leaves every round UNKNOWN and still answers the board (`kitchen/round-read-failure-is-outage`)", async () => {
-    for (const leg of ["carts", "lines"] as const) {
-      setupTable({
-        lines: [
-          dine({ id: "l1", fire_batch: B1, fire_at: at(-552) }),
-          dine({ id: "l3", fire_batch: B2, fire_at: at(-4) }),
-        ],
-      });
-      failRoundRead = leg;
-      const t = await tickets();
-      expect(t).toHaveLength(2);
-      expect(t.map((x) => x.round)).toEqual([{ kind: "unknown" }, { kind: "unknown" }]);
-    }
+  it("a failed CARTS leg leaves every round UNKNOWN and still answers the board (`kitchen/round-read-failure-is-outage`)", async () => {
+    setupTable({
+      lines: [
+        dine({ id: "l1", fire_batch: B1, fire_at: at(-552) }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-4) }),
+      ],
+    });
+    failRoundRead = "carts";
+    const t = await tickets();
+    expect(t).toHaveLength(2);
+    expect(t.map((x) => x.round)).toEqual([{ kind: "unknown" }, { kind: "unknown" }]);
+  });
+
+  it("a failed LINES leg leaves every round UNKNOWN and still answers the board", async () => {
+    setupTable({
+      lines: [
+        dine({ id: "l1", fire_batch: B1, fire_at: at(-552) }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-4) }),
+      ],
+    });
+    failRoundRead = "lines";
+    const t = await tickets();
+    expect(t).toHaveLength(2);
+    expect(t.map((x) => x.round)).toEqual([{ kind: "unknown" }, { kind: "unknown" }]);
+  });
+
+  it("a SATURATED carts leg — the session's carts at the cap — leaves every round UNKNOWN (G1; `kitchen/round-carts-saturation-ignored`)", async () => {
+    const carts = Array.from({ length: 200 }, (_, i) => ({
+      id: `cart-old-${i}`,
+      session_id: "s4",
+      status: "paid",
+      customer_name: null,
+      pickup_slot: null,
+    }));
+    setupTable({
+      carts: [
+        ...carts,
+        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+      ],
+      lines: [dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })],
+    });
+    const t = await tickets();
+    expect(t).toHaveLength(1);
+    expect(t[0]!.round).toEqual({ kind: "unknown" });
+  });
+
+  it("a SATURATED lines leg — the session's batched lines at the cap — leaves every round UNKNOWN (G1; `kitchen/round-lines-saturation-ignored`)", async () => {
+    // 2 000 served batched lines of the day (off the board) plus the live one: the read answers
+    // exactly its cap and cannot rank, so no number is guessed.
+    const served = Array.from({ length: 1_999 }, (_, i) =>
+      dine({ id: `s${i}`, state: "served", fire_batch: B1, fire_at: at(-3_000) }),
+    );
+    setupTable({ lines: [...served, dine({ id: "l3", fire_batch: B2, fire_at: at(-4) })] });
+    const t = await tickets();
+    expect(t).toHaveLength(1);
+    expect(t[0]!.round).toEqual({ kind: "unknown" });
   });
 
   it("a Send that carries no dine-in line (make-it-now to-go) is its own card with NO ordinal, and shifts none (round 3 D4)", async () => {
@@ -560,5 +609,67 @@ describe("getKitchenQueue — PD5: one Send is one card, keyed by cart + batch",
     expect(t[0]).toMatchObject({ round: { kind: "none" }, fireBatch: B1 });
     expect(itemReads).toHaveLength(2); // the board read, then the OWING read — no round read
     expect(itemReads[1]).toBe(OWING_COLS);
+  });
+
+  it("settlement food on a paid dine-in cart — fired at or after its order — is never a numbered round (Codex on #328)", async () => {
+    // A hostless table paid at the counter with unsent drafts: the order is written, then the
+    // drafts fire at the settlement on the just-paid cart; the guest's earlier Send came before.
+    tables = {
+      qr_cart_items: [
+        dine({
+          id: "p1",
+          cart_id: "cart-paid",
+          fire_batch: B1,
+          fire_at: at(-3_000),
+          state: "served",
+        }),
+        dine({
+          id: "p2",
+          cart_id: "cart-paid",
+          fire_batch: BT,
+          fire_at: at(-2_599),
+          state: "in_progress",
+        }),
+        dine({ id: "l3", fire_batch: B2, fire_at: at(-40) }),
+      ],
+      qr_carts: [
+        {
+          id: "cart-paid",
+          session_id: "s4",
+          status: "paid",
+          customer_name: null,
+          pickup_slot: null,
+        },
+        { id: "cart-1", session_id: "s4", status: "open", customer_name: null, pickup_slot: null },
+      ],
+      table_sessions: [
+        { id: "s4", qr_code: "T4", table_number: 4, mode: "dinein", status: "active" },
+      ],
+      qr_orders: [
+        { id: "order-00abcdef", cart_id: "cart-paid", status: "paid", created_at: at(-2_600) },
+      ],
+    };
+    const t = await tickets();
+    expect(t.map((x) => [x.fireBatch, x.round])).toEqual([
+      [BT, { kind: "none" }],
+      [B2, { kind: "n", n: 2 }],
+    ]);
+  });
+
+  it("a paid slotted counter cart with TWO future-fire batches is ONE held card, keyed by the cart — Cook now fires the cart (Codex on #328; `kitchen/held-keyed-by-batch`)", async () => {
+    setup({
+      code: "reg-ab12",
+      cartStatus: "paid",
+      order: true,
+      pickupSlot: at(2700),
+      lines: [
+        line({ id: "h1", fire_batch: B1, fire_at: at(1800) }),
+        line({ id: "h2", fire_batch: B2, fire_at: at(1800) }),
+      ],
+    });
+    const t = await tickets();
+    expect(t).toHaveLength(1);
+    expect(t[0]).toMatchObject({ held: true, key: "cart-1|h", fireBatch: B1 });
+    expect(t[0]!.lines.map((l) => l.id)).toEqual(["h1", "h2"]);
   });
 });

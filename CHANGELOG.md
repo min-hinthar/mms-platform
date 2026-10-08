@@ -47,6 +47,14 @@ served`, the union post-pay's `@mms/ui` `KitchenTrack` declares identically), `t
 - **Strings:** `kds.round`, `kds.round.next`, `kds.undo.stillOn`, `kds.stop` (K15-HIGH) — Claude-authored
   Burmese drafts for the native sitting (OPEN-ITEMS `K15 · kitchen-ops`). No shipped string changes
   (D3).
+- **After the blind pass and Codex's round on #328 (the same branch, one commit):** one round
+  decision per card (`decideRound` / `decideRounds` / `stubOf`; the face and every name read it; a card
+  landing under a failed read is provisional and takes its number from the first read that answers);
+  a batched line keys by its `fire_batch` alone, so a merge keeps the card; a held card keys by its
+  cart (Cook now fires the cart); ties read the printed label (the fall-back hour); rail chips take
+  part in the ties; settlement food (fired at or after its cart's order) is never a numbered round;
+  the carts leg joins the `Promise.all`, the lines cap is 2 000 and both saturation branches are
+  pinned. m5 §H.1 has the record.
 - **Gates:** 44 new mutants (`kds-undo/*`, `kitchen-track/*`, `kitchen-rounds/*`, `kitchen/*`,
   `kds-rounds/*`, `staff-clock/seconds-stamp-in-the-process-zone`); `KdsBoard.test.tsx` gains the
   two-cards cases; `kitchen-queue-counter.test.ts` the dine-in cases; `KdsStopCard.test.tsx` the shape.

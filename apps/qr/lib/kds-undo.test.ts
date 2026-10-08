@@ -7,7 +7,7 @@ import { KDS_UNDO_MS } from "./kds-undo";
  * while Mom can still take a bump back, or shortens the only way back from a mis-tap.
  */
 describe("KDS_UNDO_MS — the kitchen's one settle window", () => {
-  it("is exactly six seconds (`kds-undo/window-shortened`, `kds-undo/window-lengthened`)", () => {
+  it("is exactly six seconds (`kds-undo/window-shortened`)", () => {
     expect(KDS_UNDO_MS).toBe(6_000);
   });
 });

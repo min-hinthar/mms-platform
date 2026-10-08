@@ -2800,7 +2800,7 @@ describe("PD5 — round two lands on a ticket that's still cooking: one Send, on
   /** Table 4's two Sends on ONE open cart: round 1 (Mohinga ×2, started) and round 2 (Milk Tea). */
   const roundOne = (extra: Partial<KitchenTicket> = {}) =>
     ticketAt("cart-1", 4, 9, {
-      key: "cart-1|b|b1",
+      key: "b|b1",
       sessionId: "sess-1",
       fireBatch: "b1",
       round: { kind: "n", n: 1 },
@@ -2818,7 +2818,7 @@ describe("PD5 — round two lands on a ticket that's still cooking: one Send, on
     });
   const roundTwo = (extra: Partial<KitchenTicket> = {}) =>
     ticketAt("cart-1", 4, 0, {
-      key: "cart-1|b|b2",
+      key: "b|b2",
       sessionId: "sess-1",
       fireBatch: "b2",
       round: { kind: "n", n: 2 },
@@ -2971,34 +2971,66 @@ describe("PD5 — round two lands on a ticket that's still cooking: one Send, on
     expect(q.container.querySelector(".kds-recall-btn")!.textContent).toContain(stamp1);
   });
 
-  it("a stub is decided once: a drawn number is frozen across polls, and a card that landed without one never gains one", async () => {
+  it("a round is decided once: a drawn number is frozen across polls — on the face AND in every name — and round 1 never gains a stub (the blind pass on #328)", async () => {
     currentQueue = {
       ...queue(),
-      tickets: [roundTwo(), roundOne({ round: { kind: "unknown" }, key: "cart-1|b|b1" })],
+      tickets: [roundTwo(), roundOne({ key: "b|b1" })],
     };
     const q = mount("en");
     const { container } = q;
-    expect(cards(container).map((c) => c.querySelector(".kds-round")?.textContent ?? null)).toEqual(
-      ["Round 2", null],
-    );
-    // The next snapshot renumbers round 2 to 4 (a merge) and numbers round 1 as 3: nothing changes.
+    const faces = () =>
+      cards(container).map((c) => c.querySelector(".kds-round")?.textContent ?? null);
+    const names = () => cards(container).map((c) => c.getAttribute("aria-label"));
+    expect(faces()).toEqual(["Round 2", null]);
+    expect(names()).toEqual([
+      `Table 4 · Round 2 — ${ts("en", "kds.channel.dinein")}`,
+      `Table 4 · Round 1 — ${ts("en", "kds.channel.dinein")}`,
+    ]);
+    // The next snapshot re-ranks the session (a merge brought two Sends in): the read now says 4
+    // and 3. Nothing Mom has read changes — not the face, not the bump's name.
     currentQueue = {
       ...queue(),
       tickets: [
         roundTwo({ round: { kind: "n", n: 4 } }),
-        roundOne({ round: { kind: "n", n: 3 }, key: "cart-1|b|b1" }),
+        roundOne({ key: "b|b1", round: { kind: "n", n: 3 } }),
       ],
     };
-    // A line tap refreshes the board (no timers): the snapshot lands.
     fireEvent.click(container.querySelector("#kds-line-line-r2")!);
     await waitFor(() => expect(bumpLine).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getKitchenQueue).toHaveBeenCalled());
-    // MUTATION: `setStubs(nextStubs(new Map(), queue.tickets))` — "Round 4" and "Round 3", red.
-    await waitFor(() =>
-      expect(
-        cards(container).map((c) => c.querySelector(".kds-round")?.textContent ?? null),
-      ).toEqual(["Round 2", null]),
+    // MUTATION: `setRounds(decideRounds(new Map(), queue.tickets))` — "Round 4" / "Round 3", red.
+    await waitFor(() => expect(faces()).toEqual(["Round 2", null]));
+    expect(names()).toEqual([
+      `Table 4 · Round 2 — ${ts("en", "kds.channel.dinein")}`,
+      `Table 4 · Round 1 — ${ts("en", "kds.channel.dinein")}`,
+    ]);
+    expect(bumpButtons(q)[0]!.getAttribute("aria-label")).toContain("Table 4 · Round 2");
+    // The pill and the chip say the frozen number too.
+    currentQueue = { ...queue(), tickets: [roundOne({ key: "b|b1", round: { kind: "n", n: 3 } })] };
+    fireEvent.click(bumpButtons(q)[0]!);
+    await waitFor(() => expect(container.querySelector(".kds-recall-btn")).not.toBeNull());
+    expect(container.querySelector(".kds-undo")!.textContent).toContain("Table 4 · Round 2");
+    expect(container.querySelector(".kds-recall-btn")!.textContent).toContain("Table 4 · Round 2");
+  });
+
+  it("a card that lands while the round read has not answered wears nothing, then takes its number from the first read that does (the blind pass on #328)", async () => {
+    // Round 2 lands alone (round 1 already served) during a failed read: no older card, no stub.
+    currentQueue = { ...queue(), tickets: [roundTwo({ round: { kind: "unknown" } })] };
+    const q = mount("en");
+    const { container } = q;
+    expect(container.querySelector(".kds-round")).toBeNull();
+    expect(cards(container)[0]!.getAttribute("aria-label")).toBe(
+      `Table 4 — ${ts("en", "kds.channel.dinein")}`,
     );
+    // The next poll's read answers: the stub appears, once, and the name follows the same decision.
+    currentQueue = { ...queue(), tickets: [roundTwo(), roundOne({ key: "b|b1" })] };
+    fireEvent.click(container.querySelector("#kds-line-line-r2")!);
+    await waitFor(() => expect(bumpLine).toHaveBeenCalledTimes(1));
+    // MUTATION: `freshStub` storing a definite null under an unknown read — no stub, ever, red.
+    await waitFor(() =>
+      expect(cards(container)[0]!.querySelector(".kds-round")?.textContent).toBe("Round 2"),
+    );
+    expect(cards(container)[0]!.getAttribute("aria-label")).toContain("Table 4 · Round 2");
   });
 
   it("round 2 arrives as its OWN card: it flashes and chimes once, round 1 does not re-flash, and a repeated poll re-arrives nothing", async () => {

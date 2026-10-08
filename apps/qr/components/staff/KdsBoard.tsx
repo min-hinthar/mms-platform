@@ -60,12 +60,15 @@ import { servedMoreKey } from "@/lib/kitchen-stats";
 import { KDS_UNDO_MS } from "@/lib/kds-undo";
 import {
   cardTags,
-  nextStubs,
+  decideRounds,
   sessionStillOn,
+  stampLabel,
+  stubOf,
+  type RoundDecision,
   type RoundStub,
   type RoundTag,
+  type TagCard,
 } from "@/lib/kitchen-rounds";
-import { staffClockSeconds } from "@/lib/staff-clock";
 
 /**
  * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
@@ -99,6 +102,9 @@ type RecallEntry = {
   key: string;
   cartId: string;
   sessionId: string;
+  /** The card as `cardTags` reads it, so a chip on the rail keeps taking part in the ties: a live
+   *  card is told apart from the chip of its bumped twin, not only from the cards beside it. */
+  card: TagCard;
   label: string;
   lineIds: string[];
   expiresAt: number;
@@ -151,12 +157,17 @@ function ticketId(
   if (t.channel === "dinein") {
     const vars = { id: t.tableNumber ?? t.label };
     const table = tf(lang, "kds.table", vars);
+    // The time tag prints the stamp as the restaurant's clock reads it and, only while two labels
+    // would tie (or the stamp cannot be printed), the card's discriminator — never an empty part.
     const tail =
       tag === null
         ? ""
         : tag.kind === "round"
           ? ` · ${tf(lang, "kds.round", { id: tag.n })}`
-          : ` · ${staffClockSeconds(tag.stampIso)}${tag.disc === null ? "" : ` · ${tag.disc}`}`;
+          : [stampLabel(tag.stampIso), tag.disc ?? ""]
+              .filter((part) => part !== "")
+              .map((part) => ` · ${part}`)
+              .join("");
     return {
       main: `${table}${tail}`,
       node: <Chrome lang={lang} k="kds.table" vars={vars} />,
@@ -377,11 +388,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     new Set(initial.tickets.filter((t) => !t.held).map((t) => t.key)),
   );
   const [newCount, setNewCount] = useState(0);
-  // PD5 — the round stub each card wears, decided ONCE when the card first lands and carried
-  // forward through `nextStubs` (its words may sharpen, never blur; m5 decision 5). Seeded from the
-  // server render — that IS the first landing — and advanced in the same batch as each snapshot.
-  const [stubs, setStubs] = useState<ReadonlyMap<string, RoundStub | null>>(() =>
-    nextStubs(new Map(), initial.tickets),
+  // PD5 — the ONE round decision each card carries (`decideRounds`): the face's stub and the
+  // composed name both read it, never the live read, so a merge that re-ranks a session's batches
+  // can never renumber a card Mom has read (the blind pass on #328). A definite decision is made
+  // once; a card that landed while the advisory read had not answered stays provisional and takes
+  // its number from the first read that does. Seeded from the server render — the first landing —
+  // and advanced in the same batch as each snapshot.
+  const [rounds, setRounds] = useState<ReadonlyMap<string, RoundDecision>>(() =>
+    decideRounds(new Map(), initial.tickets),
   );
 
   // W3d recall/undo state (client mirrors of the SQL 2-minute window).
@@ -577,8 +591,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       }
 
       setSnap(queue);
-      // PD5 — in the same batch: each card's stub, decided at its first landing and only sharpened.
-      setStubs((prev) => nextStubs(prev, queue.tickets));
+      // PD5 — in the same batch: each card's round decision, carried forward and only sharpened.
+      setRounds((prev) => decideRounds(prev, queue.tickets));
       // Phase 2b — in the same batch as the snapshot: every override this fetch supersedes drops.
       setSoldOverrides((prev) => pruneSoldOut(prev, seq));
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
@@ -689,10 +703,11 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   }, [tickets, station]);
 
   // PD5 — what each card's name, pill and chip add after "Table 4" (`cardTags`): read over the WHOLE
-  // snapshot (held cards included) plus the sessions still on the Bring-back rail, so two cards of
-  // one table — or a card and its bumped twin's chip — are never called the same thing.
-  const railSessions = useMemo(() => new Set(recall.map((r) => r.sessionId)), [recall]);
-  const tags = useMemo(() => cardTags(tickets, railSessions), [tickets, railSessions]);
+  // snapshot (held cards included) plus the CARDS still on the Bring-back rail, so two cards of one
+  // table — or a card and its bumped twin's chip — are never called the same thing; the round comes
+  // from the frozen decision the face draws.
+  const railCards = useMemo(() => recall.map((r) => r.card), [recall]);
+  const tags = useMemo(() => cardTags(tickets, railCards, rounds), [tickets, railCards, rounds]);
 
   const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
   const pageSize = kdsPageSize(size);
@@ -1389,7 +1404,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 key={t.key}
                 ticket={t}
                 tag={tags.get(t.key) ?? null}
-                stub={stubs.get(t.key) ?? null}
+                stub={stubOf(rounds.get(t.key))}
                 // Decision 12: the table's OTHER card is on the board — the whole snapshot, held
                 // cards included, never the station-filtered view (m5 risk 9).
                 stillOn={t.channel === "dinein" && sessionStillOn(t, tickets)}
@@ -1741,6 +1756,16 @@ function TicketCard({
                 key: ticket.key,
                 cartId: ticket.cartId,
                 sessionId: ticket.sessionId,
+                card: {
+                  key: ticket.key,
+                  sessionId: ticket.sessionId,
+                  channel: ticket.channel,
+                  fireBatch: ticket.fireBatch,
+                  round: ticket.round,
+                  stampIso: ticket.stampIso,
+                  tableNumber: ticket.tableNumber,
+                  label: ticket.label,
+                },
                 label,
                 lineIds,
                 expiresAt: Date.now() + RECALL_MS,
