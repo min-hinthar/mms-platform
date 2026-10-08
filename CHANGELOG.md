@@ -4,6 +4,102 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
+
+- **The owner's request:** _"merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR"_,
+  after _"codex-review can be replaced with blind review if out of quota so merge is not blocked waiting
+  on quota"_ and _"go with the manual admin bypass for quota"_.
+- **The owner's answers, 2026-10-08** (`docs/OWNER_RULINGS_2026-10-07.md` §G (h); each is recorded in the
+  bullets below): "1. Yes one more; 2. Confirm; 3. Not necessary; 4. target is fasnpdhtvqtzjlvruqcu; .
+  Merge".
+- **The quota rule, one wording everywhere** (OWNER_RULINGS §G G3; WORKFLOW §Review step 5 (g) is
+  normative). When Codex answers with its usage-limit message, the capped blind review of the EXACT head
+  stands in, naming that SHA, with `verify-slice` and the rest of CI green on it. The OWNER merges that
+  head with GitHub's admin bypass, by hand.
+  - An agent never merges a red `codex-review`, though its admin-scoped token could, and never automates
+    the bypass: the automated version was refused as a CI bypass. Ruling #1's `.md`-only waiver, while no
+    check is enforced, is the one exception.
+  - A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits
+    (`pnpm review:bundle --base <the HEAD SHA of the first pass's reviewed pair>`), the last agent round
+    (the owner, 2026-10-08: _"Yes one more"_, replacing the lead's hand-read carry). A fix after that pass
+    is carried by the author's hand-read (the lead's procedure), and the merge-window line lists those
+    commits and any `MONEY_PATHS` file they touch.
+  - The lead's tightening, confirmed by the owner 2026-10-08 ("Confirm"): an agent applies ruling #1's
+    `.md`-only waiver only within the 2026-10-07 wave, only when Codex is out of quota, only after
+    re-measuring that `codex-review` is not required, and never to a PR touching the rules that govern
+    merges.
+  - Protection keeps admin bypass available and does not require Code Owner review (the sole code owner
+    authors every PR). The bypass covers `codex-review` only.
+  - Measured 2026-10-08: no protection rule is in effect yet (C28 ③). Asked to check it saved, the owner
+    answered "Not necessary" (declining the re-check); a re-measure at 11:07Z still read none.
+- **How it was done.**
+  - Two read-only audits: seven targets, plus a quota sweep with a completeness critic.
+  - Six editors, each on disjoint files, under one written contract.
+  - Three read-only verifiers:
+    - 107 of 112 CLAUDE.md rules confirmed in place, the other five fixed;
+    - HANDOFF's moved slices byte-exact;
+    - OPEN-ITEMS' row-ID multiset nothing lost, nothing duplicated;
+    - cross-doc consistency.
+  - Then the verifiers' ~20 findings fixed.
+- **CLAUDE.md** (374 → 243 lines):
+  - "Where things stand" rewritten for 2026-10-08.
+  - The verify:slice block condensed. The 86-line module enumeration is gone: a run restores on
+    INT/TERM/HUP and refuses a dirty target, so `git status --short` names a leftover mutant. Every ⚠️
+    rule is kept.
+  - The CI lanes and their measuring grep.
+  - The flaky-mutant rule (#248).
+  - The quota rule and the standing rulings.
+  - The blind pass: one, over the full diff, after the mark-ready.
+  - "Gate before done" names every CI check and the PR-body QA ticks (REVIEW.md is the historical
+    QA log).
+  - Stale claims fixed: migrate on a branch, `receiptStatusLabel`'s home, the W22 slate, and dead
+    LEARNINGS cites.
+- **docs/HANDOFF.md** (4,911 → 175 lines): a new 2026-10-08 top block with the state, the owner's items
+  and the next tasks (the path-design build). The history moved verbatim to the new
+  **docs/HANDOFF_ARCHIVE.md**, which also takes its count lines off the live-state guard.
+- **docs/OPEN-ITEMS.md** (9.0 MB → 4.8 MB):
+  - C16 and C28 carry the quota rule and the protection measurement.
+  - K15's and M119's giant cells moved verbatim to a long-form section; they padded their whole tables.
+  - Rows whose Status cell already said closed moved to Closed.
+  - Evidence-checked closures: M124's proposed closure was refused, since the row was reopened.
+  - T52 (the flaky mutant, closed by #324) and T53 (the non-`.md` drift kept out of this PR; its ⑥, `.mcp.json`'s target, landed here on the owner's answer)
+    added.
+- **Codex round 1 and the PR's capped blind pass (three lenses), fixed:**
+  - README's Node floor is 22.13 (pnpm 11.7.0's own `engines`), and `package.json`'s `engines.node` now
+    says so; the Local row no longer calls `.env.example`'s placeholders prod data.
+  - The Supabase MCP in the repo's `.mcp.json` was pinned to the DELIVERY project, so every migration
+    instruction now says to confirm the target is `fasnpdhtvqtzjlvruqcu` first. On the owner's answer,
+    "target is fasnpdhtvqtzjlvruqcu", `.mcp.json` now points there (T53 ⑥, closed); the confirm-first
+    habit stays, since a session can load another MCP config.
+  - The `PICKUP_MANUAL_CAPTURE` flip gate is binding again where an operator reads it: ENV.md's row, and
+    the archive's citation list marks it and the p2f procedure as live despite the banner.
+  - Merges wait for the owner's per-SHA yes or explicit instruction (never for a red-`codex-review` head), not just green
+    checks; ruling #1's money-path default is restored as a hold, not advice.
+  - The carry and the waiver tightening are labelled the lead's procedure everywhere (the owner then
+    confirmed the tightening, _"Confirm"_, and replaced the carry with one more capped pass,
+    _"Yes one more"_, 2026-10-08); delegated decisions are recorded as such, never as owner rulings; the
+    rebase rule compares with `git range-diff`.
+  - The verify:slice recovery reads `git diff` before any checkout and forbids editing a target mid-run;
+    "what CI's build job runs" is one step of it; Phase 3's open slices (3d·counter, 3e, 3f) are named.
+  - The blind-review template requires a head-SHA argument (7–40 hex) and refuses an `unknown` verdict SHA;
+    reading the head from GitHub is the caller's step (the workflow cannot).
+- **Codex round 2, fixed:** M4's status (P4.2's reorder note was stale); the template returns one
+  worst-of-lenses `verdict`; the head a stand-in names is GitHub's `head.sha`, never the local checkout's.
+- **The second capped blind pass (over `8ab7395..b30d302`), fixed:** the money-path hold restated in ruling
+  #1's row and C16; an explicit merge instruction never covers a red-`codex-review` head; the usage-limit
+  caveat beside every "Codex has reviewed" gate; a HIGH finding escalates an APPROVE; the waiver's "this
+  wave"; `--base` names the first pass's HEAD; M4 ✅ with its deferral named.
+- **Also updated:**
+  - README: environments, gates, CI and review, the parked surfaces; the module list is cut.
+  - WORKFLOW: one normative copy of the lanes, required checks, merge ritual (with 5(g)) and Definition
+    of done; the redrawn loop.
+  - ARCHITECTURE, BACKEND_ARCHITECTURE and ENV: stale premises.
+  - The PR template: the real checks.
+  - The rulings file: section G G1–G4, annotations only.
+  - The design-prototyping skill and template, plus the auditor: verdicts name the head SHA.
+  - The new **docs/README.md** index.
+  - Dated banners on finished docs. No file moved or renamed.
+
 ### A mutant that survived only sometimes: the bind suite orders the close edge before it reads (2026-10-08)
 
 - **Main went red on its first sharded run.** `verify-slice` on main's push of `d9614ae` (#320's merge,

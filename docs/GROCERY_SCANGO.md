@@ -1,5 +1,11 @@
 # Grocery Scan & Go
 
+> **HISTORICAL — the June 16 sketch, never updated.** The live sources are
+> [`context/SPEC-GROCERY.md`](context/SPEC-GROCERY.md) (the market's design source) and
+> [`GROCERY_MARKET_PLAN.md`](GROCERY_MARKET_PLAN.md) (the plan-of-record). Since this was written,
+> carts became `qr_carts` and the scan session became server-issued (M2·P2.3). Kept because
+> CHANGELOG cites it.
+
 **Mandalay Morning Star · grocery self-checkout · June 16, 2026**
 
 Scan & Go is the **grocery** experience (not a second restaurant flow): point the phone camera at shelf barcodes, build a cart, pay, walk out. It shares the restaurant app's backend — server-authoritative cart, category-aware tax, Stripe — and adds only a barcode catalog + scanner.

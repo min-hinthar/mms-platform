@@ -975,7 +975,7 @@ tabular.
   - the `/add` closed-route change.
 
   Each new rule needs a verify:slice mutant. The PR merges only after the blind pass, the Codex wait
-  (ruling #1) and the ruling #12 device sitting.
+  (ruling #1; with Codex out of quota, OWNER_RULINGS §G, G3 · WORKFLOW §Review step 5 (g)) and the ruling #12 device sitting.
 
 - **Landscape keyboard fit is unmeasured.** With a ~40% keypad, the band and readout must stay visible above it
   on the real tablet. Measure it in the sitting.

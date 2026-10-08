@@ -14,7 +14,7 @@ overview. Companion: `docs/DATA_RECONCILIATION.md` (now historical — see banne
 > resolver are gone). Schema = `supabase/migrations/20260618000000_qr_platform_init.sql` +
 > `..._lockdown_grants.sql`, applied + advisor-clean; types in `packages/db/src/database.types.ts`
 > wired into the clients. Delivery stays on its own project until a future migration. The §2
-> topology below now reads: local → this project (apply directly; it has no live traffic yet) →
+> topology below now reads: local → this project (one file at a time via the Supabase MCP `apply_migration`, on the owner's go — §2 loop step 4) →
 > a staging project added later when QR goes live.
 
 ## 0 · The four decisions (locked 2026-06-18)
@@ -62,7 +62,7 @@ This risk is the single most important consequence of decisions #1+#2 and is why
 > is the original **shared-prod** sketch and is **no longer the design of record.** QR runs on its **OWN**
 > project (`fasnpdhtvqtzjlvruqcu`), delivery on **its** own (`ukuzkhuppqwtrdkjqrkv`) — **no shared database.**
 > M5 unifies the monorepo _packages_ + the one Stripe account, not the DB (see `ROADMAP.md` M5). The QR path
-> is now: `local (supabase start) ▶ the QR project (apply directly; no live traffic yet) ▶ a staging QR
+> is now: `local (supabase start) ▶ the QR project (one file at a time via MCP apply_migration, on the owner's go — §2 loop step 4) ▶ a staging QR
 project added when QR goes live`. The shared-prod text below is kept only as the migration-era history.
 
 ```
@@ -97,31 +97,41 @@ supabase/                      ← new, repo root (one project config for the mo
 ```
 
 `packages/db` keeps the **clients + generated types + Zod schemas** (TS); the **SQL** moves under
-`supabase/`. Until that move lands, the existing `packages/db/migrations/000x` files remain the source
-and are applied with `supabase db push --db-url <staging>`.
+`supabase/`. That move landed: the history starts at `supabase/migrations/20260618000000_qr_platform_init.sql`,
+QR's own (no delivery history was pulled — the projects are separate), and `packages/db` holds no SQL.
 
-### The loop (per migration)
+### The loop (per migration) — as practised
 
-1. Write/edit the migration SQL.
-2. `supabase db push` to **staging** → `supabase gen types typescript --linked > packages/db/src/database.types.ts`.
-3. Run `get_advisors` (security + performance) against staging; fix lints.
-4. PR with the migration + regenerated types; gate green; preview points at staging.
-5. On merge: a **manual** apply to **prod** (off-peak), then `get_advisors` on prod.
+There is no staging project (OPEN-ITEMS T3): preview and prod share the one QR project (`ENV.md` ³),
+so nothing is applied anywhere but locally until the owner's go.
+
+1. Write/edit the migration SQL as `supabase/migrations/<timestamp>_<name>.sql` — one version per file,
+   the shape the CLI matches (`pnpm check:migration-versions`).
+2. Prove it locally: `supabase start` (applies every migration + seed) where Docker exists; otherwise
+   the throwaway Supabase-shaped Postgres 16 on `127.0.0.1:54322` (LEARNINGS #95). Regenerate
+   `packages/db/src/database.types.ts` and keep it sorted (`pnpm check:types-sorted`).
+3. PR with the migration + regenerated types. CI's sql lane (`migrations-check + types-fresh`) boots a
+   fresh local stack, applies every migration + seed, diffs the types and runs every SQL test and the
+   race harnesses — never `db push` (`docs/WORKFLOW.md` §Gates).
+4. **Prod, on the owner's go** (OWNER_RULINGS_2026-10-07 #5), at a quiet time the owner names: apply
+   ONE FILE AT A TIME with the Supabase MCP `apply_migration` — first confirming it targets
+   `fasnpdhtvqtzjlvruqcu` (e.g. `get_project_url`) — verify the objects THAT FILE creates
+   before the next (functions: signature + shape count + `has_function_privilege`; columns/indexes/policies/data: `information_schema`
+   or `pg_catalog`), then `get_advisors` (security + performance).
    ⚠️ **NOT `db push`** — prod's `schema_migrations` versions are MCP-generated and share no value
    with the repo filenames, so `db push` cannot be used in any form until the histories are
    reconciled. (Two successive drafts of this note asserted a specific failure mode — first that
    plain `db push` replays from `create table`, then that `--include-all` would; neither was
    executed, and Codex corrected both on #236. The zero-overlap is measured; the failure mode is
-   not.) Use the MCP `apply_migration` per file, in timestamp order, verifying the objects each file
-   actually creates before the next. Reconciliation is filed as **M125**. See `CLAUDE.md`.
+   not.) Never ad-hoc DDL in the SQL editor either. Reconciliation is filed as **M125**. See `CLAUDE.md`.
+5. _Future, when QR gets live traffic:_ a staging project as the apply/audit target ahead of prod, with
+   Preview pointed at it (`ENV.md` ³).
 
-### CI additions
+### CI
 
-- **`migrations-check`** job: `supabase db push --dry-run` (or apply to an ephemeral local) so a PR
-  that changes `supabase/migrations/**` is proven to apply cleanly.
-- **`types-fresh`** job: regenerate types in CI and `git diff --exit-code` so committed
-  `database.types.ts` can't drift from the SQL.
-- Both wired into `ci.yml` alongside the existing `lint typecheck build`.
+One sql-lane job, `migrations-check + types-fresh`, as step 3 describes; it runs only when a PR
+changes a path it reads, and on every push to `main`. The lanes and the required checks:
+[`docs/WORKFLOW.md`](WORKFLOW.md) §Gates.
 
 ---
 

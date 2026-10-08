@@ -47,7 +47,7 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 **Exit:** a Stripe **test** charge completes, fulfills idempotently, and shows in Track; Claude review + CI green; QA-checklist P0s ticked.
 
-## ⬜ M2 — Tax, promos & scheduling &nbsp;`milestone:M2`
+## ✅ M2 — Tax, promos & scheduling &nbsp;`milestone:M2`
 
 - **P2.1** Server-validated promo codes — ✅ `promo_codes` gains validity window + `min_subtotal_cents` + `per_session_limit` (+ `CHECK`s); `promo_redemptions`/`promo_attempts` ledgers (RLS default-deny); five service-role-only SECURITY DEFINER fns — `mms_promo_check` (apply gate: active + window + min + global/per-session caps → a stable reason enum), `mms_promo_discount` (single pricing source for `getCartTotals`), `mms_promo_attempt` (per-session rate-limit, anti-enumeration), `mms_promo_consume` (redemption at fulfillment, **soft cap**), and `mms_fulfill_order` now consuming the redemption. `applyPromo` returns a discriminated result (per-reason copy — Next redacts thrown errors in prod). Migration `20260620000000`. ✅
 - **P2.2** Honest pickup scheduling — ✅ tunable `pickup_config` (hours/interval/capacity/lead/prep/hold); tz-aware `mms_pickup_slots` returns today's bookable slots + **remaining capacity counting paid orders AND live holds** (open carts actively holding the slot — so capacity is honest _during_ ordering, not only post-pay); `mms_set_pickup_slot` is race-safe (per-slot advisory lock) + status-atomic; `fire_at = slot − prep` stored as the **S2 KDS seam**; create-intent re-checks room at the pay boundary; `/track` echoes the slot as the ETA (no fabricated countdown); the v7.2 slot sheet + header chip; **next-day rollover** (slots span today + `horizon_days`, grouped Today/Tomorrow/weekday — an after-hours browser pre-orders for tomorrow). Migrations `20260620000100` + `20260620000200`. ✅ _(W5e closed the `/cart` gap: an **ASAP↔scheduled** choice at checkout (`PickupWhenChoice`) — ASAP snaps the earliest slot + fires now via `mms_pickup_asap`, still hours/capacity-gated; the menu no longer force-opens the slot sheet. Migration `20260722000000`.)_ ✅
@@ -67,13 +67,13 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 **Exit:** two phones at one table order together; only members read/mutate; host lock holds; each guest can settle their own share.
 
-## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
+## ✅ M4 — Rewards & account &nbsp;`milestone:M4`
 
 - **P4.1** Morning Star Rewards (QR-local; mirrors delivery's tiers/Stars so M5 unifies without a rename) — account upgrade (email OTP / Google, same anon uid), earn-on-fulfillment, tier ladder + Stars + reward wallet. ✅ (`docs/M4_DESIGN.md`; redemption + history → P4.2)
-- **P4.2** Reward **redemption** ✅ · **order history** ✅ · **split-tender earn** ✅ (host-of-record earns the split order). Deferred w/ documented blockers (`docs/M4_DESIGN.md`): reorder ⬜ (lines store modifier _labels_ not _ids_ → can't re-price faithfully; needs option-id capture first) · settings theme/lang ⬜ (OS theme + bilingual menu already cover it; real lang = i18n initiative) · refund-recede ⬜ (blocked on S4.3 refund infra)
+- **P4.2** Reward **redemption** ✅ · **order history** ✅ · **split-tender earn** ✅ (host-of-record earns the split order). Deferred w/ documented blockers (`docs/M4_DESIGN.md`): reorder — shipped 2026-08-15 as "M3 Faithful reorder" (W-era list below: option ids captured, re-priced by stored id) · settings theme/lang ⬜ (OS theme + bilingual menu already cover it; real lang = i18n initiative) · refund-recede — shipped with S4.3b (a full refund flips the order to `refunded`, and the rewards summary counts only paid orders)
 - **P4.3** Feedback + **ungated** review triage ✅ — post-order rating + comment on /track; the public Google link is offered to **every** rater (never gated by score); low ratings flagged for staff recovery on a manager `/staff/feedback` queue. (`docs/M4_DESIGN.md` R9/R10)
 
-**Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers.
+**Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers. _(2026-10-08: M4's own scope shipped 2026-06-23; reorder followed 2026-08-15 and refund-recede with S4.3b. Still deferred: settings theme/lang, by design; and the shared ledger waits on M5's unification, the repos staying separate since the 2026-06-24 reshape.)_
 
 ## ⬜ M5 — QR learns from delivery (repos stay separate) &nbsp;`milestone:M5`
 
@@ -487,7 +487,7 @@ The door for humans; the single-source-of-truth across channels. **Dep:** M1 (le
 
 **Exit:** a server can find any table, see/extend its cart, settle it (incl. cash), and a double-order is a one-tap merge. ✅ _Unlocks all four low-tech fallbacks._
 
-### ⬜ S2 — Line lifecycle & authority &nbsp;`milestone:S2`
+### ✅ S2 — Line lifecycle & authority &nbsp;`milestone:S2`
 
 What lets the kitchen trust the screen + gives loss-controlled undo. **Dep:** S1 (staff roles) · a KDS fire signal. **Pre-build adversarial design review + hardening + PR slices: [`docs/S2_DESIGN.md`](docs/S2_DESIGN.md).**
 
@@ -532,3 +532,5 @@ Staff/floor + line authority (S1/S2) land right after group cart since they're c
 ### How we work each phase
 
 Cowork/Claude Code remote → branch → **draft** PR (`@codex review` on it immediately) → mechanical gates (`pnpm verify:slice` · `pnpm check:docs`) + CI (build · lint · typecheck · test · migrations-check · SQL tests) → the in-session fresh-context **adversarial pass** pre-PR _and_ pre-merge, its verdict posted as a PR comment (CI's `review`/`security`/`adversarial-pr` are zero-token green stubs — this in-session pass is the only real review) → fix-or-justify **two Codex rounds**, then merge (round 3+ findings go to [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md)) → Vercel preview → tick the box here + a `CHANGELOG.md` entry. See [`docs/WORKFLOW.md`](docs/WORKFLOW.md).
+
+> **2026-10-08 — the paragraph above is superseded; [`docs/WORKFLOW.md`](docs/WORKFLOW.md) §Review step 5 is the normative copy.** Since #320 the full `verify:slice` battery is the CI `verify-slice` check (12 shards; locally only `--only=` per module touched); the in-session review is ONE capped blind pass over the full PR diff, run beside that check; the stub checks are retired; and a merge waits for `codex-review` AND `verify-slice` green on the same head. When Codex is out of quota (owner, 2026-10-08), the blind review of the exact head stands in and the OWNER merges that head with GitHub's admin bypass, by hand, with CI and `verify-slice` green on that SHA — never an agent, never automated; the bypass covers a red `codex-review` only.

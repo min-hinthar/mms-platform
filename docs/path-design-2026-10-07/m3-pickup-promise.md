@@ -796,7 +796,7 @@ The states:
   - create-intent's "The kitchen’s closed right now — please order during open hours."
     (app/api/stripe/create-intent/route.ts:310) becomes "The kitchen isn’t taking pickup orders right
     now — pick a later time, or call (626) 665-5317." (guided, judges' graft 1). It is a string-only
-    change on a money route, so it needs a test and the Codex wait.
+    change on a money route, so it needs a test and the Codex wait (with Codex out of quota, OWNER_RULINGS §G, G3 · WORKFLOW §Review step 5 (g)).
   - The false pickup pay note `unsentPayNote` (confirm-copy.ts:85, PaymentSection.tsx:366) and the
     ASAP "ready in about {N} min" (PickupWhenChoice.tsx:248, :296) retire for pickup (ruling #17).
 

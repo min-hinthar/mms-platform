@@ -1,291 +1,150 @@
 # CLAUDE.md — MMS Platform (monorepo)
 
-Project guide for Claude Code working in this repo. Read this first. Memory of mistakes lives in `.claude/LEARNINGS.md` + `.claude/ERROR_HISTORY.md` (loaded at session start by a hook). **Resuming work? Read `docs/HANDOFF.md` first** — current state + the next tasks.
+Project guide for Claude Code working in this repo. Read this first. Memory of mistakes lives in `.claude/LEARNINGS.md` + `.claude/ERROR_HISTORY.md` (loaded at session start by a hook). **Resuming work? Read the top block of `docs/HANDOFF.md` first** — current state + the next tasks (its history: `docs/HANDOFF_ARCHIVE.md`). Every other doc is indexed in `docs/README.md`.
 
 ## Developer profile (how to work with Min)
 
 - **Terse, action-first.** Skip preamble; lead with the implementation. One- to two-sentence rationale max.
 - **Recommend, don't enumerate.** Lead with a pick; offer options only when they materially differ.
-- **Verify before "done."** Run the full check (`pnpm turbo lint typecheck build`) and confirm nothing else broke. **Never trade correctness for speed; flag regressions proactively** — regressions are the #1 frustration.
+- **Verify before "done."** Run the full check (`pnpm turbo lint typecheck build test`) and confirm nothing else broke. **Never trade correctness for speed; flag regressions proactively** — regressions are the #1 frustration.
 - **UI/UX polish is a core requirement**, not a follow-up — build every screen to `docs/prototype/v7.2.html` + `docs/context/DESIGN-RESEARCH.md` and the `docs/context/RUBRIC.md` ≥4.3 bar in the **first commit** (tokens not hardcoded colors, animation timing, spacing, contrast, real semantics/44px/a11y per QA-CHECKLIST §A, brand-voice microcopy); run the **Pre-PR self-review sweep** (below) on your diff before the PR — don't let the review surface craft gaps (the review/adversarial gates now cross-check fidelity).
 - **Vendor choices:** when proposing a lib, give the trade-off + evidence (bundle size, activity).
-- **Design-thinking prototyping has a standard loop** (owner, 2026-10-08: "make this standard"): map → diverge three directions on a canvas → one sharp owner question → refine with a consistency pass and a critic → record → blind pass → Codex → merge on the owner's go. Follow `.claude/skills/design-prototyping/SKILL.md` (worked example: `docs/PATH_DESIGN_2026-10-07.md`, #319).
+- **Design-thinking prototyping has a standard loop** (owner, 2026-10-08: "make this standard"): map → diverge three directions on a canvas → one sharp owner question → refine with a consistency pass and a critic → record → blind pass → Codex → merge on the owner's go (Codex out of quota: the quota rule in the Pre-PR sweep). Follow `.claude/skills/design-prototyping/SKILL.md` (worked example: `docs/PATH_DESIGN_2026-10-07.md`, #319).
 
 ## What this is
 
-Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
+Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go, the staff console under `/staff` — register, kitchen and expo, tables, approvals, team, tips — the kiosk and the order-ready board) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
-## Where things stand (2026-08-29)
+## Where things stand (2026-10-08)
 
-Shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**), then
-**#240–#242** — the Codex back-sweep and its follow-through (#241 the CI fast-lane teeth; #242 the
-four leftovers M146 · M147 · M148 · M150). What that arc changed about how you work here, not just
-what runs:
+Shipped the polish plan's Phase 0–2 and Phase 3a–3d's receipt stack (#299–#315; `ROADMAP.md`) — 3d·counter's cash-sheet re-host (K39 · K44), 3e and 3f stay open — then **#319**
+(the path-design record `docs/PATH_DESIGN_2026-10-07.md` + OPEN-ITEMS PD1–PD13, and the
+design-prototyping standard), **#320** (the merge gate fits in 30 minutes) and **#324** (the flaky-mutant
+fix). **Next:** build the path designs in the record's Sequencing order — `docs/HANDOFF.md`'s top block.
 
-- **The Codex wait is a required check — and #241 is the proof it must be REQUIRED, not advisory.**
-  `require-codex-review.yml` is RED until Codex has reviewed the PR's CURRENT head, publishing its
-  verdict as a check run named **`codex-review`** against `pr.head.sha`. ⚠️ **It is not yet wired
-  into branch protection (OPEN-ITEMS C16, owner-only)** — and #241 was squash-merged **eleven
-  seconds after that check went red on its head**, by the same session that built the gate, putting
-  a money-path commit (`8f2b11b`) on `main` unreviewed. Until C16 is wired, the merge ritual in
-  `docs/WORKFLOW.md` (final push → ready → `@codex review` → WAIT for a summary saying "Codex has
-  reviewed" the head AND the `verify-slice` check green on that same head → triage, looping any fix
-  push back through the wait → merge) is all that stands between the gate and #241 happening again.
-  Wire `codex-review` (and, since 2026-10-08, `verify-slice`), never the retired `codex-reviewed`.
-  ⚠️ Measured 2026-10-08: the repo had drifted private (Free plan: `/protection` answered 403, so nothing could be wired); the owner made it public again that day, and `/branches/main/protection` now answers 404 — wirable, but NO rule exists yet. Requiring the checks is the owner's step (OPEN-ITEMS C28 ②).
-- **Guards get audited harder than the code they guard.** Thirteen Codex findings across #241/#242;
-  **eleven were in guards written that same session**, zero in the product code changed beside them
-  — every one a matcher satisfied by a _name, substring, count, position, or constant_ while the
-  guarded _behaviour_ regressed (a comment, a dead `{false && …}` branch, an `await Promise.all`
-  reorder). The distilled rules live in `.claude/LEARNINGS.md` **#60**; the short form is in the
-  Pre-PR sweep below.
-- **The money-path promo pin moved.** The stale-grant release now runs from the NEXT attempt in
-  `create-intent`, not from the decline webhook — an inline decline re-confirms the SAME
-  PaymentIntent, so clearing the pin there charged an amount fulfillment could not re-derive. Read
-  `releasePromoGrantFor`'s docblock in `apps/qr/lib/lock.ts` before touching any of it; the remaining
-  concurrent-attempt hole is **OPEN-ITEMS M151** (high) and needs a `qr_carts.live_payment_intent_id`
-  column, i.e. a prod migration.
-- **The CI fast lane grew teeth** (T6 · M149). `format:check`, `check:migration-versions` and
-  `check:promo-pin` now run in `ci.yml` beside `check:docs` / `check:theme` / `check:types-sorted` —
-  all file-read-only, seconds, no build and no DB. Before this, prettier drift merged silently (it
-  DID: #240 landed an unformatted `webhook/route.ts` with every check green), and both correctness
-  guards were reachable only through a local `verify:slice` nobody is obliged to run. **The list above
-  is only the first six, and no count of the lane belongs in this paragraph** — measure it:
-  `grep -nE '^\s+(- )?run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`.
-  ⚠️ **`(- )?` IS LOAD-BEARING, and this line said `- run:` until #279 paid for it.** A step written
-  as a `- name:` block puts its `run:` on a later line with no dash, so the old pattern could not see
-  it — and the one step it hid, `node scripts/check-test-env.mjs` (ci.yml:337 on 2026-10-08), is the guard that
-  refuses a `.test.ts` declaring `@vitest-environment jsdom`. Local vitest honours that docblock, so
-  the suite passed here and CI rejected it: `build` went red on a "twelve-step lane run in full".
-  A count read off a pattern that cannot match every shape is not a measurement — and the grep cannot
-  see the inline `No orphaned test files` step at all (a `run: |` block). The same grep also
-  surfaces lines that are NOT fast lane (measured 2026-10-06 on `main`, before the 2026-10-08 lane
-  split: 24 matches = 15 fast lane + 9). Since the lane split it also matches the `docs` job's repeat
-  of `check:docs` and `format:check` and the `verify-slice shard` step, and the build job gained
-  `check:money-coverage` and `check:photo-filter` (both used to run only inside `verify:slice`) —
-  re-measure, never add these up from prose.
-  `node scripts/check-build-stamp.mjs` (ci.yml:351 on 2026-10-08, Phase 2i) runs in the `build` job AFTER
-  `pnpm turbo run lint typecheck build test`, because it reads the BUILD OUTPUT — the stamp in
-  `/api/version`'s prerendered body and in a client chunk — so it can only follow the build; run it
-  locally right after `pnpm turbo … build`. The other eight (`verify-merge-race.mjs --mutants`,
-  `verify-mode-authority.mjs`, and `verify-line-guard-race.mjs`, `verify-counter-fire-race.mjs` and
-  #315's `verify-bind-race.mjs`, each plain and `--mutants`) sit in the separate `supabase` job behind
-  `supabase start`, which needs Docker the agent environment does not have — but they are NOT CI-only:
-  every one runs before a push against the throwaway Supabase-shaped Postgres 16 listening on
-  `127.0.0.1:54322`, the races with their own `*_ASSUME_DISPOSABLE=1` (LEARNINGS #95 · #243).
-  A blind audit could not tell whether `check:staff-lang` was wired, because this enumeration stops
-  at #240's six while `ci.yml` also runs `check:pay-attempt`, `check:freeze-parity`,
-  `check:staff-lang`, `check:child-freeze`, `check:echo-coalesce`, `check:mutant-anchors` (which answers in
-  ~1s what a full `verify:slice` only reports when it reaches that mutant — hours into a serial run,
-  LEARNINGS #106) and `check:scan-repeat`
-  (M186's wiring: the charge RULE is a mutated lib module, but the four-line guard clause that CALLS
-  it lives in a component no suite and no `MONEY_PATHS` rule can see). Phase 0 added `check:style-literals` — the weight/size/tracking ratchet (a hardcoded count may fall, never rise; re-record with `--update`). The gate PR (2026-10-08) added `check:money-coverage` and `check:photo-filter` (both used to run only inside `verify:slice`) and `check:shard-partition`, which proves the `verify-slice` shards are disjoint and cover the battery: a shard that drops a mutant passes as "0 mutants caught". ⚠️ `check:docs` is step ONE, and until
-  2026-10-08 a red step SKIPPED every step behind it (GitHub's default `success()` condition), so one
-  stale doc count hid every other guard, the orphan check and the whole `lint typecheck build test`
-  run. Every build step now carries `if: !cancelled()`, so each guard reports in the same run — but a
-  stale count still reds `build`, and on a docs-only PR the `docs` job. Refresh counts on EVERY push,
-  not last.
-
-**The backlog is `docs/OPEN-ITEMS.md` and it is large** — 148 open rows (measured 2026-08-29), and
-**90 of them sit in Money / security / hardening, so the bulk of what is left IS code.** The
-non-code minority gates specific arcs: owner config (C1–C16, 10 open), a photo shoot (C5), hardware
-(C7), a grocery SKU import (G1), and the prod-migration items blocked on the divergent history
-(M123 · M124 · M125 · M151). Sweep it before claiming anything is done.
+- **The merge gate (#320).** The owner: "verify:slice should not take this long, either break it apart
+  with subagents or disable it because we can't take more than 30 minutes for each PR merge" — and
+  picked keeping it, made fast. The full battery is the CI check **`verify-slice`**, an aggregate over 12
+  cost-balanced `verify-slice shard` jobs (`grep -n 'shard: \[' .github/workflows/ci.yml`) on non-draft
+  heads and pushes to main; a `changes` job routes each PR into docs / code / sql lanes (main runs all).
+  A draft's `verify-slice` is RED on purpose ("not run — DRAFT"); a docs-only PR's is green ("not run —
+  docs-only lane"). Measured 2026-10-08: shards 4.1–10.5 min (two PR runs), the aggregate ~10.5–11 min
+  wall after `changes`, `build` ~6 min, `migrations-check + types-fresh` 11.1–13.3 min (the critical path
+  whenever the sql lane runs).
+- **GitHub enforces nothing on `main` yet.** The repo is public again (the owner's pick, 2026-10-08);
+  measured ~07:20Z that day with an admin-scoped token: `GET /branches/main` → `protected:false`,
+  `/branches/main/protection` → 404, `/rulesets` → `[]`, `/rules/branches/main` → `[]`. The owner
+  reported wiring the required checks that morning, but no rule is in effect as measured, so every check
+  is advisory until a re-measure shows one (asked to check it saved, the owner answered "Not necessary"; re-measured
+  11:07Z: still none) (C28 ③ the commands, ② the list; never a `verify-slice shard (N)` leg, `publish-codex-verdict`, the retired `codex-reviewed`, `Supabase Preview` or `Vercel Preview Comments`). The session's token is admin-scoped, so GitHub
+  would let an agent merge past a red required check through the API — **only the procedure stops
+  that**: the merge ritual (Pre-PR sweep; `docs/WORKFLOW.md` §Review step 5).
+- **If Codex is out of quota** (a rule, owner 2026-10-08 — Codex had quota earlier that day: it reviewed #324 and #325's first two rounds, then was out of quota on #325's later head): the capped blind review of the EXACT head stands in, and the OWNER merges that head with GitHub's admin bypass, by hand; an agent never merges a red `codex-review` head and never automates the bypass. Full rule: the Pre-PR sweep.
+- **Owner-gated:** prod migrations, one file at a time on the owner's go (OWNER_RULINGS_2026-10-07 #5);
+  live Stripe keys (C2, #8); the device sitting (#12) and the native-Burmese check (K15); a photo shoot (C5) and hardware (C7); C28 · C16.
+- **The backlog is `docs/OPEN-ITEMS.md`** — most open rows sit in Money / security / hardening, so the
+  bulk of what is left IS code. Sweep it before claiming anything is done.
 
 ## Commands
 
 ```bash
 pnpm dev                 # apps/qr on :3000
-pnpm turbo lint typecheck build test   # the gate — run before any PR
-pnpm verify:slice        # the MECHANICAL money/authority gate: money-path coverage guard (a changed
-                         # money file MUST have a mutant, or an in-file `verify:slice-exempt — <reason>`)
-                         # + photo-filter grep + gate + 3270 mutations + orphan check.
-                         # ⚠️ NOT "a few minutes", which this line said while a FULL SERIAL run measured
-                         # 164–180 min (the three runs that finished, 2026-10-06..08; 8 of 11 attempts
-                         # died with EXIT 143 — inferred: the agent tool's 2 h ceiling — and every
-                         # restart began again at mutant 1).
-                         # So the FULL battery runs in CI as the `verify-slice` check: 12 parallel
-                         # `verify-slice shard` jobs, balanced by cost (~10.5 min wall — MEASURED on the
-                         # first run, 2026-10-08: shards took 4.1–10.1 min each) on non-draft PR heads and pushes to main, code lane only (a docs-only PR
-                         # skips it). Locally, before a push, run `--only=<substring>` for each module
-                         # you touched; a full local run is NOT the pre-PR step any more (inside an
-                         # agent session it races that 2 h ceiling).
-                         # FLAGS — strict: anything else, a bare `--only`, or a malformed `--shard`
-                         # prints usage and exits 2. `--no-gate` · `--only=<substr>` (ids containing it;
-                         # one matching nothing exits 2) · `--shard=<i>/<n>` (1-based, n <= 1000;
-                         # balanced by estimated cost — owning suites bin-packed largest-first, a suite
-                         # heavier than half a shard's share cut into chunks that may land in different
-                         # shards — so the n shards are disjoint and their union is the selection,
-                         # which `check:shard-partition` proves in CI) · `--list` (print the selected
-                         # ids and exit 0 — no gate, no pre-checks, no mutation).
-                         # `VERIFY_SLICE_TIMEOUT_MS` (default 180000, at most 2147483647) is the
-                         # per-mutant timeout. A CAUGHT needs the OWNING suite's own row red in the
-                         # report — a failure in another file the substring filter ran is an ERROR. Verdicts: CAUGHT · SURVIVED · STALE · UNPARSEABLE ·
-                         # TIMEOUT · ERROR, and only CAUGHT passes — a timeout or a crashed runner is
-                         # never a kill (until 2026-10-08 ANY throw scored "caught"). Exit 0 pass ·
-                         # 1 fail · 2 usage.
-                         # ⚠️ REWRITES the 268 money/authority modules it mutates IN PLACE (181 under
-                         # apps/qr/lib — Phase 2f added counter-order.ts, kitchen.ts and voids.ts,
-                         # Phase 2g reader-collect.ts, Phase 2h bounded-write.ts, poll-gate.ts,
-                         # test-setup.ts (vitest's per-case stall-ledger reset),
-                         # staff-pin-actions.ts (the sign-out's lock release) and settled-view.ts
-                         # (Phase 2h · integration), then Phase 2i · S0's build-stamp.ts,
-                         # reload-guard.ts, update-policy.ts, app-update.ts, tab-load.ts,
-                         # retired-action.ts and useConnectionTruth.ts (its freshTruth), then
-                         # Phase 2i · streams' sw-activation.ts and pick-stash.ts, then
-                         # timeout-signal.ts (Codex r1 on #311 — the one bounded-signal home), then
-                         # Phase 3b's diner-tabs.ts (the Order tab's state machine and the
-                         # threshold rule) and device-session.ts (the handover boundary), then
-                         # Codex r2 on 3b's nav-epoch.ts (the grammar's "a navigation STARTED"
-                         # signal) and order-noun.ts (the cart's door, `cartForDoor`), then the
-                         # deep pass on #312's write-ledger.ts (the bounded drain) and
-                         # pickup-slot.ts (`slotIsPast`: a lapsed slot is not a plan) and
-                         # counter-zones.ts (the zone strip's one decision, with its end-of-page
-                         # rule), then Phase 3c-i's checkout-verb.ts (one hero verb per state ·
-                         # payBlock's precedence · the Total door's honest name) and table-pick.ts
-                         # (the grid only OFF the table · the ONE dine-in menu href), then Phase
-                         # 3c-ii's seated.ts (the ONE live-dine-in-at-N predicate, the dead-row sweep
-                         # by number, the row-count CAS, the claim/bind verdicts), bind-table.ts (the
-                         # host's bind, under the lock model), tables.ts (the picker's occupancy by
-                         # NUMBER, fail-honest) and useTableSession.ts (a claim sends the persisted
-                         # code beside the number), then the session after 3c-ii's kds-sound.ts
-                         # (Phase 3d · kitchen — the fixed level, its mute predicate, the bounded
-                         # arm) and undo-miss.ts (J37 — the 0-row undo diagnosis, both doors) —
-                         # plus create-share-intent, setup-intent, board, version and session routes
-                         # (the fourth, app/api/version/route.ts, Phase 2i · S1; the FIFTH,
-                         # app/api/session/route.ts, Phase 3c-ii — the number-first find),
-                         # plus SEVENTY-NINE components, SEVEN of them hooks — TableCartProvider.tsx,
-                         # menu/YourUsual.tsx, staff/TicketText.tsx, staff/Chrome.tsx,
-                         # staff/StaffPromoControl.tsx,
-                         # ReadyBoard.tsx, MergeRedeemer.tsx, staff/TableCard.tsx,
-                         # AccountUpgrade.tsx, staff/SettledToday.tsx, staff/DayCash.tsx,
-                         # Checkout.tsx (M224), PaymentSection.tsx (Phase 1c),
-                         # staff/CashSettleButton.tsx and staff/CloseSecureTabButton.tsx
-                         # (Phase 2a), staff/TerminalSettle.tsx, staff/FloorDetailLive.tsx and
-                         # staff/OrderPad.tsx (Phase 2c), three HOOKS under components/ —
-                         # staff/usePadWrites.ts, staff/useStaffSend.ts and staff/usePadDetailLive.ts
-                         # (Phase 2c review fixes), staff/TableStrip.tsx, staff/CounterMint.tsx,
-                         # staff/FloorBoard.tsx and staff/FloorWait.tsx (Phase 2d · floor),
-                         # staff/CounterBell.tsx (Phase 2d · bell), and staff/CounterSplit.tsx,
-                         # staff/TablePane.tsx, staff/SplitAwareLink.tsx and
-                         # staff/ClearTableButton.tsx (Phase 2d · split), and the fourth HOOK under
-                         # components/ — staff/useLangModeWrite.ts — with staff/StaffLangSwitch.tsx,
-                         # staff/HelpButton.tsx and staff/StaffDoors.tsx (Phase 2e · lang), then
-                         # staff/StaffMsg.tsx, staff/KdsBoard.tsx, staff/CounterOrderCard.tsx and
-                         # staff/RefundsNeededStrip.tsx (Phase 2e · review), then staff/StaffSendButton.tsx,
-                         # staff/HandoffCard.tsx, staff/ExpoBoard.tsx and
-                         # staff/CounterNoShowButton.tsx (Phase 2f), then staff/ManagerPinStepUp.tsx
-                         # (Codex r2 on #308), then staff/LossActionSheet.tsx (Phase 2f
-                         # self-review), then staff/ReaderCollectProvider.tsx,
-                         # staff/ReaderCollectChip.tsx and staff/CounterOlderSheet.tsx (Phase 2g),
-                         # then staff/ReaderCollectContext.tsx (Codex r2 on #309 — ReaderShown),
-                         # then staff/ReloadOffer.tsx (Phase 2h · contract), then
-                         # staff/RefundActionSheet.tsx and kiosk/KioskMenu.tsx (Phase 2h · sheets),
-                         # staff/MergeTableButton.tsx, staff/OpenTabButton.tsx,
-                         # staff/StaffLineEditor.tsx, staff/PinUnlock.tsx, staff/StaffLogin.tsx,
-                         # staff/LockButton.tsx and staff/RegisterStart.tsx (Phase 2h · doors) and
-                         # staff/ApprovalsBoard.tsx (Phase 2h · boards), then staff/KdsLineMenu.tsx,
-                         # staff/StaffModSheet.tsx (Phase 2h · review) and the FIFTH HOOK under components/ — staff/useResaid.ts (Phase 2h ·
-                         # integration), then the SIXTH HOOK — staff/useReloadHold.ts (Phase 2i · S0),
-                         # and LoadClaim.tsx (Phase 2i · S0 critic: the root layout's load claim),
-                         # then ResilienceShell.tsx (the first non-staff shell component),
-                         # staff/AppUpdateWatch.tsx (Phase 2i · S1), staff/StaffBarUpdate.tsx and
-                         # staff/StaffBar.tsx (Phase 2i · S2), then staff/MenuPriceEditor.tsx and
-                         # staff/TeamManager.tsx (Codex r2 on #311 — their `draft` reload holds),
-                         # then nav/DinerTabs.tsx (Codex r3 on #312 — the Order tab's drain, the
-                         # first component under components/nav), then nav/TransitionNav.tsx (Codex
-                         # r2 on 3b — the ONE navigation grammar's three epoch bumps) and
-                         # ActiveOrderProvider.tsx (the store's door-bound cart pointer), then Phase
-                         # 3c-i's SendToKitchenButton.tsx (its FIRST mutant — Undo is never the hero),
-                         # LineOptionsSheet.tsx (the line's ⋯ sheet) and the SEVENTH HOOK —
-                         # useUndoGrace.ts (the grace as a value Checkout owns), then Phase 3c-ii's
-                         # TableBindSheet.tsx (the Send-time table sheet) and TableGrid.tsx (its
-                         # FIRST mutants — a chip binds instead of navigating when its host asks), then
-                         # Phase 3d's staff/StaffTicket.tsx (its FIRST mutants — the ticket's receipt
-                         # stack, its Total Take payment's figure) —
-                         # COMPONENTS in the set
-                         # since M46 — plus apps/qr/app/globals.css, the FIRST STYLESHEET (Phase 2e ·
-                         # review: a dirty globals.css now aborts a run like any target, and its
-                         # mutants parse through prettier's CSS parser), plus the FIRST STAFF PAGE,
-                         # apps/qr/app/staff/table/[id]/page.tsx (Phase 2g · the closed #CODE card),
-                         # plus packages/db/src/schemas.ts)
-                         # and restores them.
-                         # ⚠️ 181+5+79+1+1+1=268, and THIS ENUMERATION IS THE OPERATOR'S ONLY LIST of files
-                         # that may be sitting on disk as deliberately-broken mutants after a
-                         # stalled or killed run — the reason LEARNINGS #74 exists and
-                         # `git checkout -- .` is prescribed — so a bucket count that does not add up
-                         # is an operational hazard, not a typo, and a PR that adds a module to the
-                         # mutate set updates it HERE, not just the totals. Both parents of the
-                         # #262 merge got this wrong in opposite directions (one read FOUR
-                         # components while the set held five; the other's 74+3+5 silently dropped
-                         # the packages/db entry). MEASURE the buckets, never count them by eye:
-                         #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u \
-                         #     | cut -d'"' -f2 | sed -E 's#(apps/qr/(lib|app/api))/.*#\1#' \
-                         #     | sort | uniq -c
-                         # It ABORTS if a target file is DIRTY — commit or stash
-                         # first. ⚠️ ONE RUN PER CHECKOUT, and BOTH failure modes lie: a run can
-                         # STALL alive-but-idle (seen: ~5h, empty output), and two overlapping runs
-                         # rewrite each other's modules so the second reports "✗ These suites fail
-                         # BEFORE any mutation: <file>" — which reads exactly like a real defect and
-                         # is not. On a stall or a surprising pre-flight failure: kill ALL runs,
-                         # `git checkout -- .`, confirm clean, start exactly one. Never report a
-                         # result whose run you did not watch finish. ⚠️ AND NEVER COMMIT WHILE A
-                         # RUN IS LIVE — the dirty-tree abort protects the RUN from your edits, not
-                         # your COMMIT from the run: at every instant one tracked module on disk is a
-                         # deliberately-broken version of itself, so `git commit -am` snapshots a
-                         # mutant. #250 pushed `split.ts`'s `await releaseHold(pi)` → `"released"`
-                         # inside a DOCS-only commit that way; CI surfaced it as a failure in a file
-                         # the PR never touched (LEARNINGS #74).
-                         # ⚠️ CHECK FOR A LIVE RUN LIKE THIS — the `pgrep -f "[v]erify-slice"` this
-                         # line used to prescribe CRIES WOLF, and precisely when you need it:
-                         #   ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'
-                         # `-f` matches the WHOLE command line, so bracketing the first char stops the
-                         # pattern matching itself but NOT a second mention of the path in the same
-                         # command — and `git add scripts/verify-slice.mjs`, the commit you make right
-                         # after editing a mutant, contains one. Measured 2026-09-06: it reported LIVE
-                         # with zero runs going. A guard that false-positives on the exact command it
-                         # governs teaches you to ignore it (LEARNINGS #92).
-                         # Measure with:
-                         #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u | wc -l
-pnpm verify:slice --no-gate --only=totals   # iterate on one module (the pre-push step, per module)
-pnpm verify:slice --list --only=totals      # what a filter selects, without running anything
+pnpm turbo lint typecheck build test   # the gate — ONE step of CI's `build` job (which also runs format:check, check-test-env and the parsed guards: grep ci.yml); run before any PR
 pnpm format              # prettier --write
+pnpm format:check        # what CI runs — prettier drift once merged with every check green (#240)
 pnpm knip                # dead-code / unused deps
+pnpm review:bundle       # writes .review-bundle/, the blind subagent's ONLY input (aborts on a dirty tree)
+pnpm check:docs          # GFM table parity in EVERY tracked .md (prettier INTRODUCES breaks) + the
+                         # live-state counts in README · CLAUDE · OPEN-ITEMS · HANDOFF, measured via
+                         # `vitest list` and the mutant registry, never transcribed + LEARNINGS `## #N`
+                         # keys unique + MENU_REFERENCE fresh. Minutes, not seconds (`vitest list`).
 pnpm check:migration-versions   # one version per migration + the <timestamp>_name.sql shape the
                          # CLI matches. A duplicate prefix fails only at INSERT into
                          # schema_migrations — after a whole stack has started (M17 cost a CI cycle);
-                         # a malformed name is SKIPPED silently. Runs inside verify:slice too.
-pnpm check:docs          # tables render in EVERY tracked .md (GFM header/delimiter parity — prettier
-                         # INTRODUCES breaks) + live-state counts (README · OPEN-ITEMS · HANDOFF)
-                         # measured via `vitest list`, never transcribed + MENU_REFERENCE fresh
-# ⚠️ THE QR PROD MIGRATION HISTORY IS DIVERGENT FROM THIS REPO — read before any apply.
-# Measured 2026-08-27: prod's supabase_migrations.schema_migrations holds 97 rows whose version
-# stamps are ALL MCP-generated and share ZERO values with the repo filenames (repo
-# 20260618000000_qr_platform_init.sql vs prod 20260618063513 qr_platform_init).
-#
-# ⚠️ WHAT I HAVE AND HAVE NOT MEASURED, because this warning has now been wrong twice by inferring
-# CLI behaviour instead of observing it. MEASURED: the zero-overlap above, from prod's own history
-# table. NOT MEASURED: what `db push` actually does here — there is no DB connection string in the
-# agent environment, so `--dry-run` could not be executed against prod.
-#
-# Draft 1 said plain `db push` replays from `create table menu_categories`. Wrong — that is the
-# `--include-all` reading of the help text. Draft 2 then said `--include-all` WOULD force that
-# replay and is "genuinely destructive". Also unverified: Codex reports (#236, round 2) that the
-# CLI's `FindPendingMigrations` rejects remote versions absent from the local directory regardless
-# of the flag, and that `includeAll` only admits local migrations preceding the latest remote
-# version — so with 97 remote-only stamps BOTH forms stop before applying anything.
-#
-# What is safe to rely on: `db push` in ANY form cannot be used here until the histories are
-# reconciled. Do not restate a failure mode you have not run.
-#
-# So: apply ONE FILE AT A TIME with the Supabase MCP `apply_migration` — the path every migration
-# on this project has actually taken — and VERIFY the objects THAT FILE creates before the next
-# (functions: signature + shape count + has_function_privilege; columns/indexes/policies/data:
+                         # a malformed name is SKIPPED silently. Runs in CI and inside verify:slice.
+pnpm verify:slice        # the MECHANICAL money/authority gate: cheap pre-checks (money-path coverage —
+                         # a changed money file MUST have a mutant, or an in-file
+                         # `verify:slice-exempt — <reason>` — plus migration versions · photo filter ·
+                         # theme parity · promo pin · types order · unique mutant ids)
+                         # + gate + 3270 mutations + orphan check. Size it: `--list | wc -l`.
+                         # ⚠️ NOT minutes: a full SERIAL run measured 164–180 min (LEARNINGS #247), so
+                         # the FULL battery runs in CI as the `verify-slice` check (Where things stand).
+                         # Before a push, run `--only=` for each money/authority module you touched; a
+                         # full local run is not the pre-push step (in an agent session it races the
+                         # tool's 2 h ceiling).
+                         # `--only` matches mutant IDS, not paths, and one file's mutants can sit under
+                         # several id prefixes — list a file's ids with
+                         #   awk -v f=apps/qr/lib/cart.ts '$1=="id:"{id=$2} $1=="file:" && $2=="\""f"\","{gsub(/[",]/,"",id); print id}' scripts/verify-slice.mjs
+                         # then run one `--only=<prefix>` per prefix (a repeated `--only` exits 2) and
+                         # check each selection with `--list`.
+                         # FLAGS — strict: anything else, a bare `--only`, or a malformed `--shard`
+                         # prints usage and exits 2. `--no-gate` · `--only=<substr>` (ids containing it;
+                         # one matching nothing exits 2) · `--shard=<i>/<n>` (1-based, n <= 1000,
+                         # balanced by estimated cost; the n shards are disjoint and their union is the
+                         # selection, which `check:shard-partition` proves in CI) · `--list` (print the
+                         # selected ids and exit 0 — no gate, no pre-checks, no mutation).
+                         # `VERIFY_SLICE_TIMEOUT_MS` (default 180000, at most 2147483647) is the
+                         # per-mutant timeout. Verdicts: CAUGHT · SURVIVED · STALE · UNPARSEABLE ·
+                         # TIMEOUT · ERROR, and only CAUGHT passes — a CAUGHT needs the OWNING suite's
+                         # own row red (a failure in another file the filter ran is an ERROR), and a
+                         # timeout or a crashed runner is never a kill. Exit 0 pass · 1 fail · 2 usage.
+                         # ⚠️ IN PLACE: it REWRITES the 268 money/authority modules it mutates
+                         # (181 under apps/qr/lib), ONE at a time, restoring each — also on SIGINT,
+                         # SIGTERM and SIGHUP. It ABORTS if a target file is DIRTY — commit or stash
+                         # first, and NEVER EDIT a target file while a run is live (its restore overwrites the edit).
+                         # After any killed or stalled run (a SIGKILL cannot be trapped), `git status --short`
+                         # names the module left mutated: read `git diff -- <file>` first, and only when it is
+                         # exactly one mutant's find→replace, `git checkout -- <file>`; then confirm clean. Measure the set, never count
+                         # it by eye:
+                         #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u | wc -l
+                         # and its buckets:
+                         #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u \
+                         #     | cut -d'"' -f2 | sed -E 's#^(apps/qr/(lib|app/api|components))/.*#\1#' \
+                         #     | sort | uniq -c
+                         # ⚠️ ONE RUN PER CHECKOUT, and BOTH failure modes lie: a run can STALL
+                         # alive-but-idle (seen: ~5h, empty output), and two overlapping runs rewrite
+                         # each other's modules so the second reports "✗ These suites fail BEFORE any
+                         # mutation: <file>" — which reads exactly like a real defect and is not. On
+                         # either: kill ALL runs, restore, confirm clean, start exactly one. Never
+                         # report a result whose run you did not watch finish.
+                         # ⚠️ NEVER COMMIT WHILE A RUN IS LIVE (LEARNINGS #74): the dirty-tree abort
+                         # protects the RUN from your edits, not your COMMIT from the run — mid-run one
+                         # tracked module is always a mutant, so `git commit -am` snapshots it (#250
+                         # pushed one inside a docs-only commit).
+                         # ⚠️ Check for a live run with
+                         #   ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'
+                         # never `pgrep -f "[v]erify-slice"`: it matches your own
+                         # `git add scripts/verify-slice.mjs` and cries wolf (LEARNINGS #92).
+pnpm verify:slice --no-gate --only=totals   # iterate on one module (the pre-push step, per module)
+pnpm verify:slice --list --only=totals      # what a filter selects, without running anything
+# ⚠️ THE QR PROD MIGRATION HISTORY IS DIVERGENT FROM THIS REPO (M125) — read before any apply.
+# Prod's supabase_migrations.schema_migrations stamps are all MCP-generated: they share no version
+# with the repo filenames, and even by NAME the mapping is not one-for-one. So `db push`, in ANY form,
+# cannot be used against the QR project until the histories are reconciled — and do not restate a
+# failure mode you have not run (this warning was wrong twice by inferring CLI behaviour). Never
+# ad-hoc DDL there either (the SQL editor). Instead, on the owner's go (OWNER_RULINGS_2026-10-07 #5):
+# apply ONE FILE AT A TIME with the Supabase MCP `apply_migration` — the path every migration on this
+# project has actually taken — FIRST confirming the MCP server targets the QR project
+# `fasnpdhtvqtzjlvruqcu` (e.g. `get_project_url`): the repo's `.mcp.json` Supabase entry points there
+# (the owner, 2026-10-08: "target is fasnpdhtvqtzjlvruqcu"), but a session can load another MCP config,
+# so confirm it every time — and VERIFY the objects THAT FILE creates before the next (functions:
+# signature + shape count + has_function_privilege; columns/indexes/policies/data:
 # information_schema or pg_catalog, since a column-only migration leaves no pg_proc row to check).
-# Reconciling the two histories once with `supabase migration repair`, after verifying each body,
-# is the real fix and is filed as M125.
-supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — QR prod history is divergent, see above
+# Reconciling the two histories once with `supabase migration repair`, after verifying each body, is
+# the real fix (M125). There is no staging project (T3): preview and prod share the one QR project
+# (`docs/ENV.md`).
+supabase start           # a LOCAL stack: applies every migration + seed
+supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — never the QR project (see above)
 ```
+
+**CI (`ci.yml`) — measure it, never count it from prose.**
+
+- **List its guard steps with** `grep -nE '^\s+(- )?run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`. ⚠️ **`(- )?` is load-bearing (#279):** a step written as a `- name:` block puts its `run:` on a later line with no dash, and the old `- run:` pattern hid exactly the step that then reddened CI. The grep still cannot see a `run: |` block (the inline `No orphaned test files` step), and it also matches lines outside the fast lane (the `docs` job's repeats, the sql-lane harnesses, the shard step). A count read off a pattern that cannot match every shape is not a measurement.
+- **`node scripts/check-test-env.mjs`** (the `build` job) refuses a `.test.ts` declaring `@vitest-environment jsdom`. Local vitest honours that docblock, so the suite passes here and CI rejects it (#279) — run it before a push.
+- **`node scripts/check-build-stamp.mjs`** reads the BUILD OUTPUT (the stamp in `/api/version`'s prerendered body and in a client chunk), so it runs after `pnpm turbo run lint typecheck build test`; locally, run it right after `pnpm turbo … build`.
+- **The sql-lane harnesses** (`verify-merge-race --mutants`, `verify-mode-authority`, and `verify-line-guard-race`, `verify-counter-fire-race`, `verify-bind-race`, each plain and `--mutants`) run in `migrations-check + types-fresh` behind `supabase start`, which needs a Docker daemon: none runs in the agent environment (the binaries are installed; whether `sudo dockerd` starts is unmeasured, and the `supabase` CLI is not on PATH — HANDOFF's Environment facts) — but they are NOT CI-only: run each before a push against the throwaway Supabase-shaped Postgres 16 on `127.0.0.1:54322`, the races with their own `*_ASSUME_DISPOSABLE=1` (LEARNINGS #95 · #243; `pnpm verify:*-race[:mutants]`, `pnpm verify:mode-authority`).
+- **Three guards carry a rule of their own:** `check:style-literals` is a ratchet (a hardcoded weight/size/tracking count may fall, never rise; re-record with `--update`); `check:mutant-anchors` answers in ~1 s what a full `verify:slice` reports only when it reaches that mutant (LEARNINGS #106); `check:shard-partition` proves the `verify-slice` shards are disjoint and cover the battery (a shard that drops a mutant would pass as "0 mutants caught").
+- **Every `build` step carries `if: !cancelled()`,** so each guard reports in the same run (until 2026-10-08 one red step skipped every step behind it). A stale doc count still reds `build` — and the `docs` job on a docs-only PR — so refresh counts on EVERY push, not last.
 
 ## Conventions
 
@@ -293,37 +152,42 @@ supabase db push         # ⚠️ LOCAL / BRANCH STACKS ONLY — QR prod history
 - **TypeScript strict**, `noUncheckedIndexedAccess`. No `any` on money/DB rows without a guard.
 - **Server Components by default;** `"use client"` only when needed. Server Actions for mutations.
 - Conventional commits (`feat:`/`fix:`/`chore:`/`docs:`). One phase = one PR (see `ROADMAP.md`).
-- **Branches: `claude/<type>/<slug>`** (conventional-commit type + kebab slug with milestone/phase context) — e.g. `claude/feat/m1-p1-session-mint`, `claude/docs/research-context`. CI (build · lint · typecheck · test · migrations-check + types-fresh · the SQL tests — every load-bearing `supabase/tests/*.sql` is named EXPLICITLY in `ci.yml`, so add yours to that list) runs every push and gates merges, plus **`require-docs-update`**: a PR touching `apps/**`/`packages/**` must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md` or `README.md` (or carry `skip-docs`). **There is NO Claude review in CI** — the `review`/`security`/`adversarial-pr` stub checks that once existed only to satisfy branch protection are **retired**; `ci.yml`, `require-docs-update.yml`, `ensure-preview.yml` and `require-codex-review.yml` are the only workflows, so don't go looking for those statuses. **The review IS an in-session fresh-context adversarial subagent** (the Agent tool) run **pre-PR _and_ pre-merge** (see the Pre-PR sweep below) — fix its findings before opening/merging, and **post its verdict as a PR comment** for the record. No metered Action, no `review`/`adversarial` label ritual. **Don't front-load a happy-path build and lean on review to tease out the hardening — run the _Pre-PR self-review sweep_ (below), ending with the adversarial subagent, on your diff first; war stories in `.claude/LEARNINGS.md` #44/#47.** Details: `docs/WORKFLOW.md`.
+- **Branches:** use the branch the session assigns (it may not follow a pattern); when you create one yourself, `claude/<type>/<slug>` (conventional-commit type + kebab slug with milestone/phase context — e.g. `claude/feat/m1-p1-session-mint`, `claude/docs/research-context`).
+- **CI runs by lane.** `ci.yml`'s `changes` job routes each PR: `docs` (every changed path is `*.md` or under `.claude/` — `check:docs` + `format:check`), `build` (code — the fast-lane guards + `lint typecheck build test`), `migrations-check + types-fresh` (sql — `supabase/**`, the generated types, the race harnesses, a workflow file; every load-bearing `supabase/tests/*.sql` is named EXPLICITLY in `ci.yml`, so add yours to that list) and `verify-slice` (code, non-draft heads); pushes to main run every lane. Beside it: **`require-docs`** (`require-docs-update.yml` — a PR touching `apps/**`/`packages/**` must also touch `docs/**`, `CHANGELOG.md`, `ROADMAP.md` or `README.md`, or carry `skip-docs`) and **`codex-review`**. ⚠️ None of them blocks a merge until branch protection requires it (Where things stand; C28). The workflows are what `ls .github/workflows` lists, and there is **NO Claude review in CI** — the `review`/`security`/`adversarial-pr` stub checks are retired, so don't go looking for those statuses.
+- **The review is ONE blind, in-session adversarial subagent pass over the FULL PR diff** (LEARNINGS #216), run after the mark-ready in parallel with the `verify-slice` check and the Codex round (the Pre-PR sweep below) — fix its findings before merging, and **post its verdict as a PR comment** for the record. No metered Action, no `review`/`adversarial` label ritual. **Don't front-load a happy-path build and lean on review to tease out the hardening — run the _Pre-PR self-review sweep_ on your diff first** (war stories: `.claude/LEARNINGS.md`'s opening bullets, "Front-load money/auth hardening in the FIRST commit" and "Build UI to the prototype + research in the FIRST commit"). Details: `docs/WORKFLOW.md`.
 - Tokens come from `@mms/ui/tokens.css`; don't hardcode colors. Light = editorial-forward, dark = Night.
-- **Three W22r singletons — read from them, never re-derive (the "name it ONCE" rule applied to shapes and identity).** `apps/qr/lib/brand.ts` is the restaurant's identity (name · street address · both phone forms · email · socials, every string verbatim from the delivery repo's production constants) — surfaces adopt it as they're touched, and there are **NO business hours anywhere in either repo**, so never invent any. `apps/qr/lib/track-order.ts` is the ONE tracked-order shape (`TRACK_ORDER_SELECT` + `shapeTrackedOrder`), shared by `useOrderStatus`'s live read and both `getMyOrderFallback` server reads — it replaced three hand-copied selects and three hand-copied mappers, so add a field THERE, not at a call site. `apps/qr/lib/receipt-view.ts` is the ONE receipt derivation (`buildReceiptRows` · `fulfillmentLabel` · `groupReceiptLines` · `receiptStatusLabel` · `serviceDisclosed`) behind the durable receipt, the /track slip and the email: every money row is the fulfillment-time snapshot rendered verbatim, never recomputed, and a refunded order must never read "Paid in full".
-- **Design language (as-built): `docs/DESIGN-LANGUAGE.md` — read before ANY visual/motion/copy work.** The load-bearing rules: ONE selection vocabulary (the lit-gold cap — extend it, never invent a parallel one; active state self-contained on one element); motion idioms from the kit (`mms-pop`/`mms-rise`/`mms-stagger`), every animation RM-escorted the moment it's written; the **optimistic doctrine** (instant flip · serialized chains · token-gate outcomes but record every confirmed value · revert-to-confirmed + re-read · drain `settled()`/`writesRef` before any charge · amounts never optimistic); honesty (claims data-backed + tie-aware, copy promises only what code keeps, empty states honest); bilingual on one surface (margins not whitespace in flex; new MY → K15); money surfaces speak receipt. **W22a·depth added the paper layer:** two-tier `--sh-paper` (a zero-spread wide layer reads as a hard square frame), pages carry LINES + cards carry DOTS (`.card-textured`), and **`PaperAmbient`'s host must NOT isolate**: the page ground lives on `<html>` alone, because an `isolation:isolate` host traps its own fixed overlays (tier-up scrim, toasts, confetti) under the app header. Ambient AUTO-motion rides the native scroller (manual input wins and pauses it), ships a **visible** pause control (WCAG 2.2.2 — hover luck is not a stop mechanism), and reduced-motion gets the static surface exactly, **duplicate DOM excluded** (the loop copies are only appended when motion is on). Slate: `docs/W22_DESIGN_PROPOSAL.md` (W22a **shipped**; b–f open). **M126 replaced W22a's mobile GPU rule with a DIAL** (owner lifted the budget 2026-08-27): glass frost runs at every viewport in Night, and every heavy declaration reads `--fx-glass-*`/`--fx-plane-blur`/`--fx-promote`, so `data-fx="lite"|"off"` on `<html>` scales it back with no redesign. Glass is Night-ONLY (light has no headroom), never nests, and never touches a selected element. Three composited bounds the hex-reading audit cannot see — the glass floor, the ambient's worst pixel, the moments' light bands — are pinned by `packages/ui/src/__tests__/composite-contrast.test.ts`; **it does not round to 8 bits, so where it and a hand calculation disagree the guard is the number.**
+- **Three W22r singletons — read from them, never re-derive (the "name it ONCE" rule applied to shapes and identity).** `apps/qr/lib/brand.ts` is the restaurant's identity (name · street address · both phone forms · email · socials, every string verbatim from the delivery repo's production constants) — surfaces adopt it as they're touched, and there are **NO business hours anywhere in either repo**, so never invent any. `apps/qr/lib/track-order.ts` is the ONE tracked-order shape (`TRACK_ORDER_SELECT` + `shapeTrackedOrder`), shared by `useOrderStatus`'s live read and both `getMyOrderFallback` server reads — it replaced three hand-copied selects and three hand-copied mappers, so add a field THERE, not at a call site. `apps/qr/lib/receipt-view.ts` is the ONE receipt derivation (`buildReceiptRows` · `fulfillmentLabel` · `groupReceiptLines` · `serviceDisclosed`; its refund-aware status line, `receiptStatusLabel`, lives beside it in `apps/qr/lib/refund-view.ts` since W23b) behind the durable receipt, the /track slip and the email: every money row is the fulfillment-time snapshot rendered verbatim, never recomputed, and a refunded order must never read "Paid in full".
+- **Design language (as-built): `docs/DESIGN-LANGUAGE.md` — read before ANY visual/motion/copy work.** The load-bearing rules: ONE selection vocabulary (the lit-gold cap — extend it, never invent a parallel one; active state self-contained on one element); motion idioms from the kit (`mms-pop`/`mms-rise`/`mms-stagger`), every animation RM-escorted the moment it's written; the **optimistic doctrine** (instant flip · serialized chains · token-gate outcomes but record every confirmed value · revert-to-confirmed + re-read · drain `settled()`/`writesRef` before any charge · amounts never optimistic); honesty (claims data-backed + tie-aware, copy promises only what code keeps, empty states honest); bilingual on one surface (margins not whitespace in flex; every Claude-authored MY string joins the K15 native-check ledger the day it ships); money surfaces speak receipt. **W22a·depth added the paper layer:** two-tier `--sh-paper` (a zero-spread wide layer reads as a hard square frame), pages carry LINES + cards carry DOTS (`.card-textured`), and **`PaperAmbient`'s host must NOT isolate**: the page ground lives on `<html>` alone, because an `isolation:isolate` host traps its own fixed overlays (tier-up scrim, toasts, confetti) under the app header. Ambient AUTO-motion rides the native scroller (manual input wins and pauses it), ships a **visible** pause control (WCAG 2.2.2 — hover luck is not a stop mechanism), and reduced-motion gets the static surface exactly, **duplicate DOM excluded** (the loop copies are only appended when motion is on). Slate: `docs/W22_DESIGN_PROPOSAL.md` (all shipped except W22d's light half — owner-blocked on the hue, M86; its dark half became M126). **M126 replaced W22a's mobile GPU rule with a DIAL** (owner lifted the budget 2026-08-27): glass frost runs at every viewport in Night, and every heavy declaration reads `--fx-glass-*`/`--fx-plane-blur`/`--fx-promote`, so `data-fx="lite"|"off"` on `<html>` scales it back with no redesign. Glass is Night-ONLY (light has no headroom), never nests, and never touches a selected element. Three composited bounds the hex-reading audit cannot see — the glass floor, the ambient's worst pixel, the moments' light bands — are pinned by `packages/ui/src/__tests__/composite-contrast.test.ts`; **it does not round to 8 bits, so where it and a hand calculation disagree the guard is the number.**
 
 ## ⚠️ Critical / money + auth paths (extra care, CODEOWNERS-flagged)
 
 - **Pricing is server-authoritative.** The client never sends a price — it sends an item id + modifier ids; the server (`apps/qr/lib/cart.ts`, service-role client) re-derives every amount. Never compute or trust a total client-side. The Stripe intent amount comes from `getCartTotals`, never the request body.
-- **Tax** = the category-aware engine (`apps/qr/lib/tax.ts` ↔ `supabase/migrations/20260618000000_qr_platform_init.sql` `mms_line_tax`) — **both halves are now pinned by tests** (`lib/tax.test.ts` + `supabase/tests/tax_parity_test.sql`), so a one-sided edit reddens exactly one CI job. Keep the TS and SQL in sync. Tax is on the **discounted taxable base**, not a pro-rata of the aggregate.
+- **Tax** = the category-aware engine (`apps/qr/lib/tax.ts` ↔ `supabase/migrations/20260618000000_qr_platform_init.sql` `mms_line_tax`; the rate is `mms_tax_rate()`, last restated in `20260815200000_w16a_mode_prices_tax.sql`) — **both halves are pinned by tests** (`lib/tax.test.ts` + `supabase/tests/tax_parity_test.sql`), so a one-sided edit reddens exactly one CI job. Keep the TS and SQL in sync. Tax is on the **discounted taxable base**, not a pro-rata of the aggregate.
 - **RLS everywhere.** Diners are anonymous; a short-lived table-session JWT (`session_id`/`seat`/`app_role`) authorizes via `is_member`/`is_host`. Realtime group cart uses **private** channels gated by RLS on `realtime.messages`. Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client.
 - **Stripe = SAQ-A.** Card data lives only in the Payment Element iframe. Fulfillment is webhook-driven, signature-verified, idempotent on the PaymentIntent id (`mms_fulfill_order`).
-- **Secrets** only in Vercel + GitHub Actions secrets — never in git (`.gitignore` covers `.env*`). Per-environment: test keys in preview, live in prod; migrate on a Supabase **branch**, not prod.
-- Compliance: **SB-1524** service-charge disclosed; never surcharge debit; reviews ungated; **EBT/SNAP = 2027** (Forage/FNS).
+- **Secrets** only in Vercel + GitHub Actions secrets — never in git (`.gitignore` covers `.env*`). Per-environment: test keys in preview, live in prod (live keys held until C2's cutover, OWNER_RULINGS_2026-10-07 #8).
+- **Migrations reach prod only ONE FILE AT A TIME through the Supabase MCP `apply_migration`, on the owner's go**, each verified object by object before the next (Commands) — after confirming the MCP targets the QR project `fasnpdhtvqtzjlvruqcu` — `.mcp.json` points there (the owner, 2026-10-08), but a session can load another MCP config. Never `supabase db push` or SQL-editor DDL against the QR project (divergent history, M125); a local stack is `supabase start`.
+- Compliance: **SB-1524** — there is no service charge since W16a (historical receipts still disclose theirs, `serviceDisclosed`), and any reintroduction must be disclosed; never surcharge debit; reviews ungated; **EBT/SNAP = 2027** (Forage/FNS).
 
 ## Pre-PR self-review sweep (read your own diff _before_ opening the PR)
 
-The review/adversarial gates catch **escapes** — they are not your first pass. The recurring waste across M1 was shipping a correct-but-incomplete first commit and letting the gate tease out craft round-by-round (P1.2 took 5 passes; P1.5 took 3). The first commits were clean on the load-bearing parts (money/auth/RLS/tokens); the gate kept finding the same **three deferred categories** — so sweep the diff against them before opening, where a fix is one edit, not a fix-and-re-label cycle:
+The review gates catch **escapes** — they are not your first pass. M1's first commits were clean on the load-bearing parts (money/auth/RLS/tokens), yet the gate kept finding the same **three deferred categories** round after round (P1.2 took 5 passes; P1.5 took 3) — so sweep the diff against them before you push, where a fix is one edit, not a fix-and-re-review cycle. The bullets through "Never transcribe" run before the push. Codex's round 1 is asked on the draft at open; the blind pass and the merge head's Codex round run after the mark-ready, in parallel with the `verify-slice` check.
 
-- **Money / auth / RLS / DB** — every mutation authz'd with the status guard **in the SQL statement** (not just the client); inputs bounded at the DB (Zod `.max()` **+** column `CHECK`); new `SECURITY DEFINER` fns `revoke … from public` + `grant … to service_role`; amounts server-derived (never a client total); RLS on every new table **and** Realtime path; migrations guarded + idempotent, no `types-fresh` drift, never DDL prod.
+- **Money / auth / RLS / DB** — every mutation authz'd with the status guard **in the SQL statement** (not just the client); inputs bounded at the DB (Zod `.max()` **+** column `CHECK`); new `SECURITY DEFINER` fns `revoke … from public` + `grant … to service_role`; amounts server-derived (never a client total); RLS on every new table **and** Realtime path; migrations guarded + idempotent, no `types-fresh` drift, never ad-hoc DDL on prod.
 - **a11y — sweep _every_ interactive/region element, not just the layout** (QA-CHECKLIST §A): ≥44px touch targets; an accessible name on each control/list/region (`aria-label`/`-labelledby`); `role="list"` when `list-style:none`; **one** live region per view (no redundant `aria-live` on `role="status"`/`alert`); focus moved on remove / route / step change; decorative glyphs + emoji `aria-hidden`; a `prefers-reduced-motion` off-switch on any animation.
 - **Error / recovery paths** — every `await` / `{ error }` is handled or a **commented, deliberate** swallow (a silent one → a broken session or a stuck screen); every async UI has a **loading _and_ a failure/recovery** state (never strand the user); fail fast on unrecoverable errors instead of burning a full retry budget; on serverless, drain side-effects with `after()` (don't couple the response to them).
-- **Copy / fidelity** — strings **verbatim** from `docs/prototype/v7.2.html`; no promise the code doesn't keep ("live status here" only where it's wired); honest microcopy (no fabricated ETAs/counts); tokens, never hardcoded colors.
-- **`verify:slice` — the mechanical gate: `--only=` locally before the push, the FULL battery in CI beside the subagent.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it applies 3270 semantic mutations to the money/authority modules (each must turn its owning suite RED) and mirrors CI's orphan-suite check. Zero tokens — but NOT minutes: this line said "a few minutes" while a full serial run measured 164–180 min, and 8 of 11 attempts never finished (owner, 2026-10-08: "we can't take more than 30 minutes for each PR merge"). So: before pushing, run `pnpm verify:slice --no-gate --only=<substring>` for every money/authority module you touched; the full battery is the CI check **`verify-slice`** (12 cost-balanced shards, ~10.5 min wall measured on the first run) on every non-draft head and every push to main, and the merge waits for it green on the merge head (the ritual below). The review round that found the same class cost ~1M tokens and 56 minutes. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
+- **Copy / fidelity** — strings **verbatim** from `docs/prototype/v7.2.html` where v7.2 draws the surface; where it has no string, the house's own words held to `docs/DESIGN-LANGUAGE.md` §9 (J29); a v7.2 string the code cannot keep is not copied (honesty, DESIGN-LANGUAGE §5). No promise the code doesn't keep ("live status here" only where it's wired); honest microcopy (no fabricated ETAs/counts); tokens, never hardcoded colors.
+- **`verify:slice` — the mechanical gate: `--only=` locally before the push, the FULL battery in CI.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it applies 3270 semantic mutations to the money/authority modules (each must turn its owning suite RED) and mirrors CI's orphan-suite check. Zero tokens, but not minutes (LEARNINGS #247), so: before pushing, run `pnpm verify:slice --no-gate --only=<substring>` for every money/authority module you touched (Commands: how to find a file's ids); the full battery is the CI check **`verify-slice`**, and the merge waits for it green on the merge head. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. **A mutant that SURVIVES on one run and is CAUGHT on another of the same tree is a suite defect** — the suite reads a moment, not history (LEARNINGS #248; #324): fix the read, red-first, and never re-run a red `verify-slice` hoping for green. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
 - **The red-first rule.** Never write a guard you have not watched fail: a test, a lint rule, a CI step, a SQL assert. Induce the violation, see it go red, revert. Two live bugs shipped past "proved, not assumed" claims that had only been proved for one shape (a bare `/menu` surviving as a default parameter; a `.test.tsx` orphan the guard whitelisted by directory).
 - **Guards PARSE — they never scan (LEARNINGS #60; eleven Codex findings in one day, all this shape).** A guard about executable behaviour that matches a _name, substring, count, position, or constant_ will be satisfied by text that does not ship the behaviour: a comment, a dead `{false && …}` branch, an `await Promise.all` reorder. So: parse with `typescript` (already a dependency — comments are not AST nodes) when the subject is JS/TS, and where no parser exists (CSS) constrain the scan instead — comments stripped, the candidate selected by what it DECLARES, ambiguity refused; bind extractions to the live candidate — excluding the enumerated literal-dead shapes, which is liveness against parked dead copies, not a reachability proof — and evaluate the shipped literal, refusing ambiguity instead of picking by position (**uniqueness ≠ liveness**); assert sequencing as _awaited, in a statement that finishes first_, never as lexical order; and aim red-first at the MATCHER too — ask "what text satisfies this without shipping the behaviour?" and falsify that exact evasion. ⚠️ `ts.forEachChild` is a SEARCH primitive: a visitor that returns a truthy value aborts the walk — write `(c) => { visit(c); }`.
 - **Never transcribe a number into an assertion — nor a LIST.** Compute it in the shell and paste the output. A value that crosses from prose (a subagent summary, a plan doc) into an expectation is how `-600 → -59` shipped when the real value is `-58`. Same rule for sets: a merge-conflict resolution is verified as a set operation — derive `closed(parent1)` / `closed(parent2)` / `closed(merge)`, assert nothing lost and nothing invented — never from a remembered list (the #242 list was wrong twice; the resolution was right, provably, only after measuring — LEARNINGS #61).
-- **Adversarial subagent (independent eyes) — this IS the review, and it runs BLIND.** Run **`pnpm review:bundle`** first: it writes `.review-bundle/` (raw diff · full current text of every changed file · heuristic blast radius · a narrative-free prompt), and you hand the subagent **that directory and nothing else**. Spawn it as `subagent_type: "adversarial-auditor"` (`.claude/agents/adversarial-auditor.md` — zero agreeableness, defect-biased, a four-part evidence standard, any CRITICAL forces REJECT). **Never describe the change in your own words.** Codex has repeatedly beaten the in-session pass on the same diff for exactly one reason: it never hears the author's argument. #223's P1 — a rotation plan that opted an event into retry when the handler's own comment forbids redelivery — sailed past every in-context pass because the author had written "idempotent, therefore safe" and no reviewer re-asked _safe against WHAT?_. Pick the ≤3 lenses the diff actually earns from {money semantics · concurrency · product truth · a11y · perf · security/privacy}, per the HARD CAP below; fix findings _before_ opening / before merging, and **post the verdict + findings as a PR comment** for the record. **It runs IN PARALLEL with the `verify-slice` check, not after it** — the subagent reads `.review-bundle/`, a copy, and the shards mutate their own runners' checkouts, so neither can disturb the other; only the order changed, and both must be green before the merge. **Verify every finding against source before acting on it** — two of the three Codex rounds on #223 reached correct conclusions through invented mechanisms, and it is the mechanism the next reader trusts. CI runs no Claude review (the stub checks are retired), so this in-session pass plus the two Codex rounds are the only real gate. (M1·P1.5 burned 6 metered Action rounds + a disable/fix/re-label dance doing review reactively in CI — this replaces exactly that.)
+- **Adversarial subagent (independent eyes) — this IS the review, and it runs BLIND.** ONE pass per PR over the FULL PR diff (LEARNINGS #216), started after the mark-ready and run **in parallel with the `verify-slice` check and the Codex round** — the subagent reads `.review-bundle/`, a copy, and the shards mutate their own runners' checkouts, so neither can disturb the other; both must be green before the merge. Run **`pnpm review:bundle`** first: it writes `.review-bundle/` (raw diff · full current text of every changed file · heuristic blast radius · a narrative-free prompt), and you hand the subagent **that directory and nothing else**. Spawn it as `subagent_type: "adversarial-auditor"` (`.claude/agents/adversarial-auditor.md` — zero agreeableness, defect-biased, a four-part evidence standard, any CRITICAL forces REJECT). **Never describe the change in your own words** — Codex keeps beating in-context passes on the same diff because it never hears the author's argument (LEARNINGS #55). Pick the ≤3 lenses the diff earns (HARD CAP below); fix findings before merging, and **post the verdict + findings as a PR comment naming the head SHA it reviewed** — with Codex out of quota that verdict is the Codex stand-in, and the owner's bypass merge is tied to that SHA. **Verify every finding against source before acting on it** — two of the three Codex rounds on #223 reached correct conclusions through invented mechanisms, and it is the mechanism the next reader trusts. CI runs no Claude review, so this pass plus the Codex rounds are the only real review.
+- **Codex reviews are part of the gate, and the wait is MECHANICAL (owner, 2026-08-29: "wire the wait into the flow properly").** Codex fires when a PR LEAVES draft (or on an explicit ask), and a flow that marked ready and squashed in one breath read its findings minutes AFTER the merge — three times, a money-path P1 among them (the record: `require-codex-review.yml`'s header). So **`require-codex-review.yml` is RED until Codex has reviewed the exact head SHA about to merge**, and turns green on its own when Codex reports — a review, a no-findings comment, or the Completed row of its summary comment for that head (a clean auto-review only edits that comment and adds a 👍). ⚠️ The verdict rides a check run the `publish-codex-verdict` job CREATES against `pr.head.sha`, named **`codex-review`** — that is the name to require, NOT the job's own check (green whenever the gate merely evaluates) and never the retired `codex-reviewed`. Drafts are exempt because a draft is mid-iteration, not because Codex cannot review one: the gate arms at ready-for-review, the window where the merge button is live. The decision lives in `scripts/codex-review-gate.mjs`, unit-tested in `apps/qr/lib/codex-review-gate.test.ts` — including the near-misses that actually happened: a review of the PREVIOUS head, and a human writing the word "Codex". A gate stuck red after Codex reported: re-run the latest `publish-codex-verdict` run — a human comment no longer re-evaluates it. ⚠️ **The check proves the review EXISTS; it can never prove anyone read it** — so **comment `@codex review` on the draft PR immediately after opening it**, and **before merging, fetch its round (`pull_request_read` → get_reviews / get_review_comments / get_comments) and fix-or-justify every finding** — a hand-read, not another agent round (the HARD CAP is untouched). **TWO Codex rounds per PR, then merge (owner, 2026-08-16: "When diminishing returns after round 2, should note for nice to-dos and merge").** Round 1 on the draft, round 2 on the fix commits; fix-or-justify both. From round 3 on, findings that would be fixed-on-sight may still be (one small commit), but anything else — polish, edge-case copy, shrinking-materiality nits — goes to `docs/OPEN-ITEMS.md` as a nice-to-do and the PR MERGES: the loop converges, it never terminates on its own (W22a/#194 ran 4 → 5 → 1 → 2 findings). The check is per-head, so the last push before a merge always needs one more Codex round; the two-round budget bounds how many rounds are TRIAGED, not how many exist.
+- ⚠️ **Mark-ready and merge are NEVER one motion — #241 (2026-08-29) was squash-merged eleven seconds after `codex-review` went red on its head, by the session that BUILT the gate, and `8f2b11b` (money-path) reached `main` unreviewed (LEARNINGS #61).** The ritual (normative copy: `docs/WORKFLOW.md` §Review step 5): final push → mark ready → `@codex review` → **WAIT, event-driven** (subscribe to the PR; never sleep-poll — and never a re-armed `send_later` / cron re-check either: a PARKED PR waits on EVENTS ONLY; hourly self-wakes burned a day of the owner's plan on #284 — owner, 2026-09-15, LEARNINGS #114) until `codex-review` is green with a summary saying **"Codex has reviewed"** the merge head (green-plus-SHA is NOT enough — the draft stand-down is green and names the SHA while asserting the opposite; and a green beside Codex's usage-limit reply on that head is unproven — WORKFLOW step 5(d), (g)) **AND the `verify-slice` check is green on that same head** (it starts on the mark-ready; a draft's is RED on purpose — "not run — DRAFT" — so a draft-era verdict can never pass for the battery) → fetch the round, fix-or-justify — a pushed fix is a NEW head, so loop it back through BOTH waits — → merge, on the owner's per-SHA yes (ruling #1's merge-window line) or the owner's explicit instruction to merge that PR (never a red-`codex-review` head: G3), only a head whose own reviewed verdict AND own `verify-slice` are green. #242 ran it and held four minutes; since #320 `verify-slice` bounds the wait (Where things stand).
+- **Codex out of quota (owner, 2026-10-08: "wired the required checks on main, codex-review can be replaced with blind review if out of quota so merge is not blocked waiting on quota", then "go with the manual admin bypass for quota").** When Codex answers a review request with its usage-limit message ("You have reached your Codex usage limits for code reviews"), the capped blind adversarial review of the EXACT head stands in for Codex: post its verdict on the PR naming that head SHA, with `verify-slice` and the rest of CI green on the same SHA. The OWNER then merges that head with GitHub's admin bypass, by hand. An agent never merges a head whose `codex-review` is red (the `.md`-only waiver, under the conditions in WORKFLOW §Review step 5 (f), is the one exception) — even though its admin-scoped token could — and never automates the bypass (an automated version, the gate accepting a verdict comment posted from the owner's account, was refused as a CI bypass: the agent posts AS the owner and would satisfy its own required check). Branch protection therefore keeps admin bypass available (classic rule: leave "Do not allow bypassing the above settings" unticked; ruleset: Repository admin on the bypass list) and does NOT require Code Owner review (every PR is authored by the sole code owner, who cannot approve their own PR). The bypass covers a red `codex-review` only — never `verify-slice`, `build`, `docs`, `migrations-check + types-fresh` or `require-docs`. Normative copies: `docs/WORKFLOW.md` §Review step 5(g); `docs/OWNER_RULINGS_2026-10-07.md` G3. **A fix pushed after the capped pass (owner, 2026-10-08: "Yes one more"):** ONE more capped blind pass runs over exactly the fix commits (`pnpm review:bundle --base <the HEAD SHA of the first pass's reviewed pair>`; after a rebase between the passes, the full PR on the PR's final head as GitHub reports it, same cap), and its verdict, posted naming the final head SHA and the base it reviewed from, stands in for that head — the last agent round, and an owner-made exception to the HARD CAP's "never another agent round", only with Codex out of quota (with quota, Codex's round on the final head covers the fix commits). _The lead's procedure (2026-10-08, not an owner ruling — the owner may require more):_ a fix pushed after THAT pass is carried by the author's hand-read of the commits after it, posted as ONE comment naming the final head SHA. The merge-window line for that head lists those fix commits and says whether any touches a `MONEY_PATHS` file (`scripts/check-money-coverage.mjs`), so the owner bypass-merges knowing which commits no blind reviewer read.
+- **The standing rulings beside it** (`docs/OWNER_RULINGS_2026-10-07.md`). A session merges only on the owner's per-SHA yes (ruling #1's merge-window line) or the owner's explicit instruction to merge that PR (G4) — neither covers a head whose `codex-review` is red: the owner merges that (G3). **How an agent applies ruling #1's `.md`-only waiver** (the owner's words: "`.md`-only PRs merge without the Codex wait this wave (CI green still required). CLAUDE.md and `.claude/**` are excluded: they need the per-SHA line." — the lead's tightening, confirmed by the owner 2026-10-08): only within the wave it was given for (the 2026-10-07 parallel wave); only when Codex is out of quota (with quota, every PR waits for Codex); only while `codex-review` is not a required check, re-measured immediately before the merge with OPEN-ITEMS C28 ③'s reads, their output quoted in the PR; and never for a PR that touches the rules governing merges — `CLAUDE.md`, `.claude/**`, `docs/WORKFLOW.md`, `docs/OWNER_RULINGS_*.md`, OPEN-ITEMS C16/C28, `.github/**` — which need the owner's per-SHA line. Once `codex-review` is required, an `.md`-only PR is listed `#N @ SHA · .md-only` for the owner's same bypass (#2). A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. Ruling #1's "a full `verify:slice` watched to the end" is now the `verify-slice` CI check green on that SHA.
 
-- **Codex reviews are part of the gate, and the wait is MECHANICAL now (owner, 2026-08-29: "wire the wait into the flow properly").** The repo has the Codex GitHub app, but it only fires when a PR LEAVES draft (or on an explicit ask) — and the merge flow used to mark-ready-and-squash in one breath, so its findings landed minutes AFTER the merge, unread. That failed THREE times: W20/#191 buried 2×P1 + 2×P2, all four real; **#239 buried three P2s by NINE MINUTES** (a collapsed photo slot, a false count in the dietary sheet, a scroll-spy regression — all reached `main`); and a back-sweep of the twelve PRs before it found **76 findings, 16 never answered, 8 still live**, including a money-path P1 open for two days (a declined payment left an authorized promo grant pinned to a re-editable cart, so the next checkout charged a discount the new basket never earned). Every one arrived post-merge — a SEQUENCING problem, not a discipline one, which is why it is a required check rather than another paragraph: **`require-codex-review.yml` is RED until Codex has reviewed the exact head SHA about to merge**, and turns green on its own when Codex reports. ⚠️ The verdict rides a check run the job CREATES against `pr.head.sha`, named **`codex-review`** — that is the name to require in branch protection (OPEN-ITEMS **C16**, wirable since the repo went public again on 2026-10-08, and not enforced until a measurement shows the rule — **C28**), NOT the job's own check, which is green whenever the gate merely evaluates. The explicit creation is not decoration: a workflow's implicit check attaches to the SHA its RUN is for, and only `pull_request` events give that the PR head — measured on #240, `issue_comment` produced no run at all — so Codex's no-findings COMMENT could otherwise never clear a `pull_request` failure and the gate would wedge red forever. Because the check is per-head, the last push before a merge always needs one more Codex round; that does not conflict with the two-round budget below, which bounds how many rounds are TRIAGED, not how many exist. Drafts are exempt because a draft is MID-ITERATION — not because Codex cannot review one: it can, on an explicit ask, which is why the rule below still says to ask on the draft. Reddening on every WIP push would either burn Codex rounds on unfinished code or teach everyone to ignore a permanently-red check, so the gate arms at ready-for-review — the window where the merge button is live. The decision lives in `scripts/codex-review-gate.mjs`, unit-tested in `apps/qr/lib/codex-review-gate.test.ts` — including the near-misses that actually happened: a review of the PREVIOUS head, and a human writing the word "Codex". ⚠️ **The check proves the review EXISTS; it can never prove anyone read it** — so the rest of the rule stands: **comment `@codex review` on the draft PR immediately after opening it**, and **before merging, fetch its review comments (`pull_request_read` → get_reviews/get_review_comments) and fix-or-justify every finding**. Codex is a second independent reviewer, not a substitute for the in-session adversarial pass; triaging its findings is a hand-read, not another agent round (the HARD CAP below is untouched). **TWO Codex rounds per PR, then merge (owner, 2026-08-16: "When diminishing returns after round 2, should note for nice to-dos and merge").** Round 1 on the draft, round 2 on the fix commits; fix-or-justify both. From round 3 on, findings that would be fixed-on-sight may still be (one small commit), but anything else — polish, edge-case copy, shrinking-materiality nits — goes to `docs/OPEN-ITEMS.md` as a nice-to-do and the PR MERGES. W22a/#194 ran 4 rounds (4 → 5 → 1 → 2 findings, every one real but each smaller) before the owner called it: the review loop converges, it never terminates on its own. ⚠️ **Mark-ready and merge are NEVER one motion — #241 (2026-08-29) was squash-merged eleven seconds after `codex-review` went red on its head, by the session that BUILT the gate, and `8f2b11b` (money-path) reached `main` unreviewed.** The ritual: final push → mark ready → `@codex review` → **WAIT, event-driven** (subscribe to the PR; never sleep-poll — and never a re-armed `send_later` / cron re-check either: a PARKED PR waits on EVENTS ONLY; hourly self-wakes burned a day of the owner's plan on #284 — owner, 2026-09-15, LEARNINGS #114) until `codex-review` is green with a summary saying **"Codex has reviewed"** the merge head (green-plus-SHA is NOT enough — the draft stand-down is green and names the SHA while asserting the opposite) **AND the `verify-slice` check is green on that same head** (since 2026-10-08; it starts on the mark-ready, and a draft's `verify-slice` is red on purpose — "not run — DRAFT" — so the draft-era verdict on the same SHA can never pass for the battery) → fetch the round, fix-or-justify — a pushed fix is a NEW head, so loop it back through BOTH waits — → merge, only a head whose own reviewed verdict AND own `verify-slice` are green (normative copy: `docs/WORKFLOW.md` §Review step 5). #242 ran it and held four minutes; that is what the wait costs.
-
-**Review budget — HARD CAP (owner directive, 2026-08-05: "Never run such long and inefficient passes").** ONE fresh-context adversarial pass per PR: delta-scoped, **≤3 lenses** (money semantics · concurrency · product truth), **≤10 agents**, **~15 min**. If it stalls or overruns, KILL it and hand-triage its partial output from the journal — never relaunch. After applying fixes: mechanical gates (`verify:slice --only=` for what the fixes touched · `check:docs`, then the `verify-slice` check on the pushed head) + a hand-read of the fix diff — **never another agent round**. The evidence: W10d ran 3 rounds / ~7M subagent tokens / 60-90 min each for 9 HIGH; two of the nine were greps (now `check-money-coverage.mjs`, ~1s), the doc lens is now `check:docs`, and the stalled round 3's hand-triage found its 3 real defects in minutes. Ten minutes of mechanical gates beat a metered round per finding. The gate is the backstop, not the author. See `.claude/LEARNINGS.md` #44/#47 for the war stories. **Re-affirmed by the owner 2026-10-04 after the 103-agent deep pass on #312: "pass should never be that deep, codex level adversarial review is fine if codex red."** So: the in-session pass is the capped one above, SCOPED to the full PR diff (LEARNINGS #216) but never deeper; a second, Codex-depth adversarial round is earned only when Codex's own round comes back RED on the head — then it is one more capped pass over the files Codex named, not a fleet (LEARNINGS #218).
+**Review budget — HARD CAP (owner directive, 2026-08-05: "Never run such long and inefficient passes"; re-affirmed 2026-10-04 after the 103-agent deep pass on #312: "pass should never be that deep, codex level adversarial review is fine if codex red").** ONE fresh-context adversarial pass per PR, scoped to the FULL PR diff (LEARNINGS #216) and never deeper: **≤3 lenses** chosen from {money semantics · concurrency · product truth · a11y · perf · security/privacy} (the auditor applies them through its own defensive / architectural / idiomatic method), **≤10 agents**, **~15 min**. If it stalls or overruns, KILL it and hand-triage its partial output from the journal — never relaunch. After applying fixes: mechanical gates (`verify:slice --only=` for what the fixes touched · `check:docs`, then the `verify-slice` check on the pushed head) + a hand-read of the fix diff — **never another agent round** — except, with Codex out of quota, ONE more capped pass over the fix commits pushed after the blind pass, the last agent round (owner, 2026-10-08: "Yes one more"; the quota bullet above). A second, Codex-depth adversarial round is earned only when Codex's own round comes back RED on the head — then it is one more capped pass over the files Codex named, not a fleet (LEARNINGS #218). Ten minutes of mechanical gates beat a metered round per finding (the W10d evidence: `.claude/LEARNINGS.md`, "Review rounds are capped at ONE per PR"). The gate is the backstop, not the author.
 
 ## Money-path rules learned the expensive way (W17 — read before touching a charged amount)
 
@@ -347,11 +211,12 @@ are not style notes; each one shipped, or nearly shipped, a wrong number to a gu
   ladder as a defaulted parameter), never delete the mutant.
 - **Decision logic belongs in `lib/`, not a component — and M46 changed the REASON, not the rule.**
   A `.test.tsx` now runs (jsdom, opted in per file with `/** @vitest-environment jsdom */`; see
-  `apps/qr/vitest.config.ts`), and `verify:slice` mutates components too. But `Checkout.tsx` still
-  sits outside `check-money-coverage`'s `MONEY_PATHS` and still has no suite, and a pure module is
-  falsified by a VALUE where a component needs a render plus five mocks. So `lib/` first: it is
-  finer-grained, not merely possible. That is why `effectiveTipRate` and `tipPresets` are pure
-  modules. Use a component suite for WIRING that has nowhere else to live (T18).
+  `apps/qr/vitest.config.ts`), and `verify:slice` mutates components too. But a component sits
+  outside `check-money-coverage`'s `MONEY_PATHS` (`Checkout.tsx` has suites and mutants now, yet a
+  change there is still never ASKED for a mutant), and a pure module is falsified by a VALUE where a
+  component needs a render plus five mocks. So `lib/` first: it is finer-grained, not merely
+  possible. That is why `effectiveTipRate` and `tipPresets` are pure modules. Use a component suite
+  for WIRING that has nowhere else to live (T18).
 - **Prove a DB constraint against the real database, red-first.** Before applying the cash-tip
   migration, the probe was run against prod and an `UPDATE tip_cents = -1` was **accepted** — the
   hole was live, not theoretical. Constraints get a SQL test in `supabase/tests/` (registered in
@@ -368,7 +233,11 @@ are not style notes; each one shipped, or nearly shipped, a wrong number to a gu
   a shared bucket rather than splitting it, because a per-head number this app invented would look
   exactly like a policy the owner had agreed to. Never fabricate an average, a projection, or a
   split on a screen someone reads as a statement of their pay.
+- **Before touching the promo pin, read `releasePromoGrantFor`'s docblock in `apps/qr/lib/lock.ts`.**
+  The stale-grant release runs from the NEXT attempt in `create-intent`, never from the decline
+  webhook — an inline decline re-confirms the SAME PaymentIntent, so clearing the pin there charged
+  an amount fulfillment could not re-derive.
 
 ## Gate before "done"
 
-**the `verify-slice` CI check green on the merge head** (locally: `--only=` for each module you touched) · **`pnpm check:docs` green** · CI green (`turbo lint typecheck build`) · Claude PR review + security review addressed · the QA-checklist items the change touches ticked (`docs/context/QA-CHECKLIST.md`, progress tracked in `docs/REVIEW.md`) · `ROADMAP.md` box checked · `CHANGELOG.md` line added · **`docs/OPEN-ITEMS.md` swept** (close/retire/add the items your change touches — it's the single registry; W0) · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md`.
+**CI green on the merge head** — `build` (`pnpm turbo lint typecheck build test`), `migrations-check + types-fresh` when the sql lane runs, `docs` on a docs-only PR, and `require-docs` · **the `verify-slice` CI check green on the merge head** (locally: `--only=` for each module you touched) · **`pnpm check:docs` green** · the blind-pass verdict posted on the PR and its findings fixed-or-justified · **`codex-review` green with "Codex has reviewed" the merge head**, both Codex rounds fixed-or-justified — or, with Codex out of quota, the blind verdict naming that head and the OWNER's admin-bypass merge (an `.md`-only PR: ruling #1's waiver, under WORKFLOW step 5 (f)'s conditions) · the owner's per-SHA yes or explicit instruction for the merge · the QA-CHECKLIST items the change touches (`docs/context/QA-CHECKLIST.md`) ticked in the PR body's QA section · `ROADMAP.md` box checked · `CHANGELOG.md` line added · **`docs/OPEN-ITEMS.md` swept** (close/retire/add the items your change touches — it's the single registry; W0) · preview smoke-tested. If you learned something non-obvious or hit a sharp edge, append it to `.claude/LEARNINGS.md` under the next free `## #N` heading (`check:docs` refuses a duplicate key).

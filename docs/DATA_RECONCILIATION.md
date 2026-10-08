@@ -1,5 +1,10 @@
 # Data reconciliation — QR schema ↔ live delivery DB
 
+> **SUPERSEDED — history, not instructions.** QR runs on its own Supabase project
+> (`fasnpdhtvqtzjlvruqcu`); [`BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md) is the live model.
+> Nothing below is a procedure to follow — in particular, never `supabase db push` against the QR
+> project (its prod history is divergent, OPEN-ITEMS M125; CLAUDE.md § Commands has the apply path).
+
 **Status: RECONCILED (M1·P1.0, 2026-06-18).** `0001`/`0002` are rewritten to coexist with the
 live delivery schema (namespaced `qr_*`, money in cents, real menu) and all QR code is repointed.
 Still **not applied to prod** — apply on a Supabase branch (blocked: branching needs the Pro plan)

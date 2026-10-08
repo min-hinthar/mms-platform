@@ -15,6 +15,8 @@ A guest at the table scans and wants to **eat, not learn an app**. The whole des
 
 1. **One thumb, one flow** — primary actions in the bottom thumb-zone. 2. **Photo-first** with a graceful gradient+emoji fallback so nothing looks broken. 3. **Honesty as a feature** — service charge disclosed on menu _and_ cart (SB-1524), card prices with a cash-discount note. 4. **Tip without pressure.** 5. **Bilingual parity** — EN/Burmese equal citizens, Padauk, persistent one-tap toggle. 6. **Calm editorial warmth** — Fraunces + Hanken on warm paper; a teahouse, not a vending machine. 7. **Kiosk is a mode, not a different app** (denser targets/text, same code). 8. **Speed is a feature** — sub-2.5s LCP, AVIF, never block first paint on images. 9. **Accessible by default** — WCAG 2.2 AA, focus-visible, reduced-motion, ≥44px. 10. **Never a dead end.**
 
+> **Decided since (2026-10-08 note — the research above stands as written):** no service charge — retired 2026-08-15 (W16a); it survives only on historical receipts that carried it, with their disclosure verbatim. Bilingual only, no toggle (W16b): every diner surface shows both tongues; staff pick Burmese / Both / English per device (Phase 2e). The kiosk is parked in production (`SURFACES`, Option A · A1).
+
 ## 3 · Stage-by-stage (do / avoid)
 
 | Stage                | Do                                                                       | Avoid                                                     |
@@ -38,7 +40,7 @@ Sunday is a **web PWA** (no login, no install, no splash) engineered around "pay
 - **Never hide fees** — the on-screen total must be the **final** total before confirm; disclose the service charge + card/cash pricing (SB-1524). Sunday's Trustpilot complaints cluster on fees that surface only on the emailed receipt.
 - **Don't go visually generic** — Sunday is brand-neutral _because_ it's infrastructure across thousands of venues; we're a destination brand — keep the palette, Fraunces numerals, and badge everywhere.
 - **Skip AI dynamic tips** (needs Sunday's network) — A/B static presets. **Don't force pure-PWA on the kiosk** — a managed device can be native-hybrid for fonts/haptics/offline.
-- Service-charge **rate is (confirm)** — prototype copy has used both 15% and 5%; lock one before launch and keep it consistent across menu, cart, and split math.
+- Service-charge **rate is (confirm)** — prototype copy has used both 15% and 5%; lock one before launch and keep it consistent across menu, cart, and split math. _(Decided 2026-08-15, W16a: no service charge at all — see the note under §2.)_
 
 ## 5 · Paid UI kits — the buy-list (quality-over-license)
 
