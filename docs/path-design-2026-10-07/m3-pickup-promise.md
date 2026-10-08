@@ -1056,7 +1056,7 @@ The round-3 consistency pass gave this moment these changes:
    all — a beacon, or a reconcile that failed or was cut off — and that send is retried on the next
    visit. The success and no-longer-takes-an-arrival answers still clear it (F1).
 
-### H · Build notes (2026-10-08, `claude/feat/pd3-pickup-promise`)
+### H · Build notes (2026-10-08, `claude/feat/pd3-pickup-promise`, #330)
 
 Built by the post-pay stream against `claude/feat/pd-tokens-pass` (#326). What shipped, by section;
 what did not and why; the decisions taken under the owner's delegation.
