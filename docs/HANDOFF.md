@@ -47,16 +47,24 @@ Measure first: `git log origin/main --oneline -3` and `gh pr list`.
   `protected: false`; `/branches/main/protection` → 404; `/rulesets` → `[]`; `/rules/branches/main` →
   `[]`. The owner reported "wired the required checks on main, codex-review can be replaced with blind
   review if out of quota so merge is not blocked waiting on quota" that morning, but no rule was in
-  effect as measured, so **every check is advisory until a re-measure shows the rule** (OPEN-ITEMS C28
-  ③). Until then the merge ritual ([`docs/WORKFLOW.md`](WORKFLOW.md) §Review step 5) is the only
-  enforcement — and the agent's GitHub token is admin-scoped, so the API would let it merge past a red
-  required check. Only the procedure stops that.
+  effect as measured, so — asked to check it, the owner answered "Not necessary" (2026-10-08), and a re-measure at
+  11:07Z still read none — **every check stays advisory**, and none is expected (OPEN-ITEMS C28 ③ keeps
+  the commands). The merge ritual ([`docs/WORKFLOW.md`](WORKFLOW.md) §Review step 5) is the only
+  enforcement — and the agent's GitHub token is admin-scoped, so the API would let it merge past any red
+  check. Only the procedure stops that.
 - **The owner, later that day:** "go with the manual admin bypass for quota" (G3; owner's item 2) and
-  "merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR" (G4, a request).
+  "merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR" (G4, a request). Then, on
+  #325: "1. Yes one more; 2. Confirm; 3. Not necessary; 4. target is fasnpdhtvqtzjlvruqcu; . Merge" (§G
+  (h)) — one more capped pass over fix commits pushed after the blind pass (G3), the waiver tightening
+  confirmed (WORKFLOW step 5 (f)), branch protection no longer asked (G2), `.mcp.json` re-pointed to QR,
+  and, with `codex-review` red on #325's head (Codex out of quota), the instruction to merge #325 after
+  that pass with CI green (G4: a request for that PR, not a standing rule).
 
 ## The owner's items (not code)
 
-1. **C28 ② (with C16):** require on `main` `codex-review`, `verify-slice`, `build`,
+1. **C28 ② (with C16) — no longer asked:** the owner, 2026-10-08, "Not necessary". No rule is wired
+   and none is expected, so every check stays advisory. Only if protection is ever wired: require on
+   `main` `codex-review`, `verify-slice`, `build`,
    `migrations-check + types-fresh`, `docs` and `require-docs` — never a `verify-slice shard (N)` leg,
    `publish-codex-verdict`, the retired `codex-reviewed`, `Supabase Preview` or `Vercel Preview Comments`.
    **Keep the admin bypass** (classic rule: leave "Do not allow bypassing the above settings" unticked;
@@ -69,7 +77,7 @@ Measure first: `git log origin/main --oneline -3` and `gh pr list`.
    on the same SHA. The OWNER then merges that head with GitHub's admin bypass, by hand. An agent never merges a head whose `codex-review` is red (the `.md`-only waiver, under the conditions in WORKFLOW §Review step 5 (f), is the one exception) and never automates the bypass (a gate accepting a verdict
    comment posted from the owner's account was refused as a CI bypass: the agent posts AS the owner and would satisfy its own required check).
    The bypass covers a red `codex-review` only — never `verify-slice`, `build`, `docs`,
-   `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass once the check is required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass: the lead's carry procedure (WORKFLOW step 5 (g)) — not an owner ruling; owner to confirm.
+   `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass if the check is ever required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits — the last agent round (owner, 2026-10-08: "Yes one more"; WORKFLOW step 5 (g)).
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp;
@@ -146,7 +154,7 @@ stream adds one bullet of its own below this line and edits only that bullet.
 
 - **QR's own Supabase project is `fasnpdhtvqtzjlvruqcu`** (delivery's is `ukuzkhuppqwtrdkjqrkv`).
   Preview and production share it; there is no staging project (OPEN-ITEMS T3, [`docs/ENV.md`](ENV.md),
-  which also lists the app env the owner sets in Vercel). Target that `project_ref` with the Supabase MCP — confirm it first (e.g. `get_project_url`): the repo's `.mcp.json` Supabase entry is pinned to the DELIVERY project `ukuzkhuppqwtrdkjqrkv` (OPEN-ITEMS T53) — and run `get_advisors` (security and performance) after every migration.
+  which also lists the app env the owner sets in Vercel). Target that `project_ref` with the Supabase MCP — confirm it first (e.g. `get_project_url`): the repo's `.mcp.json` Supabase entry points there (the owner, 2026-10-08: "target is fasnpdhtvqtzjlvruqcu"; OPEN-ITEMS T53 ⑥), but a session can load another MCP config — and run `get_advisors` (security and performance) after every migration.
 - **Check the shell's Supabase env before `pnpm dev`** — names only, values unprinted:
   `env | grep -oE '^[A-Z_]*SUPABASE[A-Z_]*='`, then `printenv NEXT_PUBLIC_SUPABASE_URL`. Next lets shell
   env override `.env.local`. Here the URL pointed at `fasnpdhtvqtzjlvruqcu`, beside

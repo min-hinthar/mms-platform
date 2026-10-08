@@ -38,7 +38,7 @@ Roadmap: `ROADMAP.md` → M*.* P*.*
 
 ## Merge gates (`docs/WORKFLOW.md` §Review step 5)
 
-<!-- Advisory until branch protection requires them (OPEN-ITEMS C28); the merge ritual is the enforcement. -->
+<!-- Advisory: no branch protection requires them, and none is expected (OPEN-ITEMS C28; the owner, 2026-10-08: "Not necessary"); the merge ritual is the enforcement. -->
 
 - [ ] `@codex review` asked on the draft; every Codex round fixed-or-justified
 - [ ] Blind-pass verdict posted as a PR comment, naming the head SHA it reviewed
