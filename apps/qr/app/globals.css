@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@mms/ui/tokens.css";
 @import "@mms/ui/primitives.css";
+@import "@mms/ui/pass.css";
 
 :root {
   /* Padauk second in both Latin stacks — see tokens.css (per-glyph fallback for unmarked Burmese). */

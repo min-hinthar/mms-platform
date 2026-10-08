@@ -1107,3 +1107,143 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    tip, the close edge clears both the preset and any custom tip, so a reopened door starts with no tip
    selected, exactly as the design promises. A component case pins it: a tip chosen, the gate closes and
    reopens, and nothing is pre-selected.
+
+### H · Build notes (2026-10-08, `claude/feat/pd-pass-primitives`) — the ONE PASS and the ONE KITCHEN TRACK primitives
+
+PATH_DESIGN's Sequencing step 2, built by the post-pay stream: `CounterPass` and `KitchenTrack` in
+`@mms/ui` (`packages/ui/src/counter-pass.tsx`, `kitchen-track.tsx`, `pass.css`, exported as
+`@mms/ui/pass.css` and imported by `apps/qr/app/globals.css`). No consumer is wired: the streams
+render them (PD1, PD2, PD3, PD6, PD9, PD10, PD11, PD12). `lib/kitchen-track.ts` (the stage derivation)
+stays kitchen-ops'. This section is what the other streams read; the vocabulary in PATH_DESIGN round 3
+wins over it where they disagree.
+
+**`CounterPass` — the prop surface (final).**
+
+- `tier: "holder" | "counter" | "tv"` — the 40px `.exit-pass-code` face read by the holder;
+  `--fs-pass` held up across the counter or the room; the TV (a `table` figure pinned at
+  `--fs-pass`, never a clamp; a `code` at the board's 54px row).
+- `orientation?: "portrait" | "landscape"` (default portrait) — landscape puts the whole head on the
+  LEFT as the stub behind a vertical perforation (the TV, the seal's #CODE stub).
+- `figure: string` · `figureKind: "table" | "code"` — ONE identity figure, printed once: `table` is
+  Fraunces 600 tabular (`--font-display`, `--fw-semibold`, `--track-display`); `code` (a code or a
+  time) is the Hanken 800 code face (`--fw-heavy`, `--track-wide`, tabular). A `table` of three or
+  more characters at the `counter` / `tv` tiers steps down to `--fs-display` with no wrap
+  (`data-figure-long`); a code never steps (its host sizes the stub).
+- `label: { en; my }` · `lang: "en" | "my"` — the two-tongue label over the figure; the lead
+  tongue prints first ("စားပွဲ · Table" under `my`, "Table · စားပွဲ" under `en`); the Burmese is
+  `--font-my` at full ink (`--pass-ink`, `--fs-h2` at the counter/TV tiers, `--fs-lead` on the
+  holder tier), the English in `--pass-ink-2`.
+- `figureSpoken?: string` — what assistive tech hears for the figure when it should not be read as
+  a word (a code, spelt: `"7 C 2 E 9 A"`); the visible figure is then `aria-hidden`.
+- `head?: ReactNode` — the status slot (a `KitchenTrack size="glyph"` with its word). In the head
+  the track's English word runs as the kicker (`--fs-xs`, uppercase, `--track-eyebrow`), the
+  Burmese at `--fs-sm`. Never derived here.
+- `stub?: ReactNode` — the stub's small fields (a `<dl>`). Portrait: a side stub on the right of the
+  head behind a vertical 2px dotted perforation that runs through the head only, with ONE notch on
+  the top edge (m10's recipe); its ground is `color-mix(in srgb, var(--pass-ink) 6%, var(--pass-paper))`
+  (≈ `--sf`'s weight), its fields `--pass-ink-3` at `--fs-sm` 700. Landscape: the fields sit under
+  the figure inside the left stub, no tint.
+- `children?: ReactNode` — the body (rows, money rows, the total), `padding: var(--s1) var(--s4)
+var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM renders: a 16px
+  strip with the dotted rule inset `--s4` from each side and the two side bites (portrait), or a
+  16px vertical strip with bites at the top and bottom edges (landscape).
+- `seam?: "2px" | "4px"` — defaults by tier (4px on the TV).
+- `terminal?: "paid" | "ready"` — the ONLY ✓ a pass draws: `paid` stamps the stub (the 44px stamp:
+  a `--pass-paper` disc ringed in `--pass-ok` 2.5 with the check drawn at 4, m10's recipe; the
+  stub's ground turns `--pass-okb` in portrait); `ready` draws the same stamp at 20px at the head of
+  the status row (m3's kicker). Nothing else, ever: a non-terminal pass renders no `<svg>` and no ✓.
+- `tear?: boolean` — the torn foot (`.receipt-tear`'s mask on the pass's own paper; the paper drops
+  its bottom edge and radius).
+- `inert?: boolean` — a guide picture: `aria-hidden`, the `inert` attribute, no ids, the identity a
+  `<p>`, `pointer-events: none`; the host scales it with one uniform transform.
+- `turning?: "head" | "figure"` — plays the TURN once: on the head (X axis: a stage completes, m9
+  and m10) or on the figure (Y axis: m3's time → code).
+- `stamping?: boolean` — plays STAMP on the ✓ (ring `--dur-slow` on `--spring`, the check drawn
+  `--dur-slow` from 150ms), then PRINT from 640ms: the tail (seam + body) reveals top → bottom over
+  1.05s, and the torn foot prints last in `--dur-fast`, so the print head reaches it after the body.
+- `as?: "section" | "article" | "li" | "div"` (default section; a `div` takes `role="group"`) ·
+  `headingLevel?: 2 | 3 | 4` (default 2) · `id?` (the heading's id; defaults to a React id) ·
+  `className?` · `style?`.
+- Rendered attributes a host may style on: `data-tier`, `data-orientation`, `data-seam`,
+  `data-figure`, `data-figure-long`, `data-terminal`, `data-tear`, `data-inert`, `data-turning`,
+  `data-stamping`, `data-lang`. The parts: `.ui-pass-paper` · `-head` · `-main` · `-status` ·
+  `-identity` · `-label` (`-label-my` / `-label-en` / `-label-dot`) · `-figure` (`-figure-table` /
+  `-figure-code`) · `-stub` · `-stamp` · `-tail` · `-seam` · `-body` · `-notch` · `-tear`.
+- a11y: the pass is named by its heading (`aria-labelledby`), and that name is the lead tongue's
+  label + the figure ONCE ("Table 7" / "စားပွဲ 7"): the visible two-tongue label is `aria-hidden`.
+  Notches, seam, tear and the stamp are `aria-hidden`; the host's status word carries the state.
+  The pass hosts no controls.
+- Material: `--pass-paper`, a 1px edge of `color-mix(in srgb, var(--pass-ink) 18%, transparent)`,
+  `--r-card`, `--sh-paper` (the one theme token: the shadow falls on the host's ground). Notches are
+  `--pass-hole` with the hairline only on their inner arc, so the half outside the paper vanishes
+  into the host's ground (m3 C's "the surrounding fill, no ring").
+
+**`KitchenTrack` — the prop surface (final).**
+
+- `stage: KitchenStage` = `"unsent" | "sending" | "sent" | "cooking" | "served"` (exported; the
+  kitchen-ops `lib/kitchen-track.ts` types against it). `KITCHEN_STAGES`, `TRACK_SEGMENTS` (3) and
+  `kitchenTrackLit(stage)` (0 · 0 · 1 · 2 · 3) are exported.
+- `size: "glyph" | "row" | "tv" | "stub"` — 14×5 · 28×6 · 36×8 · 16×6 per segment (gaps 2 · 3 · 4 ·
+  3; the ring 12 · 14 · 20 · 14).
+- `surface?: "pass" | "theme"` (default pass) — the palette: `--pass-unlit / -ink-2 / -ink / -ok`
+  on the paper; `--bd / --t2 / --tx / --ok` on a themed surface (Dad's pane, the KDS key). An
+  explicit prop, not an inherited variable: a track dropped inside a pass's subtree would otherwise
+  inherit the pass inks silently, and a prop renders as `data-surface`, which a static test reads.
+- `word?: { en; my }` · `lang?: "en" | "my"` (default en) · `echo?: boolean` (default true;
+  `false` prints the lead tongue only — the TV's rows). The word takes its segments' ink
+  (`.ui-track-word`, `--fw-bold`; the Burmese in `--font-my`); the host sets its size.
+- `filling?: boolean` — the caller observed the stage LAND: the new segment FILLs once
+  (`scaleX` from the inline start over `--dur-slow`). Ignored for the ring and the dashed grace. An
+  un-fill is instant: render the earlier stage without `filling`.
+- `aria-label?: string` — with no word, the track is one `role="img"` named by it. With a word, the
+  segments are decorative and the word is the state. With neither, the track is decorative. Never a
+  live region.
+- Rendered: `data-stage`, `data-size`, `data-surface`, `data-filling`; `.ui-track-segs` with three
+  `.ui-track-seg` (`data-lit`, `data-dashed`, `data-landing`), or `.ui-track-ring`.
+
+**Decisions made under the owner's delegation (decided by: the post-pay stream).**
+
+1. **Portrait keeps the stub on the RIGHT** (m10's head: main | stub); **landscape puts it LEFT**
+   (round 3's TV, m6's seal). B4's "put the stub on the left" is applied as the landscape rule the
+   vocabulary states ("Landscape (stub left)"); a phone pass keeps the wallet pass's tear-off side.
+2. **No inset sheen on the paper.** The kit's `--sheen` is a theme token (0.55 → 0.11 in Night), and
+   55% white over `#fffdf8` is `#fffefb` — imperceptible on this paper. The pass keeps `--sh-paper`
+   only; the brief's "inset sheen + `--sh-paper`" loses its no-op half.
+3. **The side stub's ground is a mix, not a tenth token** (`--pass-ink` 6% over `--pass-paper`):
+   the nine inks carry no `--sf` twin, and guards-style's file is closed to this stream.
+4. **The 40px and 54px tiers live on `.ui-pass` as component-scoped properties**
+   (`--pass-fs-holder: 2.5rem`, `--pass-fs-tv: 3.375rem`), the way the KDS declares `--kfs-*` on
+   `.kds-root`: three tiers, one place each; `tokens.css` untouched; the style-literal ratchet holds
+   its baseline (custom-property definitions are the token layer).
+5. **The accessible name is one tongue.** The brief's "the figure is read once … one name" is met by
+   hiding the visible two-tongue label from assistive tech and naming the pass from the lead tongue's
+   label + the figure. A screen reader in Burmese hears "စားပွဲ 7"; in English "Table 7".
+6. **TURN is one element, keyed by the host.** A split-flap's out-half needs the old face; the host
+   keys the turning part on the stage, so the commit swaps the face and the flap plays once (edge-on
+   at `--dur-base` ease-in, then falling from the hinge over `--dur-base` `--ease-out`). The X axis
+   hinges at the top (the head), the Y axis at the centre (the figure).
+7. **PRINT is sequential across the paper's edge.** The tail prints inside the paper; the torn foot
+   is a sibling outside it (its mask cannot punch the paper's own edge), so it prints last in
+   `--dur-fast` after the body's 1.05s — one print head, never two reveals at once.
+8. **The stamped stub's `--pass-okb` wash is portrait-only** (the dine-in pass, m10 screen 3). A
+   landscape stub keeps paper; the seal's own green body is the host's.
+9. **`terminal="ready"` draws the stamp in the head** at 20px before the host's kicker word (m3 B4:
+   "Ready reads through the ✓ kicker word"); round 3 wins over m3 B9's "remove the ✓ from the kicker".
+10. **A themed host may override `--trk-ink` on its own element** for m1 A8's `--warn` ring on Dad's
+    console ("not sent" is the one MARK-tier case). Never gold or accent: `pass-css.test.ts` refuses
+    both in every rule, and the override is the host's own line to defend.
+11. **`echo={false}` is the TV's two-scripts rule**, not a new chip: one tongue, no dot.
+12. **`inert` keeps the real DOM** (the heading becomes a `<p>`, ids are dropped): the host scales the
+    picture, so a guide shows the real pass at the holder tier under one transform (m11 B6, m12).
+
+**Appendix C items taken.** m2 C's three-digit fallback (step down to `--fs-display`, no wrap); m9
+C's "pin `--fs-pass` and let board-fit step down" (D1 confirmed it; a test refuses `clamp(` on any
+figure rule) and its "a first appearance renders at its final frame with no FILL" (every hook is
+off by default); m10 C's "label the on-load FILL demo-only" (the primitive never animates on mount);
+m3 C's notch as the surrounding fill with no ring. **Not taken:** m1 C's larger dish-row tier on the
+pass — rows are the host's body, sized by the host. **What the code changes in the spec:** the ONE
+PASS recipe's hex and rgba literals are the `--pass-*` tokens and the mixes above (B3); the 96px head
+is the holder tier's `min-height`; the status row's 11/700 caps are `--fs-xs` + `--track-eyebrow` on
+the track's English word in the head context. **K15:** this PR ships no Burmese string — the
+primitives hold none; the test fixtures use the shipped `table.line.state.*` words and `floor.table`'s
+"စားပွဲ". **Not in this PR:** a `/kit` section (consumer wiring is the streams'); `lib/kitchen-track.ts`.
