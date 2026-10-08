@@ -4,6 +4,58 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### PD4 — the grocery miss: the guided tag inside the lens (2026-10-08, `claude/feat/pd4-grocery-miss`)
+
+- **The miss is a paper tag INSIDE the live lens** (m4 spec, round 3): "This code isn’t in the app yet."
+  — one primary, "Search by name" (an ink pill whose accessible name is its visible bilingual text),
+  and the quiet, non-interactive "Or ask at the counter" (PATH*DESIGN decision 6). No ✕, no step
+  rail, no drawn toast: the miss is \_spoken* (Toast `quiet`), and the same jar re-read while its tag
+  shows keeps its key — no re-rise, no second announcement (`slotAfter`, mutant-pinned). The tag's
+  punched hole shows the camera through it (clip-path + mask, the drop-shadow on the wrapper so it
+  follows the cut); constant cream with ink in both themes. Weighed and unavailable keep the kiosk's
+  shipped sentences; unavailable gains the quiet line (B8). **The camera never scrolls away:** the
+  Scan door loses the search field that pushed the stage down; Browse keeps it.
+- **The Name sheet over the still-streaming lens is the Scan door's only search**
+  (`GroceryNameSheet`): "It’s not you — most shelf codes aren’t in the app yet." in its just-opened and
+  no-match states, "laphet" as the one-word example (appendix C), the NOW → NEXT → hero → fallback
+  order of the diner register (B9: "Keep scanning — this one can wait for the counter." above "Back
+  to the camera"), "Try again" as the failed state's one hero, an honest offline line, package 2's
+  "That looks like a barcode" line, and a locked/settling refusal that replaces the state line instead
+  of a toast behind the keyboard. **The tag for the counter shows only in a sheet a miss opened** (B6),
+  led by the receipt glyph (A1), carrying the lens tag's own words, the Burmese at the counter's
+  reading size and the query the shopper tried — never a code, a price or a sale. The sheet joins the
+  camera hold (`check:scan-repeat` reads its `open`), closes on the server's ok only, and opens with
+  the field focused (`initialFocus`).
+- **Never a charge from a guess.** `lib/scan-pairing.ts` (4 mutants): a shelf code rescued by name is
+  _judged_ as the item it became, so a re-read gets M186's repeat verdict and the disc chip — and the
+  pairing is spent the moment that item leaves the basket by any path (B1). `check:scan-repeat`
+  proposition 4 parses that `scanAdd`'s barcode argument is `add()`'s own parameter, never the
+  judged code (red-first: the argument swapped, a const copy). **The add-Undo waits for the confirmed
+  write** (`lib/scan-undo.ts`, 4 mutants; B2 · D3): it sits in the chip's action slot as the one
+  Undo form (dashed `--sf`, "Undo · ပြန်ဖျက်", an aria-hidden seconds leaf, held by keyboard focus
+  through `lib/undo-hold.ts`), reads "Removing…" in flight and "Removed {name}" only after `setQty`
+  resolves and the confirmed read lands; amounts never move optimistically. **The chip arms 350 ms
+  after the sheet closes** (Codex correction 15) through `chipArmed` reading `@mms/ui`'s
+  `SAME_GESTURE_MS` — never a second constant — with full ink while refused.
+- **Offline honesty (B4 · B5).** A code absent from the cache is UNKNOWN, never "not in the app" (the
+  cache omits weighed and unavailable items): `offlineClaim` / `queuedChipName` / `offlineSavedToast`
+  (3 mutants) name a queued unknown code "A saved scan", never its digits, promise only the check
+  ("Saved — we’ll check this code when you’re back online."), and `drainSummary` reports a rejection by
+  count with its honest causes, no digits (1 mutant). The lens hint reads "saved and checked".
+- **Busy rows keep full ink** (B10): the ONE shared `GroceryResultRow` (Browse and the sheet) marks
+  busy with `aria-busy` and the word "Adding…", never opacity. **G20 (ruling #19):** basket lines and
+  the chip carry the catalog's Burmese name (`GroceryLine.nameMy`).
+- **guards-style's piece, its own commit:** `@mms/ui` `Sheet` gains an opt-in `initialFocus` (a ref or
+  selector; `sheet-focus.ts` refuses a target outside the sheet and falls back to the container, never
+  the ✕), documented beside the J21 note and pinned by the ui package's own suite — `verify:slice`
+  cannot mutate `packages/ui` (M77, left open with a note). Grocery opts in with one prop from
+  `GroceryNameSheet.tsx`; `lib/sheet-initial-focus-callers.test.ts` PARSES every `<Sheet>` under
+  `components/` and `app/` so the prop never reaches a money sheet (a fake cash caller, a dead parked
+  copy and an aliased import are each refused on fixtures).
+- **Left for the device sitting (#12):** whether iPhone Safari raises the keyboard when the sheet
+  opens with `initialFocus`; the tag's height in Padauk at 375px. **Parked by ruling #20:** the
+  flashlight, the decoder, the device scan check. Every new Burmese string is a `K15 · grocery` draft.
+
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 
 - **The owner's request:** _"merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR"_,

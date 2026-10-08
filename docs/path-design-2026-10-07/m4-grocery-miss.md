@@ -609,3 +609,104 @@ The round-3 consistency pass gave this moment these changes:
 
 - The miss tag enters with RISE, and the post-add chip with POP, armed after the 350 ms guard (correction 15).
 - The tag never takes the dotted perforation, because a perforation means a pass.
+
+### H · Build notes (2026-10-08, `claude/feat/pd4-grocery-miss`)
+
+Built by the grocery stream. The record's precedence held throughout: round 3 > Codex correction 15 >
+the cross-spec reconciliations > this appendix > the body. Where the code disproved a claim, the design
+moved and the reason is here.
+
+**What shipped, by section.**
+
+- Screen 1 (the tag on the lens): `components/grocery/ScanResult.tsx` draws the paper tag (one
+  silhouette, `.paper-tag`, shared with the counter tag) with the headline, the ink pill "Search by
+  name" (its accessible name IS its visible bilingual text) and the quiet, non-interactive "Or ask at
+  the counter"; no ✕; RISE on arrival. Weighed and unavailable read the kiosk's shipped pair; weighed
+  has no button and no quiet line; unavailable has the quiet line (B8). After a rescue add the slot
+  becomes the DISC chip (POP): the cream disc with the `--ok` ring and the check, the name and its
+  Burmese (G20), "In your basket ×N", and the action slot — the Undo while its window is open, then
+  "Add another". A queued code wears the dashed ring; an unknown queued code offers no "Add another".
+- The miss is spoken, never drawn (decision 12): `flash(…, { quiet: true })`; the same jar re-read while
+  its tag shows keeps its key AND is not re-spoken (`slotAfter`, mutant `scan-notice/a-re-read-jar-re-rises`;
+  the page reads a `slotRef` before flashing). Weighed and unavailable misses are quiet too (appendix C).
+- Screen 2 (the Name sheet): `components/grocery/GroceryNameSheet.tsx`, `initialFocus={fieldRef}`.
+  The Scan door's field is gone (Browse keeps it, `tab === "browse"`); the stage's `onSearch` and the
+  tag's button both open this sheet, with `miss` set only by the tag. States as the record and B6/B9/B10
+  require (the table in the component's docblock). The ONE result row is
+  `components/grocery/GroceryResultRow.tsx`, used by Browse and the sheet.
+- Pairing (graft 3, B1): `lib/scan-pairing.ts` — `judgedBarcode` chooses what the basket is ASKED
+  about; `pairingAfterVerdict` spends the pairing when the judged item classifies `add`; `pairingWithout`
+  drops it on the Undo and on any stepper removal. Four mutants. `check:scan-repeat` proposition 4
+  parses that `scanAdd`'s barcode argument is `add()`'s own parameter (red-first: swapped to `judged`,
+  copied into a `const`).
+- The Undo (B2, B3, D3): `lib/scan-undo.ts` — `ADD_UNDO_MS`, `undoOpen`, `undoSecondsLeft`,
+  `chipArmed` (reads `@mms/ui`'s `removeHeld`, i.e. `SAME_GESTURE_MS`), `undoTargetQty`. Four mutants.
+  The page's `undoAdd` holds the line and both figures until `setQty` resolves and the confirmed read
+  lands; "Removing…" in flight, "Removed {name}" after; a keyboard hold (`lib/undo-hold.ts`, the `slot`
+  source) pauses the window; the clock lives in state (`undoLeft`, `chipLive`) because the React
+  purity rule forbids `performance.now()` and ref reads in render.
+- Offline (graft 1, B4, B5): `offlineClaim` / `queuedChipName` / `offlineSavedToast` in
+  `lib/scan-notice.ts` (three mutants), `drainSummary` rewritten without digits (one mutant), the lens
+  hint "saved and checked", the pending strip "we'll check them", "A saved scan" for an unknown queued
+  code. The counter tag and the "not in the app" headline are NEVER produced from the cache.
+- Analytics (graft 2): `grocery_item_scanned` gains `miss_barcode` and `since_miss_ms` only on an add
+  from a miss-opened sheet. `grocery_scan_miss` is unchanged (once per barcode per page life).
+- The Sheet prop (D1(d)): `packages/ui/src/sheet-focus.ts` + the `initialFocus` prop on `Sheet`, its
+  own commit (`feat(ui): …`), documented beside the J21 note, pinned by
+  `packages/ui/src/__tests__/sheet-initial-focus.test.ts` (the pure decision by value; the wiring in
+  `sheet.tsx`'s `onOpen` parsed, not grepped). `apps/qr/lib/sheet-initial-focus-callers.test.ts` is the
+  parsed caller allowlist (fixtures: a fake cash caller found, a dead parked copy ignored, an aliased
+  import still the Sheet, a comment not a caller).
+- Focus (OPEN RISK 2, B11(b)): the four parking sites (`stepQty`'s removal, the fresh-basket button,
+  the basket sheet's close with no lines, `addHit`) go through one `parkFocus` — the Browse field, else
+  `#scan-stage`, else `#scan-panel-title`. The Name sheet's close-restore: the chip's action after an
+  add, else the still-mounted opener, else the stage, else the panel title.
+- G20 (ruling #19): `GroceryLine.nameMy`, selected from the catalog in `readGroceryLines`; rendered on the
+  Scan door's rows, the basket sheet's rows and the chip.
+
+**Appendix C items taken:** "laphet" as the one-word example; the 350 ms arm on the chip (correction 15
+already bound it); weighed/unavailable misses made quiet; the counter tag carries the shopper's query
+("Looked for “durian”"), never a code or price. **Not taken, and why:** the Toast priority clash
+(moot — the Undo moved into the chip slot, so M186's repeat sentence no longer clobbers it);
+"Close" listed English-only (left as the diner Sheet's English default; ပိတ် is shipped in COMMON and
+noted in the K15 row); "trim one coverage fact on the no-match sheet" (the record's moment-4 summary
+mandates both the sheet's "It's not you" line and the counter tag's headline, and the record wins over
+this appendix); measuring Padauk (no Padauk on the agent machine — the device sitting's check, recorded
+in PD4); the Basket tab's receipt glyph vs the counter tag's (noted: on /grocery the tab's receipt means
+"your basket" (DinerTabs, D2) and the tag's means "for the counter" (A1); A1 is cross-moment and wins;
+G23 may revisit the tab glyph).
+
+**Decided under the owner's delegation (decided by: the grocery stream).**
+
+1. The NEXT sentence above screen 2's hero (B9) is "Keep scanning — this one can wait for the
+   counter." — actor-first, and it explains the hero it sits above ("Back to the camera"). Screen 1 keeps
+   its label-as-step: within the 109px budget the spoken quiet line stands in for a NEXT sentence, which
+   B9 allows when stated.
+2. The counter tag's Burmese line is `--fs-h2` (21px), not 22px: the style-literal ratchet forbids a new
+   px literal and 21 is the nearest token. One pixel; Dad's line is still the biggest on the sheet.
+3. `drainSummary`'s rejection wording is "{n} saved scan(s) couldn’t be added — not in the app yet, or
+   not available today." rather than B4's "wasn’t in our list": the drain cannot tell an unknown code
+   from a weighed or unavailable item (the reason is lost at `classifyReplay`), and "not in our list"
+   would be false for the latter two. No digits either way.
+4. The Undo and "Add another" share the chip's one action slot: the Undo for its 6 s, then "Add
+   another". Correction 15's arm applies to whatever sits in the slot. A shopper who wants a second
+   copy inside the window waits six seconds or re-scans (a repeat verdict shows "Add another" at once).
+5. The Name sheet shares the page's debounced search state with the Browse field (one effect, one
+   `query`); the query is cleared when the sheet opens, so a new miss starts clean, and kept after a
+   refused add. "Try again" re-issues the same query through a nonce.
+6. Offline, with the tag already on screen, "Search by name" still works: the sheet answers "Search
+   needs a connection — or ask at the counter." The record's offline-tag-without-button branch was
+   superseded by B5 (an offline sighting never produces the tag at all; it queues).
+7. The `.scan-result` chip no longer takes native `disabled` on "Add another" (the K35 rule — the
+   `Button` primitive's `disabled` is `aria-disabled`); the ui `Button` already did this, so no visible
+   change, but the arm is readable as a refused, fully-inked control.
+
+**Claims the code disproved.** None beyond those the appendix already recorded (B1, B2, B5, B6, B11).
+`focusHandoffRef` needed one addition the spec did not name: a tag with no button (weighed) must take
+the hand-off itself (`tabIndex={-1}` on the tag), or the focus that was on "Add another" fell to
+`<body>` when a weighed jar followed an add.
+
+**Left out, on purpose.** The composite-contrast rows for the cream tag over the live video (OPEN RISK
+11 / A2): the amendment says to add them ONCE for the shared CounterPass and the tag together, and the
+CounterPass primitive is post-pay's (D1(d)) — post-pay's PR adds the row set for both. The scanner device
+half (ruling #20). Graft 5's Scan-door search trigger (decision 27: wait for the Scan→Browse evidence).
