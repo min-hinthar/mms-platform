@@ -8,8 +8,7 @@ The chat context does not carry across sessions — **this file is the durable p
 
 **Older blocks** (newest first, all superseded) are verbatim in
 [`docs/HANDOFF_ARCHIVE.md`](HANDOFF_ARCHIVE.md). Code, migrations, OPEN-ITEMS rows and CHANGELOG
-entries that cite `docs/HANDOFF.md` for history resolve there: the p2f apply procedure, the
-`PICKUP_MANUAL_CAPTURE` flip gate, the M17 / M109 notes, the `lemon-salad` tax note, the Terminal
+entries that cite `docs/HANDOFF.md` for history resolve there — and two of them are still BINDING despite the archive's banner: the p2f apply procedure and the `PICKUP_MANUAL_CAPTURE` flip gate (restated in [`docs/ENV.md`](ENV.md)'s row) — plus the M17 / M109 notes, the `lemon-salad` tax note, the Terminal
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
@@ -67,13 +66,10 @@ Measure first: `git log origin/main --oneline -3` and `gh pr list`.
    step 5 (g)). When Codex answers a review request with its usage-limit message ("You have reached your
    Codex usage limits for code reviews"), the capped blind adversarial review of the EXACT head stands
    in: its verdict is posted on the PR naming that head SHA, with `verify-slice` and the rest of CI green
-   on the same SHA. If fix commits moved the head after the capped pass, the stand-in for the final head is that pass's verdict PLUS the author's hand-read of every later fix commit, posted as ONE comment naming the final head SHA and the SHA the pass reviewed — never a second agent round (the HARD CAP). The OWNER then merges that head with GitHub's admin bypass, by hand. An agent never merges a head whose `codex-review` is red (ruling #1's `.md`-only waiver, while no check is enforced, is the one exception) and never automates the bypass (a gate accepting a verdict
+   on the same SHA. The OWNER then merges that head with GitHub's admin bypass, by hand. An agent never merges a head whose `codex-review` is red (the `.md`-only waiver, under the conditions in WORKFLOW §Review step 5 (f), is the one exception) and never automates the bypass (a gate accepting a verdict
    comment posted from the owner's account was refused as a CI bypass: the agent posts AS the owner and would satisfy its own required check).
    The bypass covers a red `codex-review` only — never `verify-slice`, `build`, `docs`,
-   `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver
-   (listed `#N @ SHA · .md-only` for the same bypass once the check is required); "recommend: wait for
-   Codex" on a flagged money-path line is advice, the owner decides per SHA; #1's "full verify:slice
-   watched to the end" is now the `verify-slice` check green on that SHA.
+   `migrations-check + types-fresh` or `require-docs`. Rulings #1–#2 still frame it: the `.md`-only waiver (how an agent applies it: WORKFLOW step 5 (f); listed `#N @ SHA · .md-only` for the same bypass once the check is required); A money-path PR the blind pass flagged keeps ruling #1's default: it waits for Codex's review of its head unless the owner overrides that line; with Codex out of quota, the owner's override is their own bypass merge. #1's "full verify:slice watched to the end" is now the `verify-slice` check green on that SHA. A fix pushed after the capped pass: the lead's carry procedure (WORKFLOW step 5 (g)) — not an owner ruling; owner to confirm.
 3. **C2, the live-key cutover** (ruling #8). The dine-in phone-pay flip is its own PR after C2 and ENV
    step 7, never in the key swap (PATH_DESIGN round 3, D5; PD2 · PD10).
 4. **Each migration's go, one file at a time** (ruling #5, at a time the owner names): PD1's nudge stamp;
@@ -107,7 +103,8 @@ stream card for the moments it covers; then "Sequencing") → the moment's spec.
 3. **PD5's re-key with `lib/kitchen-track.ts`** (kitchen-ops): the one stage derivation, and
    `KDS_UNDO_MS` moved to `lib/`. Then PD1–PD8 by their streams, then the TV board (PD9) and the live
    pass (PD10), then the guides last (PD11, PD12), each after every control it teaches.
-4. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first (diner-cart draws, then
+4. **ROADMAP's open Phase 3 slices** — 3d·counter's cash-sheet re-host (K39 · K44), 3e and 3f — are not PD rows: before building a PD that touches the same surface, check whether it absorbs the slice, and record which in the PR.
+5. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first (diner-cart draws, then
    money-rails answers in create-intent); the D5 served gate (PD10) is built behind it; the flip waits
    for owner's item 3.
 
@@ -129,8 +126,7 @@ docs-only reconcile closes them (rulings intro).
   each through a fresh-context critic → integration and the local gate (`--only=` per touched
   money/authority module) → the PR → mark ready, `@codex review`, ONE capped blind pass over the full PR
   diff beside `verify-slice` → the merge (WORKFLOW §Review step 5, on ruling #1's per-SHA line).
-- **Delegated owner questions:** decide with the recommendation and record it as an owner decision (the
-  rulings file or the PR's record, and the CHANGELOG).
+- **Delegated owner questions:** decide with the recommendation and record it as a decision made under the owner's delegation (decided by: the session), never as an owner ruling — in the PR's record and the CHANGELOG, or labelled so in the rulings file (§F/§G style). Delegation covers design (§F); a gate, merge or protection decision is never decided that way.
 - **Staff copy:** plain words — never settle / tab / fire / bump / void / comp / 86 / expo / update /
   updating in visible copy; Burmese-first bilingual; K15-HIGH strings (food, money) keep their English
   in Burmese-only mode (DESIGN-LANGUAGE's plain-words rule is the base).
@@ -150,8 +146,7 @@ stream adds one bullet of its own below this line and edits only that bullet.
 
 - **QR's own Supabase project is `fasnpdhtvqtzjlvruqcu`** (delivery's is `ukuzkhuppqwtrdkjqrkv`).
   Preview and production share it; there is no staging project (OPEN-ITEMS T3, [`docs/ENV.md`](ENV.md),
-  which also lists the app env the owner sets in Vercel). Target that `project_ref` with the Supabase
-  MCP, and run `get_advisors` (security and performance) after every migration.
+  which also lists the app env the owner sets in Vercel). Target that `project_ref` with the Supabase MCP — confirm it first (e.g. `get_project_url`): the repo's `.mcp.json` Supabase entry is pinned to the DELIVERY project `ukuzkhuppqwtrdkjqrkv` (OPEN-ITEMS T53) — and run `get_advisors` (security and performance) after every migration.
 - **Check the shell's Supabase env before `pnpm dev`** — names only, values unprinted:
   `env | grep -oE '^[A-Z_]*SUPABASE[A-Z_]*='`, then `printenv NEXT_PUBLIC_SUPABASE_URL`. Next lets shell
   env override `.env.local`. Here the URL pointed at `fasnpdhtvqtzjlvruqcu`, beside

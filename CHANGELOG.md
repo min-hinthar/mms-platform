@@ -16,8 +16,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - An agent never merges a red `codex-review`, though its admin-scoped token could, and never automates
     the bypass: the automated version was refused as a CI bypass. Ruling #1's `.md`-only waiver, while no
     check is enforced, is the one exception.
-  - A fix pushed after the capped pass is carried to the final head by the author's hand-read, in one
-    comment — never a second agent round.
+    - The lead's procedure, not an owner ruling (owner to confirm): a fix pushed after the capped pass is
+      carried to the final head by the author's hand-read, in one comment, and the merge-window line lists
+      those commits and any `MONEY_PATHS` file they touch. And an agent applies ruling #1's `.md`-only
+      waiver only when Codex is out of quota, only after re-measuring that `codex-review` is not required,
+      and never to a PR touching the rules that govern merges.
   - Protection keeps admin bypass available and does not require Code Owner review (the sole code owner
     authors every PR). The bypass covers `codex-review` only.
   - Measured 2026-10-08: no protection rule is in effect yet (C28 ③).
@@ -53,6 +56,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - Evidence-checked closures: M124's proposed closure was refused, since the row was reopened.
   - T52 (the flaky mutant, closed by #324) and T53 (the non-`.md` drift kept out of this docs-only PR)
     added.
+- **Codex round 1 and the PR's capped blind pass (three lenses), fixed:**
+  - README's Node floor is 22.13 (pnpm 11.7.0's own `engines`), and `package.json`'s `engines.node` now
+    says so; the Local row no longer calls `.env.example`'s placeholders prod data.
+  - The Supabase MCP in the repo's `.mcp.json` is pinned to the DELIVERY project, so every migration
+    instruction now says to confirm the target is `fasnpdhtvqtzjlvruqcu` first (re-pointing it is T53 ⑥).
+  - The `PICKUP_MANUAL_CAPTURE` flip gate is binding again where an operator reads it: ENV.md's row, and
+    the archive's citation list marks it and the p2f procedure as live despite the banner.
+  - Merges wait for the owner's per-SHA yes or explicit instruction (the rulings intro), not just green
+    checks; ruling #1's money-path default is restored as a hold, not advice.
+  - The carry and the waiver tightening are labelled the lead's procedure everywhere; delegated decisions
+    are recorded as such, never as owner rulings; the rebase rule compares with `git range-diff`.
+  - The verify:slice recovery reads `git diff` before any checkout and forbids editing a target mid-run;
+    "what CI's build job runs" is one step of it; Phase 3's open slices (3d·counter, 3e, 3f) are named.
+  - The blind-review template requires the PR's head SHA and refuses an `unknown` verdict SHA.
 - **Also updated:**
   - README: environments, gates, CI and review, the parked surfaces; the module list is cut.
   - WORKFLOW: one normative copy of the lanes, required checks, merge ritual (with 5(g)) and Definition

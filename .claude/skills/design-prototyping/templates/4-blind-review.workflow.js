@@ -8,7 +8,7 @@ const FINDINGS = {
   properties: {
     // The bundle's base..head, copied from PROMPT.md's `Base: <sha> to HEAD <sha>` line (MANIFEST.md
     // prints no SHA). A verdict posted as Codex's stand-in must name the exact head it covers (G3).
-    reviewed: { type: 'string', pattern: '^[0-9a-f]{7,40}\\.\\.[0-9a-f]{7,40}$' },
+    reviewed: { type: 'string', pattern: '^([0-9a-f]{7,40}\\.\\.[0-9a-f]{7,40}|unknown)$' },
     verdict: { type: 'string', enum: ['APPROVE', 'APPROVE_WITH_FIXES', 'REJECT'] },
     findings: {
       type: 'array',
@@ -37,10 +37,10 @@ if (!REPO) throw new Error('4-blind-review needs args.repo: the repository root 
 const RECORD = args.record // e.g. docs/PATH_DESIGN_<date>.md
 const SPECS = args.specs // e.g. docs/path-design-<date>/
 if (!RECORD || !SPECS) throw new Error("4-blind-review needs args.record (the round's record, docs/PATH_DESIGN_<date>.md) and args.specs (its spec dir, docs/path-design-<date>/)")
-// Optional: the head the bundle must be of (`git rev-parse HEAD`). A bundle written before the last
-// push reviews a SHA that is not the one about to merge.
+// REQUIRED: the PR's head SHA on GitHub (the head about to merge). A bundle written before the last
+// push reviews a SHA that is not the one about to merge, and the owner's bypass merge is tied to it.
 const EXPECT_HEAD = args.head
-if (EXPECT_HEAD && !/^[0-9a-f]{7,40}$/.test(EXPECT_HEAD)) throw new Error(`args.head must be a commit SHA (7-40 hex), got ${EXPECT_HEAD}`)
+if (!EXPECT_HEAD || !/^[0-9a-f]{7,40}$/.test(EXPECT_HEAD)) throw new Error(`args.head must be the PR's head SHA (7-40 hex), got ${EXPECT_HEAD}`)
 const BASE = `Audit the change bundle at ${REPO}/.review-bundle/ — start with PROMPT.md and MANIFEST.md; the diff is DIFF.patch and the full text of every changed file is under FILES/. You may read the rest of the repository at ${REPO} to verify any claim against source. You have been told nothing about the change's intent; judge only what the files say. Report only defects you can evidence by quoting both sides (the claim and the contradicting source or passage). Cap your work at about 15 minutes. Copy the two SHAs on PROMPT.md's "Base: … to HEAD …" line into \`reviewed\` as <base>..<head>, exactly as printed but without the backticks. Your single lens:`
 const LENSES = [
   { key: 'product-truth', text: 'PRODUCT TRUTH — every claim about the current code (file:line references, function and flag names, statuses, shipped strings, behaviour) must match the repository source. Flag any claim the code contradicts, any cited line that does not hold what is claimed, and any shipped string quoted wrongly.' },
@@ -63,7 +63,7 @@ if (bad.length) throw new Error(`a lens did not report the bundle's base..head: 
 const reviewed = [...new Set(results.map((r) => r.reviewed))]
 if (reviewed.length !== 1) throw new Error(`lenses disagree on the bundle reviewed: ${reviewed.join(' vs ')}`)
 const head = SHA_PAIR.exec(reviewed[0])[2]
-if (EXPECT_HEAD && !(EXPECT_HEAD.startsWith(head) || head.startsWith(EXPECT_HEAD))) {
+if (!(EXPECT_HEAD.startsWith(head) || head.startsWith(EXPECT_HEAD))) {
   throw new Error(`the bundle is of ${head}, not args.head ${EXPECT_HEAD}: re-run \`pnpm review:bundle\` on that head`)
 }
 return { reviewed: reviewed[0], head, lenses: results }

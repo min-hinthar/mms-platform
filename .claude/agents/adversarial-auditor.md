@@ -135,8 +135,7 @@ REJECT | APPROVE — <one sentence>
 **Any item under CRITICAL DEFECTS forces `REJECT`.** There is no "approve with comments."
 
 **`Reviewed:` copies the two SHAs from the bundle's `PROMPT.md` line `Base: … to HEAD …`, without the
-backticks**, so a posted verdict names the exact head it covers. If the bundle prints no such line,
-write `Reviewed: unknown` and say so under OPEN QUESTIONS.
+backticks**, so a posted verdict names the exact head it covers. If the bundle prints no such line, write `Reviewed: unknown` and say so under OPEN QUESTIONS — a caller that needs the SHA (the design-prototyping blind pass) refuses `unknown` and fails loudly, never guesses.
 
 ## Scope discipline
 

@@ -24,7 +24,7 @@ Roadmap: `ROADMAP.md` → M*.* P*.*
 ## Before the push
 
 - [ ] Pre-PR self-review sweep (`CLAUDE.md`) run on the diff
-- [ ] `pnpm turbo lint typecheck build test` and `pnpm check:docs` green locally
+- [ ] `pnpm turbo lint typecheck build test`, `pnpm format:check`, `node scripts/check-test-env.mjs` and `pnpm check:docs` green locally (the rest of CI's fast lane: `grep -nE '^\s+(- )?run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`)
 - [ ] `pnpm verify:slice --no-gate --only=<substring>` for each money/authority module touched
 
 ## Docs / progress updated

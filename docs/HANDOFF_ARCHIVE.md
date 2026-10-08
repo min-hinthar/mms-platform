@@ -13,10 +13,9 @@ old Environment facts, The loop, Verify and Open decisions sections last. The ol
 
 **Cited as "docs/HANDOFF.md" by code, migrations and the registry — find them here:**
 
-- The p2f apply and verify procedure (`supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql`):
+- ⚠️ **Still BINDING despite the banner above:** the p2f apply and verify procedure (`supabase/migrations/20261001000000_p2f_counter_cook_before_paid.sql`):
   the 2026-09-30 Phase 2f block, "The procedure (kept for any re-apply)".
-- The `PICKUP_MANUAL_CAPTURE` flip gate
-  (`supabase/migrations/20260830000000_m72_settlement_derives_availability.sql`): the 2026-08-21 block,
+- ⚠️ **Still BINDING despite the banner above (and restated in `docs/ENV.md`'s row):** the `PICKUP_MANUAL_CAPTURE` flip gate (`supabase/migrations/20260830000000_m72_settlement_derives_availability.sql`): the 2026-08-21 block,
   "Before that flag is flipped, ALL of these".
 - The M17 / M109 apply notes (OPEN-ITEMS M125) and the `lemon-salad` tax note
   (`supabase/migrations/20260826000000_m17_line_tax_category.sql`): the 2026-08-21 block; the tax nuance

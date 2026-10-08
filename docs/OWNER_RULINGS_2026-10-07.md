@@ -13,8 +13,7 @@ file**. Where a card's ASK line says something different, **this file wins**:
 
 - money-rails' T4 "price rules": the ruling is bill lines only;
 - table-door's M168 "next wave": the ruling is after package 2;
-- money-rails' unqualified Codex waiver: #1 keeps the money-path Codex wait _(as advice on the
-  merge-window line since 2026-10-08; with Codex out of quota the owner decides per SHA — §G, G3)_;
+- money-rails' unqualified Codex waiver: #1 keeps the money-path Codex wait _(2026-10-08: unchanged — with Codex out of quota, the owner's override on that line is their own bypass merge, §G, G3)_;
 - staff-authority's base-role word: #18 waits for the owner's Burmese word.
 
 Build each ruling as the final answer (reversible, as the lens asks), and don't ask again. **Where a
@@ -252,19 +251,16 @@ and the loop (`.claude/skills/design-prototyping/SKILL.md`).
   never `verify-slice`, `build`, `docs`, `migrations-check + types-fresh` or `require-docs`.
   - The session's GitHub token is admin-scoped, so GitHub would let an agent merge past a red required
     check through the API. Only this procedure stops that, and the refused automated path is not to be rebuilt.
-  - _Procedure (the lead, 2026-10-08, not an owner ruling):_ If fix commits moved the head after the capped pass, the stand-in for the final head is that pass's verdict PLUS the author's hand-read of every later fix commit, posted as ONE comment naming the final head SHA and the SHA the pass reviewed — never a second agent round (the HARD CAP). Ruling #1's `.md`-only waiver, while no check is enforced, is the one exception to "an agent never merges a head whose `codex-review` is red" (normative copy: `docs/WORKFLOW.md` §Review step 5 (g)).
+  - _Procedure (the lead, 2026-10-08, not an owner ruling):_ If fix commits moved the head after the capped pass, the stand-in for the final head is that pass's verdict PLUS the author's hand-read of every later fix commit, posted as ONE comment naming the final head SHA and the SHA the pass reviewed — never a second agent round (the HARD CAP); the merge-window line for that head lists those commits and says whether any touches a `MONEY_PATHS` file, so the owner decides with that in view. And how an agent applies #1's `.md`-only waiver is tightened (only when Codex is out of quota; only while `codex-review` is re-measured as not required; never for a PR touching the rules that govern merges). Both are the lead's, for the owner to confirm or overrule (normative copy: `docs/WORKFLOW.md` §Review step 5 (f)–(g)).
   - What it changes above (each annotated in place): #1's `.md`-only waiver stands while no check is
     enforced; once `codex-review` is required, such a PR is listed `#N @ SHA · .md-only` for the owner's
-    same bypass (#2). A money-path PR the blind pass flagged still carries "recommend: wait for Codex" on
-    its merge-window line, as advice; the owner decides per SHA, and a yes on a quota-red head is the
-    owner's bypass merge.
+    same bypass (#2). A money-path PR the blind pass flagged keeps #1's default — it waits for Codex unless the owner overrides that line — and with Codex out of quota the owner's override is their own bypass merge.
 
   The procedure is [`WORKFLOW.md`](WORKFLOW.md) §Review step 5 (g).
 
 - **G4 · Two requests, recorded as requests, not standing rules** ((d), (g)). "add to same PR, merge
   when ready" put the public-repo follow-through in #320. "merge when green, then the ReadMe, Claude.md,
-  and docs update+cleanup PR" asked for this docs update and cleanup. Neither sets a standing
-  merge-when-green rule: every merge still follows WORKFLOW §Review step 5 and G3.
+  and docs update+cleanup PR" asked for this docs update and cleanup. Each was the owner's explicit instruction for that PR; neither sets a standing merge-when-green rule: every other merge still waits for the owner's per-SHA yes (the rulings intro) and follows WORKFLOW §Review step 5 and G3.
 
 ## C18 — closed (2026-10-07)
 
