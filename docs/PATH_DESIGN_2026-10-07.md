@@ -219,11 +219,24 @@ Codex's second round found eight more, each checked against the code and the spe
     `approval_pending` after the owner's "never blocked" decision.
 14. **Moment 5 — Bring-back chips are always told apart.** When the round number is unknown (`n: null`),
     two chips from the same table could both read only "Table 4". Each chip captures a distinct label at
-    bump time: the round number when known, otherwise the card's first fire time ("Table 4 · 7:42",
-    Latin digits), so no new words are needed.
+    bump time: the round number when known, otherwise the card's first fire time **to the second**
+    ("Table 4 · 7:42:05", Latin digits), so no new words are needed. **Codex round 6 (2026-10-08):** a
+    minute is not enough — two Sends inside one minute would collide — and even a second can tie, so when two
+    chips would still carry the same label, each also takes a stable card discriminator from its own
+    card key, never from its position on the rail (m5 §E).
 15. **Moment 4 — the post-add chip ignores the closing double-tap.** When the add lands between two taps,
     the second tap can hit the chip's "Add another" that mounts under the finger. The chip arms only 350
     ms after the sheet closes (the same-gesture guard), as part of the success transition.
+16. **Moment 3 — a pending "I'm here" is stored when it commits, not when it is tapped (m3 §G; the blind pass
+    on #320).** Codex round 6 moved the pending arrival into `localStorage` so a dropped beacon is retried
+    on the next visit. Stored from the tap, it outlived a tab killed inside the take-back window, a
+    refused write, and a second tab, and each of those rang Dad's bell for a guest who was not there.
+    So it is written at the commit only (the window's end, or the page hiding inside it), and a refused
+    answer clears it.
+17. **Moment 5 — every card key kind has a label (m5 §F).** Correction 14's tie-breaker read only
+    `fire_batch` and the no-batch bucket. A card keyed by its raw `fire_at` takes four hex characters of a
+    stable hash of that key. The bucket with no fire time takes its lines' earliest raw `created_at`,
+    never the poll clock. Characters are added while two labels still tie.
 
 ## The eight moments
 

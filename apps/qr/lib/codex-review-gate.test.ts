@@ -90,6 +90,71 @@ describe("hasCodexReview — the gate opens only for a review of THIS commit", (
     });
   });
 
+  // Codex's real summary comment, as edited in place on #320 (2026-10-08) — a clean round started by
+  // "Draft marked ready" posts only this and a 👍 reaction, never a "Reviewed commit:" line.
+  const summary = (status: string, sha: string, review = "📝 **Code Review**") =>
+    [
+      "<!-- codex-pull-request-review-summary -->",
+      "",
+      "## Codex Review Summary",
+      "",
+      "| Review | Status | Commit | Review trigger |",
+      "| --- | --- | --- | --- |",
+      `| ${review} | ${status} <relative-time datetime="2026-10-08T06:19:24Z">x</relative-time> | \`${sha}\` | Draft marked ready |`,
+    ].join("\n");
+
+  it("opens on the summary's Completed Code Review row for the head", () => {
+    expect(
+      hasCodexReview({
+        headSha: HEAD,
+        reviews: [],
+        comments: [comment(summary("✅ **Completed**", "9155abf"))],
+      }),
+    ).toEqual({ reviewed: true, via: "summary" });
+  });
+
+  it("stays shut while the summary row for the head is still Running", () => {
+    expect(
+      hasCodexReview({
+        headSha: HEAD,
+        reviews: [],
+        comments: [comment(summary("🔄 **Running** since", "9155abf"))],
+      }),
+    ).toEqual({ reviewed: false, via: null });
+  });
+
+  it("stays shut on a Completed summary row for the PREVIOUS head", () => {
+    expect(
+      hasCodexReview({
+        headSha: HEAD,
+        reviews: [],
+        comments: [comment(summary("✅ **Completed**", "2b2aeb1"))],
+      }),
+    ).toEqual({ reviewed: false, via: null });
+  });
+
+  it("stays shut on a Completed row that is not the Code Review", () => {
+    expect(
+      hasCodexReview({
+        headSha: HEAD,
+        reviews: [],
+        comments: [comment(summary("✅ **Completed**", "9155abf", "🔒 **Security Review**"))],
+      }),
+    ).toEqual({ reviewed: false, via: null });
+  });
+
+  it("stays shut when a HUMAN pastes the summary, or Codex's row lacks the summary marker", () => {
+    const pasted = summary("✅ **Completed**", "9155abf");
+    expect(
+      hasCodexReview({ headSha: HEAD, reviews: [], comments: [comment(pasted, "min-hinthar")] }),
+    ).toEqual({ reviewed: false, via: null });
+    const unmarked = pasted.replace("<!-- codex-pull-request-review-summary -->", "");
+    expect(hasCodexReview({ headSha: HEAD, reviews: [], comments: [comment(unmarked)] })).toEqual({
+      reviewed: false,
+      via: null,
+    });
+  });
+
   it("is case-insensitive on the sha, since Codex prints it lowercase and the API does too", () => {
     expect(
       hasCodexReview({ headSha: HEAD.toUpperCase(), reviews: [review(HEAD)], comments: [] })

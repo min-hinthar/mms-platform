@@ -28,6 +28,10 @@ export const meta = {
 const A = args;
 const BRIEF = A.brief;
 const PROJ = A.proj;
+// Every path is an argument, and a missing one fails here: an unguarded `${BRIEF}` interpolates as the
+// string "undefined", and the run would write its specs to `undefined/…` and still return a full
+// result (the blind pass on #320).
+if (!BRIEF || !PROJ) throw new Error("2-refine needs args.brief (the brief dir) and args.proj (the canvas project/ dir)");
 
 const SYNTH_SCHEMA = {
   type: "object",
@@ -100,7 +104,7 @@ const CRITIC_SCHEMA = {
   required: ["verdict", "blocking", "suggestions"],
 };
 
-const EXAMPLE_COMMON = `Context: Mandalay Morning Star (a small family restaurant + grocery; Mom cooks, Dad runs the counter; Burmese-first parents; regulars invited by name) is refining its QR app's diner and staff paths. Repo root: /home/user/mms-platform (read-only for you: never edit, never git). A design pass drew THREE concepts per moment (quiet / guided / glanceable); the owner has now PICKED. Your files live under ${BRIEF} (briefs, judges' notes, RULES.md) and the existing concept artboards under ${PROJ} (files named mN-quiet-1.dc.html, mN-glance-2.dc.html, …).
+const EXAMPLE_COMMON = `Context: Mandalay Morning Star (a small family restaurant + grocery; Mom cooks, Dad runs the counter; Burmese-first parents; regulars invited by name) is refining its QR app's diner and staff paths. Repo root: ${A.repo} (read-only for you: never edit, never git). A design pass drew THREE concepts per moment (quiet / guided / glanceable); the owner has now PICKED. Your files live under ${BRIEF} (briefs, judges' notes, RULES.md) and the existing concept artboards under ${PROJ} (files named mN-quiet-1.dc.html, mN-glance-2.dc.html, …).
 
 THE OWNER'S ANSWERS (binding):
 1. Direction (the owner, verbatim: "I prefer diner moments guided and staff moments glanceable. I actually love all 3 directions but could be more enhanced, elevated, world-class design-thinking"): diner phone moments 1–4 are GUIDED; staff tablet moments 5–8 are GLANCEABLE. The picked angle is the BACKBONE, not the whole answer — the owner loves all three, so ELEVATE: graft the best of the other two angles into it (quiet's restraint — the fewest new claims, reuse of words the family already reads on the console; glanceable's arm's-length shape language and its one moment of delight; guided's spoken next step), and fix every weakness the judges named for the backbone (read their score notes — e.g. guided's counts on a shared cart, cards above the food, a second step vocabulary, a step rail for a one-step task; glanceable's nagging marks and louder-than-Late slabs). Then push it to WORLD CLASS: ask what the best hospitality and retail products in the world do at this exact moment (a great maître d', a Japanese ticket-and-token counter, a boarding pass in a wallet, a great KDS) and bring the essence of that — within this family's real constraints (Burmese-first parents, a small room, one counter, no new hardware, no fabricated promises).
@@ -184,6 +188,7 @@ const EXAMPLE_MOMENTS = [
 const COMMON = A.useExample ? EXAMPLE_COMMON : A.common;
 if (A.useExample) EXAMPLE_MOMENTS.forEach((m, i) => { m.register = m.register || (i < 4 ? "diner" : "staff"); });
 const MOMENTS = A.useExample ? EXAMPLE_MOMENTS : A.moments;
+if (A.useExample && !A.repo) throw new Error("2-refine's example needs args.repo: the repository root it names");
 if (!COMMON || !Array.isArray(MOMENTS) || MOMENTS.length === 0) {
   throw new Error(
     "2-refine needs args.common (the owner's answers, the defaults and the standing rules) and args.moments (the picked moments, shaped like EXAMPLE_MOMENTS)",
@@ -239,6 +244,16 @@ Return the shared vocabulary (a compact paragraph) and, per moment, the concrete
   { label: "consistency", phase: "Consistency", schema: CONSIST_SCHEMA },
 );
 
+// No consistency result, no critique (Codex round 6 on #319). The fallback that used to stand here
+// ("keep each spec as written") let N specs refined in isolation reach the critics and the canvas as
+// if one system designer had reconciled them. Re-run; the finished specs replay from cache.
+if (!consist || !consist.shared_vocabulary) {
+  throw new Error(
+    "refine incomplete: the consistency pass returned no shared vocabulary — re-run it before any critique or drawing",
+  );
+}
+const vocab = consist.shared_vocabulary;
+
 const amendFor = (id) => {
   const a = ((consist && consist.amendments) || []).find(
     (x) => x.moment === id,
@@ -247,9 +262,6 @@ const amendFor = (id) => {
     ? a.changes.map((c) => `- ${c}`).join("\n")
     : "- (none)";
 };
-const vocab = consist
-  ? consist.shared_vocabulary
-  : "(consistency pass unavailable — keep each spec as written)";
 
 const results = await pipeline(
   okSpecs,
@@ -265,8 +277,11 @@ Find BLOCKING defects only, each with evidence (spec line + code file:line or ru
       { label: `critic:${s.moment}`, phase: "Critique", schema: CRITIC_SCHEMA },
     ),
   (crit, s) => {
+    // A missing critic fails the moment before anything is drawn (Codex round 6 on #319): drawing on
+    // "(none)" would publish screens no critic read, wrapped as a success.
+    if (!crit) throw new Error(`${s.moment}: no critic result — re-run (finished moments replay from cache)`);
     const fixes =
-      crit && crit.blocking && crit.blocking.length
+      crit.blocking && crit.blocking.length
         ? crit.blocking
             .map((b, i) => `${i + 1}. ${b.issue} — FIX: ${b.fix}`)
             .join("\n")
@@ -285,15 +300,19 @@ Shared vocabulary: ${vocab}
 
 Write exactly these files with the Write tool into ${PROJ}/ : ${s.screens.map((x) => x.file).join(", ")} — phone 390×844, tablet 1366×1024 or tv 1920×1080 (Night-forced; read RULES2.md) per the spec, root fixed at that size, $preview to match. No annotations or rationale on the artboard; draw the screen as the guest or staff member sees it. Never render, verify, or read your files back. Finish with one line per file: file name + what it shows (≤14 words).`,
       { label: `draw:${s.moment}`, phase: "Draw" },
-    ).then((drawn) => ({
-      moment: s.moment,
-      screens: s.screens,
-      decisions: s.decisions,
-      new_copy_without_burmese: s.new_copy_without_burmese,
-      open_risks: s.open_risks,
-      critic: crit,
-      drawn,
-    }));
+    ).then((drawn) => {
+      // ...and a draw that returned nothing fails too, before the success wrapper (Codex round 6).
+      if (!drawn) throw new Error(`${s.moment}: the draw returned nothing — re-run`);
+      return {
+        moment: s.moment,
+        screens: s.screens,
+        decisions: s.decisions,
+        new_copy_without_burmese: s.new_copy_without_burmese,
+        open_risks: s.open_risks,
+        critic: crit,
+        drawn,
+      };
+    });
   },
 );
 
@@ -307,6 +326,6 @@ if (drawnOk.length !== okSpecs.length) {
 }
 return {
   vocab,
-  amendments: consist ? consist.amendments : [],
+  amendments: consist.amendments,
   results: drawnOk,
 };

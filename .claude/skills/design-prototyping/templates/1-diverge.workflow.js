@@ -9,8 +9,13 @@ export const meta = {
   ],
 }
 
-const REPO = '/home/user/mms-platform'
+// The repository root comes from args.repo, never a hard-coded checkout path (Codex round 6 on #319).
+const REPO = args.repo
+if (!REPO) throw new Error('1-diverge needs args.repo: the repository root (e.g. the output of `git rev-parse --show-toplevel`)')
 const LENS_PATH = args.lens // a design-lens brief in your scratchpad (the 2026-10-07 run used cards/lens-final.md)
+// Unguarded, a missing lens interpolates as "undefined" into every prompt and the run still returns a
+// full, lens-less result (the blind pass on #320).
+if (!LENS_PATH) throw new Error('1-diverge needs args.lens: the design-lens brief every map, concept and judge reads')
 const READ = `Repository: ${REPO} (Turborepo; the QR app is apps/qr). READ-ONLY: never edit, write, commit, run the app, mint sessions, or touch prod. Sources of truth for design: docs/DESIGN-LANGUAGE.md (as-built language: lit-gold selection cap, paper layer, motion idioms, optimistic doctrine, honesty, bilingual rules), docs/context/RUBRIC.md, docs/context/DESIGN-RESEARCH.md, docs/context/ORDER-MODEL.md, docs/PHASE3_JOURNEYS.md, docs/PHASE3B_DESIGN.md, docs/PHASE3C_DESIGN.md, docs/PHASE3C_II_DESIGN.md, docs/prototype/v7.2.html, docs/PILOT_PLAN.md, docs/OWNER_RULINGS_2026-10-07.md (the owner's rulings — binding), docs/OPEN-ITEMS.md (the open friction registry), and the family-business design lens at ${LENS_PATH}. Cite evidence as repo-relative file:line, OPEN-ITEMS ids, or doc sections. Quote on-screen copy EXACTLY from code (lib/i18n/*.ts, components). Never invent facts: hours, volume, headcount and table count are UNKNOWN.`
 
 const STEP = {
@@ -72,7 +77,8 @@ const CONCEPT = {
   type: 'object',
   properties: {
     name: { type: 'string', description: 'evocative 2-4 word name' }, angle: { type: 'string' }, one_liner: { type: 'string' },
-    screens: { type: 'array', items: { type: 'object', properties: {
+    // At least two screens: 1a-briefs.py draws screens [0, 1] of every concept by default (Codex round 6 on #319).
+    screens: { type: 'array', minItems: 2, items: { type: 'object', properties: {
       title: { type: 'string' },
       layout: { type: 'string', description: 'precise top-to-bottom regions with sizes in px for the device frame, element by element' },
       copy_en: { type: 'array', items: { type: 'string' } },
@@ -118,7 +124,14 @@ For each step: the screen, route + component file:line, what the person sees (hi
 TASK: extract the app's ACTUAL visual system so prototypes can look exactly like the product. Read packages/ui/src/tokens.css, apps/qr/app/globals.css (the relevant parts), apps/qr/app/layout.tsx (fonts), packages/ui components (Button, Sheet, Toast, Chip), lib/brand.ts, docs/DESIGN-LANGUAGE.md, and docs/prototype/v7.2.html. Report exact token values for Light and Night, the fonts as loaded (families, weights, Burmese font) and whether each is on Google Fonts, type scale, spacing, radii, shadows (the two-tier --sh-paper), the lit-gold selection cap's exact CSS, button styles, the paper texture (lines on pages, dots on cards), how English and Burmese stack on diner vs staff screens, how staff tablet screens and the KDS look (density, sizes), and the brand voice/motifs.`, { label: 'visual-system', phase: 'Map', schema: VISUAL }),
 ])
 const mapsOk = maps.filter(Boolean)
-log(`mapped ${mapsOk.length}/6 paths; visual system ${visual ? 'extracted' : 'MISSING'}`)
+log(`mapped ${mapsOk.length}/${PATHS.length} paths; visual system ${visual ? 'extracted' : 'MISSING'}`)
+// Every path map and the visual system, or no pick (Codex round 6 on #319): a pick made from five maps
+// reads as complete while a whole path was never seen, and concepts drawn without the visual system
+// stop looking like this app. Re-run; finished agents replay from cache.
+const unmapped = PATHS.filter((_, i) => !maps[i]).map((p) => p.key)
+if (unmapped.length || !visual) {
+  throw new Error(`map incomplete: ${unmapped.length ? `no map for ${unmapped.join(', ')}` : 'every path mapped'}; visual system ${visual ? 'ok' : 'MISSING'}`)
+}
 
 phase('Pick')
 const picked = await agent(`${READ}
@@ -129,6 +142,8 @@ MAPS:
 ${JSON.stringify(mapsOk)}`, { label: 'pick-moments', phase: 'Pick', schema: MOMENTS })
 
 const moments = (picked?.moments ?? []).slice(0, 8)
+// A missing or empty pick fails here rather than diverging nothing and returning an empty "success".
+if (!picked || moments.length === 0) throw new Error('pick returned no moments: nothing to diverge (re-run the workflow)')
 log(`picked ${moments.length} moments: ${moments.map(m => m.id + ' ' + m.title).join(' · ')}`)
 
 const ANGLES = [

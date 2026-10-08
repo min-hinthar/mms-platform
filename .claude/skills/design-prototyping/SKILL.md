@@ -65,15 +65,17 @@ is private to the owner — never commit its URL; find it with `Artifact` `actio
 watch subscription can fail (`mint_failed`): never claim to be watching unless the result says so.
 
 **Workflows** (ultracode, or the owner asking). Templates from the 2026-10-07 run, parameterized by
-`args` (`brief` = the brief dir, `proj` = the canvas `project/` dir, `lens` = the design-lens brief):
+`args` (`repo` = the repository root, e.g. `git rev-parse --show-toplevel` — required by 1-diverge,
+3-refresh and 4-blind-review, which never assume a checkout path; `brief` = the brief dir, `proj` = the
+canvas `project/` dir, `lens` = the design-lens brief):
 
-- [`templates/1-diverge.workflow.js`](templates/1-diverge.workflow.js) — map paths → pick moments → three concepts per moment → judges. It draws nothing: save its return value as JSON, run [`templates/1a-briefs.py`](templates/1a-briefs.py) on it (one `brief-<id>.md` per moment), then [`templates/1b-draw.workflow.js`](templates/1b-draw.workflow.js) draws the artboards.
-- [`templates/2-refine.workflow.js`](templates/2-refine.workflow.js) — synthesize → consistency → critique → draw. Pass the round's own `args.common` (owner answers, defaults, rules) and `args.moments`; the 2026-10-07 values inside are an example and run only on `args.useExample`.
-- [`templates/2b-appendix.py`](templates/2b-appendix.py) — writes 2-refine's amendments and critic fixes into each spec as appendices A/B/C that win over its body, so the spec and the drawn screens agree. Run it before writing the record.
-- [`templates/3-refresh-in-place.workflow.js`](templates/3-refresh-in-place.workflow.js) — one agent per moment edits existing artboards to a later round's amendments; pass `args.moments` (`[{ id, files }]`) and `args.amendments`.
-- [`templates/4-blind-review.workflow.js`](templates/4-blind-review.workflow.js) — the capped blind pass: three lenses, one `adversarial-auditor` each, bundle only. It fails unless every lens reports.
+- [`templates/1-diverge.workflow.js`](templates/1-diverge.workflow.js) — map paths → pick moments → three concepts per moment (each at least two screens) → judges. It fails before diverging unless all six path maps, the visual system and a non-empty pick came back. It draws nothing: save its return value as JSON, run [`templates/1a-briefs.py`](templates/1a-briefs.py) on it (one `brief-<id>.md` per moment), then [`templates/1b-draw.workflow.js`](templates/1b-draw.workflow.js) draws the artboards.
+- [`templates/2-refine.workflow.js`](templates/2-refine.workflow.js) — synthesize → consistency → critique → draw. Pass the round's own `args.common` (owner answers, defaults, rules) and `args.moments`; the 2026-10-07 values inside are an example and run only on `args.useExample`. A missing consistency result fails the run (there is no "keep each spec" fallback), and so does a missing critic or draw for any moment.
+- [`templates/2b-appendix.py`](templates/2b-appendix.py) — writes 2-refine's shared vocabulary (into every appendix A, ahead of that moment's amendments), its amendments and the critic fixes into each spec as appendices A/B/C that win over its body, so the spec and the drawn screens agree. Run it before writing the record.
+- [`templates/3-refresh-in-place.workflow.js`](templates/3-refresh-in-place.workflow.js) — one agent per moment edits existing artboards to a later round's amendments; pass `args.repo`, `args.moments` (`[{ id, files }]`), `args.amendments`, `args.vocab` (that round's shared vocabulary as text — 2-refine returns it as `vocab`) and `args.decisions` (that round's decisions, D1…Dn, as text). It fails if any moment's agent returns no report.
+- [`templates/4-blind-review.workflow.js`](templates/4-blind-review.workflow.js) — the capped blind pass: three lenses, one `adversarial-auditor` each, bundle only (`args.repo`/.review-bundle/), with the round's record and spec dir as `args.record` and `args.specs`. It fails unless every lens reports.
 
-Every template fails loudly when an agent returns nothing (a moment, a lens, a judgement), rather than returning a partial result that reads as complete. Generation workflows (diverge, refine, draw, refresh) are not review rounds and may fan out (one agent
+Every template fails loudly when an agent returns nothing (a moment, a lens, a judgement) or a path argument it names is missing, rather than returning a partial result that reads as complete. Generation workflows (diverge, refine, draw, refresh) are not review rounds and may fan out (one agent
 per moment per direction). The REVIEW stays under CLAUDE.md's HARD CAP: one blind pass, ≤3 lenses,
 ≤10 agents; then mechanical gates and a hand-read — never another agent round.
 

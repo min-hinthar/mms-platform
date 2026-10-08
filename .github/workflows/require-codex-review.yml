@@ -27,7 +27,11 @@ on:
   pull_request_review:
     types: [submitted]
   issue_comment:
-    types: [created]
+    # `edited` because a CLEAN round Codex starts by itself (a draft marked ready) speaks only by
+    # editing its one summary comment from Running to Completed (plus a 👍 reaction, which wakes no
+    # workflow) — measured on #316 and #320, 2026-10-08. `hasCodexReview` reads that Completed row.
+    # Like `created`, it runs only for Codex's own comments (the job's `if`).
+    types: [created, edited]
 
 permissions:
   contents: read
@@ -39,7 +43,19 @@ permissions:
 
 concurrency:
   # Keyed on the PR, not the SHA: a newer push should cancel the older wait rather than leave two.
-  group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  #
+  # ⚠️ Plus the event's CLASS, because the job below now skips every review and comment that is not
+  # Codex's (see its `if`). Workflow-level concurrency acts when the RUN is queued, before any job
+  # `if` is read — so on one shared group a human's comment arriving seconds after Codex's would
+  # cancel the run about to publish "reviewed" and then skip its own job, leaving the check red
+  # until the next event. A run that will skip gets a group of its own (its run id), so it can
+  # cancel nothing. Keep this predicate in step with the job's `if`.
+  group: >-
+    codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}-${{
+    (github.event_name == 'pull_request'
+    || github.event.review.user.login == 'chatgpt-codex-connector[bot]'
+    || github.event.comment.user.login == 'chatgpt-codex-connector[bot]')
+    && 'gate' || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -61,9 +77,23 @@ jobs:
     # or, far more likely, teach everyone to ignore a permanently-red check. The gate arms at
     # `ready_for_review`, which is also when Codex fires by itself, so it is red across exactly the
     # window where the merge button is live and nowhere else.
+    #
+    # And only CODEX's reviews and comments wake it. `hasCodexReview` accepts nothing whose author is
+    # not CODEX_LOGIN (scripts/codex-review-gate.mjs — the literal below is that constant), so a run
+    # woken by anyone else re-publishes the verdict it already had. Measured: 135 of the 184
+    # review/comment runs since 2026-10-04 (73%) came from other authors (the owner, vercel[bot]).
+    # `pull_request` events still always run — they are what re-reds the gate on a new head.
+    # If Codex's login ever changes, this fails CLOSED: its reviews stop waking the job and the
+    # check stays red ("Waiting on Codex") — visibly, never a silent green. A human comment no longer
+    # re-evaluates a stuck gate (a Codex-woken run that failed on a transient API error, say): re-run
+    # the latest `publish-codex-verdict` run instead — it re-reads the PR's live reviews and comments.
     if: >-
-      github.event_name != 'issue_comment' ||
-      github.event.issue.pull_request != null
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request_review' &&
+      github.event.review.user.login == 'chatgpt-codex-connector[bot]') ||
+      (github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request != null &&
+      github.event.comment.user.login == 'chatgpt-codex-connector[bot]')
     steps:
       # The decision lives in `scripts/codex-review-gate.mjs` and is unit-tested in
       # `apps/qr/lib/codex-review-gate.test.ts` — a required check that answers "yes" for the wrong
