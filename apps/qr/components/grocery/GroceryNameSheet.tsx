@@ -36,12 +36,21 @@ import { GroceryResultRow } from "./GroceryResultRow";
  * reading size, the query the shopper tried (so the handoff carries its own context, appendix C) —
  * never a code, a price, or a promise of a sale (ruling #11 default; M189). Constant cream with ink
  * in both themes: the house rule for every Dad-facing paper (amendment A2), led by the receipt
- * glyph every "for the counter" object wears (A1).
+ * glyph every "for the counter" object wears (A1). By the same logic (blind pass on #329) a sheet
+ * NO code opened also withholds "It’s not you — most shelf codes aren’t in the app yet." and the
+ * "Keep scanning" / "Back to the camera" pair: a camera-denied shopper searching "durian" scanned
+ * nothing, so it coaches the field ("One word from the name…", "Try one word…") and the ✕ is the
+ * way back; "Try again" after a failure stays.
  *
  * The sheet closes on the server's ok ONLY (decision 20) — the page closes it from `add()`; a tap
  * here never closes it. It opens with the FIELD focused (`initialFocus`, D1(d)): the keyboard rises
  * in the opening tap — whether iPhone Safari honours that is the device sitting's check (#12).
- * No live region in here: the page Toast speaks each dead end once, quietly, under the modal.
+ *
+ * THE STATE LINE IS THIS MODAL'S OWN LIVE REGION (`role="status"`; blind pass on #329): the page
+ * Toast cannot be the sheet's announcer — its pill sits behind the raised keyboard, and a refusal
+ * drawn here instead was a non-live `<p>` nobody heard. Every dead end, "Searching…", and every
+ * refusal the page routes here (`setSheetRefusal`) is announced once, inside the modal; the page
+ * Toast stays the PAGE's one region.
  */
 export function GroceryNameSheet({
   open,
@@ -91,6 +100,8 @@ export function GroceryNameSheet({
   const offline = asked && !online && hits !== null && hits.length === 0;
   const deadEnd = noMatch || failed || offline;
   const rows = asked && hits !== null && hits.length > 0 && !searchFailed;
+  /** A MISS opened this sheet: the coverage truth, the camera hero and the counter tag are its. */
+  const fromMiss = miss !== null;
 
   return (
     <Sheet
@@ -125,8 +136,9 @@ export function GroceryNameSheet({
         />
       </div>
 
-      {/* The state block: NOT a live region (the page Toast is the view's one announcer). */}
-      <div id="name-state" className="name-state">
+      {/* The state block: the MODAL's own live region (see the docblock) — the page Toast is the
+          page's, and sits behind the keyboard while this sheet is up. */}
+      <div id="name-state" className="name-state" role="status">
         {refusal ? (
           <p className="name-state-lead">{refusal}</p>
         ) : typedCode ? (
@@ -135,8 +147,8 @@ export function GroceryNameSheet({
           </p>
         ) : !asked ? (
           <>
-            <Line k="notYou" lead />
-            <Line k="oneWord" />
+            {fromMiss && <Line k="notYou" lead />}
+            <Line k="oneWord" lead={!fromMiss} />
           </>
         ) : searching && (hits === null || hits.length === 0) ? (
           <Line k="searching" />
@@ -146,8 +158,8 @@ export function GroceryNameSheet({
           <Line k="searchUnavailable" lead />
         ) : noMatch ? (
           <>
-            <Line k="notYou" lead />
-            <Line k="tryOneWord" />
+            {fromMiss && <Line k="notYou" lead />}
+            <Line k="tryOneWord" lead={!fromMiss} />
           </>
         ) : null}
       </div>
@@ -166,7 +178,7 @@ export function GroceryNameSheet({
         </ul>
       )}
 
-      {deadEnd && (
+      {deadEnd && (failed || fromMiss) && (
         <div className="name-sheet-next">
           {failed ? (
             <Button variant="primary" block className="scan-btn-bi" onClick={onRetry}>
@@ -189,7 +201,7 @@ export function GroceryNameSheet({
         </div>
       )}
 
-      {deadEnd && miss !== null && (
+      {deadEnd && fromMiss && (
         // The human fallback, last. Read, not operated: no tab stop.
         <div className="paper-tag counter-tag" role="note" aria-labelledby="counter-tag-kicker">
           <div className="paper-tag-paper">

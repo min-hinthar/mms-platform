@@ -6907,12 +6907,12 @@ const MUTANTS = [
       '  return { text: `${t("en", "noticeUnknown")} — we’ll check it when you’re back online.`, my: t("my", "noticeUnknown") };',
   },
   {
-    id: "grocery-queue/a-rejected-replay-prints-its-digits",
+    id: "grocery-queue/a-weighed-replay-blamed-on-the-catalog",
     file: "apps/qr/lib/grocery-queue.ts",
     suite: "lib/grocery-queue.test.ts",
-    why: "PD4 critic B4 — a rejected saved scan is named by COUNT, never by its barcode: digits are nothing a shopper can act on, and the old '(2990…) — no longer available' stated a false cause for the common case (a code that was never in the app)",
-    find: "  if (rejected > 0) return refused(rejected);",
-    replace: '  if (rejected > 0) return `${refused(rejected)} (${rejectedBarcodes.join(", ")})`;',
+    why: "PD4 critic B4, blind pass on #329 — a rejected saved scan is named by COUNT and by an HONEST cause: fold a weighed item into the generic bucket and a real jar that merely needs the scale is told 'not in the app yet, or not available today' — the exact false sentence graft 1 exists to prevent, said about a code the counter could have rung up",
+    find: '  const weighed = rejectedReasons.filter((r) => r === "weighed_item").length;',
+    replace: "  const weighed = 0;",
   },
   // ── Phase 1c · cart-motion ──
   // /cart's removal wiring. The rules are pure (lib/line-motion.ts, value-falsified in its own

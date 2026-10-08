@@ -710,3 +710,84 @@ the hand-off itself (`tabIndex={-1}` on the tag), or the focus that was on "Add 
 11 / A2): the amendment says to add them ONCE for the shared CounterPass and the tag together, and the
 CounterPass primitive is post-pay's (D1(d)) — post-pay's PR adds the row set for both. The scanner device
 half (ruling #20). Graft 5's Scan-door search trigger (decision 27: wait for the Scan→Browse evidence).
+
+#### H.2 · The blind pass on #329 (`f26cc8f..9e88755`, REJECT) and Codex round 1 (review 5460967415) — fixed in one commit
+
+Every finding was verified against source before it was acted on; the mechanism named here is the one
+the code had, not the one the finding guessed.
+
+- **The Undo's words follow the CONFIRMED READ** (blind C1; Codex 4222536407). `undoAdd` said "Removed
+  {name}" on every path once `setQty` resolved — a decrement of a line the basket already held at ×2,
+  and the `syncNow()` arms where no reconciled view had landed. Now: "Removed {name}" only when the
+  confirmed read shows the line gone, "{name} × {qty}" (stepQty's words) when it stepped down, and
+  "Undo saved — checking your basket…" when the read did not land (the next ticketed read owns the
+  view; nothing past-tense is said). **Any manual step on that line retires its Undo** (Codex
+  4222536380): a "−" inside the window had already reversed the add, and a live Undo then wrote one
+  fewer again — a unit the basket held BEFORE the add.
+- **Off-camera refusals are DRAWN; inside the sheet they are SAID in its own line** (blind C2, C3; Codex
+  4222536467). The miss toasts were `quiet` for every `via`, so a stale Browse card or sheet row failed
+  invisibly for a sighted shopper, and every refusal but locked/settling went to the bottom toast — which
+  sits behind the raised keyboard (`--kb-inset` lifts the sheet, not the toast region). `add()` now
+  captures the sheet it came from BEFORE any await (a ✕ mid-write no longer loses the pairing or the
+  Undo the ok owes) and routes every refusal through one `say`: into `setSheetRefusal` inside that
+  sheet, to the toast outside it, `quiet` only for a camera miss (the tag already says it). The same
+  router covers the transport throw, no cart, `unreadable`, `queueOffline`'s three lines, and
+  `addHit`'s two local refusals; `markCartGone` closes the Name sheet (Codex 4222536430).
+- **A sheet row tapped twice offline queued twice** (blind C3): each tap mints a fresh `scanId`, so both
+  landed at replay. The second tap is refused while one waits ("Already saved — we’ll check it when
+  you’re back online."); a camera re-read was already refused by `classifyScan`'s queued verdict.
+- **The queued-repeat line promised "Add another"** for an uncached queued code that draws no such
+  control (blind C4): the clause rides only when the cache knows the code.
+- **A weighed replay was blamed on the catalog** (blind C5): `drainSummary` now takes the refusal
+  REASONS (`DrainOutcome.reason`, carried from `send`'s answer) and gives weighed its own honest
+  sentence ("{n} saved scan(s) need(s) the scale — please bring it/them to the counter"), still with
+  no digits; the mutant `grocery-queue/a-weighed-replay-blamed-on-the-catalog` folds weighed back
+  into the generic bucket and reddens.
+- **The sheet's state line is the MODAL's own live region** (blind C6) — `role="status"` on
+  `#name-state`. Decided under the owner's delegation (decided by: the grocery stream), overriding
+  the spec's A11Y "no role=status inside the sheet": the page Toast cannot announce for a sheet whose
+  keyboard covers it, and the locked/settling line had become a non-live `<p>` nobody heard. Every
+  dead end, "Searching…" and every routed refusal is announced once, inside the modal; the page Toast
+  stays the PAGE's one region. QA §A's "one live region per view" holds per view: the modal is its own.
+- **"Try again" swapped to "Back to the camera" under the finger** for the debounce's 220 ms (blind
+  C7): `searching` turns on in the SAME render as the retry; and the ONE `changeQuery` clears the
+  previous query's rows at once and shows "Searching…" synchronously (Codex 4222536418 — a row from
+  "tea" was tappable under "durian" while the debounce waited).
+- **`.paper-tag:focus { outline: none }`** hid a keyboard user's place on a focus-parked weighed tag
+  (blind C8): `:focus-visible` with the stage's ring; a tap's focus draws nothing.
+- **Proposition 4 is bound to the parameter's DECLARATION** (blind C9): `barcode = judged;` at the top
+  of `add`, or a block-scoped `const barcode = judged` above the charge, shipped the judged code under
+  the same spelling with the guard green. The guard now refuses any assignment to that name, any
+  `++`/`--`, and any shadowing declaration (a const, a binding element, a nested parameter) in the
+  charging function — red-first on both evasions, restored clean.
+- **The allowlist's `MONEY_SHEETS` named `Checkout.tsx`, which renders no `<Sheet>`** (blind C10): the
+  "passes nothing" case was vacuous. The list is now the M82 GUARDED set (the cash sheet, the refund,
+  the void/comp, the no-show, the line sent to the kitchen, the table bound at Send), each asserted to
+  render a live `<Sheet>`; `<Sheet {...props}>` is refused as ambiguity (no such caller on disk) and a
+  namespace import (`<UI.Sheet>`) is still the Sheet — both on fixtures.
+- **`sameTag` compared the barcode only** (blind C11): the same code answering weighed after unknown is a
+  new tag (`slotAfter` re-keys it) and is spoken again — the verdict joins the key.
+- **A sheet NO code opened withholds "It’s not you"** (blind C12): B6's own logic — a camera-denied
+  shopper searching "durian" scanned nothing, so the coverage claim, "Keep scanning" and "Back to the
+  camera" are the miss-opened sheet's alone; a panel-opened sheet coaches the field and the ✕ is the way
+  back ("Try again" after a failure stays). Decided under the owner's delegation (decided by: the
+  grocery stream). The PANEL test now pins the copy.
+- **The Undo's focus handoff ran before React committed `setUndo(null)`** (Codex 4222536451): it found
+  the Undo button itself and focus fell to `<body>` as it unmounted. The handoff is a post-commit
+  effect on `undo`, armed by `undoAdd` and by the window's expiry when the pill held focus.
+
+**Open questions, decided under the owner's delegation (decided by: the grocery stream).**
+
+1. **iOS leaves `activeElement` on `<body>` after a touch tap**, so the opener captured for the sheet's
+   close-restore was the body and the chain never reached the stage. `openNameSheet` refuses a body
+   opener (`ae !== document.body`); the chain then falls through to the chip's action, then the stage,
+   then a panel's title. A keyboard/VoiceOver user's opener (a real focused button) is still restored.
+2. **The pairing is single-slot** (the spec drew one: "the missed shelf code maps to the first item
+   added from the sheet that miss opened"). Two rescues in one visit → the first jar re-reads as a MISS
+   (its tag returns; never a charge; one tap re-opens the sheet). Kept single-slot this wave: bounded,
+   page-life, visible. Reopen trigger: a `grocery_item_scanned` with `miss_barcode` twice in one
+   `cart_id` — then a Map of pairings, each spent on its own item's `add` verdict.
+3. **A Name-sheet dismissal mid-write** used to drop the pairing and the Undo (`nameSheetRef` read after
+   the round trip). The sheet context is captured at invocation and carried through, so a ✕ while the
+   add is in flight still pairs the code and offers the Undo when the ok lands; the chip and the Toast
+   show it either way.

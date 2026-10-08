@@ -55,6 +55,20 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Left for the device sitting (#12):** whether iPhone Safari raises the keyboard when the sheet
   opens with `initialFocus`; the tag's height in Padauk at 375px. **Parked by ruling #20:** the
   flashlight, the decoder, the device scan check. Every new Burmese string is a `K15 · grocery` draft.
+- **The blind pass on #329 (REJECT) and Codex round 1, fixed in one commit** (the spec's §H.2, every
+  finding verified against source): the Undo's words follow the confirmed read ("Removed" only when the
+  line is gone, "{name} × {qty}" when it stepped down, nothing past-tense when the read did not land)
+  and any manual step on that line retires the Undo; off-camera refusals are drawn and, inside the Name
+  sheet, every refusal is said in the sheet's own `role="status"` line (the toast sits behind the
+  keyboard) with the sheet context captured before the await; a sheet row tapped twice offline no
+  longer queues twice; a weighed replay gets its own honest drain sentence (reasons ride
+  `DrainOutcome`, mutant `grocery-queue/a-weighed-replay-blamed-on-the-catalog`); `sameTag` keys on
+  the verdict too; a sheet no code opened withholds "It’s not you" and the camera hero; stale rows leave
+  with the query and "Searching…" is synchronous; the Undo's focus handoff runs post-commit; the
+  paper tag's ring is `:focus-visible`; `check:scan-repeat` proposition 4 binds to the parameter's
+  DECLARATION (an assignment or a shadowing `const barcode` reddens it); the allowlist's money sheets
+  are the M82 GUARDED set, each proven to render a `<Sheet>`, with spreads refused and namespace
+  imports read.
 
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 

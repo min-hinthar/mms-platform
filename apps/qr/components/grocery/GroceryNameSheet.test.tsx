@@ -59,6 +59,16 @@ describe("the Name sheet — guided states", () => {
     const field = screen.getByRole("searchbox", { name: "Search grocery items by name" });
     expect(document.activeElement).toBe(field);
     expect(field.getAttribute("aria-describedby")).toBe("name-state");
+    // The state line is the MODAL's own live region (blind pass on #329): the page toast sits
+    // behind the keyboard, so every dead end is announced HERE, once.
+    expect(screen.getByRole("status").id).toBe("name-state");
+  });
+
+  it("just opened from a camera PANEL (no miss): the coaching only — no coverage claim about a code nobody scanned", () => {
+    render(<GroceryNameSheet {...base({ miss: null })} />);
+    expect(screen.queryByText(/It’s not you/)).toBeNull();
+    expect(screen.getByText(/One word from the name is enough/)).toBeTruthy();
+    expect(counterTag()).toBeNull();
   });
 
   it("no match, from a MISS: the NOW line, the coaching, the NEXT sentence above 'Back to the camera', then the tag — last, with the query", () => {
@@ -83,12 +93,27 @@ describe("the Name sheet — guided states", () => {
     expect(hero.compareDocumentPosition(tag!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("no match, from a camera PANEL (no miss): the same dead end, but NO tag for the counter (B6)", () => {
+  it("no match, from a camera PANEL (no miss): 'Try one word…' only — no 'It’s not you', no camera hero, no tag (B6)", () => {
     // MUTATION: draw the tag whenever the state is a dead end → a claim about a code that was
-    // never scanned, held up for Dad; red.
+    // never scanned, held up for Dad; red. MUTATION: say "It’s not you — most shelf codes…" to a
+    // camera-denied shopper who scanned nothing; red.
     render(<GroceryNameSheet {...base({ query: "durian", hits: [], miss: null })} />);
-    expect(screen.getByRole("button", { name: /Back to the camera/ })).toBeTruthy();
+    expect(screen.getByText("Try one word from the name — or ask at the counter.")).toBeTruthy();
+    expect(screen.queryByText(/It’s not you/)).toBeNull();
+    expect(screen.queryByText(/Keep scanning/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Back to the camera/ })).toBeNull();
     expect(counterTag()).toBeNull();
+    // The ✕ is the way back.
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+
+  it("the refusal the page routes here is announced by the sheet's own status region", () => {
+    render(
+      <GroceryNameSheet {...base({ refusal: "Couldn’t add that — check your connection." })} />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(
+      "Couldn’t add that — check your connection.",
+    );
   });
 
   it("search failed: 'Search unavailable', the hero becomes 'Try again', 'Back to the camera' is withheld, the tag shows", () => {

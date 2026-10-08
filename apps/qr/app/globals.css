@@ -12865,8 +12865,11 @@ a.door-sheet-row {
   filter: drop-shadow(0 1px 1.5px color-mix(in oklab, var(--ink) 7%, transparent))
     drop-shadow(0 10px 14px color-mix(in oklab, var(--ink) 30%, transparent));
 }
-.paper-tag:focus {
-  outline: none; /* a focus-parking target (a tag with no button), not a control */
+/* A focus-parking target (a tag with no button): the stage's own ring when focus arrives the
+   keyboard way, nothing on a tap (blind pass on #329 — `outline: none` hid a keyboard user's place). */
+.paper-tag:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
 }
 .paper-tag-paper {
   position: relative;

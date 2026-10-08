@@ -84,47 +84,76 @@ function isLiteralDead(n: ts.Node): boolean {
 }
 
 /** The LOCAL names that bind `@mms/ui`'s `Sheet` in a file — an alias is resolved, never trusted by
- *  spelling (`import { Sheet as Drawer }` is still the Sheet). */
-function sheetBindings(sf: ts.SourceFile): Set<string> {
-  const names = new Set<string>();
+ *  spelling (`import { Sheet as Drawer }` is still the Sheet) — and the namespace bindings it can be
+ *  read through (`import * as UI` → `<UI.Sheet>`). */
+function sheetBindings(sf: ts.SourceFile): { named: Set<string>; namespaces: Set<string> } {
+  const named = new Set<string>();
+  const namespaces = new Set<string>();
   for (const st of sf.statements) {
     if (!ts.isImportDeclaration(st) || !ts.isStringLiteral(st.moduleSpecifier)) continue;
     if (st.moduleSpecifier.text !== "@mms/ui") continue;
-    const named = st.importClause?.namedBindings;
-    if (named && ts.isNamedImports(named))
-      for (const el of named.elements)
-        if ((el.propertyName ?? el.name).text === "Sheet") names.add(el.name.text);
+    const b = st.importClause?.namedBindings;
+    if (b && ts.isNamedImports(b))
+      for (const el of b.elements)
+        if ((el.propertyName ?? el.name).text === "Sheet") named.add(el.name.text);
+    if (b && ts.isNamespaceImport(b)) namespaces.add(b.name.text);
   }
-  return names;
+  return { named, namespaces };
+}
+
+/** Every live `<Sheet>` in a source text (named, aliased or namespace-read). */
+function liveSheets(sf: ts.SourceFile): Jsx[] {
+  const { named, namespaces } = sheetBindings(sf);
+  const out: Jsx[] = [];
+  walk(sf, (n) => {
+    if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
+    const tag = n.tagName;
+    const isSheet =
+      (ts.isIdentifier(tag) && named.has(tag.text)) ||
+      (ts.isPropertyAccessExpression(tag) &&
+        ts.isIdentifier(tag.expression) &&
+        namespaces.has(tag.expression.text) &&
+        tag.name.text === "Sheet");
+    if (!isSheet || isLiteralDead(n)) return;
+    out.push(n);
+  });
+  return out;
+}
+
+/** A `<Sheet {...props}>` could carry `initialFocus` where this guard cannot read it: AMBIGUITY,
+ *  refused outright (blind pass on #329) — never resolved by assuming the spread is clean. */
+function spreadSheets(rel: string, text: string): Jsx[] {
+  const sf = parse(rel, text);
+  return liveSheets(sf).filter((n) =>
+    n.attributes.properties.some((p) => ts.isJsxSpreadAttribute(p)),
+  );
 }
 
 /** The live `<Sheet>` elements in a source text that pass `initialFocus`. */
 function initialFocusSheets(rel: string, text: string): Jsx[] {
   const sf = parse(rel, text);
-  const names = sheetBindings(sf);
-  const out: Jsx[] = [];
-  walk(sf, (n) => {
-    if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
-    if (!ts.isIdentifier(n.tagName) || !names.has(n.tagName.text)) return;
-    if (isLiteralDead(n)) return;
-    const passes = n.attributes.properties.some(
+  return liveSheets(sf).filter((n) =>
+    n.attributes.properties.some(
       (p) => ts.isJsxAttribute(p) && p.name.getText(sf) === "initialFocus",
-    );
-    if (passes) out.push(n);
-  });
-  return out;
+    ),
+  );
 }
 
 /** The ONE caller allowed to opt in, and why. */
 const ALLOWED = ["components/grocery/GroceryNameSheet.tsx"];
 
-/** The money sheets this guard exists for — named so a reader knows what "never" means. They are
- *  asserted to exist, so the list cannot outlive the files it names. */
+/** The money sheets this guard exists for — the sheets that hold an irreversible write (the M82
+ *  GUARDED set: cash, a refund, a void/comp, a no-show's loss, a line sent to the kitchen, a table
+ *  bound at Send). Each is asserted to RENDER a live `<Sheet>` (blind pass on #329: a file with no
+ *  Sheet in it — `Checkout.tsx` — made the "passes nothing" case vacuous), so the list can neither
+ *  outlive the files it names nor name a file the guard has nothing to say about. */
 const MONEY_SHEETS = [
   "components/staff/CashSettleButton.tsx",
   "components/staff/RefundActionSheet.tsx",
   "components/staff/LossActionSheet.tsx",
-  "components/Checkout.tsx",
+  "components/staff/CounterNoShowButton.tsx",
+  "components/LineOptionsSheet.tsx",
+  "components/TableBindSheet.tsx",
 ];
 
 describe("PD4 — Sheet `initialFocus` is passed ONLY from the grocery Name sheet", () => {
@@ -139,6 +168,15 @@ describe("PD4 — Sheet `initialFocus` is passed ONLY from the grocery Name shee
     },
   );
 
+  it(
+    "no live <Sheet> on disk takes a spread — the one shape that could smuggle the prop",
+    { timeout: 60_000 },
+    () => {
+      const spread = componentFiles().filter((f) => spreadSheets(f, readRaw(f)).length > 0);
+      expect(spread).toEqual([]);
+    },
+  );
+
   it("the allowed caller passes it LIVE, with a ref (the field), so the list cannot rot", () => {
     const sheets = initialFocusSheets(ALLOWED[0]!, readRaw(ALLOWED[0]!));
     expect(sheets).toHaveLength(1);
@@ -149,9 +187,10 @@ describe("PD4 — Sheet `initialFocus` is passed ONLY from the grocery Name shee
     expect(attr?.initializer?.getText(sf)).toBe("{fieldRef}");
   });
 
-  it("the money sheets exist and pass nothing", () => {
+  it("the money sheets exist, each RENDERS a live <Sheet>, and none passes initialFocus", () => {
     for (const rel of MONEY_SHEETS) {
       const text = readRaw(rel); // throws if the file moved — the list names real files
+      expect(liveSheets(parse(rel, text)).length, `${rel} renders a <Sheet>`).toBeGreaterThan(0);
       expect(initialFocusSheets(rel, text)).toHaveLength(0);
     }
   });
@@ -181,6 +220,25 @@ export function CashSheet() {
   return <Drawer open onOpenChange={() => {}} title="Take cash" initialFocus=".x">x</Drawer>;
 }`;
     expect(initialFocusSheets("staff/Fake.tsx", src)).toHaveLength(1);
+  });
+
+  it("a NAMESPACE import is still the Sheet (`<UI.Sheet initialFocus>` is found)", () => {
+    const src = `
+import * as UI from "@mms/ui";
+export function CashSheet() {
+  return <UI.Sheet open onOpenChange={() => {}} title="Take cash" initialFocus={r}>x</UI.Sheet>;
+}`;
+    expect(initialFocusSheets("staff/Fake.tsx", src)).toHaveLength(1);
+  });
+
+  it("a spread on a Sheet is AMBIGUITY, refused — it could carry the prop unseen", () => {
+    const src = `
+import { Sheet } from "@mms/ui";
+export function CashSheet(props: object) {
+  return <Sheet open onOpenChange={() => {}} title="Take cash" {...props}>x</Sheet>;
+}`;
+    expect(spreadSheets("staff/Fake.tsx", src)).toHaveLength(1);
+    expect(spreadSheets("staff/Fake.tsx", money(""))).toHaveLength(0);
   });
 
   it("a Sheet from another module is not this Sheet", () => {

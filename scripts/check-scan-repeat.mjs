@@ -419,26 +419,69 @@ for (const st of liveStages) {
 // the basket, `classifyScan` answers `add`, and a page that then charged the PAIRED barcode would
 // charge an item the shopper never pointed at — from a sighting of a jar whose code is not in the
 // app. `lib/scan-pairing.ts` spends the pairing on `add`; this proposition pins the other half,
-// which is page wiring no suite sees: the non-exempt `scanAdd(...)`'s barcode argument is the
-// enclosing function's OWN PARAMETER (the code the camera decoded), never a derived binding.
-// Red-first: the argument swapped to `judged` → red; to a fresh `const code = judged` → red; the
-// parameter renamed without re-pointing the argument → red.
+// which is page wiring no suite sees: the non-exempt `scanAdd(...)`'s barcode argument RESOLVES to
+// the enclosing function's own PARAMETER — the code the camera decoded.
+//
+// Bound to the parameter's DECLARATION, not its name (the blind pass on #329): a `barcode = judged`
+// reassignment at the top of `add`, or a block-scoped `const barcode = judged` above the charge,
+// ships the judged code under the same spelling. So the function body may hold NO assignment to
+// that name (`=`, `+=`, `++`, a destructuring target) and NO shadowing declaration of it (a const,
+// a binding element, a nested function's parameter). Red-first: the argument swapped to `judged`;
+// `const code = judged` as the argument; `barcode = judged;` at the top; `{ const barcode =
+// judged; … }` around the charge; the parameter renamed without re-pointing the argument.
 if (!problems.length) {
   const charge = chargeCalls[0];
   const fn = enclosingFunction(charge);
   const arg = charge.arguments[1];
-  const paramNames = new Set(
-    (fn?.parameters ?? [])
-      .map((p) => (ts.isIdentifier(p.name) ? p.name.text : null))
-      .filter(Boolean),
-  );
-  if (!arg || !ts.isIdentifier(arg) || !paramNames.has(arg.text))
+  const param =
+    arg && ts.isIdentifier(arg)
+      ? (fn?.parameters ?? []).find((p) => ts.isIdentifier(p.name) && p.name.text === arg.text)
+      : undefined;
+  if (!arg || !ts.isIdentifier(arg) || !param)
     fail(
       `${CHARGE}()'s barcode argument must be the enclosing function's own parameter (the code the\n` +
         `  camera decoded); found \`${arg ? arg.getText(src) : "(none)"}\`.\n` +
         "  A judged or paired code must never be charged — a pairing may only ever REPEAT (PD4,\n" +
         "  lib/scan-pairing.ts); charging it bills an item the shopper never pointed at.",
     );
+  else {
+    const name = arg.text;
+    const isAssignment = (k) =>
+      k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+    const namesIn = (node) => {
+      let hit = false;
+      walk(node, (m) => {
+        if (ts.isIdentifier(m) && m.text === name) hit = true;
+      });
+      return hit;
+    };
+    walk(fn.body, (n) => {
+      if (ts.isBinaryExpression(n) && isAssignment(n.operatorToken.kind) && namesIn(n.left))
+        fail(
+          `\`${name}\` is ASSIGNED inside the charging function (\`${n.getText(src).slice(0, 60)}\`).\n` +
+            "  The parameter must reach scanAdd() untouched: an assignment ships a judged code under\n" +
+            "  the sighted code's own name.",
+        );
+      if (
+        (ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) &&
+        (n.operator === ts.SyntaxKind.PlusPlusToken ||
+          n.operator === ts.SyntaxKind.MinusMinusToken) &&
+        ts.isIdentifier(n.operand) &&
+        n.operand.text === name
+      )
+        fail(`\`${name}\` is mutated inside the charging function.`);
+      if (
+        (ts.isVariableDeclaration(n) || ts.isBindingElement(n) || ts.isParameter(n)) &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === name
+      )
+        fail(
+          `\`${name}\` is DECLARED again inside the charging function (a shadowing \`${
+            ts.isParameter(n) ? "parameter" : "binding"
+          }\`).\n` + "  The argument then resolves to the shadow, not to the camera's code.",
+        );
+    });
+  }
 }
 
 if (problems.length) {
