@@ -128,10 +128,16 @@ const MONEY_SHEETS = [
 ];
 
 describe("PD4 — Sheet `initialFocus` is passed ONLY from the grocery Name sheet", () => {
-  it("the callers passing initialFocus on disk are exactly the allowlist", () => {
-    const callers = componentFiles().filter((f) => initialFocusSheets(f, readRaw(f)).length > 0);
-    expect(callers.sort()).toEqual([...ALLOWED].sort());
-  });
+  // The on-disk sweep parses every component: a LOAD-dependent duration, so it carries its own
+  // timeout — vitest's 5 s default turned a green parsed guard red under five streams' load.
+  it(
+    "the callers passing initialFocus on disk are exactly the allowlist",
+    { timeout: 60_000 },
+    () => {
+      const callers = componentFiles().filter((f) => initialFocusSheets(f, readRaw(f)).length > 0);
+      expect(callers.sort()).toEqual([...ALLOWED].sort());
+    },
+  );
 
   it("the allowed caller passes it LIVE, with a ref (the field), so the list cannot rot", () => {
     const sheets = initialFocusSheets(ALLOWED[0]!, readRaw(ALLOWED[0]!));

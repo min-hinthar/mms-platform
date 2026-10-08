@@ -637,30 +637,37 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     },
   );
 
-  it("⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state", () => {
-    // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
-    // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
-    // itself must be what the Sheet reads:
-    const sf = parse(MOD_SHEET, readRaw(MOD_SHEET));
-    const el = liveElement(sf, "Sheet");
-    expect(typeof el).not.toBe("string");
-    const x = boundIdentifier(attr(el as Jsx, "busy"));
-    expect(x?.text).toBe("busy");
-    const comp = enclosingFunction(el as Jsx);
-    const param = comp?.parameters[0];
-    expect(
-      !!param &&
-        ts.isObjectBindingPattern(param.name) &&
-        param.name.elements.some(
-          (e) => ts.isIdentifier(e.name) && e.name.text === "busy" && !e.propertyName,
-        ),
-    ).toBe(true);
-    for (const rel of MOD_SHEET_PARENTS) {
-      expect(busyBindingProblems(rel, readRaw(rel), "StaffModSheet", "busy")).toEqual([]);
-    }
-    // …and those are ALL of its parents, so no third one can wire it from somewhere else.
-    expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
-  });
+  // PD4 — the two on-disk sweeps below parse every component: a LOAD-dependent duration, so each
+  // carries its own timeout (vitest's 5 s default turned this green guard red under five streams'
+  // load on the shared machine, 2026-10-08).
+  it(
+    "⚠️ StaffModSheet's busy is a PROP — traced to EVERY parent, each producing bounded state",
+    { timeout: 60_000 },
+    () => {
+      // Codex round 2, P2. `StaffModSheet` takes busy as a PROP, so asserting on that file can only
+      // ever confirm a boolean was declared; the contract lives where the value is produced. The prop
+      // itself must be what the Sheet reads:
+      const sf = parse(MOD_SHEET, readRaw(MOD_SHEET));
+      const el = liveElement(sf, "Sheet");
+      expect(typeof el).not.toBe("string");
+      const x = boundIdentifier(attr(el as Jsx, "busy"));
+      expect(x?.text).toBe("busy");
+      const comp = enclosingFunction(el as Jsx);
+      const param = comp?.parameters[0];
+      expect(
+        !!param &&
+          ts.isObjectBindingPattern(param.name) &&
+          param.name.elements.some(
+            (e) => ts.isIdentifier(e.name) && e.name.text === "busy" && !e.propertyName,
+          ),
+      ).toBe(true);
+      for (const rel of MOD_SHEET_PARENTS) {
+        expect(busyBindingProblems(rel, readRaw(rel), "StaffModSheet", "busy")).toEqual([]);
+      }
+      // …and those are ALL of its parents, so no third one can wire it from somewhere else.
+      expect(rendering("StaffModSheet").sort()).toEqual([...MOD_SHEET_PARENTS].sort());
+    },
+  );
 
   it("⚠️ the sheets that write nothing irreversible stay freely dismissible", () => {
     // The negative half, and the one that keeps this honest. `busy` on a picker is a lock with no
@@ -672,15 +679,19 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     }
   });
 
-  it("⚠️ the two lists ARE the Sheet callers — discovered, never transcribed", () => {
-    // Codex round 2, P2. The first version asserted `GUARDED.length + UNGUARDED.length === 11`,
-    // which checks the two arrays against each other and nothing against the app: a twelfth caller
-    // could ship with no `busy` while a test claiming exhaustive coverage stayed green. That is the
-    // "never transcribe a number into an assertion" rule, one level up — the LIST was transcribed.
-    // Now the call sites are discovered on disk and the union must match them exactly, so a new
-    // caller fails here until someone triages it into one list or the other.
-    expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
-  });
+  it(
+    "⚠️ the two lists ARE the Sheet callers — discovered, never transcribed",
+    { timeout: 60_000 },
+    () => {
+      // Codex round 2, P2. The first version asserted `GUARDED.length + UNGUARDED.length === 11`,
+      // which checks the two arrays against each other and nothing against the app: a twelfth caller
+      // could ship with no `busy` while a test claiming exhaustive coverage stayed green. That is the
+      // "never transcribe a number into an assertion" rule, one level up — the LIST was transcribed.
+      // Now the call sites are discovered on disk and the union must match them exactly, so a new
+      // caller fails here until someone triages it into one list or the other.
+      expect(sheetCallers().sort()).toEqual([...GUARDED.map(([f]) => f), ...UNGUARDED].sort());
+    },
+  );
 });
 
 // ── the MATCHER, falsified red-first (LEARNINGS #60: "what text satisfies this without shipping
