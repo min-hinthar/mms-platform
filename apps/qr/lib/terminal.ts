@@ -29,6 +29,14 @@ import { getPostHogClient } from "./posthog-server";
 // ── Phase 2c · gate ──
 import { staffSettleUnsentVerdict } from "./checkout-stage";
 import { readKitchenDraftUnits } from "./unsent-read";
+import { readPendingApprovalFlags } from "./approvals-read";
+import {
+  approvalPendingRefusal,
+  approvalsUnreadableRefusal,
+  staffSettleApprovalVerdict,
+  type ApprovalPendingRefusal,
+  type ApprovalsUnreadableRefusal,
+} from "./settle-approvals";
 
 /**
  * Stripe Terminal at the register (W6c — M6·P6.2). SERVER-DRIVEN: the S700 is commanded through the
@@ -89,7 +97,10 @@ export type SettleCardResult =
   | InFlightRefusal
   // Phase 2c · gate — dine-in dishes not yet sent (the settle gate); nothing was minted.
   | UnsentRefusal
-  | UnreadableRefusal;
+  | UnreadableRefusal
+  // PD8 — a request waits that this tap did not display (a re-warning), or the pending read failed.
+  | ApprovalPendingRefusal
+  | ApprovalsUnreadableRefusal;
 
 /**
  * Start a card-present settle: freeze the cart, mint the card_present PI, hand it to the reader.
@@ -103,7 +114,8 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   const caller = gate.caller;
   const parsed = terminalStartInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, startId } = parsed.data;
+  // `acknowledgedApprovalIds` is COMPARE-ONLY (PD8): the pending request ids THIS door displayed.
+  const { sessionId, startId, acknowledgedApprovalIds } = parsed.data;
 
   // Feature-off when the reader env is unset (the /board opt-in pattern): refuse before any money
   // work — the UI also hides the Card option, but the action is the gate.
@@ -162,6 +174,19 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   if (unsent !== null) {
     await releaseSettlementFor(cart.id, attemptId);
     return unsent === "unsent" ? unsentRefusal(unsentUnits ?? 0) : unreadableRefusal();
+  }
+  // ── PD8 · the acknowledgement compare (Codex correction 13: the reader's own snapshot) ── under
+  // the freeze, before any PaymentIntent, released scoped to THIS attempt on either refusal.
+  const pendingFlags = await readPendingApprovalFlags(cart.id);
+  const approvalGate = staffSettleApprovalVerdict(
+    pendingFlags === null ? null : pendingFlags.map((f) => f.id),
+    acknowledgedApprovalIds,
+  );
+  if (approvalGate !== null) {
+    await releaseSettlementFor(cart.id, attemptId);
+    return approvalGate === "unreadable"
+      ? approvalsUnreadableRefusal()
+      : approvalPendingRefusal(pendingFlags ?? []);
   }
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success

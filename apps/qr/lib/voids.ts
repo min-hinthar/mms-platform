@@ -20,16 +20,31 @@ import { isCounterOrder, noShowOutcome } from "./counter-order";
  * mms_staff_verify_pin (lockout-counted); a `server`-role approver is rejected even with a correct PIN.
  */
 
-export type Approver = { staffId: string; displayName: string; role: "manager" | "owner" };
+/**
+ * One roster row. PD8 — `active` and `hasPin` ride along so the pure `eligibleApprovers`
+ * (`lib/approvers.ts`) can list ONLY the people who can sign: an inactive manager or one with no
+ * tablet PIN is a dead end learned from a refusal, and the asker themself is refused server-side only
+ * after a lockout attempt is spent.
+ */
+export type Approver = {
+  staffId: string;
+  displayName: string;
+  role: "manager" | "owner";
+  active: boolean;
+  hasPin: boolean;
+};
 
 /**
  * The active managers/owners a server can tap to authorize a loss action (the step-up's name picker).
  * Any active staff may READ this (it's colleague display names, already visible on the floor) — the
- * authority is the PIN + role check at void time, not who can see the list.
+ * authority is the PIN + role check at void time, not who can see the list. PD8: joins `staff_pins`
+ * (keyed `staff_id`) for `hasPin` — a FAILED pin read is an outage like a failed roster read, never
+ * "nobody has a PIN" (that would promote the deferred request and tell a server nobody can sign).
  */
 export async function listApprovers(): Promise<Approver[]> {
   await requireStaff();
-  const { data, error } = await serviceClient()
+  const db = serviceClient();
+  const { data, error } = await db
     .from("staff")
     .select("user_id,display_name,role,active")
     .in("role", ["manager", "owner"])
@@ -39,11 +54,27 @@ export async function listApprovers(): Promise<Approver[]> {
   // Throwing lands in the caller's catch (LossActionSheet's load-failure copy).
   if (error)
     throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
-  return (data ?? [])
+  const rows = data ?? [];
+  const pinned = new Set<string>();
+  if (rows.length) {
+    const { data: pins, error: pinError } = await db
+      .from("staff_pins")
+      .select("staff_id")
+      .in(
+        "staff_id",
+        rows.map((r) => r.user_id),
+      );
+    if (pinError)
+      throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
+    for (const p of pins ?? []) pinned.add(p.staff_id);
+  }
+  return rows
     .map((r) => ({
       staffId: r.user_id,
       displayName: r.display_name,
       role: r.role as "manager" | "owner",
+      active: r.active === true,
+      hasPin: pinned.has(r.user_id),
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
