@@ -49,6 +49,10 @@ export type FloorKitchenContext = {
   mode: string;
   /** The session has a diner host (`host_seat` set). */
   hostPresent: boolean;
+  /** P2do — the table has asked to pay at the counter (the floor's `status === "counter"`): every
+   *  unsent dish is then the counter's to count (`staffOwedSendUnits`). Absent off the floor's rows
+   *  (a counter order's own fold) reads false. */
+  counterAsk?: boolean;
   /** The DATABASE clock (`mms_now`), the one the grace and the linger are measured against. */
   nowMs: number;
 };
@@ -83,7 +87,7 @@ export function foldFloorKitchen(
   // "not sent", and the card can never read "Kitchen done" over an order still owing a Send.
   // `counterDraft` is 0 off a pickup session, so a table's count is untouched.
   const notSent =
-    staffOwedSendUnits(ctx.hostPresent, counts) +
+    staffOwedSendUnits(ctx.hostPresent, counts, ctx.counterAsk === true) +
     (counts.counterSentPastGrace ? counts.counterDraft : 0);
   let inKitchen = 0;
   let up = 0;

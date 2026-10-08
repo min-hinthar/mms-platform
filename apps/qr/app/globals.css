@@ -14308,6 +14308,253 @@ html[data-reloading] body::after {
   padding-bottom: 0;
 }
 
+/* ── PD6 · the crowned TILL TRAY (m6 "Shape of the Sale") ──────────────────────────────────────
+   The counter tablet's ONE cash sheet, whichever door opens it (the pad's dock, the pane's Take
+   cash, later the loss slip and the flag door): the same `CashSettleButton` sheet, laid out as a
+   wide cream tray wearing a gold crown, read left to right as OWE → TIP → GAVE, with the Change in
+   the money corner so a second tap of the door lands on inert text (lib/till.ts, the geometry).
+   Keyed on ONE viewport predicate — `TILL_MEDIA` in lib/till.ts, the width the grid really needs
+   (1262 of columns + 64 of padding + 40 of gutters = 1366 → 85.375em; Codex correction 8) — which
+   the JSX branch reads through `useMediaQuery` and till.test.ts pins this block's query and tracks
+   to. Below it today's single-column §29 sheet serves, unchanged. Every size is a token: the due
+   at `--fs-pass` (the figure said across the counter), the banknotes at `--fs-display`, the
+   readout's Change at `--fs-display` (the band), and `--till-fs-hand` is the seal's alone. No grab
+   bar (hidden from 48em), no glass (opaque paper; the scrim's blur is the only one). */
+@media (min-width: 85.375em) and (min-height: 44em) {
+  .mms-sheet.till-sheet {
+    /* The bar's foot + a gutter down to a gutter above the frame's foot (④: y84–1008 at 1024),
+       the keyboard lift still composing on the bottom edge. */
+    top: calc(var(--staff-bar-h, 68px) + var(--s4));
+    bottom: calc(var(--kb-inset, 0px) + var(--s4));
+    left: var(--s5);
+    right: var(--s5);
+    translate: none;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    margin-inline: 0;
+    padding: 0 var(--s8);
+    border-radius: var(--r-sheet);
+  }
+  /* The head keeps its sticky band, full-bleed over the tray's wider gutters, and wears the
+     CROWN: a 6px band of gold-into-paper under a 1px sheen, clipped by the tray's corners, no
+     text. The rake (globals.css ~9815) still plays over it; reduced motion gets the still band. */
+  .till-sheet .mms-sheet-head {
+    margin-inline: calc(-1 * var(--s8));
+    padding: var(--s4) var(--s8) var(--s3);
+    box-shadow:
+      inset 0 6px 0 color-mix(in oklab, var(--gold) 40%, var(--cd)),
+      inset 0 7px 0 var(--sheen);
+  }
+  .till-sheet .mms-sheet-title {
+    font-size: var(--fs-h1);
+  }
+  .till-sheet .mms-sheet-close {
+    top: var(--s2);
+    right: var(--s3);
+  }
+  /* The title's cash glyph: a gold-tint square (the cash state's shape beside its word). */
+  .till-title {
+    display: flex;
+    align-items: center;
+    gap: var(--s4);
+  }
+  .till-glyph {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--r-sm);
+    background: color-mix(in oklab, var(--gold) 18%, var(--cd));
+    color: var(--gold-strong);
+  }
+  /* The body: the spec's columns (④b) as fr columns in its proportion, the two gaps fixed. */
+  .till-body {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+    align-items: start;
+    padding: var(--s5) 0 var(--s4);
+  }
+  .till-arrow {
+    justify-self: center;
+    margin-top: var(--s6);
+    font-size: var(--fs-h1);
+    color: var(--t3);
+    user-select: none;
+  }
+  .till-owe,
+  .till-tip,
+  .till-gave {
+    display: grid;
+    align-content: start;
+    gap: var(--s3);
+    min-width: 0;
+  }
+  /* OWE — the hero (the due, said aloud), the question that carries it, and the slip. */
+  .till-hero {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: var(--fs-pass);
+    font-weight: var(--fw-heavy);
+    line-height: var(--lh-tight);
+    letter-spacing: var(--track-display);
+    font-variant-numeric: tabular-nums;
+    color: var(--tx);
+  }
+  .till-hero[data-tier="display"] {
+    font-size: var(--fs-display);
+  }
+  .till-question {
+    margin: 0;
+    font-size: var(--fs-h2);
+    font-weight: var(--fw-bold);
+  }
+  .till-question .chrome-en {
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-semibold);
+    color: var(--t2);
+  }
+  .till-closes {
+    margin: 0;
+    font-size: var(--fs-lead);
+    color: var(--t2);
+  }
+  .till-rule {
+    border: 0;
+    border-top: 1px solid var(--bd);
+    margin: var(--s2) 0 0;
+  }
+  .till-slip-h {
+    margin: 0;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-bold);
+    color: var(--t2);
+  }
+  .till-slip {
+    display: grid;
+    gap: var(--s1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .till-slip > li {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s2);
+    min-height: 40px;
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-bold);
+  }
+  .till-slip .staff-qty {
+    color: var(--t2);
+    font-variant-numeric: tabular-nums;
+  }
+  .till-slip .chrome-en {
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-regular);
+    color: var(--t2);
+  }
+  /* Codex round 3 on m6 — the slip diverged: a MARK (glyph + word, warn ink, no fill) that is
+     also the control re-freezing it; Take holds until it is tapped. */
+  .till-slip-changed {
+    justify-self: start;
+    gap: var(--s2);
+    color: var(--warn);
+    font-weight: var(--fw-bold);
+  }
+  /* GAVE — the banknotes as a 2×2 of tiles, each wearing an `::after` hairline frame (never a
+     fill: the lit cap stays the console's one selection, `.staff-chip-cash` declares none). */
+  .till-sheet .reg-tender-grid {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+  }
+  .till-sheet .staff-chip-cash {
+    position: relative;
+    min-height: 120px;
+    font-family: var(--font-display);
+    font-size: var(--fs-display);
+    font-weight: var(--fw-heavy);
+    letter-spacing: var(--track-display);
+  }
+  .till-sheet .staff-chip-cash::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border: 1px solid var(--bd);
+    border-radius: calc(var(--r-sm) / 2);
+    pointer-events: none;
+  }
+  .till-sheet .staff-chip-cash[aria-pressed="true"]::after {
+    border-color: color-mix(in srgb, var(--oa) 35%, transparent);
+  }
+  /* The Exact tile: its word in the body face, its figure one tier under the notes. */
+  .till-sheet .staff-chip-cash[data-exact] {
+    font-family: var(--font-body);
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-bold);
+    letter-spacing: normal;
+  }
+  .till-sheet .staff-chip-cash[data-exact] .staff-chip-amount {
+    font-family: var(--font-display);
+    font-size: var(--fs-h1);
+    font-weight: var(--fw-heavy);
+  }
+  /* The BAND (④c): the actions pinned to the tray's foot, on the body's own tracks — Cancel and
+     Take on OWE + TIP, the inert readout (Take's description) in the money corner, GAVE. The one
+     alert and the reload beside it span the same three tracks, so a grown band never puts a
+     control under the door's spot (lib/till.ts `tillDoorLandsInert`). */
+  .till-sheet .reg-settle-actions {
+    margin: 0 calc(-1 * var(--s8));
+    padding: var(--s4) var(--s8) var(--s8);
+  }
+  .till-band-row {
+    display: grid;
+    grid-template-columns: minmax(0, 460fr) 32px minmax(0, 300fr) 32px minmax(0, 438fr);
+    align-items: center;
+    row-gap: var(--s2);
+  }
+  .till-band-row > .till-band-alert,
+  .till-band-row > .till-band-reload {
+    grid-column: 1 / 4;
+  }
+  .till-band-row > .till-band-reload {
+    justify-self: start;
+  }
+  .till-band-row > .till-band-actions {
+    grid-column: 1 / 4;
+    display: flex;
+    gap: var(--s3);
+    align-items: stretch;
+  }
+  .till-band-row > .till-band-actions > .till-take {
+    flex: 1;
+  }
+  .till-band-row > .reg-change {
+    grid-column: 5;
+    align-self: center;
+    min-height: var(--tap-bump);
+  }
+  .till-band-row .reg-change-row dt {
+    font-size: var(--fs-h3);
+    font-weight: var(--fw-bold);
+    color: var(--tx);
+  }
+  .till-band-row .reg-change-row dd {
+    font-size: var(--fs-display);
+  }
+  .till-band-row .reg-change-exact {
+    font-size: var(--fs-h2);
+    font-weight: var(--fw-bold);
+    color: var(--tx);
+  }
+  .till-band-row .reg-change-exact .chrome-en {
+    font-size: var(--fs-lead);
+    font-weight: var(--fw-semibold);
+  }
+}
+
 /* ── Phase 2c · gate ── the settle gate's note (owner decision 3) ─────────────────────────────────
    The settle section's LAST child: why the triggers above are dimmed, in warn ink beside an
    aria-hidden alert glyph — the words carry the meaning, never the colour alone. Tokens only; NO

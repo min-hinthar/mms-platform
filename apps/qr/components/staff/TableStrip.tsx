@@ -248,7 +248,7 @@ export function TableStrip({
           {key.owed ? (
             <span className="floor-key-item">
               <span className="floor-owed-dot" />
-              <Chrome lang={lang} k="floor.key.notSent" />
+              <Chrome lang={lang} k="pad.group.unsent" />
             </span>
           ) : null}
         </p>

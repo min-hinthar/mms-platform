@@ -765,7 +765,7 @@ describe("the strip's shape", () => {
     expect([...key.querySelectorAll(".floor-key-item")].map((i) => i.textContent)).toEqual([
       ts("en", "floor.status.counter"),
       ts("en", "floor.status.ordering"),
-      ts("en", "floor.key.notSent"),
+      ts("en", "pad.group.unsent"),
     ]);
     expect(key.querySelectorAll(".floor-key-item svg")).toHaveLength(2);
     expect(key.querySelector(".floor-key-item .floor-owed-dot")).not.toBeNull();

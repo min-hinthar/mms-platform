@@ -427,7 +427,7 @@ export function StaffLineEditor({
         {line.sendable && (
           <span style={notSentTag}>
             {" · "}
-            <Chrome lang={lang} k="table.line.notSent" />
+            <Chrome lang={lang} k="pad.group.unsent" />
           </span>
         )}
         {mods}

@@ -1705,13 +1705,13 @@ export const STAFF = {
   "settle.confirm": { en: "Confirm", my: "အတည်ပြု" },
 
   // ── cash settle (the two-step confirm at the counter and at the table) ────
-  "settle.cash.trigger": { en: "Take cash · {m}", my: "ငွေသားနဲ့ ရှင်း · {m}" },
-  "settle.cash.triggerTab": { en: "Close bill · cash · {m}", my: "စာရင်းပိတ် · ငွေသား · {m}" },
+  "settle.cash.trigger": { en: "Take cash · {m}", my: "ငွေသားနဲ့ ရှင်း · {m}" }, // K15-HIGH — the money door, with the amount (PD6: the counter pad's dock reads it too)
+  "settle.cash.triggerTab": { en: "Close bill · cash · {m}", my: "စာရင်းပိတ် · ငွေသား · {m}" }, // K15-HIGH — the running bill's money door
   // K29(b) — the cash confirm is the shared sheet now; its title names the act WITHOUT the amount
   // (the question below carries it, tip-inclusive, and a title that quoted the pre-tip figure would
   // put two different numbers on one sheet). Grounded: the two trigger keys above, amount dropped.
-  "settle.cash.title": { en: "Take cash", my: "ငွေသားနဲ့ ရှင်း" },
-  "settle.cash.titleTab": { en: "Close bill · cash", my: "စာရင်းပိတ် · ငွေသား" },
+  "settle.cash.title": { en: "Take cash", my: "ငွေသားနဲ့ ရှင်း" }, // K15-HIGH — the till tray's title: the one money verb, end to end
+  "settle.cash.titleTab": { en: "Close bill · cash", my: "စာရင်းပိတ် · ငွေသား" }, // K15-HIGH — the same tray closing a running bill
   "settle.cash.take": { en: "Take {m} in cash?", my: "ငွေသား {m} လက်ခံမလား?" }, // K15-HIGH — the amount actually collected
   "settle.cash.tipBreakdown": { en: "({m} + {tip} tip)", my: "({m} + အပိုကြေး {tip})" },
   "settle.cash.closesTab": { en: "This closes the running bill.", my: "ဒါနဲ့ စာရင်း ပိတ်ပါမယ်။" },
@@ -2799,7 +2799,8 @@ export const STAFF = {
   }, // K15-HIGH — tells staff no dish from the send is cooking; wrong, a dish is made nobody expects
   // The line tags (K25 for this surface): the one word that separates sent from unsent, in the
   // device language instead of the English `STAFF_STATE_COPY` they replace.
-  "table.line.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — marks the dishes the kitchen has not got
+  // PD1 · P2do — the line tag reads the ONE "not sent" key, `pad.group.unsent` (the hollow ring's
+  // word on every surface); `table.line.notSent` is retired into it.
   "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
   "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
@@ -2906,7 +2907,7 @@ export const STAFF = {
     en: "Nothing on this order yet — tap a dish to add it.",
     my: "ဒီအော်ဒါထဲ ဘာမှ မရှိသေးပါ — ဟင်းတစ်ခုကို နှိပ်ပြီး ထည့်ပါ။",
   },
-  "pad.group.unsent": { en: "Not sent yet", my: "မပို့ရသေး" }, // grounded: table.line.notSent
+  "pad.group.unsent": { en: "Not sent yet", my: "မပို့ရသေး" }, // K15-HIGH — THE one word for dishes the kitchen has not got: the ticket's group, the line tag, the floor's ring and its key (PD1 · P2do)
   "pad.group.togo": {
     en: "To-go · goes to the kitchen when paid",
     my: "ပါဆယ် · ငွေရှင်းမှ မီးဖိုချောင် ရောက်မယ်",
@@ -2937,9 +2938,44 @@ export const STAFF = {
   "pad.settle.savingName": { en: "Saving the name…", my: "နာမည် သိမ်းနေပါတယ်…" }, // grounded: browse.name.saving
   "pad.settle.opening": { en: "Opening payment…", my: "ငွေရှင်းဖို့ ဖွင့်နေပါတယ်…" },
   "pad.reason.empty": { en: "Add a dish first", my: "ဟင်း အရင် ထည့်ပါ" },
+  // PD6 (m6 graft 2) — the read priced nothing: the tray never opens on a null total. MY a K15 draft
+  // (K15 · counter-floor).
+  "pad.reason.unpriced": {
+    en: "The total couldn’t be read — reload the order, then take payment again.",
+    my: "စုစုပေါင်းကို မဖတ်နိုင်ပါ — အော်ဒါ ပြန်ဖွင့်ပြီးမှ ငွေ ပြန်ရှင်းပါ။",
+  },
+  // PD6 — the name save runs only on a counter order, whose door is now "Take cash"
+  // (`settle.cash.trigger`), so the sentence names that door. MY re-worded, a K15 draft.
   "pad.nameNotSaved": {
-    en: "The name didn’t save — tap Take payment again to go on without it.",
-    my: "နာမည် မသိမ်းရသေးပါ — နာမည်မပါဘဲ ဆက်သွားဖို့ ငွေရှင်း ကို ထပ်နှိပ်ပါ။",
+    en: "The name didn’t save — tap Take cash again to go on without it.",
+    my: "နာမည် မသိမ်းရသေးပါ — နာမည်မပါဘဲ ဆက်သွားဖို့ ငွေသားနဲ့ ရှင်း ကို ထပ်နှိပ်ပါ။",
+  },
+  // PD6 — the seal's Walk-up waited past the bound: the next order may still have started, and
+  // the counter home (not this pad) is where it shows. MY a K15 draft (brief-m6.md:645).
+  "pad.next.waiting": {
+    en: "No answer yet — the next order may still start. Don’t start it again: go back to the counter to see whether it’s under Tables & counter orders.",
+    my: "အဖြေ မရသေးပါ — နောက်အော်ဒါ စပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မစပါနဲ့ — စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ မှာ ရှိမရှိ သိဖို့ ကောင်တာကို ပြန်သွားပါ။",
+  },
+  // PD6 (m6 graft 5, narrowed by its appendix C) — said by the pad's Toast after the tray is gone,
+  // only after a refused or stalled attempt (`tillCancelSays`). MY a K15 draft (m6.json guided
+  // screen 2 `copy_my`).
+  "settle.cash.cancelClean": {
+    en: "Nothing was taken — the order is still here.",
+    my: "ဘာငွေမှ မယူရသေးပါ — အော်ဒါ ဒီမှာပဲ ရှိပါသေးတယ်။",
+  }, // K15-HIGH — reassurance about money; misread after a waiting payment it would be a lie, so the pure rule never says it then
+  // PD6 (Codex round 3 on m6) — the tray's slip diverged from the cart: the line is the control
+  // that re-freezes it, and Take holds until it is tapped. MY composed from shipped fragments
+  // (settle.cash.moved's ပြောင်းသွားပါတယ်, settle.cash.shortHint's ပြင်ပါ) — a K15 draft.
+  "settle.cash.slipChanged": {
+    en: "The order changed — tap to update",
+    my: "အော်ဒါ ပြောင်းသွားပါတယ် — ပြင်ဖို့ နှိပ်ပါ",
+  },
+  // PD6 (m6 appendix B5) — the seal's honest note under Walk-up: only what the code keeps (the
+  // bag shows on the counter page; nothing about when a bell rings). MY is the brief's draft's
+  // first clause (brief-m6.md:403), a K15 draft.
+  "table.detail.handoff.walkupNote": {
+    en: "Their food shows up on the counter page when it’s ready.",
+    my: "သူတို့ ဟင်း အဆင်သင့်ဖြစ်ရင် ကောင်တာ စာမျက်နှာမှာ ပေါ်ပါမယ်။",
   },
   "pad.done": { en: "Done · Table {id}", my: "ပြီးပြီ · စားပွဲ {id}" },
   "pad.settled.note": {
@@ -3294,9 +3330,8 @@ export const STAFF = {
     en: "No answer from the ordering system — it may have started. Check Tables & counter orders before you try again.",
     my: "အော်ဒါစနစ်က အဖြေ မရပါ — စပြီးသား ဖြစ်နိုင်ပါတယ်။ ထပ်မနှိပ်ခင် စားပွဲများနဲ့ ကောင်တာ အော်ဒါများကို စစ်ပါ။",
   },
-  // The strip's KEY: what the owed-Send dot on a tile means — `floor.kitchen.notSent`'s words
-  // without the count (the dot carries none). K15 draft.
-  "floor.key.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — decodes the one mark that says dishes never reached the kitchen
+  // The strip's KEY decodes the hollow ring with `pad.group.unsent` (PD1 · P2do: one key everywhere);
+  // `floor.key.notSent` is retired into it.
   // ── Phase 2d · bell ──
   // The counter bell's chip (components/staff/CounterBell.tsx) reuses the grounded chip words
   // verbatim — kds.sound.enable · board.sound.on · kds.sound.off — and adds only its two lines.
@@ -4273,7 +4308,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.add.unconfirmed",
   "table.send.err.undoUnknown",
   "table.send.gone",
-  "table.line.notSent",
   "table.line.state.fired",
   // ── Phase 2a · register ──
   "settle.card.unknown",
@@ -4319,7 +4353,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "pad.err.add.checking",
   // ── Phase 2d · floor ──
   "floor.kitchen.notSent",
-  "floor.key.notSent",
   // ── Phase 2d · split ──
   "floor.pane.lostWrite",
   // ── Phase 2d · review fixes ──
@@ -4417,6 +4450,13 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "shell.version.wait.handBack",
   // ── Phase 2i · Codex r2 on #311 ──
   "shell.version.wait.draft",
+  // ── PD6 · counter-floor (m6 decision 3 and its appendix C; PD1 · P2do) ──
+  "settle.cash.trigger",
+  "settle.cash.triggerTab",
+  "settle.cash.title",
+  "settle.cash.titleTab",
+  "pad.group.unsent",
+  "settle.cash.cancelClean",
 ]);
 
 /**

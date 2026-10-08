@@ -500,12 +500,13 @@ export async function getFloorView(): Promise<FloorPoll> {
     let lastActivity = laterIso(s.created_at ?? nowIso, agg.lastLineAt);
     if (paid) lastActivity = laterIso(lastActivity, paid.latest);
     const tab = (cart?.tab_type ?? "none") as FloorTable["tab"];
+    const status = deriveFloorStatus(cart, agg.count, paid != null);
     return {
       sessionId: s.id,
       label: s.qr_code,
       tableNumber: s.table_number,
       mode: s.mode as FloorTable["mode"],
-      status: deriveFloorStatus(cart, agg.count, paid != null),
+      status,
       partySize: party.length,
       hostName: party.find((m) => m.host || m.seat === s.host_seat)?.name ?? null,
       itemCount: agg.count,
@@ -524,6 +525,9 @@ export async function getFloorView(): Promise<FloorPoll> {
         : foldFloorKitchen(kitchenRowsBySession.get(s.id) ?? [], {
             mode: s.mode,
             hostPresent: s.host_seat != null,
+            // P2do (ruling #15) — an ASKED table's every unsent dish is the counter's to count: the
+            // same `status` the card's chip reads, so the ring and "Pay at counter" cannot disagree.
+            counterAsk: status === "counter",
             nowMs: Number.isFinite(serverNowMs) ? serverNowMs : Date.parse(nowIso),
           }),
     };
@@ -845,6 +849,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       // so narrow it the way every other reader does rather than trusting the row's type.
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
       refundedCents: 0, // an OPEN cart line cannot be refunded — it is voided or comped instead
+      // P2do — the line's age, for an asked table's "Not sent yet · 4m ago" (plain text, no rule).
+      createdAt: i.created_at ?? null,
     }));
     // Phase 2a · send — the table's send counts, ONE binding (`kitchenDraftUnitsFromRows` inside),
     // so the Send's "3 items", the add page's "3 not sent" and the diner's Pay gate agree.
