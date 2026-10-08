@@ -1124,6 +1124,8 @@ wins over it where they disagree.
   `--fs-pass`, never a clamp; a `code` at the board's 54px row).
 - `orientation?: "portrait" | "landscape"` (default portrait) — landscape puts the whole head on the
   LEFT as the stub behind a vertical perforation (the TV, the seal's #CODE stub).
+- **The identity is a union** (`PassIdentity`): EITHER `figure` + `figureKind` (+ `figureSpoken`) OR
+  `fallback: { en; my? }` — never both, never neither (the type refuses it).
 - `figure: string` · `figureKind: "table" | "code"` — ONE identity figure, printed once: `table` is
   Fraunces 600 tabular (`--font-display`, `--fw-semibold`, `--track-display`); `code` (a code or a
   time) is the Hanken 800 code face (`--fw-heavy`, `--track-wide`, tabular). A `table` of three or
@@ -1135,6 +1137,12 @@ wins over it where they disagree.
   holder tier), the English in `--pass-ink-2`.
 - `figureSpoken?: string` — what assistive tech hears for the figure when it should not be read as
   a word (a code, spelt: `"7 C 2 E 9 A"`); the visible figure is then `aria-hidden`.
+- `fallback: { en: string; my?: string }` — the FIGURELESS identity (m11 §Example data: a table not
+  yet bound, or the guide opened from Account, reads "Your table" and draws no figure). The host's own
+  words are drawn in the figure's place at the label tier (`--fs-h3` on the holder, `--fs-h1` across
+  the counter), lead tongue first at full ink; a second tongue, if given, sits beneath in ink-2 and is
+  decorative. No `.ui-pass-figure`, no label, no dot; `data-figure="none"`; the pass's name is the
+  lead tongue's words ("Your table" / "သင့်စားပွဲ"). Codex round 1 on #327 (P2).
 - `head?: ReactNode` — the status slot (a `KitchenTrack size="glyph"` with its word). In the head
   the track's English word runs as the kicker (`--fs-xs`, uppercase, `--track-eyebrow`), the
   Burmese at `--fs-sm`. Never derived here.
@@ -1160,7 +1168,9 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
   and m10) or on the figure (Y axis: m3's time → code).
 - `stamping?: boolean` — plays STAMP on the ✓ (ring `--dur-slow` on `--spring`, the check drawn
   `--dur-slow` from 150ms), then PRINT from 640ms: the tail (seam + body) reveals top → bottom over
-  1.05s, and the torn foot prints last in `--dur-fast`, so the print head reaches it after the body.
+  1.05s, and the torn foot prints last in `--dur-fast`, so the print head reaches it after the body. **Paid only:**
+  on a pass that is not `terminal="paid"` the hook is inert — no `data-stamping`, nothing plays
+  (Codex round 1 on #327: STAMP then PRINT is "Paid only" in the ONE MOTION LANGUAGE).
 - `as?: "section" | "article" | "li" | "div"` (default section; a `div` takes `role="group"`) ·
   `headingLevel?: 2 | 3 | 4` (default 2) · `id?` (the heading's id; defaults to a React id) ·
   `className?` · `style?`.
@@ -1235,6 +1245,14 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
 11. **`echo={false}` is the TV's two-scripts rule**, not a new chip: one tongue, no dot.
 12. **`inert` keeps the real DOM** (the heading becomes a `<p>`, ids are dropped): the host scales the
     picture, so a guide shows the real pass at the holder tier under one transform (m11 B6, m12).
+13. **The figureless identity is a union arm, not an empty figure** (Codex round 1 on #327). An empty
+    `figure` would keep the label and the dot, and words passed as a figure would take the code face;
+    so `fallback` is its own arm, drawn at the label tier with nothing else, and the type refuses a
+    pass with no identity or two. The second tongue is optional because m11's page 1 draws the English
+    alone; a host that passes a Burmese "Your table" files it as its own K15 draft.
+14. **`stamping` is inert off a Paid pass** (Codex round 1 on #327). The hook is the host's, but the
+    language's "STAMP then PRINT: Paid only" is the primitive's to keep: `data-stamping` renders only
+    with `terminal="paid"`, so a Ready ticket or a live pass handed the flag plays nothing.
 
 **Appendix C items taken.** m2 C's three-digit fallback (step down to `--fs-display`, no wrap); m9
 C's "pin `--fs-pass` and let board-fit step down" (D1 confirmed it; a test refuses `clamp(` on any

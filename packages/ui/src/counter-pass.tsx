@@ -48,20 +48,40 @@ export type PassSeam = "2px" | "4px";
 export type PassTurn = "head" | "figure";
 export type PassLabel = { en: string; my: string };
 
+/**
+ * A pass has ONE identity: a figure under its label, or — when there is no number yet (a table not
+ * bound, a guide opened from Account: m11) — the host's own words in its place ("Your table"),
+ * drawn at the label tier with no figure element, no label and no dot. One or the other, never
+ * both and never neither: the type refuses it.
+ */
+export type PassIdentity =
+  | {
+      /** The ONE identity figure, printed once: a table number, a code, a time. Latin digits. */
+      figure: string;
+      figureKind: PassFigureKind;
+      /** What a screen reader hears for the figure, when the figure itself should not be read as a
+       *  word (a code, spelt: "7 C 2 E 9 A"). Defaults to the figure. */
+      figureSpoken?: string;
+      fallback?: undefined;
+    }
+  | {
+      figure?: undefined;
+      figureKind?: undefined;
+      figureSpoken?: undefined;
+      /** The figureless identity's words, lead tongue first; the second tongue is optional (a
+       *  guide picture may draw one) and decorative. The lead tongue names the pass. */
+      fallback: { en: string; my?: string };
+    };
+
 export type CounterPassProps = {
   tier: PassTier;
   /** `landscape` = the stub on the LEFT (the TV, the seal). Default portrait. */
   orientation?: PassOrientation;
-  /** The ONE identity figure, printed once: a table number, a code, a time. Latin digits. */
-  figure: string;
-  figureKind: PassFigureKind;
-  /** The two-tongue label over the figure ("စားပွဲ" / "Table"); the order flips with `lang`. */
+  /** The two-tongue label over the figure ("စားပွဲ" / "Table"); the order flips with `lang`. Not
+   *  drawn on a figureless pass. */
   label: PassLabel;
   /** The lead tongue: it prints first and names the pass. */
   lang: PassLang;
-  /** What a screen reader hears for the figure, when the figure itself should not be read as a word
-   *  (a code, spelt: "7 C 2 E 9 A"). Defaults to the figure. */
-  figureSpoken?: string;
   /** The status slot: a stage glyph + word, passed in (a KitchenTrack at the glyph size). Never
    *  derived here. */
   head?: ReactNode;
@@ -79,7 +99,7 @@ export type CounterPassProps = {
   inert?: boolean;
   /** Plays the TURN once on the head (X) or the figure (Y). */
   turning?: PassTurn;
-  /** Plays STAMP on the ✓, then PRINT on the tail (Paid only). */
+  /** Plays STAMP on the ✓, then PRINT on the tail — Paid only: inert unless `terminal="paid"`. */
   stamping?: boolean;
   /** The host element. A `div` takes `role="group"` so its name is permitted. */
   as?: "section" | "article" | "li" | "div";
@@ -89,7 +109,7 @@ export type CounterPassProps = {
   id?: string;
   className?: string;
   style?: CSSProperties;
-};
+} & PassIdentity;
 
 const HEADING = { 2: "h2", 3: "h3", 4: "h4" } as const;
 
@@ -98,6 +118,7 @@ export function CounterPass({
   orientation = "portrait",
   figure,
   figureKind,
+  fallback,
   label,
   lang,
   figureSpoken,
@@ -124,12 +145,21 @@ export function CounterPass({
   const tongues: ReadonlyArray<PassLang> = lang === "my" ? ["my", "en"] : ["en", "my"];
   // A three-digit TABLE steps down at the --fs-pass tiers; the holder's 40px has the room, and a
   // code's host sizes its own stub.
-  const figureLong = figureKind === "table" && tier !== "holder" && figure.trim().length >= 3;
+  const figureLong =
+    figure != null && figureKind === "table" && tier !== "holder" && figure.trim().length >= 3;
   const hasBody = children != null && children !== false;
   const hasStub = stub != null || terminal === "paid";
   const Heading = inert ? "p" : HEADING[headingLevel];
   const spoken = figureSpoken ?? figure;
   const figureClass = `ui-pass-figure ui-pass-figure-${figureKind}`;
+  // STAMP then PRINT is Paid only (the ONE MOTION LANGUAGE): a non-terminal or Ready pass handed
+  // `stamping` plays nothing.
+  const stamps = stamping && terminal === "paid";
+  // The figureless identity: the lead tongue's words name the pass; a second tongue is decorative.
+  const fallbackLead = fallback == null ? null : (fallback[tongues[0]!] ?? fallback.en);
+  const fallbackEcho =
+    fallback == null ? null : fallback[tongues[0]!] == null ? null : fallback[tongues[1]!];
+  const fallbackLeadLang = fallback != null && fallback[tongues[0]!] != null ? tongues[0]! : "en";
   return (
     <Tag
       className={["ui-pass", className].filter(Boolean).join(" ")}
@@ -141,13 +171,13 @@ export function CounterPass({
       data-tier={tier}
       data-orientation={orientation}
       data-seam={seamW}
-      data-figure={figureKind}
+      data-figure={figureKind ?? "none"}
       data-figure-long={figureLong ? "" : undefined}
       data-terminal={terminal}
       data-tear={tear ? "" : undefined}
       data-inert={inert ? "" : undefined}
       data-turning={turning}
-      data-stamping={stamping ? "" : undefined}
+      data-stamping={stamps ? "" : undefined}
       data-lang={lang}
     >
       <div className="ui-pass-paper">
@@ -160,26 +190,41 @@ export function CounterPass({
               </div>
             ) : null}
             <Heading className="ui-pass-identity" id={id}>
-              <span className="ui-pass-label" aria-hidden="true">
-                <span className={`ui-pass-label-${tongues[0]}`} lang={tongues[0]}>
-                  {label[tongues[0]!]}
+              {figure == null ? (
+                <span className="ui-pass-fallback">
+                  <span className="ui-pass-fallback-lead" lang={fallbackLeadLang}>
+                    {fallbackLead}
+                  </span>
+                  {fallbackEcho != null ? (
+                    <span className="ui-pass-fallback-echo" lang={tongues[1]} aria-hidden="true">
+                      {fallbackEcho}
+                    </span>
+                  ) : null}
                 </span>
-                <span className="ui-pass-label-dot"> · </span>
-                <span className={`ui-pass-label-${tongues[1]}`} lang={tongues[1]}>
-                  {label[tongues[1]!]}
-                </span>
-              </span>
-              <span className="ui-pass-sr" lang={lang}>
-                {leadLabel}{" "}
-              </span>
-              {spoken === figure ? (
-                <span className={figureClass}>{figure}</span>
               ) : (
                 <>
-                  <span className={figureClass} aria-hidden="true">
-                    {figure}
+                  <span className="ui-pass-label" aria-hidden="true">
+                    <span className={`ui-pass-label-${tongues[0]}`} lang={tongues[0]}>
+                      {label[tongues[0]!]}
+                    </span>
+                    <span className="ui-pass-label-dot"> · </span>
+                    <span className={`ui-pass-label-${tongues[1]}`} lang={tongues[1]}>
+                      {label[tongues[1]!]}
+                    </span>
                   </span>
-                  <span className="ui-pass-sr">{spoken}</span>
+                  <span className="ui-pass-sr" lang={lang}>
+                    {leadLabel}{" "}
+                  </span>
+                  {spoken === figure ? (
+                    <span className={figureClass}>{figure}</span>
+                  ) : (
+                    <>
+                      <span className={figureClass} aria-hidden="true">
+                        {figure}
+                      </span>
+                      <span className="ui-pass-sr">{spoken}</span>
+                    </>
+                  )}
                 </>
               )}
             </Heading>

@@ -21,6 +21,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   and the host's motion hooks (`turning` = TURN on the head or the figure; `stamping` = STAMP then
   PRINT). Constant paper: every colour is a `--pass-*` token, the one theme token is `--sh-paper`.
   Named by its heading — the lead tongue's label + the figure, once; `figureSpoken` spells a code.
+  **Codex round 1:** the identity is a union — a figure, or `fallback: { en; my? }` for a pass with no
+  number yet (m11's "Your table": the words at the label tier, no figure, no label, no dot, the lead
+  tongue the name); and `stamping` is inert unless `terminal="paid"` (STAMP then PRINT is Paid only).
 - **`KitchenTrack`** (`packages/ui/src/kitchen-track.tsx`): `KitchenStage` =
   `"unsent" | "sending" | "sent" | "cooking" | "served"`; four sizes (14×5 glyph · 28×6 row · 36×8 TV
   · 16×6 stub); the hollow ring for unsent, one dashed segment in the grace, 1/3 ink-2 · 2/3 ink ·

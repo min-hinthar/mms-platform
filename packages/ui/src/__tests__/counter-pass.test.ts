@@ -22,7 +22,7 @@ const render = (props: Partial<CounterPassProps> = {}, children?: unknown) =>
   renderToStaticMarkup(
     createElement(
       CounterPass,
-      { ...BASE, ...props },
+      { ...BASE, ...props } as CounterPassProps,
       children === undefined ? undefined : (children as never),
     ),
   );
@@ -93,6 +93,67 @@ describe("CounterPass — every tier and orientation, one figure", () => {
     expect(render({ tier: "holder", figure: "120" })).not.toContain("data-figure-long");
     expect(render({ tier: "counter", figure: "47" })).not.toContain("data-figure-long");
     expect(render({ tier: "counter", figure: "120", figureKind: "code" })).not.toContain("data-figure-long"); // prettier-ignore
+  });
+});
+
+describe("CounterPass — the figureless identity (m11: no number bound yet)", () => {
+  const FALLBACK = { en: "Your table", my: "သင့်စားပွဲ" };
+  const figureless = (props: Partial<CounterPassProps> = {}, children?: unknown) =>
+    renderToStaticMarkup(
+      createElement(
+        CounterPass,
+        {
+          tier: "holder",
+          label: LABEL,
+          lang: "en",
+          id: "pass-h",
+          fallback: FALLBACK,
+          ...props,
+        } as CounterPassProps,
+        children === undefined ? undefined : (children as never),
+      ),
+    );
+
+  it("draws the host's words in place of the figure — no figure, no label, no dot — at every tier", () => {
+    for (const tier of ["holder", "counter", "tv"] as const)
+      for (const orientation of ["portrait", "landscape"] as const) {
+        const html = figureless({ tier, orientation }, "body");
+        // MUTATION: the label drawn above the words anyway — red.
+        expect(html).not.toContain("ui-pass-figure");
+        expect(html).not.toContain("ui-pass-label");
+        expect(html).not.toContain("·");
+        expect(html).not.toContain("data-figure-long");
+        expect(html).toContain('data-figure="none"');
+        expect(html).toContain('<span class="ui-pass-fallback-lead" lang="en">Your table</span>');
+      }
+  });
+
+  it("the lead tongue names the pass; the second tongue is decorative and marked", () => {
+    const en = figureless();
+    expect(headingName(en)).toBe("Your table");
+    expect(en).toContain('<span class="ui-pass-fallback-echo" lang="my" aria-hidden="true">သင့်စားပွဲ</span>'); // prettier-ignore
+    const my = figureless({ lang: "my" });
+    expect(headingName(my)).toBe("သင့်စားပွဲ");
+    expect(my).toContain('<span class="ui-pass-fallback-lead" lang="my">သင့်စားပွဲ</span>');
+    expect(my.indexOf("သင့်စားပွဲ")).toBeLessThan(my.indexOf("Your table"));
+  });
+
+  it("a second tongue is optional: English alone draws one span, and names the pass under either lang", () => {
+    for (const lang of ["en", "my"] as const) {
+      const html = figureless({ lang, fallback: { en: "Your table" } });
+      expect(headingName(html)).toBe("Your table");
+      expect(html).not.toContain("ui-pass-fallback-echo");
+      expect(html).toContain('<span class="ui-pass-fallback-lead" lang="en">Your table</span>');
+    }
+  });
+
+  it("the identity is the type's: a figure OR the fallback words, never both, never neither", () => {
+    // Compile-time pins (`pnpm typecheck` reads this file): a loosened union un-expects these.
+    // @ts-expect-error — no identity at all
+    const neither: CounterPassProps = { tier: "holder", label: LABEL, lang: "en" };
+    // @ts-expect-error — both at once
+    const both: CounterPassProps = { ...BASE, fallback: FALLBACK };
+    expect([neither, both].length).toBe(2);
   });
 });
 
@@ -241,6 +302,13 @@ describe("CounterPass — the motion hooks are the host's, once, and off by defa
   it("exposes TURN on the head or the figure, and STAMP then PRINT, as data hooks", () => {
     expect(render({ turning: "head" })).toContain('data-turning="head"');
     expect(render({ turning: "figure" })).toContain('data-turning="figure"');
+    expect(render({ stamping: true, terminal: "paid" }, "body")).toContain('data-stamping=""');
+  });
+
+  it("STAMP then PRINT is Paid only: `stamping` is inert on a non-terminal or Ready pass", () => {
+    // MUTATION: `data-stamping={stamping ? "" : undefined}` (no terminal guard) — red.
+    expect(render({ stamping: true }, "body")).not.toContain("data-stamping");
+    expect(render({ stamping: true, terminal: "ready" }, "body")).not.toContain("data-stamping");
     expect(render({ stamping: true, terminal: "paid" }, "body")).toContain('data-stamping=""');
   });
 });
