@@ -41,6 +41,7 @@ export type { IconName } from "./icon";
 export { CounterPass } from "./counter-pass";
 export type {
   CounterPassProps,
+  PassIdentity,
   PassTier,
   PassOrientation,
   PassFigureKind,
