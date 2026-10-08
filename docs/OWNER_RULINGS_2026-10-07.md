@@ -180,9 +180,7 @@ the record. Each decision is reversible on the owner's word. In short:
 - **D3 · One act, one word:** ပြန်ယူ for taking back a Send (console and phone), ပြန်ဖျက် for erasing a
   mark just made. No shipped string changes; the native sitting confirms it.
 - **D4 · The asker-by-PIN seam** is not built this wave; PD13 holds its reopen trigger.
-- **D5 · Card / Apple Pay after the food is served:** a dine-in phone pays once nothing on the bill is
-  still with the kitchen, enforced in create-intent. It is parked until C2, then flipped by its own commit
-  after the four conditions in PATH_DESIGN. Ruling #8 is unchanged: D5 adds nothing to the key swap,
+- **D5 · Card / Apple Pay after the food is served:** a dine-in phone pays once nothing on the bill is waiting to be sent or still with the kitchen (D5's hold set in PATH_DESIGN), enforced in create-intent. It is parked until C2, then flipped by its own PR after the three conditions in PATH_DESIGN, and proved right after by one refunded Apple Pay payment at a table. Ruling #8 is unchanged: D5 adds nothing to the key swap,
   only to the dine-in flag.
 - **New moments (PD9–PD12):** the TV board showing each table's dishes live; the guest's live pass; the
   first-run step guides for guests, the counter and the kitchen.

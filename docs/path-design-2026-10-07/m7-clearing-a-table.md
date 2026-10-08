@@ -1063,7 +1063,7 @@ all open decisions") and added a live TV board, card / Apple Pay after the food 
 guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
 The round-3 consistency pass gave this moment these changes:
 
-1. D2(7): M182's table-clear RPC marks the cart's pending approval requests 'superseded' inside its own transaction, as merge, no-show and counter-clear already do. Those requests later read 'Table was cleared first' on m8's review (English-only, K15).
+1. D2 (its last sentence): M182's table-clear RPC marks the cart's pending approval requests 'superseded' inside its own transaction, as merge, no-show and counter-clear already do. Those requests later read 'Table was cleared first' on m8's review (English-only, K15), with no Close key; m8's close-only card on a cleared table covers only a cart cancelled outside M182's RPC (PATH_DESIGN moment 8).
 2. D3: Clearing's Undo keeps ပြန်ဖျက်. No change.
 3. TV: a cleared table leaves the wall at once (a non-active session), so the stop card never reaches guests' eyes. The slip says nothing about the TV.
 4. The stop card's button is help.done 'ရပြီ · Got it'. 'Tells the kitchen to stop' stays conditional on the durable stop record (correction 12).

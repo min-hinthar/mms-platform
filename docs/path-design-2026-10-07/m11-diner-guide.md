@@ -67,7 +67,7 @@ and staff to get familiar with the new app."
    month, never sees the guide open by itself.
 10. **MenuBrowser is frozen this wave** (D1(a)). → The guide mounts from `ArrivalBeat`, the arrival
     moment diner-cart already holds under D1(a). That widens D1(a)'s scoped unfreeze by one mount line,
-    so it needs the orchestrator's yes. The fallback mount is `TableCartProvider`, which diner-cart owns
+    which D1(a) decides (no further yes). The fallback mount is `TableCartProvider`, which diner-cart owns
     outright.
 
 ---
@@ -795,8 +795,7 @@ aria-labelledby="m11-hN">` whose `h2` holds both tongues. The English and the `l
    close, the mark is written at open, storage refused means no auto-open) — **diner-cart**.
    - The pictures render the REAL pass primitive and the real progress track with fixed sample props,
      inside an `inert` / `aria-hidden` frame, at a CSS scale. They are never redrawn copies.
-3. **The mount: one line in `ArrivalBeat`** — **diner-cart**, widening D1(a)'s scoped unfreeze by one
-   mount, so it needs the orchestrator's yes. The fallback is to mount inside `TableCartProvider`
+3. **The mount: one line in `ArrivalBeat`** — **diner-cart**, inside D1(a)'s scoped unfreeze, which D1 decides; no further yes is needed. The fallback is to mount inside `TableCartProvider`
    (diner-cart's file). MenuBrowser stays untouched.
 4. **The guide's dictionary keys**, a new `lib/i18n/guide.ts` joined into `DICT`
    (`lib/i18n/index.ts:18`) — **diner-cart**. The staff-sourced Burmese copies are pinned equal to
@@ -810,7 +809,7 @@ aria-labelledby="m11-hN">` whose `h2` holds both tongues. The English and the `l
    - guards-style's early token PR (`--fs-pass`, D1(c));
    - post-pay's pass primitive (`packages/ui`, the CounterPass);
    - m1's full-screen Radix dialog variant (shared with "Show a server");
-   - D5's progress view and track (PD9's served gate and progress receipt);
+   - D5's progress view and track (PD10's served gate and progress receipt);
    - PD2's `SURFACES.dineInPhonePay` and the Bill's counter-line binding.
 8. **Docs in the same PR:**
    - DESIGN-LANGUAGE gains a short "first-visit guide" section: one per surface, seen at open, one
@@ -920,9 +919,7 @@ with C2 automatically, and C2's own commit changes nothing here.
    signed-in accounts and phone payers this month. A guest who always pays cash at the counter on an
    anonymous phone may still see it again after a long gap. Accepted. It is once per gap, and Skip is
    one tap.
-4. **"Google Pay" must be seen working at the flip.** D5's flip checklist proves one real Apple Pay
-   payment. Add "Google Pay shows on an Android phone at a table" to that checklist, or drop "Google
-   Pay" from the sentence in the flip's own commit.
+4. **"Google Pay" must be seen working at the flip.** D5's post-flip proof is one real Apple Pay payment. Record "Google Pay shows on an Android phone at a table" beside it, or ship the flip PR without "Google Pay" in the sentence.
 5. **Hostless tables.** On a table a server started where every diner joined by code, nobody's phone
    sends, so page 2's role sentence is untrue there. The quiet line ("our staff can send it too") is
    true. A `useCart` "table has a sender" fact would let the page swap to the staff line. It is not
@@ -947,8 +944,7 @@ with C2 automatically, and C2's own commit changes nothing here.
 10. **The Account row's owner.** `AccountHelp.tsx` is on no stream's card. Until it is assigned, the
     guide cannot be reopened. Ship the auto-open only after the row lands, or the "under Account"
     sentence is false.
-11. **Widening D1(a).** Mounting from ArrivalBeat adds one line to a file unfrozen only for PD1. If
-    that is refused, mount inside TableCartProvider. That works, but it couples a dialog to a data
+11. **D1(a) covers the mount.** Mounting from ArrivalBeat adds one line to a file unfrozen for diner-cart; PATH_DESIGN's D1 puts PD11's mount inside (a). If the build finds a reason not to, mount inside TableCartProvider. That works, but it couples a dialog to a data
     provider.
 12. **Mixed real and sample data.** The table figure is real; the dishes are samples. With no names,
     prices or counts, the risk that a guest reads the sample dishes as their own order is low, but
@@ -978,7 +974,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - Retire the hand-set 56, 36, 24 and 30 px figures.
 - Page 1's 'Table 7' plus 'စားပွဲ 7' becomes the label plus one figure.
 
-3. The dismiss control is 'Close · ပိတ်' with ✕ (shell.close, shipped bilingual, and it promises nothing), replacing the English-only 'Skip'. Its sr name is 'Close the guide'. One guide grammar with m12, and one fewer K15 string.
+3. The dismiss control is 'Close · ပိတ်' with ✕ (`common.close`, shipped bilingual, and it promises nothing; never the staff `shell.close`), replacing the English-only 'Skip'. Its sr name is 'Close the guide'. One guide grammar with m12, and one fewer K15 string.
 4. Page 1 keeps the empty Back slot, so Next never moves. Every guide control arms 350 ms after the guide opens itself, because the opening tap may still be under the finger.
 5. Motion:
 
@@ -987,7 +983,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - Page 5's tuck uses RISE's curve and duration.
 - Nothing loops.
 
-6. Page 4 after C2 names only the wallets D5's flip checklist proved: Apple Pay, by condition 4. Google Pay is named only if it is added to the checklist. The list is set in the flag-flip commit, and no wallet is ever drawn.
+6. Page 4 after C2 names only the wallets D5's post-flip proof payment showed working: Apple Pay. Google Pay is named only after a recorded Android payment at a table. The list is set in the flag-flip commit, and no wallet is ever drawn.
 7. One seen-key helper, guideSeenKey(surface, rev, staffId?) plus guideDue, shared with m12: marked at open, and storage refused means it never opens by itself. Whichever guide merges first lands it. The pre-C2 page 4 picture may show served rows, which matches m10's pre-C2 decision.
 
 ### B · The adversarial critic's blocking fixes (verdict: fix)

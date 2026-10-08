@@ -10,7 +10,7 @@ kitchen, the server refuses otherwise, and the whole door stays dormant behind
 **C2, said plainly.** Production serves Stripe TEST keys today (OPEN-ITEMS C2, measured 2026-09-07:
 `pk_test`, `livemode false`). Until C2 flips, no real card money can move: a real card is declined and a
 Stripe test card would "pay" with no money moving. So screens 1 and 2 are drawn in the **live-keys
-state** (after the flag flips in its own commit). Each screen states its **held-keys variant**: the
+state** (after the flag flips in its own PR). Each screen states its **held-keys variant**: the
 dine-in Bill is PD2's counter-only Bill exactly (`picked-m2-1`), with no card words and no "coming soon".
 Screen 3's pass is reached today too, through Dad's cash settle (`/track?cart=…&paid=1`).
 
@@ -81,7 +81,7 @@ figure tiers) becomes one anatomy that moments 1, 2, 3 and 10 share:
   - Sent ပို့ပြီး, Cooking ချက်နေဆဲ, Served ထုတ်ပြီး (staff.ts:2803-2805, the same keys Dad's table
     page shows and Mom's board grounds);
   - Paid ငွေရှင်းပြီး (staff.ts:394, Dad's floor word for this table);
-  - Not sent yet မပို့ရသေး (staff.ts:2802).
+  - Not sent yet မပို့ရသေး (`pad.group.unsent`, staff.ts:2909).
   - The TV board's per-item rows should use the same three words, so a guest reading the wall and
     their phone sees one vocabulary.
 - **Material.**
@@ -926,8 +926,7 @@ aria-controls="card-form">`. - Full width, 44 tall, radius 999, bg #fffdf8, 1px 
 12. **D3 is applied:** the phone's Send undo reads "Undo · ပြန်ယူ" (staff.ts:2705). Inside the undo
     window the row's words are "-ing" ("Sending…") on a dashed segment. Past tense comes only after
     the grace.
-13. **Before C2, PD2's Bill is unchanged** (D5's "exactly"). The pass rows wait with PD9 unless the
-    owner chooses otherwise (OPEN RISK 15).
+13. **Before C2, PD2's Bill keeps its pay furniture exactly** (D5). Its line rows become the pass body with kitchen tracks (open risk 15, decided YES in round 3; PD10).
 14. **The example continues m1's Table 7** (Aye host, Thiri guest), plus a drink. It shows that tea
     must be bumped too, which is D5's own device-sitting condition.
 15. **Stub fields are the person and the time.**
@@ -937,9 +936,7 @@ aria-controls="card-form">`. - Full width, 44 tall, radius 999, bg #fffdf8, 1px 
 ## OPEN RISKS
 
 1. **C2 holds everything real.** The keys are test today, so the door stays dormant behind the flag.
-   The flag flips in its own commit only after D5's four conditions: live keys verified; PD2 and PD9
-   merged; drinks confirmed bumped at the device sitting; one real Apple Pay payment for the cheapest
-   dish refunded from Today's payments & refunds. Until then screens 1 and 2 are a design, not a
+   The flag flips in its own PR only after D5's three conditions: live keys verified; PD2 and PD10 merged; drinks confirmed bumped at the device sitting. Right after it deploys, one real Apple Pay payment for the cheapest dish at a table, refunded from Today's payments & refunds, proves it; a failed proof reverts the flip. Until then screens 1 and 2 are a design, not a
    path.
 2. **Drinks and sides must be bumped on Mom's board, or the door never opens.** The app cannot see a
    plate reach the table; "Served" means the KDS bump. Device sitting #12.
@@ -948,12 +945,9 @@ aria-controls="card-form">`. - Full width, 44 tall, radius 999, bg #fffdf8, 1px 
    - The reason returns silently in the slot.
    - A guest already past create-intent pays anyway, because D5 puts no gate at fulfillment.
    - That is honest but slightly awkward. Watch it at the sitting.
-4. **"Before any Stripe call" cannot hold literally.** `supersedeCartIntent` (route.ts:125) cancels a
-   predecessor intent at Stripe before the session read (:151) that the refusals need. That order is
-   deliberate (M151). The D5 refusals sit before the slot, the promo pin and `paymentIntents.create`.
-   money-rails decides whether to lift the session read above the supersede.
+4. **"Before any Stripe call" cannot hold literally, and must not.** `supersedeCartIntent` (route.ts:125) cancels a predecessor intent at Stripe before the session read (:151) that the refusals need. That order is deliberate (M151) and is a rule, not an option: both new refusals free the lock, and freeing it while a predecessor can still be confirmed is #257's CRITICAL. So both sit after the supersede and its captured / unknown exits, and before the slot, the promo pin and `paymentIntents.create`; the parse-based check fails if either refusal runs before the supersede statement finishes (PATH_DESIGN D5).
 5. **The fold touches two unowned, mutated files** (PaymentSection.tsx, lib/pay-element.ts).
-   - It needs an owner assignment.
+   - Its owner is decided: diner-cart, under D1's scoped unfreeze.
    - It needs a second remembered reserve (or a fixed folded height) beside `mms.payElementH.v1`.
    - It needs a component case per wallet state.
    - **Fallback:** today's open form, with "Pay at the counter" at the foot.
@@ -983,8 +977,7 @@ aria-controls="card-form">`. - Full width, 44 tall, radius 999, bg #fffdf8, 1px 
     door and the status). The "On the house" row must keep its track, unlike today's BillLines, which
     replaces the state word.
 15. **Owner option, not taken by default:** the pass's progress rows carry no money semantics and could
-    ship on PD2's counter-only Bill before C2, so guests see their food move today. D5 says "PD2's
-    counter-only Bill, exactly", so this waits for the owner's word.
+    ship on PD2's counter-only Bill before C2, so guests see their food move today. Decided YES in round 3 (appendix A5): the rows ship before C2; only the pay furniture waits.
 16. **Screen 2 draws ONE wallet button because ruling #7's card-only constant (M155) is a C2
     prerequisite (ruling #8).** Today create-intent asks for `automatic_payment_methods`
     (route.ts:540), which could put a Link or other button beside Apple Pay in the Express row. If C2
@@ -1023,7 +1016,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - A door already open on mount or on a foreground re-read is drawn open, with no TURN, POP or announcement.
 - Rows FILL on arrival. D5's server gate is unchanged.
 
-5. Pre-C2: open risk 15 is decided YES. PD9's progress rows ship on PD2's counter-only Bill before C2, and the flag gates only the pay furniture.
+5. Pre-C2: open risk 15 is decided YES. PD10's progress rows ship on PD2's counter-only Bill before C2, and the flag gates only the pay furniture.
 6. TimelineStrip:
 
 - Never drawn in the same view as the One Pass.
@@ -1032,7 +1025,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 
 7. Ownership:
 
-- PaymentSection.tsx and lib/pay-element.ts need a scoped unfreeze to diner-cart in the D1(a) shape, with the orchestrator's yes.
+- PaymentSection.tsx and lib/pay-element.ts get a scoped unfreeze to diner-cart in the D1(a) shape; D1 decides it, with no further yes.
 - lib/kitchen-track.ts comes from kitchen-ops.
 - The pass and track primitives come from post-pay.
 - Wallet names never appear in the slot, a reason or a hero (decision 5). That matches m11's rule.

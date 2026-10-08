@@ -404,8 +404,7 @@ rgba(250,249,245,0))`. Lines dissolve; they never clip.
     says "Couldn’t reach the counter just now — please try again." (Checkout.tsx:2025).
 - **Settled at the register:** the phone leaves through today's path (Checkout.tsx:700-720).
   - A seat that may see the order goes to /track?…&paid=1.
-  - Otherwise `CounterSettledCard` shows, titled with the shipped `paidThankYou` pair: "Paid — thank
-    you!" / "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" (cart.ts:133; the v7.2:468 line).
+  - Otherwise `CounterSettledCard` shows, titled with the shipped `counterSettledTitle` pair: "All paid — thank you!" / "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" (`PayAtCounter.tsx:148`; `cart.ts:113`).
   - The post-pay screen itself is post-pay's moment.
 - **No table number:** the stub reads "Your table" (PayAtCounter.tsx:87) in Fraunces 26/600, with no
   numeral and no MY line.
@@ -985,13 +984,12 @@ guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–
 The round-3 consistency pass gave this moment these changes:
 
 1. D1(b): lib/surfaces.ts is diner-cart's, and diner-cart adds SURFACES.dineInPhonePay. money-rails reads the flag in create-intent and never edits the file. Rewrite decision 2's 'surfaces.ts unowned'.
-2. D5 server order in create-intent, all before the slot, the promo pin and paymentIntents.create, and each releasing the lock:
-3. The parked refusal while the flag is false.
-4. D5's verdict, from ONE error-aware read of qr_cart_items. It fails CLOSED with the shipped 503 sentence.
-
-- A host with drafts gets 'Send everything to the kitchen first — Pay opens once everything’s served.'; everyone else gets 'Pay opens once everything’s served.' (409).
-- A parse-based check script verifies the call.
-- The Take cash, reader and secure-tab doors are never gated by served.
+2. D5 server order in create-intent: after `supersedeCartIntent` and its captured / unknown exits (route.ts:125-136), and before the slot, the promo pin and paymentIntents.create; each refusal releases the lock:
+   - a. The parked refusal while the flag is false.
+   - b. D5's verdict, from ONE error-aware read of qr_cart_items, in the shipped unsent refusal's dine-in slot, which it replaces. It fails CLOSED with the shipped 503 sentence.
+   - A host with drafts gets 'Send everything to the kitchen first — Pay opens once everything’s served.'; a hostless table with drafts gets 'A server will send these to the kitchen — or pay at the counter.'; everyone else gets 'Pay opens once everything’s served.' (409).
+   - A parse-based check script verifies the call and that both refusals run after the supersede statement finishes.
+   - The Take cash, reader and secure-tab doors are never gated by served.
 
 3. Decide m10's open risk 15 as YES: before C2, PD2's counter-only Bill keeps its pay furniture exactly (no card words, no 'coming soon'), but its line rows become the One Pass body with Kitchen Track rows. m9's wall shows those same tracks to the room before C2, so the guest's own phone must match. The flag gates only the pay door.
 4. Gate these by D5's open door, never by the flag alone:

@@ -46,10 +46,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Round 3 (2026-10-07, latest — rulings file, section F):** the owner delegated every open design
 > question, and the record decides them (D1–D5): owners for the unowned pieces, a close after payment
 > recorded as `superseded`, the two Undo words (ပြန်ယူ · ပြန်ဖျက်), the asker-by-PIN seam left unbuilt,
-> and card / Apple Pay at the table once the food is served — built behind a flag that stays off until
+> and card / Apple Pay at the table once nothing on the bill is waiting on the kitchen (D5's hold set) — built behind a flag that stays off until
 > live keys are verified (C2). It adds four moments: the TV board (PD9), the guest's live pass and pay
 > after served (PD10), and step guides for diners (PD11) and staff (PD12); PD13 parks the asker seam.
-> Left for the owner (the record's last section): C2 and the flag flip, M184's widened merge line, and
+> Left for the owner (the record's "What still goes to the owner"): C2 and the flag flip, M184's widened merge line, and
 > the device and native-speaker sittings.
 >
 > **Owner's hands (not code):**

@@ -1329,7 +1329,7 @@ candidates: counter step 4, counter step 5 and kitchen step 5.
 17. **No card, approval or D5 words on either guide.**
     - The counter teaches cash, which is true before and after C2 (ruling #11; D5's phone pay is the
       guest's door).
-    - m8's flag card explains itself, and `ASKER_BY_PIN` stays off (D4).
+    - m8's flag card explains itself, and the asker-by-PIN seam is not built (D4).
     - The TV board's own static key is the guests' guide (m9 decision 22).
 18. **No training mode.** The guide never puts sample tickets or sample tables on a live board.
     Pictures live only in the inert well.
@@ -1338,7 +1338,7 @@ candidates: counter step 4, counter step 5 and kitchen step 5.
 20. **Each station's guide ships as one revision, after every control it teaches** (DATA, "Ships
     when").
 21. **Ownership: kitchen-ops builds the guide, its model and its pictures, and the kitchen host.**
-    counter-floor adds the idle-pane host. HelpButton.tsx needs the owner's scoped unfreeze.
+    counter-floor adds the idle-pane host. HelpButton.tsx's scoped unfreeze to kitchen-ops is decided (D1).
 22. **The example data is like for like** with m2 ($46.41, Table 4), m5 (Tables 2, 4, 9 and 11), m6
     (the $50 note) and m7 (Tables 3 and 7).
 
@@ -1395,7 +1395,7 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 3. Kitchen step 5: retire the strike-draw, because the stop card is ALARM without motion. Instead, one cross-fade shows the ticket turning into the stop card, with the strikes drawn at rest.
 4. Kitchen step 1's line teaches the shared words: 'Every Send arrives as its own card — drinks too. Start makes it ချက်နေဆဲ · Cooking, and Done or All done makes it ထုတ်ပြီး · Served, on guests’ phones and the TV board.' The English is new; the Burmese is shipped. Drop the TV clause if m9 is held.
 5. Counter step 3 renders the real CounterPass in landscape at --fs-pass, with --pass-hole set to the stage ground. It is the same object as m2's pane and the guest's pass. The counter guide also ships after post-pay's primitive.
-6. Guide grammar is shared with m11: Close · ပိတ်, the shared seen-key helper, dots, and the 400 ms console arm. Kitchen step 3 keeps D3's two words in their places. HelpButton.tsx still needs the owner's scoped unfreeze.
+6. Guide grammar is shared with m11: Close · ပိတ်, the shared seen-key helper, dots, and the 400 ms console arm. Kitchen step 3 keeps D3's two words in their places. HelpButton.tsx's scoped unfreeze is decided by D1.
 
 ### B · The adversarial critic's blocking fixes (verdict: fix)
 

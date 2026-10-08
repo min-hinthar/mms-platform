@@ -1035,7 +1035,15 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 - The stub's "Table" label at Hanken 15px is below the board's own smallest TV tier (--kfs-meta clamp(15px,1.2vw,22px) resolves to 22px at 1920; globals.css:8545). Use the TV tier so the label reads across the room.
 - clamp(56px, 4.6vw, var(--fs-pass)) produces in-between figure sizes on non-1920 TVs. State that the clamp is the TV tier's fluid form, or pin --fs-pass and let board-fit's step-down do the work, so there is never a fourth size.
 - State explicitly that a pass or dish appearing for the first time renders at its final frame with no FILL (the "never on a first read" rule). Today only the reboot seed is covered (:327-328).
-- KDS_UNDO_MS is needed by both m9 (kitchen-ops) and D5's phone door (money-rails / PD9). Name which PR moves it from KdsBoard.tsx:77 to lib/, so two streams do not each create it.
+- KDS_UNDO_MS is needed by both m9 (kitchen-ops) and D5's phone door (money-rails / PD10). Name which PR moves it from KdsBoard.tsx:77 to lib/, so two streams do not each create it.
 - Open risk 3 (drinks never bumped pin a table to the wall) is more visible on a guest wall than on the KDS. Add it to the device sitting's checklist next to D5's "drinks get bumped" check, and consider whether the linger needs a server-side ceiling for a line that is never bumped.
 - Once the table pass becomes all paper, the static cream area on the OLED grows. Raise the burn-in check (open risk 6) from 'owed' to a named device-sitting item.
 - The round stub's slot should be identifier-class, as open risk 11 says. Make that a stated dependency on m5's `kds.round` key, not a hope, because `{n}` would render ၂ on the wall (fill.ts:7-8, :34).
+
+### D · Blind-review corrections (2026-10-08) — these win over everything above
+
+1. **The table figure is `--fs-pass`, pinned, never a clamp maximum** (PATH_DESIGN's round-3
+   vocabulary: three pass tiers only). Decision 9's clamp and section C's clamp line are withdrawn: on a
+   TV that is not 1920 wide, density is board-fit's step-down (fewer passes per page), never a smaller
+   figure. The pickup code keeps the 54px row tier.
+2. **D5's phone door is PD10** (money-rails' served gate), not PD9; PD9 is this board.
