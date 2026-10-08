@@ -607,6 +607,10 @@ const UNGUARDED = [
   "PickupSlotSheet.tsx",
   "grocery/GroceryBasketSheet.tsx",
   "grocery/GroceryItemSheet.tsx",
+  // PD4 — the Name sheet over the live lens. Its add is the PAGE's `add()` (the one server-priced
+  // scanAdd), whose outcome lands above the sheet — the chip in the stage, the Toast — and the sheet
+  // closes only on the server's ok: a dismissal mid-write hides nothing (§16's unguarded shape).
+  "grocery/GroceryNameSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
   // Phase 1a → 3b (D9) — the door sheet behind every door eyebrow, carrying the table's exits: three

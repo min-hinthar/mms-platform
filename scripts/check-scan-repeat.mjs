@@ -413,6 +413,34 @@ for (const st of liveStages) {
     );
 }
 
+// ── (4) The charge takes the SIGHTED code, never a judged / paired one (PD4) ──────────────────────
+// m4 graft 3 lets a missed shelf code be JUDGED as the item it was paired to, so a re-read jar gets
+// M186's repeat verdict. The critic's blocking finding (m4 appendix B1): the moment that item leaves
+// the basket, `classifyScan` answers `add`, and a page that then charged the PAIRED barcode would
+// charge an item the shopper never pointed at — from a sighting of a jar whose code is not in the
+// app. `lib/scan-pairing.ts` spends the pairing on `add`; this proposition pins the other half,
+// which is page wiring no suite sees: the non-exempt `scanAdd(...)`'s barcode argument is the
+// enclosing function's OWN PARAMETER (the code the camera decoded), never a derived binding.
+// Red-first: the argument swapped to `judged` → red; to a fresh `const code = judged` → red; the
+// parameter renamed without re-pointing the argument → red.
+if (!problems.length) {
+  const charge = chargeCalls[0];
+  const fn = enclosingFunction(charge);
+  const arg = charge.arguments[1];
+  const paramNames = new Set(
+    (fn?.parameters ?? [])
+      .map((p) => (ts.isIdentifier(p.name) ? p.name.text : null))
+      .filter(Boolean),
+  );
+  if (!arg || !ts.isIdentifier(arg) || !paramNames.has(arg.text))
+    fail(
+      `${CHARGE}()'s barcode argument must be the enclosing function's own parameter (the code the\n` +
+        `  camera decoded); found \`${arg ? arg.getText(src) : "(none)"}\`.\n` +
+        "  A judged or paired code must never be charged — a pairing may only ever REPEAT (PD4,\n" +
+        "  lib/scan-pairing.ts); charging it bills an item the shopper never pointed at.",
+    );
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");

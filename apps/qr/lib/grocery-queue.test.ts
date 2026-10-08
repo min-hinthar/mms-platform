@@ -174,16 +174,23 @@ describe("drainSummary — one composed toast, rejections never vanish", () => {
   it("a mixed drain reports BOTH — the rejection must not hide behind the success line", () => {
     const msg = drainSummary(2, ["12345678"]);
     expect(msg).toContain("added 2 saved scans");
-    expect(msg).toContain("12345678");
-    expect(msg).toContain("no longer available");
+    expect(msg).toContain("1 saved scan couldn’t be added");
+    // PD4 (B4) — never the digits, and never the false cause "no longer available": the common
+    // rejection is a code that was never in the app.
+    expect(msg).not.toContain("12345678");
+    expect(msg).not.toContain("no longer available");
+    expect(msg).toContain("not in the app yet, or not available today");
   });
   it("delivered-only keeps the plain success line", () => {
     expect(drainSummary(1, [])).toBe("Back online — added 1 saved scan.");
   });
-  it("rejected-only names every refused barcode", () => {
+  it("rejected-only counts the refused scans, with no digits (PD4)", () => {
+    // MUTATION: append the barcodes → red (a 13-digit code is nothing a shopper can act on).
     const msg = drainSummary(0, ["11111111", "22222222"]);
-    expect(msg).toContain("2 saved scans");
-    expect(msg).toContain("11111111, 22222222");
+    expect(msg).toBe(
+      "2 saved scans couldn’t be added — not in the app yet, or not available today.",
+    );
+    expect(msg).not.toMatch(/\d{8}/);
   });
   it("an empty drain says nothing", () => {
     expect(drainSummary(0, [])).toBeNull();

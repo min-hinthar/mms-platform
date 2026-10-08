@@ -6813,6 +6813,107 @@ const MUTANTS = [
     find: "  return Boolean(i.cartId) && i.hydrated;\n",
     replace: "  return Boolean(i.cartId);\n",
   },
+  // ── PD4 · the grocery miss (m4) — the pairing may only ever REPEAT; the Undo window and the
+  // chip's arm; the same-jar tag; what an OFFLINE sighting may claim. The rules are pure
+  // (lib/scan-pairing.ts · lib/scan-undo.ts · lib/scan-notice.ts · lib/grocery-queue.ts); the page
+  // wiring that charges the SIGHTED code, never the judged one, is check:scan-repeat proposition 4.
+  {
+    id: "scan-pairing/a-paired-miss-is-judged-as-itself",
+    file: "apps/qr/lib/scan-pairing.ts",
+    suite: "lib/scan-pairing.test.ts",
+    why: "PD4 graft 3 — the whole point of the pairing: a shelf code rescued by name is judged as the item it became, so the re-read jar gets M186's repeat verdict and the disc chip. Judge the sighted code instead and the shopper sees a SECOND miss for an item already in their basket",
+    find: "  return pairing !== null && sighted === pairing.missed ? pairing.item : sighted;",
+    replace: "  return sighted;",
+  },
+  {
+    id: "scan-pairing/a-spent-pairing-keeps-repeating",
+    file: "apps/qr/lib/scan-pairing.ts",
+    suite: "lib/scan-pairing.test.ts",
+    why: "PD4 critic B1 — when the paired item leaves the basket by ANY path, classifyScan answers `add` and the pairing must be SPENT. Kept, it keeps judging the jar as that item on every re-read, and the only thing between a sighting and a charge of an item the shopper never pointed at is page wiring",
+    find: '  return verdict.kind === "add" ? null : pairing;',
+    replace: "  return pairing;",
+  },
+  {
+    id: "scan-pairing/a-repeat-drops-the-pairing",
+    file: "apps/qr/lib/scan-pairing.ts",
+    suite: "lib/scan-pairing.test.ts",
+    why: "The other direction: drop the pairing on a REPEAT and the second re-read of the rescued jar is a miss again — the tag returns over an item already in the basket, and 'Add another' is gone",
+    find: '  return verdict.kind === "add" ? null : pairing;',
+    replace: "  return null;",
+  },
+  {
+    id: "scan-pairing/any-removal-clears-the-pairing",
+    file: "apps/qr/lib/scan-pairing.ts",
+    suite: "lib/scan-pairing.test.ts",
+    why: "The Undo (or a stepper to 0) forgets the pairing for THAT item only. Forget it on any removal and removing an unrelated line un-pairs the rescued jar, whose next re-read is a miss over an item still in the basket",
+    find: "  return pairing !== null && pairing.item === barcode ? null : pairing;",
+    replace: "  return null;",
+  },
+  {
+    id: "scan-undo/the-window-never-closes",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "PD4 — the add-Undo holds the chip's action slot for its window; a minute-long window keeps 'Add another' off the lens for a minute after every rescue add. Every other assertion reads the constant symbolically, which is why one fixture spells the milliseconds out",
+    find: "export const ADD_UNDO_MS = 6000;",
+    replace: "export const ADD_UNDO_MS = 60_000;",
+  },
+  {
+    id: "scan-undo/the-window-collapses",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "The same constant the other way — a 100 ms window is gone before the hand that added by mistake has moved. A bound is only pinned when BOTH directions redden",
+    find: "export const ADD_UNDO_MS = 6000;",
+    replace: "export const ADD_UNDO_MS = 100;",
+  },
+  {
+    id: "scan-undo/the-chip-arms-under-the-finger",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "Codex correction 15 — on a fast server ok the Name sheet closes under the finger and the chip mounts in its place; always armed, the second half of a double-tap lands on 'Add another' (a deliberate second CHARGE) or on 'Undo' (an instant reversal). The window is @mms/ui's ONE same-gesture constant",
+    find: "  return !removeHeld(sheetClosedAt, now);",
+    replace: "  return true;",
+  },
+  {
+    id: "scan-undo/undo-removes-the-whole-line",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "The Undo reverses ONE add. Write 0 and an Undo on a line the basket already held at ×2 removes all three — a wrong number the shopper notices at the register, if at all",
+    find: "  return Math.max(0, qty - 1);",
+    replace: "  return 0;",
+  },
+  {
+    id: "scan-notice/a-re-read-jar-re-rises",
+    file: "apps/qr/lib/scan-notice.ts",
+    suite: "lib/scan-notice.test.ts",
+    why: "PD4 decision 11 — the SAME jar re-read while its tag shows keeps its key. Re-key it and the tag rises again and the Toast re-speaks on every 1.5 s gap in the decode stream while the jar rests in frame (M186's throttle re-announces after SCAN_QUIET_MS)",
+    find: '    if (\n      prev?.kind === "notice" &&\n      prev.notice.kind === notice.kind &&\n      prev.notice.barcode === notice.barcode\n    )\n      return prev;\n',
+    replace: "",
+  },
+  {
+    id: "scan-notice/a-saved-scan-named-by-its-digits",
+    file: "apps/qr/lib/scan-notice.ts",
+    suite: "lib/scan-notice.test.ts",
+    why: "PD4 critic B4 — the shipped defect brief-m4 Today #7 names: a queued code the cache does not know fell back to its RAW BARCODE as the chip's name and in the pending strip, thirteen digits nobody can act on under an in-basket disc. The name is 'A saved scan'",
+    find: '  return { name: t("en", "savedScan"), my: t("my", "savedScan") };',
+    replace: "  return { name: barcode, my: null };",
+  },
+  {
+    id: "scan-notice/an-uncached-save-claims-not-in-the-app",
+    file: "apps/qr/lib/scan-notice.ts",
+    suite: "lib/scan-notice.test.ts",
+    why: "PD4 critic B5 — the cache omits weighed and unavailable items (getGroceryCatalog filters both), so a code absent from it is UNKNOWN. Say the tag's headline here and a real jar that merely needs the scale is told 'This code isn’t in the app yet' — the exact sentence graft 1 exists to prevent",
+    find: '  return { text: t("en", "savedCheck"), my: t("my", "savedCheck") };',
+    replace:
+      '  return { text: `${t("en", "noticeUnknown")} — we’ll check it when you’re back online.`, my: t("my", "noticeUnknown") };',
+  },
+  {
+    id: "grocery-queue/a-rejected-replay-prints-its-digits",
+    file: "apps/qr/lib/grocery-queue.ts",
+    suite: "lib/grocery-queue.test.ts",
+    why: "PD4 critic B4 — a rejected saved scan is named by COUNT, never by its barcode: digits are nothing a shopper can act on, and the old '(2990…) — no longer available' stated a false cause for the common case (a code that was never in the app)",
+    find: "  if (rejected > 0) return refused(rejected);",
+    replace: '  if (rejected > 0) return `${refused(rejected)} (${rejectedBarcodes.join(", ")})`;',
+  },
   // ── Phase 1c · cart-motion ──
   // /cart's removal wiring. The rules are pure (lib/line-motion.ts, value-falsified in its own
   // suite); these are the four lines in Checkout.tsx that CALL them, which only the jsdom suite sees.

@@ -163,11 +163,16 @@ export type DrainOutcome = { entry: QueuedScan; verdict: ReplayVerdict };
 export function drainSummary(delivered: number, rejectedBarcodes: string[]): string | null {
   const rejected = rejectedBarcodes.length;
   const scans = (n: number) => (n === 1 ? "scan" : "scans");
+  // PD4 (critic's fix B4) — a rejection is named by COUNT, never by its digits (a 13-digit code is
+  // nothing a shopper can act on), and its reason is stated as the three things it can be — an
+  // unknown code, or an item weighed or unavailable — never "no longer available", which was a
+  // false cause for the common one (the code was never in the app at all).
+  const refused = (n: number) =>
+    `${n} saved ${scans(n)} couldn’t be added — not in the app yet, or not available today.`;
   if (delivered > 0 && rejected > 0)
-    return `Back online — added ${delivered} saved ${scans(delivered)}, but ${rejected} couldn’t be added (${rejectedBarcodes.join(", ")}) — no longer available.`;
+    return `Back online — added ${delivered} saved ${scans(delivered)}, but ${refused(rejected)}`;
   if (delivered > 0) return `Back online — added ${delivered} saved ${scans(delivered)}.`;
-  if (rejected > 0)
-    return `Couldn’t add ${rejected} saved ${scans(rejected)} (${rejectedBarcodes.join(", ")}) — no longer available.`;
+  if (rejected > 0) return refused(rejected);
   return null;
 }
 

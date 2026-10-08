@@ -31,9 +31,11 @@ export const MARKET = {
   scanStarting: { en: "Starting the camera…", my: "ကင်မရာ ဖွင့်နေပါတယ်…" },
   scanHintAim: { en: "Point at the code on the package", my: "ပစ္စည်းပေါ်က ကုဒ်ကို ချိန်ပါ" }, // K15 draft (plain words 2026-09-24)
   scanHintBasket: { en: "Starting your basket…", my: "စျေးခြင်း ပြင်ဆင်နေပါတယ်…" },
+  // PD4 (critic's fix B4) — "saved and CHECKED", never "saved and add": a saved code may be
+  // refused at replay (unknown · weighed · unavailable), so the lens promises only the check.
   scanHintOfflineSaved: {
-    en: "Offline — scans are saved and add when you’re back",
-    my: "အင်တာနက် မရှိပါ — စကင်ဖတ်တာတွေ သိမ်းထားပြီး ပြန်ရလာရင် ထည့်ပေးပါမယ်",
+    en: "Offline — scans are saved and checked when you’re back",
+    my: "အင်တာနက် မရှိပါ — စကင်ဖတ်တာတွေ သိမ်းထားပြီး ပြန်ရလာရင် စစ်ပေးပါမယ်", // K15 draft (PD4)
   },
   scanHintOfflineBlocked: {
     en: "Offline — scanning needs a connection on this device",
@@ -85,6 +87,63 @@ export const MARKET = {
     my: "ထပ်ကြိုးစားပါ၊ ဒါမှမဟုတ် နာမည်နဲ့ ရှာပါ။",
   },
 
-  // ── the result bar's one new notice (weighed / unavailable reuse the kiosk's shipped pair) ──
-  noticeUnknown: { en: "We couldn’t find that item", my: "ဒီပစ္စည်းကို ရှာမတွေ့ပါ" }, // K15 draft (plain words 2026-09-24)
+  // ── PD4 · the miss tag inside the lens (weighed / unavailable reuse the kiosk's shipped pair) ──
+  // "This CODE isn't in the app yet", not "we couldn't find that item": the ITEM is usually in the
+  // app under its synthetic code — only the real shelf code is missing (C6) — so the words motivate
+  // "Search by name" instead of contradicting it (m4 decision 9). "yet" leans on C6.
+  noticeUnknown: { en: "This code isn’t in the app yet.", my: "ဒီကုဒ် အက်ပ်ထဲမှာ မရှိသေးပါ။" }, // K15 draft (PD4)
+  // The quiet line under the tag — the owner's default (PATH_DESIGN decision 6). The Burmese is the
+  // tail of the kiosk's shipped `scanUnknown` ("…ကောင်တာမှာ မေးကြည့်ပါနော်"), the fewest new claims.
+  askCounter: { en: "Or ask at the counter", my: "ကောင်တာမှာ မေးကြည့်ပါနော်" }, // K15 draft (PD4)
+
+  // ── PD4 · the Name sheet over the live lens ──
+  // The coverage truth, said where the miss happens (the primer is seen only before the first
+  // camera grant). In the just-opened AND the no-match states (decision 14).
+  notYou: {
+    en: "It’s not you — most shelf codes aren’t in the app yet.",
+    my: "သင့်အမှား မဟုတ်ပါဘူး — ဆိုင်က ကုဒ်အများစု အက်ပ်ထဲ မရောက်သေးလို့ပါ။", // K15 draft (PD4)
+  },
+  // "laphet" IS a real synonym of Tea Leaves (grocery_catalog synonyms); the critic's note: a
+  // two-word example ("tea leaf") is not "one word".
+  oneWord: {
+    en: "One word from the name is enough — like “laphet” or “လက်ဖက်”.",
+    my: "နာမည်ထဲက စကားလုံး တစ်လုံးဆို ရပါပြီ — “laphet” ဒါမှမဟုတ် “လက်ဖက်” လိုမျိုးပေါ့။", // K15 draft (PD4)
+  },
+  tryOneWord: {
+    en: "Try one word from the name — or ask at the counter.",
+    my: "နာမည်ထဲက စကားလုံး တစ်လုံးနဲ့ ထပ်ရှာကြည့်ပါ — ဒါမှမဟုတ် ကောင်တာမှာ မေးပါ။", // K15 draft (PD4)
+  },
+  // The actor-first NEXT sentence directly above the dead end's one hero (the diner register, B9).
+  keepScanning: {
+    en: "Keep scanning — this one can wait for the counter.",
+    my: "ဆက်စကင်ဖတ်ပါ — ဒီတစ်ခုက ကောင်တာမှာ စောင့်လို့ ရပါတယ်။", // K15 draft (PD4)
+  },
+  backToCamera: { en: "Back to the camera", my: "ကင်မရာဆီ ပြန်သွားမယ်" }, // K15 draft (PD4)
+  searching: { en: "Searching…", my: "ရှာနေပါတယ်…" }, // K15 draft (PD4)
+  searchNeedsConnection: {
+    en: "Search needs a connection — or ask at the counter.",
+    my: "ရှာဖို့ အင်တာနက် လိုပါတယ် — ဒါမှမဟုတ် ကောင်တာမှာ မေးကြည့်ပါနော်", // K15 draft (PD4)
+  },
+  searchUnavailable: {
+    en: "Search unavailable — please try again.",
+    my: "ရှာလို့ မရသေးပါ — ထပ်ကြိုးစားပါ။", // K15 draft (PD4)
+  },
+  // The busy result row keeps full ink and says so in a word (B10) — never opacity.
+  adding: { en: "Adding…", my: "ထည့်နေပါတယ်…" }, // K15 draft (PD4)
+  // The add-Undo in flight (B2 — past tense only after the confirmed write).
+  removing: { en: "Removing…", my: "ဖျက်နေပါတယ်…" }, // K15 draft (PD4)
+
+  // ── PD4 · the tag for the counter (held up for Dad; only in a sheet a miss opened) ──
+  forTheCounter: { en: "For the counter", my: "ကောင်တာအတွက်" }, // K15 draft (PD4)
+  // The query the shopper tried, so the handoff carries its own context (appendix C) — never a
+  // code or a price.
+  lookedFor: { en: "Looked for", my: "ရှာခဲ့တာ" }, // K15 draft (PD4)
+
+  // ── PD4 · offline (critic's fix B4/B5): a code absent from the cache is UNKNOWN, never "not in
+  // the app" — the cache omits weighed and unavailable items, so absence proves nothing ──
+  savedScan: { en: "A saved scan", my: "သိမ်းထားတဲ့ စကင်" }, // K15 draft (PD4)
+  savedCheck: {
+    en: "Saved — we’ll check this code when you’re back online.",
+    my: "သိမ်းထားပါတယ် — အင်တာနက် ပြန်ရရင် ဒီကုဒ်ကို စစ်ပေးပါမယ်။", // K15 draft (PD4)
+  },
 } satisfies Record<string, Entry>;

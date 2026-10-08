@@ -20,6 +20,10 @@ export const COMMON = {
   close: { en: "Close", my: "ပိတ်" },
   tryAgain: { en: "Try again", my: "ထပ်ကြိုးစား" }, // v7.2
   refresh: { en: "Refresh", my: "ပြန်စစ်" },
+  // PD4 (round 3, D3 — one act, one word): the Undo that ERASES a mark you just made (the market's
+  // "Added"). The same word as the console's `kds.undo` (lib/i18n/staff.ts); ပြန်ယူ is the other verb,
+  // for something you sent away coming back, and is never used here.
+  undo: { en: "Undo", my: "ပြန်ဖျက်" }, // K15 draft (PD4; the word is the kitchen's shipped kds.undo)
 
   // ── navigation (mirrors lib/menu-href's label rules — pair with the SAME mode logic) ──
   backToMenu: { en: "Back to menu", my: "မီနူးသို့ ပြန်သွား" },
