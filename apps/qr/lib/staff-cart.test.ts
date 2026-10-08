@@ -204,6 +204,7 @@ const FLAG: PendingFlag = {
   amountCents: 1400,
   cooked: true,
   initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
   createdAt: "2026-10-08T10:00:00Z",
 };
 describe("settleCash — the acknowledged-ids compare (PD8)", () => {

@@ -45,6 +45,7 @@ describe("the refusal shapes", () => {
     amountCents: 1400,
     cooked: true,
     initiatorName: "Thiri",
+    initiatorStaffId: "thiri",
     createdAt: "2026-10-08T10:00:00Z",
   };
   it("approval_pending carries the typed code, the sentence, and EVERY pending flag (the card re-draws all of them)", () => {

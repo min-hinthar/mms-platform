@@ -309,6 +309,7 @@ describe("settleCard — the acknowledged-ids compare (PD8)", () => {
     amountCents: 1300,
     cooked: true,
     initiatorName: "Thiri",
+    initiatorStaffId: "thiri",
     createdAt: "2026-10-08T10:00:00Z",
   };
   beforeEach(() => {

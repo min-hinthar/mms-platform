@@ -11,6 +11,7 @@ import { MsgText } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "@/lib/staff-send-view";
+import type { PendingFlag } from "@/lib/settle-approvals";
 // ── Phase 2g · reader ──
 import {
   readerAlertKey,
@@ -48,6 +49,10 @@ type SettleError =
   | { kind: "unsent"; units: number }
   // P2el — the gate could not read the lines, so the reader was never asked; the tap retries.
   | { kind: "unreadable" }
+  // PD8 — a request this tap did not display (a re-warning): the page re-draws the flag card.
+  | { kind: "approvalPending"; dish: string }
+  // PD8 — the pending read failed; the reader was never asked, the same tap retries.
+  | { kind: "approvalUnreadable" }
   // Phase 2h (9d) — refused AT THE TAP while an earlier action is stuck: never sent, nothing asked.
   | { kind: "stalled" }
   // Phase 2h (9e) — the start is still out at the bound: the reader may yet start asking for the
@@ -96,6 +101,8 @@ export function TerminalSettleButton({
   blocked = false,
   blockedNoteId,
   onBlockedTap,
+  acknowledgedApprovalIds,
+  onApprovalPending,
   running = false,
   gateLive,
   onChanged,
@@ -119,6 +126,11 @@ export function TerminalSettleButton({
   /** A refused tap (`null` — the page's count is the reading), or the server's `unsent` refusal
    *  (its count): the page says why in its one region and moves focus to the Send. */
   onBlockedTap?: (units: number | null) => void;
+  /** PD8 (Codex correction 13) — the pending request ids THIS door displays; sent at ITS tap as the
+   *  acknowledgement (never read into an amount). */
+  acknowledgedApprovalIds?: readonly string[];
+  /** PD8 — the server re-warned: the page re-draws the flag card with the server's list. */
+  onApprovalPending?: (pending: PendingFlag[]) => void;
   /** Codex round 2 (P2) — the page's own re-read. A raced `unsent` refusal means the page's detail
    *  is stale (a dish landed after its last read): without a re-read the Send the refusal points at
    *  may not exist yet, and staff wait for the next poll to act on the fix they were just told. */
@@ -199,8 +211,15 @@ export function TerminalSettleButton({
             ? { kind: "unsent", units: res.units }
             : res.code === "unreadable"
               ? { kind: "unreadable" }
-              : { kind: "server", text: res.error },
+              : res.code === "approval_pending"
+                ? { kind: "approvalPending", dish: res.pending[0]?.lineName ?? "" }
+                : res.code === "approval_unreadable"
+                  ? { kind: "approvalUnreadable" }
+                  : { kind: "server", text: res.error },
       );
+      // PD8 — a request this tap did not display: the page re-draws the flag card naming it and
+      // says so in its one region; the next tap acknowledges what it shows.
+      if (res.code === "approval_pending") onApprovalPending?.(res.pending);
       // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
       // the page says it in its one region and takes the cashier to the Send.
       if (res.code === "unsent") {
@@ -275,7 +294,14 @@ export function TerminalSettleButton({
       // 9b — the RAW action, awaited with a bound (`boundWrite` never rejects, tracks the raw).
       // Codex r3 on #310 — the pending record's token rides the start as its `startId`: the
       // PaymentIntent carries it, so a reloaded tablet resumes THIS start and no other tablet's.
-      const out = await boundWrite(settleCard({ sessionId, startId: pending }));
+      // PD8 — the ids this door displays at ITS tap ride the start as the acknowledgement.
+      const out = await boundWrite(
+        settleCard({
+          sessionId,
+          startId: pending,
+          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],
+        }),
+      );
       if (out.kind === "answer") {
         land(out.value, false, pending);
         return;
@@ -380,6 +406,15 @@ export function TerminalSettleButton({
               <OutageText lang={lang} error={error.text} />
             ) : error.kind === "unreadable" ? (
               <Chrome lang={lang} k="settle.unsentUnreadable" echo={false} />
+            ) : error.kind === "approvalPending" ? (
+              <Chrome
+                lang={lang}
+                k="settle.flag.pendingRefused"
+                vars={{ x: error.dish }}
+                echo={false}
+              />
+            ) : error.kind === "approvalUnreadable" ? (
+              <Chrome lang={lang} k="settle.approvalsUnreadable" echo={false} />
             ) : error.kind === "inflight" ? (
               <Chrome
                 lang={lang}

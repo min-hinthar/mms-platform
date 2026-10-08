@@ -81,7 +81,13 @@ const pending = (id: string): PendingApproval => ({
   cooked: false,
   sessionId: null,
   tableLabel: "T4",
+  tableNumber: 4,
+  nameMy: null,
   initiatorName: "Aye",
+  initiatorStaffId: "aye",
+  cartStatus: "open",
+  lineNow: { qty: 1, unitPriceCents: 1200 },
+  lineId: "l1",
   createdAt: "2026-09-13T18:41:00Z",
 });
 

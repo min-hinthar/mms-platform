@@ -24,6 +24,8 @@ export type PendingFlag = {
   amountCents: number;
   cooked: boolean;
   initiatorName: string;
+  /** Who asked — the pane's decision sheet leaves them out of the signers (`eligibleApprovers`). */
+  initiatorStaffId: string;
   createdAt: string;
 };
 

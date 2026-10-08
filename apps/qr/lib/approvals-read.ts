@@ -47,6 +47,7 @@ export async function readPendingApprovalFlags(cartId: string): Promise<PendingF
     amountCents: r.amount_cents,
     cooked: r.cooked,
     initiatorName: nameById.get(r.initiator_staff_id) ?? "A server",
+    initiatorStaffId: r.initiator_staff_id,
     createdAt: r.created_at,
   }));
 }

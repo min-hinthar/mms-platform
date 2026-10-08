@@ -593,6 +593,9 @@ const GUARDED: [file: string, because: string][] = [
   // (`table_number` is set ONCE under the CAS) — dismissing mid-write would hide how it ended, with
   // the same send waiting on the answer.
   ["TableBindSheet.tsx", "the chip binds the live session to a table, once, then the send runs"],
+  // PD8 — "Decide it here": the pane's centred sheet around `ApprovalDecision`, whose resolve spends
+  // one of the manager's PIN attempts and voids or comps a line on the bill.
+  ["staff/ApprovalsBoard.tsx", "the decision spends a PIN attempt and takes a dish off the bill"],
 ];
 
 /** StaffModSheet takes its busy as a PROP; the contract lives where the value is produced. */

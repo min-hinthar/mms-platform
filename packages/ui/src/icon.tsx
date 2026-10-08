@@ -56,6 +56,9 @@ import { VolumeOff } from "lucide-react";
 import { SlidersHorizontal } from "lucide-react";
 // ── Phase 2e · lang ── the language row and tile: 文A, script-free (present in lucide-react@0.562.0)
 import { Languages } from "lucide-react";
+// ── PD8 · m8 ── the raised flag: a decision waits on a manager, drawn only on the request card and
+// at Take payment (the shared vocabulary; present in lucide-react@0.562.0)
+import { Flag } from "lucide-react";
 
 /**
  * The brand icon set (W2b) — retires functional emoji-as-chrome (🔍🗑🧾🪑♥💳🔥🥡🎁🛒📍…) with a
@@ -132,6 +135,7 @@ const ICONS = {
   // ── Phase 2e · lang ── the Help sheet's Language row and the doors' Language tile. A glyph with no
   // script of its own, so it reads the same to a Burmese and an English reader.
   language: Languages,
+  flag: Flag,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

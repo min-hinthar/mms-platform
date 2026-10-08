@@ -9,9 +9,10 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("next/server", () => ({ after: () => {} }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
+let caller = { staffId: "thiri", displayName: "Thiri", role: "server" };
 vi.mock("./staff", () => ({
-  requireStaff: () => Promise.resolve({ staffId: "thiri" }),
-  getStaffAuth: () => Promise.resolve({ kind: "staff", caller: { staffId: "thiri" } }),
+  requireStaff: () => Promise.resolve(caller),
+  getStaffAuth: () => Promise.resolve({ kind: "staff", caller }),
 }));
 vi.mock("./staff-pin", () => ({
   approverStepUpAllowed: () => Promise.resolve("ok"),
@@ -60,12 +61,25 @@ beforeEach(() => {
   ];
 });
 
-describe("listApprovers — the PIN join (PD8)", () => {
-  it("marks exactly the managers with a tablet PIN", async () => {
+describe("listApprovers — the PIN join and the caller's own row (PD8)", () => {
+  beforeEach(() => {
+    caller = { staffId: "thiri", displayName: "Thiri", role: "server" };
+  });
+  it("marks exactly the managers with a tablet PIN, and carries the server caller as `self`", async () => {
     const roster = await listApprovers();
-    expect(roster.map((a) => [a.staffId, a.hasPin, a.active])).toEqual([
-      ["aye", true, true],
-      ["nu", false, true],
+    expect(roster.map((a) => [a.staffId, a.role, a.hasPin, a.active, a.self])).toEqual([
+      ["aye", "manager", true, true, false],
+      ["nu", "manager", false, true, false],
+      ["thiri", "server", false, true, true],
+    ]);
+  });
+  it("a manager caller is marked `self` on their own roster row — never listed twice", async () => {
+    caller = { staffId: "aye", displayName: "Aye", role: "manager" };
+    const roster = await listApprovers();
+    expect(roster.filter((a) => a.staffId === "aye")).toHaveLength(1);
+    expect(roster.map((a) => [a.staffId, a.self])).toEqual([
+      ["aye", true],
+      ["nu", false],
     ]);
   });
   it("a failed PIN read is an outage, never 'nobody has a PIN'", async () => {

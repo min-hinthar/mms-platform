@@ -127,6 +127,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
   return {
     sessionId: SESSION,
     settled: false,
+    pendingRequests: [],
     cartId: "cart-1",
     label: "t-7",
     tableNumber: 7,

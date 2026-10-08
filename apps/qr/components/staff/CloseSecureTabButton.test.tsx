@@ -154,7 +154,11 @@ describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 
     const { charge } = mount();
     await charge();
     // MUTATION: drop `quotedCents` — the server's compare never runs; red.
-    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4210 });
+    expect(closeSecureTab).toHaveBeenCalledWith({
+      sessionId: "s1",
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("a moved total names both figures, re-reads the page, quotes the server's figure, and the re-tap sends it", async () => {
@@ -180,7 +184,11 @@ describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.65/ }));
     });
-    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4265 });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      quotedCents: 4265,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -203,7 +211,11 @@ describe("CloseSecureTabButton — the confirm's figure is FROZEN when it opens 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$46\.10/ }));
     });
-    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4610 });
+    expect(closeSecureTab).toHaveBeenCalledWith({
+      sessionId: "s1",
+      quotedCents: 4610,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -417,7 +429,11 @@ describe("CloseSecureTabButton — a refusal's figure is settled by the page's N
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
     });
-    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4210 });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 

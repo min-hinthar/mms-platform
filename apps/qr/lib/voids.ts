@@ -29,9 +29,14 @@ import { isCounterOrder, noShowOutcome } from "./counter-order";
 export type Approver = {
   staffId: string;
   displayName: string;
-  role: "manager" | "owner";
+  /** `server` only on the caller's OWN row (`self`), which rides along for the slip's asker token;
+   *  every other row is an active manager or owner. */
+  role: "server" | "manager" | "owner";
   active: boolean;
   hasPin: boolean;
+  /** PD8 — this row is the signed-in caller: the asker of a loss request they open (D4: the asker is
+   *  always the signed-in account), left out of the signers by `eligibleApprovers`. */
+  self: boolean;
 };
 
 /**
@@ -39,10 +44,12 @@ export type Approver = {
  * Any active staff may READ this (it's colleague display names, already visible on the floor) — the
  * authority is the PIN + role check at void time, not who can see the list. PD8: joins `staff_pins`
  * (keyed `staff_id`) for `hasPin` — a FAILED pin read is an outage like a failed roster read, never
- * "nobody has a PIN" (that would promote the deferred request and tell a server nobody can sign).
+ * "nobody has a PIN" (that would promote the deferred request and tell a server nobody can sign) —
+ * and carries the CALLER's own row marked `self` (a server's too), so the slip can print "from
+ * {asker}" and leave them out of the signers without a second identity read on the client.
  */
 export async function listApprovers(): Promise<Approver[]> {
-  await requireStaff();
+  const caller = await requireStaff();
   const db = serviceClient();
   const { data, error } = await db
     .from("staff")
@@ -56,27 +63,37 @@ export async function listApprovers(): Promise<Approver[]> {
     throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
   const rows = data ?? [];
   const pinned = new Set<string>();
-  if (rows.length) {
+  {
     const { data: pins, error: pinError } = await db
       .from("staff_pins")
       .select("staff_id")
-      .in(
-        "staff_id",
-        rows.map((r) => r.user_id),
-      );
+      .in("staff_id", [...new Set([...rows.map((r) => r.user_id), caller.staffId])]);
     if (pinError)
       throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
     for (const p of pins ?? []) pinned.add(p.staff_id);
   }
-  return rows
+  const roster: Approver[] = rows
     .map((r) => ({
       staffId: r.user_id,
       displayName: r.display_name,
       role: r.role as "manager" | "owner",
       active: r.active === true,
       hasPin: pinned.has(r.user_id),
+      self: r.user_id === caller.staffId,
     }))
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
+  // A server-role caller is not a signer, so the roster read never lists them — the asker token
+  // still needs their name: one `self` row, filtered out of the signers by the role rule.
+  if (!roster.some((r) => r.self))
+    roster.push({
+      staffId: caller.staffId,
+      displayName: caller.displayName,
+      role: caller.role === "manager" || caller.role === "owner" ? caller.role : "server",
+      active: true,
+      hasPin: pinned.has(caller.staffId),
+      self: true,
+    });
+  return roster;
 }
 
 export type VoidLineResult =

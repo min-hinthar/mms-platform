@@ -8184,8 +8184,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — the sheet sends the figure the cashier READ as `quotedCents` (compare-only). Dropped, the server's compare-and-swap never runs and a moved total is recorded silently",
-    find: "      const out = await boundWrite(settleCash({ sessionId, tipCents, quotedCents: at.quoted }));\n",
-    replace: "      const out = await boundWrite(settleCash({ sessionId, tipCents }));\n",
+    find: "          quotedCents: at.quoted,\n          acknowledgedApprovalIds: at.acked,\n",
+    replace: "          acknowledgedApprovalIds: at.acked,\n",
   },
   {
     id: "p2c-register/cash-tip-chip-lit-by-string",
@@ -8277,8 +8277,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · register (P2aa) — the confirm sends the total it SHOWED as `quotedCents` (compare-only). Dropped, the server's compare never runs and the card on file is charged a total nobody read",
-    find: "      const out = await boundWrite(closeSecureTab({ sessionId, quotedCents: quoted }));\n",
-    replace: "      const out = await boundWrite(closeSecureTab({ sessionId }));\n",
+    find: "          quotedCents: quoted,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n",
+    replace: "          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n",
   },
   {
     id: "p2c-register/inflight-register-read-as-unsure",
@@ -9087,7 +9087,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — the reader's `unsent` refusal renders the dictionary sentence with the count. Folded into the server arm, it is English on a Burmese console and a second alert beside the page's region",
-    find: '          : res.code === "unsent"\n            ? { kind: "unsent", units: res.units }\n            : res.code === "unreadable"\n              ? { kind: "unreadable" }\n              : { kind: "server", text: res.error },',
+    find: '          : res.code === "unsent"\n            ? { kind: "unsent", units: res.units }\n            : res.code === "unreadable"\n              ? { kind: "unreadable" }\n              : res.code === "approval_pending"\n                ? { kind: "approvalPending", dish: res.pending[0]?.lineName ?? "" }\n                : res.code === "approval_unreadable"\n                  ? { kind: "approvalUnreadable" }\n                  : { kind: "server", text: res.error },',
     replace: '          : { kind: "server", text: res.error },',
   },
   {
@@ -17344,9 +17344,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2h (9b · fact 3) — the start's busy frees AT STAFF_HANG_MS. A bound that never fires latches 'Starting the reader…' for as long as the action queue is stuck (the W10c latch in a new shape)",
-    find: "      const out = await boundWrite(settleCard({ sessionId, startId: pending }));\n",
+    find: "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n        }),\n      );\n",
     replace:
-      "      const out = await boundWrite(settleCard({ sessionId, startId: pending }), 2 ** 31 - 1);\n",
+      "        settleCard({\n          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n        }),\n        2 ** 31 - 1,\n      );\n",
   },
   {
     id: "p2h-doors/reader-start-waiting-unsaid",
@@ -17482,8 +17482,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2h (9b · fact 3) — the close frees AT STAFF_HANG_MS. A bound that never fires holds 'Charging…' with Cancel refused for as long as the queue is stuck",
-    find: "closeSecureTab({ sessionId, quotedCents: quoted }));",
-    replace: "closeSecureTab({ sessionId, quotedCents: quoted }), 2 ** 31 - 1);",
+    find: "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n        }),\n      );",
+    replace:
+      "        closeSecureTab({\n          sessionId,\n          quotedCents: quoted,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n        }),\n        2 ** 31 - 1,\n      );",
   },
   {
     id: "p2h-doors/close-waiting-unsaid",
@@ -18762,8 +18763,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/ApprovalsBoard.tsx",
     suite: "components/staff/ApprovalsBoard.test.tsx",
     why: "Phase 2h (F1) — the waiting line and the stalled refusal say 'reload the page' with no button on a standalone console",
-    find: "          {reload && (",
-    replace: "          {false && (",
+    find: "      {reload && (",
+    replace: "      {false && (",
   },
   {
     id: "p2h-boards/approvals/late-answer-dropped",
@@ -21865,8 +21866,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Codex r3 on #310 — the start carries the pending record's token as its start id; without it the resume (which requires it) never adopts the collect this tablet began",
-    find: "      const out = await boundWrite(settleCard({ sessionId, startId: pending }));\n",
-    replace: "      const out = await boundWrite(settleCard({ sessionId }));\n",
+    find: "          sessionId,\n          startId: pending,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n",
+    replace:
+      "          sessionId,\n          acknowledgedApprovalIds: [...(acknowledgedApprovalIds ?? [])],\n",
   },
   {
     id: "p2h-cx3/provider/resume-without-start",

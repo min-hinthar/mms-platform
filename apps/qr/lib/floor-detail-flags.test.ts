@@ -145,6 +145,7 @@ const flag: PendingFlag = {
   amountCents: 1400,
   cooked: true,
   initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
   createdAt: "2026-10-08T10:05:00.000Z",
 };
 

@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { Sheet } from "@mms/ui";
+import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useResaid } from "./useResaid";
 import { listApprovers, voidLine, type VoidLineResult } from "@/lib/voids";
@@ -10,14 +10,15 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
+import { padDishName } from "@/lib/order-pad";
 import {
-  ManagerPinFields,
   PIN_NO_PIN_COPY,
   pinFailureCopy,
   useApproverRoster,
   useLockout,
   useRosterRegion,
 } from "./ManagerPinStepUp";
+import { ApprovalSlip, KindMark, litApproverId, signersFor, zeroReasonFor } from "./ApprovalSlip";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ReloadButton } from "./ReloadOffer";
@@ -40,6 +41,8 @@ type Reason =
 // localized. `quality` and `other` share one key across both actions because they share one label;
 // `guest_request` does NOT — void reads "Guest changed their mind", comp reads "Guest courtesy" —
 // so the two arms deliberately name different keys for the same code.
+// PD8 (m8 decision 6) — ONE chip says what AND why: every chip wears its column's kind mark, so
+// the two "Quality / guest unhappy" and the two "Other" chips never look alike.
 const REASONS: Record<Action, { value: Reason; k: StaffKey }[]> = {
   void: [
     { value: "mistake", k: "table.loss.reason.mistake" },
@@ -83,6 +86,10 @@ const REQUEST_KEY: Record<Action, StaffKey> = {
   void: "table.loss.requestApproval.void",
   comp: "table.loss.requestApproval.comp",
 };
+const TITLE_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.title.void",
+  comp: "table.loss.title.comp",
+};
 
 /** Phase 2h — the sentences that say "reload the page": the region says them, and the ONE reload
  *  control sits beside the region (the console is installed standalone — no browser reload). */
@@ -97,7 +104,12 @@ const RELOAD_SAYS: ReadonlySet<StaffKey> = new Set<StaffKey>([
  * the manager-PIN step-up when the server requires it. The loss gate is SERVER-authoritative — this sheet
  * shows the PIN step up-front for the clearly-gated cases (a comp, or a cooked line) and otherwise submits
  * solo, revealing the step-up only if the server returns `needs_pin` (e.g. an over-ceiling uncooked void).
- * The manager taps their name → enters their PIN (verified server-side, lockout-counted).
+ *
+ * PD8 · m8 — the asker's sheet: one chip picks what AND why (each with its column's kind mark), the
+ * consequence hint lives in the grid's reserved foot, and the step-up is THE ONE SLIP ("Thiri → Aye",
+ * then "Aye, your PIN"): only people who can sign are listed, exactly one eligible arrives lit, and the
+ * two true zero-eligible sentences replace the retired "none are signed in right now". The asker is the
+ * signed-in account (D4): the roster's `self` row, left out of the signers.
  */
 export function LossActionSheet({
   open,
@@ -138,6 +150,11 @@ export function LossActionSheet({
   // Review a (A4) — kept per LINE in the tab's own-wait register, never per mount (the line editor
   // keys every open as a fresh sheet; a re-opened one must still say the write that is out).
   const ownLate = ownWaitSlot<StaffKey | null>(`loss:${line.id}`, null);
+  // PD8 — the slip's focus targets: a chip tap on a gated line lands on the PIN (one name lit) or
+  // the first tile; a wrong PIN lands back in the emptied field.
+  const slipRef = useRef<HTMLDivElement>(null);
+  const pinRef = useRef<HTMLInputElement>(null);
+  const firstTileRef = useRef<HTMLButtonElement>(null);
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
   const cooked = line.state === "in_progress" || line.state === "served";
@@ -158,22 +175,38 @@ export function LossActionSheet({
   // or a read that answered after its bound (Codex r1 follow-up on #310, V1) — retires only that
   // sentence, putting back "a manager needs to approve" while the server's step-up is pending.
   const retryRoster = useRosterRegion(roster, msg, setMsg, stepUp);
+  // PD8 — the asker is the signed-in account: the roster's `self` row (D4, no asker-by-PIN seam).
+  const self = approvers?.find((a) => a.self) ?? null;
+  const askerId = self?.staffId ?? "";
+  const eligible = signersFor(approvers, askerId);
+  const zero = zeroReasonFor(approvers, askerId);
+  // Exactly one eligible arrives lit; the person's own tap wins while it is still eligible.
+  const lit = litApproverId(approverStaffId, eligible);
 
-  const reasonOptions = REASONS[action];
   // The reason DERIVED-valid for the current action: when the action toggles, a reason that doesn't apply
   // to it simply reads as unselected (no effect / setState-in-effect needed — it forces a fresh choice).
-  const effectiveReason = reason && reasonOptions.some((r) => r.value === reason) ? reason : "";
+  const effectiveReason = reason && REASONS[action].some((r) => r.value === reason) ? reason : "";
 
   const pinOk = pin.length >= 4 && pin.length <= 8;
   // The reason is validated inline on submit (S14), not folded into the disabled gate — a silently-dimmed
   // CTA leaves the server with no idea why. The PIN/manager completeness still gates the button visibly.
-  const canSubmit = !locked && !busy && (!showStepUp || (!!approverStaffId && pinOk));
-  // S11: no manager is signed in → the PIN path is a dead end; the deferred request becomes the primary.
-  const noManagers = approvers !== null && approvers.length === 0;
+  const canSubmit = !locked && !busy && (!showStepUp || (lit !== "" && pinOk));
+  // S11 → PD8: nobody here can sign (the two true sentences) → the deferred request is the primary.
+  const noManagers = zero !== null;
 
-  function pickReason(r: Reason) {
+  /** A chip tap: the action AND the reason in one tap; on a gated line, the slip comes into view. */
+  function pickChip(a: Action, r: Reason) {
+    setAction(a);
     setReason(r);
     setReasonInvalid(false);
+    const gated = a === "comp" || cooked || stepUp;
+    if (!gated) return;
+    const reduce =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // Optional call: jsdom has no scrollIntoView (the SettledToday precedent).
+    slipRef.current?.scrollIntoView?.({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
+    (lit !== "" ? pinRef.current : firstTileRef.current)?.focus({ preventScroll: true });
   }
 
   /**
@@ -198,6 +231,7 @@ export function LossActionSheet({
       case "pin_wrong":
       case "pin_locked":
         setMsg(pinFailureCopy(res, setLockLeft)); // S2-audit S13: shared PIN-failure copy
+        pinRef.current?.focus({ preventScroll: true }); // the emptied field takes focus
         break;
       case "pin_no_pin":
         setMsg(PIN_NO_PIN_COPY);
@@ -297,7 +331,7 @@ export function LossActionSheet({
           cartItemId: line.id,
           action,
           reason: effectiveReason,
-          ...(showStepUp ? { approverStaffId, pin } : {}),
+          ...(showStepUp ? { approverStaffId: lit, pin } : {}),
         }),
       );
       if (out.kind === "answer") {
@@ -387,6 +421,7 @@ export function LossActionSheet({
   const said = useResaid(msg);
   const reload =
     typeof shown === "object" && shown !== null && "k" in shown && RELOAD_SAYS.has(shown.k);
+  const dish = padDishName(lang, line.name, line.nameMy);
   return (
     // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
     // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
@@ -400,121 +435,131 @@ export function LossActionSheet({
       onOpenChange={onOpenChange}
       busy={busy}
       closeLabel={sheetCloseLabel(lang)}
-      // manager-6 / P2t — the dictionary's title, marked (`Sheet.title` is a ReactNode, and the
-      // refund sheet beside this one already passes <Chrome>); the comment that kept it an English
-      // literal claimed a `string` prop the primitive had stopped having.
+      // manager-6 / P2t — the dictionary's title, marked (`Sheet.title` is a ReactNode). PD8: each
+      // tongue takes its own dish name (`varsMy`), and before a chip is lit the title is the dish.
       title={
-        <Chrome
-          lang={lang}
-          k={action === "comp" ? "table.loss.title.comp" : "table.loss.title.void"}
-          vars={{ x: line.name }}
-        />
+        effectiveReason ? (
+          <Chrome
+            lang={lang}
+            k={TITLE_KEY[action]}
+            vars={{ x: line.name }}
+            varsMy={line.nameMy ? { x: line.nameMy } : undefined}
+          />
+        ) : (
+          <>
+            <span lang={dish.lead.lang === lang && lang === "en" ? undefined : dish.lead.lang}>
+              {dish.lead.text}
+            </span>
+            {dish.echo && (
+              <>
+                {" · "}
+                <span lang={dish.echo.lang}>{dish.echo.text}</span>
+              </>
+            )}
+          </>
+        )
       }
     >
       <form onSubmit={submit} style={{ marginTop: 8 }} noValidate>
+        {/* The summary, a receipt row on one baseline: qty × dish · cooked · a leader · the price. */}
         <p style={lineSummary}>
-          {line.qty}× {line.name} · {fmt(line.unitPriceCents * line.qty)}
+          <span>
+            {line.qty}× {line.name}
+          </span>
           {cooked && (
-            <span style={{ color: "var(--t2)" }}>
-              {" · "}
-              <Chrome lang={lang} k="table.loss.cooking" />
+            <span
+              style={{ color: "var(--t2)", display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <Icon name="flame" size={14} aria-hidden />
+              <Chrome lang={lang} k="table.loss.cooking" echo="inline" />
             </span>
           )}
+          <span className="settle-flag-leader" aria-hidden />
+          <span style={price}>{fmt(line.unitPriceCents * line.qty)}</span>
         </p>
 
-        {/* Action: void vs comp. role="group" + aria-pressed toggle buttons (the app's segmented-control
-            convention — not role="radio", which would promise arrow-key roving this doesn't implement).
-            manager-7: `.staff-chip` — the chosen half wears the console's ONE lit cap through the shared
-            pressed rule, never an inline accent fill of its own (K29's second vocabulary). */}
-        <div role="group" aria-label={sx(lang, "table.loss.a11y.action")} style={seg}>
-          {(["void", "comp"] as Action[]).map((a) => {
-            const on = action === a;
-            return (
-              <button
-                className="staff-btn staff-chip staff-chip-seg"
-                key={a}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setAction(a)}
+        {/* ONE chip = what + why: two columns, each headed by its kind mark and the shipped segment
+            word, every chip wearing the column's mark at 18px. `aria-pressed` buttons (the app's
+            segmented-control convention), the lit one on the console's ONE cap through the shared
+            `.staff-chip[aria-pressed]` rule — never an inline fill. */}
+        <div role="group" aria-label={sx(lang, "table.loss.a11y.action")} className="loss-grid">
+          {(["void", "comp"] as Action[]).map((a) => (
+            <div key={a}>
+              <div id={`loss-col-${a}`} className="loss-col-head">
+                <KindMark kind={a} size="md" />
+                <Chrome lang={lang} k={SEG_KEY[a]} echo="stack" />
+              </div>
+              <div
+                role="group"
+                aria-labelledby={`loss-col-${a}`}
+                aria-describedby={
+                  effectiveReason ? "loss-hint" : reasonInvalid ? "loss-reason-err" : undefined
+                }
+                className="loss-chips"
               >
-                {/* No echo: two 44px aria-pressed pills sharing one row, the same shape as the KDS
-                    station chips. The hint below states the chosen action in full, bilingually. */}
-                <Chrome lang={lang} k={SEG_KEY[a]} />
-              </button>
-            );
-          })}
+                {REASONS[a].map((r) => {
+                  const on = action === a && effectiveReason === r.value;
+                  return (
+                    <button
+                      className="staff-btn staff-chip staff-chip-block loss-chip"
+                      key={`${a}-${r.value}`}
+                      type="button"
+                      aria-pressed={on}
+                      aria-invalid={reasonInvalid || undefined}
+                      onClick={() => pickChip(a, r.value)}
+                    >
+                      <KindMark kind={a} size="sm" />
+                      <Chrome lang={lang} k={r.k} echo="stack" />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
-        <p style={hint}>
-          <Chrome lang={lang} k={HINT_KEY[action]} echo="stack" />
+        {/* THE CONSEQUENCE HINT — reserved at all times so nothing jumps when it fills (decision 7). */}
+        <p id="loss-hint" className="loss-hint">
+          {effectiveReason && <Chrome lang={lang} k={HINT_KEY[action]} echo="stack" />}
         </p>
-
-        {/* Reason — required, server-audited. Inline-validated on submit (S14): aria-invalid + a visible
-            note when they try to confirm without picking one, rather than a silently-dimmed CTA. */}
-        <fieldset style={fieldset}>
-          <legend style={legend}>
-            <Chrome lang={lang} k="table.loss.reasonLegend" echo="stack" />
-          </legend>
-          <div
-            role="group"
-            aria-label={sx(lang, "table.loss.a11y.reason")}
-            aria-describedby={reasonInvalid ? "loss-reason-err" : undefined}
-            style={{ display: "grid", gap: 6 }}
+        {reasonInvalid && (
+          <p
+            id="loss-reason-err"
+            style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
           >
-            {reasonOptions.map((r) => {
-              const on = effectiveReason === r.value;
-              // Inline echo, not stacked: six full-width rows, and a stacked pair would roughly
-              // double the height of the list a cook scans with both hands full.
-              return (
-                <button
-                  className="staff-btn staff-chip staff-chip-block"
-                  key={r.value}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => pickReason(r.value)}
-                  style={reasonInvalid ? { borderColor: "var(--warn)" } : undefined}
-                >
-                  <Chrome lang={lang} k={r.k} echo="inline" />
-                </button>
-              );
-            })}
-          </div>
-          {reasonInvalid && (
-            <p
-              id="loss-reason-err"
-              style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
-            >
-              {/* No echo: this element is the `aria-describedby` target of the reason group, and a
-                  computed description is its full text — a pair would say everything twice, the
-                  same reason live regions take no echo. */}
-              <Chrome lang={lang} k="table.loss.reasonRequired" />
-            </p>
-          )}
-        </fieldset>
+            {/* No echo: this element is the `aria-describedby` target of the reason groups, and a
+                computed description is its full text — a pair would say everything twice. */}
+            <Chrome lang={lang} k="table.loss.reasonRequired" />
+          </p>
+        )}
 
-        {/* Manager step-up — shown for a comp / cooked void up-front, or after the server asks for it.
-            The select/PIN + the empty-roster note live in the shared <ManagerPinFields> (S13). */}
+        {/* THE ONE SLIP — shown for a comp / cooked void up-front, or after the server asks for it. */}
         {showStepUp && (
-          <fieldset style={fieldset}>
-            <legend style={legend}>
-              <Chrome lang={lang} k="table.loss.managerLegend" echo="stack" />
-            </legend>
-            <ManagerPinFields
+          <div ref={slipRef} style={{ marginTop: 12 }}>
+            <ApprovalSlip
               idPrefix="loss"
-              approvers={approvers}
-              approverStaffId={approverStaffId}
-              onApproverChange={setApproverStaffId}
-              pin={pin}
-              onPinChange={setPin}
-              locked={locked}
+              askerName={self?.displayName ?? ""}
+              eligible={eligible}
+              zero={zero}
+              zeroTail={<Chrome lang={lang} k="pin.sendToQueue" echo="stack" />}
               rosterFailed={roster.failed}
               retrying={roster.retrying}
               onRetry={retryRoster}
+              lit={lit}
+              onPick={(id) => {
+                setApproverStaffId(id);
+                pinRef.current?.focus({ preventScroll: true });
+              }}
+              pin={pin}
+              onPinChange={setPin}
+              locked={locked}
+              pinRef={pinRef}
+              firstTileRef={firstTileRef}
             />
-          </fieldset>
+          </div>
         )}
 
-        {/* S11: with no manager signed in the PIN path can't complete, so the deferred request becomes the
-            primary action; otherwise the PIN confirm leads and the request is the secondary "no manager?" out. */}
+        {/* Nobody here can sign → the deferred request is the primary action (and the secondary is not
+            drawn); otherwise the PIN confirm leads and the request is the "no manager?" way out. */}
         {showStepUp && noManagers ? (
           <button
             className="staff-btn"
@@ -589,21 +634,20 @@ export function LossActionSheet({
 const reloadRow: CSSProperties = { marginTop: "var(--s2)" };
 const lineSummary: CSSProperties = {
   margin: "0 0 14px",
+  display: "flex",
+  alignItems: "baseline",
+  gap: 10,
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-semibold)",
 };
-const seg: CSSProperties = { display: "flex", gap: 6, marginBottom: 8 };
-const hint: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-sm)", color: "var(--t2)" };
-const fieldset: CSSProperties = { border: "none", padding: 0, margin: "12px 0 0" };
-const legend: CSSProperties = {
-  padding: 0,
-  fontSize: "var(--fs-sm)",
-  fontWeight: "var(--fw-bold)",
-  marginBottom: 8,
+const price: CSSProperties = {
+  fontSize: "var(--fs-body)",
+  fontWeight: "var(--fw-heavy)",
+  fontVariantNumeric: "tabular-nums",
 };
 const primaryBtn: CSSProperties = {
   width: "100%",
-  minHeight: 48,
+  minHeight: 64,
   marginTop: 16,
   border: "none",
   borderRadius: "var(--r-full)",
@@ -615,12 +659,12 @@ const primaryBtn: CSSProperties = {
 };
 const secondaryBtn: CSSProperties = {
   width: "100%",
-  minHeight: 44,
+  minHeight: 54,
   marginTop: 8,
   borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
-  color: "var(--ac)",
+  color: "var(--tx)",
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-bold)",
   cursor: "pointer",
