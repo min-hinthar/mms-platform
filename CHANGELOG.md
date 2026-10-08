@@ -4,6 +4,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A mutant that survived only sometimes: the bind suite reads the region's history (2026-10-08)
+
+- **Main went red on its first sharded run.** `verify-slice` on the push of `d9614ae` (#320's merge)
+  scored `checkout-bind/stale-refusal-said` SURVIVED. The same mutant was CAUGHT on both PR runs of
+  the same tree. A guard that catches its mutant only on some runs is a suite defect, not a flake.
+- **Why it can race (mechanism not reproduced locally):** the two stale-refusal tests in
+  `Checkout.bind.test.tsx` read the region at fixed moments around the sheet's close edge.
+  - `onBindClosed` rides Radix FocusScope's unmount autofocus, which fires on a `setTimeout`.
+  - A stale sentence said between two reads, then replaced by the send's line, was never sampled.
+  - Locally the mutant was caught 35/35 times, including on one contended CPU, and under close edges
+    delayed 0-40 ms. So the CI interleaving is inferred, not demonstrated.
+- **The fix removes the dependence on the interleaving:**
+  - Both tests wait for the close edge's own effect (focus landing on the pending Send, which
+    `onBindClosed` does after it says the stash), then flush React before the first read.
+  - Each asserts against every text the region held (`recordRegion`, a MutationObserver), not one
+    sample.
+  - Red-first: both mutants are caught under every delayed close edge, and the real code stays green
+    under the same delays.
+  - All 33 `checkout-bind/` and `send-button/` mutants (the suite owns 10 of them) are CAUGHT through
+    `verify:slice`.
+
 ### The merge gate fits in 30 minutes: `verify:slice` sharded in CI, CI split into lanes (2026-10-08)
 
 - **The owner's budget (2026-10-08):** _"verify:slice should not take this long ... we can't take more

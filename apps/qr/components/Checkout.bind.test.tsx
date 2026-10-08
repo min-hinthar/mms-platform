@@ -167,6 +167,48 @@ function regionText(): string {
     .join(" | ");
 }
 
+/**
+ * Every text the region held from the call until `heard()` — a sentence said and then replaced is
+ * still a sentence the reader heard. Reading the region at MOMENTS raced the close edge: the sheet's
+ * `onClosed` rides Radix FocusScope's unmount autofocus, which fires on a `setTimeout`
+ * (`@radix-ui/react-focus-scope`), so a stale sentence could be said AFTER the "not said" read and
+ * replaced by the send's line BEFORE the next one. `checkout-bind/stale-refusal-said` SURVIVED that
+ * way on main's push run of d9614ae (2026-10-08) after being CAUGHT on two PR runs of the same tree.
+ */
+function recordRegion(): () => string {
+  const heard: string[] = [regionText()];
+  const mo = new MutationObserver((records) => {
+    for (const r of records) {
+      const el = r.target instanceof Element ? r.target : r.target.parentElement;
+      if (r.type === "characterData" && r.oldValue && el?.closest('[role="status"]'))
+        heard.push(r.oldValue);
+    }
+    heard.push(regionText());
+  });
+  mo.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    characterDataOldValue: true,
+  });
+  return () => {
+    heard.push(regionText());
+    mo.disconnect();
+    return heard.join(" ‖ ");
+  };
+}
+
+/** The close edge has RUN: `onBindClosed` says the stash and THEN lands focus on the Send (still
+ *  "Sending…" while the send is out), so focus there means the stash was already said; the empty
+ *  `act` then commits what it said. Read the region only after this. */
+async function closeEdgeDone() {
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /^Sending…/ })),
+  );
+  await act(async () => {});
+}
+
 function mount(props: Partial<Parameters<typeof Checkout>[0]> = {}) {
   window.history.replaceState(null, "", "/cart?cart=cart-1");
   return render(
@@ -448,31 +490,35 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
       .mockResolvedValueOnce({ ok: false, reason: "seated" })
       .mockResolvedValueOnce({ ok: true, tableNumber: 8, already: false });
     mount({ tables: [...TABLES, { tableNumber: 8, occupied: false }] });
+    const heard = recordRegion();
     const dialog = await askTable();
     await act(async () => {
       fireEvent.click(chip(5));
     });
     expect(dialog.textContent).toContain(BIND_COPY.seated);
-    // Deterministic under reduced motion: the close edge precedes the send's answer.
+    // The close edge is awaited (closeEdgeDone) before the send answers, so the order is fixed.
     const sending = deferred<typeof SENT>();
     h.sendToKitchen.mockReturnValue(sending.promise);
     h.getCartView.mockResolvedValue(view({ items: [FIRED], tableNumber: 8 }));
     await act(async () => {
       fireEvent.click(chip(8)); // another open chip — the bind lands now (5 is a join disclosure)
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await closeEdgeDone();
     expect(regionText()).not.toContain(BIND_COPY.seated);
     await act(async () => {
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    expect(regionText()).not.toContain(BIND_COPY.seated);
+    // MUTATION (checkout-bind/stale-refusal-said): the ok edge keeps the stash, so the close says the
+    // `seated` refusal — at any moment, which is why the HISTORY is read, not one sample.
+    expect(heard()).not.toContain(BIND_COPY.seated);
   });
 
   it("a refusal followed by 'Send anyway' in one open: the stale refusal is never said", async () => {
     h.bindTable.mockReset(); // a `mockResolvedValueOnce` queue survives clearAllMocks
     h.bindTable.mockResolvedValue({ ok: false, reason: "unavailable" });
     mount();
+    const heard = recordRegion();
     const dialog = await askTable();
     await act(async () => {
       fireEvent.click(chip(5));
@@ -484,13 +530,14 @@ describe("3c-ii (D28) — every refusal names its way out, said after the sheet"
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: BIND_COPY.sendAnyway }));
     });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await closeEdgeDone();
     expect(regionText()).not.toContain(BIND_COPY.unavailable);
     await act(async () => {
       sending.resolve(SENT);
     });
     await waitFor(() => expect(regionText()).toContain("Sent to the kitchen — 1 item on the way."));
-    expect(regionText()).not.toContain(BIND_COPY.unavailable);
+    // MUTATION (checkout-bind/send-anyway-says-the-stale-refusal): the same race, the same history.
+    expect(heard()).not.toContain(BIND_COPY.unavailable);
   });
 
   it("the SEND edge lands focus on the Send itself while the send is still out — and keeps it there when the send then FAILS", async () => {

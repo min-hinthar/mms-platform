@@ -3787,3 +3787,21 @@ put a gate that cannot fit the budget where it can run in parallel (separate CI 
 own checkout) rather than asking a session to sit through it; and score a guard's success only on the
 evidence it was built for — here, exit 1 plus a report counting a failed test or suite — with timeouts and
 infrastructure failures as their own failing verdicts, never as passes.
+
+## #248
+
+**A mutant that SURVIVES on one run and is CAUGHT on another, on the same tree, is a suite that reads
+at moments (2026-10-08, the first sharded `verify-slice` on main).** `checkout-bind/stale-refusal-said`
+was CAUGHT twice on #320's PR runs and SURVIVED on main's push run of the identical tree. Its tests
+asserted that a stale sentence was "not said" right after a sheet closed, then again after the next
+sentence. The close edge rides a library timer (Radix FocusScope's unmount autofocus), so a sentence
+said between the two reads and replaced before the second was never seen. It could not be reproduced
+locally (35/35 caught), and the fix did not need it to be:
+
+- synchronize on the event's own effect (here, the focus landing that follows the stash being said),
+  never on the DOM node disappearing;
+- for a "never said" claim, assert against the region's HISTORY (a MutationObserver recording every
+  text), not a sample.
+
+Never re-run a red `verify-slice` hoping for green. A second run that passes proves the guard is
+nondeterministic, which is the defect. Fix the read, red-first under shifted timing.
