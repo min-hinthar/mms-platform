@@ -67,10 +67,10 @@ Smallest slice that takes one real test charge end-to-end (solo Scan & Go). **No
 
 **Exit:** two phones at one table order together; only members read/mutate; host lock holds; each guest can settle their own share.
 
-## ✅ M4 — Rewards & account &nbsp;`milestone:M4`
+## ⬜ M4 — Rewards & account &nbsp;`milestone:M4`
 
 - **P4.1** Morning Star Rewards (QR-local; mirrors delivery's tiers/Stars so M5 unifies without a rename) — account upgrade (email OTP / Google, same anon uid), earn-on-fulfillment, tier ladder + Stars + reward wallet. ✅ (`docs/M4_DESIGN.md`; redemption + history → P4.2)
-- **P4.2** Reward **redemption** ✅ · **order history** ✅ · **split-tender earn** ✅ (host-of-record earns the split order). Deferred w/ documented blockers (`docs/M4_DESIGN.md`): reorder ⬜ (lines store modifier _labels_ not _ids_ → can't re-price faithfully; needs option-id capture first) · settings theme/lang ⬜ (OS theme + bilingual menu already cover it; real lang = i18n initiative) · refund-recede ⬜ (blocked on S4.3 refund infra)
+- **P4.2** Reward **redemption** ✅ · **order history** ✅ · **split-tender earn** ✅ (host-of-record earns the split order). Deferred w/ documented blockers (`docs/M4_DESIGN.md`): reorder — shipped 2026-08-15 as "M3 Faithful reorder" (W-era list below: option ids captured, re-priced by stored id) · settings theme/lang ⬜ (OS theme + bilingual menu already cover it; real lang = i18n initiative) · refund-recede ⬜ (blocked on S4.3 refund infra)
 - **P4.3** Feedback + **ungated** review triage ✅ — post-order rating + comment on /track; the public Google link is offered to **every** rater (never gated by score); low ratings flagged for staff recovery on a manager `/staff/feedback` queue. (`docs/M4_DESIGN.md` R9/R10)
 
 **Exit:** gems earned on QR orders appear in the shared ledger; reorder preserves modifiers.
