@@ -100,18 +100,18 @@ const CRITIC_SCHEMA = {
   required: ["verdict", "blocking", "suggestions"],
 };
 
-const COMMON = `Context: Mandalay Morning Star (a small family restaurant + grocery; Mom cooks, Dad runs the counter; Burmese-first parents; regulars invited by name) is refining its QR app's diner and staff paths. Repo root: /home/user/mms-platform (read-only for you: never edit, never git). A design pass drew THREE concepts per moment (quiet / guided / glanceable); the owner has now PICKED. Your files live under ${BRIEF} (briefs, judges' notes, RULES.md) and the existing concept artboards under ${PROJ} (files named mN-quiet-1.dc.html, mN-glance-2.dc.html, …).
+const EXAMPLE_COMMON = `Context: Mandalay Morning Star (a small family restaurant + grocery; Mom cooks, Dad runs the counter; Burmese-first parents; regulars invited by name) is refining its QR app's diner and staff paths. Repo root: /home/user/mms-platform (read-only for you: never edit, never git). A design pass drew THREE concepts per moment (quiet / guided / glanceable); the owner has now PICKED. Your files live under ${BRIEF} (briefs, judges' notes, RULES.md) and the existing concept artboards under ${PROJ} (files named mN-quiet-1.dc.html, mN-glance-2.dc.html, …).
 
 THE OWNER'S ANSWERS (binding):
 1. Direction (the owner, verbatim: "I prefer diner moments guided and staff moments glanceable. I actually love all 3 directions but could be more enhanced, elevated, world-class design-thinking"): diner phone moments 1–4 are GUIDED; staff tablet moments 5–8 are GLANCEABLE. The picked angle is the BACKBONE, not the whole answer — the owner loves all three, so ELEVATE: graft the best of the other two angles into it (quiet's restraint — the fewest new claims, reuse of words the family already reads on the console; glanceable's arm's-length shape language and its one moment of delight; guided's spoken next step), and fix every weakness the judges named for the backbone (read their score notes — e.g. guided's counts on a shared cart, cards above the food, a second step vocabulary, a step rail for a one-step task; glanceable's nagging marks and louder-than-Late slabs). Then push it to WORLD CLASS: ask what the best hospitality and retail products in the world do at this exact moment (a great maître d', a Japanese ticket-and-token counter, a boarding pass in a wallet, a great KDS) and bring the essence of that — within this family's real constraints (Burmese-first parents, a small room, one counter, no new hardware, no fabricated promises).
-2. Moment 2: until live card keys are switched on (OPEN-ITEMS C1), the dine-in Bill shows ONLY "Pay at the counter" — no phone card button.
+2. Moment 2: until live card keys are switched on (OPEN-ITEMS C2), the dine-in Bill shows ONLY "Pay at the counter" — no phone card button.
 3. Moment 1: a guest whose dish waits on the host's Send gets the words ("our staff can send it too") PLUS a big "Show a server" card (Table 7 and the waiting dishes in both languages, for Dad to read from the counter) PLUS a quiet nudge to the host's phone ("Let Aye know" — the guest taps it; the host's phone shows a quiet, silent, non-blocking line; host-only Send stays enforced on the server).
 4. Moment 8: if a dish still waits for a manager when the guest is ready to pay, staff see a warning and MAY take payment anyway (the dish stays charged; a later approval becomes a refund) — they are never blocked.
 DEFAULTS the owner did not override (apply them): moment 3 — "I'm here" can be tapped any time on the pickup day, with a 6-second undo; moment 4 — the miss says "Or ask at the counter"; moment 6 — the paid card's big button is "Back to the counter" (Dad keeps hearing the bell), a Walk-up shortcut may sit beside it only as a secondary; moment 7 — clearing an unpaid table whose food went to the kitchen takes one extra tap that first shows the dishes and the loss, then a 6-second Undo; moment 5 — the round is labelled with its number ("အလှည့် 2 / Round 2"), drawn glanceably but never louder than a Late ticket.
 
 STANDING RULES (from CLAUDE.md / DESIGN-LANGUAGE.md — honour all): amounts never optimistic and always server-derived; never a count on a SHARED (dine-in) cart; one hero verb per state (one primary, everything else secondary); copy promises only what the code keeps (no fabricated ETAs, counts, or hours — there are NO business hours anywhere); bilingual on one surface with English leading on diner screens and Burmese-first on staff screens; never invent Burmese — reuse shipped strings (apps/qr/i18n/*, apps/qr/lib/*copy*.ts) or the briefs' drafts, else leave it English-only and list it; ≥44px targets, one live region per view, reduced-motion escort on any animation; tokens not hardcoded colours; glass is Night-only; KDS and TV board are Night-forced.`;
 
-const MOMENTS = [
+const EXAMPLE_MOMENTS = [
   {
     id: "m1",
     name: "A tablemate adds a dish, and it waits on someone else's Send",
@@ -177,6 +177,17 @@ const MOMENTS = [
     plan: '(1) the asker\'s sheet: one chip picks what and why, the picker lists only people who can sign; (2) the manager deciding: their name pre-picked, PIN, Approve / Deny; (3) Take payment with a flag still up: the warning names the consequence and "Take payment anyway" stays possible beside "Decide it here".',
   },
 ];
+
+// EXAMPLE_COMMON and EXAMPLE_MOMENTS are the 2026-10-07 run's values: an example of the SHAPE only.
+// A new round passes its own owner answers and picked moments; the example runs only on
+// args.useExample, so a stale round can never be regenerated by accident (Codex round 4 on #319).
+const COMMON = A.useExample ? EXAMPLE_COMMON : A.common;
+const MOMENTS = A.useExample ? EXAMPLE_MOMENTS : A.moments;
+if (!COMMON || !Array.isArray(MOMENTS) || MOMENTS.length === 0) {
+  throw new Error(
+    "2-refine needs args.common (the owner's answers, the defaults and the standing rules) and args.moments (the picked moments, shaped like EXAMPLE_MOMENTS)",
+  );
+}
 
 phase("Synthesize");
 const specs = await parallel(

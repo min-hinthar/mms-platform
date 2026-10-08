@@ -35,4 +35,8 @@ phase('Audit')
 const results = await parallel(LENSES.map(l => () =>
   agent(`${BASE} ${l.text}`, { label: `audit:${l.key}`, phase: 'Audit', schema: FINDINGS, agentType: 'adversarial-auditor' })
     .then(r => r && { lens: l.key, ...r })))
-return results.filter(Boolean)
+// Every declared lens must report: a pass that silently lost its money auditor is not a three-lens
+// pass (Codex round 4 on #319). Re-run the workflow; finished lenses replay from cache.
+const missing = LENSES.filter((_, i) => !results[i]).map((l) => l.key)
+if (missing.length) throw new Error(`blind review incomplete, no result from: ${missing.join(', ')}`)
+return results

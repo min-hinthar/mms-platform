@@ -158,4 +158,9 @@ CONCEPTS: ${JSON.stringify((concepts || []).filter(Boolean))}`, { label: `judge:
     .then(j => ({ moment: m, concepts: (concepts || []).filter(Boolean), judgement: j })),
 )
 
-return { visual, maps: mapsOk, picked, results: results.filter(Boolean) }
+// This returns concepts and judgements only; it draws nothing. Next: save this return value as JSON,
+// run 1a-briefs.py on it to write brief-<id>.md per moment, then 1b-draw.workflow.js to draw the
+// artboards onto the canvas (Codex round 4 on #319). Fail loudly if a moment lost its judges.
+const judged = results.filter(Boolean)
+if (judged.length !== moments.length) throw new Error(`diverge incomplete: ${judged.length}/${moments.length} moments judged`)
+return { visual, maps: mapsOk, picked, results: judged }

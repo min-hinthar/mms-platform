@@ -67,14 +67,11 @@ watch subscription can fail (`mint_failed`): never claim to be watching unless t
 **Workflows** (ultracode, or the owner asking). Templates from the 2026-10-07 run, parameterized by
 `args` (`brief` = the brief dir, `proj` = the canvas `project/` dir, `lens` = the design-lens brief):
 
-- [`templates/1-diverge.workflow.js`](templates/1-diverge.workflow.js) — map paths → pick moments →
-  three concepts per moment → judges.
-- [`templates/2-refine.workflow.js`](templates/2-refine.workflow.js) — synthesize → consistency →
-  critique → draw.
+- [`templates/1-diverge.workflow.js`](templates/1-diverge.workflow.js) — map paths → pick moments → three concepts per moment → judges. It draws nothing: save its return value as JSON, run [`templates/1a-briefs.py`](templates/1a-briefs.py) on it (one `brief-<id>.md` per moment), then [`templates/1b-draw.workflow.js`](templates/1b-draw.workflow.js) draws the artboards.
+- [`templates/2-refine.workflow.js`](templates/2-refine.workflow.js) — synthesize → consistency → critique → draw. Pass the round's own `args.common` (owner answers, defaults, rules) and `args.moments`; the 2026-10-07 values inside are an example and run only on `args.useExample`.
 - [`templates/3-refresh-in-place.workflow.js`](templates/3-refresh-in-place.workflow.js) — one agent per
   moment edits existing artboards to a later round's amendments.
-- [`templates/4-blind-review.workflow.js`](templates/4-blind-review.workflow.js) — the capped blind
-  pass: three lenses, one `adversarial-auditor` each, bundle only.
+- [`templates/4-blind-review.workflow.js`](templates/4-blind-review.workflow.js) — the capped blind pass: three lenses, one `adversarial-auditor` each, bundle only. It fails unless every lens reports.
 
 Generation workflows (diverge, refine, draw, refresh) are not review rounds and may fan out (one agent
 per moment per direction). The REVIEW stays under CLAUDE.md's HARD CAP: one blind pass, ≤3 lenses,

@@ -1091,3 +1091,12 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    to the kitchen first (More ⋯) — Pay opens once everything’s served.", pointing at the shipped "Send
    to kitchen now". Its row keeps the shipped "Not sent yet — goes to the kitchen when you pay", which
    stays true at the counter. The head reads Served only when nothing holds the door.
+
+### F · Codex round 4 (2026-10-08) — these win over everything above
+
+1. **The door waits out Mom's undo window on the server too** (Codex round 4). A Bill that mounts or
+   returns to the foreground inside the 6 seconds after Mom's last bump would otherwise draw the door
+   open, and create-intent would accept the `served` rows while Mom can still undo. So D5's verdict
+   counts a line as served only once its `bumped_at` is at least `KDS_UNDO_MS` old on the DB clock (the
+   TV board's rule, m9), the pass read carries that verdict rather than raw `served`, and "A door already
+   open on mount is drawn open" applies only to a door the server already opened.

@@ -1069,3 +1069,10 @@ The round-3 consistency pass gave this moment these changes:
 ### E · Codex round 3 (2026-10-08) — these win over everything above
 
 1. **The slip freezes with the quote.** The tray's item slip renders the same frozen snapshot as the DUE figure, never the live cart. When the live cart diverges (a colleague's add, a void, a manager decision), the slip gains one line, "The order changed — tap to update" (English; MY to K15), and Take is disabled until Dad re-quotes. Cash is never collected against a screen whose items and total disagree; the server's moved refusal stays the backstop, not the first notice. This supersedes section C's "consider freezing the slip".
+
+### F · Codex round 4 (2026-10-08) — these win over everything above
+
+1. **A settle with no tender has its own honest seal.** When Dad leaves GAVE empty and taps Take,
+   `tenderedCents` is null, so the seal shows the paid total and "Paid · ရှင်းပြီး" with no Change and
+   no Cash received (the server card already omits both when tender is null). Change becomes the hero
+   only when a tender was entered. A component case pins both seals.

@@ -11,7 +11,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   diverge three directions on a canvas, ask the owner once, refine with a consistency pass and a critic,
   record, blind pass, Codex, merge on the owner's go. It carries the artboard rules and the four workflow
   templates. CLAUDE.md and WORKFLOW.md point to it; HANDOFF's top block hands the build to the next
-  session; LEARNINGS #246 records the review lessons.
+  session; LEARNINGS #246 records the review lessons. Codex's fourth round made the templates take each round's own inputs, fail when a lens or a moment is missing, and gain the brief and draw steps; it also made "served" wait out Mom's undo window on the server, kept the TV's tables, dishes and to-go rows stable, gave a no-tender cash settle an honest seal, and put `lib/kitchen-track.ts` with kitchen-ops in the handoff.
 
 - **The owner picked a direction for eight diner and staff moments:** diner moments guided, staff moments
   glanceable, each "more enhanced, elevated, world-class". The record is the new

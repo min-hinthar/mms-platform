@@ -24,9 +24,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > 1. **guards-style's token-only PR:** `--fs-pass`, `--till-fs-hand` and the `--pass-*` constant inks in
 >    `packages/ui/src/tokens.css` (D1(c)). No money path, no migration.
-> 2. **post-pay's primitives:** the one CounterPass and the kitchen track, with `lib/kitchen-track.ts` as
->    the one stage derivation (ONE PASS · ONE KITCHEN TRACK), and `KDS_UNDO_MS` moved to `lib/`.
-> 3. **PD5's re-key** (kitchen-ops), then PD1–PD8 by their streams, then the TV board (PD9) and the live
+> 2. **post-pay's primitives:** the one CounterPass and the kitchen-track UI (ONE PASS · ONE KITCHEN
+>    TRACK), rendering a stage they are handed.
+> 3. **PD5's re-key with `lib/kitchen-track.ts`** (kitchen-ops): the one stage derivation, and
+>    `KDS_UNDO_MS` moved to `lib/`. Then PD1–PD8 by their streams, then the TV board (PD9) and the live
 >    pass (PD10), then the guides last (PD11, PD12), each after every control it teaches.
 > 4. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first; the D5 served gate (PD10)
 >    is built behind it; the flip is its own PR after C2 and ENV step 7, never earlier.

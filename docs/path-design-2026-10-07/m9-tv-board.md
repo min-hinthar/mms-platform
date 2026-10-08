@@ -1051,3 +1051,17 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
 ### E · Codex round 3 (2026-10-08) — these win over everything above
 
 1. **Kiosk pickup guests must see their code before the board drops names.** The kiosk handoff shows only "Pay at the counter — we’ll call your name" (`KioskOrderFlow.tsx:248-251`; `lib/kiosk/strings.ts`) and never the board code. The kiosk is parked (`SURFACES.kiosk = false`, C20), so no kiosk order reaches the wall today; reopening it now requires the handoff to print the order's board code (the same UUID-tail code the wall shows). This joins C20's reopen prerequisites. Phone pickup guests already hold the code on their claim ticket (m3).
+
+### F · Codex round 4 (2026-10-08) — these win over everything above
+
+1. **Group by name AND fulfillment.** One settlement can fire the same dish as both dine-in and to-go,
+   and `BoardDish` carries one `togo` flag, so the row key is (round, snapshot name, fulfillment): the
+   to-go bowl gets its own row with the to-go tag, and a dine-in row never borrows it.
+2. **Columns come from the sorted index, never from card heights.** `column-fill: balance` re-breaks
+   the columns when a pass collapses, moving later tables to the other side. The wall puts the first
+   ⌈n/2⌉ tables (by number) in the left column and the rest in the right, a two-column grid whose
+   membership never depends on height, so a status change never moves a table.
+3. **A live round keeps every dish.** The read's `bumped_at >= passFloor` cutoff would drop a dish
+   served long before its round finishes. So after the line read, a second bounded read fetches every
+   line of each live `fire_batch` (any line not served) regardless of `bumped_at`, and the shaper sees
+   the whole round until its last dish is up.
