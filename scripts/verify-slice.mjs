@@ -20680,11 +20680,12 @@ const MUTANTS = [
   },
   {
     id: "p2h-cx1/loss/late-load-no-focus",
-    file: "apps/qr/components/staff/ManagerPinStepUp.tsx",
+    // PD8 re-anchored: the loss sheet renders the ONE SLIP now, so the rule lives in ApprovalSlip.
+    file: "apps/qr/components/staff/ApprovalSlip.tsx",
     suite: "components/staff/LossActionSheet.test.tsx",
-    why: "Codex r1 follow-up on #310 (V2) — inside the loss sheet's dialog the vanished Try again's focus lands on the picker, not the dialog the focus trap falls back to",
-    find: "    if (!rosterFailed && (focusPicker.current || retryHadFocus.current)) {\n",
-    replace: "    if (!rosterFailed && focusPicker.current) {\n",
+    why: "Codex r1 follow-up on #310 (V2) — inside the loss sheet's dialog the vanished Try again's focus lands on the PIN (the lit signer's), not the dialog the focus trap falls back to",
+    find: "    if (rosterFailed || !(focusPicker.current || retryHadFocus.current)) return;\n",
+    replace: "    if (rosterFailed || !focusPicker.current) return;\n",
   },
   {
     id: "p2h-cx1/no-show/late-load-no-focus",

@@ -452,6 +452,7 @@ describe("TerminalSettleButton — a start a reload strands is resumed (Codex r2
     expect(settleCard).toHaveBeenCalledWith({
       sessionId: "s1",
       startId: (seen[0] as { token: string }).token,
+      acknowledgedApprovalIds: [],
     });
   });
 

@@ -1150,3 +1150,50 @@ The round-3 consistency pass gave this moment these changes:
 - An approved Remove takes the dish off the wall and off the guest's pass: struck 'Removed', no track, and it never holds D5's door.
 - An approved comp keeps its track: it still cooks and holds the phone's door until served.
 - Staff settle doors are never gated by served, just as they are never blocked by approvals (correction 13 unchanged).
+
+### H · Build notes (2026-10-08, `claude/feat/pd8-manager-approval`)
+
+What the build took from appendix C, what it decided under the owner's delegation, and what waits.
+
+**Appendix C, item by item.** (1) `ASKER_BY_PIN` — not built at all, no dead code (D4 wins). (2) Receipt
+rows — one at a time, at the top of the zone, focused when it lands, retired by Got it or by the next
+verdict; the zone never shows a verdict beside "Nothing to approve". (3) Approve carries the request's
+kind mark (minus-square or gift), never ✓ — taken. (4) The till-tray consequence size — PD6's (counter-floor),
+not here. (5) The bar measure for m6 — PD6's. (6) `superseded` exists; only the resolver arm is new — taken
+(same function, signature and grants). (7) No new spinner: "Updating the total…" is the trigger's kit
+`busy` state. (8) The flag card names every waiting dish (a ticket line each; the title names the oldest) —
+taken. (9) The row badge stays as text beside the flag card — accepted explicitly.
+
+**Delegated decisions.** The close arm is admitted when the cart is no longer open OR the line changed on
+an open cart (`v_changed`), so a stale request can be closed and asked again — D2's purpose, one case wider;
+the merge-window line names it. Approve refuses `changed` without writing (the card shows the change and
+offers no Approve). The verdict channel is the focused receipt row (B9), no region sentence. A decision in
+the pane's sheet moves focus to the settle heading and the trigger reads "Updating the total…" until a
+read that started after it lands (`totalPending`); amounts are never optimistic. "Decide" opens every card
+state. The paid note carries no $ figure (B3) and the zone chip no pip (B10). `<Chrome varsMy>` lets a
+sentence carry the dish's own Burmese name. The `<select>` picker (`ManagerPinFields`) stays for
+`CounterNoShowButton` (counter-floor's). The detail's pending read degrades silently (no flag, every door
+acknowledges nothing, the server re-warns on the tap); the doors themselves fail closed
+(`approval_unreadable`). The roster carries a `self` row instead of a client identity provider; the PIN
+field stands while the roster loads or could not be read (a PIN typed early is kept). The Try again focus
+rule is the shipped one (the tap that asked, or a late answer under focus).
+
+**What waits on M182 / PD7 (counter-floor).** A table clear superseding its own pending requests ("Table
+was cleared first", no Close key) — the cleared card here covers only a cart cancelled outside M182's RPC.
+The till tray (PD6) re-hosts the cash sheet; the acknowledged-ids prop on `CashSettleButton` is additive and
+rides along.
+
+**Money / authority modules and their mutants** (`scripts/verify-slice.mjs`; measured with the registry,
+never transcribed): `lib/approvers.ts` (`approvers/role-rule-dropped` · `active-rule-dropped` ·
+`pin-rule-dropped` · `self-rule-dropped` · `self-allowed-ignored` · `preselect-first-of-many` ·
+`zero-reason-never-only-self`), `lib/voids.ts` (`approvers/pin-read-failure-reads-as-no-pin` ·
+`pin-join-dropped`), `lib/approvals-count.ts` (`approvals-count/error-reads-as-zero` ·
+`missing-count-reads-as-zero`), `lib/approvals.ts` (`approvals-count/false-zero-at-the-call` ·
+`resolve/close-keeps-self-preflight` · `changed-read-as-error` · `still-open-read-as-error` ·
+`close-held-by-pay-mutex`), `lib/approval-state.ts` (`approval-state/gone-line-reads-unchanged` ·
+`changed-ignores-amount` · `changed-ignores-qty` · `paid-from-not-open` · `changed-never-reached`),
+`lib/settle-approvals.ts` (`settle-approvals/unreadable-reads-as-clear` · `ack-ignored` · `never-refuses`),
+`lib/approvals-read.ts` (`approvals-read/status-filter-dropped` · `cart-filter-dropped` ·
+`error-reads-as-empty`), `lib/staff-cart.ts` (`approval-ack/cash-door-*` · `tab-door-*`),
+`lib/terminal.ts` (`approval-ack/reader-door-*`), `lib/floor.ts` (`floor/detail-drops-the-flags` ·
+`detail-flag-line-unmarked`); the SQL arm in `scripts/verify-mode-authority.mjs` (`m184/*`, 15).

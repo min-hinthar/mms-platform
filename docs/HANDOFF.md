@@ -148,6 +148,12 @@ None started (2026-10-08): money-rails · counter-floor · diner-cart · grocery
 kitchen-ops · post-pay · table-door · guards-style. Only if the owner picks parallel sessions, each
 stream adds one bullet of its own below this line and edits only that bullet.
 
+- **staff-authority — PD8 built (2026-10-08, `claude/feat/pd8-manager-approval`, draft PR; CHANGELOG's
+  PD8 entry; the m8 spec's `### H · Build notes`).** A money path: waits on Codex's rounds or the capped
+  blind pass of its head, the owner's per-SHA line (ruling #1), and M184's apply — one file, the owner's
+  go, after the merge. The table-clear seam (a clear superseding its own requests) is left for M182
+  (counter-floor, PD7); the till tray (PD6) re-hosts the cash sheet the acknowledged-ids prop rides on.
+
 ## Environment facts (measured 2026-10-08 unless cited)
 
 - **QR's own Supabase project is `fasnpdhtvqtzjlvruqcu`** (delivery's is `ukuzkhuppqwtrdkjqrkv`).
