@@ -1003,7 +1003,7 @@ aria-labelledby="flag-title">`, plain text, never a live region; its glyph squar
 - **Money path.** The acknowledgement compare touches the three settle doors: cash (lib/staff-cart.ts), the
   reader (lib/terminal.ts) and the tab close. It needs:
   - a pure `staffSettleApprovalVerdict(pendingIds, ackIds)` in lib/ with mutants and a red-first suite;
-  - the Codex wait (ruling #1).
+  - the Codex wait (ruling #1; with Codex out of quota, OWNER_RULINGS §G, G3 · WORKFLOW §Review step 5 (g)).
 
   Sequence it with counter-floor's K39, or co-own it. If it is cut, the warning is client-only and the
   nightly PILOT §2 SELECT ("paid with a request still pending") is the only net.

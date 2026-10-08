@@ -4,6 +4,66 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
+
+- **The owner's request:** _"merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR"_,
+  after _"codex-review can be replaced with blind review if out of quota so merge is not blocked waiting
+  on quota"_ and _"go with the manual admin bypass for quota"_.
+- **The quota rule, one wording everywhere** (OWNER_RULINGS §G G3; WORKFLOW §Review step 5 (g) is
+  normative). When Codex answers with its usage-limit message, the capped blind review of the EXACT head
+  stands in, naming that SHA, with `verify-slice` and the rest of CI green on it. The OWNER merges that
+  head with GitHub's admin bypass, by hand.
+  - An agent never merges a red `codex-review`, though its admin-scoped token could, and never automates
+    the bypass: the automated version was refused as a CI bypass. Ruling #1's `.md`-only waiver, while no
+    check is enforced, is the one exception.
+  - A fix pushed after the capped pass is carried to the final head by the author's hand-read, in one
+    comment — never a second agent round.
+  - Protection keeps admin bypass available and does not require Code Owner review (the sole code owner
+    authors every PR). The bypass covers `codex-review` only.
+  - Measured 2026-10-08: no protection rule is in effect yet (C28 ③).
+- **How it was done.**
+  - Two read-only audits: seven targets, plus a quota sweep with a completeness critic.
+  - Six editors, each on disjoint files, under one written contract.
+  - Three read-only verifiers:
+    - 107 of 112 CLAUDE.md rules confirmed in place, the other five fixed;
+    - HANDOFF's moved slices byte-exact;
+    - OPEN-ITEMS' row-ID multiset nothing lost, nothing duplicated;
+    - cross-doc consistency.
+  - Then the verifiers' ~20 findings fixed.
+- **CLAUDE.md** (374 → 240 lines):
+  - "Where things stand" rewritten for 2026-10-08.
+  - The verify:slice block condensed. The 86-line module enumeration is gone: a run restores on
+    INT/TERM/HUP and refuses a dirty target, so `git status --short` names a leftover mutant. Every ⚠️
+    rule is kept.
+  - The CI lanes and their measuring grep.
+  - The flaky-mutant rule (#248).
+  - The quota rule and the standing rulings.
+  - The blind pass: one, over the full diff, after the mark-ready.
+  - "Gate before done" names every CI check and the PR-body QA ticks (REVIEW.md is the historical
+    QA log).
+  - Stale claims fixed: migrate on a branch, `receiptStatusLabel`'s home, the W22 slate, and dead
+    LEARNINGS cites.
+- **docs/HANDOFF.md** (4,911 → 174 lines): a new 2026-10-08 top block with the state, the owner's items
+  and the next tasks (the path-design build). The history moved verbatim to the new
+  **docs/HANDOFF_ARCHIVE.md**, which also takes its count lines off the live-state guard.
+- **docs/OPEN-ITEMS.md** (9.0 MB → 4.8 MB):
+  - C16 and C28 carry the quota rule and the protection measurement.
+  - K15's and M119's giant cells moved verbatim to a long-form section; they padded their whole tables.
+  - Rows whose Status cell already said closed moved to Closed.
+  - Evidence-checked closures: M124's proposed closure was refused, since the row was reopened.
+  - T52 (the flaky mutant, closed by #324) and T53 (the non-`.md` drift kept out of this docs-only PR)
+    added.
+- **Also updated:**
+  - README: environments, gates, CI and review, the parked surfaces; the module list is cut.
+  - WORKFLOW: one normative copy of the lanes, required checks, merge ritual (with 5(g)) and Definition
+    of done; the redrawn loop.
+  - ARCHITECTURE, BACKEND_ARCHITECTURE and ENV: stale premises.
+  - The PR template: the real checks.
+  - The rulings file: section G G1–G4, annotations only.
+  - The design-prototyping skill and template, plus the auditor: verdicts name the head SHA.
+  - The new **docs/README.md** index.
+  - Dated banners on finished docs. No file moved or renamed.
+
 ### A mutant that survived only sometimes: the bind suite orders the close edge before it reads (2026-10-08)
 
 - **Main went red on its first sharded run.** `verify-slice` on main's push of `d9614ae` (#320's merge,

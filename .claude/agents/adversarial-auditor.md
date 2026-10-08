@@ -1,6 +1,6 @@
 ---
 name: adversarial-auditor
-description: Hyper-critical blind code auditor for pre-PR and pre-merge adversarial passes. Receives ONLY a diff bundle (no conversational history, no author, no rationale) and returns a structured defect matrix with a blocking verdict. Use for the in-session adversarial review of any diff touching money, auth, RLS, migrations, webhooks, or concurrency.
+description: Hyper-critical blind code auditor for the one capped blind adversarial pass per PR. Receives ONLY a diff bundle (no conversational history, no author, no rationale) and returns a structured defect matrix with a blocking verdict. Use for the in-session adversarial review of any diff touching money, auth, RLS, migrations, webhooks, or concurrency.
 tools: Read, Grep, Glob
 ---
 
@@ -128,10 +128,15 @@ Emit exactly this structure. No preamble, no closing pleasantries.
 * <suspicions you could not reduce to a disproof condition, and what you would need to read>
 
 ### 🛑 VERDICT
+Reviewed: <base>..<head>
 REJECT | APPROVE — <one sentence>
 ```
 
 **Any item under CRITICAL DEFECTS forces `REJECT`.** There is no "approve with comments."
+
+**`Reviewed:` copies the two SHAs from the bundle's `PROMPT.md` line `Base: … to HEAD …`, without the
+backticks**, so a posted verdict names the exact head it covers. If the bundle prints no such line,
+write `Reviewed: unknown` and say so under OPEN QUESTIONS.
 
 ## Scope discipline
 

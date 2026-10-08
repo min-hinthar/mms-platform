@@ -850,7 +850,7 @@ detail.itemCount > 0`. The refined pane moves only this card to the top.
 ## OPEN RISKS
 
 1. **Reversing §19's door order is a money-path change.** create-intent gains a refusal, so the PR's
-   merge-window line reads "recommend: wait for Codex" (ruling #1). Until C2, the dine-in card path
+   merge-window line reads "recommend: wait for Codex" (ruling #1, as advice; with Codex out of quota, OWNER_RULINGS §G, G3 · WORKFLOW §Review step 5 (g)). Until C2, the dine-in card path
    is proven only by tests and mutants.
 2. **A card-only guest has no way to pay at a table until C2 or a reader.** The design only makes that
    honest before the walk. It cannot fix a business fact.

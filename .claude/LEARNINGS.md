@@ -3813,3 +3813,18 @@ checkpoints, so it cannot see two updates merged before a commit. Disconnect it 
 
 Never re-run a red `verify-slice` hoping for green. A second run that passes proves the guard is
 nondeterministic, which is the defect.
+
+## #249
+
+**History kept inside a live-state file taxes every future change (2026-10-08, the docs cleanup).**
+`check:docs` measures counts in README, CLAUDE.md, OPEN-ITEMS and HANDOFF, which is right for live
+state. But HANDOFF had grown to 4,911 lines of superseded session blocks, and 45 of the 55 measured count
+matches across the four files sat in those blocks. So a test added anywhere forced edits to lines nobody
+reads (#320's push re-measured eight of them).
+
+Move superseded history to an archive file outside the live-state set. Paths stay permanent, so the
+live file says where the history went. And keep a measured number in exactly one live line.
+
+**The same pass also showed a table cell's cost.** prettier pads every row of a GFM table to its widest
+cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
+table, with a one-line cell pointing to it.

@@ -52,6 +52,14 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
    - Gate heavy decorative layers behind `md:`; cap floating-element/filter counts.
    - The first screen is **in view on load**, so offscreen-pause (§3) does NOT cut peak load — budget the
      **initial composite**.
+
+   > **Amended by M126 (owner go 2026-08-27; 2026-10-08 note).** The first bullet's breakpoint is now
+   > a DIAL: glass frost runs at every viewport in **Night** only, every heavy declaration reads the
+   > `--fx-glass-*` / `--fx-plane-blur` / `--fx-promote` tokens, `data-fx="lite"|"off"` on `<html>`
+   > scales it back, and `prefers-reduced-transparency` takes the glass off — DESIGN-LANGUAGE §1 is
+   > the normative copy. The iOS OOM reasoning, the initial-composite budget and the rule against
+   > large blur outside the dial still stand, and so does §5.
+
 5. **Gate the heaviest GPU on `desktop` ONLY.** WebGL, particle systems, live maps, full-screen blur →
    render only when `useDeviceTier() === "desktop"`. **`high`/`mid`/`low` are all mobile**; a high-core
    iPhone reports `"high"` but a high core count does **not** lift WebKit's per-tab memory ceiling, so
@@ -81,6 +89,10 @@ They are intentionally lean (no in-app motion-settings store yet — add one whe
    and the cleanup folds the offset back into the real set so a mid-visit RM flip does not jump. An on-screen loop duplicate stays `aria-hidden` + `tabIndex={-1}` but **clickable** —
    `inert` makes visible cards tap-dead — and a dupe activation moves focus to its real twin first,
    so no sheet ever restores focus onto an `aria-hidden` node.
+
+   > **2026-10-08 note:** `MarqueeRail` and the Start-here drift were deleted in Phase 1a (#300 — the
+   > menu's picks row is static). The rule stands for any future auto-motion.
+
 10. **A `both`-filled reveal keeps its end state forever — size it outside the shadow spread
     (W22a·depth).** The thermal-print receipt animates `clip-path` with `animation-fill-mode: both`,
     so the final `inset()` is what the slip wears for the rest of the visit: it must clear the

@@ -4,10 +4,15 @@ How the app's env vars map onto Vercel environments. **Secrets live only in Verc
 and GitHub Actions secrets — never in git** (`.gitignore` covers `.env*` except `.env.example`). To
 run locally, copy [`.env.example`](../.env.example) → `apps/qr/.env.local` and fill in **test** values.
 
-> ⚠️ **Sandbox caveat** (Claude Code remote / CI): this sandbox injects `NEXT_PUBLIC_SUPABASE_*` +
-> `SUPABASE_SERVICE_ROLE_KEY` pointing at the **delivery** project, and Next lets real shell env
-> override `.env.local` — so a local `pnpm dev`/build here hits delivery unless you inline-override
-> (see `.env.example` / `docs/HANDOFF.md`). Vercel runtime env is separate.
+> ⚠️ **Sandbox caveat** (Claude Code remote): the session's shell may carry injected Supabase and
+> Stripe variables, and Next lets real shell env override `.env.local`. What is injected varies by
+> session — measured 2026-10-08 (names only): `NEXT_PUBLIC_SUPABASE_URL` pointing at the QR project
+> with `NEXT_PUBLIC_SUPABASE_KEY` / `SUPABASE_SECRET_KEY`, and no `SUPABASE_SERVICE_ROLE_KEY`; an
+> earlier session's pointed at the **delivery** project. So before a local `pnpm dev`/build, list the
+> names with their values unprinted — `env | grep -oE '^[A-Z_]*(SUPABASE|STRIPE)[A-Z_]*='` — and
+> `printenv NEXT_PUBLIC_SUPABASE_URL`, then inline-override when it names the wrong project
+> (`docs/HANDOFF.md`).
+> CI injects no app env. Vercel runtime env is separate.
 
 ## The variables
 
@@ -111,8 +116,9 @@ One Vercel project (`apps/qr`). Set the same keys in each environment with the r
 | **Preview** (PRs) | QR project `fasnpdhtvqtzjlvruqcu`³ | **test**    | `pk_test_…`/`sk_test_…`; webhook → a test endpoint or `stripe listen` |
 | **Production**    | QR prod project                    | **live**    | `pk_live_…`/`sk_live_…`; live webhook endpoint secret                 |
 
-³ Today QR runs one Supabase project for dev+preview+prod. When QR gets live traffic, add a dedicated
-**staging** project and point **Preview → staging, Production → prod** (BACKEND_ARCHITECTURE §7 P1.6).
+³ Today QR runs one Supabase project for dev+preview+prod (no staging this wave — OPEN-ITEMS T3). When
+QR gets live traffic, add a dedicated **staging** project and point **Preview → staging, Production →
+prod** (BACKEND_ARCHITECTURE §7 P1.6), so a preview PR can never write the live ledger.
 
 ### Wiring Preview (what unblocks the Payment Element on PR previews)
 
@@ -174,9 +180,6 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 > Stripe → Webhooks while prod logs no `[stripe webhook]` rejection ⇒ check the endpoint's **URL**
 > (`https://qr.mandalaymorningstar.com/api/stripe/webhook`). C18 (2026-09-07, 08:59–12:53Z) failed every
 > test delivery for a cause that was never measured; see `OWNER_RULINGS_2026-10-07.md` _C18 — closed_.
-
-> When QR gets a dedicated **staging** project (BACKEND_ARCHITECTURE §7), point **Production → prod
-> Supabase** and **Preview → staging** so a preview PR can never write the live ledger.
 
 ## Staff sign-in — Google OAuth (primary) + magic-link + OTP
 
