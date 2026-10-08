@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Icon, NumberFlow } from "@mms/ui";
+import { CounterPass, Icon, KitchenTrack, NumberFlow } from "@mms/ui";
 import { t, type DictKey } from "@/lib/i18n";
 import { STAFF } from "@/lib/i18n/staff";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
@@ -224,14 +224,12 @@ export function PayAtCounterDock({
  * so the screen names nobody. Amounts are never computed here — `totalCents` is `getCartTotals`'
  * figure, the same one Dad's pane reads.
  *
- * ⚠️ THE PASS PAPER IS POST-PAY'S `CounterPass` PRIMITIVE (PATH_DESIGN round 3, "ONE PASS": every
- * pass is rendered, never redrawn — one identity figure at `--fs-pass` under "စားပွဲ · Table", a
- * 2px dotted seam with 12px notches whose holes are the host's ground, constant paper in both
- * themes). Its branch (`claude/feat/pd-pass-primitives`) had not landed when this file was
- * written, so the block marked STAND-IN below renders the table and the total on today's shipped
- * receipt paper (`.card-textured` + `.receipt-tear`), drawing no stub, no seam and no notches of
- * its own; it is replaced by `<CounterPass …>` from `@mms/ui` the moment the primitive merges,
- * with `--pass-hole` set to the page ground. Nothing else on this screen changes with it.
+ * The pass paper is post-pay's `CounterPass` primitive (PATH_DESIGN round 3, "ONE PASS": every pass
+ * is rendered, never redrawn — one identity figure at `--fs-pass` under "Table · စားပွဲ", a 2px
+ * dotted seam with 12px notches whose holes are this host's ground, `--pass-hole` set to the page,
+ * constant paper in both themes, the torn foot). The unsent mark is the kitchen track's hollow ring
+ * (`KitchenTrack stage="unsent"`) with the console's own two words in the pass's head. The total,
+ * the "View bill" disclosure and the receipt are the host's body; the withdraw follows the pass.
  */
 export function PayAtCounterPass({
   tableNumber,
@@ -267,12 +265,13 @@ export function PayAtCounterPass({
   children: ReactNode;
 }) {
   const [billOpen, setBillOpen] = useState(false);
+  // ONE identity figure: the table number, or — before the table is bound at Send — the session's
+  // code, which a screen reader hears spelt. (A session always has a code; "—" is the defensive
+  // fallback for a split read that missed it.)
   const figure =
     tableNumber != null
-      ? `Table ${tableNumber}`
-      : tableCode
-        ? `Table code ${tableCode}`
-        : "Your table";
+      ? { kind: "table" as const, text: String(tableNumber) }
+      : { kind: "code" as const, text: tableCode ?? "—" };
   return (
     <>
       <p className="counter-pass-lead">
@@ -281,18 +280,36 @@ export function PayAtCounterPass({
           {settling ? t("my", "registerSettling") : t("my", sentenceKey)}
         </span>
       </p>
-      <section
+      {/* PATH_DESIGN round 3, ONE PASS: post-pay's primitive, RENDERED — the identity figure once
+          under "Table · စားပွဲ", the dotted seam and its notches showing the page ground
+          (`--pass-hole`), the torn foot. A numberless table (bound at Send, §33) prints its code at
+          the holder's 40px tier, spelt for a screen reader (reconciliation 6). The pass hosts no
+          controls: the disclosure and the withdraw sit in the host's body and after it. */}
+      <div
         className={`counter-pass${rise ? " mms-rise" : ""}`}
-        aria-labelledby="pass-table pass-total"
         data-counter-ask
+        style={{ "--pass-hole": "var(--pg)" } as CSSProperties}
       >
-        {/* STAND-IN for post-pay's CounterPass (see the docblock): today's receipt paper. */}
-        <div className="card card-textured receipt-slip-body counter-pass-body">
-          <p id="pass-table" className="counter-pass-table">
-            {figure}
-          </p>
+        <CounterPass
+          tier={tableNumber != null ? "counter" : "holder"}
+          figure={figure.text}
+          figureKind={figure.kind}
+          figureSpoken={figure.kind === "code" ? figure.text.split("").join(" ") : undefined}
+          label={{ en: "Table", my: STAFF["floor.table"].my.replace(" {id}", "") }}
+          lang="en"
+          head={
+            unsent ? (
+              <KitchenTrack
+                stage="unsent"
+                size="glyph"
+                word={{ en: STAFF["pad.group.unsent"].en, my: STAFF["pad.group.unsent"].my }}
+              />
+            ) : undefined
+          }
+          tear
+        >
           <p className="counter-pass-total">
-            <span id="pass-total" className="counter-pass-total-label">
+            <span className="counter-pass-total-label">
               {TX("rowTotal")}
               <span aria-hidden className="counter-pass-dot">
                 ·
@@ -306,16 +323,6 @@ export function PayAtCounterPass({
               />
             </span>
           </p>
-          {unsent && (
-            <p className="checkout-unsent-capsule counter-pass-unsent">
-              <span aria-hidden className="mark-ring" />
-              {STAFF["pad.group.unsent"].en}
-              <span aria-hidden className="checkout-unsent-dot">
-                ·
-              </span>
-              <span lang="my">{STAFF["pad.group.unsent"].my}</span>
-            </p>
-          )}
           <button
             type="button"
             className="counter-pass-disclosure"
@@ -334,9 +341,8 @@ export function PayAtCounterPass({
           <div id="pass-bill" className="counter-pass-bill" hidden={!billOpen}>
             {children}
           </div>
-        </div>
-        <div className="receipt-tear" aria-hidden />
-      </section>
+        </CounterPass>
+      </div>
       {/* The quiet withdraw, LAST. Its visible label leads its accessible name (WCAG 2.5.3); the
           act is the suffix. 44px. Optimistic on tap (every phone flips back on its next read). */}
       <button

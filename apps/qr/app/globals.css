@@ -2456,8 +2456,8 @@ html[data-fx="off"] .pa-mid {
   color: var(--t3);
 }
 
-/* PD2 (m2 screen 2) — the counter pass's page furniture: the one sentence above it and the
-   stand-in paper (the post-pay CounterPass primitive replaces the paper; see PayAtCounter.tsx). */
+/* PD2 (m2 screen 2) — the counter pass's page furniture: the one sentence above it, and the
+   host's body inside post-pay's CounterPass (the total, the "View bill" disclosure). */
 .counter-pass-lead {
   margin: var(--s1) 0 var(--s3);
   font-size: var(--fs-body);
@@ -2477,22 +2477,11 @@ html[data-fx="off"] .pa-mid {
 .counter-pass {
   margin: 0 0 var(--s2);
 }
-.counter-pass-body {
-  padding: var(--s5) var(--s5) 0;
-  text-align: center;
-}
-.counter-pass-table {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--fs-h1);
-  font-weight: var(--fw-semibold);
-  line-height: var(--lh-tight);
-  font-variant-numeric: tabular-nums;
-}
 .counter-pass-total {
-  margin: var(--s4) 0 0;
+  margin: var(--s2) 0 0;
   display: grid;
   gap: var(--s1);
+  text-align: center;
 }
 .counter-pass-total-label {
   font-size: var(--fs-sm);
@@ -2518,10 +2507,10 @@ html[data-fx="off"] .pa-mid {
   margin-top: var(--s3);
 }
 .counter-pass-disclosure {
-  width: calc(100% + 2 * var(--s5));
-  margin: var(--s4) calc(-1 * var(--s5)) 0;
+  width: calc(100% + 2 * var(--s4));
+  margin: var(--s4) calc(-1 * var(--s4)) 0;
   min-height: 44px;
-  padding: 0 var(--s5);
+  padding: 0 var(--s4);
   display: flex;
   justify-content: space-between;
   align-items: center;

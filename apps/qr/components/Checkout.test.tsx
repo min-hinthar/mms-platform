@@ -2439,7 +2439,10 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     await press(/^Pay at the counter/);
     await waitFor(() => expect(counterCards()).toBe(1));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Pay at the counter");
-    expect(screen.getByText("Table 7")).toBeTruthy();
+    // The pass is post-pay's CounterPass, named by its heading: the lead tongue's label + the
+    // figure ONCE ("Table 7"), the figure printed once at the counter tier.
+    expect(screen.getByRole("heading", { level: 2, name: "Table 7" })).toBeTruthy();
+    expect(document.querySelector('.ui-pass[data-tier="counter"]')).toBeTruthy();
     expect(
       screen.queryByText("Show this to whoever’s at the register — they take cash."),
     ).toBeTruthy();

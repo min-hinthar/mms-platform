@@ -31,10 +31,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   "View bill" disclosure and the quiet withdraw ("We're not done yet") is last, answered with "No
   rush — your bill's here when you're ready." A tablemate's ask lands as a view flip, said once
   ("Your table asked to pay at the counter."), focus moving to the heading only if it was lost; this
-  phone's own ask lands focus there and plays the one RISE. ⚠️ The pass PAPER is post-pay's
-  `CounterPass` primitive (PATH_DESIGN "ONE PASS"), whose branch had not landed: `PayAtCounterPass`
-  renders a marked STAND-IN on today's receipt paper (no stub figure, no seam, no notches of its own)
-  and swaps to the primitive the moment it merges, with `--pass-hole` set to the page ground.
+  phone's own ask lands focus there and plays the one RISE. The pass paper is post-pay's
+  `CounterPass` primitive (PATH_DESIGN "ONE PASS"), merged in from `claude/feat/pd-pass-primitives`
+  and rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
+  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier.
 - **create-intent:** the parked refusal (410, like the other parked doors) sits AFTER
   `supersedeCartIntent` and its captured / unknown exits (#257's CRITICAL, M151) and before the
   shipped unsent refusal, freeing the lock under its era. New `scripts/check-phone-pay-door.mjs`

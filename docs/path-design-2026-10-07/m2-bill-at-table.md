@@ -1064,13 +1064,12 @@ Precedence as read: D > the Codex corrections > the cross-spec reconciliations >
 **Waits on another stream.**
 
 - D5 · A3: the pass PAPER is post-pay's `CounterPass` primitive (`claude/feat/pd-pass-primitives`,
-  not on the remote when this was built). `PayAtCounterPass` renders a marked STAND-IN on today's
-  shipped receipt paper (`.card-textured` + `.receipt-tear`) with the table named once and the total
-  at `--fs-display` — no stub figure at `--fs-pass`, no seam, no notches of its own (round 3: ONE
-  PASS is rendered, never redrawn). It swaps to `<CounterPass …>` with `--pass-hole` set to the page
-  ground the moment the primitive merges; nothing else on the screen changes with it. Reconciliation
-  6 (the code at the 40px tier for a numberless table) rides that swap; until then the stand-in prints
-  "Table code {code}" in the figure's place.
+  merged into this branch once it reached the remote): `PayAtCounterPass` renders it at the
+  `counter` tier (one figure at `--fs-pass` under "Table · စားပွဲ", the dotted seam and notches with
+  `--pass-hole` set to the page ground, the torn foot) with the unsent mark as `KitchenTrack
+  stage="unsent"` in its head; the total, the "View bill" disclosure and the receipt are the host's
+  body. A numberless table prints its session code at the holder's 40px tier, spelt for a screen
+  reader (reconciliation 6). The primitive's prop surface: m10's `### H`.
 - Screen 3 (Dad's pane, A5–A9, B4–B9, D6) is counter-floor's (PD6 · P2do); the ask's age as plain
   text on the floor chip too.
 - Decision 12: the ask over unsent dishes stays refused (the Bill's door is held with its reason)
