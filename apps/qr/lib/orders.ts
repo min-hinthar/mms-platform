@@ -4,6 +4,7 @@ import { COUNTER_TENDERS } from "./counter-tender";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
+import { isFired } from "./pickup-promise";
 import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
 import { settlementVerdict, type SettlementRead } from "./dropped-read";
 import type { SettleCanceled } from "./dropped-view";
@@ -70,7 +71,7 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   let live = db
     .from("qr_orders")
     .select(
-      "id,togo_status,table_number,pickup_slot,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,qr_order_items(fulfillment)",
+      "id,togo_status,table_number,pickup_slot,fire_at,created_at,arrived_at,session_id,stripe_payment_intent_id,cart_id,qr_order_items(fulfillment)",
     )
     .eq("status", "paid")
     .gte("created_at", cutoff);
@@ -106,6 +107,9 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   }
 
   const out: LiveOrder[] = [];
+  // M65 — ONE clock for the whole read, so two held pickups in the same tray cannot straddle a
+  // fire_at and disagree about which side of "Scheduled" the read fell on.
+  const nowMs = Date.now();
   for (const r of rows) {
     if (r.togo_status === "picked_up") continue; // terminal (to-go / pickup collected)
     // Session gate — EVERY kind: an order whose session has closed/expired is untrackable on /track (its
@@ -137,7 +141,13 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
       arrivedAt: r.arrived_at ?? null,
       paymentIntent: r.stripe_payment_intent_id ?? null,
       cartId: r.cart_id ?? null,
-      statusWord: liveOrderStatusWord({ togoStatus: r.togo_status ?? null, kind, hasTogoFood }),
+      statusWord: liveOrderStatusWord({
+        togoStatus: r.togo_status ?? null,
+        kind,
+        hasTogoFood,
+        // M65 — the same gate /track applies, on the same clock the read runs on.
+        fired: isFired(r.fire_at ?? null, nowMs),
+      }),
     });
   }
   return { ok, orders: out };

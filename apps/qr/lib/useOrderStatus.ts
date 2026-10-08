@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { browserClient } from "@mms/db";
 import { useAnonSession } from "./useAnonSession";
 import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./track-order";
@@ -17,6 +17,10 @@ export type OrderStatus = {
   /** Recoverable dead-end: the order never showed (poll exhausted) or the PI id is malformed —
    *  OrderTracker surfaces a Refresh prompt rather than stranding the diner post-payment. */
   timedOut: boolean;
+  /** PD3 — re-read the order ONCE, now (the /track wake on `visibilitychange→visible` / `focus`:
+   *  iOS suspends a hidden tab's socket, so the Ready edge usually lands on return, not while away).
+   *  A no-op before the subscription exists. */
+  refresh: () => void;
 };
 
 /**
@@ -36,6 +40,12 @@ export function useOrderStatus(
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [exhausted, setExhausted] = useState(false);
+  // The live effect's own `load`, reachable from outside it (PD3's wake re-read). Written in the
+  // effect, cleared in its cleanup — never during render.
+  const loadRef = useRef<(() => void) | null>(null);
+  const refresh = useCallback(() => {
+    loadRef.current?.();
+  }, []);
 
   // Two keys: single-pay tracks by the Stripe PaymentIntent id (appended to the return_url); a
   // split-tender order has NO PI (the N share PIs live on qr_cart_shares), so it tracks by the resolved
@@ -143,9 +153,14 @@ export function useOrderStatus(
       .subscribe();
 
     load();
+    loadRef.current = () => {
+      if (timer) clearTimeout(timer); // a wake re-read supersedes any pending poll — keep ONE timer
+      void load();
+    };
 
     return () => {
       active = false;
+      loadRef.current = null;
       if (timer) clearTimeout(timer);
       supa.removeChannel(channel);
     };
@@ -154,5 +169,5 @@ export function useOrderStatus(
   // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the key is
   // malformed", but only while no order has arrived.
   const timedOut = !order && (exhausted || (key != null && !valid));
-  return { order, timedOut };
+  return { order, timedOut, refresh };
 }

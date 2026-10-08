@@ -24,9 +24,9 @@ describe("liveOrderStatusWord", () => {
   it("never lets a grocery basket claim a kitchen state — the DB stamps it 'preparing' at payment", () => {
     // Every NON-terminal togo_status the column can hold, including the one the webhook writes.
     for (const togoStatus of [null, "preparing", "ready"]) {
-      expect(liveOrderStatusWord({ kind: "grocery", togoStatus, hasTogoFood: false })).toBe(
-        "Ready to go",
-      );
+      expect(
+        liveOrderStatusWord({ kind: "grocery", togoStatus, hasTogoFood: false, fired: true }),
+      ).toBe("Ready to go");
     }
   });
 
@@ -35,22 +35,43 @@ describe("liveOrderStatusWord", () => {
     // was unreachable for the one kind /track was already showing it for. A basket that has been
     // collected has been collected — "Ready to go" would be the stale word, not the honest one.
     expect(
-      liveOrderStatusWord({ kind: "grocery", togoStatus: "picked_up", hasTogoFood: false }),
+      liveOrderStatusWord({
+        kind: "grocery",
+        togoStatus: "picked_up",
+        hasTogoFood: false,
+        fired: true,
+      }),
     ).toBe("Picked up");
   });
 
   it("reads dine-in neutrally — a dine-in order has no bagging signal, ever", () => {
-    expect(liveOrderStatusWord({ kind: "dinein", togoStatus: null, hasTogoFood: false })).toBe(
-      "At your table",
-    );
+    expect(
+      liveOrderStatusWord({ kind: "dinein", togoStatus: null, hasTogoFood: false, fired: true }),
+    ).toBe("At your table");
   });
 
   it("lets a to-go box on a dine-in order win the word (the shipped tie rule)", () => {
     // hasDineInFood decides the KIND, but once the expo starts bagging, the bagging word is the
     // useful one — a diner with a box being made should not read "At your table" about it.
-    const box = { kind: "dinein" as const, hasTogoFood: true };
+    const box = { kind: "dinein" as const, hasTogoFood: true, fired: true };
     expect(liveOrderStatusWord({ ...box, togoStatus: "preparing" })).toBe("Preparing");
     expect(liveOrderStatusWord({ ...box, togoStatus: "ready" })).toBe("Ready");
+  });
+
+  it("a HELD scheduled pickup reads 'Scheduled', never 'Preparing' (M65) — and Ready is never gated", () => {
+    // `togo_status = 'preparing'` lands at payment; only `fire_at` says whether the wok has it.
+    // MUTATION: `o.fired ? "Preparing" : "Scheduled"` → `"Preparing"` — the noon-paid 6 PM pickup
+    // reads "Preparing" in the chip, the tray and /track for six hours.
+    const pickup = { kind: "pickup" as const, hasTogoFood: true };
+    expect(liveOrderStatusWord({ ...pickup, togoStatus: "preparing", fired: false })).toBe(
+      "Scheduled",
+    );
+    expect(liveOrderStatusWord({ ...pickup, togoStatus: "preparing", fired: true })).toBe(
+      "Preparing",
+    );
+    expect(liveOrderStatusWord({ ...pickup, togoStatus: "ready", fired: false })).toBe(
+      "Ready for pickup",
+    );
   });
 
   it("does NOT let a seated diner's GROCERIES read as kitchen progress", () => {
@@ -60,7 +81,7 @@ describe("liveOrderStatusWord", () => {
     // being prepared, then ready. `hasTogoFood` is the predicate that separates a kitchen bag from an
     // exit-pass check. This fixture is the one that separates them: kind dinein, grocery-only
     // takeaway, a non-null togo_status.
-    const seatedWithGroceries = { kind: "dinein" as const, hasTogoFood: false };
+    const seatedWithGroceries = { kind: "dinein" as const, hasTogoFood: false, fired: true };
     expect(liveOrderStatusWord({ ...seatedWithGroceries, togoStatus: "preparing" })).toBe(
       "At your table",
     );
@@ -70,30 +91,40 @@ describe("liveOrderStatusWord", () => {
   });
 
   it("distinguishes pickup from to-go only when the bag is ready", () => {
-    expect(liveOrderStatusWord({ kind: "pickup", togoStatus: "ready", hasTogoFood: true })).toBe(
-      "Ready for pickup",
-    );
-    expect(liveOrderStatusWord({ kind: "togo", togoStatus: "ready", hasTogoFood: true })).toBe(
-      "Ready",
-    );
+    expect(
+      liveOrderStatusWord({ kind: "pickup", togoStatus: "ready", hasTogoFood: true, fired: true }),
+    ).toBe("Ready for pickup");
+    expect(
+      liveOrderStatusWord({ kind: "togo", togoStatus: "ready", hasTogoFood: true, fired: true }),
+    ).toBe("Ready");
   });
 
   it("says 'Order received' — not 'Preparing' — before the kitchen has touched it", () => {
-    expect(liveOrderStatusWord({ kind: "togo", togoStatus: null, hasTogoFood: true })).toBe(
-      "Order received",
-    );
-    expect(liveOrderStatusWord({ kind: "pickup", togoStatus: null, hasTogoFood: true })).toBe(
-      "Order received",
-    );
+    expect(
+      liveOrderStatusWord({ kind: "togo", togoStatus: null, hasTogoFood: true, fired: true }),
+    ).toBe("Order received");
+    expect(
+      liveOrderStatusWord({ kind: "pickup", togoStatus: null, hasTogoFood: true, fired: true }),
+    ).toBe("Order received");
   });
 
   it("is TOTAL over the column's CHECK — picked_up included, so /track can share it", () => {
     // qr_orders.togo_status is CHECK (null or in ('preparing','ready','picked_up')).
-    expect(liveOrderStatusWord({ kind: "togo", togoStatus: "picked_up", hasTogoFood: true })).toBe(
-      "Picked up",
-    );
     expect(
-      liveOrderStatusWord({ kind: "pickup", togoStatus: "picked_up", hasTogoFood: true }),
+      liveOrderStatusWord({
+        kind: "togo",
+        togoStatus: "picked_up",
+        hasTogoFood: true,
+        fired: true,
+      }),
+    ).toBe("Picked up");
+    expect(
+      liveOrderStatusWord({
+        kind: "pickup",
+        togoStatus: "picked_up",
+        hasTogoFood: true,
+        fired: true,
+      }),
     ).toBe("Picked up");
   });
 });
