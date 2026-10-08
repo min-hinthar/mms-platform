@@ -3790,18 +3790,26 @@ infrastructure failures as their own failing verdicts, never as passes.
 
 ## #248
 
-**A mutant that SURVIVES on one run and is CAUGHT on another, on the same tree, is a suite that reads
-at moments (2026-10-08, the first sharded `verify-slice` on main).** `checkout-bind/stale-refusal-said`
-was CAUGHT twice on #320's PR runs and SURVIVED on main's push run of the identical tree. Its tests
-asserted that a stale sentence was "not said" right after a sheet closed, then again after the next
-sentence. The close edge rides a library timer (Radix FocusScope's unmount autofocus), so a sentence
-said between the two reads and replaced before the second was never seen. It could not be reproduced
-locally (35/35 caught), and the fix did not need it to be:
+**A mutant that SURVIVES on one run and is CAUGHT on another of the same tree is a guard that reads before
+the event it judges has settled (2026-10-08, the first sharded `verify-slice` on main).**
+`checkout-bind/stale-refusal-said` was CAUGHT on #320's PR runs and SURVIVED on main's push run of the
+identical tree (`2a9a194`). Its tests waited for a sheet's DOM node to leave, then asserted a stale
+sentence was "not said", then resolved the next action.
 
-- synchronize on the event's own effect (here, the focus landing that follows the stash being said),
-  never on the DOM node disappearing;
-- for a "never said" claim, assert against the region's HISTORY (a MutationObserver recording every
-  text), not a sample.
+The sheet's close edge rides a library timer (Radix FocusScope's unmount autofocus). So the read could
+run before the close edge, and the close edge's update, made outside `act`, could merge with the next
+action's update into one render. The stale sentence then never reached the DOM.
+
+That mechanism is inferred from the order; repeated local runs never reproduced the survival. The fix
+did not depend on reproducing it:
+
+- wait for the event's OWN effect, not the DOM node leaving (here, the focus landing that follows the
+  stash being said);
+- flush (`waitFor`'s drain, then an empty `act`) BEFORE triggering anything that competes with it;
+- then read.
+
+A MutationObserver history is a backstop, never the guard. It sees committed DOM at mutation
+checkpoints, so it cannot see two updates merged before a commit. Disconnect it after every test.
 
 Never re-run a red `verify-slice` hoping for green. A second run that passes proves the guard is
-nondeterministic, which is the defect. Fix the read, red-first under shifted timing.
+nondeterministic, which is the defect.
