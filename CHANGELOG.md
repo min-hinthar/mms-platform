@@ -11,10 +11,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   identity figure read across the counter or the room, and the till's due said aloud — m6's
   `--till-fs-say` folded into it, reconciliation 2) and `--till-fs-hand` (8rem, the Change handed
   back). The nine constant pass inks (`--pass-paper`, `-ink`, `-ink-2`, `-ink-3`, `-ac`, `-ok`, `-okb`,
-  `-seam`, `-unlit`) are the light palette's own values bound to their own names, declared once at
-  `:root` and never redefined in `.dark`, so every pass is constant paper in Night like a wallet pass;
-  `--pass-hole` defaults to `--pg` and a host overrides it with its own ground. No component reads
-  them yet: post-pay's CounterPass and kitchen-track primitives are the next step.
+  `-seam`, `-unlit`) are declared once at `:root` and never redefined in `.dark`, so every pass is
+  constant paper in Night like a wallet pass: seven are the light palette's own values bound to their
+  own names, `--pass-seam` is m10's perforation rule and `--pass-unlit` is m11's measured unlit
+  segment; `--pass-hole` defaults to `--pg` (now also in the print re-pin) and a host overrides it
+  with its own ground. `contrast-audit.test.ts` pins the constancy, the seven equalities and AA for
+  every ink the primitive may put on the paper or the stamped stub (the blind pass's one CRITICAL:
+  a contrast invariant with no guard). No component reads them yet: post-pay's CounterPass and
+  kitchen-track primitives are the next step.
 
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 
