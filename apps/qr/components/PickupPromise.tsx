@@ -77,8 +77,8 @@ export function PickupPromise({
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     if (order.togoStatus === "picked_up") return;
-    const t = window.setInterval(() => setNowTick(Date.now()), 30 * 1000);
-    return () => window.clearInterval(t);
+    const t = setInterval(() => setNowTick(Date.now()), 30 * 1000);
+    return () => clearInterval(t);
   }, [order.togoStatus]);
   const guide = pickupGuide(
     {
@@ -251,7 +251,7 @@ export function PickupPromise({
   // The window's tick: the commit when due (held time added), the cap's warn and release.
   useEffect(() => {
     if (phase !== "window") return;
-    const id = window.setInterval(() => {
+    const id = setInterval(() => {
       const w = winRef.current;
       if (!w) return;
       const now = Date.now();
@@ -269,7 +269,7 @@ export function PickupPromise({
       const held = heldFor(winRef.current?.hold ?? NO_HOLD, now);
       if (arrivalCommitDue(w.startedMs, held, now)) commit();
     }, 250);
-    return () => window.clearInterval(id);
+    return () => clearInterval(id);
   }, [phase, commit]);
   // Commit-on-hide: the tap was deliberate, so the page hiding inside the window commits at once.
   // `visibilitychange→hidden` keeps the page alive (the in-page send runs); `pagehide` tears it

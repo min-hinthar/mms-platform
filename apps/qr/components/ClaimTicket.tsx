@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "@mms/ui";
-import { TRACK, trackFill } from "@/lib/i18n/track";
-import type { TicketFace } from "@/lib/pickup-promise";
+import { TRACK } from "@/lib/i18n/track";
+import { trackFill, type TicketFace } from "@/lib/pickup-promise";
 
 /**
  * PD3 — the claim ticket: ONE pass, two faces, the same footprint on every screen

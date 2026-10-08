@@ -8,8 +8,8 @@ import type { Entry } from "./types";
  * digits never become ၀–၉ on this surface (the money path's rule, lib/i18n/cart.ts).
  *
  * Not spread into DICT: these are the pickup page's own sentences, read by `lib/pickup-promise.ts`
- * (the one derivation) and `components/PickupPromise.tsx`. They are still a dictionary for the
- * content rules (plain-words.test.ts walks this file).
+ * (the one derivation, where `trackFill` fills the `{t}` / `{m}` slot) and the pickup components.
+ * Pure literals only — the content rules parse this file (plain-words.test.ts, strings.test.ts).
  */
 export const TRACK = {
   // ── the Now sentences (the h1) ──
@@ -103,9 +103,3 @@ export const TRACK = {
 } as const satisfies Record<string, Entry>;
 
 export type TrackKey = keyof typeof TRACK;
-
-/** Fill the one Latin slot (`{t}` or `{m}`) in both tongues. */
-export function trackFill(key: TrackKey, slot: string): Entry {
-  const e = TRACK[key];
-  return { en: e.en.replace(/\{[tm]\}/, slot), my: e.my.replace(/\{[tm]\}/, slot) };
-}

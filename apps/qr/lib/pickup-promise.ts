@@ -1,5 +1,5 @@
 import { CART } from "./i18n/cart";
-import { TRACK, trackFill } from "./i18n/track";
+import { TRACK, type TrackKey } from "./i18n/track";
 import type { Entry } from "./i18n/types";
 import { PICKED_UNDO_MS, pickedUndoOpen } from "./expo-rules";
 import { undoTapHeld } from "./send-grace";
@@ -27,6 +27,12 @@ import { formatSlot, RESTAURANT_TZ } from "./pickupTime";
  *  - **No ETA is ever composed.** The countdown is arithmetic on the booked slot (1–90 min); from the
  *    slot onwards the line is empty. "any minute now" retired for pickup (decision 14).
  */
+
+/** Fill the one Latin slot (`{t}` a clock, `{m}` a minute count) in both tongues of a TRACK pair. */
+export function trackFill(key: TrackKey, slot: string): Entry {
+  const e = TRACK[key];
+  return { en: e.en.replace(/\{[tm]\}/, slot), my: e.my.replace(/\{[tm]\}/, slot) };
+}
 
 /** Minutes past the booked slot, with no bag yet, before /track says "isn’t bagged yet". The code's
  *  existing judgement (the old countdown's `mins < -15` drop), named once. */
