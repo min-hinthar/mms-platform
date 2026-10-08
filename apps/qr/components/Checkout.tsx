@@ -526,6 +526,9 @@ export function Checkout({
   // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
   // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
   const [ownAsk, setOwnAsk] = useState(false);
+  // The window between this phone's tap and the server's answer (Codex round 1 on #331): a view
+  // without the stamp inside it is a stale read, not a withdrawal — `ownAsk` survives it.
+  const askInFlight = useRef(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
   // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
   const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
@@ -646,6 +649,13 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+    // PD2 (Codex round 1 on #331, comment 4222692016) — the ask's OWNERSHIP follows the confirmed
+    // value: a view with no ask (a tablemate withdrew it; the register settled) ends this phone's
+    // claim to it, so the NEXT null→stamp edge is read as the tablemate's ask it is — said once,
+    // focus moved only if lost — never mistaken for this phone's own tap. Not while this phone's
+    // own ask is still in flight: a ticketed read issued before the tap may land with no stamp
+    // before the server answers, and the confirmed stamp that follows is still this phone's.
+    if (v.counterRequestedAt == null && !askInFlight.current) setOwnAsk(false);
     // 3c-ii (D30) — the table number rides every applied view (a tablemate's bind, the re-sync
     // after a send); a null one never un-names a table a view already named.
     if (v.tableNumber != null) setTableNumber(v.tableNumber);
@@ -2017,6 +2027,7 @@ export function Checkout({
     // tablemate's phone flips without the entrance), and the remote-ask edge below stays quiet.
     setOwnAsk(true);
     setCounterAt(new Date().toISOString());
+    askInFlight.current = true;
     try {
       const r = await requestCounterPay({ cartId });
       if (!r.ok) {
@@ -2039,6 +2050,7 @@ export function Checkout({
       setCounterAt(confirmed);
       setPayError("Couldn’t reach the counter just now — please try again.");
     } finally {
+      askInFlight.current = false;
       setCounterBusy(false);
     }
   }
@@ -3404,27 +3416,34 @@ export function Checkout({
                 host has not sent. The NEXT STEP is said once, in the dock's one line slot (the
                 door's held reason), not here. The host keeps the quiet way back. The ask over
                 unsent dishes stays refused until counter-floor's P2do lands (decision 12). */}
-            {!settledClose && staged && stage === "bill" && noteQty > 0 && phonePayOff && (
-              <div className="checkout-unsent-mark">
-                <p className="checkout-unsent-capsule">
-                  <span aria-hidden className="mark-ring" />
-                  {STAFF["pad.group.unsent"].en}
-                  <span aria-hidden className="checkout-unsent-dot">
-                    ·
-                  </span>
-                  <span lang="my">{STAFF["pad.group.unsent"].my}</span>
-                </p>
-                {canSendToKitchen && (
-                  <button type="button" className="nav-link" onClick={backToOrder}>
-                    <span aria-hidden className="nav-arrow nav-arrow-back">
-                      ←
-                    </span>{" "}
-                    {T("backToSendThem")}
-                    <My k="backToSendThem" inline color="var(--t3)" />
-                  </button>
-                )}
-              </div>
-            )}
+            {/* …and while the PASS shows, its head owns the mark (`KitchenTrack stage="unsent"`):
+                the state is said once, for every reader (Codex round 1 on #331, comment 4222692039). */}
+            {!settledClose &&
+              staged &&
+              stage === "bill" &&
+              noteQty > 0 &&
+              phonePayOff &&
+              !passShowing && (
+                <div className="checkout-unsent-mark">
+                  <p className="checkout-unsent-capsule">
+                    <span aria-hidden className="mark-ring" />
+                    {STAFF["pad.group.unsent"].en}
+                    <span aria-hidden className="checkout-unsent-dot">
+                      ·
+                    </span>
+                    <span lang="my">{STAFF["pad.group.unsent"].my}</span>
+                  </p>
+                  {canSendToKitchen && (
+                    <button type="button" className="nav-link" onClick={backToOrder}>
+                      <span aria-hidden className="nav-arrow nav-arrow-back">
+                        ←
+                      </span>{" "}
+                      {T("backToSendThem")}
+                      <My k="backToSendThem" inline color="var(--t3)" />
+                    </button>
+                  )}
+                </div>
+              )}
             {!settledClose && staged && stage === "bill" && noteQty > 0 && !phonePayOff && (
               <div className="card checkout-unsent-note mms-rise">
                 <p
@@ -3551,7 +3570,9 @@ export function Checkout({
               </PayAtCounterPass>
             )}
 
-            {showPayFurniture && isGroup && splitContext && (
+            {/* PD2 (Codex round 1 on #331, comment 4222692029) — the pass REPLACES the Bill: its
+                withdraw is the screen's last act, so the split chooser never sits under it. */}
+            {showPayFurniture && !passShowing && isGroup && splitContext && (
               <SplitSection
                 cartId={cartId}
                 items={viewItems}

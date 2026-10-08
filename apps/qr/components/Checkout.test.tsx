@@ -93,7 +93,9 @@ vi.mock("./nav/TransitionNav", () => ({
 // the two `confirmedWrite` call sites M227 named, and a stub would guard a button this screen might
 // no longer be wiring. The module is pure presentation (two buttons and a card).
 vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
-vi.mock("./SplitSection", () => ({ SplitSection: () => null }));
+// PD2 (Codex round 1 on #331) — a MARKER, not null: the pass replaces the Bill, so whether the split
+// chooser still renders beneath it is a question this suite asks; the marker carries no text.
+vi.mock("./SplitSection", () => ({ SplitSection: () => <div data-testid="split-section" /> }));
 vi.mock("./SettlementBoard", () => ({ SettlementBoard: () => null }));
 vi.mock("./TableTimeline", () => ({ TimelineStrip: () => null }));
 vi.mock("./SendToKitchenButton", () => ({ SendToKitchenButton: () => null }));
@@ -2500,5 +2502,72 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
     expect(document.body.textContent).not.toContain("splitting the bill");
+  });
+
+  // ── Codex round 1 on #331 (head c253013): three P2s, each pinned red-first ──
+
+  it("a tablemate's withdrawal ends this phone's claim on the ask: the NEXT ask is said as theirs (comment 4222692016)", async () => {
+    h.getCartView.mockResolvedValue(view({ items: [FIRED] }));
+    mount({ splitContext: HOST, initialItems: [FIRED] });
+    // This phone asks; the re-read confirms the stamp.
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-10-08T06:00:00.000Z" }),
+    );
+    await press(/^Pay at the counter/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    await settle();
+    expect(regionText()).not.toContain("Your table asked");
+    // A tablemate withdraws it — the view says no ask.
+    h.getCartView.mockResolvedValue(view({ items: [FIRED], counterRequestedAt: null }));
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(0));
+    // …and asks again. RED before the fix: `ownAsk` still true from this phone's earlier tap, so
+    // the edge was read as this phone's own — silent, focus moved unconditionally.
+    h.getCartView.mockResolvedValue(
+      view({ items: [FIRED], counterRequestedAt: "2026-10-08T06:05:00.000Z" }),
+    );
+    await syncFromServer();
+    await waitFor(() => expect(counterCards()).toBe(1));
+    await settle();
+    expect(regionText()).toContain("Your table asked to pay at the counter.");
+  });
+
+  it("the pass replaces the Bill: the split chooser does not sit under its withdraw (comment 4222692029)", async () => {
+    // A group table (two members) with everything sent: the Bill, with the split chooser.
+    mount({ splitContext: GUEST, initialItems: [FIRED] });
+    expect(screen.getByTestId("split-section")).toBeTruthy();
+    cleanup();
+    // The same table under a standing ask: the pass, and nothing after its withdraw.
+    mount({
+      splitContext: GUEST,
+      initialItems: [FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    expect(counterCards()).toBe(1);
+    expect(screen.queryByTestId("split-section")).toBeNull();
+    const withdraw = screen.getByRole("button", {
+      name: "We’re not done yet — cancel paying at the counter",
+    });
+    // The withdraw is the LAST control on the screen (the dialogs' and the header's aside).
+    const controls = Array.from(
+      document.querySelectorAll<HTMLElement>("main button, main a, main input"),
+    );
+    expect(controls[controls.length - 1]).toBe(withdraw);
+  });
+
+  it("the unsent state is said ONCE while the pass shows — the pass's head owns it (comment 4222692039)", async () => {
+    // A draft added after the ask (a tablemate's late dish): the mark above the slip AND the pass's
+    // head both drew "Not sent yet" — twice for every reader.
+    mount({
+      splitContext: HOST,
+      initialItems: [ITEM, FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    await press("Total · $12.00 — View bill");
+    await waitFor(() => expect(counterCards()).toBe(1));
+    const marks = screen.getAllByText("Not sent yet");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest(".ui-track")).not.toBeNull();
+    expect(document.querySelector(".checkout-unsent-mark")).toBeNull();
   });
 });
