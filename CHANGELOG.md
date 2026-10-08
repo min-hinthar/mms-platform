@@ -4,6 +4,31 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A mutant that survived only sometimes: the bind suite orders the close edge before it reads (2026-10-08)
+
+- **Main went red on its first sharded run.** `verify-slice` on main's push of `d9614ae` (#320's merge,
+  run 37740676110) scored `checkout-bind/stale-refusal-said` SURVIVED. #320's PR run of `9450b68` (run 37739490208) CAUGHT it, and that commit's tree is `d9614ae`'s (`2a9a194`). The earlier PR run of
+  `cd525de` caught it too. A guard that catches its mutant on only some runs of the same tree is a suite
+  defect, not a flake to re-run.
+- **The likely mechanism is inferred from the order, not reproduced.**
+  - Locally the mutant was caught on every run tried, including on one contended CPU and with the close
+    edge delayed.
+  - The two stale-refusal tests in `Checkout.bind.test.tsx` waited only for the dialog to leave before
+    reading "not said". The close edge rides Radix FocusScope's unmount autofocus, a `setTimeout`.
+  - So the read could run before the close edge. The close edge's update, scheduled outside `act`,
+    could then be merged with the send's update into one render, and the stale sentence never reached
+    the DOM.
+- **The fix orders the close edge first.** `closeEdgeDone()` waits for the close edge's own effect: focus
+  on the pending Send, which `onBindClosed` lands after it says the stash. `waitFor`'s drain then lets
+  React render, and an empty `act` flushes it. The "not said" read then sees whatever the close edge
+  said before the send is resolved.
+  - A MutationObserver history (`recordRegion`) is a backstop only. It sees committed DOM, never two
+    updates merged before a commit.
+  - Observers are disconnected after every test.
+  - Checked: both mutants are caught by the read and by the backstop alone, with the close edge undelayed
+    and delayed 0 and 40 ms. The real code is green under the same delays.
+  - All 33 `checkout-bind/` and `send-button/` mutants are CAUGHT through `verify:slice`.
+
 ### The merge gate fits in 30 minutes: `verify:slice` sharded in CI, CI split into lanes (2026-10-08)
 
 - **The owner's budget (2026-10-08):** _"verify:slice should not take this long ... we can't take more

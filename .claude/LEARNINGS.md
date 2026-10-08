@@ -3787,3 +3787,29 @@ put a gate that cannot fit the budget where it can run in parallel (separate CI 
 own checkout) rather than asking a session to sit through it; and score a guard's success only on the
 evidence it was built for — here, exit 1 plus a report counting a failed test or suite — with timeouts and
 infrastructure failures as their own failing verdicts, never as passes.
+
+## #248
+
+**A mutant that SURVIVES on one run and is CAUGHT on another of the same tree is a guard that reads before
+the event it judges has settled (2026-10-08, the first sharded `verify-slice` on main).**
+`checkout-bind/stale-refusal-said` was CAUGHT on #320's PR runs and SURVIVED on main's push run of the
+identical tree (`2a9a194`). Its tests waited for a sheet's DOM node to leave, then asserted a stale
+sentence was "not said", then resolved the next action.
+
+The sheet's close edge rides a library timer (Radix FocusScope's unmount autofocus). So the read could
+run before the close edge, and the close edge's update, made outside `act`, could merge with the next
+action's update into one render. The stale sentence then never reached the DOM.
+
+That mechanism is inferred from the order; repeated local runs never reproduced the survival. The fix
+did not depend on reproducing it:
+
+- wait for the event's OWN effect, not the DOM node leaving (here, the focus landing that follows the
+  stash being said);
+- flush (`waitFor`'s drain, then an empty `act`) BEFORE triggering anything that competes with it;
+- then read.
+
+A MutationObserver history is a backstop, never the guard. It sees committed DOM at mutation
+checkpoints, so it cannot see two updates merged before a commit. Disconnect it after every test.
+
+Never re-run a red `verify-slice` hoping for green. A second run that passes proves the guard is
+nondeterministic, which is the defect.
