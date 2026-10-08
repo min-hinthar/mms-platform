@@ -1055,3 +1055,121 @@ The round-3 consistency pass gave this moment these changes:
    the guest's next tap is the only arrival. The entry is kept only for a send that got no answer at
    all — a beacon, or a reconcile that failed or was cut off — and that send is retried on the next
    visit. The success and no-longer-takes-an-arrival answers still clear it (F1).
+
+### H · Build notes (2026-10-08, `claude/feat/pd3-pickup-promise`)
+
+Built by the post-pay stream against `claude/feat/pd-tokens-pass` (#326). What shipped, by section;
+what did not and why; the decisions taken under the owner's delegation.
+
+**Shipped.**
+
+- **The ONE derivation** — `apps/qr/lib/pickup-promise.ts`: `pickupGuide({ order, now })` returns the
+  stage (confirming · booked · cooking · late · ready · pickedUp), the Now pair, the current stop, the
+  ticket face, whether "I’m here" is offered, the countdown and the slot label. `isFired` (M65),
+  `LATE_AFTER_MIN = 15`, `pickupDayBounds` / `pickupIsToday` (the restaurant's calendar day, DST-safe,
+  the same bounds the server's statement reads), `pickupCountdownMin` (1–90, nothing from the slot
+  on), `arrivalCommitDue` and `arrivalTapHeld`. Red-first suite; ten `pickup-promise/*` mutants.
+- **M65 (the hard prerequisite, same PR)** — `fire_at` rides `TRACK_ORDER_SELECT` and
+  `shapeTrackedOrder` (`fireAt`); `liveOrderStatusWord` takes a REQUIRED `fired` input (B6), so a
+  held pickup reads **"Scheduled"** on /track, the tray (`getMyLiveOrders`) and the header pill
+  (`useActiveOrderStatus`, re-reading its clock once a minute while a stamp lies ahead). Mutants
+  `track/fire-at-dropped`, `live-order/held-pickup-reads-preparing`.
+- **Screen 1 / 3** — `components/PickupPromise.tsx`: NOW once as the h1 (the shipped
+  `orderWithKitchen` pair while cooking; h2 under PaySuccess on a fresh payment); the horizontal
+  four-stop path (`<ol role="list" aria-label="Order status">`, a ✓ glyph on done stops, a
+  `--bd` ring on next, `aria-current="step"`, an sr word per stop, real clocks only, the rail's
+  done span flowing in `--ok` and snapping under RM); the guide card with ONE question and ONE hero
+  verb; the late state's honest words with the door LAST (B10); the countdown with its MY line.
+- **"I’m here" (decision 5)** — offered any time on the pickup day at every stage short of
+  collected; the 6-second take-back (`ARRIVAL_UNDO_MS = PICKED_UNDO_MS`) BEFORE the write; the
+  swap in ONE 64px slot behind `SAME_GESTURE_MS` in both directions (A2 / B2); the Undo in the
+  lane's dashed `--ac` posture on `--sf`, named "Undo ပြန်ဖျက်" with " — 6s" an aria-hidden leaf
+  (A1 / B1, D3); the capped keyboard hold from `lib/undo-hold.ts` with the "about to go through"
+  line five seconds before the cap and the release at it (B5); focus following the swap and parking
+  on the card after THIS device's confirmation.
+- **Survives the page closing (§E–§G, correction 16)** — `lib/arrival-pending.ts`: ONE record per
+  order in `localStorage`, written at the COMMIT (the window's end, or the page hiding inside it),
+  never at the tap; cleared by an ANSWER (success, "no longer takes an arrival", a plain refusal);
+  kept only for a send with no answer; reconciled on the next mount to the idempotent route
+  `POST /api/track/arrival` (`sendBeacon` on `pagehide`; `visibilitychange→hidden` commits through
+  the Server Action, the page being alive). Four `arrival-pending/*` mutants.
+- **The arrival server (decision 22)** — `lib/arrival.ts`'s `stampArrival` (server-only, never a
+  public action: the clock is a parameter): the session arm, then the `earned_by` arm for a lapsed
+  session; guards IN THE STATEMENT — `arrived_at is null`, the pickup-day bounds, `togo_status`
+  null-or-not-collected — plus `.select("id")` and a row check (the W17 rule); one generic answer
+  for unknown / not-yours. `lib/arrival-action.ts` is the thin `"use server"` wrapper. Four
+  `arrival/*` mutants; a predicate-enforcing mock suite.
+- **Screen 2** — the pass face at Ready: ✓ + "READY FOR PICKUP · ယူလို့ရပြီ", the 40px code
+  (`.exit-pass-code`, `ph-no-capture`, sr twin), the sub with counterBody's clause (A3), the time
+  on the stub; the TURN once per order per tab (`celebration-latch`, key `ready:{orderId}`),
+  hydration-safe (only a transition this mount observed turns; a first paint or a revisit renders
+  the pass at rest), deferred to the next visible frame when the edge lands hidden, instant under
+  reduced motion (and the latch still written); `document.title` "Ready for pickup · Morning Star"
+  at the edge, restored after; the picked-up REST face.
+- **The wake re-read** — `useOrderStatus` exposes `refresh()`; OrderTracker's `wake` re-reads the
+  live way while membership holds, else refreshes the `earned_by` snapshot; PickupPromise calls it on
+  `visibilitychange→visible` / `focus` (coalesced) and, while the live read is gone, on the visible
+  30 s tick (B7). The foot is quiet's "This page catches up whenever you come back to it."
+- **Dad's lane** — `expoAge` counts a pickup's age from the LATER of the arrival and the slot
+  (`expoAgeFrom`, B8), so an early tap never paints an on-time bag warn; the badge and the bell
+  stay. Two mutants; the old `a-scheduled-bag-ages-from-payment` re-anchored. The lane's STRINGS are
+  unchanged (decisions 9 and 23): the guest's ticket adopts Dad's words, never the reverse.
+- **Round 3** — D4: `.mms-track-now` runs at most 3 cycles per step change (the dot is keyed on the
+  step; off under RM), on both rails. ONE PASS: the ✓ only at Ready on the ticket.
+- **Privacy** — `ph-no-capture` on the stub and on every element rendering the code (decision 7).
+- **The pickup page drops the "PICKUP" eyebrow (decision 16) and the chip row (B9):** the header
+  pill's `.vt-order-status` morph partner is the ticket's kicker.
+- **Copy** — every diner string verbatim from the COPY sections; `lib/i18n/track.ts` holds the pairs
+  (pure literals, walked by the content-rule suites), with each Burmese line marked SHIPPED (named)
+  or DRAFT → OPEN-ITEMS `K15 · post-pay`. `kickerPickup` = `expo.pickup`, `imHere` = `expo.tag.here`,
+  `undo` = `kds.undo`, `passSub` = `counterBody`'s clause, `kickerPickedUp` = `expo.verb.pickedUp`.
+
+**Waits on the primitives branch (`claude/feat/pd-pass-primitives`, not on the remote at build time).**
+
+- The claim ticket's WRAPPER. `components/ClaimTicket.tsx` renders the two faces' content (kicker h2,
+  the `.exit-pass-code` figure, the `<dl>` stub, the sr twins, `ph-no-capture`) and the TURN inside
+  `<section class="claim-ticket card">` — a plain card with NO perforation, notches or `--pass-*`
+  inks, deliberately (never a parallel pass). When the branch lands, the wrapper becomes
+  `<CounterPass tier="holder">` in one edit and the `.claim-ticket` card styles go.
+
+**Appendix C taken / not.**
+
+- C2 (the confirmed row's done mark is the path's SOLID `--ok` disc with the `--okb` check): taken.
+- C3 (drop the dashed edge once the window has closed — "Letting them know…"): taken; the busy
+  control is the plain secondary.
+- C4 (key the turn latch `ready:{orderId}`, apart from PaySuccess's): taken.
+- C5 (commit-on-hide reconciles to server truth; a stamp that did not land shows the question on
+  return): taken, through §F/§G's record.
+- C6 (no pickup number before booking at When/Pay): outside this surface; nothing here prints one.
+- C7 (notches without a ring): deferred to the CounterPass primitive, which owns the notch.
+- C8 (a booked-time variant of "hang tight" for a pre-slot arrival): NOT taken — it would compose a
+  new sentence from existing words; the shipped line stays and the D12 sitting may re-word it.
+- C9 (the hollow next ring vs "not sent"): the path keeps the product's shipped `--bd` ring; the
+  stop's word and its sr "next" carry the state, and no pickup stop can read as a dish unsent.
+- C1 (full paths in citations): the citations in this file are left as written.
+
+**Decided under the owner's delegation (decided by: the post-pay stream).**
+
+1. The Ready h1's Burmese is the family word **ယူလို့ရပြီ** alone (B9: one word for "ready" on the
+   screen; it is the kicker's word too). The body's draft "သင့်အော်ဒါ အဆင်သင့်ဖြစ်ပါပြီ" is not used.
+2. The late sub stays "It shows here the moment it is." ONLY while the live read is authorized; once
+   /track is on the `earned_by` snapshot the page re-reads every 30 s while visible (B7's first
+   option), and the foot already says it catches up on return. No sentence is swapped.
+3. The cap-warn line, which no spec string draws (J29): "We’ll tell the counter in a few seconds." /
+   "ခဏနေရင် ကောင်တာကို ပြောပေးပါမယ်" (DRAFT, K15).
+4. `visibilitychange→hidden` inside the window commits through the Server Action (the page lives on);
+   only `pagehide` beacons. Both write the record first. A bfcache `pagehide` (`persisted`) keeps the
+   window.
+5. The arrival route answers 200 for every DECIDED outcome (`ok:false` carries a reason), 400 for a
+   malformed body, 429 for the flood guard and 5xx for a failed write — the client treats only 429
+   and 5xx as "no answer" (the record stays).
+6. The `phone` glyph joins the Icon registry (`packages/ui/src/icon.tsx`, lucide `Phone`) — the spec's
+   own one-line instruction; recorded here because `packages/ui` is guards-style's.
+7. `liveOrderStatusWord`'s `fired` is REQUIRED, not defaulted: a defaulted `true` would silently
+   restore M65 for any caller that forgot it.
+
+**Where the code disproved the spec.**
+
+- The spec's `@vitest`-free claim that a programmatic focus on Undo is never `:focus-visible` holds
+  in browsers after a touch, but not in jsdom — the component suite models touch and keyboard
+  explicitly (`matchesFocusVisible` mocked), and the hold is pinned both ways.

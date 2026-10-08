@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The pickup promise — the guided claim ticket, "I’m here" with a take-back, M65 (2026-10-08, PD3)
+
+- **post-pay's PD3** (`docs/path-design-2026-10-07/m3-pickup-promise.md`, its §H build notes; PATH_DESIGN
+  moment 3, decision 5, correction 16, round 3). /track for a pickup says NOW once as the h1 (the
+  shipped `orderWithKitchen` pair while cooking), then the where-am-I path and the claim ticket: the
+  booked time while waiting, turning over to the six-character code at Ready — ONE TURN per order per
+  tab, instant under reduced motion, never on a first paint or a revisit — and resting after Picked up.
+  Fifteen minutes past the slot with no bag yet it says "Your 6:20 PM order isn’t bagged yet." with no
+  apology and no ETA, and the restaurant's phone comes last as a 44px door. Every diner string is
+  verbatim from the spec (`apps/qr/lib/i18n/track.ts`; the Burmese drafts are OPEN-ITEMS
+  `K15 · post-pay`); `ph-no-capture` rides every element that shows the code or the name.
+- **"I’m here" any time on the pickup day, with a 6-second take-back before anything is written.**
+  The button and its Undo swap in ONE 64px slot behind the same-gesture guard (`SAME_GESTURE_MS`,
+  both directions), the Undo in the lane's dashed accent posture named "Undo ပြန်ဖျက်", with the capped
+  keyboard hold from `lib/undo-hold.ts`. It survives the page closing: a `sendBeacon` on `pagehide`
+  plus ONE pending record per order in `localStorage`, written only when the arrival COMMITS, cleared
+  only by an answer, reconciled on the next visit to the idempotent `POST /api/track/arrival`
+  (`lib/arrival-pending.ts`, pure, four mutants). The write itself (`lib/arrival.ts`, `stampArrival`)
+  is guarded in the statement — the pickup's own day in the restaurant's calendar, not collected,
+  `arrived_at` null — with `.select("id")` and a row check, and gains the `earned_by` arm so a pickup
+  booked past the 4-hour session still announces itself. Four `arrival/*` mutants.
+- **M65 closed in the same PR:** `fire_at` rides `TRACK_ORDER_SELECT` / `shapeTrackedOrder`, and
+  `liveOrderStatusWord` takes a required `fired` input — a held scheduled pickup reads **"Scheduled"**,
+  never "Preparing" or "with the kitchen", on /track, in the tray and on the header pill.
+  `lib/pickup-promise.ts` is the ONE derivation (ten mutants).
+- **Dad's lane** ages a pickup bag from the LATER of the guest's arrival and the slot
+  (`expoAge`, `lib/expo-rules.ts`), so an early "I’m here" never paints an on-time bag warn or late;
+  the lane's strings are unchanged. The /track halo (`.mms-track-now`) runs at most 3 cycles per step
+  change (round 3, D4).
+- **Waits on the primitives branch:** the claim ticket's wrapper is a plain card until
+  `claude/feat/pd-pass-primitives` lands the CounterPass (its perforation, notches and `--pass-*` inks
+  are drawn nowhere else); the faces, the TURN and the stub are final (`components/ClaimTicket.tsx`).
+
 ### The pass tokens: `--fs-pass`, `--till-fs-hand` and the constant `--pass-*` inks (2026-10-08)
 
 - **guards-style's token-only PR, the first step of PATH_DESIGN's Sequencing (D1(c)).** Two
