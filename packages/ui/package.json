@@ -37,6 +37,6 @@
     "@mms/config": "workspace:*",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "vitest": "4.0.17"
+    "vitest": "4.1.11"
   }
 }
