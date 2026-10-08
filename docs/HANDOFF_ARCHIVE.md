@@ -4593,6 +4593,96 @@ Backlog + per-primitive consumer map: `docs/QR_FROM_DELIVERY.md`.
 >   a session-less signed-order-token path for kiosk/Terminal walk-ups; Terminal must route through the
 >   settlement mutex or the double-collect guard has a hole.
 
+## 2026-10-08 (after #320 and #324) — superseded the same evening by the path-design wave
+
+_Moved verbatim from `docs/HANDOFF.md` on 2026-10-08 when the wave started; its "Where things stand", "Next tasks" and "Parallel streams" sections follow._
+
+### Where things stand (2026-10-08)
+
+Measure first: `git log origin/main --oneline -3` and `gh pr list`.
+
+- **#319 merged as `8dc5210`:** the path-design record
+  [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md), its twelve specs in
+  [`path-design-2026-10-07/`](path-design-2026-10-07/), OPEN-ITEMS PD1–PD13, and the design-prototyping
+  standard ([`SKILL.md`](../.claude/skills/design-prototyping/SKILL.md)). The owner's canvas ("MMS paths
+  — design prototypes", private; find it by title with `Artifact` `action: "list"`) holds the screens.
+- **#320 merged as `d9614ae` (2026-10-08T06:59Z): the merge gate, fitted to 30 minutes.** The owner, in
+  order: "verify:slice should not take this long, either break it apart with subagents or disable it
+  because we can't take more than 30 minutes for each PR merge", then "is verify:slice optimized and
+  other CI checks necessary?", then picked "Keep it, made fast" and "Make public again" (the rulings
+  file §G, G1 · G2). What changed:
+  - The full battery is the aggregate CI check **`verify-slice`** over 12 cost-balanced
+    `verify-slice shard` jobs, on non-draft heads and pushes to main; `check:shard-partition` proves the
+    shards partition it. A draft's is RED on purpose ("not run — DRAFT"); a docs-only PR's is green ("not
+    run — docs-only lane"). A `changes` job splits CI into docs / code / sql lanes (a push to main runs
+    every lane). The Codex gate also reads the Completed row of Codex's summary comment for the head (a
+    clean auto-review edits that comment and adds a thumbs-up reaction, nothing else).
+  - Measured: shard jobs 4.1–10.5 min (two PR runs), the aggregate ~10.5–11 min wall after `changes`;
+    `build` ~6 min; `migrations-check + types-fresh` 11.1–13.3 min (the critical path when the sql lane
+    runs). A full serial local run took 164–180 min (2026-10-06..08), so it is never a pre-push step:
+    run `node scripts/verify-slice.mjs --no-gate --only=<substr>` per money/authority module touched
+    (`--list --only=<substr>` shows what a filter selects). Deferred, not blocking: T48 · T49 · T50.
+- **#324 fixed main's first sharded run.** `checkout-bind/stale-refusal-said` SURVIVED on main's push run
+  of `d9614ae` after being CAUGHT on both PR runs of the same tree; the two stale-refusal tests in
+  `apps/qr/components/Checkout.bind.test.tsx` now read the region's history (LEARNINGS #248). A mutant
+  that survives on one run and is caught on another of the same tree is a suite defect: fix the read,
+  red-first. Never re-run a red `verify-slice` hoping for green.
+- **The repo is public again** (owner: "made it public, add to same PR, merge when ready"). **Branch
+  protection, measured 2026-10-08 ~07:20Z with an admin-scoped token:** `GET /branches/main` →
+  `protected: false`; `/branches/main/protection` → 404; `/rulesets` → `[]`; `/rules/branches/main` →
+  `[]`. The owner reported "wired the required checks on main, codex-review can be replaced with blind
+  review if out of quota so merge is not blocked waiting on quota" that morning, but no rule was in
+  effect as measured, so **every check is advisory until a re-measure shows the rule** (OPEN-ITEMS C28
+  ③). Until then the merge ritual ([`docs/WORKFLOW.md`](WORKFLOW.md) §Review step 5) is the only
+  enforcement — and the agent's GitHub token is admin-scoped, so the API would let it merge past a red
+  required check. Only the procedure stops that. Asked to check it saved, the owner answered "Not
+  necessary" (2026-10-08, declining the re-check); a re-measure at 11:07Z still read none.
+- **The owner, later that day:** "go with the manual admin bypass for quota" (G3; owner's item 2) and
+  "merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR" (G4, a request). Then, on
+  #325: "1. Yes one more; 2. Confirm; 3. Not necessary; 4. target is fasnpdhtvqtzjlvruqcu; . Merge" (§G
+  (h)) — one more capped pass over fix commits pushed after the blind pass (G3), the waiver tightening
+  confirmed (WORKFLOW step 5 (f)), a re-check of branch protection declined (G2), `.mcp.json` re-pointed
+  to QR, and the go to merge #325 after that pass — the merge itself the owner's under G3 while
+  `codex-review` is red (G4: a request for that PR, not a standing rule).
+
+### Next tasks — build the path designs
+
+**Read, in order:** OPEN-ITEMS (Config, then the PD rows) → the rulings file (wins on rulings) →
+PATH_DESIGN_2026-10-07.md (its round-3 section first: it wins over everything before it, and over a
+stream card for the moments it covers; then "Sequencing") → the moment's spec.
+
+**Build in the record's Sequencing, smallest safe step first:**
+
+1. **guards-style's token-only PR:** `--fs-pass`, `--till-fs-hand` and the `--pass-*` constant inks in
+   `packages/ui/src/tokens.css` (D1(c)). No money path, no migration.
+2. **post-pay's primitives:** the one CounterPass and the kitchen-track UI (ONE PASS · ONE KITCHEN
+   TRACK), rendering a stage they are handed.
+3. **PD5's re-key with `lib/kitchen-track.ts`** (kitchen-ops): the one stage derivation, and
+   `KDS_UNDO_MS` moved to `lib/`. Then PD1–PD8 by their streams, then the TV board (PD9) and the live
+   pass (PD10), then the guides last (PD11, PD12), each after every control it teaches.
+4. **ROADMAP's open Phase 3 slices** — 3d·counter's cash-sheet re-host (K39 · K44), 3e and 3f — are not PD rows: before building a PD that touches the same surface, check whether it absorbs the slice, and record which in the PR.
+5. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first (diner-cart draws, then
+   money-rails answers in create-intent); the D5 served gate (PD10) is built behind it; the flip waits
+   for owner's item 3.
+
+Each spec's appendix C holds suggestions not yet taken: take them where the build agrees and record what
+you took in the spec. A design question the build raises goes through the design-prototyping loop (a
+quick round is fine), never into code by guess.
+
+**Streams — ask the owner once.** The nine 2026-10-07 stream cards are not in the repo: their owned
+files, hot-file rules and "table-door's package 2" (cited by ruling #21 and M168) live only in the
+cards. The eight re-queued on 2026-10-07 were not confirmed started; on 2026-10-08 no stream branch
+exists and main has no stream commit. Ask: parallel sessions, or the sequence above in one session?
+Recommend the sequence (steps 1–2 unblock everything and carry no money risk). A re-queued card must
+carry the quota rule (owner's item 2). If T47 · T37 · J33 · J38 · K16 are still open, guards-style's
+docs-only reconcile closes them (rulings intro).
+
+### Parallel streams (wave of 2026-10-07)
+
+None started (2026-10-08): money-rails · counter-floor · diner-cart · grocery · staff-authority ·
+kitchen-ops · post-pay · table-door · guards-style. Only if the owner picks parallel sessions, each
+stream adds one bullet of its own below this line and edits only that bullet.
+
 ## Where we are — M1 + M2 complete (merged)
 
 The QR app is feature-complete through the solo pay path + tax/promos/scheduling/grocery + the QBO
