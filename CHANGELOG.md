@@ -19,19 +19,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - An agent never merges a red `codex-review`, though its admin-scoped token could, and never automates
     the bypass: the automated version was refused as a CI bypass. Ruling #1's `.md`-only waiver, while no
     check is enforced, is the one exception.
-    - A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits
-      (`pnpm review:bundle --base <the SHA the first pass reviewed>`), the last agent round (the owner,
-      2026-10-08: _"Yes one more"_, replacing the lead's hand-read carry). A fix after that pass is carried
-      by the author's hand-read (the lead's procedure), and the merge-window line lists those commits and
-      any `MONEY_PATHS` file they touch.
-    - The lead's tightening, confirmed by the owner 2026-10-08 ("Confirm"): an agent applies ruling #1's
-      `.md`-only waiver only when Codex is out of quota, only after re-measuring that `codex-review` is not
-      required, and never to a PR touching the rules that govern merges.
-  - If protection is ever wired, it keeps admin bypass available and does not require Code Owner review
-    (the sole code owner authors every PR); the bypass covers `codex-review` only.
-  - Measured 2026-10-08: no protection rule is in effect (C28 ③). Asked to check it, the owner answered
-    "Not necessary": none is expected, so every check stays advisory, the merge ritual is the only
-    enforcement, and C28 · C16 are no longer asked of the owner.
+  - A fix pushed after the capped pass gets ONE more capped blind pass over exactly those fix commits
+    (`pnpm review:bundle --base <the HEAD SHA of the first pass's reviewed pair>`), the last agent round
+    (the owner, 2026-10-08: _"Yes one more"_, replacing the lead's hand-read carry). A fix after that pass
+    is carried by the author's hand-read (the lead's procedure), and the merge-window line lists those
+    commits and any `MONEY_PATHS` file they touch.
+  - The lead's tightening, confirmed by the owner 2026-10-08 ("Confirm"): an agent applies ruling #1's
+    `.md`-only waiver only within the 2026-10-07 wave, only when Codex is out of quota, only after
+    re-measuring that `codex-review` is not required, and never to a PR touching the rules that govern
+    merges.
+  - Protection keeps admin bypass available and does not require Code Owner review (the sole code owner
+    authors every PR). The bypass covers `codex-review` only.
+  - Measured 2026-10-08: no protection rule is in effect yet (C28 ③). Asked to check it saved, the owner
+    answered "Not necessary" (declining the re-check); a re-measure at 11:07Z still read none.
 - **How it was done.**
   - Two read-only audits: seven targets, plus a quota sweep with a completeness critic.
   - Six editors, each on disjoint files, under one written contract.
@@ -41,7 +41,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     - OPEN-ITEMS' row-ID multiset nothing lost, nothing duplicated;
     - cross-doc consistency.
   - Then the verifiers' ~20 findings fixed.
-- **CLAUDE.md** (374 → 240 lines):
+- **CLAUDE.md** (374 → 243 lines):
   - "Where things stand" rewritten for 2026-10-08.
   - The verify:slice block condensed. The 86-line module enumeration is gone: a run restores on
     INT/TERM/HUP and refuses a dirty target, so `git status --short` names a leftover mutant. Every ⚠️
@@ -54,7 +54,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     QA log).
   - Stale claims fixed: migrate on a branch, `receiptStatusLabel`'s home, the W22 slate, and dead
     LEARNINGS cites.
-- **docs/HANDOFF.md** (4,911 → 174 lines): a new 2026-10-08 top block with the state, the owner's items
+- **docs/HANDOFF.md** (4,911 → 175 lines): a new 2026-10-08 top block with the state, the owner's items
   and the next tasks (the path-design build). The history moved verbatim to the new
   **docs/HANDOFF_ARCHIVE.md**, which also takes its count lines off the live-state guard.
 - **docs/OPEN-ITEMS.md** (9.0 MB → 4.8 MB):
@@ -73,7 +73,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     habit stays, since a session can load another MCP config.
   - The `PICKUP_MANUAL_CAPTURE` flip gate is binding again where an operator reads it: ENV.md's row, and
     the archive's citation list marks it and the p2f procedure as live despite the banner.
-  - Merges wait for the owner's per-SHA yes or explicit instruction (the rulings intro), not just green
+  - Merges wait for the owner's per-SHA yes or explicit instruction (never for a red-`codex-review` head), not just green
     checks; ruling #1's money-path default is restored as a hold, not advice.
   - The carry and the waiver tightening are labelled the lead's procedure everywhere (the owner then
     confirmed the tightening, _"Confirm"_, and replaced the carry with one more capped pass,
@@ -81,7 +81,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     rebase rule compares with `git range-diff`.
   - The verify:slice recovery reads `git diff` before any checkout and forbids editing a target mid-run;
     "what CI's build job runs" is one step of it; Phase 3's open slices (3d·counter, 3e, 3f) are named.
-  - The blind-review template requires the PR's head SHA and refuses an `unknown` verdict SHA.
+  - The blind-review template requires a head-SHA argument (7–40 hex) and refuses an `unknown` verdict SHA;
+    reading the head from GitHub is the caller's step (the workflow cannot).
+- **Codex round 2, fixed:** M4's status (P4.2's reorder note was stale); the template returns one
+  worst-of-lenses `verdict`; the head a stand-in names is GitHub's `head.sha`, never the local checkout's.
+- **The second capped blind pass (over `8ab7395..b30d302`), fixed:** the money-path hold restated in ruling
+  #1's row and C16; an explicit merge instruction never covers a red-`codex-review` head; the usage-limit
+  caveat beside every "Codex has reviewed" gate; a HIGH finding escalates an APPROVE; the waiver's "this
+  wave"; `--base` names the first pass's HEAD; M4 ✅ with its deferral named.
 - **Also updated:**
   - README: environments, gates, CI and review, the parked surfaces; the module list is cut.
   - WORKFLOW: one normative copy of the lanes, required checks, merge ritual (with 5(g)) and Definition

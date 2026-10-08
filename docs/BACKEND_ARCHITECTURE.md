@@ -114,7 +114,8 @@ so nothing is applied anywhere but locally until the owner's go.
    fresh local stack, applies every migration + seed, diffs the types and runs every SQL test and the
    race harnesses — never `db push` (`docs/WORKFLOW.md` §Gates).
 4. **Prod, on the owner's go** (OWNER_RULINGS_2026-10-07 #5), at a quiet time the owner names: apply
-   ONE FILE AT A TIME with the Supabase MCP `apply_migration`, verify the objects THAT FILE creates
+   ONE FILE AT A TIME with the Supabase MCP `apply_migration` — first confirming it targets
+   `fasnpdhtvqtzjlvruqcu` (e.g. `get_project_url`) — verify the objects THAT FILE creates
    before the next (functions: signature + shape count + `has_function_privilege`; columns/indexes/policies/data: `information_schema`
    or `pg_catalog`), then `get_advisors` (security + performance).
    ⚠️ **NOT `db push`** — prod's `schema_migrations` versions are MCP-generated and share no value

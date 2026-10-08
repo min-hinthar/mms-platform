@@ -40,7 +40,8 @@ if (!RECORD || !SPECS) throw new Error("4-blind-review needs args.record (the ro
 // REQUIRED: the PR's head SHA read from GitHub (`pull_request_read` get → head.sha, or `git ls-remote
 // origin refs/pull/<N>/head`) — the head about to merge. NEVER the local `git rev-parse HEAD`: a push
 // from another checkout leaves it stale, and the bundle, written from the same checkout, would agree
-// with it (Codex round 2 on #325). The owner's bypass merge is tied to this SHA.
+// with it (Codex round 2 on #325). The owner's bypass merge is tied to this SHA. A workflow cannot read
+// GitHub (no shell), so the code below checks the format only: reading it from GitHub is the CALLER's step.
 const EXPECT_HEAD = args.head
 if (!EXPECT_HEAD || !/^[0-9a-f]{7,40}$/.test(EXPECT_HEAD)) throw new Error(`args.head must be the PR's head SHA (7-40 hex), got ${EXPECT_HEAD}`)
 const BASE = `Audit the change bundle at ${REPO}/.review-bundle/ — start with PROMPT.md and MANIFEST.md; the diff is DIFF.patch and the full text of every changed file is under FILES/. You may read the rest of the repository at ${REPO} to verify any claim against source. You have been told nothing about the change's intent; judge only what the files say. Report only defects you can evidence by quoting both sides (the claim and the contradicting source or passage). Cap your work at about 15 minutes. Copy the two SHAs on PROMPT.md's "Base: … to HEAD …" line into \`reviewed\` as <base>..<head>, exactly as printed but without the backticks. Your single lens:`
@@ -57,7 +58,7 @@ const results = await parallel(LENSES.map(l => () =>
 // pass (Codex round 4 on #319). Re-run the workflow; finished lenses replay from cache.
 const missing = LENSES.filter((_, i) => !results[i]).map((l) => l.key)
 if (missing.length) throw new Error(`blind review incomplete, no result from: ${missing.join(', ')}`)
-// Every lens must have read the same bundle, and (given args.head) a bundle of that head: the posted
+// Every lens must have read the same bundle, and a bundle of args.head: the posted
 // verdict names this SHA, and the owner's bypass merge is tied to it (OWNER_RULINGS §G, G3).
 const SHA_PAIR = /^([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})$/
 const bad = results.filter((r) => !SHA_PAIR.test(r.reviewed || '')).map((r) => `${r.lens}: ${r.reviewed}`)
@@ -70,11 +71,15 @@ if (!(EXPECT_HEAD.startsWith(head) || head.startsWith(EXPECT_HEAD))) {
 }
 // One verdict for the pass: the worst lens, and any CRITICAL finding forces REJECT (the auditor's own
 // rule). Returning only per-lens verdicts let a caller read a finished run as approval while a money or
-// product-truth lens rejected (Codex round 2 on #325). A verdict other than APPROVE stands in for Codex
+// product-truth lens rejected (Codex round 2 on #325). A HIGH finding makes an APPROVE at least
+// APPROVE_WITH_FIXES (the blind pass on #325's fix commits). Whatever the verdict, it stands in for Codex
 // (WORKFLOW §Review step 5(g)) only once every finding is fixed or justified on the PR.
 const RANK = { APPROVE: 0, APPROVE_WITH_FIXES: 1, REJECT: 2 }
 const worst = results.reduce((w, r) => {
-  const v = (r.findings || []).some((f) => f.severity === 'CRITICAL') ? 'REJECT' : r.verdict
+  const fs = r.findings || []
+  const v = fs.some((f) => f.severity === 'CRITICAL') ? 'REJECT'
+    : fs.some((f) => f.severity === 'HIGH') && r.verdict === 'APPROVE' ? 'APPROVE_WITH_FIXES'
+    : r.verdict
   return RANK[v] > RANK[w] ? v : w
 }, 'APPROVE')
 return { verdict: worst, reviewed: reviewed[0], head, lenses: results }

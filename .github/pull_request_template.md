@@ -38,11 +38,11 @@ Roadmap: `ROADMAP.md` → M*.* P*.*
 
 ## Merge gates (`docs/WORKFLOW.md` §Review step 5)
 
-<!-- Advisory: no branch protection requires them, and none is expected (OPEN-ITEMS C28; the owner, 2026-10-08: "Not necessary"); the merge ritual is the enforcement. -->
+<!-- Advisory until branch protection requires them (OPEN-ITEMS C28); the merge ritual is the enforcement. -->
 
 - [ ] `@codex review` asked on the draft; every Codex round fixed-or-justified
 - [ ] Blind-pass verdict posted as a PR comment, naming the head SHA it reviewed
-- [ ] Green on the merge head: `codex-review` · `verify-slice` · `build` · `migrations-check + types-fresh` · `docs` · `require-docs` (a lane that did not run reads green)
+- [ ] Green on the merge head: `codex-review` · `verify-slice` · `build` · `migrations-check + types-fresh` · `docs` · `require-docs` (a lane that did not run reads green; a green `codex-review` beside Codex's usage-limit reply on that head is unproven, step 5(d))
 - [ ] Vercel preview live and smoke-tested
 
 Codex out of quota: the blind-pass verdict on the exact head stands in, and only the **owner** merges that head, by admin bypass, by hand (step 5(g)) — never an agent, and never past a red `verify-slice`, `build`, `docs`, `migrations-check + types-fresh` or `require-docs`.
