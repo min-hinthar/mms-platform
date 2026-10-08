@@ -87,12 +87,23 @@ describe("CounterPass — every tier and orientation, one figure", () => {
     expect(render({ tier: "holder", seam: "4px" })).toContain('data-seam="4px"');
   });
 
-  it("a three-digit TABLE steps down at the --fs-pass tiers only", () => {
+  it("a three-digit TABLE steps down at the --fs-pass tiers only, in either orientation", () => {
     expect(render({ tier: "counter", figure: "120" })).toContain("data-figure-long");
     expect(render({ tier: "tv", figure: "120" })).toContain("data-figure-long");
+    expect(render({ tier: "tv", figure: "120", orientation: "landscape" })).toContain("data-figure-long"); // prettier-ignore
     expect(render({ tier: "holder", figure: "120" })).not.toContain("data-figure-long");
     expect(render({ tier: "counter", figure: "47" })).not.toContain("data-figure-long");
-    expect(render({ tier: "counter", figure: "120", figureKind: "code" })).not.toContain("data-figure-long"); // prettier-ignore
+  });
+
+  it("a CODE of five or more glyphs steps down on a PORTRAIT paper at those tiers; a landscape stub grows instead", () => {
+    // MUTATION: codes never step (the first cut) — seven glyphs of 88px overflow a 390px phone; red.
+    const code = { figureKind: "code" as const, figure: "#7C2E9A" };
+    expect(render({ tier: "counter", ...code })).toContain("data-figure-long");
+    expect(render({ tier: "tv", ...code })).toContain("data-figure-long");
+    expect(render({ tier: "counter", ...code, orientation: "landscape" })).not.toContain("data-figure-long"); // prettier-ignore
+    expect(render({ tier: "holder", ...code })).not.toContain("data-figure-long");
+    expect(render({ tier: "counter", figureKind: "code", figure: "1234" })).not.toContain("data-figure-long"); // prettier-ignore
+    expect(render({ tier: "counter", figureKind: "code", figure: "12345" })).toContain("data-figure-long"); // prettier-ignore
   });
 });
 
@@ -145,6 +156,21 @@ describe("CounterPass — the figureless identity (m11: no number bound yet)", (
       expect(html).not.toContain("ui-pass-fallback-echo");
       expect(html).toContain('<span class="ui-pass-fallback-lead" lang="en">Your table</span>');
     }
+  });
+
+  it("an empty tongue is a missing tongue; no tongue at all is refused, loudly", () => {
+    // `en: ""` under lang en: the Burmese names the pass, alone.
+    const my = figureless({ lang: "en", fallback: { en: "", my: "သင့်စားပွဲ" } });
+    expect(headingName(my)).toBe("သင့်စားပွဲ");
+    expect(my).toContain('<span class="ui-pass-fallback-lead" lang="my">သင့်စားပွဲ</span>');
+    expect(my).not.toContain("ui-pass-fallback-echo");
+    // Whitespace is empty too.
+    expect(headingName(figureless({ fallback: { en: "  ", my: "သင့်စားပွဲ" } }))).toBe(
+      "သင့်စားပွဲ",
+    );
+    // MUTATION: an empty name rendered as a pass — red.
+    expect(() => figureless({ fallback: { en: "" } })).toThrow(/non-empty tongue/);
+    expect(() => figureless({ fallback: { en: " ", my: "" } })).toThrow(/non-empty tongue/);
   });
 
   it("the identity is the type's: a figure OR the fallback words, never both, never neither", () => {
