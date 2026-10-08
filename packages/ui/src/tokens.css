@@ -49,6 +49,15 @@
   --fs-sm: 0.8125rem; /* 13 */
   --fs-caption: 0.75rem; /* 12 — chips, meta, captions */
   --fs-xs: 0.6875rem; /* 11 */
+  /* PATH_DESIGN 2026-10-07 (D1(c)) — the two COUNTER-FIGURE tiers, the figures read or said across
+     the counter. Every pass (post-pay's one CounterPass: the guest's "Show a server" card, the counter
+     ask, the walk-up seal's #CODE stub, the TV's table pass) prints ONE identity figure at `--fs-pass`
+     when it is held up across the counter or the room; a holder reads it at the 40px
+     `.exit-pass-code` tier and the TV's code row is its shipped 54px — three tiers, never a fourth.
+     `--till-fs-hand` is the one figure you HAND back: the till tray's Change. m6's `--till-fs-say`
+     was folded into `--fs-pass` (PATH_DESIGN reconciliation 2): one 88px token, not two. */
+  --fs-pass: 5.5rem; /* 88 — the identity figure read across the counter; the till's due, said aloud */
+  --till-fs-hand: 8rem; /* 128 — the Change handed back (m6 only) */
   /* Phase 0 — the weight and tracking scales. Before these existed the stylesheet carried 267
      literal font-weights and 16 distinct letter-spacings; "bold" meant 600, 700 or 800 depending on
      who wrote the rule. Name the role, never the number. `scripts/check-style-literals.mjs` holds the
@@ -126,6 +135,26 @@
   --okb: #eaf2ec;
   --warn: #a44b34;
   --warnb: #f6e9e4;
+  /* ── PASS (PATH_DESIGN 2026-10-07 round 3, "ONE PASS") — the wallet-pass paper and its inks ─────
+     A pass is CONSTANT PAPER in both themes, like a boarding pass in a wallet: these nine are the
+     light palette's own values, bound to their own names so the pass never reads a theme token that
+     flips in Night (the blind critic measured Night `--tx` at ~1.1:1 on this paper). They are
+     declared ONCE, here, and NEVER redefined in `.dark` — the print re-pin in globals.css does not
+     need them either, for the same reason. Hosts set only `--pass-hole` (the notch cut-outs, which
+     show the host's ground) — the page sets it to `--pg`, a stage ground to its own surface. The
+     seam is the 2px dotted perforation (4px on the TV); the pass's hairline edge is `--pass-ink` at
+     18% (`color-mix`), not a tenth token. `--pass-unlit` is an empty track segment on the paper:
+     decorative by design — the stage word beside it carries the state (m9's contrast table). */
+  --pass-paper: #fffdf8; /* = light --cd */
+  --pass-ink: #1b1714; /* = light --tx */
+  --pass-ink-2: #6e6358; /* = light --t2 — the Sent segment and its word */
+  --pass-ink-3: #726859; /* = light --t3 — the stub's small fields */
+  --pass-ac: #a65f10; /* = light --ac — "now" on a pass; never a progress colour */
+  --pass-ok: #346e47; /* = light --ok — Served, and the Paid stamp */
+  --pass-okb: #eaf2ec; /* = light --okb — the stamped stub's ground */
+  --pass-seam: rgba(58, 35, 23, 0.28); /* the dotted perforation; = --bd's hue at 0.28 */
+  --pass-unlit: #e6e1d6; /* an empty track segment on the paper (decorative) */
+  --pass-hole: var(--pg); /* the notches' cut-outs: the HOST's ground, overridden per host */
   --shadow-ink: #231810; /* byte-identical to the rgba(35, 24, 16, α) light already ships in
                             --sh / --sh-md / --sh-xl — light has always had a warm hue-bearing
                             shadow; Night is what was using flat black. */
