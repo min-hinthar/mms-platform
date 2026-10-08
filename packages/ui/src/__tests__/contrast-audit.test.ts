@@ -595,6 +595,9 @@ describe("the pass — constant paper in both themes (PATH_DESIGN round 3, PR #3
     ["pass-ac on pass-paper (the lit dot's word, the primary pill)", "--pass-ac", paper],
     ["pass-ok on pass-okb (the Paid stamp on the stamped stub)", "--pass-ok", stub],
     ["pass-ink on pass-okb (a word on the stamped stub)", "--pass-ink", stub],
+    // Codex, round 2 on #326: the stub's small fields keep their inks when the stub is stamped.
+    ["pass-ink-2 on pass-okb (the stamped stub's Sent field)", "--pass-ink-2", stub],
+    ["pass-ink-3 on pass-okb (the stamped stub's small fields)", "--pass-ink-3", stub],
   ];
   it.each(text)("%s clears 4.5:1 in Night", (_name, fg, bg) => {
     expect(contrastRatio(tok(dark, fg), bg)).toBeGreaterThanOrEqual(4.5);
