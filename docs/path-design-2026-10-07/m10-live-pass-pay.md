@@ -1100,3 +1100,10 @@ item below wins**, and PATH_DESIGN_2026-10-07.md (its round-3 section) wins over
    counts a line as served only once its `bumped_at` is at least `KDS_UNDO_MS` old on the DB clock (the
    TV board's rule, m9), the pass read carries that verdict rather than raw `served`, and "A door already
    open on mount is drawn open" applies only to a door the server already opened.
+
+### G · Codex round 5 (2026-10-08) — these win over everything above
+
+1. **The tip resets when the door closes.** If a recall closes the served gate after a guest picked a
+   tip, the close edge clears both the preset and any custom tip, so a reopened door starts with no tip
+   selected, exactly as the design promises. A component case pins it: a tip chosen, the gate closes and
+   reopens, and nothing is pre-selected.

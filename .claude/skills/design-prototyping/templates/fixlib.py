@@ -1,5 +1,7 @@
 import re, sys
-ROOT='/home/user/mms-platform/'
+import os, subprocess
+# The repo root comes from REPO_ROOT or the working tree's git root (Codex round 5 on #319).
+ROOT = (os.environ.get('REPO_ROOT') or subprocess.run(['git', 'rev-parse', '--show-toplevel'], capture_output=True, text=True, check=True).stdout.strip()).rstrip('/') + '/'
 _files={}
 def _get(p):
     if p not in _files: _files[p]=open(ROOT+p).read()

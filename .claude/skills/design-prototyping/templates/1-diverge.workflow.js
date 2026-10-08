@@ -155,7 +155,13 @@ Judge three concepts for this moment, as a panel of: a Burmese-first parent work
 
 MOMENT: ${JSON.stringify(m)}
 CONCEPTS: ${JSON.stringify((concepts || []).filter(Boolean))}`, { label: `judge:${m.id}`, phase: 'Judge', schema: JUDGEMENT })
-    .then(j => ({ moment: m, concepts: (concepts || []).filter(Boolean), judgement: j })),
+    .then(j => {
+      const got = (concepts || []).filter(Boolean)
+      // Every angle and a judgement, or the moment fails (Codex round 5 on #319): a partial
+      // moment would brief fewer directions, or crash 1a-briefs.py on a null judgement.
+      if (got.length !== ANGLES.length || !j) throw new Error(`${m.id}: ${got.length}/${ANGLES.length} concepts, judgement ${j ? 'ok' : 'missing'}`)
+      return { moment: m, concepts: got, judgement: j }
+    }),
 )
 
 // This returns concepts and judgements only; it draws nothing. Next: save this return value as JSON,

@@ -48,6 +48,10 @@ for res in results:
             out.append("LAYOUT:\n" + s["layout"] + "\n")
             out.append("COPY (English):\n" + lst(s.get("copy_en", "")) + "\n")
             out.append("COPY (Burmese drafts):\n" + lst(s.get("copy_my", "")) + "\n")
+            if s.get("states"):
+                out.append("STATES:\n" + lst(s["states"]) + "\n")
+            if s.get("interactions"):
+                out.append("INTERACTIONS:\n" + lst(s["interactions"]) + "\n")
     j = res["judgement"]
     out.append("\n\n========================================\n## Judges' notes (context only — never put on an artboard)\n")
     out.append("Recommended: " + j["recommended"] + "\n\nGrafts: " + j["grafts"] + "\n")

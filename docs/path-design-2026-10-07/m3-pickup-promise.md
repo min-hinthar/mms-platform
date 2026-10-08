@@ -1008,3 +1008,12 @@ The round-3 consistency pass gave this moment these changes:
 3. Name the time→code turn-over as the shared TURN on the Y axis. Its timing stays: two --dur-base halves, ease-in then --ease-out, latched once per order per tab, instant under reduced motion. m9 and m10 use the same recipe on the X axis for a status cell.
 4. Loops: cap /track's mms-track-now halo at 3 cycles per step change (under WCAG 2.2.2's 5 s), and keep it off under reduced motion. Only ALARM loops.
 5. /track never claims the TV, which may be absent or stale. The wall now shows the code and not the first name (m9). The lane and Checkout's 'We’ll call your name' stay true and unchanged.
+
+### E · Codex round 5 (2026-10-08) — these win over everything above
+
+1. **"I'm here" survives the page closing.** A tap inside its 6-second Undo window must still reach
+   Dad if the guest closes the tab or navigates away: on `pagehide` the pending arrival is posted with
+   `navigator.sendBeacon` to a thin route (the same pattern Checkout already uses, `Checkout.tsx:1603`,
+   because a Server Action started on `pagehide` dies with the page), and the pending tap is also kept
+   in `sessionStorage` and reconciled on return, so a beacon the browser drops is still sent. The route
+   is idempotent on the order, so a beacon and a reconcile never record two arrivals.
