@@ -5,6 +5,7 @@ import { m, useDragControls } from "framer-motion";
 import { DomMaxProvider } from "./dom-max-provider";
 import { Icon } from "./icon";
 import { mayDismiss, sheetDismiss } from "./sheet-dismiss";
+import { sheetInitialFocusTarget, type SheetInitialFocus } from "./sheet-focus";
 
 /**
  * Accessible bottom sheet built on Radix Dialog — replaces the prototype's hand-rolled
@@ -47,6 +48,7 @@ export function Sheet({
   children,
   busy = false,
   onCloseAutoFocus,
+  initialFocus,
   className,
   closeLabel,
 }: {
@@ -96,6 +98,22 @@ export function Sheet({
    *  `e.preventDefault()` + focus your own stable element (WCAG 2.4.3). */
   onCloseAutoFocus?: (event: Event) => void;
   /**
+   * PD4 (round 3, D1(d)) — OPT-IN initial focus: a ref or a selector the sheet focuses on open
+   * INSTEAD of its container. The default stays J21's container stop (the dialog and its title are
+   * announced first, never "Close"); this is for the one shape where that stop costs a real tap — a
+   * sheet whose whole job is one field, where focusing the field in the opening tap is what raises
+   * the keyboard. The decision is `sheetInitialFocusTarget` (sheet-focus.ts, pinned by the ui
+   * package's own suite — `verify:slice` cannot mutate this package, OPEN-ITEMS M77): a target
+   * outside the sheet is refused (Radix traps focus inside), and a selector that matches nothing
+   * falls back to the container, never to the first tabbable.
+   *
+   * ⚠️ Never on a money sheet. The grocery Name sheet is the only caller, and
+   * `apps/qr/lib/sheet-initial-focus-callers.test.ts` PARSES every `<Sheet>` on disk to keep it
+   * that way: a cash sheet, Checkout or any settle door that passed this would put a diner's or
+   * Dad's first stop on a control the trap never announced.
+   */
+  initialFocus?: SheetInitialFocus;
+  /**
    * manager-9 — the ✕'s name in the caller's tongue, as DOM text (rendered `.sr-only` inside the
    * button, the icon stays decorative), NOT as an `aria-label`: the console names every circle by
    * sr-only dictionary text through `<Chrome>` so the Burmese arrives language-marked and the
@@ -140,6 +158,7 @@ export function Sheet({
             if (mayDismiss({ busy })) onOpenChange(false);
           }}
           onCloseAutoFocus={onCloseAutoFocus}
+          initialFocus={initialFocus}
         >
           {children}
         </SheetContent>
@@ -169,6 +188,7 @@ type SheetContentProps = {
   className?: string;
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
+  initialFocus?: SheetInitialFocus;
   closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
 };
 
@@ -191,6 +211,7 @@ function SheetBody({
   className,
   children,
   onCloseAutoFocus,
+  initialFocus,
   closeLabel,
 }: SheetContentProps) {
   const controls = useDragControls();
@@ -243,7 +264,10 @@ function SheetBody({
     const ae = document.activeElement;
     if (openerRef.current == null && ae instanceof HTMLElement && !contentRef.current?.contains(ae))
       openerRef.current = ae;
-    contentRef.current?.focus();
+    // PD4 — the opt-in first stop (sheet-focus.ts decides; null = the container, J21's default).
+    const target = sheetInitialFocusTarget(initialFocus, contentRef.current);
+    if (target) target.focus();
+    else contentRef.current?.focus();
   };
   const restoreFocus = (event: Event) => {
     if (onCloseAutoFocus) {
