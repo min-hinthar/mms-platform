@@ -262,7 +262,8 @@ Codex's second round found eight more, each checked against the code and the spe
 - The Bill's guidance is the rail plus ONE line in the dock's slot, directly above the one door: "The
   counter takes cash." The old ①②③ list is gone, and no card button is drawn (decision 2).
 - After the ask, every phone at the table becomes the counter pass (the CounterPass: table number at
-  `--fs-pass`, the total), and Dad's pane shows the same pass. **Two reads, one derivation:** the guest's
+  `--fs-pass`, the total), and Dad's pane shows its twin: the same paper, seam and total, with the
+  table number in the pane's heading rather than printed twice. **Two reads, one derivation:** the guest's
   pass shows `totals.totalCents` from `getCartTotals(id)`; Dad's pane reads `getCartTotals(cart.id, 0)`
   (`lib/floor.ts:996`). One test over a promo'd cart pins them equal. On Dad's pane the pass total and
   Take cash read ONE value, so while a manager decision re-reads, both say "Updating the total…". A guest

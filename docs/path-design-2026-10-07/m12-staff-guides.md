@@ -577,7 +577,7 @@ pane, drawn as picked-m7-1's pane.
 - **Eyebrow:** "အဆင့် ၃ / ၅" · "Step 3 of 5".
 - **Title:** "ကောင်တာမှာ ငွေရှင်းချင်ပါတယ်" / "They’d like to pay here at the counter".
 - **Line** (English-only, NEW): "A filled tile is a table asking to pay — the only tile that ever
-  fills. Tap it to see the same pass they’re holding."
+  fills. Tap it to see their ask, with the same total their phone shows."
 - **Picture:**
   - **The strip crop,** three tiles, x86–306, y12–76:
     - tile 3 live;
@@ -586,19 +586,17 @@ pane, drawn as picked-m7-1's pane.
       - **face B, ASK:** background #f6e9e4, the receipt glyph (18px, #a44b34), a 4px #a44b34
         bar, the number in #1b1714;
     - tile 5 free.
-  - **The counter pass, as Dad's pane shows it** (m2), x16–376 (360), y100–240 (140):
-    - **paper:** #fffdf8, 1px rgba(27,23,20,0.18), radius 16, inset sheen;
-    - **stub** x16–144 (128): a centred column:
-      - `<span lang="my">` "စားပွဲ" (Padauk 700 15, #1b1714) then "Table" (Hanken 13/700, #726859),
-        on one baseline;
-      - under it, "4" in Fraunces 600 **88px** (`--fs-pass`), lh 1, tabular, #1b1714;
-    - **the perforation:** the stub's right edge, 2px dotted rgba(27,23,20,0.28);
-    - **notches:** two 12px circles of #f5f2ee with a 1px rgba(27,23,20,0.18) ring, centred on the
-      seam at the top and bottom edges;
-    - **main** x144–376 (232), padding 14 16, a column, gap 4:
-      - "တောင်းဆိုတာ ၄ မိနစ်က" (Padauk 700 13, #6e6358);
-      - "စုစုပေါင်း · Total" (Padauk 700 13 + Hanken 13/700, #6e6358);
-      - "$46.41" (Fraunces 800 44, lh 1.08, tabular, #1b1714).
+  - **The ask pass, as Dad's pane shows it** (m2's `picked-m2-3`, scaled), x16–376 (360),
+    y100–240 (140). The pane's heading already prints "စားပွဲ 4", so this pass prints no table number:
+    - **paper:** #fffdf8, 1px rgba(27,23,20,0.18), radius 16, inset sheen; a column, padding 12 0 10,
+      gap 4;
+    - **head** (padding 0 16): the receipt glyph (28px tile, #fbeed6, #8a5a00) beside
+      "ကောင်တာမှာ ငွေရှင်းချင်ပါတယ်" (Padauk 700 15, #1b1714) over "တောင်းဆိုတာ ၄ မိနစ်က" (Padauk 700
+      12, #6e6358);
+    - **the seam:** 2px dotted rgba(58,35,23,0.28) inset 12, with two 12px half-notches of #f5f2ee
+      ringed 1px rgba(27,23,20,0.18) on the left and right edges;
+    - **total, centred:** "စုစုပေါင်း · Total" (Padauk 700 12 + Hanken 12/700, #6e6358) over "$46.41"
+      (Fraunces 800 32, lh 1.08, tabular, #1b1714).
 - **Motion: the tile fills, once.**
   - Face A: `m12Out` 240ms, delay 500ms, backwards (base `opacity:0`).
   - Face B: `m12Pop` 240ms, delay 500ms, backwards.
@@ -1324,8 +1322,10 @@ candidates: counter step 4, counter step 5 and kitchen step 5.
 15. **Kitchen step 1 says drinks are on the board and that guests' phones and the TV board follow
     Mom's taps.** This is the operational fact behind D5's served gate and m9's wall, and the thing
     the device sitting must confirm.
-16. **Counter step 3 teaches the One Pass.** The filled tile leads to the same pass the guest holds,
-    at `--fs-pass` (m2).
+16. **Counter step 3 teaches the One Pass.** The filled tile opens the pane's ask pass: the guest
+    pass's paper and seam, with the same `getCartTotals` total their phone shows (m2). The pane's
+    heading carries the table number, so the ask pass does not print it again, and the picture draws
+    the pane's pass, not the guest's (round-3 canvas check).
 17. **No card, approval or D5 words on either guide.**
     - The counter teaches cash, which is true before and after C2 (ruling #11; D5's phone pay is the
       guest's door).
