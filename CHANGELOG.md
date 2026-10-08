@@ -30,6 +30,19 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   - `ASKER_BY_PIN` off until the owner answers.
 - **The rulings file gains section E;** HANDOFF points to it. OPEN-ITEMS gains PD1–PD8, one row per
   moment, naming the stream that builds it. Docs only: no code changed.
+- **Round 3 — the owner delegated every open design question (rulings section F).** The record decides
+  D1–D5:
+  - owners for the unowned pieces;
+  - a manager request closed after payment recorded as `superseded`, never `denied`;
+  - two Undo words, ပြန်ယူ (take back a Send) and ပြန်ဖျက် (erase a mark just made);
+  - moment 8's asker-by-PIN seam left unbuilt (PD13);
+  - card / Apple Pay on the guest's phone once everything on the bill is served, enforced in
+    create-intent and parked behind `SURFACES.dineInPhonePay` until live keys (C2; ENV step 7).
+- **Four new moments, one spec each:** the TV board with per-item, per-table kitchen progress (m9 ·
+  PD9), the guest's live pass and pay after served (m10 · PD10), and animated step guides for diners
+  (m11 · PD11) and staff (m12 · PD12). They share one pass, one kitchen track (Sent · Cooking · Served,
+  never gold) and one motion language, set in the record's round-3 section, which wins over everything
+  before it. Each m1–m8 spec gains a section D with its round-3 amendments. Docs only.
 
 ### C18 corrected — the webhook was not dead (2026-10-07)
 

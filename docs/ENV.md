@@ -164,6 +164,13 @@ Preview; they belong only in Vercel **Production** scope + the Stripe **live** d
 5. **Redeploy Production** (env changes don't apply to an existing build).
 6. **Smoke-test live**: a real card for a small amount, then refund — confirm a `qr_orders` row
    (`status='paid'`, `pickup_slot`/`fire_at` set) and a **200** on the delivery in Stripe → Webhooks.
+7. **Only then, phone pay at the table** (path-design round 3, D5 · OPEN-ITEMS PD2 · PD10). Until this
+   step a dine-in guest pays only at the counter. `SURFACES.dineInPhonePay` flips to `true` in **its own
+   PR**, never in the key swap above, and only when all four hold: live keys verified (steps 1–6); PD2
+   and PD10 merged; the device sitting has confirmed the kitchen bumps drinks (an unbumped drink holds
+   the door shut); and one real Apple Pay payment for the cheapest dish, made at a table, has been
+   refunded from Today's payments & refunds. The door then opens per bill only once every dish on it is
+   served (`PATH_DESIGN_2026-10-07.md`, D5).
 
 > Failure modes (all self-heal — Stripe retries non-2xx for up to 72h and `mms_fulfill_order` is
 > idempotent on the PI id, so a fix inside that window drains the backlog): a **400 "Bad signature"** on

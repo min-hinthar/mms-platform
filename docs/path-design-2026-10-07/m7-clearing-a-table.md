@@ -1055,3 +1055,16 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - Give the slip's Take cash door the till's gold-tint cash glyph square (m6's tray head), so the door and the tray it opens share one look.
 - Reconcile the staff-bar geometry across the family: m7 draws the bar 84px tall with the pane sticky at y100, while m2 and m8 draw 76 and y92. Pick the measured --staff-bar-h once.
 - With the hatch kept or dropped, note in the spec that card texture dots under stripes are the repo's open dot-core question (composite-contrast.test.ts:953-959), not a solved 4.5:1.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D2(7): M182's table-clear RPC marks the cart's pending approval requests 'superseded' inside its own transaction, as merge, no-show and counter-clear already do. Those requests later read 'Table was cleared first' on m8's review (English-only, K15).
+2. D3: Clearing's Undo keeps ပြန်ဖျက်. No change.
+3. TV: a cleared table leaves the wall at once (a non-active session), so the stop card never reaches guests' eyes. The slip says nothing about the TV.
+4. The stop card's button is help.done 'ရပြီ · Got it'. 'Tells the kitchen to stop' stays conditional on the durable stop record (correction 12).
+5. Dad's region keeps 'Ready to serve — Table N' as the console's CALL, ranked below the hold-cap warning as already fixed.

@@ -995,3 +995,16 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - Notches 'filled #faf9f5 with a 1px --bd ring' over PaperAmbient's lined ground will read as stickers, not bites. Consider matching the reward coupon, whose notch is the surrounding fill with no ring.
 - 'The counter knows you’re here — hang tight.' after an early tap on a held order can mean waiting hours ('hang tight' implies a short wait). Consider the booked-time variant for a pre-slot arrival, reusing existing words only.
 - The path's 'next' stops are a hollow --bd ring. The shared vocabulary reserves the hollow ring + 'Not sent yet' for dishes the kitchen hasn't got. Check with m1 that /track's shipped path ring doesn't read as 'not sent' on pickup.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D3: 'I'm here' keeps 'Undo · ပြန်ဖျက်' (erasing a mark you just made). No change.
+2. The claim ticket is the CounterPass primitive at the 40px holder tier: times and codes in the .exit-pass-code face, --pass-\* inks, --pass-hole. The TV's Ready pickup pass (m9) is the same face at the board's shipped 54px row, so no new size is invented.
+3. Name the time→code turn-over as the shared TURN on the Y axis. Its timing stays: two --dur-base halves, ease-in then --ease-out, latched once per order per tab, instant under reduced motion. m9 and m10 use the same recipe on the X axis for a status cell.
+4. Loops: cap /track's mms-track-now halo at 3 cycles per step change (under WCAG 2.2.2's 5 s), and keep it off under reduced motion. Only ALARM loops.
+5. /track never claims the TV, which may be absent or stale. The wall now shows the code and not the first name (m9). The lane and Checkout's 'We’ll call your name' stay true and unchanged.

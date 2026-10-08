@@ -32,17 +32,21 @@ their labels.
 Each decision is final for this wave, and reversible as the lens asks. **Where a stream card's design
 for one of these moments differs, this file wins.** The rulings file still wins on its own rulings.
 
-| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Source                 | Builds it                                                                   |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | --------------------------------------------------------------------------- |
-| 1   | **Diner moments (1–4) are GUIDED; staff moments (5–8) are GLANCEABLE.** The picked direction is the backbone. Each moment grafts in the best of the other two (quiet's restraint and the family's own console words; glanceable's arm's-length shapes and one moment of delight; guided's spoken next step) and drops every weakness the judges named for its backbone.                                                                                      | owner                  | every stream below                                                          |
-| 2   | **Moment 2: until live card keys are switched on (C2), the dine-in Bill offers only "Pay at the counter".** A new `SURFACES.dineInPhonePay = false`, drawn in Checkout and refused in create-intent (`lib/surfaces.ts:19-23` requires both). Today's Bill returns unchanged when C2 flips it. The create-intent refusal is a money-path change: its merge line carries "recommend: wait for Codex" whenever the blind pass flags that path (ruling #1).      | owner                  | diner-cart (Checkout) · money-rails (create-intent) · `surfaces.ts` unowned |
-| 3   | **Moment 1: a guest whose dish waits on the host's Send gets the words ("our staff can send it too"), a big "Show a server" card for Dad, and a quiet "Let Aye know" nudge to the host's phone.** Host-only Send stays enforced on the server.                                                                                                                                                                                                               | owner                  | diner-cart · counter-floor                                                  |
-| 4   | **Moment 8: staff are never blocked from taking payment by a dish waiting for a manager.** The warning sits above Take cash, which stays the live hero at full ink. Tapping it with a flag up is the acknowledgement and records exactly the pending requests on screen. The dish stays charged; if a manager agrees after the table has paid, it is refunded from Today's payments & refunds. How that close is recorded is an open owner question (below). | owner                  | staff-authority · counter-floor                                             |
-| 5   | **Moment 3:** "I'm here" can be tapped any time on the pickup day (the server enforces the same day rule), with a 6-second take-back before anything is written.                                                                                                                                                                                                                                                                                             | default, not overruled | post-pay                                                                    |
-| 6   | **Moment 4:** a scan miss says "Or ask at the counter".                                                                                                                                                                                                                                                                                                                                                                                                      | default, not overruled | grocery                                                                     |
-| 7   | **Moment 5:** a second Send is its own kitchen card, labelled "အလှည့် 2 / Round 2", drawn glanceably but never louder than a Late ticket.                                                                                                                                                                                                                                                                                                                    | default, not overruled | kitchen-ops                                                                 |
-| 8   | **Moment 6:** the paid card's one hero is "Back to the counter" (Dad keeps hearing the bell). A Walk-up shortcut may sit beside it only as a secondary.                                                                                                                                                                                                                                                                                                      | default, not overruled | counter-floor                                                               |
-| 9   | **Moment 7:** clearing an unpaid table whose food went to the kitchen takes one extra tap that first shows the dishes and the loss, then a 6-second Undo.                                                                                                                                                                                                                                                                                                    | default, not overruled | counter-floor · kitchen-ops                                                 |
+| #   | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Source                 | Builds it                                                              |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------- |
+| 1   | **Diner moments (1–4) are GUIDED; staff moments (5–8) are GLANCEABLE.** The picked direction is the backbone. Each moment grafts in the best of the other two (quiet's restraint and the family's own console words; glanceable's arm's-length shapes and one moment of delight; guided's spoken next step) and drops every weakness the judges named for its backbone.                                                                                                                                                                          | owner                  | every stream below                                                     |
+| 2   | **Moment 2: until live card keys are switched on (C2), the dine-in Bill offers only "Pay at the counter".** A new `SURFACES.dineInPhonePay = false`, drawn in Checkout and refused in create-intent (`lib/surfaces.ts:19-23` requires both). When C2's keys are verified live, the flag flips in its own commit and phone pay returns served-gated (decision 10), not as today's Bill. The create-intent refusal is a money-path change: its merge line carries "recommend: wait for Codex" whenever the blind pass flags that path (ruling #1). | owner                  | diner-cart (Checkout, `surfaces.ts`, D1) · money-rails (create-intent) |
+| 3   | **Moment 1: a guest whose dish waits on the host's Send gets the words ("our staff can send it too"), a big "Show a server" card for Dad, and a quiet "Let Aye know" nudge to the host's phone.** Host-only Send stays enforced on the server.                                                                                                                                                                                                                                                                                                   | owner                  | diner-cart · counter-floor                                             |
+| 4   | **Moment 8: staff are never blocked from taking payment by a dish waiting for a manager.** The warning sits above Take cash, which stays the live hero at full ink. Tapping it with a flag up is the acknowledgement and records exactly the pending requests on screen. The dish stays charged; if a manager agrees after the table has paid, it is refunded from Today's payments & refunds. The request is closed as `superseded` ("Table paid first · closed by {name}"), never `denied`, and any refund is its own record beside it (D2).   | owner                  | staff-authority · counter-floor                                        |
+| 5   | **Moment 3:** "I'm here" can be tapped any time on the pickup day (the server enforces the same day rule), with a 6-second take-back before anything is written.                                                                                                                                                                                                                                                                                                                                                                                 | default, not overruled | post-pay                                                               |
+| 6   | **Moment 4:** a scan miss says "Or ask at the counter".                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | default, not overruled | grocery                                                                |
+| 7   | **Moment 5:** a second Send is its own kitchen card, labelled "အလှည့် 2 / Round 2", drawn glanceably but never louder than a Late ticket.                                                                                                                                                                                                                                                                                                                                                                                                        | default, not overruled | kitchen-ops                                                            |
+| 8   | **Moment 6:** the paid card's one hero is "Back to the counter" (Dad keeps hearing the bell). A Walk-up shortcut may sit beside it only as a secondary.                                                                                                                                                                                                                                                                                                                                                                                          | default, not overruled | counter-floor                                                          |
+| 9   | **Moment 7:** clearing an unpaid table whose food went to the kitchen takes one extra tap that first shows the dishes and the loss, then a 6-second Undo.                                                                                                                                                                                                                                                                                                                                                                                        | default, not overruled | counter-floor · kitchen-ops                                            |
+| 10  | **Round 3 · D5: guests pay by card / Apple Pay on their phone once everything on the bill is served.** The server enforces it in create-intent (after decision 2's parked refusal, failing closed on a read error); "served" is Mom's KDS bump. The counter and every staff settle door are never gated by served. Parked until C2: production serves Stripe TEST keys, so no real card money moves until the cutover and the four flip conditions in the round-3 section.                                                                       | owner (round 3)        | diner-cart · money-rails · post-pay                                    |
+| 11  | **Round 3 · moment 9: the TV board shows each open table's dishes, per dish, moving Sent → Cooking → Served**, beside the pickup codes. A table number and dish names only: no names, prices, counts, clocks or ETAs.                                                                                                                                                                                                                                                                                                                            | owner (round 3)        | kitchen-ops                                                            |
+| 12  | **Round 3 · moments 10–12: one live pass for the guest, and animated first-run step guides for guests, the counter and the kitchen.** The guides are skippable, never block service, and teach only what has shipped.                                                                                                                                                                                                                                                                                                                            | owner (round 3)        | diner-cart · post-pay · kitchen-ops · counter-floor                    |
+| 13  | **Round 3 · D4: the asker-by-PIN seam is not built this wave.** The signed-in account stays the asker. It reopens only on the measured trigger in PD13.                                                                                                                                                                                                                                                                                                                                                                                          | design call (D4)       | staff-authority (nothing this wave)                                    |
 
 ## How the design was refined
 
@@ -56,7 +60,7 @@ the rules and the owner's answers, and the screens were drawn with its blocking 
 (B) the critic's blocking fixes, and (C) its suggestions. **Where the appendix contradicts the spec body,
 the appendix wins**, and the drawn screens follow the appendix. **Where two specs' appendices disagree,
 the _Cross-spec reconciliations_ section below wins over both, and the _Required corrections from
-Codex's review_ win over every spec.** The specs are the design each stream
+Codex's review_ win over every spec. The _Round 3_ section wins over everything before it.** The specs are the design each stream
 starts from. Where the code disproves a claim, change the design and say why in the PR.
 
 **Where a pick changes an earlier design rule, the PR that builds it amends that document in the same
@@ -102,10 +106,13 @@ English-only and are listed in each spec. Reused shipped strings are cited to th
 - **One Undo form everywhere:** it sits in the slot of the act it reverses, on `--sf` with a 1.5px dashed
   accent edge, never filled and never the hero, with the seconds as an aria-hidden leaf, and arms only
   after the same-gesture guard (350 ms on phones, 400 ms on the console). The KDS cream pill is its one
-  shipped exception. **The word:** "Undo · ပြန်ဖျက်" on the diner phones and the kitchen board (where
-  ပြန်ယူ is "Bring back"). The console's Send undo keeps **ပြန်ယူ, which the owner chose for that control**
-  (`apps/qr/lib/i18n/staff.ts:2698-2705`, pinned by `autonyms.test.ts`). Whether to make the word one
-  across the family's screens is an owner question (below); nothing here changes it.
+  shipped exception. **The word (D3 — one act, one word):** English "Undo" on every timed window; the
+  Burmese says what comes back. **ပြန်ယူ** when something you sent away comes back: the Send's undo on the
+  console (`table.send.undo`, the owner's word, `apps/qr/lib/i18n/staff.ts:2698-2705`, pinned by
+  `autonyms.test.ts`) and on the guest's phone (moments 1 and 2, the same control), and the kitchen rail's
+  Bring back. **ပြန်ဖျက်** when a mark you just made is erased: the kitchen's All done / Sold out undo, the
+  counter lane's undo, moment 7's Clearing, moment 3's I'm here and moment 4's Added. The TV carries
+  neither. The native sitting confirms the rule (round 3, D3).
 
 **Staff colours.**
 
@@ -177,8 +184,8 @@ is a required part of its moment, not a suggestion:
    (`app/staff/page.tsx:327`). At tablet width, open the new party in the counter's pane instead, so the
    bell stays live. Below that width, the route keeps m6's honest bell note.
 7. **Moment 8 — `ASKER_BY_PIN` ships OFF.** The asker-by-PIN seam changes who is recorded as asking,
-   shows which staff have a PIN, and spends the caller's step-up budget. It stays off until the owner
-   answers the question below.
+   shows which staff have a PIN, and spends the caller's step-up budget. Round 3 (D4, decision 13) went
+   further: it is not built this wave at all, not even as dead code behind the constant.
 
 Codex's second round found eight more, each checked against the code and the specs:
 
@@ -242,8 +249,11 @@ Codex's second round found eight more, each checked against the code and the spe
 - **It reverses PHASE3C D13 for a guest with unsent dishes:** their hero is "Show a server", not the Bill
   door. The PR amends PHASE3C_DESIGN and DESIGN-LANGUAGE §32 and adds the `orderStageHero` "wait" arm's
   mutants in `checkout-verb.ts`.
-- The /menu half (the order bar's "Not sent yet" line) needs `CartBar.tsx` and `ArrivalBeat`, which no
-  stream owns this wave. Dad's pane and floor adopt the same hollow ring (counter-floor, with P2do).
+- diner-cart builds the /menu half too (D1): CartBar's "Not sent yet" line, with no count capsule on a
+  dine-in cart, in the same PR as the guest's "Aye can see you're waiting". ArrivalBeat is diner-cart's
+  but needs no change, and MenuBrowser.tsx stays frozen. Dad's pane and floor adopt the same hollow ring
+  (counter-floor, with P2do). The guest's Send undo reads "Undo · ပြန်ယူ", the console's word for the
+  same act (D3).
 
 ### 2 · Asking for the bill — guided, elevated
 
@@ -296,8 +306,9 @@ Codex's second round found eight more, each checked against the code and the spe
 - Never a charge from a guess: a paired code only ever yields a repeat verdict. The add-Undo waits for
   the confirmed write ("Removing…", then "Removed"). Offline, a code missing from the cache is "unknown",
   never "not in the app".
-- No step rail and no two equal buttons. Busy rows keep full ink. The @mms/ui Sheet needs an opt-in
-  `initialFocus`, which is owned outside the grocery stream.
+- No step rail and no two equal buttons. Busy rows keep full ink. The @mms/ui Sheet gains an opt-in
+  `initialFocus` from guards-style, right after M77, and grocery opts in from its own file (D1). It never
+  goes on a money sheet.
 
 ### 5 · Round two lands on a ticket that's still cooking — glanceable, elevated
 
@@ -312,7 +323,7 @@ Codex's second round found eight more, each checked against the code and the spe
 - Reserved for m7: kitchen-ops' "Table N left — stop cooking" card is its own shape (struck rows plus
   the warn word, ALARM tier without motion), staying until "Got it" (reconciliation 1).
 - At the device sitting (ruling #12), Mom and Dad confirm they read the Burmese-only stub at the pass.
-  The Undo word on the console stays the owner's ပြန်ယူ unless the owner decides otherwise (below).
+  The console's Send undo keeps ပြန်ယူ (D3); nothing on the board is re-worded.
 
 ### 6 · The walk-up cash sale — glanceable, elevated
 
@@ -363,29 +374,160 @@ Codex's second round found eight more, each checked against the code and the spe
   sheet, so the deciding state has one primary (Approve). An approved Remove shows the Remove kind mark,
   never the ✓ disc, because ✓ means paid on this counter.
 - It ships after M184. A request whose table has already paid (derived from the cart's status) gets a
-  close-only card: it says what happened and links to Today's payments & refunds. Today that close runs
-  the existing deny path, so the request reads `denied` (an owner question, below).
+  close-only card: it says what happened and links to Today's payments & refunds. Its "Close it" runs a
+  new `close` arm of `mms_resolve_approval`, carried in M184's migration and admitted only once the cart
+  has left `open`: the row reads `superseded` ("Table paid first · closed by {name}"), never `denied`, and
+  the line stays charged (D2). A cleared table gets the same card, with the sentence "This table was
+  cleared while this was waiting."
+- The asker is the signed-in account. The asker-by-PIN seam is not built this wave (D4, PD13).
+
+### 9 · The TV board — live progress per table, per dish
+
+[Spec](path-design-2026-10-07/m9-tv-board.md) · screens `picked-m9-1…2` (Night-forced, 1920×1080)
+
+- Every open dine-in table is a landscape CounterPass on the wall: the table figure once at `--fs-pass`,
+  then its dishes, each with the kitchen track (Sent · Cooking · Served). The pickup codes keep their
+  column, in the phone's code face at the board's 54px row.
+- A table number and dish names only. Same-name dishes in a round are one row, so no count appears. No
+  names, prices, clocks, ages, ETAs, approvals or Undo words. Dishes not yet sent are not on the wall.
+- Sent and Cooking are marks, Served is calm (green), and the pickup Ready pass is the wall's only call:
+  the wall never nags. Tables are sorted by number and never re-sort on status.
+- One celebration per table visit: when its last dish is served, its status cell TURNs, waiting out
+  Mom's 6-second undo first. A frozen feed dims the wall and says so.
+- This reverses the shipped "no dish per table on the board" boundary (OPEN-ITEMS K32(b), P6a), as the
+  owner asked. The PR amends `board-pulse.ts`, SPEC-KDS and their test, and its merge line names the
+  privacy change: the room now reads what each table ordered while it cooks.
+
+### 10 · The guest's live pass, and pay after served
+
+[Spec](path-design-2026-10-07/m10-live-pass-pay.md) · screens `picked-m10-1…3`
+
+- The Bill's receipt becomes the One Pass body: each dish row carries the kitchen track, live
+  (realtime plus a foreground re-read). This ships before C2, on the counter-only Bill (the wall shows
+  the room the same tracks, so the guest's phone must match).
+- After C2 only (decision 10): "Pay · $X" keeps its name, held with "Pay opens once everything's
+  served." in the dock's one line slot, with no tip ask before the food. When the phone observes the last
+  dish served (and Mom's 6-second undo has passed), the door opens once: "Ready to pay.", one POP, the
+  tip ask, then Apple Pay leads the pay step with the card form folded beneath. The counter stays a quiet
+  secondary throughout.
+- Paid: the stub is stamped (the dine-in pass's only ✓), then the receipt prints beneath it.
+
+### 11 · The diner's first-visit guide
+
+[Spec](path-design-2026-10-07/m11-diner-guide.md) · screen `picked-m11-1` (interactive)
+
+- Five pages, dine-in only, once per phone after the join succeeds, never over an error, a pay lock or
+  settling, and never for a diner the server already knows. Re-openable from Account.
+- Every page heading is a shipped bilingual string the guest will meet again; the pictures render the
+  real pass and track, inert. One small motion per page, the product's own, escorted for reduced motion.
+- "Close · ပိတ်" on every page; the last page's primary is the real first action. Page 4 follows the
+  flag: before C2 it shows the counter only, and after C2 it names only the wallets the flip proved.
+
+### 12 · The staff step guides — counter and kitchen
+
+[Spec](path-design-2026-10-07/m12-staff-guides.md) · screens `picked-m12-1…2` (interactive)
+
+- Five steps per station, offered once per person, per station, per tablet, in the screen's quiet space
+  (the counter's idle pane; the kitchen's empty board), never as a modal over live work. Work always
+  wins: a table tap or a landing ticket replaces the guide.
+- Each step's title is the control's own word; each picture is the real control, inert; each step has
+  one motion, the product's own. The kitchen guide teaches D3's two words in their places.
+- Each station's guide ships as one revision, only after every control it teaches has shipped.
 
 ## What still goes to the owner
 
-- **Owners for files no stream card owns this wave.** Recommendation in brackets:
-  - moment 1's /menu half, `CartBar.tsx` and `ArrivalBeat` (diner-cart, beside its /cart half);
-  - `lib/surfaces.ts`, for moment 2's new parked surface (diner-cart, with money-rails' create-intent
-    refusal as a handoff on its row);
-  - `packages/ui/src/tokens.css`, for `--fs-pass` (moments 1, 2 and 6) and `--till-fs-hand` (moment 6)
-    (counter-floor, which needs both first);
-  - the @mms/ui Sheet's opt-in `initialFocus` (moment 4) (grocery, as a handoff to whoever owns
-    `packages/ui`).
-- **How a request closed after the table paid is recorded (moment 8).** Today the close runs the deny
-  path, so a dish later refunded still reads "denied" on the owner's loss review. Telling them apart
-  needs M184's migration to gain a `superseded` close arm, which widens a file ruling #5 named by purpose.
-- **One Undo word on the family's screens?** The owner chose ပြန်ယူ for the console's Send undo. The
-  phones and the kitchen board say ပြန်ဖျက်, where ပြန်ယူ means "Bring back". Keep the console's word
-  (the default), or move it to ပြန်ဖျက် at the native sitting.
-- **Moment 8's asker-by-PIN seam:** should the person asking for a void name themselves with their own
-  PIN? It is designed behind `ASKER_BY_PIN`, drawn only on a manager-signed tablet, and **ships off**
-  until the owner answers (Codex correction 7).
+Every open design question was decided in round 3 under the owner's delegation (below). What is left is
+the owner's hands, two sittings, and one merge-window line:
+
+- **C2, the live-key cutover** (ruling #8's prerequisites, unchanged). Card and Apple Pay at the table
+  then open by a separate flag flip after D5's four conditions (round 3).
+- **M184's widened merge line (D2):** M184's migration also carries the `close` arm. The line names
+  the widening; holding it moves the arm to its own file with its own go.
 - **At the device sitting (#12):** the Burmese-only round stub at the pass; the grocery tag's size in
   Padauk at 375px; the till tray above the tablet's on-screen keyboard; whether the Walk-up secondary
-  leaves bags waiting (dropping it is one constant).
-- **At the native Burmese sitting:** every `K15 · <stream>` draft the specs list, money words first.
+  leaves bags waiting (dropping it is one constant); **whether drinks get bumped on Mom's board** (an
+  unbumped drink holds a table on the TV and keeps its card pay shut); whether iPhone Safari raises the
+  keyboard when the grocery Name sheet opens with `initialFocus`; and, with the counter split open, a
+  bag's Undo (ပြန်ဖျက်) beside a table pane's Remove (ဖျက်).
+- **At the native Burmese sitting:** every `K15 · <stream>` draft the specs list, money words first; D3's
+  confirmations (the two-verb rule, ပြန်ယူ on a guest's phone, and the kitchen help line that names the
+  Undo bar with ပြန်ယူ); and whether ထုတ်ပြီး / Served is the one stamp word everywhere.
+
+## Round 3 — the owner's delegation and four new moments (2026-10-07, latest)
+
+**The owner's words: "I trust you to apply world-class design-thinking best standards on all open
+decisions. staff board also needs moment designs integration so TV board display shows live order
+progress in details (per item per table etc.,) for customers and staff. after food items served,
+customers should be allowed to pay by card/apple pay. I really like the direction of premium iOS
+designs, wallet boarding pass, One pass and progress updates, visual animated step guides for customers
+and staff to get familiar with the new app."**
+
+This section wins over everything above it. Each of moments 1–8's specs carries a section D with the
+round-3 changes for that moment.
+
+### The open decisions, decided
+
+- **D1 · Owners.** `CartBar.tsx`, `ArrivalBeat` and `lib/surfaces.ts` go to diner-cart (money-rails
+  reads the flag in create-intent and never edits the file; diner-cart draws first, money-rails answers
+  second, never the reverse). `tokens.css` (`--fs-pass`, `--till-fs-hand`, and the `--pass-*` constant
+  inks) and the Sheet's opt-in `initialFocus` stay with guards-style, which already owns `packages/ui`:
+  the earlier pick of counter-floor for `tokens.css` is withdrawn, because every card forbids other
+  streams to add tokens. The CounterPass primitive is post-pay's. Round 3 also decides these scoped unfreezes:
+  `PaymentSection.tsx`, `lib/pay-element.ts`, `TableTimeline.tsx` and `lib/line-state-copy.ts` to
+  diner-cart; `AccountHelp.tsx` to post-pay; `TablePane.tsx`'s idle host to counter-floor; and
+  `HelpButton.tsx` to kitchen-ops, scoped to the staff guide.
+- **D2 · A request closed after the table paid** is recorded as `superseded` ("Table paid first · closed
+  by {name}"), never `denied`. `mms_resolve_approval` gains `p_decision = 'close'`, admitted only once the
+  cart has left `open`, carried in M184's migration (same function, signature and grants; no CHECK
+  change). Deny is unchanged. A refund is its own record beside it, never summed into losses. No backfill.
+  M182's table-clear RPC supersedes the cart's pending requests in its own transaction.
+- **D3 · One act, one word** (the shared vocabulary's Undo paragraph above). No shipped string changes.
+- **D4 · The asker-by-PIN seam** is not built this wave (decision 13). Measured 2026-10-07: five active
+  staff accounts, all manager or owner, and no approval request ever made. PD13 holds the reopen trigger
+  and the build conditions.
+- **D5 · Card / Apple Pay after served** (decision 10). The door is held by any dine-in line in draft,
+  fired or in_progress (with or without a host; comped dishes and drinks included) and by any to-go line
+  in fired or in_progress. Served, voided, to-go-draft and grocery lines never hold it. A new round or a
+  KDS recall closes it again. create-intent refuses in order: decision 2's parked refusal, then the D5
+  verdict from one error-aware read that fails CLOSED (503); the rule is one pure function in
+  `lib/checkout-stage.ts` with mutants, and the route's call is checked by a script that parses the
+  source. No gate at fulfillment: a charged card is never stranded. **Never gated by served:** the
+  counter ask, Take cash, the reader and the secure-tab close. **The flip:** `SURFACES.dineInPhonePay`
+  flips in its own commit, never in the key swap, and only after all four: live keys verified; PD2 and
+  PD10 merged; the device sitting confirms drinks are bumped; and one real Apple Pay payment for the
+  cheapest dish at a table has been refunded from Today's payments & refunds.
+
+### Vocabulary additions (they extend the shared vocabulary above)
+
+- **ONE PASS.** Every pass is post-pay's single CounterPass primitive, rendered (never redrawn) on the
+  TV, the guest's phone, Dad's pane and seal, and inside the guides. Constant paper with constant inks
+  (`--pass-paper`, `-ink`, `-ink-2`, `-ink-3`, `-ac`, `-ok`, `-okb`, `-seam`, `-unlit`), never redefined in
+  Night; a dotted seam (2px; 4px on the TV) and 12px notches whose holes are the host's ground. ONE
+  identity figure, printed once, under the two-tongue label "စားပွဲ · Table". Three tiers only: 40px for
+  the holder, `--fs-pass` across the counter or the room, and the TV's 54px row for a code. **A pass shows
+  ✓ only at its terminal state**: Paid on a dine-in pass, Ready on a pickup ticket. The TV never shows ✓.
+- **ONE KITCHEN TRACK, three stamps.** Sent (past the grace), Cooking (Mom's Start), Served (Mom's Done
+  or All done). Ready and served are one stamp; nothing records a plate arriving, so there is no fourth
+  segment. One key per stamp, with the Burmese ပို့ပြီး · ချက်နေဆဲ · ထုတ်ပြီး identical everywhere. Three
+  pill segments: length is progress, colour is the stage (Sent `--t2`, Cooking `--tx`, Served `--ok`).
+  Inside the grace, one dashed segment with "Sending…". Unsent is the hollow ring, never a track. **Gold
+  and accent are never a progress colour.** One pure `lib/kitchen-track.ts` derives the stage for every
+  surface; Mom's KDS draws no track because her rows are its source. "Ready to serve — Table N" survives
+  only as Dad's console call.
+- **ONE MOTION LANGUAGE**, from kit tokens; every base style is the final frame, and reduced motion gets
+  it. RISE (something is issued), POP (0.96 → 1, 180 ms: a control or pass comes alive), FILL (a segment
+  lands; an un-fill is instant), TURN (a pass's stage completes), STAMP then PRINT (Paid only), FLASH
+  (arrivals on the boards only), PULSE (KDS Late only). One thing moves at a time; a celebration plays
+  once per pass per visit, never on a first read, a revisit or a frozen surface, and never inside the
+  Undo window of the act that caused it (`KDS_UNDO_MS`, moved to `lib/`).
+- **The TV never nags:** Sent and Cooking are marks, Served is calm, the pickup Ready pass is its only
+  call; no alarm, clock, age, pay word or Undo word.
+- **Guides teach only what ships:** the real primitives as inert pictures, the controls' own keys as
+  titles, the product's own motions; one dismiss word ("Close · ပိတ်"); Next never moves under a finger;
+  one seen-key helper, marked at open (storage refused means it never opens by itself).
+
+### Sequencing
+
+guards-style's token PR (`--fs-pass`, `--till-fs-hand`, `--pass-*`) → post-pay's pass and track
+primitives → PD5's re-key and `lib/kitchen-track.ts` → the TV board (PD9) and the live pass (PD10) → the
+guides last (PD11, PD12), each after every control it teaches.

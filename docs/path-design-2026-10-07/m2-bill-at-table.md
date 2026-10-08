@@ -976,3 +976,40 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - The one-shot .floor-card-pulse on the ask's status change is motion on a CALL-tier item ('one still, filled tile'). Either state that the console's universal change ring is exempt, or suppress it for the ask tone.
 - 'View bill' would name both the pass's disclosure and the Order stage's navigation door (risk 9, cart.ts:44). Consider a distinct disclosure label from an existing key before K15.
 - The strip key (aria-hidden, drawn from m7-glance-1) should gain the hollow-ring entry once amendment 6 lands, so the key matches the tiles.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D1(b): lib/surfaces.ts is diner-cart's, and diner-cart adds SURFACES.dineInPhonePay. money-rails reads the flag in create-intent and never edits the file. Rewrite decision 2's 'surfaces.ts unowned'.
+2. D5 server order in create-intent, all before the slot, the promo pin and paymentIntents.create, and each releasing the lock:
+3. The parked refusal while the flag is false.
+4. D5's verdict, from ONE error-aware read of qr_cart_items. It fails CLOSED with the shipped 503 sentence.
+
+- A host with drafts gets 'Send everything to the kitchen first — Pay opens once everything’s served.'; everyone else gets 'Pay opens once everything’s served.' (409).
+- A parse-based check script verifies the call.
+- The Take cash, reader and secure-tab doors are never gated by served.
+
+3. Decide m10's open risk 15 as YES: before C2, PD2's counter-only Bill keeps its pay furniture exactly (no card words, no 'coming soon'), but its line rows become the One Pass body with Kitchen Track rows. m9's wall shows those same tracks to the room before C2, so the guest's own phone must match. The flag gates only the pay door.
+4. Gate these by D5's open door, never by the flag alone:
+
+- The counter pass's withdraw reads 'Changed your mind? Pay on your phone' only while D5's door is open (after C2), and 'We’re not done yet' otherwise.
+- The group Bill's 'Pay as one bill here' shows only while the door is open.
+- The secure-tab note is hidden while parked or held. When open it reads 'Your card is saved — pay here, or just leave and we’ll charge the bill to it.' (English-only).
+
+5. One figure on both passes (the guest's and the pane's twin).
+
+- Replace 'Table 4' at --fs-pass plus 'စားပွဲ 4' beneath with the label 'စားပွဲ · Table' over one Fraunces 600 '4'. The Burmese label stays at full ink, --fs-h2, so the appendix's Dad-reads rule holds.
+- Render the post-pay primitive, with --pass-hole as the page ground.
+
+6. Dad's pane and floor (counter-floor):
+
+- Each line tag is the track glyph plus its table.line.state word. 'Sent' draws only once kdsLineGate passes.
+- The card's '{n} ready to serve' count carries the 3/3 --ok glyph, so the call and the stamp it announces read as one. '{n} not sent' carries the ring (P2do). 'Ready to serve — Table N' stays the console's CALL, unchanged.
+- After the flip, the cash-only line reads 'No card reader — take cash, or they can pay by card on their phone once everything’s served.' (K15 draft).
+
+7. D3: the Bill's undo-window control is 'Undo · ပြန်ယူ'. Withdraw fix 11's ပြန်ဖျက်. It is m1's SendToKitchenButton.
+8. Motion: suppress the one-shot .floor-card-pulse on the ask tone. A CALL is still and filled, and its fill is the signal. The guest pass's first-mount .mms-rise is the shared RISE.

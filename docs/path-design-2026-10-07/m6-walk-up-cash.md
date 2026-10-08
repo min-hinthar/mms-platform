@@ -1052,3 +1052,16 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - A double-tap on 'Back to the counter' lands where the counter column reserves room for the lane's thumb-zone Undo pill (globals.css:13413). Measure it in the ruling #12 sitting.
 - Define --till-fs-hand in packages/ui/src/tokens.css, next to --fs-pass, so the two counter-figure tiers live in one token layer.
 - The seal's 88px #CODE and the 88px tray due share --fs-pass, but only the #CODE is an identity figure. Say why the due shares the pass tier (the figure said aloud) so the CounterPass primitive is not stretched to cover non-pass figures.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D1(c): --fs-pass (5.5rem) and --till-fs-hand (8rem) land in guards-style's early token-only PR, not counter-floor's. The same PR carries the --pass-\* constant inks, so the seal's #CODE stub, m2's pass and the TV stub read one paper.
+2. The seal's #CODE stub is the CounterPass primitive: landscape, the code face at --fs-pass. The dine-in seal at pane width still has no stub (reconciliation 4).
+3. The green bloom is the staff twin of the phone's STAMP. It plays once, on the in-place landing or a matching same-tab stash reload, and never on a revisit. On the counter the ✓ disc means paid only.
+4. D5 and D4: the till tray is never gated by served and never dimmed by a pending approval. After C2 only the pane's cash-only line changes (m2), and the tray does not.
+5. Expose the tray's readout as a component that m12 can render inert, for counter step 4.

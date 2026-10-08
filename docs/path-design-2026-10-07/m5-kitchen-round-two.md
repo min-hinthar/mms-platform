@@ -770,3 +770,34 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - Re-chime: a per-Send card whose lines are all still 'fired' re-chimes every rechimeSec (75 s, KdsBoard.tsx:580-593). Tea-only round cards that today were absorbed into a started card will now re-chime. Coordinate with K42 and count the extra chimes on Day 0.
 - The new STAFF COLOURS text (gold = till only; green filled only where it just landed; accent fill = now/selected) contradicts shipped KDS marks this screen reuses: the --gold arrival flash (globals.css:8293-8317), the gold-mix amber strip (:7906-7908), the --ac qty chip and started wash (:8065-8069, :7979-7985) and the green bump fill. Record them as named shipped KDS exceptions so the vocabulary is not silently contradicted.
 - The red-pulse contrast figure (3.34:1, :135) does not reproduce. With brightness(1.22) applied to both the text and the ground (filter is on the strip subtree), it measures 3.56:1; with the text unbrightened it is 3.03:1. Recompute when the wash is dropped. Without the wash, --tx on the red strip at the pulse peak is about 4.98:1.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D3: withdraw amendment 2 and fix B2 (re-wording the console Send undo to ပြန်ဖျက်).
+
+- kds.undo stays ပြန်ဖျက်: it erases All done or Sold out.
+- kds.recall stays ပြန်ယူ: it brings back what left.
+- help.how.kitchen.2.more's re-word goes to the native sitting (D3(c)).
+- The no-ဖျက် pin stays green.
+
+2. Kitchen Track on the KDS:
+
+- The board draws no track, because Mom's rows and taps are its source.
+- Its words are the one stage keys: ချက်နေဆဲ on a started row, ထုတ်ပြီး on Served today.
+- Its green All done is the --ok that turns every track green.
+- Record that the started row's gold is Mom's selection idiom (the dish she has in hand), so no other surface paints Cooking gold.
+
+3. UNDO_MS moves to lib/ as KDS_UNDO_MS. It is the ONE settle constant read by the undo pill, the TV's table TURN, the phone's door moment and m12's '6 seconds'.
+4. Rounds:
+
+- kds.round uses an identifier-class slot, so the KDS and the TV both draw 'အလှည့် 2' with a Latin digit (m9 risk 11).
+- roundOrdinal counts only Sends that carry a dine-in line. Make-it-now to-go and settlement batches get their own card with their channel tag and no ordinal, so the room never reads 'Round 3' for a table's second order (m9 risk 4).
+- roundOrdinal and ticketKey are pure and shared with board-tables.ts.
+
+5. The stop card's button reuses help.done 'ရပြီ · Got it'. The card stays ALARM without motion and never reaches the wall.
+6. Device sitting #12: drinks are bumped on Mom's board. A station that is never bumped pins a table on the wall and keeps the phone's door shut (D5 flip condition).

@@ -155,7 +155,37 @@ In short:
   "Let Aye know" nudge.
 - A dish waiting for a manager never blocks payment: staff are warned and may take payment. The dish
   stays charged, and if a manager agrees after the table has paid, it is refunded from Today's payments
-  & refunds. How that close is recorded is an open owner question, listed in that file with the others.
+  & refunds. That close is recorded as `superseded` ("Table paid first"), never `denied` (section F, D2).
+
+## F · The owner's delegation (2026-10-07, latest)
+
+**The owner's words: "I trust you to apply world-class design-thinking best standards on all open
+decisions. staff board also needs moment designs integration so TV board display shows live order
+progress in details (per item per table etc.,) for customers and staff. after food items served,
+customers should be allowed to pay by card/apple pay. I really like the direction of premium iOS
+designs, wallet boarding pass, One pass and progress updates, visual animated step guides for customers
+and staff to get familiar with the new app."**
+
+The planning session decided every open design question under that delegation, and designed the new
+moments the owner asked for. [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md)'s round-3 section is
+the record. Each decision is reversible on the owner's word. In short:
+
+- **D1 · Owners:** `CartBar.tsx`, `ArrivalBeat` and `lib/surfaces.ts` → diner-cart; `tokens.css` and the
+  Sheet's opt-in `initialFocus` stay with guards-style, which already owns them. Handoffs are on PD1, PD2,
+  PD4 and PD6.
+- **D2 · A request closed after the table paid** records `superseded`, never `denied`, through a `close`
+  arm carried in M184's migration. **Annotation to #5, not a re-ruling:** same function, signature and
+  grants, no CHECK change; the owner's apply-time go and the per-SHA merge line (#1) still govern, and
+  holding that line moves the arm into its own file with its own go.
+- **D3 · One act, one word:** ပြန်ယူ for taking back a Send (console and phone), ပြန်ဖျက် for erasing a
+  mark just made. No shipped string changes; the native sitting confirms it.
+- **D4 · The asker-by-PIN seam** is not built this wave; PD13 holds its reopen trigger.
+- **D5 · Card / Apple Pay after the food is served:** a dine-in phone pays once nothing on the bill is
+  still with the kitchen, enforced in create-intent. It is parked until C2, then flipped by its own commit
+  after the four conditions in PATH_DESIGN. Ruling #8 is unchanged: D5 adds nothing to the key swap,
+  only to the dine-in flag.
+- **New moments (PD9–PD12):** the TV board showing each table's dishes live; the guest's live pass; the
+  first-run step guides for guests, the counter and the kitchen.
 
 ## C18 — closed (2026-10-07)
 

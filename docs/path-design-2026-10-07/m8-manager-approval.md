@@ -1108,3 +1108,45 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - Add a reduced-motion line for the 1em spinner beside 'Updating the total…' (:845). The RM list at :933-934 covers the FLIP, scroll and figure roll but not the spinner.
 - 'Several waiting at this table' (:869-870): with the amendment, the till tray head should name every waiting dish, not only the oldest, because that tap acknowledges all the ids on screen.
 - Screen 3 states the pending fact twice: the Mohinga row's 'ခွင့်ပြုချက် တောင်းထားပြီ' badge and the flag card. Consider leaving the row badge out of the settle viewport, or accept it explicitly as text rather than a mark.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D2: the paid-table card's 'Close it' runs mms_resolve_approval(p_decision => 'close').
+
+- It is admitted only when the cart has left open (paid, or cancelled by a clear), and returns still_open otherwise.
+- It writes 'superseded', records the PIN-proven closer in approver_staff_id, sets resolved_at, and never touches the line, which stays charged.
+- The card reads 'Table paid first · closed by Aye'. The cause is derived from the cart's terminal status.
+- The request's own asker may close it.
+- deny is unchanged.
+- Retire decision 22's 'runs the existing deny path', the risk at :1013-1015 and the :180 consequence.
+
+2. D2 review and sequencing:
+
+- A later refund shows beside the request as its own fact: a kind='refund' row plus mms_refunds with its tender, at its own server-derived amount, grouped by session_id. A superseded row is never summed into losses and never quotes the request's snapshot. No backfill.
+- The arm rides in M184's migration (same signature and grants, no CHECK change), disclosed in the file header and on M184's merge-window line. M184's PR also retires the shipped 'deny it' advice.
+- If the owner holds the widened line, the arm moves to its own migration, and until then the paid card ships with NO Close key.
+- 'ပိတ်မယ်' is a draft for the native sitting.
+
+3. D4: ASKER_BY_PIN is not built, not even as dead code.
+
+- Ship the zero-eligible sentences (a) and (b).
+- 'No manager here? Request approval' goes to Open requests, and the dish stays charged.
+- Take cash is never dimmed.
+- Record the reopen trigger (an active server-role account with a PIN, plus a request stuck pending on its only possible signer, or the owner's word) and the build conditions (i) to (vii).
+
+4. Marks:
+
+- A superseded request carries no approval glyph: never ✓ (✓ means paid on the counter) and never the deny mark.
+- The request card's dish rows carry the Kitchen Track glyph beside their shipped ထုတ်ပြီး or ချက်နေဆဲ word.
+
+5. Cross-surface:
+
+- Approvals never appear on the wall.
+- An approved Remove takes the dish off the wall and off the guest's pass: struck 'Removed', no track, and it never holds D5's door.
+- An approved comp keeps its track: it still cooks and holds the phone's door until served.
+- Staff settle doors are never gated by served, just as they are never blocked by approvals (correction 13 unchanged).

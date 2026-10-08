@@ -590,3 +590,22 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - Measure Padauk before claiming the 2px reticle clearance. At 390px the 136px quiet column very likely wraps ကောင်တာမှာ မေးကြည့်ပါနော်, so the tag is about 128px and covers about 19px of the window on the DEFAULT phone, not only at ≤375px.
 - The counter tag claims the grocer's 'handoff carries its own context' (:46-48), but it gives Dad only 'this code isn't in the app'. Consider carrying the shopper's query, or the aisle they were in, so Dad can help without a second-language exchange. Do not show a code or a price.
 - The no-match state says the coverage fact twice on one sheet ('most shelf codes aren't in the app yet' and the tag's 'This code isn't in the app yet'). Trim one.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D1(d): the @mms/ui Sheet's opt-in initialFocus is guards-style's.
+
+- It lands in its own PR right after M77, with the focus-target decision in a pure helper that has a mutant.
+- grocery opts in with one prop from its own file.
+- Replace 'owned outside the grocery stream'.
+
+2. D3: the 'Added' Undo keeps ပြန်ဖျက် (erasing a mark), and 'Removing…' becomes 'Removed' only after the confirmed write. No change.
+3. Motion vocabulary:
+
+- The miss tag enters with RISE, and the post-add chip with POP, armed after the 350 ms guard (correction 15).
+- The tag never takes the dotted perforation, because a perforation means a pass.

@@ -501,3 +501,36 @@ with both applied. **Where an item below contradicts the spec above, the item be
 - The CounterPass unbound fallback ('Table code' plus the session code) needs the qr_code on /cart. SplitContext (split.ts:47-54) carries only tableNumber, so name that plumbing alongside sessionId. An alphanumeric code will not fit at --fs-pass, so keep the 44px code tier and say so.
 - The :57 claim 'At scroll 0 the status heading and the "Next:" sentence already sit above the fold, at y 619–760' puts the sentence's bottom 10px under the tab bar (750). Re-measure after dropping the label.
 - Dish rows on the pass are 21px EN and 19px MY, well below the KDS tier-S item (28px, MY 30px) Dad reads daily. Consider a larger row tier on the pass for across-the-counter reading, since the stub already uses --fs-pass.
+
+### D · Round 3 (2026-10-07, under the owner's delegation) — these win over everything above
+
+The owner delegated every open decision ("I trust you to apply world-class design-thinking best standards on
+all open decisions") and added a live TV board, card / Apple Pay after the food is served, and animated step
+guides. PATH_DESIGN_2026-10-07.md's round-3 section records the decisions (D1–D5) and the shared vocabulary.
+The round-3 consistency pass gave this moment these changes:
+
+1. D1(a) ownership: CartBar.tsx and components/menu/ArrivalBeat.tsx (the /menu half) are diner-cart's under a scoped unfreeze, and MenuBrowser.tsx stays frozen. Replace every 'no stream owns this wave' line, here and in PATH_DESIGN moment 1.
+2. D3 Undo word: withdraw amendment 4 and fix B5.
+
+- The guest's Send Undo keeps the shared form: its own slot, --sf, a 1.5px dashed --ac edge, an aria-hidden seconds leaf and the 350 ms guard.
+- It reads 'Undo · ပြန်ယူ', and its busy state reads 'Bringing it back… · ပြန်ယူနေပါတယ်…'. Both are verbatim from table.send.undo and table.send.undoing (staff.ts:2705-2707).
+- It is the same SendToKitchenButton control as m2's Bill.
+- A red-first test pins the diner key's MY equal to STAFF['table.send.undo'].my.
+- The 'Brought back to your order…' notes stay English-only.
+- Restore DECISION 15.
+
+3. The Sent flip is the track's first stamp, not a done mark.
+
+- When the dishes pass kdsLineGate's grace (the same instant Mom's KDS and the TV draw them), the hollow ring gives way to the 1/3 track: segment 1 FILLs in --pass-ink-2, with 'Sent to kitchen · ပို့ပြီး'.
+- Retire the solid green ✓ disc, the #eaf2ec capsule and the mms-pop. Green on a pass means Served, a ✓ marks only Paid, and the kit's 1.18 pop is for numerals.
+- The Night sent-disc value is deleted, because the pass is constant paper.
+
+4. Show-a-server is post-pay's CounterPass primitive.
+
+- The two-tongue label 'စားပွဲ · Table' (the Burmese at full ink, --fs-h2) sits over ONE Fraunces 600 figure at --fs-pass.
+- Retire the second figure line 'စားပွဲ 7' at --fs-display, so the number is printed once.
+- Inks come from --pass-\*, and the notch holes from --pass-hole.
+- The unbound table's code keeps the .exit-pass-code face at 40px (reconciliation 6).
+
+5. D5, after C2 only: the Order stage's Total door reads 'View bill' while the kitchen hold is up, and 'View bill & pay' once the door opens. billDoorLabel reads payBlock's new kitchen arm, with precedence peer > unsent > kitchen > grace. Before C2, PD2's label is unchanged.
+6. --fs-pass lands in guards-style's early token-only PR (D1(c)). PATH_DESIGN's pick of counter-floor for tokens.css is withdrawn.
