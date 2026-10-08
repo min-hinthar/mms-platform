@@ -1124,13 +1124,22 @@ what did not and why; the decisions taken under the owner's delegation.
   or DRAFT → OPEN-ITEMS `K15 · post-pay`. `kickerPickup` = `expo.pickup`, `imHere` = `expo.tag.here`,
   `undo` = `kds.undo`, `passSub` = `counterBody`'s clause, `kickerPickedUp` = `expo.verb.pickedUp`.
 
-**Waits on the primitives branch (`claude/feat/pd-pass-primitives`, not on the remote at build time).**
+**The claim ticket on the primitive (`claude/feat/pd-pass-primitives` @ `0e14939`, #327, merged in).**
 
-- The claim ticket's WRAPPER. `components/ClaimTicket.tsx` renders the two faces' content (kicker h2,
-  the `.exit-pass-code` figure, the `<dl>` stub, the sr twins, `ph-no-capture`) and the TURN inside
-  `<section class="claim-ticket card">` — a plain card with NO perforation, notches or `--pass-*`
-  inks, deliberately (never a parallel pass). When the branch lands, the wrapper becomes
-  `<CounterPass tier="holder">` in one edit and the `.claim-ticket` card styles go.
+- `components/ClaimTicket.tsx` renders `<CounterPass tier="holder">` on every face — the paper, the
+  dotted seam, the notches, the stamp and the 40px tier are the primitive's, drawn nowhere else. In its
+  slots: the two-tongue `label` is Dad's `expo.pickup` ("Pickup · လာယူချိန်") on every face; the
+  `figure` (`figureKind="code"`) is the slot label while waiting, then the code (`figureSpoken` spells
+  it); the status slot (`head`) carries the countdown while waiting and, at Ready, the ✓
+  (`terminal="ready"` — the ONLY ✓ a pickup ticket draws) before the kicker word "Ready for pickup ·
+  ယူလို့ရပြီ"; the `stub` is the `<dl>` (For · Code, then For · Pickup); the body carries the sub. The
+  TURN is the primitive's one-element split-flap on the figure (`turning="figure"`), keyed on the face
+  so it plays once; the host clears the hook when the figure's animation ends. `ph-no-capture` rides
+  the stub and, once the code is the figure, the whole ticket. REST mutes the kicker and the code to
+  `--pass-ink-2` by class (no ✓, round 3).
+- Decided under the owner's delegation (post-pay): the countdown rides the STATUS slot (the primitive
+  has no slot under the figure inside the head) and the pass sub rides the BODY beneath the seam; the
+  header pill's `.vt-order-status` morph partner is the ticket wrapper (the chip row is dropped, B9).
 
 **Appendix C taken / not.**
 
@@ -1165,7 +1174,8 @@ what did not and why; the decisions taken under the owner's delegation.
    and 5xx as "no answer" (the record stays).
 6. The `phone` glyph joins the Icon registry (`packages/ui/src/icon.tsx`, lucide `Phone`) — the spec's
    own one-line instruction; recorded here because `packages/ui` is guards-style's.
-7. `liveOrderStatusWord`'s `fired` is REQUIRED, not defaulted: a defaulted `true` would silently
+7. The ticket's countdown sits in the pass's status slot and its sub in the body (above).
+8. `liveOrderStatusWord`'s `fired` is REQUIRED, not defaulted: a defaulted `true` would silently
    restore M65 for any caller that forgot it.
 
 **Where the code disproved the spec.**

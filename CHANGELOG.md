@@ -33,10 +33,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   (`expoAge`, `lib/expo-rules.ts`), so an early "I’m here" never paints an on-time bag warn or late;
   the lane's strings are unchanged. The /track halo (`.mms-track-now`) runs at most 3 cycles per step
   change (round 3, D4).
-- **Waits on the primitives branch:** the claim ticket's wrapper is a plain card until
-  `claude/feat/pd-pass-primitives` lands the CounterPass (its perforation, notches and `--pass-*` inks
-  are drawn nowhere else); the faces, the TURN and the stub are final (`components/ClaimTicket.tsx`).
-### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
+- **The claim ticket is the ONE PASS:** `components/ClaimTicket.tsx` renders `CounterPass` at its holder
+  tier (the primitives PR, #327, merged in) — Dad's `expo.pickup` as the label, the slot then the code
+  as the figure (spelt for assistive tech), the countdown in the status slot, the ✓ only at Ready, the
+  stub's For · Code, the TURN as the primitive's split-flap on the figure. Nothing in the app draws a
+  perforation, a notch or a pass ink.
 
 - **post-pay's primitives, the second step of PATH_DESIGN's Sequencing** (round 3's vocabulary
   additions; the prop surface and every decision made under delegation are recorded in

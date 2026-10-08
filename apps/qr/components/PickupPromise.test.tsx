@@ -95,9 +95,13 @@ describe("the page while cooking", () => {
     // The ticket: Dad's words, the slot, the countdown, the stub with the name and the code.
     const ticket = container.querySelector(".claim-ticket")!;
     expect(ticket.getAttribute("data-face")).toBe("time");
+    // The pass names itself by its heading: Dad's label ("Pickup · လာယူချိန်") over the figure.
     expect(ticket.querySelector("h2")?.textContent).toContain("Pickup");
     expect(ticket.querySelector("h2")?.textContent).toContain("လာယူချိန်");
-    expect(ticket.querySelector(".claim-figure")?.textContent).toBe("6:20 PM");
+    expect(ticket.querySelector(".ui-pass-figure")?.textContent).toBe("6:20 PM");
+    expect(ticket.querySelector(".ui-pass")?.getAttribute("data-tier")).toBe("holder");
+    // No ✓ before the terminal state (round 3, ONE PASS).
+    expect(ticket.querySelector(".ui-pass-stamp")).toBeNull();
     expect(ticket.querySelector(".claim-countdown")?.textContent).toContain("in ~19 min");
     expect(ticket.querySelector(".claim-stub")?.classList.contains("ph-no-capture")).toBe(true);
     expect(ticket.querySelector(".claim-stub")?.textContent).toContain("Aye Aye");
@@ -229,7 +233,9 @@ describe("the revisit: a committed arrival nobody answered is re-sent, once", ()
       KEY,
       JSON.stringify({ orderId: ORDER.id, committedAt: "2026-10-09T01:00:00.000Z" }),
     );
-    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const fetchSpy = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(
+      async () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
     vi.stubGlobal("fetch", fetchSpy);
     const { container } = mount();
     await act(async () => {
@@ -261,9 +267,16 @@ describe("Ready and late", () => {
     const { container } = mount({ togoStatus: "ready", togoReadyAt: "2026-10-09T01:14:00.000Z" });
     const ticket = container.querySelector(".claim-ticket")!;
     expect(ticket.getAttribute("data-face")).toBe("code");
-    expect(ticket.querySelector("h2")?.textContent).toContain("Ready for pickup");
-    expect(ticket.querySelector(".claim-figure")?.textContent).toBe("#0A1B2C");
-    expect(ticket.querySelector(".claim-figure")?.classList.contains("ph-no-capture")).toBe(true);
+    // The ✓ — the ONLY one a pickup ticket draws — in the status slot before the kicker word.
+    expect(ticket.querySelector(".ui-pass-status .ui-pass-stamp")).not.toBeNull();
+    expect(ticket.querySelector(".ui-pass-status")?.textContent).toContain("Ready for pickup");
+    expect(ticket.querySelector(".ui-pass-status")?.textContent).toContain("ယူလို့ရပြီ");
+    expect(ticket.querySelector(".ui-pass-figure")?.textContent).toBe("#0A1B2C");
+    expect(ticket.querySelector(".ui-pass-figure")?.getAttribute("aria-hidden")).toBe("true");
+    expect(ticket.classList.contains("ph-no-capture")).toBe(true);
+    expect(ticket.querySelector(".ui-pass-body")?.textContent).toContain(
+      "Show this code at the counter.",
+    );
     expect(container.querySelector("h1")?.textContent).toContain("Your order is ready.");
     expect(document.title).toBe("Ready for pickup · Morning Star");
     expect(button(container, "I’m here")).not.toBeNull();

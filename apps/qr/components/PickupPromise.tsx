@@ -25,7 +25,7 @@ import {
 import { formatClock } from "@/lib/pickupTime";
 import type { TrackedOrder } from "@/lib/track-order";
 import { capRelease, heldFor, holdCapPhase, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
-import { ClaimTicket, type TurnPhase } from "./ClaimTicket";
+import { ClaimTicket } from "./ClaimTicket";
 
 /**
  * PD3 — the pickup promise on /track (docs/path-design-2026-10-07/m3-pickup-promise.md; PATH_DESIGN
@@ -127,7 +127,7 @@ export function PickupPromise({
   // hydration-safe by construction; a revisit renders the pass at rest (a resume is not an
   // arrival, §15); the latch keeps a remount in the same tab quiet.
   const [spoken, setSpoken] = useState<Entry>(() => guide.now);
-  const [turn, setTurn] = useState<TurnPhase>("none");
+  const [turning, setTurning] = useState(false);
   const [turnArmed, setTurnArmed] = useState(false);
   const [edge, setEdge] = useState(0);
   const [prevStage, setPrevStage] = useState<PickupStage | null>(null);
@@ -145,7 +145,7 @@ export function PickupPromise({
         if (shouldAnimate) {
           if (document.visibilityState === "hidden")
             setTurnArmed(true); // the next visible frame
-          else setTurn("out");
+          else setTurning(true);
         }
       }
     }
@@ -158,12 +158,12 @@ export function PickupPromise({
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       setTurnArmed(false);
-      setTurn("out");
+      setTurning(true);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [turnArmed]);
-  const onTurnEnd = useCallback(() => setTurn((t) => (t === "out" ? "in" : "none")), []);
+  const onTurnEnd = useCallback(() => setTurning(false), []);
   useEffect(() => {
     if (stage !== "ready") return;
     const before = document.title;
@@ -424,7 +424,7 @@ export function PickupPromise({
 
       <ClaimTicket
         face={guide.face}
-        turn={turn}
+        turning={turning}
         onTurnEnd={onTurnEnd}
         slotLabel={guide.slotLabel}
         code={code}
