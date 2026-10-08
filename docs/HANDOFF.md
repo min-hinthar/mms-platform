@@ -43,16 +43,13 @@ counter-pass.tsx`, `kitchen-track.tsx`, `pass.css`), the prop surface recorded i
     `scan-undo.ts`, the `@mms/ui` Sheet's opt-in `initialFocus` (guards-style's piece) with a parsed
     caller allowlist, G20's Burmese basket names. Blind pass in flight.
 - **Built, PR pending:** staff-authority's PD8 (`claude/feat/pd8-manager-approval`: the server half +
-  the M184 migration carrying the `close` arm, then the UI half); diner-cart's PD2 (`claude/feat/
-pd2-pd1-diner-cart`: `SURFACES.dineInPhonePay`, the create-intent refusal after the supersede exits
-  with a parse script, the counter-only Bill; PD1 follows as a stacked PR); post-pay's PD3
-  (`claude/feat/pd3-pickup-promise`: the claim ticket, "I'm here" with the commit-time store, M65);
+  the M184 migration carrying the `close` arm, then the UI half); diner-cart's PD2 is now **#331** (draft, base `claude/feat/pd-tokens-pass`, #327's branch merged in: `SURFACES.dineInPhonePay = false`, the create-intent 410 refusal after the supersede exits with `scripts/check-phone-pay-door.mjs`, the counter-only Bill, the guest's CounterPass; money path — Codex's round on its final head is the wait; PD1 is being built stacked on it as `claude/feat/pd1-tablemate-send`); PD1 follows as a stacked PR); post-pay's PD3 is now **#330** (draft, base `claude/feat/pd-tokens-pass`, #327's branch merged in so the claim ticket renders the real `CounterPass`: the claim ticket, "I'm here" with the commit-time store, the arrival route and beacon, M65 closed);
   counter-floor's PD6 (`claude/feat/pd6-till-tray`, started 18:06Z on #327's branch: the till tray,
   the seal, PD2's pane twin, PD1's ring).
 - **Not started:** PD7 (after PD6 and M182), PD9 (after #327 and #328), PD10 (after PD2, #327, #328),
   PD11 and PD12 last.
 - **Integration hazards, handled at each merge:** #328 and #329 both added `.claude/LEARNINGS.md
-  ## #250` (`check:docs` refuses a duplicate key — whichever merges second renumbers); every PR carries
+  ## #250` (`check:docs` refuses a duplicate key — and so did #330 — whichever merges second and third renumbers); every PR carries
   its own measured counts (re-run `pnpm check:docs` after merging `main` in); CHANGELOG entries stack
   newest-first; PD2 · PD3 · PD6 are based on #327's branch (retarget to `main` and merge it in once
   #327 lands); `KitchenStage` is declared in both `@mms/ui` and `apps/qr/lib/kitchen-track.ts` until
@@ -138,11 +135,11 @@ owner's delegation; read them before building a dependent moment.
 One bullet per stream; a stream edits only its own bullet.
 
 - **guards-style:** #326 merged (the tokens); the Sheet's `initialFocus` rode PD4's #329 as its own commit.
-- **post-pay:** #327 (CounterPass + KitchenTrack); PD3 on `claude/feat/pd3-pickup-promise`.
+- **post-pay:** #327 (CounterPass + KitchenTrack); #330 (PD3, draft; retarget to `main` after #327).
 - **kitchen-ops:** #328 (PD5); PD9 next.
 - **grocery:** #329 (PD4 + G20).
 - **staff-authority:** PD8 on `claude/feat/pd8-manager-approval` (M184 + the `close` arm).
-- **diner-cart (+ money-rails' create-intent half):** PD2 on `claude/feat/pd2-pd1-diner-cart`; PD1 stacked next.
+- **diner-cart (+ money-rails' create-intent half):** #331 (PD2, draft; retarget to `main` after #327); PD1 stacked on it next.
 - **counter-floor:** PD6 on `claude/feat/pd6-till-tray`; PD7 next.
 - **table-door, money-rails (the rest):** not in this wave.
 
