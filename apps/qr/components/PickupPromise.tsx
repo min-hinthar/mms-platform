@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore }
 import { Button, Icon, matchesFocusVisible, useAnimationPreference } from "@mms/ui";
 import { announceArrival } from "@/lib/arrival-action";
 import {
+  actionOutcome,
   clearPendingArrival,
   pendingArrivalCleared,
   readPendingArrival,
@@ -95,6 +96,13 @@ export function PickupPromise({
   const terminal = stage === "pickedUp";
 
   // Wake: on return to the foreground, ONE re-read (coalesced across `visibilitychange` + `focus`).
+  // The callback is read through a ref (Codex r1 on #330, P1): the host's `wake` is rebuilt every
+  // time its fallback snapshot changes, and an effect keyed on it re-fired on every answer — a tight
+  // request loop where a 30 s poll was meant.
+  const onWakeRef = useRef(onWake);
+  useEffect(() => {
+    onWakeRef.current = onWake;
+  }, [onWake]);
   const lastWakeRef = useRef(0);
   useEffect(() => {
     const wake = () => {
@@ -103,7 +111,7 @@ export function PickupPromise({
       if (now - lastWakeRef.current < 1000) return;
       lastWakeRef.current = now;
       setNowTick(now);
-      onWake();
+      onWakeRef.current();
     };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
@@ -111,14 +119,15 @@ export function PickupPromise({
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("focus", wake);
     };
-  }, [onWake]);
+  }, []);
   // B7 — the 4-hour session lapses under a far-booked pickup, and a guest staring at the open page
   // would never see Ready land: while the live read is gone, the visible 30 s tick re-reads too.
+  // Keyed on the clock and the live transition ONLY — never on the callback's identity.
   useEffect(() => {
     if (live || terminal) return;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-    onWake();
-  }, [nowTick, live, terminal, onWake]);
+    onWakeRef.current();
+  }, [nowTick, live, terminal]);
 
   // ── the one live region: the Now pair on every stage change, the arrival's own lines ──────────
   // ── the Ready edge: the TURN, once; the title while away ───────────────────────────────────────
@@ -187,9 +196,14 @@ export function PickupPromise({
   useEffect(() => {
     winRef.current = win;
   }, [win]);
+  /** An in-page send is out and unanswered: the arrival is still beacon-able on a teardown (Codex r1
+   *  on #330, P1 — `visibilitychange→hidden` commits and empties the window BEFORE `pagehide`, so a
+   *  tab closed right after it never sent the beacon the record exists to repair). */
+  const sendOutRef = useRef(false);
 
   const settle = useCallback(
     (outcome: ArrivalOutcome, error?: string) => {
+      sendOutRef.current = false;
       if (pendingArrivalCleared(outcome)) clearPendingArrival(safeLocalStorage(), order.id);
       if (outcome.answered && outcome.ok) {
         setPhase("confirmed");
@@ -210,12 +224,10 @@ export function PickupPromise({
     setWin(null);
     setPhase("committing");
     writePendingArrival(safeLocalStorage(), order.id, Date.now());
+    sendOutRef.current = true;
+    // A resolved `failed` / `rate` is not an answer (`actionOutcome`, lib/arrival-pending.ts).
     announceArrival({ orderId: order.id })
-      .then((r) =>
-        r.ok
-          ? settle({ answered: true, ok: true })
-          : settle({ answered: true, ok: false }, r.error),
-      )
+      .then((r) => settle(actionOutcome(r), r.ok ? undefined : r.error))
       .catch(() => settle({ answered: false }));
   }, [order.id, settle]);
 
@@ -276,12 +288,15 @@ export function PickupPromise({
   // down, where only a beacon survives — the record is written first, so a dropped beacon is
   // repaired on the next visit (§E, §F).
   useEffect(() => {
-    if (phase !== "window") return;
+    if (phase !== "window" && phase !== "committing") return;
     const onHidden = () => {
       if (document.visibilityState === "hidden" && winRef.current) commit();
     };
     const onPageHide = (e: PageTransitionEvent) => {
-      if (e.persisted || !winRef.current) return; // a bfcache freeze comes back with the window intact
+      if (e.persisted) return; // a bfcache freeze comes back with the window (or the send) intact
+      // An open window commits here; a send still out is beaconed too, so the arrival reaches Dad
+      // whether or not the page lives long enough to hear the action's answer.
+      if (!winRef.current && !sendOutRef.current) return;
       winRef.current = null;
       writePendingArrival(safeLocalStorage(), order.id, Date.now());
       try {
@@ -364,6 +379,9 @@ export function PickupPromise({
     order.togoPickedUpAt,
   ];
   const offered = guide.arrivalOffered && !announced;
+  // The late sub promises the moment; only the live read keeps it (B7 / Codex r1 on #330). On the
+  // 30 s snapshot the foot's "catches up whenever you come back" is the true sentence.
+  const sub = guide.stage === "late" && !live ? null : guide.sub;
   const showCard = terminal
     ? false
     : announced || offered || phase === "window" || phase === "committing";
@@ -377,11 +395,11 @@ export function PickupPromise({
           {guide.now.my}
         </span>
       </NowTag>
-      {guide.sub && (
+      {sub && (
         <p className="pickup-sub">
-          {guide.sub.en}
+          {sub.en}
           <span lang="my" className="pickup-sub-my">
-            {guide.sub.my}
+            {sub.my}
           </span>
         </p>
       )}

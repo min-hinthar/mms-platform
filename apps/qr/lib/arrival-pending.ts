@@ -89,6 +89,19 @@ export function clearPendingArrival(store: Store | null, orderId: string): void 
 export type ArrivalOutcome = { answered: true; ok: boolean } | { answered: false };
 
 /**
+ * What an in-page `announceArrival` result MEANS for the record (Codex r1 on #330, P1). The action
+ * RESOLVES for every outcome, so "it resolved" is not "it was answered": `failed` (the UPDATE, or a
+ * proof it depends on, could not be read) and `rate` (the flood guard) are the route's 5xx / 429 —
+ * no durable answer, so the record stays for the next visit. Every other refusal is decided.
+ */
+export function actionOutcome(r: { ok: true } | { ok: false; reason: string }): ArrivalOutcome {
+  if (r.ok) return { answered: true, ok: true };
+  return r.reason === "failed" || r.reason === "rate"
+    ? { answered: false }
+    : { answered: true, ok: false };
+}
+
+/**
  * Does this outcome CLEAR the pending record (§F1, §G2)? Every answer does — success, "no longer
  * takes an arrival", a plain refusal: the card is back at the question and the guest's next tap is
  * the only arrival. Only a send with no answer keeps it, for the next visit's retry.

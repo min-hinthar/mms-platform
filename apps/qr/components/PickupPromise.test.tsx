@@ -98,11 +98,22 @@ describe("the page while cooking", () => {
     // The pass names itself by its heading: Dad's label ("Pickup · လာယူချိန်") over the figure.
     expect(ticket.querySelector("h2")?.textContent).toContain("Pickup");
     expect(ticket.querySelector("h2")?.textContent).toContain("လာယူချိန်");
-    expect(ticket.querySelector(".ui-pass-figure")?.textContent).toBe("6:20 PM");
-    expect(ticket.querySelector(".ui-pass")?.getAttribute("data-tier")).toBe("holder");
-    // No ✓ before the terminal state (round 3, ONE PASS).
-    expect(ticket.querySelector(".ui-pass-stamp")).toBeNull();
-    expect(ticket.querySelector(".claim-countdown")?.textContent).toContain("in ~19 min");
+    expect(ticket.querySelector(":scope > .ui-pass .ui-pass-figure")?.textContent).toBe("6:20 PM");
+    expect(ticket.querySelector(":scope > .ui-pass")?.getAttribute("data-tier")).toBe("holder");
+    // No ✓ on the LIVE face before the terminal state (round 3, ONE PASS).
+    const liveFace = ticket.querySelector(":scope > .ui-pass")!;
+    expect(liveFace.querySelector(".ui-pass-stamp")).toBeNull();
+    // ONE footprint (Codex r1 on #330): the Ready face's shape — its seam and body — is reserved by
+    // an inert, hidden sizer in the same cell, so the ticket cannot grow at the TURN. RED when the
+    // waiting face renders alone.
+    const sizer = ticket.querySelector(".claim-sizer");
+    expect(sizer?.getAttribute("aria-hidden")).toBe("true");
+    expect(sizer?.querySelector(".ui-pass")?.hasAttribute("data-inert")).toBe(true);
+    expect(sizer?.querySelector(".ui-pass-body")).not.toBeNull();
+    expect(sizer?.querySelector("[id]")).toBeNull(); // no duplicate ids from the sizer
+    expect(ticket.querySelector(":scope > .ui-pass .claim-countdown")?.textContent).toContain(
+      "in ~19 min",
+    );
     expect(ticket.querySelector(".claim-stub")?.classList.contains("ph-no-capture")).toBe(true);
     expect(ticket.querySelector(".claim-stub")?.textContent).toContain("Aye Aye");
     expect(ticket.querySelector(".claim-stub")?.textContent).toContain("#0A1B2C");
@@ -213,6 +224,50 @@ describe("'I’m here' — the one-slot swap, the same-gesture guard, the take-b
     expect(announceArrival).toHaveBeenCalledTimes(1);
   });
 
+  it("a RESOLVED `failed` answer is no answer either — the record stays (the route's contract)", async () => {
+    // Codex r1 on #330 (P1): `stampArrival` resolves `reason: "failed"` for a failed UPDATE, and the
+    // first draft marked every resolved refusal `answered` — so a transient failure retired the one
+    // repair for the committed arrival. RED when `failed` clears the record.
+    const { container } = mount();
+    announceArrival.mockResolvedValue({
+      ok: false,
+      error: "Couldn’t let the counter know — try again.",
+      reason: "failed",
+    });
+    fireEvent.click(button(container, "I’m here")!);
+    await act(async () => {
+      vi.advanceTimersByTime(6_300);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(window.localStorage.getItem(KEY)).not.toBeNull();
+    expect(container.textContent).toContain("Couldn’t let the counter know — try again.");
+  });
+
+  it("hidden, then pagehide while the send is still out: the beacon goes (Codex r1 on #330, P1)", async () => {
+    // A tab close fires `visibilitychange(hidden)` first — which commits and empties the window —
+    // and THEN `pagehide`. The first draft's pagehide saw no window and sent nothing, so the Server
+    // Action dying with the page was the only delivery. RED when the beacon needs an open window.
+    announceArrival.mockImplementation(() => new Promise(() => {})); // never answers: the page is going
+    const beacon = vi.fn<(url: string, data?: BodyInit) => boolean>(() => true);
+    Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });
+    const { container } = mount();
+    fireEvent.click(button(container, "I’m here")!);
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(announceArrival).toHaveBeenCalledTimes(1); // the commit ran on hidden
+    await act(async () => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(beacon).toHaveBeenCalledTimes(1);
+    expect(beacon.mock.calls[0]?.[0]).toBe("/api/track/arrival");
+    expect(window.localStorage.getItem(KEY)).not.toBeNull();
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+  });
+
   it("a send with NO answer keeps the record for the next visit", async () => {
     const { container } = mount();
     announceArrival.mockRejectedValue(new Error("offline"));
@@ -262,19 +317,41 @@ describe("the revisit: a committed arrival nobody answered is re-sent, once", ()
   });
 });
 
+describe("the wake re-read while the live read is gone (B7)", () => {
+  it("re-reads once per 30 s tick — never once per callback identity (Codex r1 on #330, P1)", async () => {
+    // The host rebuilds `wake` whenever its snapshot changes; an effect keyed on the callback
+    // re-fired on every answer, a tight loop where a 30 s poll was meant. RED when the effect
+    // depends on `onWake`.
+    const first = vi.fn();
+    const { rerender } = render(
+      <PickupPromise order={ORDER} justPaid={false} live={false} onWake={first} />,
+    );
+    expect(first).toHaveBeenCalledTimes(1); // the mount's own tick
+    const second = vi.fn();
+    rerender(<PickupPromise order={ORDER} justPaid={false} live={false} onWake={second} />);
+    expect(second).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Ready and late", () => {
   it("at Ready the ticket shows the code face and the tab title names it; the arrival is still offered", () => {
     const { container } = mount({ togoStatus: "ready", togoReadyAt: "2026-10-09T01:14:00.000Z" });
     const ticket = container.querySelector(".claim-ticket")!;
     expect(ticket.getAttribute("data-face")).toBe("code");
     // The ✓ — the ONLY one a pickup ticket draws — in the status slot before the kicker word.
-    expect(ticket.querySelector(".ui-pass-status .ui-pass-stamp")).not.toBeNull();
-    expect(ticket.querySelector(".ui-pass-status")?.textContent).toContain("Ready for pickup");
-    expect(ticket.querySelector(".ui-pass-status")?.textContent).toContain("ယူလို့ရပြီ");
-    expect(ticket.querySelector(".ui-pass-figure")?.textContent).toBe("#0A1B2C");
-    expect(ticket.querySelector(".ui-pass-figure")?.getAttribute("aria-hidden")).toBe("true");
+    const live = ticket.querySelector(":scope > .ui-pass")!;
+    expect(live.querySelector(".ui-pass-status .ui-pass-stamp")).not.toBeNull();
+    expect(live.querySelector(".ui-pass-status")?.textContent).toContain("Ready for pickup");
+    expect(live.querySelector(".ui-pass-status")?.textContent).toContain("ယူလို့ရပြီ");
+    expect(live.querySelector(".ui-pass-figure")?.textContent).toBe("#0A1B2C");
+    expect(live.querySelector(".ui-pass-figure")?.getAttribute("aria-hidden")).toBe("true");
     expect(ticket.classList.contains("ph-no-capture")).toBe(true);
-    expect(ticket.querySelector(".ui-pass-body")?.textContent).toContain(
+    expect(live.querySelector(".ui-pass-body")?.textContent).toContain(
       "Show this code at the counter.",
     );
     expect(container.querySelector("h1")?.textContent).toContain("Your order is ready.");
@@ -295,6 +372,15 @@ describe("Ready and late", () => {
     expect(card.lastElementChild).toBe(door);
     expect(container.querySelector(".claim-countdown")).toBeNull();
   });
+  it("on the 30 s snapshot the late page keeps its heading but not the immediacy sub (Codex r1 on #330)", () => {
+    vi.setSystemTime(Date.parse(SLOT) + 17 * 60_000);
+    const { container } = mount({}, false);
+    expect(container.querySelector("h1")?.textContent).toContain(
+      "Your 6:20 PM order isn’t bagged yet.",
+    );
+    expect(container.textContent).not.toContain("It shows here the moment it is.");
+  });
+
   it("never offers the arrival on another day", () => {
     vi.setSystemTime(Date.parse("2026-10-08T06:00:00.000Z")); // 11 PM PDT the night before
     const { container } = mount();

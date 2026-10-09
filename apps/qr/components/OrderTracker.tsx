@@ -103,7 +103,15 @@ export function OrderTracker({
    *  is the primary answer, fetched at mount rather than after the ~30s live give-up. */
   counterPaid?: boolean;
 }) {
-  const { order: liveOrder, timedOut, refresh } = useOrderStatus(paymentIntent, orderId);
+  const {
+    order: liveOrder,
+    timedOut,
+    refresh,
+    stale: liveStale,
+  } = useOrderStatus(paymentIntent, orderId);
+  // PD3 (Codex r1 on #330, P1) — a row the live read once had and then lost is a CACHED row: the
+  // page is not live any more, whatever `liveOrder` still holds.
+  const live = !!liveOrder && !liveStale;
   // W9c — the tracker's live read is browser-side, so its authorization is `is_member(session_id)`.
   // That lapses when a server clears the table or the ~4h session TTL sweeps — routinely, minutes
   // after a dine-in diner paid and while they're still sitting there. The row is fine; they just
@@ -129,7 +137,8 @@ export function OrderTracker({
   // session). Never on the happy path's first mount — PickupPromise calls it on events only.
   const wake = useCallback(() => {
     refresh();
-    if (!liveOrder && fallback?.ok) {
+    // Not live (no live row, or a live row that has since gone dark): refresh the uid-scoped snapshot.
+    if (!live) {
       void getMyOrderFallback({ orderId, paymentIntent })
         .then((r) => {
           if (r.ok) setFallback(r);
@@ -138,11 +147,15 @@ export function OrderTracker({
           /* deliberate: a failed wake read keeps the snapshot it had; the next wake tries again */
         });
     }
-  }, [refresh, liveOrder, fallback, orderId, paymentIntent]);
+  }, [refresh, live, orderId, paymentIntent]);
   // The live order wins; the fallback fills in only where RLS has gone dark. Note the fallback is a
   // SNAPSHOT — no Realtime behind it — which is honest for a table that has already been cleared.
-  const order = liveOrder ?? (fallback?.ok ? fallback.order : null);
-  const staleSnapshot = !liveOrder && !!fallback?.ok;
+  // A live row gone STALE yields to a fresher snapshot once one exists (the wake above fetches it).
+  const order =
+    liveStale && fallback?.ok
+      ? fallback.order
+      : (liveOrder ?? (fallback?.ok ? fallback.order : null));
+  const staleSnapshot = (!liveOrder || liveStale) && !!fallback?.ok;
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
 
   // ── W23d — the hold was CANCELLED, so no order exists and none ever will (registry M71) ─────────
@@ -788,7 +801,7 @@ export function OrderTracker({
           </p>
         </section>
       ) : pickupPromise ? (
-        <PickupPromise order={order} justPaid={justPaid} live={!!liveOrder} onWake={wake} />
+        <PickupPromise order={order} justPaid={justPaid} live={live} onWake={wake} />
       ) : (
         <ul
           ref={timelineRef}
@@ -1063,7 +1076,7 @@ export function OrderTracker({
           status word are a snapshot of the moment it was read, and saying so is the difference between
           a receipt and a tracker that has quietly stopped tracking. Plain static text — the view's one
           role="status" region owns announcements. */}
-      {staleSnapshot && (
+      {staleSnapshot && !pickupPromise && (
         <p
           style={{
             fontSize: "var(--fs-sm)",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actionOutcome,
   clearPendingArrival,
   pendingArrivalCleared,
   pendingArrivalKey,
@@ -82,6 +83,20 @@ describe("what clears the record (§F1, §G2) — every ANSWER does; a send with
   it("no answer at all keeps it for the next visit's retry", () => {
     // MUTATION: `return true` — a dropped beacon is never repaired.
     expect(pendingArrivalCleared({ answered: false })).toBe(false);
+  });
+});
+
+describe("actionOutcome — a RESOLVED action is not always an answer (Codex r1 on #330, P1)", () => {
+  it("ok, and every decided refusal, are answers", () => {
+    expect(actionOutcome({ ok: true })).toEqual({ answered: true, ok: true });
+    for (const reason of ["unauthorized", "not_today", "collected", "closed"])
+      expect(actionOutcome({ ok: false, reason })).toEqual({ answered: true, ok: false });
+  });
+  it("`failed` and `rate` are NOT answers — the record stays for the next visit", () => {
+    // MUTATION: drop the `failed` arm — a transient failure retires the one repair for a committed
+    // arrival, and a guest who closes the page then never reaches Dad.
+    expect(actionOutcome({ ok: false, reason: "failed" })).toEqual({ answered: false });
+    expect(actionOutcome({ ok: false, reason: "rate" })).toEqual({ answered: false });
   });
 });
 

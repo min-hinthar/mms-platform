@@ -21,6 +21,10 @@ export type OrderStatus = {
    *  iOS suspends a hidden tab's socket, so the Ready edge usually lands on return, not while away).
    *  A no-op before the subscription exists. */
   refresh: () => void;
+  /** PD3 (Codex r1 on #330, P1) — the live read HAD the row and a later read answered no row: the
+   *  session lapsed and RLS hides it now. `order` keeps the last live snapshot, but it is no longer
+   *  live — the host reads its `earned_by` snapshot instead and polls it. */
+  stale: boolean;
 };
 
 /**
@@ -40,9 +44,15 @@ export function useOrderStatus(
   const anon = useAnonSession();
   const [order, setOrder] = useState<TrackedOrder | null>(null);
   const [exhausted, setExhausted] = useState(false);
+  const [stale, setStale] = useState(false);
   // The live effect's own `load`, reachable from outside it (PD3's wake re-read). Written in the
   // effect, cleared in its cleanup — never during render.
   const loadRef = useRef<(() => void) | null>(null);
+  // The key whose row the live read has delivered at least once. A REF scoped to the key, not a
+  // local of the effect: a Supabase token refresh hands back a new `anon` object and re-runs the
+  // effect, and a per-run flag forgot the row had ever been there — so the session's later lapse
+  // read as "not fulfilled yet" and the page never fell back (Codex r1 on #330, P1).
+  const seenKeyRef = useRef<string | null>(null);
   const refresh = useCallback(() => {
     loadRef.current?.();
   }, []);
@@ -73,6 +83,7 @@ export function useOrderStatus(
     setPrevKey(key);
     setOrder(null);
     setExhausted(false);
+    setStale(false);
   }
 
   useEffect(() => {
@@ -112,7 +123,14 @@ export function useOrderStatus(
         errs = 0;
       }
       if (data) {
+        seenKeyRef.current = key;
         setOrder(shapeTrackedOrder(data));
+        setStale(false);
+      } else if (seenKeyRef.current === key) {
+        // The row was there and is not now: not "not fulfilled yet" but "no longer ours to read"
+        // (the 4-hour session swept, the table cleared). No poll — the host falls back to its
+        // uid-scoped snapshot; a later authorized read (a rejoin) clears this again.
+        setStale(true);
       } else if (tries < 10) {
         // Not fulfilled yet — Realtime will deliver the INSERT, but poll a few times as a safety net
         // for the redirect→webhook race / a cold socket. Stops once the order arrives or after ~30s.
@@ -169,5 +187,5 @@ export function useOrderStatus(
   // Derived (so a late order always wins): a recoverable dead-end is "poll gave up OR the key is
   // malformed", but only while no order has arrived.
   const timedOut = !order && (exhausted || (key != null && !valid));
-  return { order, timedOut, refresh };
+  return { order, timedOut, refresh, stale };
 }
