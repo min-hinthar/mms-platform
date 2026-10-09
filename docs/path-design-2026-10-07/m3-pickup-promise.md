@@ -1332,3 +1332,41 @@ fix commits stand on their own and on the author's hand-read.
   (H4's `/unverified-caller-reads-as-refusal`, re-aimed), `/no-session-reads-as-outage`;
   `arrival-pending/any-400-clears-the-record`; `pickup-promise/too-early-reads-try-again`;
   `orders/fallback-auth-outage-reads-as-not-found`.
+
+### H6 · The owner's delegation (2026-10-09) — the confirm list closed; a solo session refuses a second member
+
+The owner, 2026-10-09: "I trust you to make all decisions, apply migrations, and merge all." Under
+that delegation the four items H4 and H5 left for the owner are decided:
+
+- **The 30-minute lead** (`ARRIVAL_LEAD_MIN`): kept as built.
+- **The 10-minute replay window** (`PENDING_ARRIVAL_MAX_AGE_MS`): kept as built.
+- **The `too_early` sentence** ("It’s a little early — you can tell the counter you’re here from
+  {t}."): kept as built. The Burmese line stays a K15 draft.
+- **A pickup session refuses a second member** — built on `claude/fix/pickup-session-refuses-join`.
+  H5 found that a `?j=<code>` join reaches `findActive` (code, `status`, expiry; never the mode) and
+  that the member insert checked only the party size, so a second phone could join someone's pickup
+  and pass `stampArrival`'s session arm and every `is_member` read. **Scan-and-go is refused too, for
+  the same reasons in the code:** both solo modes key the session on a per-device `${mode}-<uuid>`
+  (`useTableSession`'s `resolveQrCode`), no invite surface mounts for either (`GuestList` →
+  `InviteSheet` is dine-in only), and the bill split refuses anything but dine-in (`lib/split.ts`).
+  So the rule is "dine-in is the one party mode", not "pickup by name".
+  - **In SQL, where the membership is written:** `mms_refuse_solo_join`, a BEFORE INSERT OR UPDATE OF
+    `session_id` trigger (`20261009120200`), beside the party cap and under its advisory key. The
+    first member of a solo session lands (the mint; the kiosk's own row). The same seat again falls
+    through to the unique key's 23505, which the route reads as "already a member". Any other seat
+    raises `solo_session`. The writers are the route and `lib/kiosk.ts`'s own first row
+    (`grep -rn 'from("session_members")' apps/qr` — every other hit reads, or renames a member: `lib/members.ts`, `display_name` only; no migration inserts one); the trigger covers
+    them and any future one.
+  - **In `/api/session`, before any write** (`soloJoinVerdict`, `lib/session-code.ts`): a `?j=`
+    join of someone else's solo session answers exactly what a wrong code does — 404 "No table found
+    for that code", no existence oracle — and the trigger's `solo_session` maps to the same 404. The
+    minting device rejoins: as a member, or as the host retrying its own failed first insert.
+  - **The device whose anonymous identity was replaced is not stranded.** Its stored solo key names
+    a session another uid now holds, so the route re-mints a fresh `${mode}-<uuid>` session for it,
+    and `useTableSession` adopts the returned key. The old session is untouched: no slide, no second
+    member, no host change. Its cart stays with the identity that minted it.
+- Pinned: `supabase/tests/pd3_solo_session_refuses_join_test.sql` (seven named cases, registered in
+  ci.yml; red on the un-migrated stack at SOLO.2; SOLO.6 and SOLO.7 induced red by hand).
+  `scripts/verify-mode-authority.mjs` suite `pd3s`: five killed mutants, 202 accounted for. And
+  verify:slice `session-code/solo-*`, `session-route/solo-*`,
+  `use-table-session/solo-remint-not-adopted`.

@@ -4,6 +4,24 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A solo session refuses a second member — pickup and scan-and-go, in SQL where the membership is written (2026-10-09, PD3 follow-up)
+
+- **The gap (found in #330's second blind pass):** `/api/session` found a `?j=<code>` session by its
+  code, `status` and expiry, never its mode. The member insert checked only the party size, so a
+  second phone could join someone's pickup and pass every `is_member` read and `stampArrival`'s
+  session arm.
+- **The refusal lives where the membership is written.** `mms_refuse_solo_join` is a BEFORE INSERT
+  OR UPDATE OF `session_id` trigger (`20261009120200`), beside the party cap. Dine-in is the one party
+  mode. A solo session takes its first member, and the same seat again is the unique key's 23505;
+  any other seat raises `solo_session`. Pinned by `supabase/tests/pd3_solo_session_refuses_join_test.sql`
+  and five `verify:mode-authority` mutants (suite `pd3s`).
+- **The route decides first, before any write** (`soloJoinVerdict`). A refused join answers exactly
+  what a wrong code does ("No table found for that code"), so it is no existence oracle. The minting
+  device rejoins. A device whose anonymous identity was replaced gets a fresh session under a fresh
+  key, which `useTableSession` adopts, instead of being stranded.
+- **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
+  window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
+
 ### The pickup promise — the guided claim ticket, "I’m here" with a take-back, M65 (2026-10-08, PD3)
 
 - **post-pay's PD3** (`docs/path-design-2026-10-07/m3-pickup-promise.md`, its §H build notes; PATH_DESIGN
