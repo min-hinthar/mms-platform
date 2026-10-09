@@ -350,16 +350,15 @@ describe("the revisit: a committed arrival nobody answered is re-sent, once", ()
   });
 });
 
-describe("the wake re-read while the live read is gone (B7)", () => {
-  it("re-reads once per 30 s tick — never once per callback identity (Codex r1 on #330, P1)", async () => {
+describe("the re-read: every tick and every wake, ONE read each (B7; blind pass on #330)", () => {
+  it("re-reads once per 30 s tick — never at mount, never once per callback identity (Codex r1)", async () => {
     // The host rebuilds `wake` whenever its snapshot changes; an effect keyed on the callback
-    // re-fired on every answer, a tight loop where a 30 s poll was meant. RED when the effect
-    // depends on `onWake`.
+    // re-fired on every answer, a tight loop where a 30 s poll was meant.
     const first = vi.fn();
     const { rerender } = render(
       <PickupPromise order={ORDER} justPaid={false} live={false} onWake={first} />,
     );
-    expect(first).toHaveBeenCalledTimes(1); // the mount's own tick
+    expect(first).not.toHaveBeenCalled(); // the host's own mount read is the first read
     const second = vi.fn();
     rerender(<PickupPromise order={ORDER} justPaid={false} live={false} onWake={second} />);
     expect(second).not.toHaveBeenCalled();
@@ -367,7 +366,38 @@ describe("the wake re-read while the live read is gone (B7)", () => {
       vi.advanceTimersByTime(30_000);
     });
     expect(second).toHaveBeenCalledTimes(1);
-    expect(first).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it("while LIVE the tick re-reads too — a lapsed session sends no event, so only a read can notice it (critical)", async () => {
+    // The page stays open across the session's expires_at: Realtime goes quiet, and the first draft
+    // re-read only while NOT live — so `live` never flipped and Ready never landed. RED when the
+    // tick skips a live page.
+    const wake = vi.fn();
+    const { rerender } = render(
+      <PickupPromise order={ORDER} justPaid={false} live={true} onWake={wake} />,
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(wake).toHaveBeenCalledTimes(1); // the live re-read that finds the row gone
+    // The host flips `live` once that read comes back empty: the fallback is read AT ONCE, not 30 s on.
+    rerender(<PickupPromise order={ORDER} justPaid={false} live={false} onWake={wake} />);
+    expect(wake).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(wake).toHaveBeenCalledTimes(3);
+  });
+
+  it("a wake is ONE re-read — not the wake handler's read plus the clock effect's (perf)", async () => {
+    const wake = vi.fn();
+    render(<PickupPromise order={ORDER} justPaid={false} live={false} onWake={wake} />);
+    await act(async () => {
+      vi.advanceTimersByTime(2_000); // past the 1 s coalescing window
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(wake).toHaveBeenCalledTimes(1);
   });
 });
 

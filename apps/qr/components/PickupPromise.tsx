@@ -106,13 +106,14 @@ export function PickupPromise({
   }, [onWake]);
   const lastWakeRef = useRef(0);
   useEffect(() => {
+    // The wake only advances the clock; the effect below does the ONE re-read per clock change
+    // (blind pass on #330: this handler used to read too, so every wake cost two reads).
     const wake = () => {
       if (document.visibilityState !== "visible") return;
       const now = Date.now();
       if (now - lastWakeRef.current < 1000) return;
       lastWakeRef.current = now;
       setNowTick(now);
-      onWakeRef.current();
     };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
@@ -121,11 +122,20 @@ export function PickupPromise({
       window.removeEventListener("focus", wake);
     };
   }, []);
-  // B7 — the 4-hour session lapses under a far-booked pickup, and a guest staring at the open page
-  // would never see Ready land: while the live read is gone, the visible 30 s tick re-reads too.
-  // Keyed on the clock and the live transition ONLY — never on the callback's identity.
+  // B7 — ONE re-read on every clock change (the 30 s tick, a wake) while the page is visible and the
+  // order not yet collected, LIVE OR NOT (blind pass on #330, critical). The 4-hour session lapses
+  // under a far-booked pickup with no event at all — Realtime simply goes quiet — so the first draft,
+  // which read only while not live, never noticed: `live` stayed true and Ready never landed. A live
+  // read that comes back empty is what flips the host to its snapshot (`useOrderStatus.stale`), and
+  // the `live` dependency then reads that snapshot at once. Never at mount (the host's own read is
+  // the first), and keyed on the clock and the live transition only, never the callback's identity.
+  const mountedReadRef = useRef(false);
   useEffect(() => {
-    if (live || terminal) return;
+    if (!mountedReadRef.current) {
+      mountedReadRef.current = true;
+      return;
+    }
+    if (terminal) return;
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
     onWakeRef.current();
   }, [nowTick, live, terminal]);

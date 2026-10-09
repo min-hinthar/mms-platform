@@ -135,13 +135,21 @@ export function OrderTracker({
   // is no longer authorized, B7): ONE re-read, the live way while membership holds, else the
   // uid-scoped server snapshot refreshed in place (`earned_by`, the authority that outlives the
   // session). Never on the happy path's first mount — PickupPromise calls it on events only.
+  // PD3 (blind pass on #330, open question) — a wake whose snapshot read came back a DECIDED no
+  // (`not_found`, `share_payer`: this device is not one the uid-scoped read covers) means the page
+  // can no longer catch up, and the pickup foot must stop saying it will. A transient `error` is not
+  // a no: the next wake tries again.
+  const [snapshotRefused, setSnapshotRefused] = useState(false);
   const wake = useCallback(() => {
     refresh();
     // Not live (no live row, or a live row that has since gone dark): refresh the uid-scoped snapshot.
     if (!live) {
       void getMyOrderFallback({ orderId, paymentIntent })
         .then((r) => {
-          if (r.ok) setFallback(r);
+          if (r.ok) {
+            setFallback(r);
+            setSnapshotRefused(false);
+          } else if (r.reason !== "error") setSnapshotRefused(true);
         })
         .catch(() => {
           /* deliberate: a failed wake read keeps the snapshot it had; the next wake tries again */
@@ -1483,18 +1491,22 @@ export function OrderTracker({
                     : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
                   : pickupPromise
                     ? // PD3 — quiet's foot, true because of the wake re-read above it; the collected
-                      // order's foot names where the receipt lives.
-                      (() => {
-                        const f = togo === "picked_up" ? TRACK.footPickedUp : TRACK.foot;
-                        return (
-                          <>
-                            {f.en}
-                            <span lang="my" style={{ display: "block", color: "var(--t3)" }}>
-                              {f.my}
-                            </span>
-                          </>
-                        );
-                      })()
+                      // order's foot names where the receipt lives. Said NOWHERE once the page can
+                      // no longer read the order at all (a lapsed live row, and a snapshot read that
+                      // answered a decided no): the contact foot below is the true next step.
+                      liveStale && snapshotRefused && togo !== "picked_up"
+                      ? null
+                      : (() => {
+                          const f = togo === "picked_up" ? TRACK.footPickedUp : TRACK.foot;
+                          return (
+                            <>
+                              {f.en}
+                              <span lang="my" style={{ display: "block", color: "var(--t3)" }}>
+                                {f.my}
+                              </span>
+                            </>
+                          );
+                        })()
                     : staleSnapshot
                       ? "This is the order as we last read it — the receipt in your account is the lasting copy."
                       : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
