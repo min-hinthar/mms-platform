@@ -1051,8 +1051,13 @@ const COVER = "useStageCover";
 //      bound to it), R being the Undo record (`undo`, or a const bound to it);
 //   b. no reference to the client view (`linesRef`, `lines`), and no hand-written "Removed…" text;
 //   c. a live `undoOutcome(R, …)` — the words come from what the follow-up read confirms;
-// and, file-wide, d. every `setUndo(…)` is `null`, a retiring updater, or a binding to `undoFromAdd(…)`
-// — the record is built only from the add's own confirmed view.
+// and, file-wide, d. every `setUndo(…)` is `null`, a retiring updater (`(u) => (c ? null : u)` or
+// `(p) => undoAfterWrite(p, …)`), or a binding to `undoFromAdd(…)` — the record is built only from
+// the add's own confirmed view; and e. every OTHER write of a line — each live `scanAdd(…)` and
+// `setQty(…)` outside `undoAdd` — is preceded in its own function by a TOP-LEVEL
+// `setUndo((p) => undoAfterWrite(p, B))`, B the item it writes (`scanAdd`'s code; `X.barcode` for
+// `setQty(X.lineId, …)`): the Undo's absolute write must never outlive a second write of that item
+// (the hand-read of this round's own fix found a Browse add inside the window taking both units).
 {
   const fnOf = (name) => {
     const decls = [];
@@ -1220,6 +1225,22 @@ const COVER = "useStageCover";
       );
   });
   const isNull = (e) => e.kind === ts.SyntaxKind.NullKeyword;
+  /** `(p) => undoAfterWrite(p, B)` — the barcode B's printed text, or null when it is not that shape. */
+  const afterWrite = (e) => {
+    if (!e || !ts.isArrowFunction(e) || e.parameters.length !== 1) return null;
+    const p = e.parameters[0].name;
+    if (!ts.isIdentifier(p)) return null;
+    let body = e.body;
+    while (ts.isParenthesizedExpression(body)) body = body.expression;
+    return ts.isCallExpression(body) &&
+      ts.isIdentifier(body.expression) &&
+      body.expression.text === "undoAfterWrite" &&
+      body.arguments.length === 2 &&
+      ts.isIdentifier(body.arguments[0]) &&
+      body.arguments[0].text === p.text
+      ? printed(body.arguments[1])
+      : null;
+  };
   /** `(u) => (cond ? null : u)` — an updater that can only retire the record or keep it. */
   const retiring = (e) => {
     if (
@@ -1246,11 +1267,54 @@ const COVER = "useStageCover";
     )
       return;
     const a = n.arguments[0];
-    const ok = a && (isNull(a) || retiring(a) || (ts.isIdentifier(a) && fromAdd.has(a.text)));
+    const ok =
+      a &&
+      (isNull(a) ||
+        retiring(a) ||
+        afterWrite(a) !== null ||
+        (ts.isIdentifier(a) && fromAdd.has(a.text)));
     if (!ok)
       fail(
         `proposition 6: \`setUndo(${a ? a.getText(src).slice(0, 50) : ""})\` — an Undo record may only be\n` +
           "  built by `undoFromAdd(…)` from the add's own confirmed view (or retired with null).",
+      );
+  });
+  // e. every other write of a line retires an open Undo for that item first
+  const undoFn = fn ?? null;
+  walk(src, (w) => {
+    if (!ts.isCallExpression(w) || !ts.isIdentifier(w.expression)) return;
+    const kind = w.expression.text;
+    if ((kind !== CHARGE && kind !== "setQty") || isLiterallyDead(w)) return;
+    if (undoFn && w.pos >= undoFn.pos && w.end <= undoFn.end) return;
+    let item = null;
+    if (kind === CHARGE) item = w.arguments[1] ? printed(w.arguments[1]) : null;
+    else {
+      const id = w.arguments[0];
+      if (id && ts.isPropertyAccessExpression(id) && id.name.text === "lineId")
+        item = `${printed(id.expression)}.barcode`;
+    }
+    const f = enclosingFunction(w);
+    const top = f && f.body && ts.isBlock(f.body) ? f.body.statements : [];
+    const at = top.findIndex((st) => w.pos >= st.pos && w.end <= st.end);
+    const retired =
+      item !== null &&
+      at > 0 &&
+      top
+        .slice(0, at)
+        .some(
+          (st) =>
+            ts.isExpressionStatement(st) &&
+            ts.isCallExpression(st.expression) &&
+            ts.isIdentifier(st.expression.expression) &&
+            st.expression.expression.text === "setUndo" &&
+            afterWrite(st.expression.arguments[0]) === item,
+        );
+    if (!retired)
+      fail(
+        `proposition 6: \`${w.getText(src).slice(0, 60)}\` writes ${item ?? "a line"} without first retiring an\n` +
+          `  open Undo for it — a top-level \`setUndo((p) => undoAfterWrite(p, ${item ?? "<the item>"}))\` above it in\n` +
+          "  the same function. The Undo writes the add's confirmed qty minus one ABSOLUTELY, so a second\n" +
+          "  write of the same item would make it take that unit too.",
       );
   });
 }

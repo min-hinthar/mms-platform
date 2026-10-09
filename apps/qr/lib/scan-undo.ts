@@ -65,6 +65,16 @@ export function undoFromAdd(a: {
   };
 }
 
+/** The Undo after ANOTHER write of `barcode` — an add of it by any door (live, or queued for
+ *  replay), an offline replay of it, a stepper on its line: RETIRED. The Undo's write is absolute
+ *  (`setQty` to the add's confirmed qty minus one), so once a second write of the same item may have
+ *  landed, that qty no longer reverses THE add — it would take the other unit with it (a Browse add
+ *  inside the window, the hand-read of this round's own fix). A sheet add that lands mints its own
+ *  record from its own response; an Undo for any other item is untouched. */
+export function undoAfterWrite(u: AddUndo | null, barcode: string): AddUndo | null {
+  return u !== null && u.barcode === barcode ? null : u;
+}
+
 /** Is the window still open at `now`, after `heldMs` of keyboard hold? A window whose write is IN
  *  FLIGHT never expires under it: the pill keeps saying "Removing…" until the write answers. */
 export function undoOpen(u: AddUndo, now: number, heldMs = 0, removing = false): boolean {

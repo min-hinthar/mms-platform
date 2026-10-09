@@ -125,6 +125,34 @@ const UNDO: Fixture[] = [
       "          const u = undoFromAdd({ barcode, lines: linesRef.current, openedAt: now });",
     expect: /proposition 6: .*undoFromAdd must take the add's OWN response/,
   },
+  {
+    name: "a write of the item that does not retire its Undo (a Browse add inside the window)",
+    find: "      setUndo((prev) => undoAfterWrite(prev, barcode));\n",
+    replace: "",
+    expect:
+      /proposition 6: `scanAdd\(cartId, barcode, scanId\)` writes barcode without first retiring/,
+  },
+  {
+    name: "the retirement parked under a condition",
+    find: "      setUndo((prev) => undoAfterWrite(prev, barcode));\n",
+    replace: '      if (via === "search") setUndo((prev) => undoAfterWrite(prev, barcode));\n',
+    expect:
+      /proposition 6: `scanAdd\(cartId, barcode, scanId\)` writes barcode without first retiring/,
+  },
+  {
+    name: "a replay that does not retire the Undo",
+    find: "        setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too\n",
+    replace: "",
+    expect:
+      /proposition 6: `scanAdd\(entry.cartId, entry.barcode, entry.scanId\)` writes entry.barcode/,
+  },
+  {
+    name: "the stepper retiring ANOTHER item's Undo",
+    find: "      setUndo((prev) => undoAfterWrite(prev, line.barcode));",
+    replace: '      setUndo((prev) => undoAfterWrite(prev, lastScanned?.code ?? ""));',
+    expect:
+      /proposition 6: `setQty\(line.lineId, nextQty\)` writes line.barcode without first retiring/,
+  },
 ];
 
 // ── (4) the charge takes the sighted code; "Add another" only behind the chip's own predicate ──

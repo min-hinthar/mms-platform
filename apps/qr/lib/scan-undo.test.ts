@@ -5,6 +5,7 @@ import {
   chipArmed,
   undoOpen,
   undoSecondsLeft,
+  undoAfterWrite,
   undoFromAdd,
   undoOutcome,
   undoSentence,
@@ -85,6 +86,20 @@ describe("undoFromAdd — the record comes from the add's OWN confirmed view", (
   it("no confirmed view, or a view without the line → no Undo is offered (its target would be a guess)", () => {
     expect(undoFromAdd({ barcode: "2990000000017", lines: null, openedAt: 5 })).toBeNull();
     expect(undoFromAdd({ barcode: "2990000000024", lines: view(1), openedAt: 5 })).toBeNull();
+  });
+});
+
+describe("undoAfterWrite — another write of the same item retires the Undo", () => {
+  it("a Browse add (or a queued scan, a replay, a stepper) of the SAME item inside the window → retired", () => {
+    // MUTATION: never retire → the add confirmed ×1, a Browse add made it ×2, and the Undo writes
+    // 0 — removing the Browse unit too; red.
+    expect(undoAfterWrite(u, "2990000000017")).toBeNull();
+  });
+
+  it("a write of ANOTHER item leaves it; no Undo stays none", () => {
+    // MUTATION: retire on every write → a scan of a different jar cancels the shopper's Undo; red.
+    expect(undoAfterWrite(u, "2990000000024")).toBe(u);
+    expect(undoAfterWrite(null, "2990000000017")).toBeNull();
   });
 });
 

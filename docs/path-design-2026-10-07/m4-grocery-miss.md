@@ -836,7 +836,12 @@ verified against source first. These notes win over H.1–H.3 where they differ.
   client view (`linesRef`), which a read issued after the add can leave a unit short — so it could write
   0 over a line the basket held at ×1 BEFORE the add. `setQty` is absolute: `undoFromAdd` now builds the
   record from the add's own response (`scanAdd`'s `lines`) and keeps that qty (`confirmedQty`), and
-  `undoTargetQty` writes exactly one fewer. No confirmed view, no Undo (its target would be a guess).
+  `undoTargetQty` writes exactly one fewer. No confirmed view, no Undo (its target would be a guess). **And any
+  other write of the same item retires the Undo** (`undoAfterWrite`; proposition 6 e — every `scanAdd`
+  and `setQty` outside the Undo is preceded, in its own function, by that retirement): the author's
+  hand-read of this fix found the interleaving it opened — a Browse add inside the window makes the line
+  ×2 while the record says ×1, and the Undo would have written 0, taking the Browse unit too. A write
+  from another device stays outside the page's knowledge, as it is for the stepper's absolute writes.
 - **The Undo's words come from the follow-up read's lines** (critical 2): `undoOutcome` — "Removed X"
   only when X is absent there, "X × n" only when it shows exactly n, "Undo saved — checking your
   basket…" otherwise (an interleaved write, a failed or refused read). The silent `!line` branch is

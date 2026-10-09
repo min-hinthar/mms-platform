@@ -47,6 +47,7 @@ import { nextRefusal, type SheetRefusal } from "@/lib/sheet-refusal";
 import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
 import {
   chipArmed,
+  undoAfterWrite,
   undoFromAdd,
   undoOpen,
   undoOutcome,
@@ -575,7 +576,7 @@ export default function Grocery() {
       // PD4 (Codex r1 on #329, 4222536380) — ANY manual step on the line the Undo is about retires
       // the Undo: a "−" inside the window already reversed the add, and a live Undo would then write
       // one fewer again — removing a unit the basket held BEFORE the add.
-      setUndo((u) => (u?.lineId === line.lineId ? null : u));
+      setUndo((prev) => undoAfterWrite(prev, line.barcode));
       if (nextQty <= 0) billedRef.current.delete(line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
@@ -746,6 +747,13 @@ export default function Grocery() {
         }
         pairingRef.current = pairingAfterVerdict(pairingRef.current, judged, verdict);
       }
+      // PD4 — from here this barcode is WRITTEN (live, or queued for a replay): an open Undo for it
+      // would write the add's confirmed qty minus one ABSOLUTELY and take this unit too, so it is
+      // retired (`undoAfterWrite`, check:scan-repeat proposition 6). A sheet add that lands mints
+      // its own. Its pill unmounting under focus parks through the effect above.
+      if (undoRef.current?.barcode === barcode)
+        undoFocusRef.current = document.activeElement?.classList.contains("scan-undo") ?? false;
+      setUndo((prev) => undoAfterWrite(prev, barcode));
       // W7b — ONE identity per physical scan, minted at the top: the live attempt SENDS it and any
       // queued retry REUSES it, so the server's scan-event ledger dedupes a lost-response live add
       // against its own replay (review HIGH: a fresh id minted at enqueue time crosses idempotency
@@ -970,6 +978,7 @@ export default function Grocery() {
       let delivered = 0;
       const outcomes = await drainCart(forCart, async (entry) => {
         if (cartIdRef.current !== entry.cartId) return null; // era changed mid-drain — retry later
+        setUndo((prev) => undoAfterWrite(prev, entry.barcode)); // a replay writes this item too
         const seq = ++reqSeq.current;
         const r = await ledger.track(scanAdd(entry.cartId, entry.barcode, entry.scanId));
         if (cartIdRef.current !== entry.cartId) return r.ok ? { ok: true } : null;

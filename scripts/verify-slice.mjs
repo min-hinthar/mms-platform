@@ -6882,6 +6882,22 @@ const MUTANTS = [
     replace: "  return 0;",
   },
   {
+    id: "scan-undo/a-second-write-keeps-the-undo",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "The hand-read of the blind-pass-2 fix on #329 — the Undo writes the add's confirmed qty minus one ABSOLUTELY. A Browse add of the same item inside the window makes the line ×2 while the record says ×1, and a kept Undo writes 0 — removing the Browse unit too. Another write of the item retires it",
+    find: "  return u !== null && u.barcode === barcode ? null : u;",
+    replace: "  return u;",
+  },
+  {
+    id: "scan-undo/any-write-cancels-every-undo",
+    file: "apps/qr/lib/scan-undo.ts",
+    suite: "lib/scan-undo.test.ts",
+    why: "The bound the other way: a scan of a DIFFERENT jar must not take the shopper's Undo for the item they just added by name",
+    find: "  return u !== null && u.barcode === barcode ? null : u;",
+    replace: "  return null;",
+  },
+  {
     id: "scan-undo/the-record-forgets-the-adds-qty",
     file: "apps/qr/lib/scan-undo.ts",
     suite: "lib/scan-undo.test.ts",

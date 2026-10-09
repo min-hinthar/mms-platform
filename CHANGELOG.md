@@ -76,9 +76,10 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the shared DoorSheet named as the one exempt sheet and filed (`PD4 · door`); a refused removal no
   longer spends the miss→item pairing (`pairingAfterRemoval`); and a finished basket hands focus to
   "Start a fresh basket" from the Name sheet and the basket sheet (`lib/grocery-focus.ts`).
-- **The second capped blind pass on #329 (REJECT), fixed in seven commits** (the spec's §H.4): the
-  add-Undo writes one fewer than the add's OWN confirmed qty and speaks only what the follow-up read
-  shows (`undoFromAdd` · `undoOutcome`, proposition 6); the chip's action slot and the repeat toast's
+- **The second capped blind pass on #329 (REJECT), fixed in nine commits** (the spec's §H.4): the
+  add-Undo writes one fewer than the add's OWN confirmed qty, is retired by any other write of the
+  same item, and speaks only what the follow-up read shows (`undoFromAdd` · `undoAfterWrite` ·
+  `undoOutcome`, proposition 6); the chip's action slot and the repeat toast's
   "Add another" clause read ONE predicate (`lib/scan-chip.ts`), and a chip reached through a pairing
   offers no "Add another" — a re-read is announced as the shopper's own act ("You added X for this
   code"), so no charge ever takes a judged code (proposition 4 now proves every caller's provenance);
