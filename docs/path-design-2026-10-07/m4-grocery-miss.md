@@ -708,8 +708,11 @@ the hand-off itself (`tabIndex={-1}` on the tag), or the focus that was on "Add 
 
 **Left out, on purpose.** The composite-contrast rows for the cream tag over the live video (OPEN RISK
 11 / A2): the amendment says to add them ONCE for the shared CounterPass and the tag together, and the
-CounterPass primitive is post-pay's (D1(d)) — post-pay's PR adds the row set for both. The scanner device
-half (ruling #20). Graft 5's Scan-door search trigger (decision 27: wait for the Scan→Browse evidence).
+CounterPass primitive is post-pay's (D1(d)), so the row set was left to post-pay's PR. **Measured at the
+merge of `main` (`1f35ba3`):** #327 landed `CounterPass` with no composite-contrast rows for either surface
+(no `packages/ui` suite on `main` names the tag), so the row set for the cream tag and the CounterPass over
+a live image is still OPEN — recorded in PD4's OPEN-ITEMS row, for whichever stream next touches
+`composite-contrast.test.ts`. The scanner device half (ruling #20). Graft 5's Scan-door search trigger (decision 27: wait for the Scan→Browse evidence).
 
 #### H.2 · The blind pass on #329 (`f26cc8f..9e88755`, REJECT) and Codex round 1 (review 5460967415) — fixed in one commit
 

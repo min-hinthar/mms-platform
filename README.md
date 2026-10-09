@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-proprietary-lightgrey)](#-license)
 
-**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 6870 qr tests + 296 ui tests · 3292 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Shipped:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 · the W-track through W22f + W23 · Option A (A1–A7b) · the polish plan's Phase 0–2 and Phase 3a–3d (part) — M1 🟡 (code done, owner-blocked infra tail) · **Next:** build the path designs PD1–PD13 ([`docs/HANDOFF.md`](docs/HANDOFF.md)) · **Gate:** 6870 qr tests + 395 ui tests · 3292 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 

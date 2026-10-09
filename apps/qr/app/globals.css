@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@mms/ui/tokens.css";
 @import "@mms/ui/primitives.css";
+@import "@mms/ui/pass.css";
 
 :root {
   /* Padauk second in both Latin stacks — see tokens.css (per-glyph fallback for unmarked Burmese). */
@@ -9333,6 +9334,9 @@ a .chrome-en {
      (packages/ui/src/tokens.css :root). */
   html,
   html.dark {
+    /* --pg too: `--pass-hole` (tokens.css) defaults to it, so a printed pass's notch cut-outs would
+       otherwise paint Night's ground onto white paper. */
+    --pg: #faf9f5;
     --tx: #1b1714;
     --t2: #6e6358;
     --t3: #726859;
