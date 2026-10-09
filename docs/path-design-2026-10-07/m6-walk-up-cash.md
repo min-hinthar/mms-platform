@@ -1174,11 +1174,10 @@ Every one was run with `--no-gate --only=` and CAUGHT; the verdicts are in the P
 1. **The till's doubt is STICKY** (critical 1). `tillLedgerAfter` (`lib/till.ts`, pure) keeps the last
    attempt AND every doubt: an attempt whose answer was lost, or is still out past the bound, may have
    recorded the payment, so a later refusal ("That table is closed." after a lost answer is that
-   settle LANDING), a stalled tap or a new opening never erases it. Only the out attempt's own late
-   answer resolves `out`; only a host READ resolves both (the pad counts each read that clears its
-   `unknownSince`, `settleUnknownAfterRead`, and hands the count in as `readsResolved`); a landed
-   attempt resolves everything. A refusal hands `onOutcomeUnknown(false)` up only when it is the late
-   answer and no doubt is left, so the page's closed-bounce hold survives a newer attempt's refusal —
+   settle LANDING), a stalled tap or a new opening never erases it. (The count-based read signal this
+   round first shipped is gone — the last blind pass's round below replaced it with ONE time-based
+   rule.) A refusal hands `onOutcomeUnknown(false)` up only when it is the late answer and no doubt is
+   left, so the page's closed-bounce hold survives a newer attempt's refusal —
    on the table page too (FloorDetailLive's "a refused retry releases the hold" was that defect, and
    its test now asserts the opposite). The clean-cancel line also needs the host's own view clear
    (`outcomeOpen`), which covers a ledger a remount lost.
@@ -1188,8 +1187,9 @@ Every one was run with `--no-gate --only=` and CAUGHT; the verdicts are in the P
    is now `number | null`: the tray's quote is a number by type, and the freeze refuses an unpriced
    read (the `?? 0` is gone).
 3. **The seal lands once per reload, never per revisit.** The landing is a one-shot note beside the
-   stash (`markSealLanding` / `takeSealLanding`: this order, inside `SEAL_LANDING_TTL_MS`, read and
-   cleared); every later same-tab visit is the calm seal, the entered tender still shown.
+   stash (`markSealLanding` / `takeSealLanding`: this order, inside `SEAL_LANDING_TTL_MS`); every
+   later same-tab visit is the calm seal, the entered tender still shown. (The last pass found this
+   round's version landed a client-side revisit too — fixed below.)
 4. **The geometry is a design-time check**, said so (below); its tray side is now bound to the parsed
    `.mms-sheet.till-sheet` gutters and padding and to `tokens.css`'s spacing.
 5. **a11y:** the slip's mark moves focus to Take when it unmounts under its own tap; the slip list's
@@ -1198,6 +1198,43 @@ Every one was run with `--no-gate --only=` and CAUGHT; the verdicts are in the P
    the tip and tendered inputs (the two layouts are different trees), so focus and the decimal pad are
    lost mid-entry; the values survive (they are state). A CSS-only re-layout would need one tree for
    both layouts — not cheap; listed rather than fixed.
+
+**The LAST capped blind pass on #334 (REJECT, `9cf5104..3bd1870`) — what its fix changed.**
+
+1. **ONE time-based rule for every doubt** (both criticals held: the pad kept its EARLIEST mark and
+   the till one scalar count, so a read past the first lost answer's window answered a second one; and
+   on the table page, with no `door`, nothing ever resolved the till's doubt). The ledger now keeps
+   WHEN each doubt arose — `outSince` (the attempt out past the bound) and `lostSince` (the NEWEST lost
+   answer: a later loss advances it). `tillLedgerRead(ledger, openReadAtMs)` resolves each by the
+   hosts' own `settleUnknownAfterRead` (imported, never copied): only a host read that STARTED after
+   the doubt could land and shows the order open answers it. A late answer resolves only its own
+   attempt's out-state; a landed answer resolves everything; no clock and no silence resolves
+   anything. Both hosts feed the same thing — `openReadAt`, the start of their latest committed OPEN
+   read — and the till applies it at decision time (the late refusal, the cancel), so no `door` is
+   needed. The pad's `unknownSince` ADVANCES to the newest doubt on every `onOutcomeUnknown(true)`, and
+   a late throw hands `true` up again, so the host's mark and the till's never disagree.
+   Pinned: sequence (a) — A lost at t0, B lost a minute later, a read at t0 + 10 min + 1 s, C refused,
+   Cancel: nothing reassuring, and B's close still held (`till.test.ts`, the till suite with a host
+   that remembers nothing, and the pad end to end); sequence (b) — the table page: A lost, the page's
+   read clears it, C out, C's late refusal: `onOutcomeUnknown(false)` is sent and a colleague's close
+   is the ordinary close, never "most likely went through" (the till suite and FloorDetailLive).
+2. **The pane hears the same truth.** A refusal while a doubt is left is forwarded as `unknown`, never
+   `refused`: "didn't go through" over a settle that may have landed was the open question's lie.
+3. **The seal lands on a RELOAD, measured.** `takeSealLanding` now reads how the document was reached
+   (`sealNavNow`: Navigation Timing's `type`, the deprecated `performance.navigation.type` as the
+   fallback, calm when neither reads). The rule, exactly: the first mount of that order's closed card
+   in a document RELOADED after the landing lands; a mount in the document that wrote the note (a
+   client-side revisit: Back, the reader chip's View) lands nothing and leaves the note for a reload;
+   a later document that was not a reload takes the note, calm.
+4. **The unpriced backstop keeps an unread late word** — `lateUnseen` clears only on the freeze that
+   opens the tray.
+5. **Guard integrity.** `pad-door/drain-reopens-unpriced` was byte-identical to
+   `pad/unpriced-never-held` (only the suite differed) — retired; `pad-door/gate-skips-the-recheck`
+   reddens both pad cases, and its comments now say the truth: the tray never opens either way (the
+   component's null-total backstop), so only the region's words separate the re-check.
+6. **Answered, not changed:** `open` CAN turn false while the gate waits (a read showing the order
+   paid elsewhere), but the till control unmounts with it (`tillNode` is `open ? … : null`), so no
+   tray can open — a check on `after.enabled` there would be an unreachable guard.
 
 **Risks left open.** The double-tap geometry is a DESIGN-TIME check: the tray's tracks, gutters and
 padding are bound to the parsed stylesheet, but the door spans are the design's (picked-m6-1 ② Dock,
