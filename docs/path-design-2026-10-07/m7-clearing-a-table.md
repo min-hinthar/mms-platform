@@ -1068,3 +1068,70 @@ The round-3 consistency pass gave this moment these changes:
 3. TV: a cleared table leaves the wall at once (a non-active session), so the stop card never reaches guests' eyes. The slip says nothing about the TV.
 4. The stop card's button is help.done 'ရပြီ · Got it'. 'Tells the kitchen to stop' stays conditional on the durable stop record (correction 12).
 5. Dad's region keeps 'Ready to serve — Table N' as the console's CALL, ranked below the hold-cap warning as already fixed.
+
+### H · Build notes (2026-10-09, claude/feat/pd7-clearing-a-table)
+
+Built by the counter-floor stream as PD7, stacked on PD6 (#334). The appendix (A–D) and PATH_DESIGN's
+Codex corrections won wherever they disagreed with the spec above; where the build chose under the
+owner's delegation, the reason is below.
+
+**What was built.**
+
+- **M182 · `mms_clear_table`** (`supabase/migrations/20261009120400_m182_table_clear.sql`; prod apply
+  waits for the owner's go, ruling #5). ONE transaction, the merge's lock order (the open cart, the
+  session, the pending approvals, the lines — each `FOR UPDATE` in id order). It refuses, writing
+  nothing: `not_found` · `closed` · `counter` (a counter order keeps `mms_clear_counter_cart`) ·
+  `in_flight` (a fresh single-pay lock or split freeze) · `card_live` · `joined` (a member who sat
+  down after `p_seen_at`) · `changed` (a line added after the look, or the SENT set or its figure not
+  the one shown) · the PIN seam (`mms_loss_config.clear_requires_pin`, off — ruling #6). Then it
+  supersedes the cart's pending approvals (D2: they read "Table was cleared first" on m8), writes
+  every SENT dish as a `void` / `table_cleared` approval at `unapproved` (or the stamp's gate),
+  voids the SENT lines, sends in-grace fires back to draft, cancels the cart, closes the session and
+  writes `qr_table_clears` — who, the dishes, the loss, and the durable STOP record (`stop_line_ids`;
+  `mms_ack_table_clear_stop` writes "Got it" once). Pinned by `supabase/tests/m182_table_clear_test.sql`
+  (CI's list) and 31 `clear/*` · `ack/*` SQL mutants in `verify-mode-authority.mjs` (`m182`).
+- **The server half** (`lib/floor.ts`): `getClearPreview` — the fresh look on the DATABASE clock,
+  shaped by `lib/clear-table.ts` (SENT and dropped are the no-show's own rules — `counterSentLine`,
+  `counterNoShowDropped` — the RPC's predicate); any failed read is `unknown`. `clearTable` routes a table through the RPC with the look (`expect`:
+  the line ids, the figure, the clock), reads its answer defensively (`clearAnswerOf`), and says a
+  refusal in the dictionary's English with the table's number.
+- **The pane's Clear** (`ClearTableButton`, a table): the look → the slip (food SENT) or straight
+  into the window (nothing SENT) → `mms_clear_table`. A counter order keeps its two-step confirm;
+  both ride ONE bounded commit. The window is the lane's six seconds, its controls armed at the
+  lane's 400 ms; a keyboard focus holds it (undo-hold, capped, warned 5 s before — its own alert,
+  B11); a table that moved under it (a join, a changed order, a payment) drops it with the reason.
+- **The slip** (screen 2): the ONE outline diamond (B7), the dishes Burmese-first, the menu-price
+  figure over a solid rule (B2), "Did Table N pay?", Take cash (the pane's ONE till through its own
+  trigger — B3), "No — they left without paying" revealing the body, the tail and the one danger
+  commit "Clear · $X loss", armed after 400 ms and described by what it records. While it is armed
+  the settle trigger stands down to secondary (B12).
+- **Seat next party** (corrections 5 · 6 · 9): the screen's ONE mint lock reserved at the tap
+  (`CounterMint.reserve`, refused with the shipped waiting line when held), the clear sent now, the
+  next party started only on its ok and landed in the pane (the bell stays live). The lock and the
+  turnover line now live in `CounterSplit`, around the zones and the pane.
+- **The outcome on the floor** (B10): `TurnoverNews` says "Table N is free." / "Table N cleared — n
+  dishes on the loss list." / the seat's failure in the board's ONE region, below "Ready to serve".
+- **The quiet hint** (B6): `clearHint` (`lib/clear-verdict.ts`) on a paid, finished card the floor
+  can vouch for — words inside the link and its name, never a control; none on a frozen floor or an
+  unknown kitchen read.
+
+**Decided under delegation.**
+
+- **B9 took its alternative:** the window lives in the pane's Clear, and unmounting the pane or the
+  page inside it drops the pending clear — nothing was written, the safe direction. The floor-card
+  in-slot window (one Undo per clear in the slot that outlives the pane) is a follow-up (M270).
+- **No slab** (B5 · B6): the one-tap "They've left — clear" verb on the card is not built; the hint
+  is words only, and the verb lives in the pane.
+- **Undo's seconds leaf** is the shipped `table.send.undoLeft`, aria-hidden; Undo keeps
+  `kds.undo` ပြန်ဖျက် (D3).
+- **"Tells the kitchen to stop" is not said** (correction 12, D4): the STOP record is written, the
+  kitchen-ops stop card that reads it is not built in this PR (M270).
+- **The slip's Merge door** is not drawn: the pane's own Merge stays above it.
+- **A RPC error** says the outage line with the retry: a lost response may hide a commit, but a
+  retry is safe — a cleared table answers `closed`, a moved one `changed`.
+
+**Follow-ups (OPEN-ITEMS M270):** kitchen-ops' stop card (`qr_table_clears.stop_line_ids`, "Got it"
+→ `mms_ack_table_clear_stop`) and then the slip's "tells the kitchen to stop" clause; the floor
+card's in-slot window; the manager stamp UI behind the PIN seam; a Help door on the full table page
+for `card_live`; the two-session lock-order harness for `mms_clear_table` (beside
+`verify-merge-race`); the M182 prod apply (ruling #5).
