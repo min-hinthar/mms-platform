@@ -23,7 +23,8 @@ import { useId, type CSSProperties, type ReactNode } from "react";
  * down to `--fs-display` with no wrap (m2 appendix C).
  *
  * ✓ is drawn ONLY at a terminal state — `terminal="paid"` stamps the stub of a dine-in pass,
- * `terminal="ready"` marks the head of a pickup ticket — and never otherwise; the TV passes none.
+ * `terminal="ready"` marks the head of a pickup ticket — and never otherwise. The TV never draws
+ * one: a `tv` pass takes no `terminal` (the props type refuses the pair; a cast one is dropped).
  *
  * a11y: the pass is a `<section>` (or `article` / `li`; a `div` takes `role="group"`) named by its
  * heading, and that name is the lead tongue's label + the figure ONCE ("Table 7" / "စားပွဲ 7"): the
@@ -79,8 +80,18 @@ export type PassIdentity =
       fallback: { en: string; my?: string };
     };
 
+/** The tier and its terminal state. The TV never shows ✓ (ONE PASS — the wall pass stays
+ *  check-free even when Ready is the state it shows), so a `tv` pass takes no `terminal`. */
+export type PassTierTerminal =
+  | { tier: "tv"; terminal?: never }
+  | {
+      tier: Exclude<PassTier, "tv">;
+      /** The ONLY ✓: Paid on a dine-in pass (the stub is stamped), Ready on a pickup ticket (the
+       *  head). */
+      terminal?: PassTerminal;
+    };
+
 export type CounterPassProps = {
-  tier: PassTier;
   /** `landscape` = the stub on the LEFT (the TV, the seal). Default portrait. */
   orientation?: PassOrientation;
   /** The two-tongue label over the figure ("စားပွဲ" / "Table"); the order flips with `lang`. Not
@@ -97,8 +108,6 @@ export type CounterPassProps = {
   children?: ReactNode;
   /** The perforation's weight. Defaults by tier: 4px on the TV, 2px elsewhere. */
   seam?: PassSeam;
-  /** The ONLY ✓: Paid on a dine-in pass (the stub is stamped), Ready on a pickup ticket (the head). */
-  terminal?: PassTerminal;
   /** The torn foot: a slip torn off the roll. */
   tear?: boolean;
   /** A guide picture: inert, hidden from assistive tech, scaled by the host. */
@@ -115,7 +124,8 @@ export type CounterPassProps = {
   id?: string;
   className?: string;
   style?: CSSProperties;
-} & PassIdentity;
+} & PassIdentity &
+  PassTierTerminal;
 
 const HEADING = { 2: "h2", 3: "h3", 4: "h4" } as const;
 
@@ -132,7 +142,7 @@ export function CounterPass({
   stub,
   children,
   seam,
-  terminal,
+  terminal: askedTerminal,
   tear = false,
   inert = false,
   turning,
@@ -144,6 +154,8 @@ export function CounterPass({
   style,
 }: CounterPassProps) {
   const reactId = useId();
+  // The TV never draws ✓: a `tv` pass's terminal is dropped even when a cast smuggles one in.
+  const terminal = tier === "tv" ? undefined : askedTerminal;
   const id = inert ? undefined : (givenId ?? `pass-${reactId}`);
   const seamW: PassSeam = seam ?? (tier === "tv" ? "4px" : "2px");
   const landscape = orientation === "landscape";

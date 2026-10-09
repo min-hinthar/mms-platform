@@ -9,6 +9,7 @@ import {
   type KitchenStage,
   type KitchenTrackProps,
 } from "../kitchen-track";
+import type { KitchenTrackName as BarrelTrackName } from "../index";
 
 /**
  * PATH_DESIGN round 3 — the ONE KITCHEN TRACK. Node env, static markup: every proposition is about
@@ -125,6 +126,13 @@ describe("KitchenTrack — a11y: the word carries the state; never a live region
       "aria-label": "Sent",
     };
     expect(both).toBeDefined();
+  });
+
+  it("the naming union reaches a consumer through the barrel (Codex round 3 on #327)", () => {
+    // Compile-time pin: `@mms/ui` has ONE entry (`index.ts`, no `kitchen-track` subpath), so a
+    // stream models word-vs-label through the barrel or not at all. Dropped from it — red.
+    const named: BarrelTrackName = { "aria-label": "Sent" };
+    expect(named["aria-label"]).toBe("Sent");
   });
 
   it("with neither, the track is decorative", () => {

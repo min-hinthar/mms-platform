@@ -48,12 +48,14 @@ export type {
   PassLang,
   PassLabel,
   PassTerminal,
+  PassTierTerminal,
   PassSeam,
   PassTurn,
 } from "./counter-pass";
 export { KitchenTrack, KITCHEN_STAGES, TRACK_SEGMENTS, kitchenTrackLit } from "./kitchen-track";
 export type {
   KitchenStage,
+  KitchenTrackName,
   KitchenTrackProps,
   KitchenTrackSize,
   KitchenTrackSurface,

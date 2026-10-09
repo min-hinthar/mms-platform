@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { CounterPass, type CounterPassProps } from "../counter-pass";
 import { KitchenTrack } from "../kitchen-track";
+import type { PassTierTerminal } from "../index";
 
 /**
  * PATH_DESIGN round 3 — the ONE PASS. Node env, static markup: what the primitive RENDERS per tier,
@@ -217,6 +218,24 @@ describe("CounterPass — ✓ only at a terminal state", () => {
     expect(count(html, 'class="ui-pass-stamp"')).toBe(1);
     expect(html.indexOf('class="ui-pass-status"')).toBeLessThan(html.indexOf('class="ui-pass-stamp"')); // prettier-ignore
     expect(html).not.toContain("ui-pass-stub");
+  });
+
+  it("the TV never draws one: a `tv` pass takes no `terminal` (Codex round 3 on #327)", () => {
+    // MUTATION: the runtime guard dropped (`terminal` read as passed) — a cast TV Ready / Paid pass
+    // draws the stamp, and `data-terminal` greens the stub — red.
+    for (const terminal of ["paid", "ready"] as const)
+      for (const orientation of ["portrait", "landscape"] as const) {
+        const html = render({ tier: "tv", orientation, terminal } as never, "body");
+        expect(html).not.toContain("ui-pass-stamp");
+        expect(html).not.toContain("<svg");
+        expect(html).not.toContain("data-terminal");
+      }
+    // The same pass off the wall keeps its ✓: the guard is the tier's, not the state's.
+    expect(render({ tier: "counter", terminal: "ready" })).toContain("ui-pass-stamp");
+    // Compile-time pin (`pnpm typecheck` reads this file): a loosened union un-expects it.
+    // @ts-expect-error — a TV pass with a terminal state
+    const tvReady: PassTierTerminal = { tier: "tv", terminal: "ready" };
+    expect(tvReady.tier).toBe("tv");
   });
 });
 

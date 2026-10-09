@@ -1161,6 +1161,8 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
   a `--pass-paper` disc ringed in `--pass-ok` 2.5 with the check drawn at 4, m10's recipe; the
   stub's ground turns `--pass-okb` in portrait); `ready` draws the same stamp at 20px at the head of
   the status row (m3's kicker). Nothing else, ever: a non-terminal pass renders no `<svg>` and no ✓.
+  **The TV never draws one** (decision 19): `tier` and `terminal` are one union, `PassTierTerminal`,
+  whose `tv` arm takes no `terminal`, and a cast pair is dropped at runtime.
 - `tear?: boolean` — the torn foot (`.receipt-tear`'s mask on the pass's own paper; the paper drops
   its bottom edge and radius).
 - `inert?: boolean` — a guide picture: `aria-hidden`, the `inert` attribute, no ids, the identity a
@@ -1280,6 +1282,14 @@ var(--s3)`, text aligned start; hosts override by class. With a body, the SEAM r
     (`.ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper`, `:where()` keeping the specificity at
     one class): a nested pass draws no ground, no edge and no shadow, so the mistake shows at once
     rather than half-styling; the suite pins the selector.
+19. **The TV never draws ✓** (Codex round 3 on #327). `tier` and `terminal` were independent props,
+    so `<CounterPass tier="tv" terminal="ready">` drew the check the ONE PASS keeps off the wall —
+    exactly PD9's Ready pickup row, where Ready is the state shown and the pass stays check-free.
+    The pair is one union (`PassTierTerminal`, exported from the barrel): its `tv` arm takes no
+    `terminal`, and a cast one is dropped (`terminal` reads `undefined` on the TV, so neither the
+    stamp nor `data-terminal` renders). The board says Ready in words and the track's lit ok
+    segments. `KitchenTrackName` reaches the barrel by name in the same round, so a stream models
+    word-vs-label through `@mms/ui` (the package has one entry, no subpath).
 
 **Appendix C items taken.** m2 C's three-digit fallback (step down to `--fs-display`, no wrap); m9
 C's "pin `--fs-pass` and let board-fit step down" (D1 confirmed it; a test refuses `clamp(` on any
