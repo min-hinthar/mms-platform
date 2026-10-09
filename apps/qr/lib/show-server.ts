@@ -24,17 +24,21 @@ export function waitingDishes(items: ReadonlyArray<CartItem>): CartItem[] {
 }
 
 /**
- * The listed rows as the current view shows them: a dine-in line whose id the pass printed, in the
- * view's order, whatever state it reached — minus a voided ("Removed") one, and minus any line the
- * view no longer carries. An unlisted line never joins (a tablemate's new draft joins only through
- * the host re-listing it from `waitingDishes`).
+ * The pass's rows in the current view: every dine-in line it LISTED (whatever state it reached since
+ * — the ticket keeps showing what was sent), plus any dine-in draft waiting now (a tablemate's dish
+ * added while the pass is up joins it: "the list follows the confirmed view"), in the view's order.
+ * A voided ("Removed") line leaves the ticket, and so does a line the view no longer carries. A SENT
+ * line the pass never listed (an earlier round) never joins: it would make a removal read as a send.
  */
 export function passDishes(
   items: ReadonlyArray<CartItem>,
   listed: ReadonlySet<string>,
 ): CartItem[] {
   return items.filter(
-    (i) => listed.has(i.id) && i.fulfillment === "dinein" && i.lineState !== "voided",
+    (i) =>
+      i.fulfillment === "dinein" &&
+      i.lineState !== "voided" &&
+      (listed.has(i.id) || i.lineState === "draft"),
   );
 }
 

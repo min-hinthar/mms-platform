@@ -81,6 +81,7 @@ import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
 import { TimelineStrip } from "./TableTimeline";
 import { SendToKitchenButton, type SendHandle } from "./SendToKitchenButton";
+import { ShowServerPass } from "./ShowServerPass";
 import { TableBindSheet } from "./TableBindSheet";
 // Phase 3c-i (D15) — the send's undo window lives HERE, not in the Send button (the brief's finding 2).
 import { reasonCopy, useUndoGrace } from "./useUndoGrace";
@@ -118,7 +119,16 @@ import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
-import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
+import { hostSendsCopy, nudgeCopy, staffCanSendCopy, TABLE_STARTER } from "@/lib/confirm-copy";
+import {
+  chosenName,
+  nudgeOffered,
+  nudgeStands,
+  waitingLine,
+  type SendNudge,
+} from "@/lib/send-nudge-state";
+import { nudgeHost } from "@/lib/send-nudge";
+import { graceRereadDelayMs, passDishes, showServerStatus, waitingDishes } from "@/lib/show-server";
 import { t, type DictKey } from "@/lib/i18n";
 
 // W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
@@ -256,6 +266,8 @@ export function Checkout({
   initialMySeat = null,
   initialTabType = "none",
   initialCounterRequestedAt = null,
+  initialSendNudge = null,
+  initialServerNow = null,
   initialTableNumber = null,
   tables = [],
   canTab = false,
@@ -283,6 +295,11 @@ export function Checkout({
   initialTabType?: "none" | "trust" | "secure";
   /** A1 — the table's live "pay at the counter" ask (ISO) from the server view, or null. */
   initialCounterRequestedAt?: string | null;
+  /** PD1 — a guest's "Let {host} know" stamp standing on the cart (`getCartView.sendNudge`). */
+  initialSendNudge?: SendNudge | null;
+  /** PD1 — the server's clock (ISO) as the first view was made (`getCartView.serverNow`); null =
+   *  unknown, which the pass reads conservatively (a line in its grace stays "Sending…"). */
+  initialServerNow?: string | null;
   /** A1 — the registered table number the eyebrow and the counter card name; null for an
    *  unregistered sticker or an UNBOUND session. 3c-ii (D30): a SEED, the `initialLocked` idiom —
    *  the number is state afterwards, written by every applied view and by the bind's CONFIRMED
@@ -386,7 +403,10 @@ export function Checkout({
   const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
   // Phase 1b — the host's name for a guest's "who sends" line (lib/confirm-copy `hostSendsCopy`).
   const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
-  const hostName = splitContext?.members.find((m) => m.role === "host")?.name?.trim() || null;
+  // PD1 (m1 graft 3) — the name the table CHOSE, never the default "Guest" read as a person
+  // (`chosenName`): an unnamed host gets the role sentence everywhere this name is spoken.
+  const hostMember = splitContext?.members.find((m) => m.role === "host") ?? null;
+  const hostName = chosenName(hostMember?.name);
   const hostNote = hostSendsCopy(hostName);
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
@@ -526,6 +546,16 @@ export function Checkout({
   // its first mount here and only here, and the ask-edge effect below stays quiet for it. Cleared
   // by a refusal, a failure and the withdraw, so a tablemate's later ask is heard.
   const [ownAsk, setOwnAsk] = useState(false);
+  // PD1 — the nudge stamp and the server's clock, both from every applied view.
+  const [sendNudge, setSendNudge] = useState<SendNudge | null>(initialSendNudge);
+  const [serverNowMs, setServerNowMs] = useState<number | null>(() =>
+    initialServerNow ? Date.parse(initialServerNow) : null,
+  );
+  const [nudgeBusy, setNudgeBusy] = useState(false);
+  // PD1 — "Show a server": open, and the dish ids it printed when it opened (they stay on the
+  // ticket after they go; `passDishes`).
+  const [passOpen, setPassOpen] = useState(false);
+  const [passListed, setPassListed] = useState<ReadonlySet<string>>(() => new Set());
   // The window between this phone's tap and the server's answer (Codex round 1 on #331): a view
   // without the stamp inside it is a stale read, not a withdrawal — `ownAsk` survives it.
   const askInFlight = useRef(false);
@@ -649,6 +679,9 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+    // PD1 — the nudge stamp (cleared by the fire, in the same statement) and the server's clock.
+    setSendNudge(v.sendNudge);
+    setServerNowMs(Date.parse(v.serverNow));
     // PD2 (Codex round 1 on #331, comment 4222692016) — the ask's OWNERSHIP follows the confirmed
     // value: a view with no ask (a tablemate withdrew it; the register settled) ends this phone's
     // claim to it, so the NEXT null→stamp edge is read as the tablemate's ask it is — said once,
@@ -2093,6 +2126,51 @@ export function Checkout({
     // `sayOutcome`, `ownAsk` and `phonePayOff` are this render's; the edge is keyed on the stamp.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counterAt]);
+  /**
+   * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
+   * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
+   * value the server returned, after the M225 barrier (a read issued before the tap must not land
+   * after it and erase the stamp); the confirmation is said once through the view's region. A
+   * refusal says the action's own sentence and records nothing.
+   */
+  async function nudge() {
+    if (nudgeBusy || !hostName) return;
+    const copy = nudgeCopy(hostName);
+    if (nudgeMine) {
+      // The settled control: a tap re-says what stands, and writes nothing.
+      sayOutcome(copy.seen.en, copy.seen.my);
+      return;
+    }
+    setNudgeBusy(true);
+    try {
+      const r = await nudgeHost({ cartId });
+      if (!r.ok) {
+        sayRefusal(r.error);
+        return;
+      }
+      confirmedWrite(viewSeqRef.current);
+      if (mySeat) setSendNudge({ seat: mySeat, at: r.nudgedAt });
+      sayOutcome(copy.seen.en, copy.seen.my);
+    } catch {
+      // The action returns every refusal; a throw is transport (Next redacts its message in prod).
+      sayRefusal("That didn’t go through — please try again.");
+    } finally {
+      setNudgeBusy(false);
+    }
+  }
+  // PD1 — "Show a server": the pass prints the dishes waiting NOW, and keeps them after they go.
+  const showServerBtn = useRef<HTMLButtonElement | null>(null);
+  const openPass = () => {
+    setPassListed(new Set(waitingDishes(viewItems).map((i) => i.id)));
+    setPassOpen(true);
+  };
+  // Back to the opener, or — once the wait block has gone (the dishes went, or were removed) — to
+  // the page's one focus home, the <h1>. Never dropped on <body> (WCAG 2.4.3).
+  const onPassClosed = (e: Event) => {
+    e.preventDefault();
+    if (showServerBtn.current?.isConnected) showServerBtn.current.focus();
+    else headingRef.current?.focus();
+  };
   async function withdrawCounter() {
     if (counterBusy) return;
     setPayError(null);
@@ -2594,6 +2672,42 @@ export function Checkout({
     graceOpen,
     hostPresent,
   });
+  // PD1 (m1 · B7) — the guest's quiet nudge: offered to a guest at a table that can NAME its host,
+  // while dishes wait, and never under a pay lock (nobody, staff included, can send until it lifts).
+  const myRole = splitContext?.myRole ?? null;
+  const nudgeShown = nudgeOffered({
+    role: myRole,
+    hostName,
+    kitchenDraftUnits: kitchenDraftQty,
+    frozen: editsFrozen,
+  });
+  // The guest's confirmation follows the STAMP, and only this seat's.
+  const nudgeMine = nudgeStands(sendNudge, mySeat);
+  // The host's quiet line, named from the table's own names (never the payload).
+  const hostLine = waitingLine(sendNudge, splitContext?.members ?? [], myRole);
+  const waitingMember = sendNudge
+    ? (splitContext?.members.find((m) => m.seat === sendNudge.seat) ?? null)
+    : null;
+  const waitingAvatar = waitingMember && chosenName(waitingMember.name) ? waitingMember : null;
+  const staffNote = staffCanSendCopy(hostName);
+  // PD1 (m1 screen 2) — the pass's rows and status from the APPLIED view and the SERVER's clock
+  // (lib/show-server). Unknown clock = never "sent" (a line in its grace reads "Sending…").
+  const passRows = passDishes(viewItems, passListed);
+  const passStatus = showServerStatus(passRows, serverNowMs ?? Number.NEGATIVE_INFINITY);
+  const passShown = passOpen && passStatus !== "none";
+  // Every listed dish REMOVED (never sent): the pass closes itself — a removal never reads as a
+  // send. Adjusted during render (React's derived-state pattern), so a dish added later never
+  // re-opens a pass its holder saw close.
+  if (passOpen && passStatus === "none") setPassOpen(false);
+  // ONE re-read at the grace's end while the pass is up (a server-measured duration from this
+  // view's receipt), so the flip lands on an OBSERVED view — never on this phone's clock.
+  const passRereadMs =
+    passShown && serverNowMs !== null ? graceRereadDelayMs(passRows, serverNowMs) : null;
+  useEffect(() => {
+    if (passRereadMs === null) return;
+    const id = window.setTimeout(() => void refresh(), passRereadMs);
+    return () => window.clearTimeout(id);
+  }, [passRereadMs, refresh]);
   // Phase 3c-i (D16) — Pay keeps its name and states its ONE reason, in precedence: a tablemate's lock
   // (`payFrozen`) > dishes still to send (`sendBlocksPay`, READ here — never restated) > this device's
   // undo window (open, or an undo still answering). The Order stage's Total door reads the same block
@@ -4148,13 +4262,10 @@ export function Checkout({
                     </>
                   )}
                 </button>
-                {/* W19 — the unsent state is VISIBLE before the flip, not discovered after. Plain
-                    content under the door, never inside the button's name. */}
-                {unsentQty > 0 && (
-                  <p className="checkout-total-door-note">
-                    {unsentQty} {unsentQty === 1 ? "item" : "items"} not sent yet
-                  </p>
-                )}
+                {/* PD1 (m1 decision 4; DESIGN-LANGUAGE §21) — W19's "N items not sent yet" note under
+                    the door is GONE: a dine-in cart is SHARED, and its count is a tablemate's tap away
+                    from wrong. The state is said in words where the next step lives — the guest's
+                    wait block, the host's Send — and on the Bill, the count-free mark. */}
               </>
             )}
 
@@ -4163,6 +4274,27 @@ export function Checkout({
                 reversing is never the hero), or the quiet "with the kitchen" line once everything is
                 sent. Only the host fires the table (server-enforced too), so only the host sees it;
                 a guest's hero is the door above, with the note below. */}
+            {/* PD1 (m1 screen 3) — the HOST's quiet line: a guest tapped "Let {host} know", and the
+                stamp waits on the cart until this Send clears it (in the same statement as the fire).
+                No sound, no toast, no sheet: the waiting guest's avatar and one sentence, above the
+                Send it is about, carried in Send's description. Plain text, never live. */}
+            {showLineCards && canSendToKitchen && hero === "send" && hostLine && (
+              <p id="nudge-line" className="checkout-nudge-line">
+                {waitingAvatar && (
+                  <Avatar
+                    initial={seatInitial(waitingAvatar.name)}
+                    color={seatColor(waitingAvatar.seat)}
+                    size="sm"
+                  />
+                )}
+                <span>
+                  {hostLine.en}
+                  <span lang="my" className="checkout-nudge-line-my">
+                    {hostLine.my}
+                  </span>
+                </span>
+              </p>
+            )}
             {showLineCards && canSendToKitchen && viewItems.length > 0 && (
               // onChanged re-syncs the cart after a send (steppers → chips); the undo's re-sync is the
               // grace hook's own, since solo dine-in isn't on the group realtime channel.
@@ -4185,7 +4317,26 @@ export function Checkout({
                 // predicate, so a freeze has already removed it server-side. The hook keeps the
                 // undo WINDOW open rather than closing it, so it returns the moment the lock lifts.
                 frozen={editsFrozen}
+                // PD1 — Send carries the waiting line and the caption; Undo the caption.
+                describedBy={
+                  hero === "send"
+                    ? hostLine
+                      ? "nudge-line send-caption"
+                      : "send-caption"
+                    : hero === "undo"
+                      ? "send-caption"
+                      : undefined
+                }
               />
+            )}
+            {/* PD1 (m1 decision 14) — the caption under Send AND Undo: feedforward before the tap
+                (the kitchen sees nothing until the window ends — `kdsLineGate`), the SAME node once
+                Send is Undo, so the tap shifts nothing. */}
+            {showLineCards && canSendToKitchen && (hero === "send" || hero === "undo") && (
+              <p id="send-caption" className="checkout-send-caption">
+                {T("sendCaption")}
+                <span lang="my">{t("my", "sendCaption")}</span>
+              </p>
             )}
             {/* 3c-ii (D27) — the Send's question, as a sheet the host owns. Mounted for every dine-in
                 host (never conditioned on the gate: the ok edge clears the gate in the same commit
@@ -4207,21 +4358,117 @@ export function Checkout({
               />
             )}
 
-            {/* Phase 1b — a guest who is not the host sees WHO sends, where the host sees Send. Only
-                the host fires the table; before this a guest's Order moment had no verb and no word
-                about how their dishes reach the kitchen. Plain content, not a live region. */}
-            {showLineCards &&
-              staged &&
-              splitContext?.myRole === "guest" &&
-              hostPresent &&
-              kitchenDraftQty > 0 && (
-                <p className="checkout-host-note">
-                  {hostNote.en}
-                  <span lang="my" className="checkout-host-note-my">
-                    {hostNote.my}
+            {/* PD1 (m1 screen 1; amends PHASE3C D13 — `orderStageHero`'s "wait" arm) — a GUEST whose
+                dishes wait on the host's Send is told the next step and who takes it, and offered two
+                ways forward. Phase 1b's lone "who sends" sentence becomes the block's first row, verbatim
+                (`hostSendsCopy`, the host named only as the table named them — `chosenName`). Then the
+                quiet "Let {host} know" (a DURABLE stamp on the cart, cleared by the Send: a face-down
+                phone finds it when it wakes), the staff fallback, and the ONE filled verb, "Show a
+                server" — the table's ticket held up for Dad, whose console Send fires this round too.
+                Under a tablemate's pay lock both ways forward hide: nobody, staff included, can send
+                until it lifts (m1 decision 18), and the shipped lock line says so. No counts: this
+                cart is shared. Plain content; the view's one region speaks the outcomes. */}
+            {showLineCards && staged && hero === "wait" && (
+              <section className="checkout-wait mms-rise" aria-labelledby="wait-h">
+                <h2 id="wait-h" className="checkout-wait-h">
+                  <span aria-hidden className="mark-ring" />
+                  {STAFF["pad.group.unsent"].en}
+                  <span aria-hidden className="checkout-wait-dot">
+                    ·
                   </span>
-                </p>
-              )}
+                  <span lang="my">{STAFF["pad.group.unsent"].my}</span>
+                </h2>
+                <div className="checkout-wait-grid">
+                  <span className="checkout-wait-lead" aria-hidden>
+                    {hostMember && hostName ? (
+                      <Avatar
+                        initial={seatInitial(hostName)}
+                        color={seatColor(hostMember.seat)}
+                        size="md"
+                      />
+                    ) : (
+                      <Icon name="receipt" size={16} />
+                    )}
+                  </span>
+                  <p className="checkout-wait-text">
+                    {hostNote.en}
+                    <span lang="my" className="checkout-wait-text-my">
+                      {hostNote.my}
+                    </span>
+                  </p>
+                  {nudgeShown && hostName && (
+                    <>
+                      <button
+                        type="button"
+                        className="nav-link checkout-wait-nudge"
+                        // Settled once the stamp stands: never unmounted (focus stays put), never a
+                        // toggle (`aria-pressed` would promise an un-press) — `aria-disabled` and
+                        // described by the confirmation beside it; a tap re-says it.
+                        aria-disabled={nudgeMine || nudgeBusy || undefined}
+                        aria-busy={nudgeBusy || undefined}
+                        aria-describedby={nudgeMine ? "nudge-seen" : undefined}
+                        onClick={() => void nudge()}
+                      >
+                        {nudgeCopy(hostName).button.en}
+                        <span lang="my" className="checkout-wait-nudge-my">
+                          {nudgeCopy(hostName).button.my}
+                        </span>
+                      </button>
+                      {nudgeMine && (
+                        <p id="nudge-seen" className="checkout-wait-seen">
+                          {nudgeCopy(hostName).seen.en}
+                          <span lang="my">{nudgeCopy(hostName).seen.my}</span>
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {!editsFrozen && (
+                    <>
+                      <span className="checkout-wait-rule" aria-hidden />
+                      <span className="checkout-wait-lead" aria-hidden>
+                        <Icon name="receipt" size={16} />
+                      </span>
+                      <p id="wait-staff" className="checkout-wait-text checkout-wait-quiet">
+                        {staffNote.en}
+                        <span lang="my" className="checkout-wait-text-my">
+                          {staffNote.my}
+                        </span>
+                      </p>
+                    </>
+                  )}
+                </div>
+                {!editsFrozen && (
+                  <button
+                    ref={showServerBtn}
+                    type="button"
+                    className="checkout-cta checkout-wait-cta"
+                    aria-haspopup="dialog"
+                    aria-describedby="wait-staff"
+                    onClick={openPass}
+                  >
+                    <span className="checkout-wait-cta-label">{T("showServer")}</span>
+                    <span lang="my" className="checkout-wait-cta-my">
+                      {t("my", "showServer")}
+                    </span>
+                  </button>
+                )}
+              </section>
+            )}
+            {/* PD1 (m1 screen 2) — the pass, mounted for every guest at a staged table so it can EXIT
+                (a sheet its parent unmounts cannot — sheet.tsx) and so it stays up through the flip
+                its holder is waiting for: the wait block above leaves when the dishes go, the pass
+                does not. Open only while it has a status to show (`passShown`). */}
+            {staged && splitContext?.myRole === "guest" && (
+              <ShowServerPass
+                open={passShown}
+                onOpenChange={setPassOpen}
+                onCloseAutoFocus={onPassClosed}
+                tableNumber={tableNumber}
+                tableCode={splitContext.qrCode}
+                dishes={passRows}
+                status={passStatus === "none" ? "waiting" : passStatus}
+              />
+            )}
 
             {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
                 with 409 because the lock is exactly the mutex that stops two diners paying at once. It

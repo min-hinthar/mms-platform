@@ -46,17 +46,31 @@ describe("passDishes — the rows the pass printed stay on it after they go, a r
   it("keeps the listed dine-in rows in the view's order, whatever state they reached", () => {
     const items = [
       line({ id: "a", lineState: "fired", fireAt: "2026-10-08T10:00:10.000Z" }),
-      line({ id: "b" }),
-      line({ id: "c" }),
+      line({ id: "c", lineState: "served", fireAt: "2026-10-08T09:00:00.000Z" }),
     ];
     expect(passDishes(items, new Set(["c", "a"])).map((i) => i.id)).toEqual(["a", "c"]);
   });
-  it("a removed or voided row leaves the ticket; an unlisted row never joins it", () => {
+  it("a tablemate's dish added while the pass is up joins it; an earlier round's sent dish never does", () => {
+    const items = [
+      line({ id: "old", lineState: "served", fireAt: "2026-10-08T09:00:00.000Z" }),
+      line({ id: "a", lineState: "fired", fireAt: "2026-10-08T09:59:00.000Z" }),
+      line({ id: "late" }),
+    ];
+    // MUTATION (show-server/earlier-round-joins-the-ticket): the listed check dropped — every sent
+    // dine-in line is on the ticket, so removing the waiting dishes reads as a send; red.
+    expect(passDishes(items, new Set(["a"])).map((i) => i.id)).toEqual(["a", "late"]);
+    expect(showServerStatus(passDishes([items[0]!], new Set()), NOW)).toBe("none");
+  });
+  it("a removed or voided row leaves the ticket; a to-go draft never joins", () => {
     // MUTATION (show-server/voided-row-stays-on-the-ticket): a "Removed" dish is still held up as
-    // waiting; red.
-    const items = [line({ id: "a", lineState: "voided" }), line({ id: "b" })];
+    // waiting on Dad; red.
+    const items = [
+      line({ id: "a", lineState: "voided" }),
+      line({ id: "b" }),
+      line({ id: "t", fulfillment: "togo" }),
+    ];
     expect(passDishes(items, new Set(["a", "b"])).map((i) => i.id)).toEqual(["b"]);
-    expect(passDishes(items, new Set(["a"]))).toEqual([]);
+    expect(passDishes([items[0]!], new Set(["a"]))).toEqual([]);
   });
 });
 
