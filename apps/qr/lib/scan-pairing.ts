@@ -50,3 +50,15 @@ export function pairingAfterVerdict(
 export function pairingWithout(pairing: ScanPairing | null, barcode: string): ScanPairing | null {
   return pairing !== null && pairing.item === barcode ? null : pairing;
 }
+
+/** The pairing after a REMOVAL write of `barcode`'s line (a stepper to 0): spent only when the write
+ *  LANDED. A refused write (offline, a lock) rolls the line back into the basket, so the jar it
+ *  rescued is still in it and must still repeat — never re-read as unknown over an item the shopper
+ *  can see in the list (Codex round 2 on #329, 4226434713). */
+export function pairingAfterRemoval(
+  pairing: ScanPairing | null,
+  barcode: string,
+  landed: boolean,
+): ScanPairing | null {
+  return landed ? pairingWithout(pairing, barcode) : pairing;
+}

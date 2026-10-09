@@ -794,3 +794,32 @@ the code had, not the one the finding guessed.
    open one (compared by identity): a sheet a NEW miss opened in the meantime stays open, its state
    line never receives the first add's refusal (that goes to the Toast), and its close-restore is not
    re-aimed (the follow-up commit after `75ec322`, Codex 4222536467's second case).
+
+#### H.3 · Codex round 2 on #329 (`27081ce`) — fixed in one commit
+
+Each mechanism was verified against source first.
+
+- **The camera's hold lifted as a sheet's exit STARTED** (4226434718). `sheetOpen` read `nameSheet !==
+null` (and `basketOpen`), which turns false at the start of the exit while Radix keeps the sheet and its
+  scrim on screen for `--dur-sheet`; `BarcodeScanner` then announced the next fresh sighting (a barcode
+  different from the last one) and `add()` charged it behind the scrim. `lib/hooks/useStageCover.ts`
+  keeps a cover up from the render a sheet opens until its EXIT END — the Sheet's `onCloseAutoFocus`,
+  which the primitive fires at unmount, after the exit (M76) — with a fail-safe (`SHEET_EXIT_FAILSAFE_MS`,
+  above the token's exit, at most 2 s) so a missed signal can never leave the scanner deaf. Both
+  page-owned sheets are covered; the hook has a jsdom suite and five mutants. `check:scan-repeat`
+  **proposition 5** parses the wiring (one cover per page-owned sheet, told to the stage, lifted only
+  inside that sheet's `onCloseAutoFocus`, the component forwarding it) — red-first on six evasions.
+  **The DoorSheet keeps the hole**: it owns its Sheet, reports only `onOpenChange` at the close's start,
+  and is shared with /menu, so the grocery stream filed it (`PD4 · door`) and the guard names it as the
+  one exemption rather than leaving it unseen. Decided under the owner's delegation (decided by: the
+  grocery stream): scope over completeness, with the hole made visible.
+- **A refused removal spent the pairing** (4226434713). `stepQty` cleared the pairing before `setQty`
+  resolved; a refused write rolled the line back but not the pairing. `pairingAfterRemoval` (in
+  `lib/scan-pairing.ts`, one mutant) spends it only when the removal landed, and the page calls it after
+  the write.
+- **A terminal answer inside the Name sheet dropped focus on `<body>`** (4226434706). The sheet lives in
+  a portal, the stage, its tag and its chip unmount with a finished basket, and the close-restore chain
+  had nothing left. Both chains — the Name sheet's close-restore and the page's one parking fallback —
+  are now `lib/grocery-focus.ts` (four mutants), each with the fresh-basket button ahead of the stage.
+  The parking chain's case was a PD4 regression: the Scan door lost its search field, so the basket
+  sheet closing on a finished basket parked on an unmounted stage.

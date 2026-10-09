@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { classifyScan, type ScanBasket } from "./scan-gate";
-import { judgedBarcode, pairMiss, pairingAfterVerdict, pairingWithout } from "./scan-pairing";
+import {
+  judgedBarcode,
+  pairMiss,
+  pairingAfterRemoval,
+  pairingAfterVerdict,
+  pairingWithout,
+} from "./scan-pairing";
 
 /**
  * PD4 — the miss→item pairing may only ever REPEAT, never charge. Each MUTATION below is a row in
@@ -68,5 +74,23 @@ describe("pairingWithout — the Undo (or a stepper to 0) forgets the pairing", 
     const pairing = pairMiss(SHELF, TEA);
     expect(pairingWithout(pairing, OTHER)).toBe(pairing);
     expect(pairingWithout(null, TEA)).toBeNull();
+  });
+});
+
+describe("pairingAfterRemoval — a removal spends the pairing only when its write LANDED", () => {
+  it("a landed removal of the paired item drops it", () => {
+    expect(pairingAfterRemoval(pairMiss(SHELF, TEA), TEA, true)).toBeNull();
+  });
+
+  it("a REFUSED removal keeps it — the line rolled back, so the rescued jar still repeats", () => {
+    // Codex r2 on #329 (4226434713). MUTATION: spend the pairing whatever the write did → the jar
+    // re-reads as unknown while its item is still in the basket; red.
+    const pairing = pairMiss(SHELF, TEA);
+    expect(pairingAfterRemoval(pairing, TEA, false)).toBe(pairing);
+  });
+
+  it("a landed removal of ANOTHER item keeps it", () => {
+    const pairing = pairMiss(SHELF, TEA);
+    expect(pairingAfterRemoval(pairing, OTHER, true)).toBe(pairing);
   });
 });

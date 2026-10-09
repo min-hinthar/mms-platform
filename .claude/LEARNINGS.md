@@ -3829,7 +3829,7 @@ live file says where the history went. And keep a measured number in exactly one
 cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
 table, with a one-line cell pointing to it.
 
-## #250
+## #251
 
 **A cut paper shape with a shadow needs the shadow on the WRAPPER, and the React purity rule reaches
 `performance.now()` in render (PD4, 2026-10-08).** Two sharp edges from the grocery tag. (1) A shop

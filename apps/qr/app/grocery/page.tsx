@@ -36,10 +36,13 @@ import {
 import {
   judgedBarcode,
   pairMiss,
+  pairingAfterRemoval,
   pairingAfterVerdict,
   pairingWithout,
   type ScanPairing,
 } from "@/lib/scan-pairing";
+import { useStageCover } from "@/lib/hooks/useStageCover";
+import { nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
 import { chipArmed, undoOpen, undoSecondsLeft, undoTargetQty, type AddUndo } from "@/lib/scan-undo";
 import { heldFor, NO_HOLD, setHeld, type Hold } from "@/lib/undo-hold";
 import { ADDED_MY } from "@/lib/add-feedback";
@@ -285,11 +288,14 @@ export default function Grocery() {
   // a fresh basket or an emptied basket sheet parks on the stage box — or, with a camera panel up,
   // the panel's own title — never on <body> (WCAG 2.4.3; m4 OPEN RISK 2 and the fourth site, addHit).
   const parkFocus = useCallback(() => {
-    (
-      searchRef.current ??
-      document.getElementById("scan-stage") ??
-      document.getElementById("scan-panel-title")
-    )?.focus({ preventScroll: true });
+    // `fresh` — a FINISHED basket unmounts the stage, so its "Start a fresh basket" is the place
+    // (lib/grocery-focus.ts; Codex r2 on #329, 4226434706 — the Scan door has no field to fall to).
+    parkTarget({
+      field: searchRef.current,
+      fresh: freshBtnRef.current,
+      stage: document.getElementById("scan-stage"),
+      panelTitle: document.getElementById("scan-panel-title"),
+    })?.focus({ preventScroll: true });
   }, []);
 
   // W4b — the Browse|Scan tab. Browse is the DEFAULT door (lib/grocery-landing.ts says why and what
@@ -379,6 +385,17 @@ export default function Grocery() {
   // does, so `ScanStage`'s `sheetOpen` reads it too: `decodeHold` treats ANY sheet over the camera
   // as a hold, and a sighting through the scrim must not charge.
   const [doorSheetOpen, setDoorSheetOpen] = useState(false);
+  // PD4 (Codex r2 on #329, 4226434718) — each page-owned sheet COVERS the stage from its open until
+  // its exit has finished (lib/hooks/useStageCover.ts): `open` turns false as the exit STARTS, while
+  // the sheet and its scrim are still on screen, and a camera told "no sheet" then would announce —
+  // and `add()` charge — a different jar in frame behind them. Each exit end arrives through that
+  // sheet's `onCloseAutoFocus` (the primitive fires it at unmount, after the exit). The DoorSheet
+  // owns its Sheet and reports only its open state: check:scan-repeat proposition 5 names it as the
+  // one exempt sheet (OPEN-ITEMS row `PD4 · door`).
+  const { covering: nameCovering, exitEnd: nameExitEnd } = useStageCover(nameSheet !== null);
+  const { covering: basketCovering, exitEnd: basketExitEnd } = useStageCover(
+    basketOpen && !cartGone,
+  );
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -535,11 +552,7 @@ export default function Grocery() {
       // the Undo: a "−" inside the window already reversed the add, and a live Undo would then write
       // one fewer again — removing a unit the basket held BEFORE the add.
       setUndo((u) => (u?.lineId === line.lineId ? null : u));
-      if (nextQty <= 0) {
-        billedRef.current.delete(line.barcode);
-        // PD4 — a removed item un-pairs the jar it rescued (any path, not only the Undo).
-        pairingRef.current = pairingWithout(pairingRef.current, line.barcode);
-      }
+      if (nextQty <= 0) billedRef.current.delete(line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
       setLines((cur) =>
@@ -570,6 +583,11 @@ export default function Grocery() {
         setBusyLine(null);
         return;
       }
+      // PD4 — a removed item un-pairs the jar it rescued, but only once the removal LANDED: a
+      // refused write rolls the line back, and the jar must still repeat (Codex r2 on #329,
+      // 4226434713; lib/scan-pairing.ts `pairingAfterRemoval`).
+      if (nextQty <= 0)
+        pairingRef.current = pairingAfterRemoval(pairingRef.current, line.barcode, wrote);
       const seq = ++reqSeq.current; // reconcile ticket — see applyLines
       try {
         const r = await getGroceryLines(cartId);
@@ -1033,19 +1051,25 @@ export default function Grocery() {
   // Close-restore for the Name sheet (WCAG 2.4.3): after an add the opener (the tag) has unmounted
   // with the tag, so focus lands on the chip's action; otherwise the opener while it is still
   // mounted; then the stage box; then a camera panel's own title (B6's fallback chain).
-  const nameSheetCloseFocus = useCallback((e: Event) => {
-    e.preventDefault();
-    const opener = nameSheetOpenerRef.current;
-    const chipAction = document.querySelector<HTMLElement>("#scan-stage .scan-result button");
-    const target =
-      (closedByAddRef.current ? chipAction : null) ??
-      (opener?.isConnected ? opener : null) ??
-      chipAction ??
-      document.getElementById("scan-stage") ??
-      document.getElementById("scan-panel-title");
-    closedByAddRef.current = false;
-    target?.focus({ preventScroll: true });
-  }, []);
+  const nameSheetCloseFocus = useCallback(
+    (e: Event) => {
+      e.preventDefault();
+      // The exit has FINISHED (this fires at unmount): the stage may announce sightings again.
+      nameExitEnd();
+      const target = nameSheetCloseTarget({
+        closedByAdd: closedByAddRef.current,
+        chipAction: document.querySelector<HTMLElement>("#scan-stage .scan-result button"),
+        opener: nameSheetOpenerRef.current,
+        // A finished basket unmounts the stage, the tag and the chip (lib/grocery-focus.ts).
+        fresh: freshBtnRef.current,
+        stage: document.getElementById("scan-stage"),
+        panelTitle: document.getElementById("scan-panel-title"),
+      });
+      closedByAddRef.current = false;
+      target?.focus({ preventScroll: true });
+    },
+    [nameExitEnd],
+  );
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
   // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
@@ -1522,7 +1546,13 @@ export default function Grocery() {
               // PD4 — the Name sheet joins the camera hold: a sighting through its scrim must not
               // charge, and closing it never announces the jar in frame (swallow→none keeps the
               // throttle; check:scan-repeat proposition 3 reads every sheet's own `open`).
-              sheetOpen={(basketOpen && !cartGone) || doorSheetOpen || nameSheet !== null}
+              sheetOpen={
+                (basketOpen && !cartGone) ||
+                doorSheetOpen ||
+                nameSheet !== null ||
+                basketCovering ||
+                nameCovering
+              }
               onSearch={() => openNameSheet(null)}
               result={
                 slot?.kind === "notice" ? (
@@ -1841,6 +1871,7 @@ export default function Grocery() {
             // silently no-ops to <body>. Park on the basket button while it exists; on the
             // stable search input otherwise (the page's remove-row pattern, WCAG 2.4.3).
             e.preventDefault();
+            basketExitEnd(); // the exit has FINISHED — the stage may announce again
             if (lines.length === 0) parkFocus();
             else basketBtnRef.current?.focus();
           }}

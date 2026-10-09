@@ -484,6 +484,209 @@ if (!problems.length) {
   }
 }
 
+// ── (5) A sheet's COVER outlasts its `open`: only its exit end lifts the camera's hold (PD4) ──────
+// Codex round 2 on #329 (4226434718): a sheet's `open` turns false at the START of its exit, while
+// Radix keeps the sheet and its scrim mounted for the whole `--dur-sheet` exit. Proposition (3) tells
+// the stage each sheet's `open` — so the hold lifted as the exit began, `BarcodeScanner` announced
+// the next FRESH sighting (`sightBarcode` emits on any new barcode) and `add()` charged a jar behind
+// a scrim the shopper was still looking at. `lib/hooks/useStageCover.ts` keeps a cover up from open
+// until the exit end (the Sheet fires `onCloseAutoFocus` at unmount, after the exit — M76), and
+// its suite pins the hook. This proposition pins the WIRING, for every page-owned sheet (a JSX
+// `…Sheet` with `open={…}`):
+//   a. exactly ONE `const { covering: C, exitEnd: E } = useStageCover(<that open expression>)`;
+//   b. `C` is a disjunct of every live `<ScanStage sheetOpen>` (the stage is told the cover);
+//   c. `E()` is called LIVE inside the handler passed as that sheet's `onCloseAutoFocus` — an
+//      inline function, or an identifier bound to `useCallback(fn)` / a function — and NOWHERE
+//      else: a call at the close's START lifts the cover exactly when the hole opens;
+//   d. the sheet's component forwards `onCloseAutoFocus` to its one live `<Sheet>` (or the exit end
+//      never arrives and only the fail-safe lifts the cover);
+//   and every `useStageCover(…)` covers a sheet the page renders.
+// A sheet that reports only through `onOpenChange` owns its Sheet and exposes no exit end; it must
+// be EXEMPT with a reason that fires. Red-first, each induced against the real files and watched
+// fail, then restored: the cover dropped from `sheetOpen`; `nameExitEnd()` moved into the close's
+// START (`closeNameSheet`); the exit-end call deleted from the handler; the call parked under
+// `if (false)`; the Name sheet's component no longer forwarding `onCloseAutoFocus`; the basket's
+// cover deleted.
+const COVER = "useStageCover";
+const EXEMPT_COVER = {
+  DoorSheet:
+    "owns its Sheet and reports only `onOpenChange`, at the START of its close — it exposes no " +
+    "exit end, so its exit window cannot be covered from this page without changing the shared " +
+    "component (OPEN-ITEMS row `PD4 · door`).",
+};
+{
+  const covers = [];
+  walk(src, (n) => {
+    if (!ts.isVariableDeclaration(n) || !n.initializer || !ts.isCallExpression(n.initializer))
+      return;
+    const call = n.initializer;
+    if (!ts.isIdentifier(call.expression) || call.expression.text !== COVER) return;
+    if (!ts.isObjectBindingPattern(n.name) || call.arguments.length !== 1) {
+      fail(
+        `a ${COVER}() result must be destructured as { covering, exitEnd } from ONE open expression.`,
+      );
+      return;
+    }
+    const pick = (key) => {
+      const el = n.name.elements.find((e) => (e.propertyName ?? e.name).getText(src) === key);
+      return el && ts.isIdentifier(el.name) ? el.name.text : null;
+    };
+    covers.push({
+      open: printed(call.arguments[0]),
+      covering: pick("covering"),
+      exitEnd: pick("exitEnd"),
+    });
+  });
+  const told = new Set();
+  for (const st of liveStages) {
+    const attr = st.attributes.properties.find(
+      (a) => ts.isJsxAttribute(a) && a.name.getText(src) === "sheetOpen",
+    );
+    const init = attr?.initializer;
+    const expr = init && ts.isJsxExpression(init) ? init.expression : null;
+    for (const d of expr ? disjuncts(expr) : []) told.add(d);
+  }
+  const attrOf = (el, name) => {
+    const a = el.attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(src) === name,
+    );
+    const init = a?.initializer;
+    return init && ts.isJsxExpression(init) ? init.expression : null;
+  };
+  const pageSheets = [];
+  const reported = [];
+  walk(src, (n) => {
+    if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
+    const tag = n.tagName.getText(src);
+    if (!/Sheet$/.test(tag)) return;
+    const open = attrOf(n, "open");
+    if (open) pageSheets.push({ tag, el: n, open: printed(open) });
+    else reported.push(tag);
+  });
+  for (const tag of reported)
+    if (!(tag in EXEMPT_COVER))
+      fail(
+        `<${tag}> reports its open state only through onOpenChange, so its exit cannot be covered.\n` +
+          "  Give it `open={…}` and an `onCloseAutoFocus` exit end, or exempt it here with a reason.",
+      );
+  for (const name of Object.keys(EXEMPT_COVER))
+    if (!reported.includes(name))
+      fail(
+        `EXEMPT_COVER names <${name}>, but no such sheet reports through onOpenChange — delete the exemption.`,
+      );
+  /** The function a JSX handler attribute resolves to: an inline function, or an identifier bound
+   *  (in this file) to `useCallback(fn, …)` or to a function. */
+  const resolveHandler = (expr) => {
+    if (!expr) return null;
+    if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return expr;
+    if (!ts.isIdentifier(expr)) return null;
+    let found = null;
+    walk(src, (n) => {
+      if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || n.name.text !== expr.text)
+        return;
+      const init = n.initializer;
+      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) found = init;
+      else if (
+        init &&
+        ts.isCallExpression(init) &&
+        ts.isIdentifier(init.expression) &&
+        init.expression.text === "useCallback" &&
+        init.arguments[0] &&
+        (ts.isArrowFunction(init.arguments[0]) || ts.isFunctionExpression(init.arguments[0]))
+      )
+        found = init.arguments[0];
+    });
+    return found;
+  };
+  /** Does `tag`'s own component forward `onCloseAutoFocus` to its one live `<Sheet>`? */
+  const forwardsExit = (tag) => {
+    let spec = null;
+    for (const st of src.statements)
+      if (
+        ts.isImportDeclaration(st) &&
+        st.importClause?.namedBindings &&
+        ts.isNamedImports(st.importClause.namedBindings) &&
+        st.importClause.namedBindings.elements.some((e) => e.name.text === tag) &&
+        ts.isStringLiteral(st.moduleSpecifier)
+      )
+        spec = st.moduleSpecifier.text;
+    if (!spec || !spec.startsWith("@/"))
+      return `<${tag}> is not imported from an @/ path this guard can read`;
+    const rel = path.join("apps/qr", `${spec.slice(2)}.tsx`);
+    const comp = ts.createSourceFile(
+      rel,
+      readFileSync(path.join(ROOT, rel), "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const live = [];
+    walk(comp, (n) => {
+      if (
+        (ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n)) &&
+        n.tagName.getText(comp) === "Sheet" &&
+        !isLiterallyDead(n)
+      )
+        live.push(n);
+    });
+    if (live.length !== 1)
+      return `${rel} renders ${live.length} live <Sheet> (ambiguity is refused)`;
+    const a = live[0].attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(comp) === "onCloseAutoFocus",
+    );
+    const init = a?.initializer;
+    const ok =
+      init &&
+      ts.isJsxExpression(init) &&
+      init.expression &&
+      init.expression.getText(comp) === "onCloseAutoFocus";
+    return ok
+      ? null
+      : `${rel}'s <Sheet> does not take \`onCloseAutoFocus={onCloseAutoFocus}\` — the exit end never arrives`;
+  };
+  for (const sh of pageSheets) {
+    const mine = covers.filter((c) => c.open === sh.open);
+    if (mine.length !== 1) {
+      fail(
+        `<${sh.tag} open={${sh.open}}> needs exactly ONE \`${COVER}(${sh.open})\`; found ${mine.length}.\n` +
+          "  Without it the camera's hold lifts as the sheet's exit STARTS, while it is still on screen.",
+      );
+      continue;
+    }
+    const c = mine[0];
+    if (!c.covering || !told.has(c.covering))
+      fail(
+        `the stage is not told <${sh.tag}>'s cover: \`${c.covering}\` is not a <ScanStage sheetOpen> disjunct.\n` +
+          "  A sighting during the sheet's exit is then announced — and charged — behind its scrim.",
+      );
+    const handler = resolveHandler(attrOf(sh.el, "onCloseAutoFocus"));
+    if (!handler) {
+      fail(`<${sh.tag}> takes no resolvable onCloseAutoFocus — its exit end has no way in.`);
+      continue;
+    }
+    const calls = c.exitEnd ? callsTo(c.exitEnd) : [];
+    const inside = calls.filter(
+      (x) => x.pos >= handler.pos && x.end <= handler.end && !isLiterallyDead(x),
+    );
+    if (!inside.length)
+      fail(
+        `\`${c.exitEnd}()\` is not called (live) in <${sh.tag}>'s onCloseAutoFocus handler.\n` +
+          "  That handler is the exit end (the Sheet fires it at unmount, after the exit).",
+      );
+    const outside = calls.filter((x) => !(x.pos >= handler.pos && x.end <= handler.end));
+    if (outside.length)
+      fail(
+        `\`${c.exitEnd}()\` is called OUTSIDE <${sh.tag}>'s onCloseAutoFocus handler.\n` +
+          "  Anywhere else — a close handler above all — lifts the cover at the START of the exit.",
+      );
+    const fwd = forwardsExit(sh.tag);
+    if (fwd) fail(fwd);
+  }
+  for (const c of covers)
+    if (!pageSheets.some((sh) => sh.open === c.open))
+      fail(`\`${COVER}(${c.open})\` covers no sheet the page renders — a cover tied to nothing.`);
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -493,5 +696,6 @@ console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
     ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
-    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")})\x1b[0m`,
+    ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
+    ` each page-owned sheet's cover lifted only by its exit end (${Object.keys(EXEMPT_COVER).length} exempt, reason fired)\x1b[0m`,
 );

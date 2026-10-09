@@ -69,6 +69,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   DECLARATION (an assignment or a shadowing `const barcode` reddens it); the allowlist's money sheets
   are the M82 GUARDED set, each proven to render a `<Sheet>`, with spreads refused and namespace
   imports read.
+- **Codex round 2 on #329, fixed in one commit** (the spec's §H.3): the camera's hold now lasts
+  through a sheet's EXIT, not only while it is open (`lib/hooks/useStageCover.ts`, lifted by the
+  Sheet's `onCloseAutoFocus` at unmount or a fail-safe; five mutants), so a different jar in frame is
+  never charged behind a closing scrim — pinned in the page by `check:scan-repeat` proposition 5, with
+  the shared DoorSheet named as the one exempt sheet and filed (`PD4 · door`); a refused removal no
+  longer spends the miss→item pairing (`pairingAfterRemoval`); and a finished basket hands focus to
+  "Start a fresh basket" from the Name sheet and the basket sheet (`lib/grocery-focus.ts`).
 
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 
