@@ -44,6 +44,7 @@ function deferred<T>() {
 }
 
 const h = vi.hoisted(() => ({
+  nudgeHost: vi.fn(),
   publishCart: vi.fn(),
   getCartView: vi.fn(),
   setQty: vi.fn(),
@@ -73,6 +74,8 @@ vi.mock("@/lib/counter-pay", () => ({
   withdrawCounterPay: h.withdrawCounterPay,
 }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
+// PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
+vi.mock("@/lib/send-nudge", () => ({ nudgeHost: (...a: unknown[]) => h.nudgeHost(...a) }));
 // `@mms/ui` stays REAL except for ONE export: `NumberFlow` re-exports `@number-flow/react`, which
 // drives a custom element jsdom does not register (`this.el?.willUpdate is not a function` at
 // commit). The animated digits are not what this file guards, and `Stepper` — which IS — keeps its
@@ -2264,7 +2267,9 @@ describe("Phase 3c-i (D14) — the Total door and the Bill hero read ONE figure"
     expect(door.textContent).not.toContain("Estimated");
     expect(door.querySelector("dl")).toBeNull();
     expect(door.classList.contains("checkout-cta")).toBe(false);
-    expect(document.body.textContent).toContain("1 item not sent yet");
+    // PD1 (m1 decision 4; DESIGN-LANGUAGE §21) — W19's "N items not sent yet" door note is gone: a
+    // table's cart is SHARED, so no count names it. RED if the note comes back.
+    expect(document.body.textContent).not.toMatch(/\d+ items? not sent yet/);
   });
 });
 
@@ -2413,8 +2418,8 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
 
   it("a GUEST's held door names who sends (checkout/unsent-counter-guest-told-to-send)", async () => {
     mount({ splitContext: GUEST, initialItems: [ITEM, FIRED] });
-    // A guest with drafts: the Bill door is the Order stage's hero (D13), named by its verb.
-    await press(/^View bill · \$12\.00$/);
+    // A guest with drafts WAITS (PD1 — "Show a server" is the hero): the Total door is the quiet one.
+    await press("Total · $12.00 — View bill");
     // MUTATION (checkout/unsent-counter-guest-told-to-send): the host's sentence for every role —
     // a guest is told to send dishes only Aye can; red.
     expect(dockLine()).toContain(
@@ -2602,5 +2607,235 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(marks).toHaveLength(1);
     expect(marks[0]!.closest(".ui-track")).not.toBeNull();
     expect(document.querySelector(".checkout-unsent-mark")).toBeNull();
+  });
+});
+
+describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Kitchen')", () => {
+  const STAMP_AT = "2026-10-08T09:59:30.000Z";
+  const GUEST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "guest" as const,
+    members: [
+      { seat: PEER_SEAT, name: "Aye", role: "host" as const },
+      { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+    ],
+    tableNumber: 7,
+    qrCode: null,
+  };
+  const HOST = {
+    ...GUEST,
+    mySeat: PEER_SEAT,
+    myRole: "host" as const,
+  };
+  const DRAFT: CartItem = { ...ITEM, qty: 2 };
+  beforeEach(() => {
+    flags.phonePayOpen = false;
+    h.nudgeHost.mockResolvedValue({ ok: true, nudgedAt: STAMP_AT });
+  });
+  afterEach(() => {
+    flags.phonePayOpen = true;
+  });
+  const wait = () => screen.queryByRole("region", { name: /Not sent yet/ });
+  const showServer = () => screen.queryByRole("button", { name: /^Show a server/ });
+
+  it("the guest WAITS: the next step and who takes it, two ways forward, one filled verb, no count", () => {
+    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    const block = wait();
+    expect(block).not.toBeNull();
+    // Phase 1b's sentence, verbatim, named from the table's own names.
+    expect(block!.textContent).toContain(
+      "Aye sends the table’s order to the kitchen — your dishes go with it.",
+    );
+    expect(screen.getByRole("button", { name: /^Let Aye know/ })).toBeTruthy();
+    expect(block!.textContent).toContain("If Aye is away, our staff can send it too.");
+    // "Show a server" is the ONE filled verb; the Total door is quiet beside it.
+    const verb = showServer()!;
+    expect(verb.classList.contains("checkout-cta")).toBe(true);
+    expect(verb.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(verb.getAttribute("aria-describedby")).toBe("wait-staff");
+    expect(document.querySelectorAll(".checkout-cta")).toHaveLength(1);
+    expect(
+      screen
+        .getByRole("button", { name: "Total · $12.00 — View bill" })
+        .classList.contains("checkout-cta"),
+    ).toBe(false);
+    // No count anywhere on a shared cart before the Send.
+    expect(document.body.textContent).not.toMatch(/\d+ items? not sent yet/);
+  });
+
+  it("'Let Aye know' writes once, settles in place, and says the confirmation through the one region", async () => {
+    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    await press(/^Let Aye know/);
+    expect(h.nudgeHost).toHaveBeenCalledWith({ cartId: CART });
+    await settle();
+    const nudge = screen.getByRole("button", { name: /^Let Aye know/ });
+    expect(nudge.getAttribute("aria-disabled")).toBe("true");
+    expect(nudge.getAttribute("aria-describedby")).toBe("nudge-seen");
+    expect(document.getElementById("nudge-seen")!.textContent).toContain(
+      "Aye can see you’re waiting.",
+    );
+    expect(regionText()).toContain("Aye can see you’re waiting.");
+    // The settled control writes nothing more.
+    await press(/^Let Aye know/);
+    expect(h.nudgeHost).toHaveBeenCalledTimes(1);
+  });
+
+  it("a refused nudge says the action's sentence and settles nothing", async () => {
+    h.nudgeHost.mockResolvedValue({
+      ok: false,
+      reason: "error",
+      error: "That didn’t go through — please try again.",
+    });
+    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    await press(/^Let Aye know/);
+    await settle();
+    expect(regionText()).toContain("That didn’t go through — please try again.");
+    expect(
+      screen.getByRole("button", { name: /^Let Aye know/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(document.getElementById("nudge-seen")).toBeNull();
+  });
+
+  it("an unnamed host ('Guest') is never read as a person: the role sentence, and no nudge", () => {
+    mount({
+      splitContext: {
+        ...GUEST,
+        members: [
+          { seat: PEER_SEAT, name: "Guest", role: "host" as const },
+          { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+        ],
+      },
+      initialItems: [DRAFT],
+    });
+    expect(wait()!.textContent).toContain(
+      "One person at your table sends the order to the kitchen",
+    );
+    expect(document.body.textContent).not.toContain("Guest sends");
+    expect(screen.queryByRole("button", { name: /^Let / })).toBeNull();
+    expect(wait()!.textContent).toContain("If they’re away, our staff can send it too.");
+    expect(showServer()).not.toBeNull();
+  });
+
+  it("under a tablemate's pay lock both ways forward hide — nobody, staff included, can send", () => {
+    mount({
+      splitContext: GUEST,
+      initialItems: [DRAFT],
+      initialLocked: true,
+      initialLockedBy: PEER_SEAT,
+    });
+    expect(wait()).not.toBeNull();
+    expect(showServer()).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Let Aye know/ })).toBeNull();
+    expect(document.body.textContent).not.toContain("our staff can send it too");
+  });
+
+  it("a HOSTLESS table does not wait: nobody at the table sends, and the bill door stays the hero", () => {
+    mount({
+      splitContext: {
+        ...GUEST,
+        members: [{ seat: MY_SEAT, name: "Thiri", role: "guest" as const }],
+      },
+      initialItems: [DRAFT],
+    });
+    expect(wait()).toBeNull();
+    expect(showServer()).toBeNull();
+    expect(
+      screen
+        .getByRole("button", { name: /^View bill · \$12\.00$/ })
+        .classList.contains("checkout-cta"),
+    ).toBe(true);
+  });
+
+  it("'Show a server' is the table's pass: the figure once, the dishes, 'Not sent yet' — and it flips only past the grace", async () => {
+    mount({
+      splitContext: GUEST,
+      initialItems: [DRAFT],
+      initialTableNumber: 7,
+      initialServerNow: "2026-10-08T10:00:00.000Z",
+    });
+    await press(/^Show a server/);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { level: 2, name: "Table 7" })).toBeTruthy();
+    expect(dialog.querySelector('.ui-pass[data-tier="counter"]')).not.toBeNull();
+    const list = within(dialog).getByRole("list");
+    expect(list.textContent).toContain("Mohinga");
+    // The kitchen's qty token: a multiple is filled.
+    expect(list.querySelector('.show-server-qty[data-many="true"]')!.textContent).toBe("2");
+    const status = within(dialog).getByRole("status");
+    expect(status.textContent).toContain("Not sent yet");
+    // No prices, no total on the ticket.
+    expect(dialog.textContent).not.toMatch(/\$/);
+    // Dad sends: the view shows the line fired but INSIDE its grace — "Sending…", never the past tense.
+    h.getCartView.mockResolvedValue(
+      view({
+        items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
+        serverNow: "2026-10-08T10:00:00.000Z",
+      }),
+    );
+    await syncFromServer();
+    // MUTATION (checkout/pass-flips-on-the-device-clock): the status read against this phone's
+    // clock instead of the view's server clock — "Sent to kitchen" inside the grace; red.
+    await waitFor(() => expect(status.textContent).toContain("Sending…"));
+    expect(status.textContent).not.toContain("Sent to kitchen");
+    // The re-read past the grace: the first stamp.
+    h.getCartView.mockResolvedValue(
+      view({
+        items: [{ ...DRAFT, lineState: "fired", fireAt: "2026-10-08T10:00:05.000Z" }],
+        serverNow: "2026-10-08T10:00:05.400Z",
+      }),
+    );
+    await syncFromServer();
+    await waitFor(() => expect(status.textContent).toContain("Sent to kitchen"));
+    expect(dialog.querySelector('.ui-track[data-stage="sent"]')).not.toBeNull();
+    // The ticket keeps showing what was sent.
+    expect(within(dialog).getByRole("list").textContent).toContain("Mohinga");
+  });
+
+  it("a table with no number yet (bound at Send) holds up its CODE at the holder tier, spelt", async () => {
+    mount({
+      splitContext: { ...GUEST, tableNumber: null, qrCode: "7C2E9A" },
+      initialItems: [DRAFT],
+    });
+    await press(/^Show a server/);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.querySelector('.ui-pass[data-tier="holder"]')).not.toBeNull();
+    expect(
+      within(dialog).getByRole("heading", { level: 2, name: "Table 7 C 2 E 9 A" }),
+    ).toBeTruthy();
+  });
+
+  it("every listed dish REMOVED closes the pass — a removal never reads as a send", async () => {
+    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    await press(/^Show a server/);
+    await screen.findByRole("dialog");
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    await syncFromServer();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("the HOST finds the guest's wait above Send, with the caption; a guest's phone never draws it", () => {
+    const stamp = { seat: MY_SEAT, at: STAMP_AT };
+    mount({
+      splitContext: HOST,
+      initialMySeat: PEER_SEAT,
+      initialItems: [DRAFT],
+      initialSendNudge: stamp,
+    });
+    expect(document.getElementById("nudge-line")!.textContent).toContain(
+      "Thiri is waiting on this send.",
+    );
+    expect(document.getElementById("send-caption")!.textContent).toContain(
+      "The kitchen sees it when the countdown ends.",
+    );
+    // The host never waits on themselves.
+    expect(wait()).toBeNull();
+    cleanup();
+    mount({ splitContext: GUEST, initialItems: [DRAFT], initialSendNudge: stamp });
+    expect(document.getElementById("nudge-line")).toBeNull();
+    // …but the nudger's own confirmation follows the stamp.
+    expect(document.getElementById("nudge-seen")!.textContent).toContain(
+      "Aye can see you’re waiting.",
+    );
   });
 });

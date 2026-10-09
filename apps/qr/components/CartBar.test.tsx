@@ -20,6 +20,10 @@ type Ctx = {
   cartId: string | null;
   drain: () => Promise<DrainOutcome>;
   items: CartItem[];
+  /** PD1 — the door, the viewer's role, the nudge stamp (a shared table's bar reads them). */
+  mode?: string;
+  role?: "host" | "guest" | null;
+  sendNudge?: { seat: string; at: string } | null;
 };
 const ctx = vi.hoisted(() => ({ current: {} as Ctx, push: vi.fn() }));
 vi.mock("@/components/TableCartProvider", () => ({ useCart: () => ctx.current }));
@@ -163,5 +167,43 @@ describe("CartBar — a drain past its deadline is a refusal to leave (Codex rou
     expect(bar.getAttribute("aria-busy")).toBeNull();
     bar.click(); // the retry re-awaits — a second drain, never a swallowed tap
     expect(drain).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("PD1 (m1 A5 · B12; DESIGN-LANGUAGE §21) — a shared table's bar names no count", () => {
+  const DRAFT: CartItem = { ...LINE, fulfillment: "dinein", lineState: "draft" };
+  it("pickup keeps its count; a dine-in table has no capsule, and its name says the state instead", async () => {
+    const CartBar = await freshCartBar();
+    ctx.current = { ...CONFIRMED, mode: "pickup", role: null };
+    const pickup = render(<CartBar />);
+    expect(document.querySelector(".cartbar-cnt")).not.toBeNull();
+    expect(document.querySelector("button")!.getAttribute("aria-label")).toBe(
+      "View order — 1 item, subtotal $12.00",
+    );
+    pickup.unmount();
+    ctx.current = { ...CONFIRMED, items: [DRAFT], mode: "dinein", role: "guest" };
+    render(<CartBar />);
+    // MUTATION (cartbar/capsule-on-a-shared-cart): the capsule drawn on a dine-in table — a count a
+    // tablemate's tap away from wrong; red.
+    expect(document.querySelector(".cartbar-cnt")).toBeNull();
+    expect(document.querySelector("button")!.getAttribute("aria-label")).toBe(
+      "View order, not sent yet — subtotal $12.00",
+    );
+    expect(document.querySelector(".cartbar-line2")!.textContent).toContain("Not sent yet");
+  });
+  it("the HOST reads 'Someone's waiting' while a guest's nudge stands", async () => {
+    const CartBar = await freshCartBar();
+    ctx.current = {
+      ...CONFIRMED,
+      items: [DRAFT],
+      mode: "dinein",
+      role: "host",
+      sendNudge: { seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" },
+    };
+    render(<CartBar />);
+    expect(document.querySelector("button")!.getAttribute("aria-label")).toBe(
+      "View order, someone’s waiting — subtotal $12.00",
+    );
+    expect(document.querySelector(".cartbar-line2")!.textContent).toContain("Someone’s waiting");
   });
 });
