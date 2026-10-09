@@ -6,7 +6,9 @@
 // amount is derived. An exemption is a claim about what is covered elsewhere; when the file
 // grows a rule the claim does not cover, the exemption is stale, not the rule.
 // `tipWithinAmountCap` in lib/tip.ts, where its mutant (tip/amount-cap-dropped) lives and its suite
-// reddens; this route only wires the refusal (routes have no test runner to own a mutant here).
+// reddens; this route only wires that refusal. (Since PD2 the route HAS a suite —
+// `route.test.ts` — and owns two mutants of its own, `surfaces/create-intent-route-answers-open`
+// and `create-intent/refusal-keeps-the-stale-pin`; the tip ceiling's rule still lives in lib/tip.ts.)
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { createIntentInput } from "@mms/db/schemas";
@@ -166,8 +168,9 @@ export async function POST(req: NextRequest) {
     // mint two live intents whose pins differ, and if the promo's state changes between them,
     // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
     // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
-    // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
-    // cancelled before its pin is replaced; there is no such column today.
+    // which every decline used to open. The fix was a cart→intent link so a superseded intent can be
+    // cancelled before its pin is replaced — M151 added it (`live_payment_intent_id`), and the
+    // supersede above now cancels and unlinks the predecessor before this release runs.
     // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
     // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
     // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
@@ -705,10 +708,11 @@ export async function POST(req: NextRequest) {
     // A throw from ABOVE the pin block (an availability read, a pickup RPC) also lands here, and by
     // then any pin on the row belongs to a PREDECESSOR — so this clears a pin whose PaymentIntent
     // may have captured with a merely-delayed webhook, under either arm of the disjunct. That is the
-    // third mouth of OPEN-ITEMS **M152**, and like the other two it needs the cart→intent link: the
-    // predicate has to be able to say `and live_payment_intent_id is null`, which no column supports
-    // today. Not narrowed by a `pinned` flag here, because a money rule written in `app/api/**` sits
-    // outside MONEY_PATHS and outside `verify:slice`'s mutant set — it could not be guarded at all.
+    // third mouth of OPEN-ITEMS **M152**. M151 has since added the cart→intent link and
+    // `mms_release_promo_grant` requires `live_payment_intent_id is null`; the supersede at the top
+    // unlinks only a predecessor it cancelled or found dead (a captured or unreadable one exits
+    // before any release). What remains is an UNLINKED predecessor that captured — M151's overlap
+    // plus a failed cancel — still filed under M152. Not narrowed by a `pinned` flag here.
     if (acquired) {
       const { cartId: abandonedCart, uid: abandonedUid, era: abandonedEra } = acquired;
       try {
