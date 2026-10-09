@@ -1234,3 +1234,47 @@ The second of the two triaged rounds; each was verified against the source first
 - **The late door vanished after the restaurant's midnight (P2).** An unbagged order stays late
   while the arrival is no longer offered, and the door lived inside the arrival card. The door is the
   card's last line when the card is open and stands on its own when it is not; a test pins 12:30 AM.
+
+### H4 · The blind pass on #330 (2026-10-09, reviewed `1b5e7e9..d073100`, REJECT) — every finding
+
+Verified against the source first; fixed in `fddcc57`, `6b05172`, `1274802`, `7b1a9f3`.
+
+- **Critical — a gave-up arrival was replayed later as a fresh bell.** `committedAt` was written and
+  never read. **Decided under the owner's delegation (post-pay): a committed, unanswered arrival is
+  replayable for ten minutes** (`PENDING_ARRIVAL_MAX_AGE_MS`). The record exists to survive the page
+  closing inside the commit, a guest standing at the counter, and its claim is true for minutes, not
+  hours. An older record (or one from the future) is retired without a send. Only the route's own
+  answers clear a record (`routeOutcome`: a 200 with a boolean `ok`, or a 400); a platform 4xx, a
+  429, a 5xx or an unreadable body keeps it.
+- **Critical — a lapsed session went unnoticed on an open page.** The session's `expires_at` passes
+  with no event, and B7 re-read only while not live. The clock effect now re-reads on every tick and
+  wake, live or not. A live read that comes back empty flips the host to its snapshot, and the flip
+  reads that snapshot at once. A wake is ONE read (it was two).
+- **Early arrival — decision 5 narrowed, decided under the owner's delegation (post-pay), FOR THE
+  OWNER TO CONFIRM.** Offered the whole pickup day (decision 5's default), a 9 AM tap for a 6:20 PM
+  slot rang Dad's bell at 9 AM and pinned "Here now" above every due bag all day. And, the stamp
+  being set once, the guest's real arrival could never be announced: a defect in the default itself,
+  which Open Risk 1 anticipated. "I'm here" is now offered **from 30 minutes before the slot**
+  (`ARRIVAL_LEAD_MIN`), on the pickup's own day, and the server's guarded UPDATE carries the same
+  bound (`too_early`, a decided refusal). The spec's own scene arrives 19 minutes early. Before the
+  window the page shows the ticket and its countdown, no button and no new sentence; a guest there
+  earlier asks at the counter. The owner may widen it; the constant is the one place to change.
+- **Refused callers were never throttled.** The caller is verified and throttled before any order
+  read. No verified caller (a token mid-refresh, the transport down) is `failed`, never a decided
+  `unauthorized`: that also answers the refresh-token open question.
+- **Guards.** The idempotence test now reaches the UPDATE (a racer stamps between the read and the
+  write; the first stamp stands). The `rate` arm is tested. The route's status mapping is pinned end
+  to end against the client's own `routeOutcome` (its exemption is gone). The classification read
+  handles its error.
+- **Open questions.** Dated clocks: a stop's clock names its weekday when not today. `confirming`:
+  removed (no stage produced it). `pending` / `failed` rows: the pickup page requires a paid order.
+  More than one member on a pickup session: the only invite surface (`GuestList` → `InviteSheet`)
+  mounts for `dinein` alone, so a pickup session's code is never offered to a second phone; and
+  while the session lives, membership is exactly the authority the live tracker reads by. The
+  live-stale snapshot: once the live row is gone and the snapshot read answers a decided no, the
+  foot no longer says the page catches up.
+- Mutants: `arrival-pending/gave-up-arrival-replayed`, `/platform-status-clears-the-record`;
+  `arrival/too-early-guard-dropped`, `/statement-idempotence-dropped`, `/rate-reads-as-refusal`,
+  `/unthrottled-caller`, `/unverified-caller-reads-as-refusal`, `/classification-error-swallowed`;
+  `pickup-promise/arrival-offered-too-early`; `track-arrival-route/rate-answers-200`,
+  `/failed-answers-200`, `/throw-answers-200`.

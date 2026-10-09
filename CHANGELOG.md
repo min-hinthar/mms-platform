@@ -47,6 +47,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **Codex round 2 on #330, all fixed** (§H3): the seat proof is gated on a counter tender, as the
   tracker's own fallback read gates it; a failed first lookup answers `failed`, never a decided
   refusal; the late phone door stands on its own once the arrival is no longer offered.
+- **The blind pass on #330, every finding** (§H4): a committed, unanswered arrival replays only inside
+  ten minutes, and only the route's own answers retire it; a live page re-reads on its tick, so a
+  lapsed session is noticed, and a wake is one read; "I'm here" is offered and accepted **from 30
+  minutes before the slot** (decision 5's whole-day default narrowed under delegation, for the owner to
+  confirm); every caller is throttled before any read; the route's status mapping has a contract test.
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
