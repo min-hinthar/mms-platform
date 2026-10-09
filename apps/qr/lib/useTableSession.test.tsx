@@ -144,6 +144,14 @@ describe("useTableSession — a solo key the server re-minted is adopted (PD3 fo
     expect(window.localStorage.getItem("mms.qr.dinein")).toBeNull();
   });
 
+  it("a solo mint never marks its stored key `persisted` (the J15 arm is dine-in's)", async () => {
+    window.localStorage.setItem("mms.qr.pickup", "pickup-mine");
+    render(<SoloProbe />);
+    await minted();
+    expect(bodies[0]).toMatchObject({ qrCode: "pickup-mine", mode: "pickup" });
+    expect(bodies[0]).not.toHaveProperty("persisted");
+  });
+
   it("an ordinary rejoin (the same key back) leaves the stored key as it was", async () => {
     window.localStorage.setItem("mms.qr.pickup", "pickup-mine");
     fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {

@@ -17,13 +17,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   and nine `verify:mode-authority` mutants (suite `pd3s`). Its first statement,
   `mms_assert_solo_sessions_single()`, aborts the apply if a solo session already holds a second
   member (Codex P1 on #339): measured on prod, read-only, 2026-10-09, there are none, so nothing is
-  deleted and the guard is a proven no-op today.
+  deleted and the guard is a proven no-op today. The assert runs under a SHARE ROW EXCLUSIVE lock held
+  to COMMIT, so no membership can land between it and the trigger.
 - **The route decides first, before any write** (`soloJoinVerdict`). A refused join answers exactly
   what a wrong code does ("No table found for that code"), so it is no existence oracle. The minting
   device rejoins. A device whose anonymous identity was replaced gets its own session instead of
   being stranded, under a retry-stable key (`soloRemintKey`, a UUID v5 of the stored key and the
   seat — Codex P2 on #339): a lost response or a second tab lands on the same session and cart, and
-  `useTableSession` adopts the key.
+  `useTableSession` adopts the key. A row under that key is accepted only when it is a solo session
+  this seat hosts; anything else holding it is never joined. A dine-in request keeps the server's
+  own join code.
 - **The PD3 owner-confirm list is closed under delegation:** the 30-minute lead, the 10-minute replay
   window and the `too_early` sentence are kept as built (m3 §H6, OPEN-ITEMS PD3).
 

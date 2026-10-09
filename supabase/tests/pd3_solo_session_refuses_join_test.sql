@@ -23,6 +23,8 @@
 --      fixture is built with the trigger disabled inside this rolled-back transaction, the only way
 --      that state can now exist. It is the guard that aborts the apply instead of grandfathering a
 --      second member.
+--   9. the apply-time guard is not callable by a client role either (EXECUTE revoked — the blind pass
+--      on #339, 6; induced red by deleting the revoke).
 --
 -- Every case names itself (`SOLO.<n> ·`) so `scripts/verify-mode-authority.mjs` can require the
 -- NAMED case to be the one its mutant turns red (suite `pd3s`). Cases 6 and 7 pin the trigger's
@@ -162,6 +164,11 @@ begin
   end;
   assert v_state = 'P0001:solo_sessions_with_members',
     format('SOLO.8b · a solo session already holding two members passed the apply-time guard (%s) — the migration would grandfather the second member', v_state);
+
+  -- ══ 9. the apply-time guard is not callable by a client role ═════════════════════════════════
+  assert not has_function_privilege('anon', 'public.mms_assert_solo_sessions_single()', 'execute')
+     and not has_function_privilege('authenticated', 'public.mms_assert_solo_sessions_single()', 'execute'),
+    'SOLO.9 · a client role can EXECUTE mms_assert_solo_sessions_single — revoke it from public, anon and authenticated';
 end $$;
 
 rollback;

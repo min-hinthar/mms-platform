@@ -570,6 +570,88 @@ describe("/api/session — a SOLO session (pickup, scan-and-go) refuses a second
     expect(members.filter((m) => m.session_id === "sess-winner")).toHaveLength(1);
   });
 
+  it("a row under the derived key that is NOT this seat's re-mint is never joined — a dine-in squatter or another seat's session (the blind pass on #339, 2)", async () => {
+    // MUTATION: accept whatever `findActive(key)` returns — this seat joins (and slides) a session
+    // that only happens to hold the key.
+    const key = soloRemintKey("pickup", "pickup-old", SEAT);
+    for (const [squatMode, squatHost] of [
+      ["dinein", OTHER],
+      ["pickup", OTHER],
+      ["pickup", null],
+    ] as const) {
+      const held = row("pickup-old", "pickup", OTHER);
+      const squat = row(key, squatMode, squatHost, { id: "sess-squat" });
+      sessions = [held, squat];
+      members = [
+        { session_id: held.id, seat_id: OTHER },
+        { session_id: "sess-squat", seat_id: OTHER },
+      ];
+      const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { sessionId: string; joinCode: string };
+      expect(body.sessionId).not.toBe("sess-squat");
+      expect(body.joinCode).not.toBe(key);
+      expect(body.joinCode).toMatch(/^pickup-[0-9a-f-]{36}$/);
+      expect(members.filter((m) => m.session_id === "sess-squat")).toHaveLength(1);
+      expect(squat).toMatchObject({ host_seat: squatHost, expires_at: FUTURE });
+    }
+  });
+
+  it("a squatter that wins the derived key DURING the insert race is not joined either", async () => {
+    // MUTATION: the collision arm converges on whatever holds the key.
+    const key = soloRemintKey("pickup", "pickup-old", SEAT);
+    const held = row("pickup-old", "pickup", OTHER);
+    sessions = [held];
+    members = [{ session_id: held.id, seat_id: OTHER }];
+    insertCollision = {
+      code: "23505",
+      then: () => {
+        sessions.push(row(key, "dinein", OTHER, { id: "sess-squat" }));
+        members.push({ session_id: "sess-squat", seat_id: OTHER });
+      },
+    };
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; joinCode: string };
+    expect(body.sessionId).not.toBe("sess-squat");
+    expect(body.joinCode).not.toBe(key);
+    expect(members.filter((m) => m.session_id === "sess-squat")).toHaveLength(1);
+  });
+
+  it("an OUTAGE on the derived-key read is the W10a 503 with nothing written (the blind pass on #339, 3)", async () => {
+    // MUTATION: drop the re-mint read's outage arm — the throw escapes as a 500 from the framework.
+    sessions = [row("pickup-old", "pickup", OTHER)];
+    members = [{ session_id: "sess-pickup-old", seat_id: OTHER }];
+    tokenReadFailsFor = soloRemintKey("pickup", "pickup-old", SEAT);
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(503);
+    expect(writes).toEqual([]);
+  });
+
+  it("a DINE-IN request carrying a solo code host-starts under the server's own join code, not a derived key (the blind pass on #339, 4)", async () => {
+    // MUTATION: give the dine-in request the deterministic solo key — a 43-character invite code.
+    sessions = [row("pickup-old", "pickup", OTHER)];
+    members = [{ session_id: "sess-pickup-old", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "pickup-old", mode: "dinein" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { joinCode: string; created: boolean };
+    expect(body.created).toBe(true);
+    expect(body.joinCode).toMatch(/^[23456789ABCDEFGHJKMNPQRSTVWXYZ]{8}$/);
+    expect(members.filter((m) => m.session_id === "sess-pickup-old")).toHaveLength(1);
+  });
+
+  it("a stored solo key marked `persisted` still re-mints under the derived key — the J15 arm leaves a solo session to the solo branch (the blind pass on #339, (a))", async () => {
+    // `useTableSession` never marks a solo key persisted; the server does not rely on it.
+    // MUTATION: let the J15 arm take the solo session — a host-start under a random join code.
+    sessions = [row("pickup-old", "pickup", OTHER)];
+    members = [{ session_id: "sess-pickup-old", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup", persisted: true }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { joinCode: string }).joinCode).toBe(
+      soloRemintKey("pickup", "pickup-old", SEAT),
+    );
+  });
+
   it("the SQL refusal (`solo_session`, a join racing the check) reads as the same wrong-code 404", async () => {
     // MUTATION: drop the mapping — the trigger's refusal surfaces as "Could not join session" (500),
     // a different answer from a wrong code.

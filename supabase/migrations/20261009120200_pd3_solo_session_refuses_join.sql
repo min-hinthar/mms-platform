@@ -38,6 +38,17 @@
 -- than one `session_members` row — ZERO, at any status. So nothing is deleted. Instead the apply
 -- ABORTS, loudly, if that state exists when it runs: today a proven no-op. A named function rather
 -- than an inline block, so supabase/tests can drive it on a fixture and it can be re-run as a check.
+--
+-- The LOCK is what makes "aborts if that state exists" true (the blind pass on #339, 1). The assert
+-- alone takes ACCESS SHARE, so a membership insert could commit between it and `create trigger`
+-- below and the apply would still succeed over a second member. SHARE ROW EXCLUSIVE on
+-- `session_members` conflicts with every insert's ROW EXCLUSIVE, so from the assert until this
+-- migration's transaction COMMITS — past the trigger's creation — no membership can be written: the
+-- assert sees the last state before the trigger, and every later insert meets the trigger. Every
+-- apply path runs a migration file as ONE transaction (the CLI's `supabase db push` / `start`, the
+-- MCP `apply_migration`), so the lock spans the file. It is taken inside a DO block because a bare
+-- `lock table` outside a transaction block is an error, and the mutant harness replays this file
+-- statement by statement (`verify-mode-authority.mjs`); there it guards nothing, and needs nothing.
 create or replace function public.mms_assert_solo_sessions_single() returns void
 language plpgsql security definer set search_path = '' as $$
 declare v_found text;
@@ -59,7 +70,11 @@ end; $$;
 
 revoke all on function public.mms_assert_solo_sessions_single() from public, anon, authenticated;
 
-select public.mms_assert_solo_sessions_single();
+do $$
+begin
+  lock table public.session_members in share row exclusive mode;  -- held to COMMIT: no insert lands before the trigger
+  perform public.mms_assert_solo_sessions_single();
+end $$;
 
 -- ── 1. the refusal, where the membership is written ──────────────────────────────────────────────
 create or replace function public.mms_refuse_solo_join() returns trigger

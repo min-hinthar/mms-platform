@@ -2595,10 +2595,29 @@ for (const m of MUTANTS) {
   // that named a line nobody wrote. A function replacement is always literal. (Same class as
   // Python's re.sub backslash handling; both bit this file in one afternoon.)
   const mutatedText = edits.reduce((text, e) => text.replace(e.find, () => e.replace), original);
-  if (m.fnPatch) {
-    psql(["-q"], mutatedText);
-  } else {
-    for (const k of CHAIN) psql(["-q"], k === src ? mutatedText : sources[k]);
+  // A mutated chain can FAIL TO APPLY — PD3's apply-time guard runs at apply, so its
+  // `apply-guard-counts-dinein` mutant aborts the replay on any database holding a dine-in party of
+  // two (the blind pass on #339, (b)). Uncaught, that throw ended the run with the mutated body
+  // still live and nothing restored. So restore, report it by name, and count it a failure: a
+  // mutant this battery could not judge is never a pass.
+  try {
+    if (m.fnPatch) {
+      psql(["-q"], mutatedText);
+    } else {
+      for (const k of CHAIN) psql(["-q"], k === src ? mutatedText : sources[k]);
+    }
+  } catch (e) {
+    const out = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+    const line = (out.split("\n").find((l) => l.includes("ERROR:")) ?? out)
+      .replace(/^.*ERROR:\s*/, "")
+      .trim();
+    if (m.fnPatch) psql(["-q"], original);
+    else restore();
+    console.log(
+      c.red(`  APPLY  ${m.id} — the mutated chain did not apply (${line.slice(0, 140)}); restored`),
+    );
+    failures++;
+    continue;
   }
   const mutated = bodyHash(m.fn);
   if (mutated === before) {

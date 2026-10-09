@@ -15,7 +15,7 @@ import { AuthzError, isTransportFailure, UNAVAILABLE } from "@/lib/authz";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { BIND_COPY } from "@/lib/bind-copy";
-import { soloRemintKey } from "@/lib/solo-remint";
+import { soloFreshKey, soloRemintKey } from "@/lib/solo-remint";
 import type { BindTableResult } from "@/lib/bind-table";
 import {
   awaitsFirstDiner,
@@ -244,7 +244,10 @@ export async function POST(req: NextRequest) {
   // generated code, no number. Decided before the reserved check, the sweep, the bind and the mint,
   // so a dropped code touches nothing. A claim (`tableNumber`) carries its prior code as
   // `priorCode` and never reaches here; a `?j=` is a URL code.
-  if (persisted && !claim && !joinOnly) {
+  // A SOLO session found by a persisted code is the solo branch's to decide below (its member
+  // rejoins; a new identity re-mints under the retry-stable key) — `useTableSession` never marks a
+  // solo key persisted, and the server does not rely on that (the blind pass on #339, (a)).
+  if (persisted && !claim && !joinOnly && !(sess && isSoloMode(sess.mode))) {
     let member = false;
     if (sess) {
       const { data: row, error: memberErr } = await db
@@ -303,8 +306,15 @@ export async function POST(req: NextRequest) {
   // code, this seat) — `soloRemintKey`, RETRY-STABLE (Codex P2 on #339): a lost response, or a
   // second tab sending the same stored code, recomputes the SAME key, finds the session the first
   // request minted (or loses the insert race on the active-code index and re-reads it below), and
-  // converges on one session and one cart. The client adopts the returned `joinCode`; the old
-  // session is never this seat's, and the device is never stranded.
+  // converges on one session and one cart. A row under the key is accepted ONLY when it is this
+  // seat's re-mint — a solo session this seat hosts (`ownRemint`) — on both reads; anything else
+  // holding the key (a dine-in sticker mint of the same string, another seat's session) is never
+  // joined or slid: this device mints under a fresh random key instead (`soloFreshKey`), never
+  // stranded, losing only that one re-mint's retry-stability. A dine-in request keeps the server's
+  // own join code (`generateJoinCode`). The client adopts the returned `joinCode`.
+  let remintKey: string | null = null;
+  const ownRemint = (s: Sess | null): s is Sess =>
+    s !== null && s.host_seat === seat && isSoloMode(s.mode);
   if (sess && isSoloMode(sess.mode)) {
     const { data: mine, error: mineErr } = await db
       .from("session_members")
@@ -325,15 +335,23 @@ export async function POST(req: NextRequest) {
       joinOnly: !!joinOnly,
     });
     if (solo === "refuse") return NextResponse.json({ error: NO_TABLE }, { status: 404 });
-    if (solo === "remint") {
+    if (solo === "remint" && !isSoloMode(mode)) {
+      // A dine-in request carrying a solo code: a plain host-start, under the server's join code.
+      sess = null;
+      resolvedQr = undefined;
+    } else if (solo === "remint") {
       const key = soloRemintKey(mode, sess.qr_code, seat);
+      let found: Sess | null;
       try {
-        sess = await findActive(key); // a retry (or another tab) finds the session already re-minted
+        found = await findActive(key); // a retry (or another tab) finds the session already re-minted
       } catch (e) {
-        if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
+        if (e instanceof AuthzError && e.code === "unavailable") return unavailable(); // the re-mint read
         throw e;
       }
-      resolvedQr = key; // none yet → the mint below creates it under `key`, never the held code
+      sess = ownRemint(found) ? found : null;
+      // None yet → the mint below creates it under `key`; a squatter on `key` → a fresh random key.
+      resolvedQr = found === null || sess !== null ? key : soloFreshKey(mode);
+      remintKey = resolvedQr;
     }
   }
 
@@ -551,6 +569,13 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           if (e instanceof AuthzError && e.code === "unavailable") return unavailable();
           throw e;
+        }
+        // A re-mint converges only on its OWN session (another tab of this seat); a squatter that
+        // won the key meanwhile is never joined — mint under a fresh random key instead.
+        if (remintKey !== null && !ownRemint(sess)) {
+          sess = null;
+          resolvedQr = remintKey = soloFreshKey(mode);
+          continue;
         }
         break;
       }

@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 /**
  * PD3 follow-up (Codex P2 on #339) — the key a SOLO session is re-minted under, RETRY-STABLE.
@@ -11,9 +11,11 @@ import { createHash } from "node:crypto";
  * sends the old key again) or two tabs sending the old key at once each minted a separate session
  * and cart. Derived from (the stored key, this seat) instead, every retry and every tab computes
  * the SAME key: the second request finds the session the first one minted (or loses the insert race
- * on the active-code unique index and re-reads it), and the trigger's guarantees are untouched —
- * the key names a session only this seat's identity mints, and any other seat is still refused at
- * the write. Unguessable without the stored key, which is itself an unguessable per-device uuid.
+ * on the active-code unique index and re-reads it). Unguessable without the stored key, which is
+ * itself an unguessable per-device uuid. The key alone is NOT ownership: a row found under it is
+ * accepted only when it is a solo session this seat hosts (`/api/session`'s `ownRemint`, on both
+ * reads), so a squatter on the key is never joined; the trigger still refuses any other seat at the
+ * write.
  *
  * UUID v5 (RFC 9562 §5.5) under a fixed namespace, in the client's own `${mode}-<uuid>` shape.
  */
@@ -36,4 +38,10 @@ export function uuidV5(namespace: string, name: string): string {
 /** The re-mint key for `seat` arriving with the stored solo key `storedKey`, for `mode`. */
 export function soloRemintKey(mode: string, storedKey: string, seat: string): string {
   return `${mode}-${uuidV5(SOLO_REMINT_NAMESPACE, `${storedKey}\u0000${seat}`)}`;
+}
+
+/** The fallback when something that is not this seat's re-mint already holds the derived key: a
+ *  fresh random key in the same shape — never stranded, only that re-mint's retry-stability lost. */
+export function soloFreshKey(mode: string): string {
+  return `${mode}-${randomUUID()}`;
 }

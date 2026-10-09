@@ -1380,7 +1380,23 @@ that delegation the four items H4 and H5 left for the owner are decided:
     prod, read-only, 2026-10-09: ZERO such sessions, at any status — so the guard is a proven no-op
     today, nothing is deleted, and the state, should it ever exist at apply time, fails the apply
     loudly instead.
-- Pinned: `supabase/tests/pd3_solo_session_refuses_join_test.sql` (eight named cases, registered in
+- **The capped blind pass on #339 (reviewed `022ab8c..20f30d1`, REJECT), every finding fixed:**
+  - The apply-time guard took only ACCESS SHARE, so a membership could commit between the assert and
+    `create trigger`. The assert now runs under `lock table session_members in share row exclusive
+mode`, held to the migration's COMMIT. Shown with two sessions on a throwaway cluster: without
+    the lock, an insert during the apply landed a second member and the apply succeeded; with it,
+    the insert waited out its lock timeout and the session kept one member.
+  - The derived key is not ownership. A row under it is accepted only when it is a solo session
+    this seat hosts (`ownRemint`), on both the first read and the insert race's re-read; a squatter
+    on the key gets a fresh random key instead (`soloFreshKey`), never joined or slid.
+  - A dine-in request carrying a solo code keeps the server's own join code — only a solo request
+    takes the derived key.
+  - The J15 persisted arm leaves a solo session to the solo branch, so a stored solo key marked
+    `persisted` still re-mints under the derived key (`useTableSession` never marks one).
+  - The re-mint read's outage is pinned (a 503, nothing written); the apply-time guard's EXECUTE
+    revoke is pinned (SOLO.9); and `verify-mode-authority.mjs` now restores and reports a mutated
+    chain that fails to apply, instead of ending the run with the mutant live.
+- Pinned: `supabase/tests/pd3_solo_session_refuses_join_test.sql` (nine named cases, registered in
   ci.yml; red on the un-migrated stack at SOLO.2; SOLO.6 and SOLO.7 induced red by hand; the abort
   also shown on a cluster holding a two-member pickup fixture).
   `scripts/verify-mode-authority.mjs` suite `pd3s`: nine killed mutants, 206 accounted for. And
