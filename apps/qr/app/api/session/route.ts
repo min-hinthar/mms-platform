@@ -4,7 +4,10 @@ import { sessionMintInput } from "@mms/db/schemas";
 import {
   generateJoinCode,
   isReservedSessionCode,
+  isSoloMode,
   reservedCodeRefusal,
+  soloDeviceCode,
+  soloJoinVerdict,
   sweepsExpiredSquatter,
 } from "@/lib/session-code";
 import { sessionExpiryFromNow } from "@/lib/session-ttl";
@@ -30,6 +33,10 @@ type Sess = {
   qr_code: string;
   table_number: number | null;
 };
+
+/** A `?j=` code that joins nothing. ONE sentence for "no such code" AND "a solo session refuses a
+ *  second member" (PD3's follow-up), so a refused join is no existence oracle. */
+const NO_TABLE = "No table found for that code";
 
 /** W10a — the auth/DB plane is unreachable: 503 "we're down", never a verdict about the diner. */
 const unavailable = () =>
@@ -262,8 +269,7 @@ export async function POST(req: NextRequest) {
 
   // Invite-code join (`?j=`) that matched nothing → don't mint a phantom table; tell the guest the
   // code is wrong. (A scanned sticker `?t=` or a host-start leaves joinOnly false → may provision.)
-  if (joinOnly && !sess)
-    return NextResponse.json({ error: "No table found for that code" }, { status: 404 });
+  if (joinOnly && !sess) return NextResponse.json({ error: NO_TABLE }, { status: 404 });
 
   // W6b hardening: a RESERVED-prefix code (`reg-`/`kiosk-`) is a server-issued identity the
   // register queue / floor board / kiosk reset all trust — a client must never CREATE one here
@@ -284,6 +290,44 @@ export async function POST(req: NextRequest) {
       { error: "That order can’t be joined from a phone — please ask staff." },
       { status: 403 },
     );
+
+  // PD3 follow-up (2026-10-09, under the owner's delegation) — a SOLO session (pickup, scan-and-go:
+  // every mode but dine-in) is one device's own order, and a member passes every `is_member` read
+  // and `stampArrival`'s session arm. `findActive` filters on the code, never the mode, so before
+  // this a `?j=<code>` join landed a second member. Decided HERE — before the sweep, the expiry
+  // slide, the host claim and the membership insert — so a refused join touches nothing
+  // (`soloJoinVerdict`, lib/session-code.ts); the write itself is refused in SQL whatever this
+  // decides (`mms_refuse_solo_join`, 20261009120200), and its `solo_session` reads below as the
+  // same 404. A refusal says exactly what a wrong code says. A `remint` is the device's own stored
+  // solo code under a NEW identity: a fresh session for this device under a fresh code (the client
+  // adopts the returned `joinCode`), never the old session's member and never stranded.
+  let remintSolo = false;
+  if (sess && isSoloMode(sess.mode)) {
+    const { data: mine, error: mineErr } = await db
+      .from("session_members")
+      .select("id")
+      .eq("session_id", sess.id)
+      .eq("seat_id", seat)
+      .maybeSingle();
+    if (mineErr && isTransportFailure(mineErr)) return unavailable();
+    if (mineErr)
+      return NextResponse.json(
+        { error: "Could not check the table — try again." },
+        { status: 500 },
+      );
+    const solo = soloJoinVerdict({
+      mode: sess.mode,
+      member: mine !== null,
+      host: sess.host_seat === seat,
+      joinOnly: !!joinOnly,
+    });
+    if (solo === "refuse") return NextResponse.json({ error: NO_TABLE }, { status: 404 });
+    if (solo === "remint") {
+      sess = null;
+      resolvedQr = undefined;
+      remintSolo = true;
+    }
+  }
 
   // K2 — the picker's CLAIM path (`tableNumber`) expects an EMPTY table. If one is already active
   // (someone claimed/sat this table between the picker's occupancy read and now), do NOT silently
@@ -447,7 +491,9 @@ export async function POST(req: NextRequest) {
   // Up to a few attempts: a *generated* code that collides regenerates; a *provided* code that
   // collides means a concurrent joiner won the insert, so we re-read and join theirs.
   for (let attempt = 0; attempt < 6 && !sess; attempt++) {
-    const code = resolvedQr ?? generateJoinCode();
+    // A solo re-mint takes a fresh per-device key in the client's own shape; a host-start, a join code.
+    const code =
+      resolvedQr ?? (remintSolo && isSoloMode(mode) ? soloDeviceCode(mode) : generateJoinCode());
     const { data, error } = await db
       .from("table_sessions")
       // K2: stamp the registered table number (null for a host-mint code / unregistered sticker /
@@ -578,6 +624,10 @@ export async function POST(req: NextRequest) {
     // 409, not a 500. Any other error means the diner is NOT actually a member, so fail loudly instead
     // of returning a cartId that every later assertCartMember would 403 on (silently broken session).
     if (memErr) {
+      // PD3 follow-up — the SQL refusal (`mms_refuse_solo_join`): a second member reached a solo
+      // session past the check above (a join racing it). The same 404 as a wrong code.
+      if (memErr.message?.includes("solo_session"))
+        return NextResponse.json({ error: NO_TABLE }, { status: 404 });
       if (memErr.message?.includes("party_full"))
         return NextResponse.json(
           { error: `This table is full (up to ${MAX_PARTY_SIZE} guests).` },

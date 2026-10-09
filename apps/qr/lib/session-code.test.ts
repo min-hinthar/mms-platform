@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   generateJoinCode,
   isReservedSessionCode,
+  isSoloMode,
   reservedCodeRefusal,
+  soloDeviceCode,
+  soloJoinVerdict,
   sweepsExpiredSquatter,
 } from "./session-code";
 
@@ -75,5 +78,54 @@ describe("reservedCodeRefusal — /api/session never attaches a diner to a serve
     }
     expect(reservedCodeRefusal({ found: false, code: undefined })).toBeNull();
     expect(reservedCodeRefusal({ found: false, code: null })).toBeNull();
+  });
+});
+
+// ── PD3 follow-up (2026-10-09) ──
+describe("soloJoinVerdict — a solo session is one device's own order", () => {
+  const stranger = { member: false, host: false };
+  it("every mode but dine-in is solo — scan-and-go as well as pickup, by rule, not by name", () => {
+    // MUTATION: the solo test names pickup — scan-and-go keeps taking a second phone.
+    expect(isSoloMode("pickup")).toBe(true);
+    expect(isSoloMode("scango")).toBe(true);
+    expect(isSoloMode("dinein")).toBe(false);
+  });
+
+  it("a `?j=` join of someone else's solo session is REFUSED, pickup and scan-and-go", () => {
+    // MUTATION: answer it as a rejoin — the second phone becomes a member and passes
+    // stampArrival's session arm.
+    for (const mode of ["pickup", "scango"])
+      expect(soloJoinVerdict({ mode, ...stranger, joinOnly: true })).toBe("refuse");
+  });
+
+  it("the minting device rejoins — as a member, or as the host whose own first insert failed", () => {
+    // MUTATION: drop the host leg — a mint whose membership insert failed could never retry.
+    expect(soloJoinVerdict({ mode: "pickup", member: true, host: true, joinOnly: false })).toBe(
+      "rejoin",
+    );
+    expect(soloJoinVerdict({ mode: "pickup", member: false, host: true, joinOnly: false })).toBe(
+      "rejoin",
+    );
+    expect(soloJoinVerdict({ mode: "scango", member: true, host: false, joinOnly: true })).toBe(
+      "rejoin",
+    );
+  });
+
+  it("the device's own stored code under a NEW identity re-mints — never a member, never stranded", () => {
+    // MUTATION: refuse it — a phone whose anonymous session was replaced is stuck on "No table
+    // found" for its own order until the old session expires.
+    expect(soloJoinVerdict({ mode: "pickup", ...stranger, joinOnly: false })).toBe("remint");
+  });
+
+  it("a dine-in session is not this rule's to decide", () => {
+    for (const joinOnly of [true, false])
+      expect(soloJoinVerdict({ mode: "dinein", ...stranger, joinOnly })).toBeNull();
+  });
+
+  it("a re-minted solo key has the client's own shape, and is fresh every time", () => {
+    const a = soloDeviceCode("pickup");
+    expect(a).toMatch(/^pickup-[0-9a-f-]{36}$/);
+    expect(soloDeviceCode("pickup")).not.toBe(a);
+    expect(isReservedSessionCode(a)).toBe(false);
   });
 });

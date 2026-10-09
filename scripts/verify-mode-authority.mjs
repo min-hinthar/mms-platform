@@ -95,6 +95,12 @@
  * `scripts/verify-bind-race.mjs --mutants` (orders a–d · e · f and g · j · k). Eighteen survivors
  * in all (with M261's lock order, above).
  *
+ * PD3's follow-up adds suite `pd3s`: `mms_refuse_solo_join`, the trigger that keeps a solo (pickup,
+ * scan-and-go) session to its one member where the membership is written. Five killed mutants, one
+ * per body-reachable `SOLO.<n> ·` case, and NO new survivor: its UPDATE event (SOLO.6) and its
+ * grants (SOLO.7) are DDL no body mutant reaches, induced red by hand; its advisory key orders two
+ * racing first members, a two-session property STATED in the migration header, not a row here.
+ *
  * Either way the expectation is checked in the same direction as every other row, never left as an
  * untested comment.
  *
@@ -171,9 +177,18 @@ const SUITES = {
     migration: path.join(ROOT, "supabase/migrations/20261006120100_m263_bind_session_table.sql"),
     test: path.join(ROOT, "supabase/tests/m263_bind_session_table_test.sql"),
   },
+  // PD3 follow-up — `mms_refuse_solo_join`, a NEW trigger function (no earlier definition): a solo
+  // session refuses a second member where the membership is written.
+  pd3s: {
+    migration: path.join(
+      ROOT,
+      "supabase/migrations/20261009120200_pd3_solo_session_refuses_join.sql",
+    ),
+    test: path.join(ROOT, "supabase/tests/pd3_solo_session_refuses_join_test.sql"),
+  },
 };
 /** Apply order. Later entries redefine earlier ones, so this order is load-bearing. */
-const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263"];
+const CHAIN = ["m100", "m17", "m109", "p2dd", "p2f", "p3c2", "m261", "m263", "pd3s"];
 
 const DSN =
   process.env.MODE_AUTHORITY_DSN ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -2304,6 +2319,48 @@ const MUTANTS = [
         "     ;   -- J40 claim: a membership insert (its FK's KEY SHARE) waits, or is seen by the predicate\n",
     },
   ].map((m) => ({ fn: "mms_bind_session_table", ...m, src: "m263", suite: "m263" })),
+  // PD3 follow-up — `mms_refuse_solo_join`, a NEW trigger function: a solo (pickup, scan-and-go)
+  // session refuses a second member where the membership is written. One killed mutant per
+  // body-reachable case; SOLO.6 (the UPDATE event) and SOLO.7 (the grants) are DDL no body mutant
+  // reaches, induced red by hand. The advisory key is a two-session ordering, STATED in the
+  // migration's header, not a row here.
+  ...[
+    {
+      id: "solo/refusal-deleted",
+      expect: "SOLO.2",
+      why: "the refusal itself: a ?j= join lands a second member on someone's pickup, and that member passes stampArrival's session arm",
+      find: "    raise exception 'solo_session' using errcode = 'P0001';  -- /api/session answers the no-oracle 404\n",
+      replace: "    null;\n",
+    },
+    {
+      id: "solo/names-pickup-only",
+      expect: "SOLO.3",
+      why: "the solo test written as the mode it was found on: pickup refuses, scan-and-go still takes a second phone",
+      find: "  if v_mode is null or v_mode = 'dinein' then\n",
+      replace: "  if v_mode is null or v_mode <> 'pickup' then\n",
+    },
+    {
+      id: "solo/dinein-refused-too",
+      expect: "SOLO.5",
+      why: "the party exemption dropped: every dine-in table becomes a party of one and the group cart dies",
+      find: "  if v_mode is null or v_mode = 'dinein' then\n",
+      replace: "  if v_mode is null then\n",
+    },
+    {
+      id: "solo/own-seat-counted",
+      expect: "SOLO.4",
+      why: "the minting seat counted against itself: its own rejoin answers solo_session, not the unique key's 23505 the route reads as 'already a member'",
+      find: "       and m.seat_id <> new.seat_id   -- the same seat again is the unique key's 23505, not a second member\n",
+      replace: "\n",
+    },
+    {
+      id: "solo/first-member-refused",
+      expect: "SOLO.1",
+      why: "the guard refusing whenever the session is solo: the mint and the kiosk can never hold their own first member",
+      find: "  if exists (\n",
+      replace: "  if true or exists (\n",
+    },
+  ].map((m) => ({ fn: "mms_refuse_solo_join", ...m, src: "pd3s", suite: "pd3s" })),
 ];
 
 /** Each migration's text, and the two concatenated in apply order (what the chain WOULD produce). */
@@ -2365,6 +2422,7 @@ const TARGETS = [
   "mms_shell_untouched",
   "mms_untouched_shells",
   "mms_claim_untouched_shell",
+  "mms_refuse_solo_join",
 ];
 
 // TARGETS.length, measured — the banner used to hardcode "6 functions" and would have gone stale.

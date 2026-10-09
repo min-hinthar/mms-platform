@@ -117,3 +117,44 @@ describe("useTableSession — the claim's POST body (D25)", () => {
     expect(window.localStorage.getItem("mms.qr.dinein")).toBe("ACCEPTED");
   });
 });
+
+// PD3 follow-up — a solo session refuses a second member, so a device whose anonymous identity was
+// replaced gets a FRESH session under a fresh key; the device must adopt it.
+function SoloProbe() {
+  const { session, error } = useTableSession("pickup", { door: "pickup" });
+  return <p data-testid="solo">{error ?? (session ? `joined:${session.joinCode}` : "minting")}</p>;
+}
+
+describe("useTableSession — a solo key the server re-minted is adopted (PD3 follow-up)", () => {
+  it("the stored pickup key is replaced by the fresh one the server minted", async () => {
+    // MUTATION: persist the dine-in code only — every visit re-sends the held key, re-mints, and
+    // the basket resets.
+    window.localStorage.setItem("mms.qr.pickup", "pickup-held");
+    fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ...MINT, joinCode: "pickup-fresh" }),
+      } as Response);
+    });
+    const { getByTestId } = render(<SoloProbe />);
+    await waitFor(() => expect(getByTestId("solo").textContent).toBe("joined:pickup-fresh"));
+    expect(bodies[0]).toMatchObject({ qrCode: "pickup-held", mode: "pickup" });
+    expect(window.localStorage.getItem("mms.qr.pickup")).toBe("pickup-fresh");
+    expect(window.localStorage.getItem("mms.qr.dinein")).toBeNull();
+  });
+
+  it("an ordinary rejoin (the same key back) leaves the stored key as it was", async () => {
+    window.localStorage.setItem("mms.qr.pickup", "pickup-mine");
+    fetchSpy.mockImplementationOnce((_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ ...MINT, joinCode: "pickup-mine" }),
+      } as Response);
+    });
+    const { getByTestId } = render(<SoloProbe />);
+    await waitFor(() => expect(getByTestId("solo").textContent).toBe("joined:pickup-mine"));
+    expect(window.localStorage.getItem("mms.qr.pickup")).toBe("pickup-mine");
+  });
+});

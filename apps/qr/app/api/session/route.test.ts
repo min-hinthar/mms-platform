@@ -82,6 +82,8 @@ let claimAnswer: { data: unknown; error: unknown } | null = null;
 let claimHook: (() => void) | null = null;
 /** Runs once when a write matching `on` is issued, BEFORE it applies — a row moving under it (M264). */
 let writeHook: { on: (q: Q) => boolean; run: () => void } | null = null;
+/** The next `session_members` insert fails with this error (the SQL trigger's `solo_session`). */
+let memberInsertError: { code: string; message: string } | null = null;
 /** The number-keyed read fails (an outage). */
 let numberReadFails = false;
 /** The membership read fails (an outage). */
@@ -229,6 +231,11 @@ vi.mock("@mms/db/server", () => ({
             return { data: { id: c.id }, error: null };
           }
           if (table === "session_members") {
+            if (memberInsertError) {
+              const e = memberInsertError;
+              memberInsertError = null;
+              return { data: null, error: e };
+            }
             members.push(q.payload as { session_id: string; seat_id: string });
             return { data: null, error: null };
           }
@@ -372,6 +379,7 @@ beforeEach(() => {
   bindCollision = null;
   bindHook = null;
   numberReadFails = false;
+  memberInsertError = null;
   membersReadFails = false;
   registryReadFails = false;
   tokenReadFailsFor = null;
@@ -431,6 +439,108 @@ describe("/api/session — reserved codes (Codex r3 on #308)", () => {
     const body = (await res.json()) as { cartId: string; role: string; created: boolean };
     expect(body).toMatchObject({ cartId: "cart-1", role: "guest", created: false });
     expect(writes).toContain("session_members:insert");
+  });
+});
+
+describe("/api/session — a SOLO session (pickup, scan-and-go) refuses a second member (PD3 follow-up)", () => {
+  const memberInserts = () => writes.filter((w) => w === "session_members:insert");
+  const wrongCode = async () => {
+    const res = await POST(req({ qrCode: "NOSUCHCODE", mode: "dinein", joinOnly: true }));
+    return { status: res.status, body: await res.json() };
+  };
+
+  it("a `?j=` join of someone else's pickup or scan-and-go session answers EXACTLY what a wrong code does, before any write", async () => {
+    // MUTATION: ignore the verdict — the second phone becomes a member and passes stampArrival's
+    // session arm (the pickup "I'm here") and every is_member read.
+    const none = await wrongCode();
+    expect(none.status).toBe(404);
+    for (const mode of ["pickup", "scango"]) {
+      sessions = [row(`${mode}-victim`, mode, OTHER)];
+      members = [{ session_id: `sess-${mode}-victim`, seat_id: OTHER }];
+      writes = [];
+      for (const asMode of ["dinein", mode]) {
+        const res = await POST(req({ qrCode: `${mode}-victim`, mode: asMode, joinOnly: true }));
+        // No existence oracle: the refusal and a code that matches nothing are indistinguishable.
+        expect({ status: res.status, body: await res.json() }).toEqual(none);
+      }
+      // No sweep, no expiry slide, no host claim, no membership, no cart.
+      expect(writes).toEqual([]);
+      expect(members).toHaveLength(1);
+    }
+  });
+
+  it("the minting device rejoins its own pickup session — no new session, no second member row", async () => {
+    sessions = [row("pickup-mine", "pickup", SEAT)];
+    members = [{ session_id: "sess-pickup-mine", seat_id: SEAT }];
+    const res = await POST(req({ qrCode: "pickup-mine", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; joinCode: string; role: string };
+    expect(body).toMatchObject({ sessionId: "sess-pickup-mine", joinCode: "pickup-mine" });
+    expect(body.role).toBe("host");
+    expect(sessionInserts()).toEqual([]);
+    expect(memberInserts()).toEqual([]);
+  });
+
+  it("the HOST whose own first membership insert failed rejoins on the retry (not refused, not re-minted)", async () => {
+    // MUTATION: drop the host leg — the retry re-mints, orphaning the session it just created.
+    sessions = [row("pickup-mine", "pickup", SEAT)];
+    const res = await POST(req({ qrCode: "pickup-mine", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { sessionId: string }).sessionId).toBe("sess-pickup-mine");
+    expect(sessionInserts()).toEqual([]);
+    expect(members).toEqual([
+      expect.objectContaining({ session_id: "sess-pickup-mine", seat_id: SEAT }),
+    ]);
+  });
+
+  it("the device's OWN stored code under a NEW identity re-mints a fresh session — the old one untouched", async () => {
+    // Its anonymous session was replaced, so its stored `pickup-…` key names a session another uid
+    // holds. MUTATION: keep the old code — the mint lands on the held session's key.
+    const held = row("pickup-old", "pickup", OTHER);
+    sessions = [held];
+    members = [{ session_id: held.id, seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessionId: string; joinCode: string; created: boolean };
+    expect(body.created).toBe(true);
+    expect(body.sessionId).not.toBe(held.id);
+    expect(body.joinCode).not.toBe("pickup-old");
+    expect(body.joinCode).toMatch(/^pickup-[0-9a-f-]{36}$/);
+    // The held session: no second member, no slide, no host change.
+    expect(members.filter((m) => m.session_id === held.id)).toHaveLength(1);
+    expect(held).toMatchObject({ host_seat: OTHER, expires_at: FUTURE, status: "active" });
+    expect(members).toContainEqual(
+      expect.objectContaining({ session_id: body.sessionId, seat_id: SEAT }),
+    );
+  });
+
+  it("the SQL refusal (`solo_session`, a join racing the check) reads as the same wrong-code 404", async () => {
+    // MUTATION: drop the mapping — the trigger's refusal surfaces as "Could not join session" (500),
+    // a different answer from a wrong code.
+    const none = await wrongCode();
+    sessions = [row("pickup-mine", "pickup", SEAT)];
+    memberInsertError = { code: "P0001", message: "solo_session" };
+    const res = await POST(req({ qrCode: "pickup-mine", mode: "pickup" }));
+    expect({ status: res.status, body: await res.json() }).toEqual(none);
+  });
+
+  it("a DINE-IN `?j=` join still lands a second member (the group cart)", async () => {
+    sessions = [row("DINE1234", "dinein", OTHER)];
+    members = [{ session_id: "sess-DINE1234", seat_id: OTHER }];
+    const res = await POST(req({ qrCode: "DINE1234", mode: "dinein", joinOnly: true }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { role: string }).role).toBe("guest");
+    expect(members).toContainEqual(
+      expect.objectContaining({ session_id: "sess-DINE1234", seat_id: SEAT }),
+    );
+  });
+
+  it("a FAILED membership read on a solo session is the W10a 503 with nothing written — never a join, never a re-mint", async () => {
+    sessions = [row("pickup-old", "pickup", OTHER)];
+    membersReadFails = true;
+    const res = await POST(req({ qrCode: "pickup-old", mode: "pickup" }));
+    expect(res.status).toBe(503);
+    expect(writes).toEqual([]);
   });
 });
 
