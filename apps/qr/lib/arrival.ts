@@ -129,10 +129,12 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
       .maybeSingle();
     // A failed classification read is no answer (blind pass on #330): it used to fall through to
     // the decided `not_today`, retiring the guest's pending record on a transient error.
-    if (classifyErr || !after) {
+    if (!after) {
+      // supabase-js answers an error with no row, so a failed read and a vanished row are one case:
+      // a refusal we cannot classify, which is never decided.
       if (classifyErr)
         console.error("[arrival] refusal read failed", { orderId, message: classifyErr.message });
-      return { ok: false, reason: "failed" };
+      return { ok: false, reason: "failed" }; // an unclassifiable refusal is never a decided one
     }
     if (after.arrived_at) return { ok: true };
     if (after.status !== "paid") return { ok: false, reason: "closed" };

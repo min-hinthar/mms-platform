@@ -27436,8 +27436,9 @@ const MUTANTS = [
     file: "apps/qr/lib/arrival.ts",
     suite: "lib/arrival.test.ts",
     why: "blind pass on #330 — a failed classification read after a refused UPDATE is `failed`; swallowed, it fell through to the decided `not_today` and retired the record on a transient error",
-    find: "    if (classifyErr || !after) {",
-    replace: "    if (!after) {",
+    find: '      return { ok: false, reason: "failed" }; // an unclassifiable refusal is never a decided one',
+    replace:
+      '      return { ok: false, reason: "not_today" }; // an unclassifiable refusal is never a decided one',
   },
   {
     id: "track-arrival-route/rate-answers-200",

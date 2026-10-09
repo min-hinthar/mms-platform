@@ -260,6 +260,20 @@ describe("stampArrival — the write, guarded IN the statement", () => {
       stampArrival({ orderId: ORDER }, Date.parse("2026-10-08T06:00:00.000Z")),
     ).resolves.toEqual({ ok: false, reason: "not_today" });
     expect(row.arrived_at).toBeNull();
+    // The cases above are ALSO refused by the 30-minute lead bound, which would mask a dropped day
+    // guard (the blind pass's own mutant run: SURVIVED). These two pass the lead bound and fail the
+    // day only. A 6:20 PM slot at 1 AM the next day — the late order carried past midnight:
+    row.pickup_slot = SLOT;
+    await expect(
+      stampArrival({ orderId: ORDER }, Date.parse("2026-10-09T08:00:00.000Z")),
+    ).resolves.toEqual({ ok: false, reason: "not_today" });
+    expect(row.arrived_at).toBeNull();
+    // …and a 12:10 AM slot called at 11:50 PM the evening before, inside the lead bound:
+    row.pickup_slot = "2026-10-09T07:10:00.000Z"; // 12:10 AM PDT, Oct 9
+    await expect(
+      stampArrival({ orderId: ORDER }, Date.parse("2026-10-09T06:50:00.000Z")),
+    ).resolves.toEqual({ ok: false, reason: "not_today" });
+    expect(row.arrived_at).toBeNull();
   });
 
   it("refuses a collected order in the statement, never stamping a bag that left", async () => {
