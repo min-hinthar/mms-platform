@@ -36,6 +36,9 @@ import { StaffPromoControl } from "./StaffPromoControl";
 import { OpenTabButton } from "./OpenTabButton";
 import { surfaceOpen } from "@/lib/surfaces";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
+import { ApprovalFlagCard, FLAG_CONSEQUENCE_ID } from "./ApprovalFlagCard";
+import type { PendingFlag } from "@/lib/settle-approvals";
+import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { Chrome, OutageText } from "./Chrome";
@@ -196,6 +199,19 @@ export function FloorDetailLive({
   const readsStarted = useCallback(() => reads.current, []);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
+  // PD8 — a decision landed at Take payment: the trigger reads "Updating the total…" until a read
+  // that STARTED after it commits (`readTicket` passes the ticket taken here). Amounts are never
+  // optimistic: the client never subtracts.
+  const [totalPendingSince, setTotalPendingSince] = useState<number | null>(null);
+  const totalPending = totalPendingSince !== null && readTicket <= totalPendingSince;
+  // BOUNDED (the blind pass on #333): a read that never lands must not hold Take cash busy — the
+  // payment is never blocked (decision 4). At STAFF_HANG_MS the trigger is live again; the door's
+  // own quote compare refuses a total that moved under it (P2c), so nothing is charged stale.
+  useEffect(() => {
+    if (totalPendingSince === null) return;
+    const t = setTimeout(() => setTotalPendingSince(null), STAFF_HANG_MS);
+    return () => clearTimeout(t);
+  }, [totalPendingSince]);
   // ── Phase 2d · split ── the pane's root (focus ownership is "inside it", not "anywhere but
   // <body>"), its heading level (Tables › Table 7 › Order), the exits, and the freeze it shares.
   const inPane = variant === "pane";
@@ -563,6 +579,23 @@ export function FloorDetailLive({
 
   useFloorRealtime(true, onChange, sessionId, detail.cartId);
 
+  // PD8 — the server re-warned (`approval_pending`): a request the tap did not display. The card
+  // re-draws with the server's list, the pane's one region says the title sentence, and the next
+  // tap acknowledges what it shows — a re-warning, never a block (PATH_DESIGN decision 4).
+  const onApprovalPending = useCallback(
+    (pending: PendingFlag[], dishes: string) => {
+      setDetail((d) => ({ ...d, pendingRequests: pending }));
+      // The dishes the door's tap did NOT acknowledge (`reWarning`, the door's one binding) — never
+      // the one the cashier already saw (the last blind pass on #333).
+      setWriteError(
+        dishes ? <Chrome lang={lang} k="settle.flag.pendingRefused" vars={{ x: dishes }} /> : null,
+      );
+      onChange();
+    },
+    [lang, onChange],
+  );
+  const acknowledgedApprovalIds = detail.pendingRequests.map((r) => r.id);
+
   useEffect(() => {
     alive.current = true;
     const id = setInterval(refresh, 5000);
@@ -843,6 +876,20 @@ export function FloorDetailLive({
   // link promised; the root's scroll-padding keeps it clear of the sticky bar). With no settle section
   // (paid, a payment in flight, nothing on the order) it falls back to the order heading.
   const settleHeadingRef = useRef<HTMLHeadingElement>(null);
+  // PD8 — a decision landed in the pane's sheet: the re-read is asked for now, the trigger says
+  // "Updating the total…" until it lands, and focus goes to the settle heading (A11Y, screen 3).
+  const onApprovalDecided = useCallback(
+    ({ totalMoves }: { totalMoves: boolean }) => {
+      // Only an approve moves the total (a deny or a close leaves every figure where it was).
+      if (totalMoves) setTotalPendingSince(reads.current);
+      setWriteError(null);
+      onChange();
+    },
+    [onChange],
+  );
+  const focusSettleHeading = useCallback(() => {
+    settleHeadingRef.current?.focus({ preventScroll: true });
+  }, []);
   const arrival = useRef<"send" | "settle" | null>(
     focusSettle ? "settle" : arrivedToSend ? "send" : null,
   );
@@ -1500,12 +1547,28 @@ export function FloorDetailLive({
             <H id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
               <Chrome lang={lang} k="table.detail.settle.title" />
             </H>
+            {/* PD8 — the flag: a dish waits for a manager. The warning sits above the triggers, which
+                stay live at full ink; tapping one IS the acknowledgement of exactly these ids. */}
+            {detail.pendingRequests.length > 0 && (
+              <ApprovalFlagCard
+                requests={detail.pendingRequests}
+                tableText={tableDisplay(detail).text}
+                hasHelp={inPane}
+                headingLevel={inPane ? 4 : 3}
+                serverNow={detail.serverNow}
+                onDecided={onApprovalDecided}
+                onRefresh={onChange}
+                focusAfterDecision={focusSettleHeading}
+              />
+            )}
             {runningClose && (
               <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
                 variant="primary"
                 onChanged={onChange}
+                acknowledgedApprovalIds={acknowledgedApprovalIds}
+                onApprovalPending={onApprovalPending}
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("tab", units)}
@@ -1535,6 +1598,12 @@ export function FloorDetailLive({
                 setHandoff({ ...h, isCounter, cartId: detail.cartId, sentEarly: detail.unpaidSent })
               }
               onChanged={onChange}
+              // PD8 — tapping Take cash with a flag up IS the acknowledgement: exactly these ids.
+              // The trigger is never dimmed; it is described by the consequence sentence first.
+              acknowledgedApprovalIds={acknowledgedApprovalIds}
+              onApprovalPending={onApprovalPending}
+              totalPending={totalPending}
+              describedBy={detail.pendingRequests.length > 0 ? FLAG_CONSEQUENCE_ID : undefined}
               // Only a COUNTER session closes behind its settle; a table's landed settle shows paid.
               onOutcomeUnknown={
                 isCounter
@@ -1583,6 +1652,8 @@ export function FloorDetailLive({
                 running={runningClose}
                 gateLive={settleGate !== null}
                 onChanged={onChange}
+                acknowledgedApprovalIds={acknowledgedApprovalIds}
+                onApprovalPending={onApprovalPending}
                 onSettleOutcome={onSettleOutcome}
               />
             )}

@@ -308,7 +308,9 @@ export function ManagerPinFields({
   onRetry?: () => Promise<boolean>;
 }) {
   const lang = useStaffLang();
-  const managers = approvers ?? [];
+  // PD8 — the roster now carries the caller's own `self` row (a server's too, for the slip's asker
+  // token); this picker keeps listing the signers only.
+  const managers = (approvers ?? []).filter((m) => m.role === "manager" || m.role === "owner");
   const loading = !rosterFailed && approvers === null;
   const noManagers = !rosterFailed && !loading && managers.length === 0;
   const selectRef = useRef<HTMLSelectElement>(null);

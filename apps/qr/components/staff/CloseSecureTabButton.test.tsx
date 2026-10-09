@@ -30,10 +30,15 @@ afterEach(() => {
 });
 
 const onChanged = vi.fn();
-function mount() {
+function mount(acknowledgedApprovalIds?: readonly string[]) {
   const view = (totalCents: number) => (
     <StaffLangProvider lang="en">
-      <CloseSecureTabButton sessionId="s1" totalCents={totalCents} onChanged={onChanged} />
+      <CloseSecureTabButton
+        sessionId="s1"
+        totalCents={totalCents}
+        onChanged={onChanged}
+        acknowledgedApprovalIds={acknowledgedApprovalIds}
+      />
     </StaffLangProvider>
   );
   const r = render(view(4210));
@@ -154,7 +159,11 @@ describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 
     const { charge } = mount();
     await charge();
     // MUTATION: drop `quotedCents` — the server's compare never runs; red.
-    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4210 });
+    expect(closeSecureTab).toHaveBeenCalledWith({
+      sessionId: "s1",
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 
   it("a moved total names both figures, re-reads the page, quotes the server's figure, and the re-tap sends it", async () => {
@@ -180,7 +189,11 @@ describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.65/ }));
     });
-    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4265 });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      quotedCents: 4265,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -203,7 +216,11 @@ describe("CloseSecureTabButton — the confirm's figure is FROZEN when it opens 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$46\.10/ }));
     });
-    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4610 });
+    expect(closeSecureTab).toHaveBeenCalledWith({
+      sessionId: "s1",
+      quotedCents: 4610,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -417,7 +434,11 @@ describe("CloseSecureTabButton — a refusal's figure is settled by the page's N
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
     });
-    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4210 });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      quotedCents: 4210,
+      acknowledgedApprovalIds: [],
+    });
   });
 });
 
@@ -655,5 +676,49 @@ describe("CloseSecureTabButton — Phase 2h: the close is bounded (9b · 9d · 9
     // MUTATION (p2h-rev-a/close/resay-unkeyed): equal text rendered in place — no DOM change; red.
     expect(said()).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(STAFF["out.stalled"].en);
+  });
+});
+
+const ackFlag = (id: string, lineName: string) => ({
+  id,
+  kind: "void" as const,
+  lineId: null,
+  lineName,
+  nameMy: null,
+  qty: 1,
+  amountCents: 1200,
+  cooked: true,
+  initiatorName: "Thiri",
+  initiatorStaffId: "thiri",
+  createdAt: "2026-10-08T10:00:00Z",
+  lineNow: "unknown" as const,
+});
+
+describe("CloseSecureTabButton — the acknowledgement reaches the action (the blind pass on #333)", () => {
+  it("the ids this door displays ride the close — exactly those, non-empty", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210 });
+    const { charge } = mount(["r-1"]);
+    await charge();
+    // MUTATION (approval-ack/tab-door-sends-nothing): [] reaches the close; red.
+    expect(closeSecureTab).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-1"] }),
+    );
+  });
+  it("its own re-warning is acknowledged by the next confirm, every dish named", async () => {
+    closeSecureTab.mockResolvedValueOnce({
+      ok: false,
+      error: "x",
+      code: "approval_pending",
+      pending: [ackFlag("r-3", "Mohinga"), ackFlag("r-4", "Tea leaf salad")],
+    });
+    const { charge } = mount([]);
+    await charge();
+    expect(screen.getByRole("alert").textContent).toContain("Mohinga · Tea leaf salad");
+    closeSecureTab.mockResolvedValueOnce({ ok: true, orderId: "o-1", totalCents: 4210 });
+    await charge();
+    // MUTATION (approval-ack/tab-door-forgets-its-warning): the next confirm re-sends []; red.
+    expect(closeSecureTab).toHaveBeenLastCalledWith(
+      expect.objectContaining({ acknowledgedApprovalIds: ["r-3", "r-4"] }),
+    );
   });
 });
