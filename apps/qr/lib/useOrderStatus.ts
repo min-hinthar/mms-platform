@@ -7,9 +7,10 @@ import { shapeTrackedOrder, TRACK_ORDER_SELECT, type TrackedOrder } from "./trac
 // W22r — the shape moved to lib/track-order.ts (one select + one mapper shared with the two
 // fallback reads in lib/orders.ts, so the live and snapshot orders can never drift apart).
 // Re-exported so existing importers keep working.
-// verify:slice-exempt — thin subscription/poll wiring with no money derivation of its own: every
-// money field it carries is mapped in lib/track-order.ts, where the track/breakdown-drops-the-tip
-// mutant and lib/track-order.test.ts pin the carriage.
+// Subscription/poll wiring with no money derivation of its own: every money field it carries is
+// mapped in lib/track-order.ts (the track/* mutants). Its one rule — only a read that SUCCEEDED with
+// no row means the session lapsed — is pinned by lib/useOrderStatus.test.tsx and the
+// use-order-status/* mutant.
 export type { TrackedOrder } from "./track-order";
 
 export type OrderStatus = {
@@ -126,6 +127,11 @@ export function useOrderStatus(
         seenKeyRef.current = key;
         setOrder(shapeTrackedOrder(data));
         setStale(false);
+      } else if (error && seenKeyRef.current === key) {
+        // A read that FAILED is not a read that found nothing (the second blind pass on #330,
+        // critical): keep the row we have and stay live; the next tick reads again. Only a read
+        // that SUCCEEDED with no row means the session lapsed.
+        return;
       } else if (seenKeyRef.current === key) {
         // The row was there and is not now: not "not fulfilled yet" but "no longer ours to read"
         // (the 4-hour session swept, the table cleared). No poll — the host falls back to its

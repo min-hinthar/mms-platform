@@ -46,6 +46,7 @@ import {
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
 import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
 import { isFired } from "@/lib/pickup-promise";
+import { orderOnScreen, pickupFootPromised, pickupPageShown } from "@/lib/pickup-view";
 import { TRACK } from "@/lib/i18n/track";
 import { PickupPromise } from "./PickupPromise";
 
@@ -131,10 +132,11 @@ export function OrderTracker({
       active = false;
     };
   }, [timedOut, counterPaid, liveOrder, fallback, orderId, paymentIntent]);
-  // PD3 — the /track wake (visibilitychange→visible / focus; and the 30 s tick while the live read
-  // is no longer authorized, B7): ONE re-read, the live way while membership holds, else the
-  // uid-scoped server snapshot refreshed in place (`earned_by`, the authority that outlives the
-  // session). Never on the happy path's first mount — PickupPromise calls it on events only.
+  // PD3 — the /track wake. PickupPromise calls it once per clock change (its 30 s tick and every
+  // visibilitychange→visible / focus), LIVE OR NOT (B7; blind pass on #330): the live re-read is how
+  // a lapsed session is noticed at all, and once the page is not live the uid-scoped server snapshot
+  // (`earned_by`, the authority that outlives the session) is refreshed in place too. Never on the
+  // first mount — PickupPromise does not call it then.
   // PD3 (blind pass on #330, open question) — a wake whose snapshot read came back a DECIDED no
   // (`not_found`, `share_payer`: this device is not one the uid-scoped read covers) means the page
   // can no longer catch up, and the pickup foot must stop saying it will. A transient `error` is not
@@ -158,11 +160,13 @@ export function OrderTracker({
   }, [refresh, live, orderId, paymentIntent]);
   // The live order wins; the fallback fills in only where RLS has gone dark. Note the fallback is a
   // SNAPSHOT — no Realtime behind it — which is honest for a table that has already been cleared.
-  // A live row gone STALE yields to a fresher snapshot once one exists (the wake above fetches it).
-  const order =
-    liveStale && fallback?.ok
-      ? fallback.order
-      : (liveOrder ?? (fallback?.ok ? fallback.order : null));
+  // A live row gone STALE yields only to a snapshot strictly FURTHER ALONG (`orderOnScreen`), so an
+  // older snapshot can never move the page backwards (the second blind pass on #330, critical).
+  const order = orderOnScreen({
+    live: liveOrder,
+    liveStale,
+    snapshot: fallback?.ok ? fallback.order : null,
+  });
   const staleSnapshot = (!liveOrder || liveStale) && !!fallback?.ok;
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
 
@@ -387,9 +391,9 @@ export function OrderTracker({
   // PD3 — the pickup page: NOW once, the path, the claim ticket, the one question. It owns the J5
   // "I’m here" (now with the 6-second take-back, decision 5) and the view's live region; a to-go
   // or scan-and-go order keeps the rail and the ready card below.
-  // Paid only (blind pass on #330, open question): a `pending` or `failed` row keeps the existing arms.
-  const pickupPromise =
-    arrived && order.status === "paid" && isPickup && !refunded && !settleCanceled && !pureGrocery;
+  // A PAID pickup only (`pickupPageShown`, lib/pickup-view.ts): a `pending` or `failed` row keeps the
+  // existing arms.
+  const pickupPromise = pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
 
   // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
@@ -810,7 +814,7 @@ export function OrderTracker({
             </strong>
           </p>
         </section>
-      ) : pickupPromise ? (
+      ) : pickupPromise && order ? (
         <PickupPromise order={order} justPaid={justPaid} live={live} onWake={wake} />
       ) : (
         <ul
@@ -1494,9 +1498,13 @@ export function OrderTracker({
                   : pickupPromise
                     ? // PD3 — quiet's foot, true because of the wake re-read above it; the collected
                       // order's foot names where the receipt lives. Said NOWHERE once the page can
-                      // no longer read the order at all (a lapsed live row, and a snapshot read that
-                      // answered a decided no): the contact foot below is the true next step.
-                      liveStale && snapshotRefused && togo !== "picked_up"
+                      // no longer read the order at all (`pickupFootPromised`, lib/pickup-view.ts):
+                      // the contact foot below is the true next step.
+                      !pickupFootPromised({
+                        liveStale,
+                        snapshotRefused,
+                        pickedUp: togo === "picked_up",
+                      })
                       ? null
                       : (() => {
                           const f = togo === "picked_up" ? TRACK.footPickedUp : TRACK.foot;

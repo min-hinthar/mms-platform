@@ -8,7 +8,8 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
  * holds the last live snapshot. That snapshot is not live any more — the host must know, or a
  * far-booked pickup stays at Booked for ever on a page that believes it is subscribed.
  */
-const answers: ({ id: string } | null)[] = [];
+/** Each read's answer: a row, no row, or a failed read. */
+const answers: ({ id: string } | null | "error")[] = [];
 /** The session the hook reads. Replacing the object is what a Supabase token refresh does. */
 let anon = { accessToken: "t1", seat: "s" };
 vi.mock("./useAnonSession", () => ({ useAnonSession: () => anon }));
@@ -18,7 +19,14 @@ vi.mock("@mms/db", () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: () => Promise.resolve({ data: answers.shift() ?? null, error: null }),
+          maybeSingle: () => {
+            const a = answers.shift() ?? null;
+            return Promise.resolve(
+              a === "error"
+                ? { data: null, error: { message: "fetch failed" } }
+                : { data: a, error: null },
+            );
+          },
         }),
       }),
     }),
@@ -52,6 +60,24 @@ describe("useOrderStatus — a row that goes dark is stale, not still live", () 
     await waitFor(() => expect(result.current.stale).toBe(true));
     expect(result.current.order?.id).toBe("o1");
     expect(result.current.timedOut).toBe(false);
+  });
+
+  it("a FAILED read after a delivered row is not a lapse — the row stays live (critical, second blind pass)", async () => {
+    // Only a read that SUCCEEDED and found no row means the session lapsed. An errored read used to
+    // fall into that arm, flip `stale`, and hand the page an older snapshot (Ready → an earlier
+    // stage). MUTATION: let an errored read reach the stale arm.
+    answers.push({ id: "o1" }, "error", null);
+    const { result } = renderHook(() => useOrderStatus("pi_1"));
+    await waitFor(() => expect(result.current.order?.id).toBe("o1"));
+    act(() => result.current.refresh());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.stale).toBe(false);
+    expect(result.current.order?.id).toBe("o1");
+    // …and a real lapse (a successful read, no row) is still noticed.
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.stale).toBe(true));
   });
 
   it("remembers the delivered row across a token refresh — the lapse still reads stale", async () => {

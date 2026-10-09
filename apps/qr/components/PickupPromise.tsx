@@ -45,8 +45,9 @@ import { ClaimTicket } from "./ClaimTicket";
  *   - the Ready edge: the TURN, once per order per tab (celebration-latch), never on a revisit or
  *     a first paint (hydration-safe: only a transition this mount OBSERVED turns), waiting for the
  *     next visible frame when it lands hidden; `document.title` at the edge, restored after;
- *   - the wake re-read (`visibilitychange→visible` / `focus`, coalesced) and, while the live read
- *     is no longer authorized, a visible-only re-read on the 30 s tick (B7).
+ *   - ONE re-read per clock change — the visible 30 s tick and every wake (`visibilitychange→visible`
+ *     / `focus`, coalesced) — live or not (B7): a lapsed session sends no event, so only a live read
+ *     that succeeds with no row can notice it.
  *
  * One live region per view: this `role="status"` replaces OrderTracker's for the pickup page.
  */
@@ -67,7 +68,7 @@ export function PickupPromise({
   justPaid: boolean;
   /** The Realtime read is still authorized (a stale fallback snapshot is `false`). */
   live: boolean;
-  /** Re-read the order once (the wake; the 30 s tick while `live` is false). */
+  /** Re-read the order once, on every clock change (the 30 s tick, a wake), live or not. */
   onWake: () => void;
 }) {
   const pickupSlot = order.pickupSlot ?? order.createdAt; // the host renders this only for a pickup
@@ -126,7 +127,8 @@ export function PickupPromise({
   // order not yet collected, LIVE OR NOT (blind pass on #330, critical). The 4-hour session lapses
   // under a far-booked pickup with no event at all — Realtime simply goes quiet — so the first draft,
   // which read only while not live, never noticed: `live` stayed true and Ready never landed. A live
-  // read that comes back empty is what flips the host to its snapshot (`useOrderStatus.stale`), and
+  // read that SUCCEEDS with no row (never a failed one) is what flips the host to its snapshot
+  // (`useOrderStatus.stale`; the host shows that snapshot only if it is further along), and
   // the `live` dependency then reads that snapshot at once. Never at mount (the host's own read is
   // the first), and keyed on the clock and the live transition only, never the callback's identity.
   const mountedReadRef = useRef(false);
