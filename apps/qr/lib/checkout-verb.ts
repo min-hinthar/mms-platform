@@ -67,12 +67,23 @@ export function payBlock(s: {
  * Pay behind the counter card on the Bill (`showPayControls`), so the door may not promise "& pay"
  * over it either — a diner who asked for the counter and walked back to the order would be led to a
  * Bill with no Pay on it (Codex round 3 on #313).
+ *
+ * PD2 (m1's B9, PATH_DESIGN reconciliation 3) — while the phone-pay door is PARKED
+ * (`phonePayOpen` false: `!phonePayParked(mode, surfaceOpen("dineInPhonePay"))`, lib/checkout-stage)
+ * the Bill has no Pay at all, in EVERY arm — hostless and post-send included — so the door is a
+ * door to a bill you can READ and never "& pay". The flag is an input, never read here, so the
+ * test flips it. After C2's flip (PD10, D5) the kitchen hold becomes a `payBlock` arm of its own.
  */
 export function billDoorLabel(
   block: PayBlock | null,
-  counterAsk = false,
+  s: {
+    /** A counter ask stands (`counterAt != null`). */
+    counterAsk: boolean;
+    /** `!phonePayParked(...)` — the dine-in phone-pay door is open for this session. */
+    phonePayOpen: boolean;
+  },
 ): "viewBillAndPay" | "viewBill" {
-  return block === null && !counterAsk ? "viewBillAndPay" : "viewBill";
+  return block === null && !s.counterAsk && s.phonePayOpen ? "viewBillAndPay" : "viewBill";
 }
 
 /**

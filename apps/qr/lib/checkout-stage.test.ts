@@ -4,6 +4,8 @@ import {
   kitchenDraftQty,
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
+  phonePayParked,
+  doorMode,
   staffSettleBlockedByUnsent,
   staffSettleUnsentVerdict,
   unsentFoodQty,
@@ -151,5 +153,44 @@ describe("staffSettleUnsentVerdict — P2dc: the staff doors fail CLOSED on an u
     expect(staffSettleUnsentVerdict("dinein", 2)).toBe("unsent");
     expect(staffSettleUnsentVerdict("dinein", 0)).toBeNull();
     expect(staffSettleUnsentVerdict("pickup", 2)).toBeNull();
+  });
+});
+
+describe("PD2 — phonePayParked: the dine-in phone-pay door, parked until live keys (decision 2)", () => {
+  it("a dine-in table with the door parked: parked", () => {
+    // MUTATION (checkout-stage/parked-door-admits-a-table): the switch ignored — the Bill draws
+    // its card hero and create-intent mints at a table on TEST keys; red.
+    expect(phonePayParked("dinein", false)).toBe(true);
+  });
+  it("the flip opens it with nothing else changed", () => {
+    expect(phonePayParked("dinein", true)).toBe(false);
+  });
+  it("only a table reads the switch — pickup, scan-and-go and an unreadable mode are never parked", () => {
+    // MUTATION (checkout-stage/parked-door-refuses-pickup): the mode check dropped — every pickup
+    // and market payment is refused at create-intent behind a rule meant for tables; red.
+    expect(phonePayParked("pickup", false)).toBe(false);
+    expect(phonePayParked("scango", false)).toBe(false);
+    expect(phonePayParked(null, false)).toBe(false);
+    expect(phonePayParked(undefined, false)).toBe(false);
+    expect(phonePayParked("", false)).toBe(false);
+  });
+});
+
+describe("Codex round 2 on #331 — doorMode: the parked door reads the AUTHORITATIVE mode", () => {
+  it("the cart view's mode wins — a missed split read cannot un-park a dine-in table", () => {
+    // MUTATION (checkout-stage/door-reads-the-best-effort-mode): the view's mode dropped — a split
+    // read that answered null (or the unchecked "") draws the card hero at a table create-intent
+    // refuses; red.
+    expect(doorMode("dinein", null)).toBe("dinein");
+    expect(doorMode("dinein", "")).toBe("dinein");
+    expect(phonePayParked(doorMode("dinein", null), false)).toBe(true);
+    // The view is the authority even where the two disagree.
+    expect(doorMode("pickup", "dinein")).toBe("pickup");
+  });
+  it("the split's mode is the fallback, and nothing known is null — never a table", () => {
+    expect(doorMode(null, "dinein")).toBe("dinein");
+    expect(doorMode("", "pickup")).toBe("pickup");
+    expect(doorMode(undefined, "")).toBeNull();
+    expect(phonePayParked(doorMode(null, null), false)).toBe(false);
   });
 });

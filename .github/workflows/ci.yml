@@ -201,6 +201,15 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       - run: pnpm check:pay-attempt
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # PD2 — the parked dine-in phone-pay door is answered in create-intent AFTER the awaited
+      # supersede (M151) and before the unsent gate; parsed, like its two siblings above.
+      - run: pnpm check:phone-pay-door
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+      # PD2 (Codex round 2 on #331) — the CounterPass is constant paper in BOTH themes; every rule
+      # styling content INSIDE it reads the pass's inks, never a theme token (parsed: the `.dark`
+      # block names the theme-changing set).
+      - run: pnpm check:pass-inks
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
       # The two guards that were STILL reachable only through `verify:slice` (the M149 gap again).
       # money-coverage: a changed money-path file must have a mutant (or an in-file exemption). It
       # used to fall back to `return []` when no base resolved — and actions/checkout's default
