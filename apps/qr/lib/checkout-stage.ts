@@ -77,6 +77,45 @@ export function payBlockedByUnsent(
   return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;
 }
 
+/**
+ * PD2 (the owner, PATH_DESIGN_2026-10-07 decision 2: "until live card keys are switched on, the
+ * dine-in Bill offers only Pay at the counter") — is the PHONE-PAY door parked for this session?
+ *
+ * The switch is `SURFACES.dineInPhonePay` (lib/surfaces), passed IN by the caller so a test can
+ * falsify the wiring against the table and the flip stays a one-line commit. The rule itself is
+ * the mode: only a dine-in table has a counter to walk to, so only dine-in reads the switch —
+ * pickup and scan-and-go pay before the kitchen ever sees the order (paying IS ordering), and a
+ * parked door there would be a revenue outage behind a rule meant for tables. `mode` is read the
+ * way `payBlockedByUnsent` reads it: a string the session row answers (`table_sessions.mode`), null
+ * or undefined when the read missed — and a missed read is NOT a table, so it is never parked by
+ * this function (the callers that must fail closed on an unreadable mode do so before asking).
+ *
+ * Read on BOTH sides of the door (lib/surfaces: "drawn AND answered"): `Checkout` draws the Bill
+ * without a card hero while it is true, and `create-intent` refuses the mint while it is true.
+ */
+export function phonePayParked(
+  mode: string | null | undefined,
+  dineInPhonePayOpen: boolean,
+): boolean {
+  return mode === "dinein" && !dineInPhonePayOpen;
+}
+
+/**
+ * Codex round 2 on #331 — WHICH mode the Bill asks `phonePayParked` about. The split context's mode
+ * is best-effort: `app/cart/page.tsx` passes `null` on any `getSplitContext` failure, and its session
+ * read is unchecked (`mode: ""` on a miss). Asking the door with it let a transient blip draw the
+ * card hero and the tip ask at a dine-in table whose every Pay tap create-intent then refused (410).
+ * The cart view's mode is the AUTHORITATIVE one — `assertCartMember` reads `table_sessions.mode` and
+ * fails CLOSED (503) on a miss, the same row create-intent's door reads — so it wins whenever it is
+ * known; the split's is the fallback for a view that predates the field.
+ */
+export function doorMode(
+  viewMode: string | null | undefined,
+  splitMode: string | null | undefined,
+): string | null {
+  return viewMode || splitMode || null;
+}
+
 /** The same count from raw `qr_cart_items` rows (`state`, not the view's `lineState`) — the server
  *  gate's input. */
 export function kitchenDraftUnitsFromRows(

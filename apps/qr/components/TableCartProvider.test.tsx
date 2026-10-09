@@ -164,6 +164,7 @@ const view = (over: Partial<CartView> = {}): CartView => ({
   tabType: "none",
   counterRequestedAt: null,
   tableNumber: null,
+  mode: "dinein",
   ...over,
 });
 
