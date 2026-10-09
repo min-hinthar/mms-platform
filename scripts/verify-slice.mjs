@@ -25730,6 +25730,14 @@ const MUTANTS = [
     replace: "    selfServeSplitOpen: !phonePayOff,",
   },
   {
+    id: "counter/same-ask-nan-is-a-new-ask",
+    file: "apps/qr/lib/counter-pay-state.ts",
+    suite: "lib/counter-pay-state.test.ts",
+    why: "The blind passes on #331 — a stamp Date.parse cannot read compares as a string; without the fallback NaN !== NaN makes the SAME restored ask read as a tablemate's new one, and the phone announces an ask that never happened",
+    find: "  return Number.isNaN(x) || Number.isNaN(y) ? a === b : x === y;",
+    replace: "  return x === y;",
+  },
+  {
     id: "counter/split-board-ignores-the-split-door",
     file: "apps/qr/lib/counter-pay-state.ts",
     suite: "lib/counter-pay-state.test.ts",

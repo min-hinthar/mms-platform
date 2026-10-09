@@ -3,6 +3,7 @@ import {
   COUNTER_CARD_OUTSIDE_APP,
   COUNTER_PAY_REFUSAL_COPY,
   REGISTER_SETTLING_COPY,
+  sameAsk,
   splitBoardShown,
   counterAskLive,
   counterPayRefusal,
@@ -156,5 +157,26 @@ describe("splitBoardShown — the split board is the SPLIT's screen (the last bl
     expect(splitBoardShown({ ...on, isGroup: false })).toBe(false);
     expect(splitBoardShown({ ...on, settling: false })).toBe(false);
     expect(splitBoardShown({ ...on, hasSplit: false })).toBe(false);
+  });
+});
+
+describe("REGISTER_SETTLING_COPY — one sentence in two homes, pinned equal (the blind passes on #331)", () => {
+  it("is the diner dictionary's registerSettling, verbatim", async () => {
+    const { t } = await import("./i18n");
+    // RED if either copy is edited alone: the refusal and the dock would say two sentences.
+    expect(REGISTER_SETTLING_COPY).toBe(t("en", "registerSettling"));
+  });
+});
+
+describe("sameAsk — one ask in two formats is the same ask (the blind passes on #331)", () => {
+  it("compares instants: the action's ISO 'Z' and PostgREST's '+00:00' name the same ask", () => {
+    expect(sameAsk("2026-10-08T06:00:00.123Z", "2026-10-08T06:00:00.123+00:00")).toBe(true);
+    expect(sameAsk("2026-10-08T06:00:00.123Z", "2026-10-08T06:05:00.000Z")).toBe(false);
+  });
+  it("a stamp Date.parse cannot read falls back to string equality, never 'a new ask' by default", () => {
+    // MUTATION (counter/same-ask-nan-is-a-new-ask): the fallback dropped — NaN !== NaN, so the SAME
+    // unreadable stamp restored reads as a tablemate's new ask; red.
+    expect(sameAsk("not-a-time", "not-a-time")).toBe(true);
+    expect(sameAsk("not-a-time", "other")).toBe(false);
   });
 });

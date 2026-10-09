@@ -21,7 +21,12 @@ import {
 import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
 // Phase 3b (D11) — the two device-memory keys, named ONCE at the handover boundary.
 import { DEVICE_NAME_KEY, DEVICE_PHONE_KEY } from "@/lib/device-session";
-import { counterTakesCard, counterUnsentTapCopy, splitBoardShown } from "@/lib/counter-pay-state";
+import {
+  counterTakesCard,
+  counterUnsentTapCopy,
+  sameAsk,
+  splitBoardShown,
+} from "@/lib/counter-pay-state";
 import { surfaceOpen } from "@/lib/surfaces";
 import { STAFF } from "@/lib/i18n/staff";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -246,12 +251,6 @@ const lineSig = (i: CartItem) => JSON.stringify(i);
  * review breakdown from `getCartView`, the tip-inclusive grand total from create-intent. Never client
  * money math (the tip chip preview is a hint, confirmed server-side).
  */
-/** The blind pass on #331 — two `counterRequestedAt` stamps name the SAME ask when they name the
- *  same instant (a view and the ask's own answer may format one instant differently). */
-function sameAsk(a: string, b: string): boolean {
-  return Date.parse(a) === Date.parse(b);
-}
-
 export function Checkout({
   cartId,
   initialItems,
