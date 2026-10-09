@@ -80,6 +80,7 @@ const bad = [];
 let inPass = 0;
 const focusLeaks = [];
 let passFocus = 0;
+const PASS_ROOT_FOCUS = /^\.counter-pass\s+\*?:focus-visible$/;
 const UNIVERSAL_FOCUS = /^(\*|:where\([^)]*\)\s*)?:focus(-visible)?$/;
 const OUTLINE = /^\s*outline(-color)?\s*:/;
 const readsThemed = (value) =>
@@ -100,7 +101,9 @@ for (const file of SHEETS) {
     if (!sels.some((sel) => IN_PASS.test(sel))) continue;
     inPass++;
     if (
-      sels.some((sel) => IN_PASS.test(sel) && /:focus-visible/.test(sel)) &&
+      // The override must cover EVERY focusable descendant of the pass host — the root class over a
+      // universal `:focus-visible` — not one class that happens to sit inside it.
+      sels.some((sel) => PASS_ROOT_FOCUS.test(sel.trim())) &&
       outlines.some((d) => /var\(\s*--pass-/.test(d) && !readsThemed(d.slice(d.indexOf(":") + 1)))
     )
       passFocus++;
