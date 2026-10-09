@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   actionOutcome,
   clearPendingArrival,
+  PENDING_ARRIVAL_MAX_AGE_MS,
+  routeOutcome,
   pendingArrivalCleared,
   pendingArrivalKey,
   readPendingArrival,
@@ -100,16 +102,50 @@ describe("actionOutcome — a RESOLVED action is not always an answer (Codex r1 
   });
 });
 
-describe("reconcileDue — only an unanswered record for an unstamped order is re-sent", () => {
+describe("reconcileDue — only a RECENT unanswered record for an unstamped order is re-sent", () => {
   const rec = { orderId: ORDER, committedAt: "2026-10-09T01:01:00.000Z" };
-  it("due when a record exists and the server shows no stamp", () => {
-    expect(reconcileDue(rec, null)).toBe(true);
+  const committed = Date.parse(rec.committedAt);
+  it("due when a record exists, the server shows no stamp, and it is inside the replay window", () => {
+    expect(reconcileDue(rec, null, committed + 60_000)).toBe(true);
+    expect(reconcileDue(rec, null, committed + PENDING_ARRIVAL_MAX_AGE_MS)).toBe(true);
+  });
+  it("NOT due once the window has passed — a gave-up arrival is never replayed as a fresh bell (blind pass on #330)", () => {
+    // The record exists to survive the page closing inside the commit. Replayed hours later it rang
+    // Dad's bell and stamped "Here now" at THAT visit's time, for a guest who had been told the
+    // counter did not know. MUTATION: drop the age bound.
+    expect(reconcileDue(rec, null, committed + PENDING_ARRIVAL_MAX_AGE_MS + 1)).toBe(false);
+    expect(reconcileDue(rec, null, committed + 3 * 60 * 60_000)).toBe(false);
+  });
+  it("not due for a record from the future (a clock moved back) or with an unreadable stamp", () => {
+    expect(reconcileDue(rec, null, committed - 60_000)).toBe(false);
+    expect(reconcileDue({ orderId: ORDER, committedAt: "garbage" }, null, committed)).toBe(false);
   });
   it("not due once the server shows the stamp — the record is stale, never re-sent", () => {
     // MUTATION: ignore arrivedAt — every revisit re-posts an arrival the server already holds.
-    expect(reconcileDue(rec, "2026-10-09T01:02:00.000Z")).toBe(false);
+    expect(reconcileDue(rec, "2026-10-09T01:02:00.000Z", committed + 60_000)).toBe(false);
   });
   it("not due with no record", () => {
-    expect(reconcileDue(null, null)).toBe(false);
+    expect(reconcileDue(null, null, committed)).toBe(false);
+  });
+});
+
+describe("routeOutcome — only the route's own answers are answers (blind pass on #330, open question)", () => {
+  it("a 200 carrying a boolean `ok` is an answer, either way", () => {
+    expect(routeOutcome(200, { ok: true })).toEqual({ answered: true, ok: true });
+    expect(routeOutcome(200, { ok: false, reason: "not_today" })).toEqual({
+      answered: true,
+      ok: false,
+    });
+  });
+  it("a 400 (a malformed body: it will never succeed) is a decided refusal", () => {
+    expect(routeOutcome(400, { ok: false })).toEqual({ answered: true, ok: false });
+  });
+  it("a platform 4xx, a 429, a 5xx or an unreadable 200 is NOT an answer — the record stays", () => {
+    // MUTATION: treat every status below 500 as decided (the first draft) — a deployment
+    // protection 401, a 408 or a 413 retired the record without the route ever answering.
+    for (const s of [401, 403, 404, 408, 413, 429, 500, 502, 503])
+      expect(routeOutcome(s, { ok: false })).toEqual({ answered: false });
+    expect(routeOutcome(200, null)).toEqual({ answered: false });
+    expect(routeOutcome(200, { ok: "yes" })).toEqual({ answered: false });
   });
 });

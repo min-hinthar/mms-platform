@@ -27270,6 +27270,23 @@ const MUTANTS = [
     replace: '  return r.reason === "rate"',
   },
   {
+    id: "arrival-pending/gave-up-arrival-replayed",
+    file: "apps/qr/lib/arrival-pending.ts",
+    suite: "lib/arrival-pending.test.ts",
+    why: "blind pass on #330 (critical) — a committed arrival is replayable only inside PENDING_ARRIVAL_MAX_AGE_MS; without the bound a gave-up arrival rang Dad's bell hours later and stamped 'Here now' at that visit's time, for a guest the card had told the counter did not know",
+    find: "  return Number.isFinite(age) && age >= 0 && age <= PENDING_ARRIVAL_MAX_AGE_MS;",
+    replace: "  return Number.isFinite(age) && age >= 0;",
+  },
+  {
+    id: "arrival-pending/platform-status-clears-the-record",
+    file: "apps/qr/lib/arrival-pending.ts",
+    suite: "lib/arrival-pending.test.ts",
+    why: "blind pass on #330 (open question) — only the route's own answers retire the record; reading every status below 500 as decided let a deployment-protection 401, a 408 or a 413 clear a committed arrival the route never saw",
+    find: '    if (typeof ok === "boolean") return { answered: true, ok };\n  }\n  return { answered: false };',
+    replace:
+      '    if (typeof ok === "boolean") return { answered: true, ok };\n  }\n  return status < 500 && status !== 429 ? { answered: true, ok: false } : { answered: false };',
+  },
+  {
     id: "arrival-pending/no-answer-clears-the-record",
     file: "apps/qr/lib/arrival-pending.ts",
     suite: "lib/arrival-pending.test.ts",
@@ -27282,8 +27299,8 @@ const MUTANTS = [
     file: "apps/qr/lib/arrival-pending.ts",
     suite: "lib/arrival-pending.test.ts",
     why: "PD3 (m3 §F) — a record whose order the server already shows stamped is stale, retired without a send; re-posting it on every revisit is a write per visit against an idempotent route for nothing",
-    find: "  return rec !== null && arrivedAt === null;",
-    replace: "  return rec !== null;",
+    find: "  if (rec === null || arrivedAt !== null) return false;",
+    replace: "  if (rec === null) return false;",
   },
   {
     id: "arrival-pending/foreign-record-reads-as-mine",

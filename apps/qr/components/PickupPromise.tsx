@@ -8,6 +8,7 @@ import {
   pendingArrivalCleared,
   readPendingArrival,
   reconcileDue,
+  routeOutcome,
   safeLocalStorage,
   writePendingArrival,
   type ArrivalOutcome,
@@ -315,8 +316,8 @@ export function PickupPromise({
       window.removeEventListener("pagehide", onPageHide);
     };
   }, [phase, commit, order.id]);
-  // Reconcile on mount (§F): a committed arrival nobody answered is re-sent; a stamped order retires
-  // its record without a send. Once per order per mount.
+  // Reconcile on mount (§F): a RECENT committed arrival nobody answered is re-sent; a stamped order,
+  // or a record past the replay window, retires its record without a send. Once per order per mount.
   const reconciledRef = useRef<string | null>(null);
   useEffect(() => {
     if (reconciledRef.current === order.id) return;
@@ -324,7 +325,7 @@ export function PickupPromise({
     const store = safeLocalStorage();
     const rec = readPendingArrival(store, order.id);
     if (!rec) return;
-    if (!reconcileDue(rec, order.arrivedAt)) {
+    if (!reconcileDue(rec, order.arrivedAt, Date.now())) {
       clearPendingArrival(store, order.id);
       return;
     }
@@ -336,12 +337,12 @@ export function PickupPromise({
     })
       .then(async (res) => {
         if (!active) return;
-        // 200 and 400 carry a decided answer; 429 and 5xx are not answers (lib/arrival-pending.ts).
-        const answered = res.status < 500 && res.status !== 429;
-        if (!answered) return;
-        const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+        // Only the route's own answers clear the record (`routeOutcome`, lib/arrival-pending.ts).
+        const body: unknown = await res.json().catch(() => null);
+        const outcome = routeOutcome(res.status, body);
+        if (!pendingArrivalCleared(outcome)) return;
         clearPendingArrival(store, order.id);
-        if (body.ok === true) {
+        if (outcome.answered && outcome.ok) {
           setConfirmedLocal(true);
           setPhase("confirmed");
         }

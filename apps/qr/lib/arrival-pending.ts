@@ -23,6 +23,16 @@
 
 export const PENDING_ARRIVAL_PREFIX = "mms.arrival-pending:";
 
+/**
+ * How long a committed, unanswered arrival may still be sent (blind pass on #330, critical). The
+ * record exists to survive the page closing INSIDE the commit — a guest standing at the counter who
+ * pockets the phone — so its claim ("I'm at the restaurant now") is only true for a few minutes. An
+ * older record is retired without a send: replayed hours later it rang Dad's bell and stamped "Here
+ * now" at THAT visit's time, for a guest the card had told the counter did not know. Ten minutes
+ * covers a tab closed and reopened at the counter; a guest still there after that taps again.
+ */
+export const PENDING_ARRIVAL_MAX_AGE_MS = 10 * 60_000;
+
 export function pendingArrivalKey(orderId: string): string {
   return `${PENDING_ARRIVAL_PREFIX}${orderId}`;
 }
@@ -111,9 +121,33 @@ export function pendingArrivalCleared(outcome: ArrivalOutcome): boolean {
 }
 
 /**
- * Is a reconcile due at mount? Only when a record exists AND the server does not already show the
- * stamp — a stamped order has been heard, so its record is stale and is cleared, not re-sent.
+ * Is a reconcile due at mount? Only when a record exists, the server does not already show the stamp
+ * (a stamped order has been heard), AND the record is inside the replay window
+ * (`PENDING_ARRIVAL_MAX_AGE_MS`). A record from the future (the device clock moved back) or with an
+ * unreadable stamp is not due either. A record that is not due is retired without a send.
  */
-export function reconcileDue(rec: PendingArrival | null, arrivedAt: string | null): boolean {
-  return rec !== null && arrivedAt === null;
+export function reconcileDue(
+  rec: PendingArrival | null,
+  arrivedAt: string | null,
+  nowMs: number,
+): boolean {
+  if (rec === null || arrivedAt !== null) return false;
+  const age = nowMs - Date.parse(rec.committedAt);
+  return Number.isFinite(age) && age >= 0 && age <= PENDING_ARRIVAL_MAX_AGE_MS;
+}
+
+/**
+ * What a reconcile POST's response MEANS for the record (blind pass on #330, open question). Only the
+ * route's own answers are answers: a 200 carrying a boolean `ok` (success, or a decided refusal), or
+ * a 400 (a malformed body — it will never succeed). Everything else — a 429 or a 5xx from the route,
+ * and any status the PLATFORM answered instead (a deployment-protection 401, a 408, a 413), or a 200
+ * whose body cannot be read — is no answer, and the record stays for the next visit inside its window.
+ */
+export function routeOutcome(status: number, body: unknown): ArrivalOutcome {
+  if (status === 400) return { answered: true, ok: false };
+  if (status === 200 && typeof body === "object" && body !== null) {
+    const ok = (body as { ok?: unknown }).ok;
+    if (typeof ok === "boolean") return { answered: true, ok };
+  }
+  return { answered: false };
 }

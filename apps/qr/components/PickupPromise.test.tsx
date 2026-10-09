@@ -303,6 +303,39 @@ describe("the revisit: a committed arrival nobody answered is re-sent, once", ()
     expect(container.textContent).toContain("The counter knows you’re here — hang tight.");
     vi.unstubAllGlobals();
   });
+  it("a record older than the replay window is retired WITHOUT a send (blind pass on #330, critical)", () => {
+    // Committed at 5:40 PM, revisited at 6:01 PM: a gave-up arrival must not ring the bell now.
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({ orderId: ORDER.id, committedAt: "2026-10-09T00:40:00.000Z" }),
+    );
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    mount();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("a platform answer that is not the route's (a 401 from deployment protection) keeps the record", async () => {
+    window.localStorage.setItem(
+      KEY,
+      JSON.stringify({ orderId: ORDER.id, committedAt: "2026-10-09T01:00:00.000Z" }),
+    );
+    const fetchSpy = vi.fn<(input: string, init?: RequestInit) => Promise<Response>>(
+      async () => new Response("<html>", { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    mount();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(KEY)).not.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("a stamped order retires its stale record without a send", () => {
     window.localStorage.setItem(
       KEY,
