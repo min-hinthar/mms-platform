@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { GroceryHit } from "@/lib/grocery";
+import { nextRefusal } from "@/lib/sheet-refusal";
 import { GroceryNameSheet } from "./GroceryNameSheet";
 
 /**
@@ -109,11 +110,41 @@ describe("the Name sheet — guided states", () => {
 
   it("the refusal the page routes here is announced by the sheet's own status region", () => {
     render(
-      <GroceryNameSheet {...base({ refusal: "Couldn’t add that — check your connection." })} />,
+      <GroceryNameSheet
+        {...base({ refusal: nextRefusal(null, "Couldn’t add that — check your connection.") })}
+      />,
     );
     expect(screen.getByRole("status").textContent).toContain(
       "Couldn’t add that — check your connection.",
     );
+  });
+
+  it("an IDENTICAL refusal again arrives as a NEW node — the live region re-announces it", () => {
+    // Blind pass 2 on #329. MUTATION: the sentence's node not keyed on the refusal → the same text
+    // in the same node changes no DOM, and a screen reader hears the second refusal as nothing; red.
+    const first = nextRefusal(null, "Hang on — this basket’s being checked out.");
+    const { rerender } = render(<GroceryNameSheet {...base({ refusal: first })} />);
+    const before = screen.getByText("Hang on — this basket’s being checked out.");
+    rerender(
+      <GroceryNameSheet
+        {...base({ refusal: nextRefusal(first, "Hang on — this basket’s being checked out.") })}
+      />,
+    );
+    const after = screen.getByText("Hang on — this basket’s being checked out.");
+    expect(after).not.toBe(before);
+    expect(before.isConnected).toBe(false);
+  });
+
+  it("a refusal keeps its Burmese half, marked lang=my", () => {
+    // MUTATION: drop the `my` span → the sheet says the English half only; red.
+    render(
+      <GroceryNameSheet
+        {...base({
+          refusal: nextRefusal(null, "Saved — we’ll check it when you’re back online.", "မြန်မာ"),
+        })}
+      />,
+    );
+    expect(screen.getByText("မြန်မာ").getAttribute("lang")).toBe("my");
   });
 
   it("search failed: 'Search unavailable', the hero becomes 'Try again', 'Back to the camera' is withheld, the tag shows", () => {
@@ -157,7 +188,7 @@ describe("the Name sheet — guided states", () => {
         {...base({
           query: "tea",
           hits: [TEA],
-          refusal: "Hang on — this basket’s being checked out.",
+          refusal: nextRefusal(null, "Hang on — this basket’s being checked out."),
         })}
       />,
     );

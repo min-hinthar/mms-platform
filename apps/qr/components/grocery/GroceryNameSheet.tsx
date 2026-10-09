@@ -3,6 +3,7 @@ import { useRef } from "react";
 import { Button, Icon, Sheet } from "@mms/ui";
 import type { GroceryHit } from "@/lib/grocery";
 import { looksLikeBarcode } from "@/lib/scan-notice";
+import type { SheetRefusal } from "@/lib/sheet-refusal";
 import { t, type DictKey } from "@/lib/i18n";
 import { GroceryResultRow } from "./GroceryResultRow";
 
@@ -50,7 +51,9 @@ import { GroceryResultRow } from "./GroceryResultRow";
  * Toast cannot be the sheet's announcer — its pill sits behind the raised keyboard, and a refusal
  * drawn here instead was a non-live `<p>` nobody heard. Every dead end, "Searching…", and every
  * refusal the page routes here (`setSheetRefusal`) is announced once, inside the modal; the page
- * Toast stays the PAGE's one region.
+ * Toast stays the PAGE's one region. A refusal's node is KEYED on its sequence (lib/sheet-refusal.ts):
+ * a second identical refusal changes no text, so only a new node re-announces it; its Burmese half
+ * rides with it (blind pass 2 on #329).
  */
 export function GroceryNameSheet({
   open,
@@ -84,8 +87,9 @@ export function GroceryNameSheet({
   miss: string | null;
   addingBarcode: string | null;
   busyLineId: string | null;
-  /** The shipped refusal sentence for a locked / settling basket, shown in place of the state line. */
-  refusal: string | null;
+  /** A refusal the page routes here, shown in place of the state line — keyed, so an identical
+   *  sentence still arrives as a new node in the live region. */
+  refusal: SheetRefusal | null;
   onAddHit: (hit: GroceryHit) => void;
   /** Re-issue the search after a failure. */
   onRetry: () => void;
@@ -140,7 +144,14 @@ export function GroceryNameSheet({
           page's, and sits behind the keyboard while this sheet is up. */}
       <div id="name-state" className="name-state" role="status">
         {refusal ? (
-          <p className="name-state-lead">{refusal}</p>
+          <p key={refusal.key} className="name-state-lead">
+            {refusal.text}
+            {refusal.my && (
+              <span lang="my" className="name-state-my">
+                {refusal.my}
+              </span>
+            )}
+          </p>
         ) : typedCode ? (
           <p className="name-state-lead">
             That looks like a barcode — search by the item’s name (English or Burmese).

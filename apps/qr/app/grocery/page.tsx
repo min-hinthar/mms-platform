@@ -43,6 +43,7 @@ import {
 } from "@/lib/scan-pairing";
 import { useStageCover } from "@/lib/hooks/useStageCover";
 import { nameSheetCloseTarget, parkTarget } from "@/lib/grocery-focus";
+import { nextRefusal, type SheetRefusal } from "@/lib/sheet-refusal";
 import { chipAction, chipDrawn, chipFactsFor, repeatSentence } from "@/lib/scan-chip";
 import {
   chipArmed,
@@ -194,7 +195,9 @@ export default function Grocery() {
   const closedByAddRef = useRef(false);
   // A locked / settling refusal while the sheet is open replaces its state line (a bottom toast
   // would sit behind the keyboard); cleared on the next keystroke and on close.
-  const [sheetRefusal, setSheetRefusal] = useState<string | null>(null);
+  // Keyed (lib/sheet-refusal.ts): an identical refusal still arrives as a new node in the sheet's
+  // live region, and its Burmese half rides with it.
+  const [sheetRefusal, setSheetRefusal] = useState<SheetRefusal | null>(null);
   // PD4 (B2 · B3 · D3) — the add-Undo: its window (lib/scan-undo.ts), the write's phase, and the
   // keyboard hold that pauses the window (lib/undo-hold.ts, WCAG 2.2.1). `tick` re-renders the
   // seconds leaf and expires the window; the write itself is NEVER optimistic.
@@ -694,7 +697,7 @@ export default function Grocery() {
       // this add's words or its close (Codex r1 on #329, 4222536467, the second case).
       const askerOpen = () => sheet !== null && nameSheetRef.current === sheet;
       const say = (text: string, opts: { my?: string; quiet?: boolean } = {}) => {
-        if (askerOpen()) setSheetRefusal(text);
+        if (askerOpen()) setSheetRefusal((prev) => nextRefusal(prev, text, opts.my));
         else flash(text, opts);
       };
       // M186 — a CAMERA scan of a barcode this basket already pays for is NEVER charged again. The
@@ -1183,7 +1186,8 @@ export default function Grocery() {
     }
     if (addingBarcode || busyLine) return;
     // PD4 — inside the Name sheet a refusal is said in its own state line (blind pass on #329).
-    const say = (text: string) => (nameSheetRef.current ? setSheetRefusal(text) : flash(text));
+    const say = (text: string) =>
+      nameSheetRef.current ? setSheetRefusal((prev) => nextRefusal(prev, text)) : flash(text);
     // A finished basket refuses locally — the browse cards' rule, applied to hits too.
     if (cartGone) {
       say("This basket is finished — use “Start a fresh basket” to keep shopping.");
