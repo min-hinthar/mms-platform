@@ -30,7 +30,7 @@ const Ctx = createContext<{
   publish: (s: ApprovalsCountState) => void;
 } | null>(null);
 
-export function seedFromCount(initial: PendingCount): ApprovalsCountState {
+function seedFromCount(initial: PendingCount): ApprovalsCountState {
   return initial.ok
     ? { count: initial.count, frozen: false, unknown: false, frozenCopy: null }
     : { count: null, frozen: true, unknown: true, frozenCopy: null };

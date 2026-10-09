@@ -88,7 +88,7 @@ pnpm verify:slice        # the MECHANICAL money/authority gate: cheap pre-checks
                          # TIMEOUT · ERROR, and only CAUGHT passes — a CAUGHT needs the OWNING suite's
                          # own row red (a failure in another file the filter ran is an ERROR), and a
                          # timeout or a crashed runner is never a kill. Exit 0 pass · 1 fail · 2 usage.
-                         # ⚠️ IN PLACE: it REWRITES the 274 money/authority modules it mutates
+                         # ⚠️ IN PLACE: it REWRITES the 275 money/authority modules it mutates
                          # (187 under apps/qr/lib), ONE at a time, restoring each — also on SIGINT,
                          # SIGTERM and SIGHUP. It ABORTS if a target file is DIRTY — commit or stash
                          # first, and NEVER EDIT a target file while a run is live (its restore overwrites the edit).

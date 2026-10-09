@@ -593,8 +593,9 @@ export const STAFF = {
 
   // ═══ PD8 · m8 — a dish needs a manager (2026-10-08) ═══════════════════════════
   // Register: the counter tablet, glanceable, Burmese first. Every MY value below is a DRAFT for the
-  // native sitting (OPEN-ITEMS `K15 · staff-authority`), grounded in the shipped words around it
-  // (ဖျက် · အခမဲ့ · ခွင့်ပြု · ငြင်းပယ် · ပင်နံပါတ် · စားပွဲ). The money and food words carry K15-HIGH.
+  // native sitting (OPEN-ITEMS K46), grounded in the shipped words around it
+  // (ဖျက် · အခမဲ့ · ခွင့်ပြု · ငြင်းပယ် · ပင်နံပါတ် · စားပွဲ). The money and food sentences are marked HIGH
+  // beside their own entry (the word-check sheet reads a marker above an entry as that entry's).
   // ── the request card (Decide → the slip → the keys that ARE the decision) ──
   "table.appr.verb.decide": { en: "Decide", my: "ဆုံးဖြတ်မယ်" },
   "table.appr.chooseKey": {
