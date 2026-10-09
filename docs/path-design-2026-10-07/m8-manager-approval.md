@@ -1206,8 +1206,13 @@ questions were answered in the build:
   so a request either commits first (the door's read sees it) or sees the freeze and refuses.
 - A line voided or comped after the ask: approve answers `changed` (no second loss row) and close
   admits it; the card says "Already removed or made free after {x} asked — close this request".
-- `totalPending`: bounded at STAFF_HANG_MS. It stays on the cash door alone, the hero under the flag;
-  the reader and the tab close compare their own quotes, so a stale total is refused, never charged.
+- `totalPending`: bounded at STAFF_HANG_MS. It stays on the cash door alone, the hero under the flag.
+  The other two doors do different things (corrected after the last blind pass on #333). The tab close
+  compares its confirm's quote with the live total (`lib/staff-cart.ts`, `closeSecureTab`'s
+  `quotedCents !== amount`), so a moved total is refused (`moved`) before any PaymentIntent exists. The
+  reader compares nothing: `settleCard` (`lib/terminal.ts`) mints the intent at the live server total
+  (`getCartTotals(cart.id, 0)`); the reader (`processPaymentIntent`) and the console's collect panel
+  both show that amount before the tap. It never charges a stale quote, and it never refuses one either.
 - The "no page" arm: every door acknowledges what its own re-warning named (`ackForTap`), so the next
   tap passes wherever the door is mounted.
 - `listApprovers` exposing `hasPin`: kept. It is a boolean per manager or owner, read only by a

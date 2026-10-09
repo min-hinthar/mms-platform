@@ -544,7 +544,7 @@ export const STAFF = {
     my: "ဒီပစ္စည်း ပြောင်းသွားပြီ — ပြန်ဖတ်နေပါတယ်။",
   },
   // PD8 (the blind pass on #333) — re-worded: "deny it" steered to the `denied` record round 3's D2
-  // retired; the card re-draws as close-only, so the sentence names Close it. A K15 draft (K47).
+  // retired; the card re-draws as close-only, so the sentence names Close it. A K15 draft (`K15 · staff-authority`).
   "table.appr.msg.notOpen": {
     en: "That table is no longer open — close this request instead (a refund after payment is handled separately).",
     my: "ဒီစားပွဲ ပိတ်သွားပြီ — ဒီတောင်းဆိုချက်ကို ပိတ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
@@ -595,7 +595,7 @@ export const STAFF = {
 
   // ═══ PD8 · m8 — a dish needs a manager (2026-10-08) ═══════════════════════════
   // Register: the counter tablet, glanceable, Burmese first. Every MY value below is a DRAFT for the
-  // native sitting (OPEN-ITEMS K47), grounded in the shipped words around it
+  // native sitting (OPEN-ITEMS `K15 · staff-authority`), grounded in the shipped words around it
   // (ဖျက် · အခမဲ့ · ခွင့်ပြု · ငြင်းပယ် · ပင်နံပါတ် · စားပွဲ). The money and food sentences are marked HIGH
   // beside their own entry (the word-check sheet reads a marker above an entry as that entry's).
   // ── the request card (Decide → the slip → the keys that ARE the decision) ──

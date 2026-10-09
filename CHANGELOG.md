@@ -38,7 +38,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `self_approve` kept for approve and deny, not for a close. `supabase/tests/m184_approval_refuses_when_changed_test.sql`
   (15 cases) joins ci.yml's list; 15 `verify-mode-authority` mutants (`m184/*`).
 - **Copy:** 27 staff keys (16 HIGH) and one re-worded shipped key, every MY value a draft for the
-  native sitting (OPEN-ITEMS K47).
+  native sitting (OPEN-ITEMS `K15 · staff-authority`).
 - **Mutants:** 40 new (`approvers/` · `approvals-count/` · `approval-state/` · `settle-approvals/` ·
   `approvals-read/` · `resolve/` · `approval-ack/` · `floor/`) and 10 re-anchored; the battery is 3310.
 - **The blind pass on #333 (REJECT on `4bc9dea`), fixed:** the pane's "Decide it here" decides the
@@ -51,6 +51,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   acknowledges its own re-warning (`ackForTap`). M184 widened in its one file: a line already off the
   bill is `changed`, and a request never lands mid-settle (`mms_request_approval` refuses `in_flight`).
   26 more mutants (the battery is 3336) and 7 more `m184/*`.
+- **The last capped blind pass (REJECT on `4bc9dea..e8d5a8a`), fixed:** `verify-counter-fire-race.mjs`
+  reads `mms_request_approval` from M184 (the restatement had reddened its drift check) and gains two
+  orders, a request against a settle door's freeze (r1 · r2), with `m184/request-reads-the-freeze-before-the-lock`.
+  A re-warning names the dishes the tap did not acknowledge (`reWarning`, one binding for the pane's
+  region and a door's own alert), and where a page re-draws the flag the page alone owns it. An
+  unreadable line offers no Decide; a late answer from a closed sheet cannot mark the next open applied.
+  The m8 spec's §H says what the reader and the tab close each do with a quote. Filed, not widened:
+  M268 (approve vs the freeze, owner/money). 4 more mutants (the battery is 3340).
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
