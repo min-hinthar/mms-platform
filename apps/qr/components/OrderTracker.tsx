@@ -1,14 +1,13 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useOrderStatus } from "@/lib/useOrderStatus";
 import { getMyOrderFallback, getSettleVerdict, type TrackFallback } from "@/lib/orders";
 import { useActiveOrder } from "./ActiveOrderProvider";
-import { formatClock, formatSlotLong } from "@/lib/pickupTime";
+import { formatClock } from "@/lib/pickupTime";
 import { menuHref, menuLinkText, modeFromOrder } from "@/lib/menu-href";
 import { Icon, useAnimationPreference, useInView } from "@mms/ui";
 import { getRewardsProgress, type RewardsProgress } from "@/lib/rewards";
-import { announceArrival } from "@/lib/arrival";
 import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
@@ -46,6 +45,10 @@ import {
 } from "@/lib/dropped-view";
 import { BRAND_ADDRESS, BRAND_PHONE_DISPLAY, BRAND_PHONE_TEL } from "@/lib/brand";
 import { kindFromTrackedOrder, liveOrderStatusWord } from "@/lib/live-order";
+import { isFired } from "@/lib/pickup-promise";
+import { orderOnScreen, pickupFootPromised, pickupPageShown } from "@/lib/pickup-view";
+import { TRACK } from "@/lib/i18n/track";
+import { PickupPromise } from "./PickupPromise";
 
 // W22r — real step times for the rail (LA wall clock, the restaurant's TZ rule). Only REAL
 // timestamps render (created_at, the expo's ready/picked-up stamps) — never an estimate.
@@ -101,7 +104,15 @@ export function OrderTracker({
    *  is the primary answer, fetched at mount rather than after the ~30s live give-up. */
   counterPaid?: boolean;
 }) {
-  const { order: liveOrder, timedOut } = useOrderStatus(paymentIntent, orderId);
+  const {
+    order: liveOrder,
+    timedOut,
+    refresh,
+    stale: liveStale,
+  } = useOrderStatus(paymentIntent, orderId);
+  // PD3 (Codex r1 on #330, P1) — a row the live read once had and then lost is a CACHED row: the
+  // page is not live any more, whatever `liveOrder` still holds.
+  const live = !!liveOrder && !liveStale;
   // W9c — the tracker's live read is browser-side, so its authorization is `is_member(session_id)`.
   // That lapses when a server clears the table or the ~4h session TTL sweeps — routinely, minutes
   // after a dine-in diner paid and while they're still sitting there. The row is fine; they just
@@ -121,10 +132,42 @@ export function OrderTracker({
       active = false;
     };
   }, [timedOut, counterPaid, liveOrder, fallback, orderId, paymentIntent]);
+  // PD3 — the /track wake. PickupPromise calls it once per clock change (its 30 s tick and every
+  // visibilitychange→visible / focus), LIVE OR NOT (B7; blind pass on #330): the live re-read is how
+  // a lapsed session is noticed at all, and once the page is not live the uid-scoped server snapshot
+  // (`earned_by`, the authority that outlives the session) is refreshed in place too. Never on the
+  // first mount — PickupPromise does not call it then.
+  // PD3 (blind pass on #330, open question) — a wake whose snapshot read came back a DECIDED no
+  // (`not_found`, `share_payer`: this device is not one the uid-scoped read covers) means the page
+  // can no longer catch up, and the pickup foot must stop saying it will. A transient `error` is not
+  // a no: the next wake tries again.
+  const [snapshotRefused, setSnapshotRefused] = useState(false);
+  const wake = useCallback(() => {
+    refresh();
+    // Not live (no live row, or a live row that has since gone dark): refresh the uid-scoped snapshot.
+    if (!live) {
+      void getMyOrderFallback({ orderId, paymentIntent })
+        .then((r) => {
+          if (r.ok) {
+            setFallback(r);
+            setSnapshotRefused(false);
+          } else if (r.reason !== "error") setSnapshotRefused(true);
+        })
+        .catch(() => {
+          /* deliberate: a failed wake read keeps the snapshot it had; the next wake tries again */
+        });
+    }
+  }, [refresh, live, orderId, paymentIntent]);
   // The live order wins; the fallback fills in only where RLS has gone dark. Note the fallback is a
   // SNAPSHOT — no Realtime behind it — which is honest for a table that has already been cleared.
-  const order = liveOrder ?? (fallback?.ok ? fallback.order : null);
-  const staleSnapshot = !liveOrder && !!fallback?.ok;
+  // A live row gone STALE yields only to a snapshot strictly FURTHER ALONG (`orderOnScreen`), so an
+  // older snapshot can never move the page backwards (the second blind pass on #330, critical).
+  const order = orderOnScreen({
+    live: liveOrder,
+    liveStale,
+    snapshot: fallback?.ok ? fallback.order : null,
+  });
+  const staleSnapshot = (!liveOrder || liveStale) && !!fallback?.ok;
   const sharePayer = fallback?.ok === false && fallback.reason === "share_payer";
 
   // ── W23d — the hold was CANCELLED, so no order exists and none ever will (registry M71) ─────────
@@ -291,30 +334,13 @@ export function OrderTracker({
   // Takeaway fulfillment status (S4.3a, expo-driven) — declared here because the countdown below and
   // the step rail both key off it.
   const togo = order?.togoStatus ?? null;
-  // J3: the pickup wait gets an HONEST countdown — pure arithmetic on the diner's own chosen slot (a
-  // real commitment, not a kitchen estimate). Re-derived every 30s via a tick; phrased "~in N min" and
-  // capped at "any minute now" once due (never a fabricated kitchen claim); dropped entirely once the
-  // expo marks it ready/picked up (the rail is the truth from there).
-  const [nowTick, setNowTick] = useState(() => Date.now());
-  useEffect(() => {
-    if (!isPickup || !order?.pickupSlot || togo === "ready" || togo === "picked_up") return;
-    const t = window.setInterval(() => setNowTick(Date.now()), 30 * 1000);
-    return () => window.clearInterval(t);
-  }, [isPickup, order?.pickupSlot, togo]);
-  const slotCountdown = (() => {
-    if (!isPickup || !order?.pickupSlot || togo === "ready" || togo === "picked_up") return null;
-    const mins = Math.round((new Date(order.pickupSlot).getTime() - nowTick) / 60000);
-    if (mins > 90) return null; // far-out slots: the absolute time says it better than a big number
-    // Long past the slot with still no "ready" tap (kitchen running late, or an order that never
-    // progressed): an eternal "any minute now" is a claim we can't keep — drop the suffix and let the
-    // absolute slot time stand alone, honestly.
-    if (mins < -15) return null;
-    return mins >= 1 ? `in ~${mins} min` : "any minute now";
-  })();
-  const eta =
-    isPickup && order?.pickupSlot && order.status !== "refunded"
-      ? `Ready ${formatSlotLong(order.pickupSlot)}${slotCountdown ? ` · ${slotCountdown}` : ""}`
-      : null;
+  // PD3 — the pickup wait's countdown and the booked slot moved onto the claim ticket
+  // (`pickupGuide`, lib/pickup-promise.ts): arithmetic on the diner's own chosen slot, never a
+  // kitchen estimate, and nothing at all from the slot onwards ("any minute now" retired).
+  // The clock the status word's `fired` gate reads: mount time, read once. Only a pickup holds a
+  // ticket, and the pickup page derives its own clock in PickupPromise — this covers the chip the
+  // other modes draw (a to-go box fires at payment, so `fire_at` is null there).
+  const [mountedAt] = useState(() => Date.now());
   // Active step: until the order lands, nothing pulses (-1). Once it lands, `togo` lights the rail —
   // preparing→"In the kitchen", ready→"Ready (for pickup)", picked_up→done. An order with NO takeaway
   // portion (pure dine-in, togoStatus null) rests at "Order placed" (the diner's at the table; the rail
@@ -362,38 +388,12 @@ export function OrderTracker({
   const dineInSettled =
     arrived && order.status === "paid" && isDineIn && !order.hasTogoFood && !pureGrocery;
   const ready = arrived && togo === "ready" && !pureGrocery && !refunded;
-
-  // J5 — the pickup "I'm here" ping (deferred from J3 to the migration window; qr_orders.arrived_at
-  // now exists). Server truth (order.arrivedAt, refreshed by the stamping UPDATE's realtime event) OR
-  // the local just-tapped flag — the optimistic arm covers a dropped websocket so a successful tap
-  // never looks ignored. Idempotent server-side; pickup-only (a scan&go diner is already in the room).
-  const [arriveBusy, setArriveBusy] = useState(false);
-  const [arrivedLocal, setArrivedLocal] = useState(false);
-  const [arriveErr, setArriveErr] = useState<string | null>(null);
-  const announced = !!order?.arrivedAt || arrivedLocal;
-  // The focused "I'm here" button unmounts in favour of the confirmation — park focus on the ready
-  // card so a keyboard/SR user keeps their place (focus-on-remove rule, WCAG 2.4.3). Keyed to
-  // `arrivedLocal` (THIS device's tap), not `announced`: a revisit whose order loads with arrivedAt
-  // already set must not have its reading position yanked to a mid-page card on mount.
-  const readyCardRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (arrivedLocal && document.activeElement === document.body)
-      readyCardRef.current?.focus({ preventScroll: true });
-  }, [arrivedLocal]);
-  async function imHere() {
-    if (!order || arriveBusy || announced) return;
-    setArriveBusy(true);
-    setArriveErr(null);
-    try {
-      const res = await announceArrival({ orderId: order.id });
-      if (res.ok) setArrivedLocal(true);
-      else setArriveErr(res.error);
-    } catch {
-      setArriveErr("Couldn’t let the counter know — try again.");
-    } finally {
-      setArriveBusy(false);
-    }
-  }
+  // PD3 — the pickup page: NOW once, the path, the claim ticket, the one question. It owns the J5
+  // "I’m here" (now with the 6-second take-back, decision 5) and the view's live region; a to-go
+  // or scan-and-go order keeps the rail and the ready card below.
+  // A PAID pickup only (`pickupPageShown`, lib/pickup-view.ts): a `pending` or `failed` row keeps the
+  // existing arms.
+  const pickupPromise = pickupPageShown({ order, settleCanceled: !!settleCanceled, pureGrocery });
 
   // The persistent header/homepage pill no longer tracks the order while on /track (one realtime channel
   // per route), so retire the resumable order here the moment IT reaches a terminal state — otherwise a
@@ -511,6 +511,7 @@ export function OrderTracker({
               kind: trackedKind,
               togoStatus: togo,
               hasTogoFood: !!order?.hasTogoFood,
+              fired: isFired(order?.fireAt ?? null, mountedAt),
             })
           : processing
             ? "Confirming payment"
@@ -546,15 +547,17 @@ export function OrderTracker({
             // reload) is not an arrival, so it must not replay the confetti, haptic or chime.
             celebrationKey={paymentIntent ?? orderId}
           />
-          <div className="track-statusrow">
-            <div className="eyebrow">
-              {modeLabel}
-              {eta ? ` · ${eta}` : ""}
+          {/* PD3 — for pickup the "PICKUP" eyebrow and the chip row are dropped (m3 decision 16,
+              B9): the claim ticket says Pickup in both tongues in Dad's words, and the header pill
+              morphs onto the ticket's kicker instead. */}
+          {!pickupPromise && (
+            <div className="track-statusrow">
+              <div className="eyebrow">{modeLabel}</div>
+              {statusChip}
             </div>
-            {statusChip}
-          </div>
+          )}
         </>
-      ) : (
+      ) : pickupPromise ? null : (
         <div
           style={{
             display: "flex",
@@ -566,44 +569,31 @@ export function OrderTracker({
           <div>
             <div className="eyebrow">{modeLabel}</div>
             <h1 style={{ fontSize: "var(--fs-h1)", margin: "2px 0 0" }}>Your order</h1>
-            {eta && (
-              <div
-                style={{
-                  marginTop: 6,
-                  fontWeight: "var(--fw-heavy)",
-                  color: "var(--ac)",
-                  fontSize: "var(--fs-sm)",
-                }}
-              >
-                {eta}
-              </div>
-            )}
           </div>
           {statusChip}
         </div>
       )}
 
       {/* Single live region: role="status" already implies aria-live=polite (ARIA 1.2). The
-          timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery. */}
-      <p role="status" style={srOnly}>
-        {settleCanceled
-          ? // W23d — FIRST in the chain, deliberately. Without an order row every predicate below is
-            // false, so this state used to fall through to `justPaid`'s "Payment confirmed —
-            // finalizing your order" or to the timed-out arms' "your payment is safe". A screen
-            // reader user was told the payment was fine in exactly the case where it was cancelled.
-            settleCanceledSpoken(settleCanceled)
-          : refunded
-            ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
-            : pureGrocery
-              ? "Paid — you’re all set. Show this screen on your way out if asked."
-              : dineInSettled
-                ? "Paid in full — your table’s bill is paid."
-                : arriveErr && ready
-                  ? arriveErr
+          timedOut arm makes the text CHANGE when polling gives up, so AT announces the recovery.
+          PD3 — the pickup page renders its OWN region (PickupPromise), so this one steps aside
+          there: still exactly one live region per view. */}
+      {!pickupPromise && (
+        <p role="status" style={srOnly}>
+          {settleCanceled
+            ? // W23d — FIRST in the chain, deliberately. Without an order row every predicate below is
+              // false, so this state used to fall through to `justPaid`'s "Payment confirmed —
+              // finalizing your order" or to the timed-out arms' "your payment is safe". A screen
+              // reader user was told the payment was fine in exactly the case where it was cancelled.
+              settleCanceledSpoken(settleCanceled)
+            : refunded
+              ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
+              : pureGrocery
+                ? "Paid — you’re all set. Show this screen on your way out if asked."
+                : dineInSettled
+                  ? "Paid in full — your table’s bill is paid."
                   : ready
-                    ? announced
-                      ? "The counter knows you’re here — hang tight."
-                      : "Your order is ready for pickup — grab it before you go."
+                    ? "Your order’s ready — grab it before you go."
                     : arrived
                       ? togo === "picked_up"
                         ? "Order picked up — enjoy!"
@@ -630,12 +620,13 @@ export function OrderTracker({
                           : processing
                             ? "Confirming your payment."
                             : "Confirming your order."}
-        {/* W23d — the partial fact, spoken. The visible notice lives on the receipt slip below,
+          {/* W23d — the partial fact, spoken. The visible notice lives on the receipt slip below,
             which is a visual artifact; without this a screen-reader user is told "your order is in"
             and never learns the basket changed. A second child of the SAME region, so the view
             still has exactly one live region (QA-CHECKLIST §A). */}
-        {order ? droppedSpokenNotice(order.dropped) : ""}
-      </p>
+          {order ? droppedSpokenNotice(order.dropped) : ""}
+        </p>
+      )}
 
       {/* J6 — the exit pass replaces the step rail for a pure grocery basket: nothing is cooking and
           nothing is being bagged for them (they bagged it) — the only real state is PAID, so show it
@@ -823,6 +814,8 @@ export function OrderTracker({
             </strong>
           </p>
         </section>
+      ) : pickupPromise && order ? (
+        <PickupPromise order={order} justPaid={justPaid} live={live} onWake={wake} />
       ) : (
         <ul
           ref={timelineRef}
@@ -855,6 +848,7 @@ export function OrderTracker({
                   }}
                 >
                   <span
+                    key={activeStep}
                     aria-hidden
                     className={state === "now" && pulseActive ? "mms-track-now" : undefined}
                     style={{
@@ -907,10 +901,8 @@ export function OrderTracker({
       {/* To-go ready departure signal (S4.3a): the whole point — don't let a guest pay and walk out
           without their bag. Visual only; the role="status" region above carries the announcement (one
           source of truth, no double-announce). */}
-      {ready && (
+      {ready && !pickupPromise && (
         <div
-          ref={readyCardRef}
-          tabIndex={-1}
           style={{
             padding: 14,
             marginTop: 8,
@@ -930,50 +922,11 @@ export function OrderTracker({
             }}
           >
             <Icon name="bag" size={18} />
-            {isPickup ? "Ready for pickup" : "Your order’s ready"}
+            Your order’s ready
           </div>
           <div style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 4 }}>
             Grab it from the counter before you head out.
           </div>
-          {/* J5 — "I'm here" (pickup only; a scan&go diner is already in the room). One tap pings the
-              expo board over the existing floor realtime; confirmed state = the REAL arrived_at stamp
-              (or the just-tapped optimistic flag), so a refresh/second device agrees. Errors surface
-              inline AND through the tracker's single role="status" region above (one live region). */}
-          {isPickup &&
-            (announced ? (
-              <div
-                style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-sm)", marginTop: 10 }}
-              >
-                <span aria-hidden>✦ </span>The counter knows you’re here — hang tight.
-              </div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={imHere}
-                  disabled={arriveBusy}
-                  style={{
-                    minHeight: 44,
-                    marginTop: 10,
-                    padding: "0 18px",
-                    borderRadius: 10,
-                    border: "1px solid var(--ok)",
-                    background: "var(--cd)",
-                    color: "var(--tx)",
-                    fontWeight: "var(--fw-heavy)",
-                    fontSize: "var(--fs-sm)",
-                    cursor: arriveBusy ? "default" : "pointer",
-                  }}
-                >
-                  {arriveBusy ? "Letting them know…" : "I’m here"}
-                </button>
-                {arriveErr && (
-                  <div style={{ fontSize: "var(--fs-sm)", color: "var(--warn)", marginTop: 6 }}>
-                    {arriveErr}
-                  </div>
-                )}
-              </>
-            ))}
         </div>
       )}
 
@@ -1137,7 +1090,7 @@ export function OrderTracker({
           status word are a snapshot of the moment it was read, and saying so is the difference between
           a receipt and a tracker that has quietly stopped tracking. Plain static text — the view's one
           role="status" region owns announcements. */}
-      {staleSnapshot && (
+      {staleSnapshot && !pickupPromise && (
         <p
           style={{
             fontSize: "var(--fs-sm)",
@@ -1542,9 +1495,31 @@ export function OrderTracker({
                     ? // …and offline there is no Refresh above to point at (it is withdrawn), so don't.
                       "Keep this screen open — Refresh comes back as soon as you’re online again."
                     : "Nothing more will load here on its own — use Refresh above, or ask us and we’ll look it up."
-                  : staleSnapshot
-                    ? "This is the order as we last read it — the receipt in your account is the lasting copy."
-                    : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
+                  : pickupPromise
+                    ? // PD3 — quiet's foot, true because of the wake re-read above it; the collected
+                      // order's foot names where the receipt lives. Said NOWHERE once the page can
+                      // no longer read the order at all (`pickupFootPromised`, lib/pickup-view.ts):
+                      // the contact foot below is the true next step.
+                      !pickupFootPromised({
+                        liveStale,
+                        snapshotRefused,
+                        pickedUp: togo === "picked_up",
+                      })
+                      ? null
+                      : (() => {
+                          const f = togo === "picked_up" ? TRACK.footPickedUp : TRACK.foot;
+                          return (
+                            <>
+                              {f.en}
+                              <span lang="my" style={{ display: "block", color: "var(--t3)" }}>
+                                {f.my}
+                              </span>
+                            </>
+                          );
+                        })()
+                    : staleSnapshot
+                      ? "This is the order as we last read it — the receipt in your account is the lasting copy."
+                      : "Status updates here as the kitchen works on it — keep this open, or check back anytime."}
       </p>
       {/* W23d — the terminal card above owns the recovery for a cancelled hold, and `backMode` is
           null without an order, so this row would render a SECOND, identical door-picker link

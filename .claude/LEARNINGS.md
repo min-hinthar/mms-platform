@@ -3843,3 +3843,14 @@ ref reads during render — so a chip's "armed" flag or a seconds leaf cannot be
 the clock. Keep the pure rule (`chipArmed`, `undoSecondsLeft`) and call it from the handler at the
 event and from the interval/timeout that re-asks it; render reads the answer from state
 (`chipLive`, `undoLeft`). The rule still decides, and its mutant still reddens.
+
+## #252
+
+**jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
+(2026-10-08, PD3).** A component suite for a window that HOLDS while a keyboard user sits on Undo
+(`matchesFocusVisible`) never committed under jsdom: the programmatic focus the swap moves onto Undo
+matched `:focus-visible` (a browser's heuristic says a touch tap's programmatic focus is not), so every
+case was the keyboard case and the window held to the 60 s cap. The suite must SAY which it is — mock
+`matchesFocusVisible` per case and pin both the touch (the window runs) and the keyboard (it holds, then
+runs on blur). And a `window.setInterval` in a component is jsdom's own timer, not the one
+`vi.useFakeTimers()` replaces; the lane's bare `setInterval` is the shape to copy.
