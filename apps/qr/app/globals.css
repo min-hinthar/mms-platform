@@ -2456,16 +2456,20 @@ html[data-fx="off"] .pa-mid {
   color: var(--t3);
 }
 
-/* PD2 (m2 screen 2) — the counter pass's page furniture: the one sentence above it, and the
-   host's body inside post-pay's CounterPass (the total, the "View bill" disclosure). */
-.counter-pass-lead {
+/* PD2 (m2 screen 2) — the counter pass's page furniture (the one sentence above it, the withdraw's
+   Burmese after it: `.counter-lead*` / `.counter-withdraw-my`, on the PAGE, theme tokens) and the
+   host's body INSIDE post-pay's CounterPass (`.counter-pass-*`: the total, the "View bill"
+   disclosure, the folded receipt). The pass is constant paper in both themes, so everything inside
+   it reads the pass's inks — never a theme token (Codex round 2 on #331; `check-pass-inks.mjs`
+   parses this). */
+.counter-lead {
   margin: var(--s1) 0 var(--s3);
   font-size: var(--fs-body);
   font-weight: var(--fw-bold);
   line-height: var(--lh-normal);
   color: var(--tx);
 }
-.counter-pass-lead-my {
+.counter-lead-my {
   display: block;
   margin-top: var(--s1);
   font-family: var(--font-my);
@@ -2486,14 +2490,14 @@ html[data-fx="off"] .pa-mid {
 .counter-pass-total-label {
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
-  color: var(--t2);
+  color: var(--pass-ink-2);
 }
 .counter-pass-total-label [lang="my"] {
   font-family: var(--font-my);
 }
 .counter-pass-dot {
   margin: 0 0.4em;
-  color: var(--t3);
+  color: var(--pass-ink-3);
 }
 .counter-pass-amount {
   font-family: var(--font-display);
@@ -2501,7 +2505,7 @@ html[data-fx="off"] .pa-mid {
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
   font-variant-numeric: tabular-nums;
-  color: var(--tx);
+  color: var(--pass-ink);
 }
 .counter-pass-unsent {
   margin-top: var(--s3);
@@ -2515,12 +2519,12 @@ html[data-fx="off"] .pa-mid {
   justify-content: space-between;
   align-items: center;
   border: none;
-  border-top: 1px solid var(--bd);
+  border-top: 1px solid var(--pass-edge);
   background: none;
   font: inherit;
   font-size: var(--fs-label);
   font-weight: var(--fw-bold);
-  color: var(--t2);
+  color: var(--pass-ink-2);
   cursor: pointer;
   text-align: left;
 }
@@ -2529,13 +2533,22 @@ html[data-fx="off"] .pa-mid {
   font-family: var(--font-my);
   font-size: var(--fs-sm);
   font-weight: var(--fw-regular);
-  color: var(--t3);
+  color: var(--pass-ink-3);
 }
+/* The folded receipt is HOSTED: `BillLines` and the money rows are shared components that read the
+   theme's text tokens (inline and through `.checkout-bill-*`). Remapped for this subtree onto the
+   pass's inks, so the receipt prints on the paper in Night exactly as it does in light. */
 .counter-pass-bill {
+  --tx: var(--pass-ink);
+  --t2: var(--pass-ink-2);
+  --t3: var(--pass-ink-3);
+  --bd: var(--pass-edge);
+  --sf: var(--pass-unlit);
   padding-bottom: var(--s3);
   text-align: left;
+  color: var(--pass-ink);
 }
-.counter-pass-withdraw-my {
+.counter-withdraw-my {
   margin-inline-start: 0.4em;
   font-family: var(--font-my);
   font-size: var(--fs-sm);
