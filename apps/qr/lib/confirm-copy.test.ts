@@ -3,6 +3,8 @@ import {
   confirmCopy,
   dollars,
   hostSendsCopy,
+  nudgeCopy,
+  staffCanSendCopy,
   TABLE_SENDER_THIRD,
   TABLE_STARTER,
   TABLE_STARTER_MID,
@@ -142,5 +144,23 @@ describe("TABLE_STARTER — the host named by ROLE, one binding in every person 
     const { STAFF } = await import("./i18n/staff");
     const third = TABLE_SENDER_THIRD.charAt(0).toUpperCase() + TABLE_SENDER_THIRD.slice(1);
     expect(STAFF["table.send.hostNote.anon"].en.startsWith(`${third} `)).toBe(true);
+  });
+});
+
+describe("PD1 — the guest's two ways forward, named from the table's own names", () => {
+  it("the staff fallback names the host when the table can, and the role otherwise", () => {
+    expect(staffCanSendCopy("Aye").en).toBe("If Aye is away, our staff can send it too.");
+    expect(staffCanSendCopy("Aye").my).toContain("Aye");
+    for (const blank of [null, "  "]) {
+      // MUTATION (confirm-copy/staff-fallback-names-nobody): the role branch prints the blank
+      // name — "If  is away, …"; red.
+      expect(staffCanSendCopy(blank).en).toBe("If they’re away, our staff can send it too.");
+    }
+  });
+  it("the nudge names the host in both tongues, and its confirmation claims only the waiting line", () => {
+    const c = nudgeCopy(" Aye ");
+    expect(c.button).toEqual({ en: "Let Aye know", my: "Aye ကို ပြောလိုက်မယ်" });
+    expect(c.seen.en).toBe("Aye can see you’re waiting.");
+    expect(/\p{Script=Myanmar}/u.test(c.seen.my)).toBe(true);
   });
 });

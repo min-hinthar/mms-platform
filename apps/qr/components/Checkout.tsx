@@ -2592,6 +2592,7 @@ export function Checkout({
     canSend: canSendToKitchen,
     kitchenDraftUnits: kitchenDraftQty,
     graceOpen,
+    hostPresent,
   });
   // Phase 3c-i (D16) — Pay keeps its name and states its ONE reason, in precedence: a tablemate's lock
   // (`payFrozen`) > dishes still to send (`sendBlocksPay`, READ here — never restated) > this device's

@@ -8,28 +8,67 @@ import { billDoorLabel, orderStageHero, payBlock, payBlockCopy } from "./checkou
  */
 describe("orderStageHero — one verb per state (D13)", () => {
   it("a host with drafts and no grace open is offered Send", () => {
-    expect(orderStageHero({ canSend: true, kitchenDraftUnits: 2, graceOpen: false })).toBe("send");
+    expect(
+      orderStageHero({ canSend: true, kitchenDraftUnits: 2, graceOpen: false, hostPresent: true }),
+    ).toBe("send");
   });
 
   it("an open undo window is Undo — even with drafts still to send", () => {
     // MUTATION (checkout-verb/send-offered-during-grace): hero returns 'send' while graceOpen —
     // a filled Send beside "Undo — Ns" makes forfeiting the undo the visual hero; red.
-    expect(orderStageHero({ canSend: true, kitchenDraftUnits: 2, graceOpen: true })).toBe("undo");
-    expect(orderStageHero({ canSend: true, kitchenDraftUnits: 0, graceOpen: true })).toBe("undo");
+    expect(
+      orderStageHero({ canSend: true, kitchenDraftUnits: 2, graceOpen: true, hostPresent: true }),
+    ).toBe("undo");
+    expect(
+      orderStageHero({ canSend: true, kitchenDraftUnits: 0, graceOpen: true, hostPresent: true }),
+    ).toBe("undo");
   });
 
   it("everything sent → the bill is the hero", () => {
-    expect(orderStageHero({ canSend: true, kitchenDraftUnits: 0, graceOpen: false })).toBe("bill");
+    expect(
+      orderStageHero({ canSend: true, kitchenDraftUnits: 0, graceOpen: false, hostPresent: true }),
+    ).toBe("bill");
   });
 
   it("a GUEST with drafts is never offered Send — only the host fires the table", () => {
     // MUTATION (checkout-verb/guest-offered-send): canSend dropped from the send arm — a guest
     // sees a filled Send that `mms_fire_cart` refuses; red.
-    expect(orderStageHero({ canSend: false, kitchenDraftUnits: 3, graceOpen: false })).toBe("bill");
+    expect(
+      orderStageHero({ canSend: false, kitchenDraftUnits: 3, graceOpen: false, hostPresent: true }),
+    ).not.toBe("send");
   });
 
-  it("a hostless table with drafts is the bill (pay fires them)", () => {
-    expect(orderStageHero({ canSend: false, kitchenDraftUnits: 1, graceOpen: false })).toBe("bill");
+  it("PD1 — a GUEST whose dishes wait on a host's Send WAITS: 'Show a server' is their hero (amends D13)", () => {
+    // MUTATION (checkout-verb/wait-arm-dropped): the arm deleted — the guest's hero is the bill
+    // door again, leading them to a Bill whose next step is someone else's; red.
+    expect(
+      orderStageHero({ canSend: false, kitchenDraftUnits: 3, graceOpen: false, hostPresent: true }),
+    ).toBe("wait");
+    // Nothing waits once everything is sent.
+    expect(
+      orderStageHero({ canSend: false, kitchenDraftUnits: 0, graceOpen: false, hostPresent: true }),
+    ).toBe("bill");
+  });
+
+  it("PD1 — a HOSTLESS table with drafts keeps the bill: nobody at the table sends, so nobody waits", () => {
+    // MUTATION (checkout-verb/wait-offered-on-a-hostless-table): the host check dropped — a guest
+    // at a staff-opened table is told to wait on a person who does not exist; red.
+    expect(
+      orderStageHero({
+        canSend: false,
+        kitchenDraftUnits: 1,
+        graceOpen: false,
+        hostPresent: false,
+      }),
+    ).toBe("bill");
+  });
+
+  it("PD1 — the HOST never waits on themselves: with drafts the host Sends", () => {
+    // MUTATION (checkout-verb/send-outranks-wait): the wait arm hoisted above Send — the host is
+    // handed "Show a server" for dishes only they can send; red.
+    expect(
+      orderStageHero({ canSend: true, kitchenDraftUnits: 2, graceOpen: false, hostPresent: true }),
+    ).toBe("send");
   });
 });
 
@@ -39,13 +78,21 @@ describe("payBlock — Pay's one reason, in precedence (D16)", () => {
   it("peer > unsent > grace", () => {
     // MUTATION (checkout-verb/peer-lock-dropped-from-pay): the peer arm deleted — a tablemate's
     // lock is answered with the unsent sentence, or with nothing; red.
-    expect(payBlock({ ...none, frozenByPeer: true, unsentBlocks: true, graceOpen: true })).toBe(
-      "peer",
-    );
+    expect(
+      payBlock({
+        ...none,
+        frozenByPeer: true,
+        unsentBlocks: true,
+        graceOpen: true,
+        hostPresent: true,
+      }),
+    ).toBe("peer");
     // MUTATION (checkout-verb/grace-outranks-unsent): the two returns swapped — the Send still
     // owed reopens the window, so "Pay opens when the undo window closes" would be a lie; red.
-    expect(payBlock({ ...none, unsentBlocks: true, graceOpen: true })).toBe("unsent");
-    expect(payBlock({ ...none, graceOpen: true })).toBe("grace");
+    expect(payBlock({ ...none, unsentBlocks: true, graceOpen: true, hostPresent: true })).toBe(
+      "unsent",
+    );
+    expect(payBlock({ ...none, graceOpen: true, hostPresent: true })).toBe("grace");
   });
 
   it("an undo in flight alone is the grace reason", () => {
