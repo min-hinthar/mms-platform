@@ -24,6 +24,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   **Codex round 1:** the identity is a union — a figure, or `fallback: { en; my? }` for a pass with no
   number yet (m11's "Your table": the words at the label tier, no figure, no label, no dot, the lead
   tongue the name); and `stamping` is inert unless `terminal="paid"` (STAMP then PRINT is Paid only).
+  **Codex round 3:** the TV never draws ✓ — `tier` and `terminal` are one union (`PassTierTerminal`)
+  whose `tv` arm takes no `terminal`, and a cast pair is dropped; `KitchenTrackName` is exported
+  from the barrel.
 - **`KitchenTrack`** (`packages/ui/src/kitchen-track.tsx`): `KitchenStage` =
   `"unsent" | "sending" | "sent" | "cooking" | "served"`; four sizes (14×5 glyph · 28×6 row · 36×8 TV
   · 16×6 stub); the hollow ring for unsent, one dashed segment in the grace, 1/3 ink-2 · 2/3 ink ·
