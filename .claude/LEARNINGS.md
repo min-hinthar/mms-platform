@@ -3828,3 +3828,14 @@ live file says where the history went. And keep a measured number in exactly one
 **The same pass also showed a table cell's cost.** prettier pads every row of a GFM table to its widest
 cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
 table, with a one-line cell pointing to it.
+
+## #252
+
+**jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
+(2026-10-08, PD3).** A component suite for a window that HOLDS while a keyboard user sits on Undo
+(`matchesFocusVisible`) never committed under jsdom: the programmatic focus the swap moves onto Undo
+matched `:focus-visible` (a browser's heuristic says a touch tap's programmatic focus is not), so every
+case was the keyboard case and the window held to the 60 s cap. The suite must SAY which it is — mock
+`matchesFocusVisible` per case and pin both the touch (the window runs) and the keyboard (it holds, then
+runs on blur). And a `window.setInterval` in a component is jsdom's own timer, not the one
+`vi.useFakeTimers()` replaces; the lane's bare `setInterval` is the shape to copy.

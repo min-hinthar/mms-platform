@@ -1,4 +1,4 @@
-# Session Handoff — MMS Platform (2026-10-08 · after #320 and #324)
+# Session Handoff — MMS Platform (2026-10-09 · the path-design wave in flight)
 
 The chat context does not carry across sessions — **this file is the durable pickup point.** Rules:
 [`CLAUDE.md`](../CLAUDE.md) and [`docs/WORKFLOW.md`](WORKFLOW.md). Open work:
@@ -12,53 +12,61 @@ entries that cite `docs/HANDOFF.md` for history resolve there — and two of the
 warning, owner decisions 1–10 and the M2–M9 device table (its opening list names each block). The
 first-owner bootstrap is [`docs/ENV.md`](ENV.md) "Bootstrap the first owner".
 
-## Where things stand (2026-10-08)
+## Where things stand (2026-10-09 ~03:45Z — the path-design wave is in flight)
 
-Measure first: `git log origin/main --oneline -3` and `gh pr list`.
+Measure first: `git log origin/main --oneline -5`, the open PRs (`list_pull_requests` / `gh pr list`), and
+`git branch -r | grep claude/feat/pd`.
 
-- **#319 merged as `8dc5210`:** the path-design record
-  [`PATH_DESIGN_2026-10-07.md`](PATH_DESIGN_2026-10-07.md), its twelve specs in
-  [`path-design-2026-10-07/`](path-design-2026-10-07/), OPEN-ITEMS PD1–PD13, and the design-prototyping
-  standard ([`SKILL.md`](../.claude/skills/design-prototyping/SKILL.md)). The owner's canvas ("MMS paths
-  — design prototypes", private; find it by title with `Artifact` `action: "list"`) holds the screens.
-- **#320 merged as `d9614ae` (2026-10-08T06:59Z): the merge gate, fitted to 30 minutes.** The owner, in
-  order: "verify:slice should not take this long, either break it apart with subagents or disable it
-  because we can't take more than 30 minutes for each PR merge", then "is verify:slice optimized and
-  other CI checks necessary?", then picked "Keep it, made fast" and "Make public again" (the rulings
-  file §G, G1 · G2). What changed:
-  - The full battery is the aggregate CI check **`verify-slice`** over 12 cost-balanced
-    `verify-slice shard` jobs, on non-draft heads and pushes to main; `check:shard-partition` proves the
-    shards partition it. A draft's is RED on purpose ("not run — DRAFT"); a docs-only PR's is green ("not
-    run — docs-only lane"). A `changes` job splits CI into docs / code / sql lanes (a push to main runs
-    every lane). The Codex gate also reads the Completed row of Codex's summary comment for the head (a
-    clean auto-review edits that comment and adds a thumbs-up reaction, nothing else).
-  - Measured: shard jobs 4.1–10.5 min (two PR runs), the aggregate ~10.5–11 min wall after `changes`;
-    `build` ~6 min; `migrations-check + types-fresh` 11.1–13.3 min (the critical path when the sql lane
-    runs). A full serial local run took 164–180 min (2026-10-06..08), so it is never a pre-push step:
-    run `node scripts/verify-slice.mjs --no-gate --only=<substr>` per money/authority module touched
-    (`--list --only=<substr>` shows what a filter selects). Deferred, not blocking: T48 · T49 · T50.
-- **#324 fixed main's first sharded run.** `checkout-bind/stale-refusal-said` SURVIVED on main's push run
-  of `d9614ae` after being CAUGHT on both PR runs of the same tree; the two stale-refusal tests in
-  `apps/qr/components/Checkout.bind.test.tsx` now read the region's history (LEARNINGS #248). A mutant
-  that survives on one run and is caught on another of the same tree is a suite defect: fix the read,
-  red-first. Never re-run a red `verify-slice` hoping for green.
-- **The repo is public again** (owner: "made it public, add to same PR, merge when ready"). **Branch
-  protection, measured 2026-10-08 ~07:20Z with an admin-scoped token:** `GET /branches/main` →
-  `protected: false`; `/branches/main/protection` → 404; `/rulesets` → `[]`; `/rules/branches/main` →
-  `[]`. The owner reported "wired the required checks on main, codex-review can be replaced with blind
-  review if out of quota so merge is not blocked waiting on quota" that morning, but no rule was in
-  effect as measured, so **every check is advisory until a re-measure shows the rule** (OPEN-ITEMS C28
-  ③). Until then the merge ritual ([`docs/WORKFLOW.md`](WORKFLOW.md) §Review step 5) is the only
-  enforcement — and the agent's GitHub token is admin-scoped, so the API would let it merge past a red
-  required check. Only the procedure stops that. Asked to check it saved, the owner answered "Not
-  necessary" (2026-10-08, declining the re-check); a re-measure at 11:07Z still read none.
-- **The owner, later that day:** "go with the manual admin bypass for quota" (G3; owner's item 2) and
-  "merge when green, then the ReadMe, Claude.md, and docs update+cleanup PR" (G4, a request). Then, on
-  #325: "1. Yes one more; 2. Confirm; 3. Not necessary; 4. target is fasnpdhtvqtzjlvruqcu; . Merge" (§G
-  (h)) — one more capped pass over fix commits pushed after the blind pass (G3), the waiver tightening
-  confirmed (WORKFLOW step 5 (f)), a re-check of branch protection declined (G2), `.mcp.json` re-pointed
-  to QR, and the go to merge #325 after that pass — the merge itself the owner's under G3 while
-  `codex-review` is red (G4: a request for that PR, not a standing rule).
+- **The owner's answers (2026-10-08).** To HANDOFF's "parallel sessions, or the sequence?": "I trust you
+  to comprehensively orchestrate/build the path designs in parallel streams with even more creative
+  design-thinking refinements" — so the wave runs as parallel streams in ONE session, each in its own
+  worktree and branch, each through the full ritual. Then: **"just handoff and merge all on CI green"** —
+  the owner's explicit instruction (G4-style, for THIS wave's PRs) that the session merges each PR once
+  every check is green on its head (`verify-slice` · `build` · `require-docs` · the lanes that ran ·
+  `codex-review` with Codex having reviewed that head — never a red `codex-review` head, G3) and the
+  blind pass's findings are fixed or justified on the PR. The per-SHA merge-window line is not needed
+  for these PRs; everything else in WORKFLOW §Review step 5 still runs.
+- **Merged:** #327 `feat(ui): CounterPass and KitchenTrack` → `1b5e7e9` (2026-10-09 03:50Z, head
+  `4c18bef`: the blind pass's items fixed, three Codex rounds, the last with no findings); #326
+  `feat(ui): the pass tokens` → `1e9f554` (`--fs-pass`, `--till-fs-hand`, the nine
+  constant `--pass-*` inks + `--pass-hole`, pinned by `contrast-audit.test.ts`'s "the pass — constant
+  paper" block; the blind pass's REJECT on its first head was the missing guard).
+- **Open PRs** — each runs the full ritual (blind-pass verdict posted on the PR, every Codex round
+  answered on its threads, `codex-review` green on the merge head):
+  - **#328** kitchen-ops' PD5 — one Send = one card. Head `f498d33`: the blind pass's REJECT (the frozen
+    stub vs the live-ordinal name) and Codex round 1 fixed in `a870aaf`; the verdict and its
+    fix-or-justify table are posted. Based on the old `main` (`f26cc8f`): merge `main` in after its Codex
+    round-2 fixes, refresh the counts, and take one more Codex round on that final head.
+  - **#329** grocery's PD4 — the paper tag in the lens, the Name sheet, the Sheet's `initialFocus`.
+    Head `27081ce`: the blind pass's REJECT and Codex round 1 fixed in `75ec322`, one follow-up (the
+    asking sheet compared by identity) in `27081ce`. Same `main` merge after #328.
+  - **#330** post-pay's PD3 (draft) — head `d2a3d76`, Codex round 1's ten findings fixed. **#331**
+    diner-cart's PD2 (draft, money path) — head `5c074e1`, Codex round 1's three findings fixed. Both
+    were retargeted to `main` when #327 merged: merge `main` in after their Codex round-2 fixes, mark
+    ready, then the blind pass and Codex on the final head.
+  - **#332** — this handoff.
+- **Built, PR not yet open:** staff-authority's PD8 (`claude/feat/pd8-manager-approval`: the server
+  half + the M184 migration with its `close` arm, then the UI half; finishing its gate);
+  counter-floor's PD6 (`claude/feat/pd6-till-tray`, on #327's branch: the till tray, the seal, PD2's
+  pane twin, PD1's ring — the tray UI in progress); diner-cart's PD1 (`claude/feat/pd1-tablemate-send`,
+  stacked on #331).
+- **Not started:** PD7 (after PD6; its migration M182 is not written yet), PD9 (after #327 and #328),
+  PD10 (after PD2, #327, #328), PD11 and PD12 last.
+- **Integration hazards, handled at each merge:** #328 and #329 both add `.claude/LEARNINGS.md
+  ## #250` (`check:docs` refuses a duplicate key, so whichever merges second renumbers; #330 already
+  moved to `## #252`); every PR carries its own measured counts (re-run `pnpm check:docs` after merging
+  `main` in); CHANGELOG entries stack newest-first; #330 · #331 · PD6 sit on #327's branch (retarget
+  to `main` and merge it in once #327 lands); `KitchenStage` is declared in both `@mms/ui` and
+  `apps/qr/lib/kitchen-track.ts` until PD9's PR makes lib `import type` it.
+- **Migrations, each applied only on the owner's go (ruling #5):** written this wave — M184 + the
+  `close` arm (PD8). Planned, not written yet — PD1's nudge stamp (PD1's PR) and M182 (PD7's PR).
+- **Two quota stops, no work lost either time** (commits held, uncommitted trees intact): a rate limit
+  ~13:20Z on 2026-10-08 (resumed 17:25Z); then the agents' usage credits ran out ~18:35Z, with Codex
+  out of quota from 18:26Z, and the container restarted. Resumed 2026-10-09 03:10Z. Codex reviewed
+  again from 03:11Z to 03:46Z (#327's final head among them), then answered with its usage-limit
+  message again: while it does, a head Codex has not reviewed goes the G3 way — the capped blind pass
+  of that exact head, then the OWNER's admin-bypass merge — and an `.md`-only PR may take ruling #1's
+  waiver under WORKFLOW step 5 (f). Lesson kept: commit after every coherent step.
 
 ## The owner's items (not code)
 
@@ -94,37 +102,25 @@ Measure first: `git log origin/main --oneline -3` and `gh pr list`.
    table is in the archive's 2026-10-02 block). #12's sitting does not list them: file them in
    OPEN-ITEMS, and the owner decides whether the sitting takes them.
 
-## Next tasks — build the path designs
+## Next tasks — finish the wave, in the record's order
 
-**Read, in order:** OPEN-ITEMS (Config, then the PD rows) → the rulings file (wins on rulings) →
-PATH_DESIGN_2026-10-07.md (its round-3 section first: it wins over everything before it, and over a
-stream card for the moments it covers; then "Sequencing") → the moment's spec.
+1. **Merge on CI green, in this order:** #328 → #329, each once Codex has reviewed its final head and
+   every finding is fixed or justified (#327 merged; #330 and #331 already target `main`; PD6's PR
+   opens against `main`).
+2. **Open the draft PRs still owed:** PD8 (money/authority path: its body carries the mutant table and
+   "recommend: wait for Codex", ruling #1), PD6 (money path), PD1 (stacked on #331). Then each of
+   #330 · #331 · PD8 · PD6 · PD1: mark ready → blind pass → Codex on the final head → merge on green.
+3. **Then PD9** (kitchen-ops: `lib/board-tables.ts` + the landscape CounterPass on `/board`; amends
+   `board-pulse.ts`, SPEC-KDS, K32(b) / P6a; merge line names the privacy change), **PD7**
+   (counter-floor: clearing, the loss slip, M182), **PD10** (the live One Pass on the Bill + the D5
+   served gate behind the flag), **PD11** and **PD12** last, each after every control it teaches.
+4. **ROADMAP's open Phase 3 slices** (3d·counter's cash-sheet re-host K39 · K44, 3e, 3f): PD6 records
+   which it absorbed; the rest stay.
+5. **Money doors stay parked:** `dineInPhonePay = false` ships in PD2; the D5 gate (PD10) is built behind
+   it; the flip waits for the owner's item 3.
 
-**Build in the record's Sequencing, smallest safe step first:**
-
-1. **guards-style's token-only PR:** `--fs-pass`, `--till-fs-hand` and the `--pass-*` constant inks in
-   `packages/ui/src/tokens.css` (D1(c)). No money path, no migration.
-2. **post-pay's primitives:** the one CounterPass and the kitchen-track UI (ONE PASS · ONE KITCHEN
-   TRACK), rendering a stage they are handed.
-3. **PD5's re-key with `lib/kitchen-track.ts`** (kitchen-ops): the one stage derivation, and
-   `KDS_UNDO_MS` moved to `lib/`. Then PD1–PD8 by their streams, then the TV board (PD9) and the live
-   pass (PD10), then the guides last (PD11, PD12), each after every control it teaches.
-4. **ROADMAP's open Phase 3 slices** — 3d·counter's cash-sheet re-host (K39 · K44), 3e and 3f — are not PD rows: before building a PD that touches the same surface, check whether it absorbs the slice, and record which in the PR.
-5. **Money doors stay parked:** PD2's `dineInPhonePay = false` lands first (diner-cart draws, then
-   money-rails answers in create-intent); the D5 served gate (PD10) is built behind it; the flip waits
-   for owner's item 3.
-
-Each spec's appendix C holds suggestions not yet taken: take them where the build agrees and record what
-you took in the spec. A design question the build raises goes through the design-prototyping loop (a
-quick round is fine), never into code by guess.
-
-**Streams — ask the owner once.** The nine 2026-10-07 stream cards are not in the repo: their owned
-files, hot-file rules and "table-door's package 2" (cited by ruling #21 and M168) live only in the
-cards. The eight re-queued on 2026-10-07 were not confirmed started; on 2026-10-08 no stream branch
-exists and main has no stream commit. Ask: parallel sessions, or the sequence above in one session?
-Recommend the sequence (steps 1–2 unblock everything and carry no money risk). A re-queued card must
-carry the quota rule (owner's item 2). If T47 · T37 · J33 · J38 · K16 are still open, guards-style's
-docs-only reconcile closes them (rulings intro).
+Each spec's §H build notes record what each stream took from appendix C and decided under the
+owner's delegation; read them before building a dependent moment.
 
 ## How work runs here (only what CLAUDE.md and WORKFLOW.md do not say)
 
@@ -142,11 +138,18 @@ docs-only reconcile closes them (rulings intro).
   history, M125); ONE file at a time with the Supabase MCP `apply_migration` on the owner's go,
   verifying the objects that file creates (CLAUDE.md, Commands).
 
-## Parallel streams (wave of 2026-10-07)
+## Parallel streams (wave of 2026-10-07, run 2026-10-08 to 10-09)
 
-None started (2026-10-08): money-rails · counter-floor · diner-cart · grocery · staff-authority ·
-kitchen-ops · post-pay · table-door · guards-style. Only if the owner picks parallel sessions, each
-stream adds one bullet of its own below this line and edits only that bullet.
+One bullet per stream; a stream edits only its own bullet.
+
+- **guards-style:** #326 merged (the tokens); the Sheet's `initialFocus` rode PD4's #329 as its own commit.
+- **post-pay:** #327 (CounterPass + KitchenTrack, merged as `1b5e7e9`); #330 (PD3, draft; retarget to `main` after #327).
+- **kitchen-ops:** #328 (PD5); PD9 next.
+- **grocery:** #329 (PD4 + G20).
+- **staff-authority:** PD8 on `claude/feat/pd8-manager-approval` (M184 + the `close` arm).
+- **diner-cart (+ money-rails' create-intent half):** #331 (PD2, draft; retarget to `main` after #327); PD1 stacked on it next.
+- **counter-floor:** PD6 on `claude/feat/pd6-till-tray`; PD7 next.
+- **table-door, money-rails (the rest):** not in this wave.
 
 - **diner-cart (2026-10-08):** PD2 on `claude/feat/pd2-pd1-diner-cart` (base `claude/feat/pd-tokens-pass`,
   #326) — the parked `SURFACES.dineInPhonePay`, the docked counter door, the pass (post-pay's `CounterPass` from
@@ -178,5 +181,9 @@ stream adds one bullet of its own below this line and edits only that bullet.
   prettier-ignored. The recipe last used (not re-run 2026-10-08): `sudo dockerd &`, download `supabase`
   2.107.0 from GitHub releases, `supabase start -x edge-runtime,studio,imgproxy,logflare,vector,mailpit`
   (the pg-delta / edge-runtime TLS error at boot is benign — migrations still apply), `pnpm db:types`.
+- **The container is 4 CPUs / 15 GB.** Six streams running their gates at once put the 1-minute load near
+  45; under that load vitest's 5 s default timeout reddened untouched suites in two local full gates (the
+  primitives' and PD4's), each green on CI's `build` for the same head. Run the one full gate per stream
+  when the load is under ~12, and read CI's `build` as the measurement.
 - **ESLint is pinned to 9.x** (`^9.39.4`, root `package.json`): ESLint 10 broke `eslint-config-next`'s
   react plugin (the archived note; not re-tested).

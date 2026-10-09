@@ -1055,3 +1055,280 @@ The round-3 consistency pass gave this moment these changes:
    the guest's next tap is the only arrival. The entry is kept only for a send that got no answer at
    all — a beacon, or a reconcile that failed or was cut off — and that send is retried on the next
    visit. The success and no-longer-takes-an-arrival answers still clear it (F1).
+
+### H · Build notes (2026-10-08, `claude/feat/pd3-pickup-promise`, #330)
+
+Built by the post-pay stream against `claude/feat/pd-tokens-pass` (#326). What shipped, by section;
+what did not and why; the decisions taken under the owner's delegation.
+
+**Shipped.**
+
+- **The ONE derivation** — `apps/qr/lib/pickup-promise.ts`: `pickupGuide({ order, now })` returns the
+  stage (confirming · booked · cooking · late · ready · pickedUp), the Now pair, the current stop, the
+  ticket face, whether "I’m here" is offered, the countdown and the slot label. `isFired` (M65),
+  `LATE_AFTER_MIN = 15`, `pickupDayBounds` / `pickupIsToday` (the restaurant's calendar day, DST-safe,
+  the same bounds the server's statement reads), `pickupCountdownMin` (1–90, nothing from the slot
+  on), `arrivalCommitDue` and `arrivalTapHeld`. Red-first suite; ten `pickup-promise/*` mutants.
+- **M65 (the hard prerequisite, same PR)** — `fire_at` rides `TRACK_ORDER_SELECT` and
+  `shapeTrackedOrder` (`fireAt`); `liveOrderStatusWord` takes a REQUIRED `fired` input (B6), so a
+  held pickup reads **"Scheduled"** on /track, the tray (`getMyLiveOrders`) and the header pill
+  (`useActiveOrderStatus`, re-reading its clock once a minute while a stamp lies ahead). Mutants
+  `track/fire-at-dropped`, `live-order/held-pickup-reads-preparing`.
+- **Screen 1 / 3** — `components/PickupPromise.tsx`: NOW once as the h1 (the shipped
+  `orderWithKitchen` pair while cooking; h2 under PaySuccess on a fresh payment); the horizontal
+  four-stop path (`<ol role="list" aria-label="Order status">`, a ✓ glyph on done stops, a
+  `--bd` ring on next, `aria-current="step"`, an sr word per stop, real clocks only, the rail's
+  done span flowing in `--ok` and snapping under RM); the guide card with ONE question and ONE hero
+  verb; the late state's honest words with the door LAST (B10); the countdown with its MY line.
+- **"I’m here" (decision 5)** — offered any time on the pickup day at every stage short of
+  collected; the 6-second take-back (`ARRIVAL_UNDO_MS = PICKED_UNDO_MS`) BEFORE the write; the
+  swap in ONE 64px slot behind `SAME_GESTURE_MS` in both directions (A2 / B2); the Undo in the
+  lane's dashed `--ac` posture on `--sf`, named "Undo ပြန်ဖျက်" with " — 6s" an aria-hidden leaf
+  (A1 / B1, D3); the capped keyboard hold from `lib/undo-hold.ts` with the "about to go through"
+  line five seconds before the cap and the release at it (B5); focus following the swap and parking
+  on the card after THIS device's confirmation.
+- **Survives the page closing (§E–§G, correction 16)** — `lib/arrival-pending.ts`: ONE record per
+  order in `localStorage`, written at the COMMIT (the window's end, or the page hiding inside it),
+  never at the tap; cleared by an ANSWER (success, "no longer takes an arrival", a plain refusal);
+  kept only for a send with no answer; reconciled on the next mount to the idempotent route
+  `POST /api/track/arrival` (`sendBeacon` on `pagehide`; `visibilitychange→hidden` commits through
+  the Server Action, the page being alive). Four `arrival-pending/*` mutants.
+- **The arrival server (decision 22)** — `lib/arrival.ts`'s `stampArrival` (server-only, never a
+  public action: the clock is a parameter): the session arm, then the `earned_by` arm for a lapsed
+  session; guards IN THE STATEMENT — `arrived_at is null`, the pickup-day bounds, `togo_status`
+  null-or-not-collected — plus `.select("id")` and a row check (the W17 rule); one generic answer
+  for unknown / not-yours. `lib/arrival-action.ts` is the thin `"use server"` wrapper. Four
+  `arrival/*` mutants; a predicate-enforcing mock suite.
+- **Screen 2** — the pass face at Ready: ✓ + "READY FOR PICKUP · ယူလို့ရပြီ", the 40px code
+  (`.exit-pass-code`, `ph-no-capture`, sr twin), the sub with counterBody's clause (A3), the time
+  on the stub; the TURN once per order per tab (`celebration-latch`, key `ready:{orderId}`),
+  hydration-safe (only a transition this mount observed turns; a first paint or a revisit renders
+  the pass at rest), deferred to the next visible frame when the edge lands hidden, instant under
+  reduced motion (and the latch still written); `document.title` "Ready for pickup · Morning Star"
+  at the edge, restored after; the picked-up REST face.
+- **The wake re-read** — `useOrderStatus` exposes `refresh()`; OrderTracker's `wake` re-reads the
+  live way while membership holds, else refreshes the `earned_by` snapshot; PickupPromise calls it on
+  `visibilitychange→visible` / `focus` (coalesced) and, while the live read is gone, on the visible
+  30 s tick (B7). The foot is quiet's "This page catches up whenever you come back to it."
+- **Dad's lane** — `expoAge` counts a pickup's age from the LATER of the arrival and the slot
+  (`expoAgeFrom`, B8), so an early tap never paints an on-time bag warn; the badge and the bell
+  stay. Two mutants; the old `a-scheduled-bag-ages-from-payment` re-anchored. The lane's STRINGS are
+  unchanged (decisions 9 and 23): the guest's ticket adopts Dad's words, never the reverse.
+- **Round 3** — D4: `.mms-track-now` runs at most 3 cycles per step change (the dot is keyed on the
+  step; off under RM), on both rails. ONE PASS: the ✓ only at Ready on the ticket.
+- **Privacy** — `ph-no-capture` on the stub and on every element rendering the code (decision 7).
+- **The pickup page drops the "PICKUP" eyebrow (decision 16) and the chip row (B9):** the header
+  pill's `.vt-order-status` morph partner is the ticket's kicker.
+- **Copy** — every diner string verbatim from the COPY sections; `lib/i18n/track.ts` holds the pairs
+  (pure literals, walked by the content-rule suites), with each Burmese line marked SHIPPED (named)
+  or DRAFT → OPEN-ITEMS `K15 · post-pay`. `kickerPickup` = `expo.pickup`, `imHere` = `expo.tag.here`,
+  `undo` = `kds.undo`, `passSub` = `counterBody`'s clause, `kickerPickedUp` = `expo.verb.pickedUp`.
+
+**The claim ticket on the primitive (`claude/feat/pd-pass-primitives` @ `0e14939`, #327, merged in).**
+
+- `components/ClaimTicket.tsx` renders `<CounterPass tier="holder">` on every face — the paper, the
+  dotted seam, the notches, the stamp and the 40px tier are the primitive's, drawn nowhere else. In its
+  slots: the two-tongue `label` is Dad's `expo.pickup` ("Pickup · လာယူချိန်") on every face; the
+  `figure` (`figureKind="code"`) is the slot label while waiting, then the code (`figureSpoken` spells
+  it); the status slot (`head`) carries the countdown while waiting and, at Ready, the ✓
+  (`terminal="ready"` — the ONLY ✓ a pickup ticket draws) before the kicker word "Ready for pickup ·
+  ယူလို့ရပြီ"; the `stub` is the `<dl>` (For · Code, then For · Pickup); the body carries the sub. The
+  TURN is the primitive's one-element split-flap on the figure (`turning="figure"`), keyed on the face
+  so it plays once; the host clears the hook when the figure's animation ends. `ph-no-capture` rides
+  the stub and, once the code is the figure, the whole ticket. REST mutes the kicker and the code to
+  `--pass-ink-2` by class (no ✓, round 3).
+- Decided under the owner's delegation (post-pay): the countdown rides the STATUS slot (the primitive
+  has no slot under the figure inside the head) and the pass sub rides the BODY beneath the seam; the
+  header pill's `.vt-order-status` morph partner is the ticket wrapper (the chip row is dropped, B9).
+
+**Appendix C taken / not.**
+
+- C2 (the confirmed row's done mark is the path's SOLID `--ok` disc with the `--okb` check): taken.
+- C3 (drop the dashed edge once the window has closed — "Letting them know…"): taken; the busy
+  control is the plain secondary.
+- C4 (key the turn latch `ready:{orderId}`, apart from PaySuccess's): taken.
+- C5 (commit-on-hide reconciles to server truth; a stamp that did not land shows the question on
+  return): taken, through §F/§G's record.
+- C6 (no pickup number before booking at When/Pay): outside this surface; nothing here prints one.
+- C7 (notches without a ring): deferred to the CounterPass primitive, which owns the notch.
+- C8 (a booked-time variant of "hang tight" for a pre-slot arrival): NOT taken — it would compose a
+  new sentence from existing words; the shipped line stays and the D12 sitting may re-word it.
+- C9 (the hollow next ring vs "not sent"): the path keeps the product's shipped `--bd` ring; the
+  stop's word and its sr "next" carry the state, and no pickup stop can read as a dish unsent.
+- C1 (full paths in citations): the citations in this file are left as written.
+
+**Decided under the owner's delegation (decided by: the post-pay stream).**
+
+1. The Ready h1's Burmese is the family word **ယူလို့ရပြီ** alone (B9: one word for "ready" on the
+   screen; it is the kicker's word too). The body's draft "သင့်အော်ဒါ အဆင်သင့်ဖြစ်ပါပြီ" is not used.
+2. The late sub stays "It shows here the moment it is." ONLY while the live read is authorized; once
+   /track is on the `earned_by` snapshot the page re-reads every 30 s while visible (B7's first
+   option), and the foot already says it catches up on return. No sentence is swapped.
+3. The cap-warn line, which no spec string draws (J29): "We’ll tell the counter in a few seconds." /
+   "ခဏနေရင် ကောင်တာကို ပြောပေးပါမယ်" (DRAFT, K15).
+4. `visibilitychange→hidden` inside the window commits through the Server Action (the page lives on);
+   only `pagehide` beacons. Both write the record first. A bfcache `pagehide` (`persisted`) keeps the
+   window.
+5. The arrival route answers 200 for every DECIDED outcome (`ok:false` carries a reason), 400 for a
+   malformed body, 429 for the flood guard and 5xx for a failed write — the client treats only 429
+   and 5xx as "no answer" (the record stays).
+6. The `phone` glyph joins the Icon registry (`packages/ui/src/icon.tsx`, lucide `Phone`) — the spec's
+   own one-line instruction; recorded here because `packages/ui` is guards-style's.
+7. The ticket's countdown sits in the pass's status slot and its sub in the body (above).
+8. `liveOrderStatusWord`'s `fired` is REQUIRED, not defaulted: a defaulted `true` would silently
+   restore M65 for any caller that forgot it.
+
+**Where the code disproved the spec.**
+
+- The spec's `@vitest`-free claim that a programmatic focus on Undo is never `:focus-visible` holds
+  in browsers after a touch, but not in jsdom — the component suite models touch and keyboard
+  explicitly (`matchesFocusVisible` mocked), and the hold is pinned both ways.
+
+### H2 · Codex round 1 on #330 (2026-10-08, reviewed `55293cf`) — every finding fixed
+
+Each was verified against the source first; all ten threads were real.
+
+- **The pending record (P1).** The action RESOLVES `failed` for a failed UPDATE, and the first draft
+  read every resolved refusal as an answer — so a transient failure retired the one repair for a
+  committed arrival. `actionOutcome` (`lib/arrival-pending.ts`, mutated) names the rule once:
+  `failed` and `rate` are not answers (the route's own 5xx / 429), every other refusal is.
+- **The beacon (P1).** A tab close fires `visibilitychange(hidden)` — which commits and empties the
+  window — and then `pagehide`, which found no window and sent nothing. `pagehide` now also beacons
+  while that in-page send is unanswered (the route is idempotent, so a beacon beside a landing
+  action records one arrival).
+- **The stale live row (P1).** A row the live read delivered and then lost (the session lapsed) kept
+  `live` true for ever. `useOrderStatus` now reports `stale` — from a ref scoped to the order key,
+  because a Supabase token refresh re-runs the subscription and a per-run flag forgot the row — and
+  OrderTracker reads `live` as "still readable", refreshing the `earned_by` snapshot on every wake.
+- **The wake loop (P1).** The B7 re-read was keyed on the host's `wake`, which is rebuilt whenever its
+  snapshot changes: one request per answer. It is read through a ref and keyed on the clock and the
+  live transition only.
+- **The server's proofs (P2).** The write accepts the durable proofs the tracker's own fallback read
+  accepts — `earned_by`, a split payer, a seat in the order's session — and a proof that cannot be
+  READ is `failed`, never a decided `unauthorized`. The guarded UPDATE carries `status = 'paid'`, so a
+  late commit cannot put a false "Here now" on a refunded bag (`closed`).
+- **The late sub (P2)** renders only while live; on the snapshot the foot's sentence is the true one.
+- **The footprint (P2).** The Ready face's seam and body grew the ticket during the TURN. The live
+  face and the other face share one grid cell, the other as `CounterPass`'s inert guide picture in a
+  hidden, aria-hidden sizer — the ticket is the taller face's height by construction, at any font
+  size, and no `min-height` literal is guessed.
+- **"Tomorrow" (P3)** reads the next calendar day's bounds (`pickupDayBoundsAhead`), never +24 h.
+- Six mutants added (`arrival/refunded-order-stamped`, `/payer-arm-dropped`, `/seat-arm-dropped`,
+  `/auth-outage-reads-as-refusal`, `arrival-pending/failed-action-clears-the-record`,
+  `pickup-promise/tomorrow-by-24-hours`); `arrival/earned-by-arm-dropped` re-anchored (its old line
+  was deleted by the proof-chain rewrite). The component-level fixes (beacon, wake, stale row, late
+  sub, footprint) were each watched red by reverting the fix, then restored.
+
+### H3 · Codex round 2 on #330 (2026-10-09, reviewed `d2a3d76`) — every finding fixed
+
+The second of the two triaged rounds; each was verified against the source first.
+
+- **The seat proof was broader than the read it mirrors (P2).** `getMyOrderFallback` reaches
+  `session_members` only after proving a counter tender; the write accepted any former seat. The
+  lookup now reads `tender`, and the seat arm runs only for `COUNTER_TENDERS` (`lib/counter-tender.ts`,
+  the one shared list). A card-paid pickup's former tablemate is `unauthorized`. Mutant
+  `arrival/seat-proves-a-card-paid-order`.
+- **A failed first lookup read as a decided refusal (P2).** The read's `{ error }` was dropped, so a
+  transient PostgREST failure answered `unauthorized` and the client retired its pending record. It
+  answers `failed` now. Mutant `arrival/failed-lookup-reads-as-refusal`.
+- **The late door vanished after the restaurant's midnight (P2).** An unbagged order stays late
+  while the arrival is no longer offered, and the door lived inside the arrival card. The door is the
+  card's last line when the card is open and stands on its own when it is not; a test pins 12:30 AM.
+
+### H4 · The blind pass on #330 (2026-10-09, reviewed `1b5e7e9..d073100`, REJECT) — every finding
+
+Verified against the source first; fixed in `fddcc57`, `6b05172`, `1274802`, `7b1a9f3`.
+
+- **Critical — a gave-up arrival was replayed later as a fresh bell.** `committedAt` was written and
+  never read. **Decided under the owner's delegation (post-pay): a committed, unanswered arrival is
+  replayable for ten minutes** (`PENDING_ARRIVAL_MAX_AGE_MS`). The record exists to survive the page
+  closing inside the commit, a guest standing at the counter, and its claim is true for minutes, not
+  hours. An older record (or one from the future) is retired without a send. Only the route's own
+  answers clear a record (`routeOutcome`: a 200 with a boolean `ok`, or a 400); a platform 4xx, a
+  429, a 5xx or an unreadable body keeps it.
+- **Critical — a lapsed session went unnoticed on an open page.** The session's `expires_at` passes
+  with no event, and B7 re-read only while not live. The clock effect now re-reads on every tick and
+  wake, live or not. A live read that comes back empty flips the host to its snapshot, and the flip
+  reads that snapshot at once. A wake is ONE read (it was two).
+- **Early arrival — decision 5 narrowed, decided under the owner's delegation (post-pay), FOR THE
+  OWNER TO CONFIRM.** Offered the whole pickup day (decision 5's default), a 9 AM tap for a 6:20 PM
+  slot rang Dad's bell at 9 AM and pinned "Here now" above every due bag all day. And, the stamp
+  being set once, the guest's real arrival could never be announced: a defect in the default itself,
+  which Open Risk 1 anticipated. "I'm here" is now offered **from 30 minutes before the slot**
+  (`ARRIVAL_LEAD_MIN`), on the pickup's own day, and the server's guarded UPDATE carries the same
+  bound (`too_early`, a decided refusal). The spec's own scene arrives 19 minutes early. Before the
+  window the page shows the ticket and its countdown, no button and no new sentence; a guest there
+  earlier asks at the counter. The owner may widen it; the constant is the one place to change.
+- **Refused callers were never throttled.** The caller is verified and throttled before any order
+  read. No verified caller (a token mid-refresh, the transport down) is `failed`, never a decided
+  `unauthorized`: that also answers the refresh-token open question.
+- **Guards.** The idempotence test now reaches the UPDATE (a racer stamps between the read and the
+  write; the first stamp stands). The `rate` arm is tested. The route's status mapping is pinned end
+  to end against the client's own `routeOutcome` (its exemption is gone). The classification read
+  handles its error.
+- **Open questions.** Dated clocks: a stop's clock names its weekday when not today. `confirming`:
+  removed (no stage produced it). `pending` / `failed` rows: the pickup page requires a paid order.
+  More than one member on a pickup session: the only invite surface (`GuestList` → `InviteSheet`)
+  mounts for `dinein` alone, so a pickup session's code is never offered to a second phone; and
+  while the session lives, membership is exactly the authority the live tracker reads by. The
+  live-stale snapshot: once the live row is gone and the snapshot read answers a decided no, the
+  foot no longer says the page catches up.
+- Mutants: `arrival-pending/gave-up-arrival-replayed`, `/platform-status-clears-the-record`;
+  `arrival/too-early-guard-dropped`, `/statement-idempotence-dropped`, `/rate-reads-as-refusal`,
+  `/unthrottled-caller`, `/unverified-caller-reads-as-refusal`, `/classification-error-swallowed`;
+  `pickup-promise/arrival-offered-too-early`; `track-arrival-route/rate-answers-200`,
+  `/failed-answers-200`, `/throw-answers-200`.
+
+### H5 · The second blind pass on #330 (2026-10-09, reviewed `d073100..7536c55`, REJECT) — every finding; these win over H4
+
+Verified against the source first; fixed in `af7c0bb` and `0a288a1`. No agent round follows: the
+fix commits stand on their own and on the author's hand-read.
+
+- **Critical — an errored live read moved the page backwards.** A FAILED read in `useOrderStatus`
+  fell through to `stale`, and the host then showed any snapshot, whatever its age: snapshot at
+  "preparing", live reaches Ready, one tick errors, the ticket turned back to the time and the live
+  region re-announced the earlier stage. Fixed at the root and at the pick. Only a read that
+  SUCCEEDED with no row means the session lapsed; a failed one keeps the row and stays live. A stale
+  live row yields only to a snapshot strictly FURTHER ALONG (`orderOnScreen`: refund, then the bag's
+  stage, then the arrival, then the cents refunded). The paid gate (`pickupPageShown`) and the foot's
+  withdrawal (`pickupFootPromised`) moved into the same pure module, `lib/pickup-view.ts`, with a
+  suite and mutants: inline in the tracker, deleting either left every suite green.
+- **No session is a decided refusal again.** H4 made every unverified caller `failed`, which answered
+  a bot or a cookie-less cross-site POST with a 500. Now NO session is `unauthorized` (a 200, before
+  the flood guard and any order read), and only an identity service that is DOWN is `failed`. A token
+  mid-rotation is neither: the server client refreshes an expired session from the cookie's refresh
+  token inside `getUser()` before it answers (auth-js `__loadSession`). The residual, a refresh token
+  the browser already rotated past its reuse interval, reads `unauthorized`: the record retires and
+  the question returns for one more tap, never a false "here". The route's CSRF note says this again.
+- **Only the route's own 400 is an answer.** A 400 retires the pending arrival only when it carries
+  the route's refusal body (`ok: false`); an edge or platform 400 (no body, an HTML page) keeps it
+  for the next visit inside its window.
+- **`too_early` speaks honestly.** The page offers the question from the device's clock and the
+  server refuses by its own; when the device runs ahead, the guest heard "try again", which would fail
+  the same way. A decided `too_early` now reads "It’s a little early — you can tell the counter
+  you’re here from {t}." (`arrivalRefusal`; {t} is the slot less `ARRIVAL_LEAD_MIN`, and the server
+  answers `not_today` first, so the clock alone is the honest label). The house's own words under
+  delegation (J29); the Burmese line is a K15 draft.
+- **The snapshot read keeps an outage an outage.** `getMyOrderFallback` dropped `getUser`'s error and
+  answered `not_found`, which withdrew the foot on an auth glitch; a transport failure is now `error`.
+- **Guards.** The lead bound's test reads `ARRIVAL_LEAD_MIN` (no transcribed 30). The one deliberate
+  `30` is the policy pin, and its message says so. The route's answer table is exhaustive by type
+  (`satisfies Record<…>`): a new reason without a row, or a row for a gone reason, fails typecheck.
+- **Comments.** The tick, wake and host notes now say what the code does: one re-read per clock
+  change, live or not, and a stale row yields only to a snapshot further along.
+- **Open questions.** More than one member on a pickup session, corrected: it CAN happen. `?j=<code>`
+  reaches `findActive` (`app/api/session/route.ts:169-179`), which filters on the code, `active` and
+  expiry, not the mode. The member insert (`:559-575`) checks only `MAX_PARTY_SIZE`. The code is never
+  offered on a pickup: the only invite surface mounts for `dinein` alone (`MenuBrowser.tsx:662`). And
+  a second member holds exactly the `is_member` read the live tracker uses, so the arrival write never
+  reaches past what that member can already read. Whether a pickup session should refuse a join at
+  all is the owner's call (OPEN-ITEMS PD3).
+- **Under delegation, for the owner to confirm:** the 30-minute lead (`ARRIVAL_LEAD_MIN`), the
+  10-minute replay window (`PENDING_ARRIVAL_MAX_AGE_MS`) and the `too_early` sentence.
+- **Cost, non-blocking.** The live page re-reads on its 30 s tick, roughly two selects a minute per
+  open tab.
+- Mutants: `use-order-status/errored-read-flips-stale`; `pickup-view/older-snapshot-wins`,
+  `/unpaid-row-gets-the-page`, `/foot-promised-when-unreadable`; `arrival/caller-outage-reads-as-refusal`
+  (H4's `/unverified-caller-reads-as-refusal`, re-aimed), `/no-session-reads-as-outage`;
+  `arrival-pending/any-400-clears-the-record`; `pickup-promise/too-early-reads-try-again`;
+  `orders/fallback-auth-outage-reads-as-not-found`.
