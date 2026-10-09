@@ -8,9 +8,13 @@ import {
   TILL_HERO_MAX_CHARS,
   TILL_MEDIA,
   TILL_MIN_HEIGHT_EM,
+  TILL_LEDGER_CLEAN,
   TILL_PAD_X_PX,
   tillBandsAt,
   tillCancelSays,
+  tillDoubts,
+  tillLedgerAfter,
+  type TillEvent,
   tillDoorLandsInert,
   tillHeroTier,
   tillMinWidthEm,
@@ -80,6 +84,39 @@ describe("where the till applies — the breakpoint is COMPUTED from the grid (C
     );
     expect(actions?.value).toBe("1 / 4");
   });
+
+  it("the tray's gutters and padding ARE the constants the geometry reasons with (#334 guard integrity)", () => {
+    // Parsed, never scanned: the tray's rule selected by what it declares, under the ONE query, and
+    // the spacing tokens read from tokens.css's `:root` — so a moved gutter or a re-tokened padding
+    // reddens here instead of leaving `tillBandsAt` describing a tray the CSS no longer draws.
+    const css = readFileSync(join(__dirname, "../app/globals.css"), "utf8");
+    const tray = cssDeclarations(css).filter(
+      (d) => d.selector === ".mms-sheet.till-sheet" && d.media === `@media ${TILL_MEDIA}`,
+    );
+    const val = (prop: string) => {
+      const hits = tray.filter((d) => d.prop === prop);
+      expect(hits).toHaveLength(1); // ambiguity refused
+      return hits[0]!.value.trim();
+    };
+    const tokens = cssDeclarations(
+      readFileSync(join(__dirname, "../../../packages/ui/src/tokens.css"), "utf8"),
+    ).filter((d) => d.selector === ":root" && d.media === null);
+    const px = (v: string) => {
+      const name = /^var\((--[\w-]+)\)$/.exec(v)?.[1];
+      const hits = tokens.filter((d) => d.prop === name);
+      expect(hits).toHaveLength(1);
+      const m = /^(\d+)px$/.exec(hits[0]!.value.trim());
+      expect(m).not.toBeNull();
+      return Number(m![1]);
+    };
+    expect(val("left")).toBe(val("right"));
+    // MUTATION till/gutter-off-the-css (TILL_GUTTER_PX moved) → red.
+    expect(px(val("left"))).toBe(TILL_GUTTER_PX);
+    const pad = val("padding").split(/\s+/);
+    expect(pad).toHaveLength(2);
+    expect(pad[0]).toBe("0");
+    expect(px(pad[1]!)).toBe(TILL_PAD_X_PX);
+  });
 });
 
 describe("tillHeroTier — a figure past seven characters steps down one tier, never wraps", () => {
@@ -135,17 +172,73 @@ describe("the slip — frozen with the quote, diverged when the cart changes (Co
   });
 });
 
-describe("tillCancelSays — reassurance only where doubt existed and was resolved as nothing", () => {
-  it("says it after a refused or stalled attempt; never after waiting, unknown, landed, or a plain cancel", () => {
-    expect(tillCancelSays("refused")).toBe(true);
-    expect(tillCancelSays("stalled")).toBe(true);
+describe("the till's ledger — reassurance only where an attempt came to nothing and no doubt is left", () => {
+  /** The ledger after a run of events, from a clean till. */
+  const run = (...es: TillEvent[]) => es.reduce(tillLedgerAfter, TILL_LEDGER_CLEAN);
+
+  it("one attempt: says it after a refusal or a stalled tap; never after waiting, unknown, landed, or a plain cancel", () => {
+    expect(tillCancelSays(run({ k: "opened" }, { k: "refused", late: false }))).toBe(true);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "tapRefused", as: "stalled" }))).toBe(true);
     // MUTATION till/cancel-reassures-a-waiting-payment: "nothing was taken" over a settle that may
     // still be recorded — the cashier takes the money twice; red.
-    expect(tillCancelSays("waiting")).toBe(false);
-    expect(tillCancelSays("unknown")).toBe(false);
-    expect(tillCancelSays("landed")).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "out" }))).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "threw", late: false }))).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }, { k: "landed" }))).toBe(false);
     // Appendix C: a routine cancel stays silent.
-    expect(tillCancelSays("none")).toBe(false);
+    expect(tillCancelSays(run({ k: "opened" }))).toBe(false);
+  });
+
+  it("a lost answer, then a refusal or a stalled tap: the doubt is STICKY (the blind pass on #334, C1)", () => {
+    // (A) The first settle's answer was lost after it committed; the re-tap is refused "That table
+    // is closed." — that refusal is the first settle LANDING, never "nothing was taken".
+    // MUTATION till/refusal-clears-the-doubt → red.
+    const a = run({ k: "opened" }, { k: "threw", late: false }, { k: "refused", late: false });
+    expect(tillDoubts(a)).toBe(true);
+    expect(tillCancelSays(a)).toBe(false);
+    // (B) …or the re-tap is refused at the tap (another action stalled). MUTATION
+    // till/stalled-tap-clears-the-doubt → red.
+    const b = run({ k: "opened" }, { k: "threw", late: false }, { k: "tapRefused", as: "stalled" });
+    expect(tillCancelSays(b)).toBe(false);
+  });
+
+  it("the doubt crosses openings: waiting → a late throw → reopen → refused says nothing", () => {
+    // MUTATION till/opening-wipes-the-doubt (an opening resets the ledger) → red.
+    const l = run(
+      { k: "opened" },
+      { k: "out" },
+      { k: "threw", late: true },
+      { k: "opened" },
+      { k: "refused", late: false },
+    );
+    expect(l.last).toBe("refused");
+    expect(tillCancelSays(l)).toBe(false);
+  });
+
+  it("only the out attempt's own late answer resolves `out`; an on-time refusal of a newer one does not", () => {
+    // The attempt out past the bound answered: refused — nothing recorded; the till may reassure.
+    expect(tillCancelSays(run({ k: "out" }, { k: "refused", late: true }))).toBe(true);
+    // A NEWER attempt refused while the first is still out: the first may yet land. MUTATION
+    // till/on-time-refusal-resolves-out → red.
+    const l = run({ k: "out" }, { k: "refused", late: false });
+    expect(l.out).toBe(true);
+    expect(tillCancelSays(l)).toBe(false);
+    // …and a late THROW of the out attempt leaves it unknown, never resolved.
+    expect(tillDoubts(run({ k: "out" }, { k: "threw", late: true }))).toBe(true);
+  });
+
+  it("a read resolves the doubt; a landed attempt resolves everything", () => {
+    // The host's read (`settleUnknownAfterRead`) showed the order still open past the settle's life.
+    // MUTATION till/read-never-resolves → red.
+    const read = run(
+      { k: "threw", late: false },
+      { k: "readResolved" },
+      { k: "refused", late: false },
+    );
+    expect(tillDoubts(read)).toBe(false);
+    expect(tillCancelSays(read)).toBe(true);
+    // The payment was recorded: no doubt is left (and nothing to reassure about — the seal stands).
+    const landed = run({ k: "out" }, { k: "threw", late: true }, { k: "landed" });
+    expect(landed).toEqual({ last: "landed", out: false, unknown: false });
   });
 });
 
@@ -159,7 +252,9 @@ describe("the double-tap guard, by geometry (decision 6)", () => {
     expect(b.padRight).toEqual({ x0: 1314, x1: 1346 });
   });
   it("the pad's door (x962–1346, the dock at 1366) lands on the GAVE column and the padding: inert", () => {
-    // picked-m6-1 ② Dock: "Primary xl 64 … x962–1346". MUTATION till/door-spot-admits-the-band-buttons
+    // The DESIGN's door span (picked-m6-1 ② Dock: "Primary xl 64 … x962–1346"), not the dock's
+    // measured CSS — a design-time check; the device sitting is the runtime proof (#334).
+    // MUTATION till/door-spot-admits-the-band-buttons
     // (the GAVE bound widened to the tray's left edge): Take's x244–844 span would read inert; red.
     expect(tillDoorLandsInert({ x0: 962, x1: 1346 }, 1366)).toBe(true);
     expect(tillDoorLandsInert({ x0: 244, x1: 844 }, 1366)).toBe(false);

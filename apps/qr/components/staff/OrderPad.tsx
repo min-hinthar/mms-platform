@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useTransition,
+  type RefObject,
+} from "react";
 import { flushSync } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { Button, Icon, Toast, buttonClass, categoryIconName, useSheetSubject } from "@mms/ui";
@@ -85,7 +93,13 @@ import { usePadNotices } from "./usePadNotices";
 import { useReloadHold } from "./useReloadHold";
 import { draftHeld } from "@/lib/reload-guard";
 // ── Phase 2d · split ──
-import { PANE_QUERY, paneUrl, stashHandoff, tableDestination } from "@/lib/floor-pane";
+import {
+  PANE_QUERY,
+  markSealLanding,
+  paneUrl,
+  stashHandoff,
+  tableDestination,
+} from "@/lib/floor-pane";
 // ── PD6 · K39 — the walk-up sale stays on the pad ──
 import { STAFF_HANG_MS } from "@/lib/bounded-write";
 import { settleUnknownAfterRead } from "@/lib/register-math";
@@ -239,6 +253,7 @@ export function OrderPad({
   // pad). It ends on a read that started after the settle could last land and shows the cart open
   // (`settleUnknownAfterRead`, the table page's own rule).
   const unknownSince = useRef<number | null>(null);
+  const readsResolvedRef = useRef(0);
   const [closedUnknown, setClosedUnknown] = useState(false);
   const onClosed = useCallback(() => {
     if (unknownSince.current === null) return false;
@@ -251,7 +266,10 @@ export function OrderPad({
       commitAdds(readStartSeq);
       setLineUnreadSeq((s) => unreadAfterCommit(s, readStartSeq));
       setCommitSeq(readStartSeq);
-      unknownSince.current = settleUnknownAfterRead(unknownSince.current, read);
+      const before = unknownSince.current;
+      unknownSince.current = settleUnknownAfterRead(before, read);
+      // #334 C1 — a read RESOLVED an unknown settle (nothing was recorded): the till's positive signal.
+      if (before !== null && unknownSince.current === null) readsResolvedRef.current += 1;
     },
     [commitAdds],
   );
@@ -852,6 +870,12 @@ export function OrderPad({
     variantOverride: counterDock?.settleVariant,
   };
   const settle = padSettle(settleInput);
+  // #334 C2 — the decision's inputs as of the LAST commit, for the till gate's re-check after its
+  // awaits (the tapping render's closure cannot see a refused add, or the read the gate waited for).
+  const settleInputRef = useRef(settleInput);
+  useLayoutEffect(() => {
+    settleInputRef.current = settleInput;
+  });
   // What a refused Take payment names: the note's dish, the add it waits on (lost or still coming).
   const reasonCtx = (
     note: { lineId: string; name: string } | null,
@@ -999,6 +1023,28 @@ export function OrderPad({
         return false;
       }
     }
+    // #334 C2 — the hold RE-DECIDED on the order as it is NOW, by the same decision the tap made
+    // (`padSettle`, one binding): a dish refused while it flew is dropped from the chain, which can
+    // leave an empty or an unpriced order behind an accepted tap — the tray never opens over a due
+    // nobody read; the hold's own words say why.
+    const edits = [...lineEdits.current.values()];
+    const late = unsavedNoteFrom(edits);
+    const nowInput = settleInputRef.current;
+    const after = padSettle({
+      ...nowInput,
+      pending: writes.counts(),
+      unsavedNote: late !== null,
+      lines: {
+        ...nowInput.lines,
+        writing: edits.filter((e) => e.writing).length + removals.current,
+      },
+      settlePhase: "idle",
+    });
+    if (after.block) {
+      stopSettle();
+      refuseSettle(after.block, late);
+      return false;
+    }
     stopSettle();
     return true;
   };
@@ -1014,6 +1060,8 @@ export function OrderPad({
       sentEarly: detail.unpaidSent,
     };
     stashHandoff(sessionId, handoff);
+    // m6 B6 — the same-tab RELOAD lands once more (a one-shot note); a later revisit is calm (#334).
+    markSealLanding(sessionId, handoff.orderId, Date.now());
     pausedRef.current = true;
     unknownSince.current = null;
     setSeal(handoff);
@@ -1134,15 +1182,21 @@ export function OrderPad({
     beforeOpen: openTillGate,
     // m6 B7 — the pad's ONE region says a held tap's sentence; the control mounts no alert here.
     onHeldTap: () => say({ k: "settle.cash.waiting" }),
-    // m6 graft 5 — said after the tray is gone, only when doubt existed and came to nothing.
+    // m6 graft 5 — said after the tray is gone, only when an attempt came to nothing recorded.
     onCancelClean: () => notify(padSlotNotice("correction", "settle.cash.cancelClean")),
+    // #334 C1 — the pad's own view of a settle it was told is unknown: until a read resolves it
+    // (`settleUnknownAfterRead`) or it lands, the tray says nothing reassuring.
+    outcomeOpen: () => unknownSince.current !== null,
+    readsResolved: () => readsResolvedRef.current,
   };
   const tillNode = open ? (
     <div className="pad-settle">
       <CashSettleButton
         sessionId={sessionId}
         // A held door (unpriced, or an amount still pending) never opens; its trigger reads bare.
-        totalCents={detail.settleTotalCents ?? 0}
+        // #334 C2 — null passes as null: the tray's quote is a number by type, so an unpriced read
+        // can never be frozen into a due (the gate re-decides the hold on the fresh read first).
+        totalCents={detail.settleTotalCents}
         tipBaseCents={detail.settleTipBaseCents}
         intendedTipCents={detail.intendedTipCents}
         isTab={tab}

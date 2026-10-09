@@ -10,7 +10,7 @@ import type { StaffWriteResult } from "@/lib/staff-cart";
 import type { PadCatalogItem } from "@/lib/order-pad";
 import { STAFF_HANG_MS, stalledSince, youngWrite } from "@/lib/bounded-write";
 import { reloadHolds } from "@/lib/reload-guard";
-import { handoffStashKey } from "@/lib/floor-pane";
+import { handoffStashKey, sealLandingKey } from "@/lib/floor-pane";
 
 /**
  * Phase 2c · pad — the ORDER PAD's WIRING (DESIGN-LANGUAGE §28). The decisions are pure and pinned
@@ -1734,16 +1734,17 @@ describe("P4 — nothing is added while Take payment is on its way out", () => {
   it("while the name saves: a tile tap is refused and says what Take payment is doing", async () => {
     const save = deferred<{ ok: true }>();
     setName.mockReturnValueOnce(save.promise);
-    mount(
-      detail({
-        label: "reg-ab12",
-        mode: "pickup",
-        lines: [line({ id: "l1", sendable: false })],
-        itemCount: 1,
-        settleTotalCents: 1581,
-      }),
-      { counter: true },
-    );
+    const d = detail({
+      label: "reg-ab12",
+      mode: "pickup",
+      lines: [line({ id: "l1", sendable: false })],
+      itemCount: 1,
+      settleTotalCents: 1581,
+    });
+    // The read the till's gate waits for (the name was just saved) is THIS order — the gate
+    // re-decides its hold on it (#334 C2), so it must not read back another table's.
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+    mount(d, { counter: true });
     fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
       target: { value: "Aye" },
     });
@@ -2562,6 +2563,11 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     // MUTATION pad-seal/landing-never-stashed: a reload loses Cash received and Change; red.
     const stashed = JSON.parse(sessionStorage.getItem(handoffStashKey(SESSION))!);
     expect(stashed).toMatchObject({ orderId: OK.orderId, totalCents: 1581, tenderedCents: 2000 });
+    // …and its one-shot landing note beside it: a same-tab RELOAD lands once more, a revisit is
+    // calm (#334). MUTATION seal-stash/pad-never-marks → red.
+    expect(sessionStorage.getItem(sealLandingKey(SESSION))).toMatch(
+      new RegExp(`^${OK.orderId}\\|`),
+    );
     // The poll is PAUSED under the seal: the session closing behind its settle never bounces it.
     getTableDetail.mockResolvedValue({ kind: "closed" });
     const before = getTableDetail.mock.calls.length;
@@ -2658,6 +2664,99 @@ describe("PD6 · K39 — the walk-up cash sale never leaves the pad (m6 'Shape o
     });
     await flush();
     expect(tray()).toBeNull();
+    expect(region().textContent).toBe(STAFF["pad.reason.unpriced"].en);
+  });
+
+  it("a LOST answer, then the re-tap refused 'That table is closed.', then Cancel: no 'Nothing was taken', and the next `closed` read is said in place (#334, C1)", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: counterPayable() });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    settleCash
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValueOnce({ ok: false, error: "That table is closed.", code: "sentence" });
+    mount(counterPayable(), { counter: true });
+    await openTray();
+    const takeIt = () =>
+      act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^Take \$/ }));
+      });
+    await takeIt(); // the answer is lost after the settle may have committed
+    await flush();
+    await takeIt(); // the re-tap meets the session that settle closed
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    });
+    await flush();
+    // MUTATION till-ui/refusal-frees-the-page-hold (and till/refusal-clears-the-doubt): "Nothing
+    // was taken" over money that most likely was; red.
+    expect(region().textContent).not.toBe(STAFF["settle.cash.cancelClean"].en);
+    // The session closed behind the first settle: said in place, never a bounce (the pad's hold
+    // survived the refusal of the newer attempt).
+    getTableDetail.mockResolvedValue({ kind: "closed" });
+    await flush(6000);
+    expect(replace).not.toHaveBeenCalled();
+    expect(
+      document.querySelector('[aria-labelledby="pad-settle-closed-h"]')!.textContent,
+    ).toContain(STAFF["settle.cash.unknownClosed"].en);
+  });
+
+  it("an EMPTY counter order: a dish tapped, Take cash accepted while it flies, the dish refused — no tray over $0.00; the hold's words (#334, C2)", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    const empty = {
+      ...counterPayable(),
+      lines: [],
+      itemCount: 0,
+      settleTotalCents: null,
+      settleBreakdown: null,
+    };
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: empty });
+    mount(empty, { counter: true });
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    // Accepted: an add is on its way, so the order is not empty to the gate yet.
+    expect(settleBtn().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    await act(async () => {
+      add.resolve({ ok: false, error: "Sold out." });
+    });
+    await flush();
+    await flush();
+    // MUTATION pad-door/gate-skips-the-recheck: "Take $0.00 in cash?" with a $0.00 hero; red.
+    expect(tray()).toBeNull();
+    expect(document.body.textContent).not.toContain("$0.00");
+    expect(settleCash).not.toHaveBeenCalled();
+    // The hold's own words, re-decided on the order as it now is (one binding, `padSettle`).
+    expect(region().textContent).toBe(STAFF["pad.reason.empty"].en);
+  });
+
+  it("an UNPRICED counter order: a dish tapped, Take cash accepted while it flies, the dish refused — the drain re-decides 'unpriced' and says reload (#334, C2)", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    const d = { ...counterPayable(), settleTotalCents: null, settleBreakdown: null };
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+    mount(d, { counter: true });
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    // The figure is merely withheld while the dish flies, so the tap is accepted (the pending arm).
+    expect(settleBtn().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    await act(async () => {
+      add.resolve({ ok: false, error: "Sold out." });
+    });
+    await flush();
+    await flush();
+    expect(tray()).toBeNull();
+    // MUTATION pad-door/drain-reopens-unpriced (the "unpriced" arm dropped, judged here): the
+    // re-check passes and the tray is asked to open over a null total; red.
     expect(region().textContent).toBe(STAFF["pad.reason.unpriced"].en);
   });
 

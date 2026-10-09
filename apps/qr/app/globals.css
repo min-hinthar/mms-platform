@@ -14589,6 +14589,10 @@ html[data-reloading] body::after {
     font-weight: var(--fw-bold);
     color: var(--t2);
   }
+  /* The heading's English echo is visual only (aria-hidden): the list's name keeps one script. */
+  .till-slip-h > .till-slip-echo {
+    margin-inline-start: var(--s2);
+  }
   .till-slip {
     display: grid;
     gap: var(--s1);

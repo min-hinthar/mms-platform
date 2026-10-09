@@ -1169,7 +1169,40 @@ column without a raised bound reddens. B3's "64em" is superseded: at 1024px the 
 `p2d-floor/strip-owed-send-unmarked` and three `p3d-receipt/ticket-*` (now in `ReceiptStack.tsx`).
 Every one was run with `--no-gate --only=` and CAUGHT; the verdicts are in the PR.
 
-**Risks left open.** The double-tap geometry is proved by pure functions and parsed CSS, not by
+**The blind pass on #334 (REJECT) — what the fix round changed.**
+
+1. **The till's doubt is STICKY** (critical 1). `tillLedgerAfter` (`lib/till.ts`, pure) keeps the last
+   attempt AND every doubt: an attempt whose answer was lost, or is still out past the bound, may have
+   recorded the payment, so a later refusal ("That table is closed." after a lost answer is that
+   settle LANDING), a stalled tap or a new opening never erases it. Only the out attempt's own late
+   answer resolves `out`; only a host READ resolves both (the pad counts each read that clears its
+   `unknownSince`, `settleUnknownAfterRead`, and hands the count in as `readsResolved`); a landed
+   attempt resolves everything. A refusal hands `onOutcomeUnknown(false)` up only when it is the late
+   answer and no doubt is left, so the page's closed-bounce hold survives a newer attempt's refusal —
+   on the table page too (FloorDetailLive's "a refused retry releases the hold" was that defect, and
+   its test now asserts the opposite). The clean-cancel line also needs the host's own view clear
+   (`outcomeOpen`), which covers a ledger a remount lost.
+2. **No tray on $0.00** (critical 2). The pad's till gate re-decides the hold AFTER its awaits with
+   the same `padSettle` decision on the inputs as of the last commit: a dish refused while it flew
+   leaves an empty or unpriced order, and the hold's own words say why. `CashSettleButton.totalCents`
+   is now `number | null`: the tray's quote is a number by type, and the freeze refuses an unpriced
+   read (the `?? 0` is gone).
+3. **The seal lands once per reload, never per revisit.** The landing is a one-shot note beside the
+   stash (`markSealLanding` / `takeSealLanding`: this order, inside `SEAL_LANDING_TTL_MS`, read and
+   cleared); every later same-tab visit is the calm seal, the entered tender still shown.
+4. **The geometry is a design-time check**, said so (below); its tray side is now bound to the parsed
+   `.mms-sheet.till-sheet` gutters and padding and to `tokens.css`'s spacing.
+5. **a11y:** the slip's mark moves focus to Take when it unmounts under its own tap; the slip list's
+   name is one script (the echo is `aria-hidden`).
+6. **Open, for the device sitting:** turning a tablet across `TILL_MEDIA` with the tray open remounts
+   the tip and tendered inputs (the two layouts are different trees), so focus and the decimal pad are
+   lost mid-entry; the values survive (they are state). A CSS-only re-layout would need one tree for
+   both layouts — not cheap; listed rather than fixed.
+
+**Risks left open.** The double-tap geometry is a DESIGN-TIME check: the tray's tracks, gutters and
+padding are bound to the parsed stylesheet, but the door spans are the design's (picked-m6-1 ② Dock,
+picked-m2-3 ③), not measured from the dock's CSS, and nothing calls it at runtime (the blind pass on
+#334) — it is not
 `elementFromPoint` in a browser — the agent environment has none (K43 is unmeasured for the same
 reason); the device sitting (ruling #12) is the measure. The loss slip's (m7) and the flag door's
 (m8) Take cash doors do not exist yet; when they land they open this same tray and their door

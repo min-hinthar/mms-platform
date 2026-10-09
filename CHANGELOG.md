@@ -13,7 +13,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the pad's ONE region) and a `slip`. The tray reads OWE → TIP → GAVE at the computed till
   breakpoint `TILL_MEDIA` = `(min-width: 85.375em) and (min-height: 44em)` (`lib/till.ts`: the grid's
   1262px + 2×32 padding + 2×20 gutters = 1366px; narrower, the sheet it always was); the due at
-  `--fs-pass`, Change at `--till-fs-hand`, the double-tap guard proved by geometry (`tillBandsAt`,
+  `--fs-pass`, Change at `--till-fs-hand`, the double-tap guard checked by geometry at design time (`tillBandsAt`,
   `tillDoorLandsInert`). The slip freezes with the quote; a diverged cart reads "The order changed —
   tap to update" and holds Take until the re-quote (Codex round 3).
 - **The seal** (`HandoffCard`): the paid card's grammar — Change (or the Total, with no tender) as the
@@ -34,6 +34,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   the key, the card's kitchen row, the line tag and the ticket's group, with one word
   (`pad.group.unsent`); an asked host table counts every unsent dish and says how long each has
   waited, as plain text.
+- **The blind pass on #334 (fix round):** the till's doubt is sticky (`tillLedgerAfter` — a refusal or
+  a stalled tap after a lost answer, or a new opening, never says "Nothing was taken", and never lets
+  the page's closed-bounce hold go); the pad's gate re-decides the hold after the drain and the tray's
+  total is `number | null` (no tray on $0.00); the seal lands once per same-tab reload
+  (`takeSealLanding`), calm on every revisit; focus moves to Take after the slip's re-quote; the slip
+  list's name is one script.
 - **Mutants:** `till/*`, `till-ui/*`, `seal/*`, `pad-seal/*`, `pad-door/*`, `pad-route/*`,
   `pad/unpriced-*`, `send-view/asked-table-counts-only-staff`, `p2do/*`, `pd1/*`, `pd2/*`, `k44/*`;
   re-anchored: the cash sheet's, the receipt stack's (now `ReceiptStack.tsx`) and the strip's owed mark.

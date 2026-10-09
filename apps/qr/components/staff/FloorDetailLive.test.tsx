@@ -744,9 +744,10 @@ describe("FloorDetailLive — a counter settle whose response was LOST holds the
     expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
   });
 
-  it("a later KNOWN answer releases the hold (a refused retry), so a genuine close bounces again", async () => {
+  it("a NEWER attempt's refusal ('That table is closed.') answers nothing about the lost one: the hold stays, and the close is said in place (#334, C1)", async () => {
     await lostSettle();
-    // The retry is refused outright — a known outcome.
+    // The retry meets the session the first settle closed — a refusal of the RETRY, which says
+    // nothing about whether the first one recorded the payment (it most likely did).
     settleCash.mockResolvedValueOnce({ ok: false, error: "That table is closed." });
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
     const take = within(dialog)
@@ -757,7 +758,12 @@ describe("FloorDetailLive — a counter settle whose response was LOST holds the
     });
     answer = () => Promise.resolve({ kind: "closed" });
     await tick(5000);
-    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    // MUTATION till-ui/refusal-frees-the-page-hold (judged here too): the cashier is yanked to the
+    // floor over a payment that most likely went through; red.
+    expect(replace).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("region", { name: ts("en", "settle.cash.unknownClosed") }),
+    ).toBeTruthy();
     vi.restoreAllMocks();
   });
 });

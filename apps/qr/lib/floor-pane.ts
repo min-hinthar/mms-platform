@@ -476,6 +476,60 @@ export function dropHandoffStash(sessionId: string, store: Store | null = sessio
 }
 
 /**
+ * PD6 — the SEAL's landing, as a ONE-SHOT note (the blind pass on #334: the stash alone re-landed the
+ * seal — the green wash, the bloom — on every same-tab REVISIT of a paid order, where m6 B6 allows it
+ * on a same-tab RELOAD only). The host that took the money writes it beside the stash (`orderId` and
+ * the time); the closed card TAKES it — read and cleared — so the first render after a reload lands
+ * and every later visit is the calm seal (the stash's tender still shows: it is what was entered, in
+ * this tab). Honoured for `SEAL_LANDING_TTL_MS` and for the SAME order only: a reload hours later, or
+ * a note left for another sale, lands nothing. Every storage failure is a deliberate swallow — the
+ * card still renders, calm.
+ */
+export const SEAL_LANDING_TTL_MS = 120_000;
+
+export function sealLandingKey(sessionId: string): string {
+  return `mms-seal-landing:${sessionId}`;
+}
+
+export function markSealLanding(
+  sessionId: string,
+  orderId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): void {
+  try {
+    store?.setItem(sealLandingKey(sessionId), `${orderId}|${nowMs}`);
+  } catch {
+    /* deliberate: quota or privacy mode — a reload shows the calm seal */
+  }
+}
+
+/** Read AND clear the note (one shot); true only for THIS order, written within the TTL. */
+export function takeSealLanding(
+  sessionId: string,
+  orderId: string,
+  nowMs: number,
+  store: Store | null = session(),
+): boolean {
+  try {
+    const raw = store?.getItem(sealLandingKey(sessionId)) ?? null;
+    if (raw === null) return false;
+    store?.removeItem(sealLandingKey(sessionId));
+    const bar = raw.lastIndexOf("|");
+    const at = Number(raw.slice(bar + 1));
+    return (
+      bar > 0 &&
+      raw.slice(0, bar) === orderId &&
+      Number.isFinite(at) &&
+      nowMs - at >= 0 &&
+      nowMs - at <= SEAL_LANDING_TTL_MS
+    );
+  } catch {
+    return false; // deliberate: unreadable storage lands nothing
+  }
+}
+
+/**
  * Phase 2g · review (A11Y-4) — the phone's table page swaps a counter order that closed PAID under it
  * to the closed branch's card through `router.refresh()`: the whole detail unmounts, and focus that
  * was inside it would fall to <body> with nothing said (the pathname never changes, so no route cue
