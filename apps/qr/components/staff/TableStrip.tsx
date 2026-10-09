@@ -10,7 +10,7 @@ import {
   type MouseEvent,
 } from "react";
 import Link from "next/link";
-import { Icon, type IconName } from "@mms/ui";
+import { Icon, KitchenTrack, type IconName } from "@mms/ui";
 import { type FloorTable, tableDisplay } from "@/lib/floor-types";
 import {
   createFlipGuard,
@@ -247,7 +247,13 @@ export function TableStrip({
           ))}
           {key.owed ? (
             <span className="floor-key-item">
-              <span className="floor-owed-dot" />
+              {/* PD1 · P2do — the hollow ring, the one shape for "not sent yet" on every surface. */}
+              <KitchenTrack
+                stage="unsent"
+                size="glyph"
+                surface="theme"
+                className="staff-unsent-ring"
+              />
               <Chrome lang={lang} k="pad.group.unsent" />
             </span>
           ) : null}
@@ -333,7 +339,16 @@ function OccupiedTile({
     >
       <span className="floor-tile-n">{visible}</span>
       <Icon name={GLYPH[tone]} size={18} strokeWidth={2.25} className="floor-tile-glyph" />
-      {owedSendUnits(table) > 0 ? <span className="floor-owed-dot" aria-hidden /> : null}
+      {/* PD1 · P2do — the hollow ring in --warn (a MARK: no fill, no motion) where the solid owed-Send
+          dot was; decorative — the tile's name already says "· 2 not sent". */}
+      {owedSendUnits(table) > 0 ? (
+        <KitchenTrack
+          stage="unsent"
+          size="glyph"
+          surface="theme"
+          className="staff-unsent-ring floor-owed-ring"
+        />
+      ) : null}
     </Link>
   );
 }

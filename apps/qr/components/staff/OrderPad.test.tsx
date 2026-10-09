@@ -715,8 +715,8 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     await flush();
     await flush();
     // PD6 (K39) — no navigation on a counter order: the tray opens over the pad, quoting the read
-    // that STARTED after the add landed. MUTATION pad-door/gate-skips-the-fresh-read: the tray
-    // freezes the pre-add $15.81 over a cart of two dishes; red.
+    // that STARTED after the add landed. (Here the landing's own read commits before the gate
+    // looks; the gate's wait is falsified by the next case, whose read is still out.)
     expect(push).not.toHaveBeenCalled();
     expect(tray()).not.toBeNull();
     expect(screen.getByRole("button", { name: /^Take \$/ }).textContent).toBe(
@@ -724,6 +724,52 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     );
     // The slip froze with that read too: no "the order changed" over a cart it already shows.
     expect(screen.queryByRole("button", { name: /The order changed/ })).toBeNull();
+  });
+
+  it("an add that LANDED but whose read is still out: Take cash waits for a read that starts after it (PD6)", async () => {
+    const seed = counterPayable();
+    mount(seed, { counter: true });
+    await flush();
+    // The read the landing kicks hangs; every read after it shows the dish and its price.
+    const postAdd = deferred<TableDetailResult>();
+    const twoLines: TableDetailResult = {
+      kind: "detail",
+      detail: {
+        ...seed,
+        lines: [
+          line({ id: "l1", fulfillment: "togo", sendable: false }),
+          line({ id: "l2", fulfillment: "togo", sendable: false }),
+        ],
+        itemCount: 2,
+        ...priced(2900, 3162),
+      },
+    };
+    getTableDetail.mockReturnValueOnce(postAdd.promise);
+    getTableDetail.mockResolvedValue(twoLines);
+    addItem.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await flush();
+    // Landed, unread: nothing flies, so the drain is instant — the gate's wait is the only thing
+    // between this tap and a tray frozen on the pre-add $15.81.
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    // MUTATION pad-door/gate-skips-the-fresh-read: the tray opens now, over a read that never
+    // showed the dish; red.
+    expect(tray()).toBeNull();
+    expect(settleBtn().getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      postAdd.resolve(twoLines);
+    });
+    await flush();
+    await flush();
+    expect(tray()).not.toBeNull();
+    expect(screen.getByRole("button", { name: /^Take \$/ }).textContent).toBe(
+      STAFF["settle.cash.settleAmount"].en.replace("{m}", "$31.62"),
+    );
   });
 
   it("at a dine-in table Take payment while an add flies is refused on unsent and jumps to the Send (Codex round 1, P2)", async () => {
@@ -1166,6 +1212,26 @@ describe("the ticket's own writes withhold the amounts until a read shows them (
     expect(row("subtotal")).toBe("$29.00");
     expect(row("total")).toBe("$31.62");
     expect(settleBtn().textContent).toBe(STAFF["pad.settle"].en.replace("{m}", "$31.62"));
+  });
+});
+
+describe("PD1 — the ticket's 'Not sent yet' group sits under the hollow ring", () => {
+  it("only the unsent group's heading wears the ring, decorative (the word carries it)", async () => {
+    mount(
+      detail({
+        lines: [line({ id: "l1" }), line({ id: "l2", state: "fired", sendable: false })],
+        itemCount: 2,
+      }),
+    );
+    await flush();
+    const heads = [...document.querySelectorAll<HTMLElement>(".pad-ticket-group-h")];
+    const unsent = heads.find((h) => h.textContent!.includes(STAFF["pad.group.unsent"].en))!;
+    // MUTATION pd1/ticket-group-ring-dropped: the pad's group speaks another mark from the floor's;
+    // red.
+    const ring = unsent.querySelector(".staff-unsent-ring")!;
+    expect(ring.getAttribute("data-stage")).toBe("unsent");
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(heads.filter((h) => h.querySelector(".staff-unsent-ring"))).toEqual([unsent]);
   });
 });
 

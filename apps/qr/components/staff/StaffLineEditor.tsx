@@ -7,7 +7,7 @@ import { WRITE_UNCONFIRMED, WRITE_WAITING } from "@/lib/staff-outage";
 import { draftHeld } from "@/lib/reload-guard";
 import type { TableLineView } from "@/lib/floor-types";
 import type { StaffLineEdit } from "@/lib/staff-send-view";
-import { Stepper, useSheetSubject } from "@mms/ui";
+import { KitchenTrack, Stepper, useSheetSubject } from "@mms/ui";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { al, dishVisible } from "@/lib/staff-labels";
 // ── Phase 2c · pad ──
@@ -16,6 +16,7 @@ import { padDishName } from "@/lib/order-pad";
 import type { StaffLang } from "@/lib/staff-lang";
 import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
+import { RelativeTime } from "./RelativeTime";
 import { useStaffLang } from "./StaffLangProvider";
 import { ReloadButton } from "./ReloadOffer";
 import { useReloadHold } from "./useReloadHold";
@@ -66,6 +67,7 @@ export function StaffLineEditor({
   onRemove,
   rowProps,
   leaving = false,
+  unsentAge,
 }: {
   sessionId: string;
   line: TableLineView;
@@ -91,6 +93,10 @@ export function StaffLineEditor({
   rowProps?: Record<string, unknown>;
   /** A ghost: drawn as last painted, fading, and it never writes. */
   leaving?: boolean;
+  /** P2do (owner ruling #15) — the table has ASKED to pay at the counter: a line the kitchen has not
+   *  got says how long it has waited, "Not sent yet · 4m ago", as plain text — no "late" rule, no
+   *  escalation (the loudness ladder: only Late escalates with time). The server's clock. */
+  unsentAge?: { serverNow: string };
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -427,7 +433,21 @@ export function StaffLineEditor({
         {line.sendable && (
           <span style={notSentTag}>
             {" · "}
+            {/* PD1 · P2do — the hollow ring, the one shape for "not sent yet" (decorative: the word
+                carries it), in --warn on the console. */}
+            <KitchenTrack
+              stage="unsent"
+              size="glyph"
+              surface="theme"
+              className="staff-unsent-ring"
+            />{" "}
             <Chrome lang={lang} k="pad.group.unsent" />
+            {unsentAge && line.createdAt ? (
+              <>
+                {" · "}
+                <RelativeTime iso={line.createdAt} serverNow={unsentAge.serverNow} />
+              </>
+            ) : null}
           </span>
         )}
         {mods}
@@ -608,9 +628,10 @@ const row: CSSProperties = {
   borderTop: "1px solid var(--bd)",
   fontSize: "var(--fs-sm)",
 };
-// Phase 2a · send — the "Not sent" tag: secondary ink, bold, never colour alone (the word carries it).
+// Phase 2a · send — the "Not sent" tag: bold, never colour alone (the word carries it). PD1 — in
+// --warn on the console, the ring's own ink (m1 A8: "not sent" is the MARK-tier case staff act on).
 const notSentTag: CSSProperties = {
-  color: "var(--t2)",
+  color: "var(--warn)",
   fontSize: "var(--fs-sm)",
   fontWeight: "var(--fw-bold)",
 };

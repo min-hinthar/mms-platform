@@ -2229,3 +2229,100 @@ describe("Phase 2h · integration — a settle answered late, after the detail l
     expect(getTableDetail).not.toHaveBeenCalled();
   });
 });
+
+describe("PD2 · PD6 — Dad's twin of the counter pass, one figure at the till, and a receipt that never sits on two bases", () => {
+  const ASKED_AT = new Date(Date.parse(NOW) - 4 * 60_000).toISOString();
+  const priced: Partial<TableDetail> = {
+    send: { ...DETAIL.send, sendable: 0, staffAdded: 0, foodDraft: false, inKitchen: true },
+    lines: [
+      { ...line("l1", "Mohinga"), state: "fired", sendable: false },
+      { ...line("l2", "Tea Leaf Salad"), state: "fired", sendable: false },
+    ],
+    settleTotalCents: 4641,
+    settleTipBaseCents: 4200,
+    settleBreakdown: {
+      subtotalCents: 4200,
+      discountCents: 0,
+      serviceChargeCents: 0,
+      taxCents: 441,
+      tipCents: 0,
+    },
+  };
+  const mountWith = (d: TableDetail) => {
+    answer = () => Promise.resolve({ kind: "detail", detail: d });
+    return render(
+      <StaffLangProvider lang="en">
+        <ReaderCollectProvider>
+          <FloorDetailLive initial={d} sessionId="s1" />
+        </ReaderCollectProvider>
+      </StaffLangProvider>,
+    );
+  };
+
+  it("an ASKED table: the ONE PASS at the top, named by the ask (never the number twice), its age plain text, its total Take cash's figure", () => {
+    mountWith({ ...DETAIL, ...priced, status: "counter", counterRequestedAt: ASKED_AT });
+    const pass = screen.getByRole("region", { name: tf("en", "table.detail.counterAsk", {}) });
+    // MUTATION pd2/ask-pass-redrawn (a plain card again): the guest and Dad hold two looks; red.
+    expect(pass.classList.contains("ui-pass")).toBe(true);
+    expect(pass.getAttribute("data-figure")).toBe("none");
+    // The age is plain text in the status row (no escalation): "asked 4m ago".
+    expect(pass.querySelector(".floor-ask-age")!.textContent).toBe("asked 4m ago");
+    // ONE binding: the pass's total IS the trigger's figure. MUTATION pd2/ask-total-off-the-binding
+    // (the lines' pre-tax $24.00): two figures for one bill; red.
+    const total = pass.querySelector(".floor-ask-total dd")!.textContent;
+    expect(total).toBe("$46.41");
+    expect(
+      screen.getByRole("button", { name: tf("en", "settle.cash.trigger", { m: "$46.41" }) }),
+    ).toBeTruthy();
+    // It sits ABOVE the order card (m2's one pane order).
+    const order = document.getElementById("order-h")!;
+    expect(pass.compareDocumentPosition(order) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // No money row in the order card on an asked table: the pass carries the one figure (m2 B4).
+    // MUTATION k44/receipt-on-an-asked-table → red.
+    expect(order.closest("section")!.querySelector(".pad-receipts")).toBeNull();
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+  });
+
+  it("K44 — an open table that has not asked: the receipt stack, its Total the very figure Take cash names; no pre-tax 'so far'", () => {
+    mountWith({ ...DETAIL, ...priced });
+    expect(document.querySelector(".floor-ask-pass")).toBeNull();
+    const rows = [...document.querySelectorAll(".pad-receipts [data-row]")].map((r) => [
+      r.getAttribute("data-row"),
+      r.querySelector(".pad-receipt-amt")!.textContent,
+    ]);
+    // MUTATION k44/receipt-stack-dropped: the card names no money beside a tax-inclusive door; red.
+    expect(rows).toEqual([
+      ["subtotal", "$42.00"],
+      ["tax", "$4.41"],
+      ["total", "$46.41"],
+    ]);
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.subtotalSoFar"));
+    expect(document.body.textContent).not.toContain(ts("en", "table.detail.pretaxNote"));
+  });
+
+  it("P2do (ruling #15) — an ASKED table's unsent dish wears the ring and says how long, as plain text; an un-asked one does not", () => {
+    const unsent = {
+      ...line("l1", "Mohinga"),
+      createdAt: new Date(Date.parse(NOW) - 6 * 60_000).toISOString(),
+    };
+    mountWith({
+      ...DETAIL,
+      status: "counter",
+      counterRequestedAt: ASKED_AT,
+      lines: [unsent],
+      itemCount: 1,
+    });
+    const lineItem = () =>
+      within(screen.getByRole("list", { name: ts("en", "table.detail.a11y.lines") })).getByRole(
+        "listitem",
+      );
+    const tag = lineItem().textContent!;
+    expect(tag).toContain(`${ts("en", "pad.group.unsent")} · 6m ago`);
+    // MUTATION pd1/line-tag-ring-dropped: the pane's line speaks another mark; red.
+    expect(document.querySelector("li .staff-unsent-ring")).not.toBeNull();
+    cleanup();
+    mountWith({ ...DETAIL, lines: [unsent], itemCount: 1 });
+    // MUTATION p2do/age-on-every-table: a "late"-looking clock on a table still choosing; red.
+    expect(lineItem().textContent).not.toContain("6m ago");
+  });
+});

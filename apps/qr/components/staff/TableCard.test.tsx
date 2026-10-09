@@ -196,6 +196,36 @@ describe("TableCard — the refund-honest chip, the kitchen row and the clock", 
     expect(bodies[0]).toMatch(/font-weight:\s*var\(--fw-bold\)\s*;/);
   });
 
+  it("PD1 · P2do — 'not sent' leads with the hollow ring, in --warn: one shape on every surface", async () => {
+    const { container } = mount({
+      ...SETTLED,
+      status: "ordering",
+      paidTotalCents: null,
+      itemCount: 2,
+      runningSubtotalCents: 2000,
+      kitchen: { notSent: 2, inKitchen: 0, up: 0, upKeys: [], done: 0, oldestFireAt: null },
+    });
+    const seg = container.querySelector<HTMLElement>(
+      '.floor-kitchen-seg[data-seg="floor.kitchen.notSent"]',
+    )!;
+    // MUTATION pd1/kitchen-row-ring-dropped: the card's "2 not sent" loses the shape the strip, the
+    // pane and the guest's phone share; red.
+    const ring = seg.firstElementChild!;
+    expect(ring.classList.contains("staff-unsent-ring")).toBe(true);
+    expect(ring.getAttribute("data-stage")).toBe("unsent");
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(seg.textContent).toBe("2 not sent");
+    // The ring's ink is the host's override, bound by what it declares (parsed, comments stripped):
+    // --warn on the console, never gold or accent. MUTATION pd1/ring-not-warn → red.
+    const { cssDeclarations } = await import("@/lib/css-declarations");
+    const decls = cssDeclarations(readFileSync(join(__dirname, "../../app/globals.css"), "utf8"));
+    const ink = decls.filter(
+      (d) =>
+        d.selector === '.ui-track[data-stage="unsent"].staff-unsent-ring' && d.prop === "--trk-ink",
+    );
+    expect(ink.map((d) => d.value)).toEqual(["var(--warn)"]);
+  });
+
   it("the kitchen row says what the kitchen has, and the wait's digits are hidden from the name's listeners", () => {
     const { container } = mount(
       {

@@ -2149,8 +2149,10 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   never re-added from parts. Nothing priced, nothing claimed (no stack until a read prices the order).
   `runningSubtotalCents` is the LINES read's sum — the floor's "so far" and the ceiling's base — never a
   receipt row. The stack's Total excludes any tip (the read runs at tipRate 0), as the dock's does; the
-  two reads may briefly disagree (line prices vs Subtotal) while a write lands between them. Still open:
-  the table page's two bases (K44) and the cash-sheet re-host (K39).
+  two reads may briefly disagree (line prices vs Subtotal) while a write lands between them. PD6 closes
+  both: the stack is ONE component (`ReceiptStack`), read by the table page's order card too (K44 — no
+  pre-tax "so far" beside a tax-inclusive door; no money row at all on an asked table, whose counter pass
+  carries the one figure), and the counter order's door is the cash sheet itself (K39, below).
 - **Outcomes are settled BY KEY** (`pendingReduce`). `ok` lands the ghost, which leaves only on a
   committed read that STARTED after the landing. A definite refusal removes that attempt (never the
   dish), plays `mms-settle` on the glyph, keeps focus on the tile and names the dish. A write that
@@ -2195,7 +2197,15 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
   so nothing awaits between its one read and its fire. With nothing to send the slot is "Done ·
   Table N", never empty. A counter order has no Send (until 2f); its status row says the kitchen
   starts it when it is paid.
-- **Take payment navigates; it never takes money here.** Secondary at an open dine-in table (the
+- **Take payment navigates at a dine-in table; a counter order's door IS the cash sheet (PD6 · K39 —
+  §28's one exception, m6).** On a counter order the dock reads "Take cash · $X" (one money verb end to
+  end: the dock, the tray's title and its commit; `settle.cash.trigger`/`.title` are K15-HIGH), and its
+  tap runs this same gate — the holds, the drains, the name — then, when the tap wrote anything the
+  last read cannot have seen, waits (bounded) for a read that STARTED after it, and the crowned till
+  tray (§29) opens in place: no `router.push`. A landed settle stands the seal where the pad shell was
+  (the shell UNMOUNTED, the poll paused, the stash written for a same-tab reload), inside the pad's
+  one mint lock. Everything below holds for both doors. A dine-in pad keeps the navigation: secondary
+  at an open dine-in table (the
   step after Send is leaving — never two filled pills), primary on a counter order. Its refusal is
   ONE typed reason from ONE pure function — `padSettle` → `PadSettleBlock`, ranked **paying > note >
   waiting > unsent > empty** — its sentence a `Record` over that union (`padSettleReason`: a new
@@ -2319,6 +2329,28 @@ readTicket)` settles it on a read with a LATER ticket; a read already in the air
   rows-only card when a tender was entered, and it leaves when the next round's cart opens
   (`handoffStillCurrent`). The `Handoff` shape lives in `lib/register-ui.ts`, not the component.
 - **"Change" is အကြွေ everywhere.** ပြန်အမ်း is the console's refund verb.
+- **The crowned till tray (PD6, m6): the ONE cash sheet on the counter tablet, whichever door opens
+  it.** The same `CashSettleButton` sheet, laid out from ONE viewport predicate (`TILL_MEDIA`,
+  `lib/till.ts`: the grid's real width — 1262 of columns + 64 of padding + 40 of gutters = 1366px →
+  `85.375em`, and `44em` tall — computed, never a guessed breakpoint; the stylesheet's `.till-sheet`
+  block is pinned to it). It reads OWE → TIP → GAVE left to right (the due at `--fs-pass`, decorative —
+  the question carries it; the slip: qty × dish, no amounts; the banknote tiles with an `::after`
+  hairline frame, never a fill), and its band pins Cancel + Take under OWE + TIP and the inert readout
+  (Take's description, "အကြွေ · Change" at `--fs-display`) in the money corner, so a second tap of the
+  door that opened it lands on inert text (`tillDoorLandsInert`). Below the width, the single-column
+  sheet, unchanged. **The slip freezes with the quote**: a diverged cart marks it "The order changed —
+  tap to update" (the mark is the control that re-freezes it) and holds Take through the ONE binding.
+  On the pad host a held tap and the clean-cancel line ("Nothing was taken — the order is still
+  here.", only after a refused or stalled attempt) are said by the pad's ONE region.
+- **The seal (PD6, m6) is the paid card's grammar on every counter surface.** A solid ✓ disc (paid —
+  never an approval), the HERO (the Change at `--till-fs-hand` wide; the Total when no tender was
+  entered, with no Change and no Cash received), the count-back rows, the #CODE on the ONE PASS (a
+  CounterPass stub, constant paper, notched to the seal's ground), one quiet secondary (Walk-up, with
+  its true note; Takeaway bags outranks it) beside "Back to the counter", the one hero. CALM by default;
+  the green wash, the rise and ONE ok bloom on the disc only where the settle JUST landed (or a same-tab
+  reload whose stash names the order) — never on a revisit, a deep link or the server's card. Wide, its
+  actions take the till grid's money corner. Cash received and Change are what the cashier entered,
+  kept in this tab only.
 
 ## 30 · The diner spine, the account hub, the counter map (Phase 3a)
 

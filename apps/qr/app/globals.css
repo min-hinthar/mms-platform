@@ -14219,6 +14219,51 @@ html[data-reloading] body::after {
   font-size: var(--fs-body);
 }
 
+/* PD2 (m2 screen 3) — Dad's twin of the guest's counter pass at the top of the table's detail: the
+   ONE PASS (`.ui-pass`, constant paper) with its figureless identity (the ask, in the family's
+   words — the table's number is the pane's heading), the ask's age as plain text in its status
+   row, and the total — the very figure Take cash names — set big in its body. The notches cut to the
+   page's ground (the default `--pass-hole`). */
+.floor-ask-pass {
+  margin-top: var(--s4);
+}
+.floor-ask-age {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--pass-ink-2);
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
+}
+.floor-ask-total {
+  margin: 0;
+}
+.floor-ask-total > div {
+  display: grid;
+  justify-items: center;
+  gap: var(--s1);
+}
+.floor-ask-total dt {
+  color: var(--pass-ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+.floor-ask-total dd {
+  margin: 0;
+  color: var(--pass-ink);
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  font-variant-numeric: tabular-nums;
+}
+/* K44 — the order card's receipt stack (the pad's own rows), a rule above it. */
+.floor-receipts {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 2px solid var(--bd);
+}
+
 /* PD6 — THE SEAL (m6 screen 2, `HandoffCard`): the paid card's grammar on every counter surface. A
    focused region (never a status region) whose name carries its facts: a solid ✓ disc + the title,
    the HERO (the Change handed back, or the Total when no tender was entered) and the count-back rows
@@ -14849,20 +14894,22 @@ html[data-reloading] body::after {
   --floor-edge: var(--t3);
   --floor-ink: var(--t2);
 }
-/* THE OWED-SEND MARK: a warn dot in the tile's corner when the table owes a Send (the card's "not
-   sent"), and the same dot in the key. A shape, not a tint — the tile's tone is untouched. */
-.floor-owed-dot {
-  display: inline-block;
-  flex: none;
-  width: var(--s2);
-  height: var(--s2);
-  border-radius: var(--r-full);
-  background: var(--warn);
+/* PD1 · P2do — THE NOT-SENT MARK: the hollow ring (the ONE KITCHEN TRACK's `unsent` stage, rendered)
+   in --warn on Dad's console — a MARK (glyph + word, no fill, no motion), wherever the solid owed-Send
+   dot was: the tile's corner, the key, the card's "not sent" segment, the line tag, the ticket's
+   group. One shape and one word (`pad.group.unsent`) on every surface. The tone override is the
+   host's own line to defend (m10 §H decision 10); never gold or accent. */
+.ui-track[data-stage="unsent"].staff-unsent-ring {
+  --trk-ink: var(--warn);
 }
-.floor-tile > .floor-owed-dot {
+.floor-tile > .floor-owed-ring {
   position: absolute;
   inset-block-start: var(--s1);
   inset-inline-end: var(--s1);
+}
+.floor-kitchen-seg .staff-unsent-ring,
+.pad-ticket-group-h .staff-unsent-ring {
+  margin-inline-end: var(--s1);
 }
 /* THE KEY under the strip: each glyph on screen, in the tile's own word; the owed dot last. */
 .floor-key {

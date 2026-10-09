@@ -400,6 +400,9 @@ export const STAFF = {
   // {id} is the number on the physical tent card and {m} is preformatted money — both Latin in
   // both tongues (lib/i18n/fill.ts owns that rule); {n} is a prose count, so Burmese numerals.
   "floor.table": { en: "Table {id}", my: "စားပွဲ {id}" }, // grounded: kiosk `tableNumber`
+  // PD2 — the ONE PASS's two-tongue label over a table figure ("စားပွဲ · Table"); `floor.table`'s
+  // own word without the number (grounded). The ask pass draws none (its identity is figureless).
+  "floor.table.label": { en: "Table", my: "စားပွဲ" },
   "floor.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
   // TWO keys for one idea, and the reason is layout, not translation: the card's flag sits in ~12px
   // of space beside a 24px table number, while the accessible name has no such constraint and can

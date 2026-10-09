@@ -754,9 +754,14 @@ describe("the strip's shape", () => {
       ]),
     );
     // MUTATION: drop the mark → an ordering tile reads the same whether or not a Send is owed.
-    expect(tile(5).querySelector(".floor-owed-dot[aria-hidden]")).not.toBeNull();
+    // PD1 · P2do — the mark is the hollow ring (the ONE KITCHEN TRACK's `unsent`), decorative.
+    const ring = tile(5).querySelector(".floor-owed-ring")!;
+    expect(ring.getAttribute("aria-hidden")).toBe("true");
+    expect(ring.getAttribute("data-stage")).toBe("unsent");
+    expect(ring.querySelector(".ui-track-ring")).not.toBeNull();
     expect(tile(5).getAttribute("aria-label")).toBe("View — Table 5 · Ordering · 2 not sent");
-    expect(tile(3).querySelector(".floor-owed-dot")).toBeNull();
+    expect(tile(3).querySelector(".floor-owed-ring")).toBeNull();
+    expect(document.querySelector(".floor-owed-dot")).toBeNull();
     expect(tile(3).getAttribute("aria-label")).toBe("View — Table 3 · Pay at counter");
     // The key: the ask first, then ordering, then the owed mark — each tile's own word. Hidden from
     // the accessibility tree, because every tile's name already says its word.
@@ -768,7 +773,7 @@ describe("the strip's shape", () => {
       ts("en", "pad.group.unsent"),
     ]);
     expect(key.querySelectorAll(".floor-key-item svg")).toHaveLength(2);
-    expect(key.querySelector(".floor-key-item .floor-owed-dot")).not.toBeNull();
+    expect(key.querySelector(".floor-key-item .staff-unsent-ring")).not.toBeNull();
   });
 
   it("an all-free strip has no key — its tiles already say Start", () => {
