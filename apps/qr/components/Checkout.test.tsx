@@ -190,6 +190,7 @@ function view(over: Partial<View> = {}): View {
     tableNumber: 7,
     sendNudge: null,
     serverNow: "2026-10-08T10:00:00.000Z",
+    mode: "dinein",
     ...over,
   } satisfies View;
 }
@@ -2504,6 +2505,36 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     expect(door.getAttribute("aria-disabled")).toBe("true");
     expect(dockLine()).toContain("The counter is taking your table’s payment right now");
     expect(document.body.textContent).not.toContain("splitting the bill");
+  });
+
+  // ── Codex round 2 on #331 (head 5c074e1) ──
+
+  it("a missed split read cannot un-park the door: the cart view's mode answers it (comment 4226408727)", async () => {
+    // `app/cart/page.tsx` passes `null` on any getSplitContext failure; the view's mode comes from
+    // the fail-closed authorization read. RED before the fix: the door asked the split's mode, saw
+    // null, and drew the card hero + tip ask at a table create-intent refuses (410).
+    mount({ splitContext: null, initialViewMode: "dinein", initialItems: [FIRED] });
+    expect(screen.queryByRole("button", { name: /^Pay( the whole order)? · / })).toBeNull();
+    expect(screen.queryByRole("group", { name: /Add a little extra/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Pay at the counter/ })).toBeTruthy();
+  });
+
+  it("a TO-GO draft added after the ask keeps the pass's 'Not sent yet' — it reaches the kitchen only when the counter settles (comment 4226408743)", async () => {
+    // RED before the fix: the pass read the dine-in-only `kitchenDraftQty`, so a to-go dish (which
+    // fires only when payment lands) dropped the mark the pre-ask Bill showed for it.
+    const TOGO: CartItem = { ...ITEM_B, fulfillment: "togo", lineState: "draft" };
+    mount({
+      splitContext: HOST,
+      initialItems: [FIRED, TOGO],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    // A to-go draft lands the page on the Order stage; the door leads to the Bill (and the pass).
+    if (!counterCards()) await press(/View bill/);
+    await waitFor(() => expect(counterCards()).toBe(1));
+    // MUTATION (checkout/pass-drops-a-togo-draft): the pass reads `kitchenDraftQty`; red.
+    const marks = screen.getAllByText("Not sent yet");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]!.closest(".ui-track")).not.toBeNull();
   });
 
   // ── Codex round 1 on #331 (head c253013): three P2s, each pinned red-first ──

@@ -274,9 +274,9 @@ export function PayAtCounterPass({
       : { kind: "code" as const, text: tableCode ?? "—" };
   return (
     <>
-      <p className="counter-pass-lead">
+      <p className="counter-lead">
         {settling ? TX("registerSettling") : TX(sentenceKey)}
-        <span lang="my" className="counter-pass-lead-my">
+        <span lang="my" className="counter-lead-my">
           {settling ? t("my", "registerSettling") : t("my", sentenceKey)}
         </span>
       </p>
@@ -357,7 +357,7 @@ export function PayAtCounterPass({
         style={{ ...back, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}
       >
         {busy ? "One moment…" : TX("notDoneYet")}
-        <span lang="my" className="counter-pass-withdraw-my">
+        <span lang="my" className="counter-withdraw-my">
           {t("my", "notDoneYet")}
         </span>
       </button>

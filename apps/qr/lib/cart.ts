@@ -668,9 +668,11 @@ export async function getCartView(cartId: string): Promise<{
   sendNudge: SendNudge | null;
   /** PD1 — the app server's clock (ISO) as this view was made. */
   serverNow: string;
+  /** The session's mode (`table_sessions.mode`), from the fail-closed authorization read. */
+  mode: string;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
-  const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
+  const { uid, locked, lockedBy, settling, settleBy, mode } = await assertCartMember(id);
   const db = serviceClient();
   // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
   // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
@@ -817,6 +819,10 @@ export async function getCartView(cartId: string): Promise<{
     // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
     // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.
     serverNow: new Date().toISOString(),
+    // Codex round 2 on #331 — the session's mode from the SAME fail-closed read that authorized this
+    // view (`assertCartMember`, M108), so the Bill's parked phone-pay door never hangs off the
+    // best-effort split context (`doorMode`, lib/checkout-stage).
+    mode,
   };
 }
 

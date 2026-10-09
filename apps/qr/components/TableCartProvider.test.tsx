@@ -166,6 +166,7 @@ const view = (over: Partial<CartView> = {}): CartView => ({
   tableNumber: null,
   sendNudge: null,
   serverNow: "2026-10-08T10:00:00.000Z",
+  mode: "dinein",
   ...over,
 });
 

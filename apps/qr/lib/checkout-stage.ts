@@ -100,6 +100,22 @@ export function phonePayParked(
   return mode === "dinein" && !dineInPhonePayOpen;
 }
 
+/**
+ * Codex round 2 on #331 — WHICH mode the Bill asks `phonePayParked` about. The split context's mode
+ * is best-effort: `app/cart/page.tsx` passes `null` on any `getSplitContext` failure, and its session
+ * read is unchecked (`mode: ""` on a miss). Asking the door with it let a transient blip draw the
+ * card hero and the tip ask at a dine-in table whose every Pay tap create-intent then refused (410).
+ * The cart view's mode is the AUTHORITATIVE one — `assertCartMember` reads `table_sessions.mode` and
+ * fails CLOSED (503) on a miss, the same row create-intent's door reads — so it wins whenever it is
+ * known; the split's is the fallback for a view that predates the field.
+ */
+export function doorMode(
+  viewMode: string | null | undefined,
+  splitMode: string | null | undefined,
+): string | null {
+  return viewMode || splitMode || null;
+}
+
 /** The same count from raw `qr_cart_items` rows (`state`, not the view's `lineState`) — the server
  *  gate's input. */
 export function kitchenDraftUnitsFromRows(

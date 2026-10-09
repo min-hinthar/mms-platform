@@ -6509,6 +6509,14 @@ const MUTANTS = [
     replace: "  dineInPhonePay: true,\n",
   },
   {
+    id: "create-intent/refusal-keeps-the-stale-pin",
+    file: "apps/qr/app/api/stripe/create-intent/route.ts",
+    suite: "app/api/stripe/create-intent/route.test.ts",
+    why: "Codex round 2 on #331 (P1) — the stale-grant release runs directly under the supersede, before ANY pre-mint refusal: the supersede has already cancelled and unlinked the predecessor (so its webhook no longer matches releaseByIntent), and a parked dine-in table's next step is the counter, never another attempt — a refusal returning above the release leaves the old basket's discount pinned for the register's settle",
+    find: '    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");',
+    replace: "    const staleGrantErr = null as { message: string } | null;",
+  },
+  {
     id: "surfaces/create-intent-route-answers-open",
     file: "apps/qr/app/api/stripe/create-intent/route.ts",
     suite: "app/api/stripe/create-intent/route.test.ts",
@@ -8951,6 +8959,14 @@ const MUTANTS = [
     why: "Phase 2c · gate — the console can ALWAYS send, so the staff gate delegates with the host flag TRUE. Delegated with the diner's hostless exemption, a staff-started table (no host — the table the gate exists for) settles over its unsent dishes: charged for, then cooked after the guest has gone",
     find: "  return payBlockedByUnsent(mode, sendableUnits, true);",
     replace: "  return payBlockedByUnsent(mode, sendableUnits, false);",
+  },
+  {
+    id: "checkout-stage/door-reads-the-best-effort-mode",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "Codex round 2 on #331 — the split context's mode is best-effort (null on a failed read, '' on an unchecked one); a door that asks it alone draws the card hero and tip ask at a dine-in table whose every Pay tap create-intent refuses. The cart view's fail-closed mode wins",
+    find: "  return viewMode || splitMode || null;",
+    replace: "  return splitMode || null;",
   },
   {
     id: "checkout-stage/parked-door-admits-a-table",
@@ -25646,6 +25662,22 @@ const MUTANTS = [
     find: "  const doorLabel = billDoorLabel(block, {\n    counterAsk: counterAt != null,\n    phonePayOpen: !phonePayOff,\n  });\n",
     replace:
       "  const doorLabel = billDoorLabel(block, {\n    counterAsk: false,\n    phonePayOpen: !phonePayOff,\n  });\n",
+  },
+  {
+    id: "checkout/door-asks-the-split-mode",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 on #331 — the rule is lib's (`doorMode`), the WIRING is here: a Bill that asks the parked door with the split context's mode draws a card hero at a dine-in table whenever the split read misses",
+    find: "    doorMode(viewMode, sessionMode),",
+    replace: "    sessionMode,",
+  },
+  {
+    id: "checkout/pass-drops-a-togo-draft",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 on #331 — the pass's 'Not sent yet' covers EVERY dish the kitchen has not got; reading the dine-in-only send count drops a to-go draft added after the ask, which fires only when the counter's payment lands, and the pass reads as if everything were underway",
+    find: "                unsent={unsentQty > 0}",
+    replace: "                unsent={kitchenDraftQty > 0}",
   },
   {
     id: "checkout/door-ignores-the-parked-door",

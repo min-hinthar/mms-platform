@@ -132,6 +132,7 @@ function view(over: Partial<View> = {}): View {
     tableNumber: 7,
     sendNudge: null,
     serverNow: "2026-10-08T10:00:00.000Z",
+    mode: "dinein",
     ...over,
   } satisfies View;
 }

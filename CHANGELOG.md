@@ -32,8 +32,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   rush — your bill's here when you're ready." A tablemate's ask lands as a view flip, said once
   ("Your table asked to pay at the counter."), focus moving to the heading only if it was lost; this
   phone's own ask lands focus there and plays the one RISE. The pass paper is post-pay's
-  `CounterPass` primitive (PATH_DESIGN "ONE PASS"), merged in from `claude/feat/pd-pass-primitives`
-  and rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
+  `CounterPass` primitive (PATH_DESIGN "ONE PASS", #327), rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
   `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier.
 - **create-intent:** the parked refusal (410, like the other parked doors) sits AFTER
   `supersedeCartIntent` and its captured / unknown exits (#257's CRITICAL, M151) and before the
@@ -58,8 +57,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   `counter/settling-sentence-names-a-parked-split`, `counter/reader-ignored-by-the-tender-sentence`,
   `totals/default-tip-not-zero`, `send-button/undo-tap-not-held`; five existing anchors re-anchored on
   the shipped bytes. Every new Burmese string is a K15 draft (OPEN-ITEMS `K15 · diner-cart`). What
-  waits: the pass primitive (above); Dad's pane twin and Take cash → the till tray are counter-floor's
-  PD6; the ask over unsent dishes stays refused until counter-floor's P2do (m2 decision 12).
+  waits: Dad's pane twin and Take cash → the till tray are counter-floor's PD6; the ask over unsent
+  dishes stays refused until counter-floor's P2do (m2 decision 12).
+- **Codex rounds 1–2 on #331:** the ask's ownership follows the confirmed view (a tablemate's
+  withdrawal ends it); the pass replaces the Bill whole (no split chooser under its withdraw, one
+  "Not sent yet", which also covers a to-go dish added after the ask); the parked door reads the cart
+  view's fail-closed mode (`doorMode`), never the best-effort split context alone; everything on the
+  constant-paper pass reads the pass's inks (new `scripts/check-pass-inks.mjs`, CI fast lane); and
+  create-intent releases the predecessor's promo pin directly under the supersede, before ANY
+  pre-mint refusal — a refusal used to return between the two and leave an old basket's discount
+  pinned for the counter's settle.
 
 ### The ONE PASS and the ONE KITCHEN TRACK — `CounterPass` and `KitchenTrack` in `@mms/ui` (2026-10-08)
 
@@ -78,6 +85,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   and the host's motion hooks (`turning` = TURN on the head or the figure; `stamping` = STAMP then
   PRINT). Constant paper: every colour is a `--pass-*` token, the one theme token is `--sh-paper`.
   Named by its heading — the lead tongue's label + the figure, once; `figureSpoken` spells a code.
+  **Codex round 1:** the identity is a union — a figure, or `fallback: { en; my? }` for a pass with no
+  number yet (m11's "Your table": the words at the label tier, no figure, no label, no dot, the lead
+  tongue the name); and `stamping` is inert unless `terminal="paid"` (STAMP then PRINT is Paid only).
+  **Codex round 3:** the TV never draws ✓ — `tier` and `terminal` are one union (`PassTierTerminal`)
+  whose `tv` arm takes no `terminal`, and a cast pair is dropped; `KitchenTrackName` is exported
+  from the barrel.
 - **`KitchenTrack`** (`packages/ui/src/kitchen-track.tsx`): `KitchenStage` =
   `"unsent" | "sending" | "sent" | "cooking" | "served"`; four sizes (14×5 glyph · 28×6 row · 36×8 TV
   · 16×6 stub); the hollow ring for unsent, one dashed segment in the grace, 1/3 ink-2 · 2/3 ink ·
@@ -95,7 +108,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   ink mapping parsed from `pass.css`; ink constancy (no theme token but `--sh-paper`, no colour
   literal, never gold or accent); Night contrast of every pass pair measured from `tokens.css`,
   with `.dark` proven to redeclare no `--pass-*` token; the reduced-motion escort names every
-  animated selector. Twelve mutations induced and watched fail.
+  animated selector. Every guard was induced and watched fail before it passed (the mutations are
+  listed on the PR).
 
 ### The pass tokens: `--fs-pass`, `--till-fs-hand` and the constant `--pass-*` inks (2026-10-08)
 
@@ -104,10 +118,14 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   identity figure read across the counter or the room, and the till's due said aloud — m6's
   `--till-fs-say` folded into it, reconciliation 2) and `--till-fs-hand` (8rem, the Change handed
   back). The nine constant pass inks (`--pass-paper`, `-ink`, `-ink-2`, `-ink-3`, `-ac`, `-ok`, `-okb`,
-  `-seam`, `-unlit`) are the light palette's own values bound to their own names, declared once at
-  `:root` and never redefined in `.dark`, so every pass is constant paper in Night like a wallet pass;
-  `--pass-hole` defaults to `--pg` and a host overrides it with its own ground. No component reads
-  them yet: post-pay's CounterPass and kitchen-track primitives are the next step.
+  `-seam`, `-unlit`) are declared once at `:root` and never redefined in `.dark`, so every pass is
+  constant paper in Night like a wallet pass: seven are the light palette's own values bound to their
+  own names, `--pass-seam` is m10's perforation rule and `--pass-unlit` is m11's measured unlit
+  segment; `--pass-hole` defaults to `--pg` (now also in the print re-pin) and a host overrides it
+  with its own ground. `contrast-audit.test.ts` pins the constancy, the seven equalities and AA for
+  every ink the primitive may put on the paper or the stamped stub (the blind pass's one CRITICAL:
+  a contrast invariant with no guard). No component reads them yet: post-pay's CounterPass and
+  kitchen-track primitives are the next step.
 
 ### The docs, brought current and cleaned up; the owner's quota rule recorded (2026-10-08)
 

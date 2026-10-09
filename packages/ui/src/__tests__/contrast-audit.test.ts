@@ -533,3 +533,87 @@ for (const [theme, map] of [
     });
   });
 }
+
+// ── PATH_DESIGN 2026-10-07 round 3 · ONE PASS ──
+describe("the pass — constant paper in both themes (PATH_DESIGN round 3, PR #326)", () => {
+  /**
+   * The CounterPass is a wallet pass: light paper in Night too. Its inks therefore cannot be theme
+   * tokens (Night `--tx` on this paper is ~1.1:1 — the critic's finding that produced the set), so
+   * tokens.css binds them to their own `--pass-*` names, declared in `:root` and never in `.dark`.
+   * That is a contrast INVARIANT stated in prose, and prose is not a guard (the blind pass on #326
+   * rejected the token PR for exactly that): a later `.dark { --pass-paper: var(--cd) }` "so the
+   * pass matches Night" would turn every pass illegible with every other audit green. So this block
+   * reads the two tokens.css blocks and pins (1) constancy, (2) the seven "= light" equalities the
+   * comment claims, (3) AA for every ink the primitive may put on the paper or the stamped stub,
+   * read THROUGH the .dark merge so a Night re-declaration fails here, and (4) the decorative unlit
+   * segment pinned BELOW 3:1 on purpose — the stage word beside it carries the state (m11's table),
+   * and a "fix" that lifted it into text contrast would make an empty segment read as a lit one.
+   */
+  const NINE = [
+    "--pass-paper",
+    "--pass-ink",
+    "--pass-ink-2",
+    "--pass-ink-3",
+    "--pass-ac",
+    "--pass-ok",
+    "--pass-okb",
+    "--pass-seam",
+    "--pass-unlit",
+  ] as const;
+  const rawDark = parseBlock(".dark");
+
+  it.each(NINE)("%s is a CONSTANT — declared in :root, absent from .dark", (name) => {
+    expect(light[name]).toBeDefined();
+    expect(rawDark[name]).toBeUndefined();
+  });
+  it("--pass-hole is declared in :root (the host's ground, overridden per host) and never in .dark", () => {
+    expect(light["--pass-hole"]).toBe("var(--pg)");
+    expect(rawDark["--pass-hole"]).toBeUndefined();
+  });
+
+  const equalities: [string, string][] = [
+    ["--pass-paper", "--cd"],
+    ["--pass-ink", "--tx"],
+    ["--pass-ink-2", "--t2"],
+    ["--pass-ink-3", "--t3"],
+    ["--pass-ac", "--ac"],
+    ["--pass-ok", "--ok"],
+    ["--pass-okb", "--okb"],
+  ];
+  it.each(equalities)("%s is byte-equal to the LIGHT %s", (pass, theme) => {
+    expect(tok(light, pass)).toBe(tok(light, theme));
+  });
+
+  // Read through the .dark merge: these must hold in Night, where the theme tokens flip.
+  const paper = tok(dark, "--pass-paper");
+  const stub = tok(dark, "--pass-okb");
+  const text: [string, string, string][] = [
+    ["pass-ink on pass-paper (the figure, the dish names, Cooking)", "--pass-ink", paper],
+    ["pass-ink-2 on pass-paper (Sent, the stub's fields)", "--pass-ink-2", paper],
+    ["pass-ink-3 on pass-paper (the stub's small fields)", "--pass-ink-3", paper],
+    ["pass-ok on pass-paper (Served)", "--pass-ok", paper],
+    ["pass-ac on pass-paper (the lit dot's word, the primary pill)", "--pass-ac", paper],
+    ["pass-ok on pass-okb (the Paid stamp on the stamped stub)", "--pass-ok", stub],
+    ["pass-ink on pass-okb (a word on the stamped stub)", "--pass-ink", stub],
+    // Codex, round 2 on #326: the stub's small fields keep their inks when the stub is stamped.
+    ["pass-ink-2 on pass-okb (the stamped stub's Sent field)", "--pass-ink-2", stub],
+    ["pass-ink-3 on pass-okb (the stamped stub's small fields)", "--pass-ink-3", stub],
+  ];
+  it.each(text)("%s clears 4.5:1 in Night", (_name, fg, bg) => {
+    expect(contrastRatio(tok(dark, fg), bg)).toBeGreaterThanOrEqual(4.5);
+  });
+  it("pass-ac on pass-okb is UNDER AA — so the primitive never places accent on the stamped stub", () => {
+    // A negative pin, like `plain ac on sf`: if this ever clears 4.5 the comment in tokens.css and
+    // the primitive's rule ("accent sits on the paper only") are the lines to revisit, not this.
+    expect(contrastRatio(tok(dark, "--pass-ac"), stub)).toBeLessThan(4.5);
+  });
+  it("pass-unlit on pass-paper is DECORATIVE — below 3:1 on purpose, the word carries the state", () => {
+    expect(contrastRatio(tok(dark, "--pass-unlit"), paper)).toBeLessThan(3);
+    expect(contrastRatio(tok(dark, "--pass-unlit"), paper)).toBeGreaterThan(1.05);
+  });
+  it("pass-unlit is m11's measured value: --bd's hue at 0.12 flattened on the paper", () => {
+    expect(tok(light, "--pass-unlit").toLowerCase()).toBe(
+      flattenAlpha("#3a2317", 0.12, paper).toLowerCase(),
+    );
+  });
+});

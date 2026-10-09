@@ -137,6 +137,65 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ⚠️ HOISTED HERE, DIRECTLY UNDER THE SUPERSEDE (Codex round 2 on #331, P1). It used to sit just
+    // above the pin, below every pre-mint refusal — so each of those refusals (the parked dine-in
+    // door, a sold-out dish, unsent dishes, a full pickup slot) returned AFTER `supersedeCartIntent`
+    // had cancelled and UNLINKED the predecessor but BEFORE its pin was released. Unlinked, the
+    // cancelled intent's webhook no longer matches `releaseByIntent` either, so the pin outlived
+    // the attempt on an unlocked, editable cart — and the counter's settle (`getCartTotals`) then
+    // priced a basket with a discount a different basket earned. A card re-attempt cleared it (the
+    // next attempt releases), but PD2's parked door means a table's NEXT step is the counter, never
+    // another attempt. So the release runs the moment it is SAFE — the predecessor is unusable, the
+    // link is dropped, this attempt holds the lock under its own era — and before any refusal can
+    // return. Nothing between here and the pin reads the pin.
+    // RELEASE THE PREVIOUS ATTEMPT'S PIN, THEN RE-DERIVE (M70 · Codex round 2 on #240). A pin is a
+    // statement about ONE attempt's basket, so every attempt must make its own: `mms_pin_promo_grant`
+    // is a no-op while the pin is non-null, and without this release a grant earned by a $30 basket
+    // would price the $20 basket the diner re-checks-out with — charged for real.
+    //
+    // This is the one place where "the old pin is stale" is actually knowable. We hold the lock we
+    // are releasing under, so the era-scoped RPC cannot touch a successor, and no intent's metadata
+    // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
+    // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
+    // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
+    //
+    // ⚠️ SOUND FOR SEQUENTIAL ATTEMPTS, NOT YET FOR OVERLAPPING ONES (OPEN-ITEMS M151, Codex round
+    // 3). Holding the lock stops us clearing a SUCCESSOR's pin; it does not make a PREDECESSOR's
+    // PaymentIntent unusable. `acquireCartLock` lets the same payer re-acquire by design, and
+    // `withinMutationRate` is a rate limit rather than a mutex — so two overlapping requests can
+    // mint two live intents whose pins differ, and if the promo's state changes between them,
+    // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
+    // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
+    // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
+    // cancelled before its pin is replaced; there is no such column today.
+    // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
+    // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
+    // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
+    // false of the RELEASE. `mms_pin_promo_grant` only writes `where promo_granted_cents is null`,
+    // so a release that failed leaves the PREDECESSOR's grant in place and the pin step silently
+    // no-ops: this attempt then derives, mints and charges against a discount a different basket
+    // earned, and the fulfilment reconcile agrees with it, so nothing downstream ever notices.
+    //
+    // M123 (b) sharpened the reason to refuse rather than creating it. The review step now quotes
+    // the LIVE discount, so on this path the diner reads one number and the card is charged another
+    // — but even before that the charge itself was wrong, just wrong in a way the screen matched.
+    // `getCartTotals`' own rule applies (`totals.ts`: "never return a total we are not certain of");
+    // a recoverable outage is the one thing a retry actually fixes, so refuse and let them retry.
+    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
+    if (staleGrantErr) {
+      console.error("[create-intent] stale promo grant not released", {
+        cartId,
+        error: staleGrantErr.message,
+      });
+      // Nothing was pinned by THIS attempt yet, so the lock is all there is to give back — and it
+      // goes back era-scoped like every other refusal.
+      await freeLock();
+      return NextResponse.json(
+        { error: "We’re having trouble on our end — try again in a moment." },
+        { status: 503 },
+      );
+    }
+
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
     // the kitchen's open-hours + per-slot capacity limits by forging state.
@@ -414,53 +473,8 @@ export async function POST(req: NextRequest) {
     // amount is still server-derived from the same authority, and `planCapture` still refuses to
     // charge more than was authorized. Failing the mint would trade a rare cancelled settlement for
     // a certain refused checkout.
-    // RELEASE THE PREVIOUS ATTEMPT'S PIN, THEN RE-DERIVE (M70 · Codex round 2 on #240). A pin is a
-    // statement about ONE attempt's basket, so every attempt must make its own: `mms_pin_promo_grant`
-    // is a no-op while the pin is non-null, and without this release a grant earned by a $30 basket
-    // would price the $20 basket the diner re-checks-out with — charged for real.
-    //
-    // This is the one place where "the old pin is stale" is actually knowable. We hold the lock we
-    // are releasing under, so the era-scoped RPC cannot touch a successor, and no intent's metadata
-    // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
-    // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
-    // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
-    //
-    // ⚠️ SOUND FOR SEQUENTIAL ATTEMPTS, NOT YET FOR OVERLAPPING ONES (OPEN-ITEMS M151, Codex round
-    // 3). Holding the lock stops us clearing a SUCCESSOR's pin; it does not make a PREDECESSOR's
-    // PaymentIntent unusable. `acquireCartLock` lets the same payer re-acquire by design, and
-    // `withinMutationRate` is a rate limit rather than a mutex — so two overlapping requests can
-    // mint two live intents whose pins differ, and if the promo's state changes between them,
-    // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
-    // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
-    // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
-    // cancelled before its pin is replaced; there is no such column today.
-    // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
-    // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
-    // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
-    // false of the RELEASE. `mms_pin_promo_grant` only writes `where promo_granted_cents is null`,
-    // so a release that failed leaves the PREDECESSOR's grant in place and the pin step silently
-    // no-ops: this attempt then derives, mints and charges against a discount a different basket
-    // earned, and the fulfilment reconcile agrees with it, so nothing downstream ever notices.
-    //
-    // M123 (b) sharpened the reason to refuse rather than creating it. The review step now quotes
-    // the LIVE discount, so on this path the diner reads one number and the card is charged another
-    // — but even before that the charge itself was wrong, just wrong in a way the screen matched.
-    // `getCartTotals`' own rule applies (`totals.ts`: "never return a total we are not certain of");
-    // a recoverable outage is the one thing a retry actually fixes, so refuse and let them retry.
-    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
-    if (staleGrantErr) {
-      console.error("[create-intent] stale promo grant not released", {
-        cartId,
-        error: staleGrantErr.message,
-      });
-      // Nothing was pinned by THIS attempt yet, so the lock is all there is to give back — and it
-      // goes back era-scoped like every other refusal above.
-      await freeLock();
-      return NextResponse.json(
-        { error: "We’re having trouble on our end — try again in a moment." },
-        { status: 503 },
-      );
-    }
+    // (The stale-grant release that used to sit here runs right after the supersede now — see the
+    // M70 note there: every refusal between the two used to leave the predecessor's pin behind.)
     const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });

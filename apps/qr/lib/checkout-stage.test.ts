@@ -5,6 +5,7 @@ import {
   kitchenDraftUnitsFromRows,
   payBlockedByUnsent,
   phonePayParked,
+  doorMode,
   staffSettleBlockedByUnsent,
   staffSettleUnsentVerdict,
   unsentFoodQty,
@@ -172,5 +173,24 @@ describe("PD2 — phonePayParked: the dine-in phone-pay door, parked until live 
     expect(phonePayParked(null, false)).toBe(false);
     expect(phonePayParked(undefined, false)).toBe(false);
     expect(phonePayParked("", false)).toBe(false);
+  });
+});
+
+describe("Codex round 2 on #331 — doorMode: the parked door reads the AUTHORITATIVE mode", () => {
+  it("the cart view's mode wins — a missed split read cannot un-park a dine-in table", () => {
+    // MUTATION (checkout-stage/door-reads-the-best-effort-mode): the view's mode dropped — a split
+    // read that answered null (or the unchecked "") draws the card hero at a table create-intent
+    // refuses; red.
+    expect(doorMode("dinein", null)).toBe("dinein");
+    expect(doorMode("dinein", "")).toBe("dinein");
+    expect(phonePayParked(doorMode("dinein", null), false)).toBe(true);
+    // The view is the authority even where the two disagree.
+    expect(doorMode("pickup", "dinein")).toBe("pickup");
+  });
+  it("the split's mode is the fallback, and nothing known is null — never a table", () => {
+    expect(doorMode(null, "dinein")).toBe("dinein");
+    expect(doorMode("", "pickup")).toBe("pickup");
+    expect(doorMode(undefined, "")).toBeNull();
+    expect(phonePayParked(doorMode(null, null), false)).toBe(false);
   });
 });
