@@ -20,7 +20,7 @@ import { parseDroppedLines, type DroppedSummary } from "./dropped-view";
  *  so the realtime-triggered re-fetch stays coherent. ONE string literal on purpose — a
  *  runtime-concatenated select defeats PostgREST's static type parser (GenericStringError). */
 export const TRACK_ORDER_SELECT =
-  "id,status,total_cents,refunded_cents,dropped_lines,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents)";
+  "id,status,total_cents,refunded_cents,dropped_lines,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,tender,created_at,table_number,pickup_slot,fire_at,customer_name,togo_status,arrived_at,togo_ready_at,togo_picked_up_at,qr_order_items(id,name,qty,unit_price_cents,modifiers,fulfillment,notes,refunded_cents)";
 
 export type TrackedLine = {
   name: string;
@@ -42,6 +42,11 @@ export type TrackedOrder = {
   totalCents: number;
   itemCount: number;
   pickupSlot: string | null; // set for pickup orders → /track echoes it as the honest ETA
+  /** M65 (PD3) — when the kitchen GETS a scheduled pickup (`slot − prep`), or null for an
+   *  as-soon-as-possible order that fired at payment. `togo_status = 'preparing'` lands at PAYMENT,
+   *  so this is the only field that separates a held ticket from one the wok has — every kitchen
+   *  word on /track and in the live-order chip is gated on it (`isFired`, lib/pickup-promise.ts). */
+  fireAt: string | null;
   /** S4.3a takeaway fulfillment: null (no bag — pure dine-in) | 'preparing' | 'ready' | 'picked_up'.
    *  The expo sets it; /track lights the pickup/scango step rail from it. */
   togoStatus: string | null;
@@ -96,6 +101,7 @@ type TrackedOrderRow = {
   created_at: string;
   table_number: number | null;
   pickup_slot: string | null;
+  fire_at: string | null;
   customer_name: string | null;
   togo_status: string | null;
   arrived_at: string | null;
@@ -143,6 +149,10 @@ export function shapeTrackedOrder(data: TrackedOrderRow): TrackedOrder {
     totalCents: data.total_cents,
     itemCount: lines.reduce((a, l) => a + l.qty, 0),
     pickupSlot: data.pickup_slot ?? null,
+    // ⚠️ `?? null` is NOT a default to "fired": a row that CARRIES a stamp keeps it verbatim; only a
+    // genuinely absent column reads null (= as-soon-as-possible). Dropping the stamp here would make
+    // every held pickup read "with the kitchen" again (the M65 defect), one field upstream of the gate.
+    fireAt: data.fire_at ?? null,
     togoStatus: data.togo_status ?? null,
     hasTogoFood: lines.some((l) => l.fulfillment === "togo"),
     hasDineInFood: lines.some((l) => l.fulfillment === "dinein"),

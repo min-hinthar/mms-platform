@@ -119,10 +119,23 @@ describe("expoAge — due-ness, not paid-age (counter-7)", () => {
       7 * 60_000,
     );
   });
-  it("a guest who has announced themselves is waiting NOW, whatever the slot says", () => {
-    // MUTATION: `arrivedAt ?? pickupSlot` → `pickupSlot ?? arrivedAt` — the slot two hours ahead
-    // hides a person twelve minutes into standing at the counter.
-    const a = expoAge({ arrivedAt: iso(-12), pickupSlot: iso(120), createdAt: iso(-300) }, T0);
+  it("a guest who announced themselves AFTER the slot is waiting from the tap, not the slot", () => {
+    // MUTATION: `max(arrivedAt, pickupSlot)` → `pickupSlot` — a guest twelve minutes at the counter
+    // on a slot forty minutes gone reads as forty minutes waiting; the tap is the later moment.
+    const a = expoAge({ arrivedAt: iso(-12), pickupSlot: iso(-40), createdAt: iso(-300) }, T0);
+    expect(a).toEqual({ sinceMs: 12 * 60_000, tone: "warn" });
+  });
+  it("an EARLY 'I’m here' never paints an on-time bag warn — the age counts from the slot (PD3, m3 B8)", () => {
+    // The spec's own example: arrived 6:01 PM for a 6:20 PM slot. At 6:11 the old rule read
+    // ten minutes waiting → warn, and at 6:21 → late, on a bag the kitchen has on time.
+    // MUTATION: `max(arrivedAt, pickupSlot)` → `arrivedAt` — the early tap starts the clock.
+    const early = { arrivedAt: iso(-19), pickupSlot: iso(1), createdAt: iso(-300) };
+    expect(expoAge(early, T0)).toEqual({ sinceMs: 0, tone: "ok" });
+    // One minute past the slot: one minute, from the slot.
+    expect(expoAge({ ...early, pickupSlot: iso(-1) }, T0).sinceMs).toBe(60_000);
+  });
+  it("with no slot, an arrival still counts from the tap (a to-go box at a table)", () => {
+    const a = expoAge({ arrivedAt: iso(-12), pickupSlot: null, createdAt: iso(-300) }, T0);
     expect(a).toEqual({ sinceMs: 12 * 60_000, tone: "warn" });
   });
   it("the tone flips AT the thresholds, not after them", () => {
