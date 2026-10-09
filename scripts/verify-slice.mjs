@@ -16678,7 +16678,8 @@ const MUTANTS = [
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2h (9e) — a late THROW is still no answer: read as known, the page drops its closed-bounce hold over a settle that may have landed, and the sheet stops saying it couldn't confirm",
     find: '        else {\n          attemptRef.current = "unknown";\n          setError({ kind: "unknown" });\n',
-    replace: '        else {\n          attemptRef.current = "unknown";\n          onOutcomeUnknown?.(false);\n',
+    replace:
+      '        else {\n          attemptRef.current = "unknown";\n          onOutcomeUnknown?.(false);\n',
   },
   {
     id: "p2h-sheets/cash/stalled-tap-dispatches",
@@ -17119,7 +17120,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "critic F2 — the trigger's 'a refusal read in the last sheet is not this attempt's' must not wipe one nobody read: the next sheet opens with it in its alert",
-    find: "    if (!lateUnseen) setError(null);\n",
+    find: "    if (!lateUnseenNow) setError(null);\n",
     replace: "    setError(null);\n",
   },
   {
@@ -27148,6 +27149,63 @@ const MUTANTS = [
     replace: "    if (sheetUp.current) stashed.current = [{ text, my }];\n",
   },
   // ── PD6 · counter-floor — the till tray's rules (lib/till.ts), the pad's unpriced hold, P2do ──
+  {
+    id: "till-ui/tray-never-keyed",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 — the till is keyed on the one viewport predicate; pinned off, the wide counter tablet gets the phone's single column and the double-tap geometry is gone",
+    find: "  const till = useMediaQuery(TILL_MEDIA);\n",
+    replace: "  const till = useMediaQuery(TILL_MEDIA) && false;\n",
+  },
+  {
+    id: "till-ui/slip-hold-not-bound",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 (Codex round 3 on m6) — a diverged slip holds Take through the ONE binding; dropped, Take looks live over a screen whose items and total disagree",
+    find: '  const blocked: "slip" | "tipCap" | "short" | null = slipChanged\n    ? "slip"\n',
+    replace: '  const blocked: "slip" | "tipCap" | "short" | null = false\n    ? "slip"\n',
+  },
+  {
+    id: "till-ui/slip-hold-handler-open",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 — the handler refuses on the slip itself, before a drifted total could be adopted under a stale slip; without it the tap adopts the new figure while the old dishes still show",
+    find: '    if (blocked === "slip") return;\n',
+    replace: "",
+  },
+  {
+    id: "till-ui/door-hold-opens",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 (K39) — the pad's hold refuses the door at the tap; without it the tray opens over a dish still on its way, an unsaved allergy note, or an unpriced order",
+    find: "          if (door?.held) {\n            door.held.onTap();\n            return;\n          }\n",
+    replace: "",
+  },
+  {
+    id: "till-ui/freeze-from-the-tapping-render",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 — the quote, the tip base and the slip freeze in the render AFTER the tap: the pad's gate awaited a fresh read, and freezing from the tap's closure quotes the cart as it was before the dish just added",
+    find: "    setFreezing(true);\n",
+    replace:
+      "    setQuote(openQuote(reconciled, totalCents));\n    setTipBaseAtOpen(tipBaseCents);\n    setSlipAtOpen(slip ?? null);\n",
+  },
+  {
+    id: "till-ui/held-tap-mounts-a-second-region",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 (m6 B7) — on the pad host a held tap is said by the pad's ONE region; mounting the control's own alert too puts two live regions on one view",
+    find: "            else setHeldTap({});\n",
+    replace: "            setHeldTap({});\n",
+  },
+  {
+    id: "till-ui/cancel-clean-never-said",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.till.test.tsx",
+    why: "PD6 (m6 graft 5) — after a refused attempt the cashier is told nothing was taken; silent, they cannot tell a refusal they closed from a payment that went through",
+    find: "            if (door && tillCancelSays(attemptRef.current)) door.onCancelClean();\n",
+    replace: "",
+  },
   {
     id: "till/min-width-drops-the-gutters",
     file: "apps/qr/lib/till.ts",

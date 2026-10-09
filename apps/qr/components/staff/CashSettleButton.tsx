@@ -294,6 +294,11 @@ export function CashSettleButton({
   // trigger and carried into the next open's alert — never wiped by that reopen. `sheetOpen` is
   // the sheet's state as of the last commit, for an answer that lands in a later render.
   const [lateUnseen, setLateUnseen] = useState(false);
+  // PD6 — the same fact for a tap whose open awaited the pad's gate (its closure is a render old).
+  const lateUnseenRef = useRef(false);
+  useEffect(() => {
+    lateUnseenRef.current = lateUnseen;
+  }, [lateUnseen]);
   const sheetOpen = useRef(false);
   // Codex round 1 on #310 (CX3) — a tap on the HELD trigger (its own settle still out past the
   // bound). A fresh object per tap: `useResaid` keys the held-tap alert's content with it, so every
@@ -320,6 +325,18 @@ export function CashSettleButton({
   if (reconciled !== quote) {
     setQuote(reconciled);
     setTipBaseAtOpen(tipBaseCents);
+  }
+  // PD6 — the FREEZE runs in the render after the tap that opens (the sanctioned set-during-render,
+  // as above), never from the tap's closure: on the pad host the door's gate awaits a read that
+  // started after the last write, so the figures frozen are THAT read's — the live figure, or the
+  // server's figure a refusal handed back while the page has not re-read yet (`openQuote`) — and
+  // the slip and the tip base freeze with them.
+  const [freezing, setFreezing] = useState(false);
+  if (freezing) {
+    setFreezing(false);
+    setQuote(openQuote(reconciled, totalCents));
+    setTipBaseAtOpen(tipBaseCents);
+    setSlipAtOpen(slip ?? null);
   }
   const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;
   // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
@@ -1221,9 +1238,10 @@ export function CashSettleButton({
       {/* CX3 — the held tap's ONE alert. It only SPEAKS (`.sr-only`): the sentence is already drawn
           by the line above, and drawing it twice would show one fact as two. Mounted with its words
           by the tap (an inserted alert is announced), and its content keyed by `heldSaid`, so a
-          second tap replaces the node and is announced again. PD6 (B7) — never on the pad host,
-          whose ONE region (`door.onHeldTap`) says it. */}
-      {!door && waitNote && heldTap !== null && (
+          second tap replaces the node and is announced again. PD6 (B7) — never on the pad host:
+          its tap hands the sentence to the pad's ONE region (`door.onHeldTap`) and sets no
+          `heldTap`, so this never mounts there. */}
+      {waitNote && heldTap !== null && (
         <p role="alert" className="sr-only">
           <span key={heldSaid}>
             <Chrome lang={lang} k="settle.cash.waiting" echo={false} />
@@ -1251,19 +1269,17 @@ export function CashSettleButton({
       }
     }
     // A refusal read in the last sheet is not this attempt's — but one that landed while the
-    // sheet was closed was never read: it opens with this sheet, in its one alert (F2).
-    if (!lateUnseen) setError(null);
+    // sheet was closed was never read: it opens with this sheet, in its one alert (F2). Read
+    // NOW (a ref): the door's gate may have awaited a read while a late word landed.
+    const lateUnseenNow = lateUnseenRef.current;
+    if (!lateUnseenNow) setError(null);
     setLateUnseen(false);
     unsentJump.current = null;
     attemptRef.current = "none";
     // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
-    // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
-    // while the page has not re-read yet (`openQuote`). The tip is kept. PD6 — the slip freezes
-    // with it.
+    // the quote FREEZES with the open (`freezing`, in the next render). The tip is kept.
     setTendered("");
-    setQuote(openQuote(reconciled, totalCents));
-    setTipBaseAtOpen(tipBaseCents);
-    setSlipAtOpen(slip ?? null);
+    setFreezing(true);
     setChipPop(null);
     setConfirming(true);
   }
