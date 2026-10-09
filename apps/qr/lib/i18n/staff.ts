@@ -2073,6 +2073,9 @@ export const STAFF = {
   // Plain words (owner, 2026-09-24): the English was the pass's slang "Food up". "Ready to serve"
   // holds the same stamp and names a STAFF verb — a guest serves nothing, so it is still no
   // instruction to them. The Burmese (the food has come out) already said it plainly.
+  // PD9 took this word off the wall with the band (m9 A1: the wall's third stamp is the shared
+  // `table.line.state.served`). It stays as the grounding of Dad's console CALL — `floor.kitchen.up`
+  // and its notices cite it — so a K15 correction still lands in one place.
   "board.pulse.up": { en: "Ready to serve", my: "ဟင်းထွက်ပြီ" },
   "board.pulse.unavailable": {
     en: "Can’t read the kitchen right now.",
