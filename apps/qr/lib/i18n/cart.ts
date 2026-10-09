@@ -110,6 +110,49 @@ export const CART = {
     en: "Changed your mind? Pay on your phone",
     my: "စိတ်ပြောင်းသွားရင် ဖုန်းကနေ ရှင်းမယ်",
   },
+  // ── PD2 (PATH_DESIGN_2026-10-07, m2 "The Counter Path") — the counter-only Bill ──────────────
+  // While `SURFACES.dineInPhonePay` is parked the Bill's guidance is the rail plus ONE line in the
+  // dock's slot, directly above the one door; after the ask the phone becomes the counter pass.
+  // Every MY value here is a spec draft (docs/path-design-2026-10-07/m2-bill-at-table.md, COPY
+  // (Burmese)) pending Min's native check — the K15 · diner-cart ledger in OPEN-ITEMS.
+  counterTakesCash: {
+    en: "The counter takes cash.",
+    my: "ကောင်တာမှာ ငွေသားနဲ့ ရှင်းလို့ ရပါတယ်။", // K15 draft (m2, glanceable)
+  },
+  // Only while the register takes a card too (`counterTakesCard`): the one line asks, and says
+  // nothing about tender because either works.
+  readyForBill: {
+    en: "Ready for the bill?",
+    my: "ဘောက်ချာ ရှင်းဖို့ အသင့်ဖြစ်ပြီလား?", // K15 draft (m2, guided)
+  },
+  // The pass's one sentence while the counter is cash-only; with a reader the shipped `counterBody`
+  // ("cash or card, either works") speaks instead. Its MY's first clause is `counterBody`'s own.
+  counterShowCash: {
+    en: "Show this to whoever’s at the register — they take cash.",
+    my: "ကောင်တာက ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ — ငွေသားနဲ့ ရှင်းလို့ ရပါတယ်", // K15 draft (m2)
+  },
+  // The quiet withdraw under the pass while phone pay is parked (`payOnPhoneInstead` names a door
+  // that is not there; it returns with the flip). Its accessible name adds the act (PayAtCounter).
+  notDoneYet: { en: "We’re not done yet", my: "မပြီးသေးဘူးနော်" }, // K15 draft (m2, quiet)
+  // The held reason while the REGISTER holds the settlement freeze (the only holder while the
+  // self-serve split is parked — m2 decision 15). Static text on the dock and the pass.
+  registerSettling: {
+    en: "The counter is taking your table’s payment right now — this screen updates when it’s done.",
+    my: "ကောင်တာက သင့်စားပွဲရဲ့ ငွေကို အခု လက်ခံနေပါတယ် — ပြီးတာနဲ့ ဒီစခရင် ပြောင်းသွားပါမယ်", // K15 draft (m2, guided)
+  },
+  // Spoken once through the Bill's one region when a TABLEMATE's ask lands (the null→stamp edge).
+  tableAskedCounter: {
+    en: "Your table asked to pay at the counter.",
+    my: "သင့်စားပွဲက ကောင်တာမှာ ရှင်းမယ်လို့ ပြောထားပါတယ်", // K15 draft (m2)
+  },
+  // Spoken once on a withdraw while parked — the shipped "Back to paying here — pick a tip and tap
+  // Pay…" names a tip and a Pay the parked Bill does not draw.
+  noRushBill: {
+    en: "No rush — your bill’s here when you’re ready.",
+    my: "အေးဆေးပါ — အဆင်သင့်ဖြစ်ရင် ဘောက်ချာ ဒီမှာ ရှိပါတယ်", // K15 draft (m2, quiet)
+  },
+  // The host's way back from the Bill's unsent note (the EN is the shipped link; the MY is new).
+  backToSendThem: { en: "Back to send them", my: "ပြန်သွားပြီး ပို့မယ်" }, // K15 draft (m2, quiet)
   counterSettledTitle: { en: "All paid — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
   counterSettledBody: {
     en: "This bill was paid at the counter. There’s nothing left to pay here.",

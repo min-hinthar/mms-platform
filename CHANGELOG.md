@@ -99,6 +99,86 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   (`lib/name-search.ts`; the query re-runs when the radio returns); and "Start a fresh basket" hands
   focus to the new stage once it mounts, never to the leaving button (`usePendingFocus`).
 
+### PD2 — the dine-in Bill offers only "Pay at the counter" until live keys (2026-10-08)
+
+- **The owner's pick (PATH_DESIGN_2026-10-07 decision 2):** until the live Stripe keys are switched on
+  (C2), a dine-in table pays at the register. `SURFACES.dineInPhonePay = false` lands in
+  `apps/qr/lib/surfaces.ts` — DRAWN in `Checkout` and ANSWERED in `create-intent`, each pinned by a
+  test that flips the constant and a `surfaces/*` mutant that deletes the refusal, like the four
+  parked doors before it. The rule is the pure `phonePayParked(mode, open)` in `lib/checkout-stage.ts`
+  (only a table reads the switch; pickup and scan-and-go pay before the kitchen sees the order).
+- **The Bill (m2 "The Counter Path", appendix A1 · B1):** no card hero, no tip ask, no separate total
+  row and no "& pay" door — the receipt's own foot carries `totals.totalCents`, and the ONE door is
+  docked in the CartBar's slot at `--tap-bump` with the Bill's one line slot above it: at rest "The
+  counter takes cash." (with a reader, "Ready for the bill?" — `counterTakesCard`, derived from the
+  reader env the staff page reads), held, the hero's one reason (dishes still to send · the undo
+  window · the register mid-settle). The unsent note becomes the shared mark — a hollow ring and the
+  console's own `pad.group.unsent` ("Not sent yet · မပို့ရသေး"), count-free, never warn — with the
+  host's "Back to send them"; `RewardField` stays drawn beside the promo field (Codex correction 1);
+  the secure-tab note is hidden while parked or held (correction 2, round 3 D4) and reads D4's
+  sentence once the door opens; the group Bill drops "Pay as one bill here" while parked (B10). The
+  settling sentence is the register's while the self-serve split is parked (decision 15:
+  `counterPayRefusalCopy`), on the dock, the pass and the ask's refusal alike.
+- **After the ask, every phone at the table becomes the counter pass (m2 screen 2):** the heading is
+  the shipped `counterTitle`, the rail's Pay is current (`checkoutSteps.counterAsk`), the eyebrow and
+  the back link step aside, the one sentence says the next step once ("Show this to whoever's at the
+  register — they take cash."; with a reader, the shipped `counterBody`), the receipt folds into a
+  "View bill" disclosure and the quiet withdraw ("We're not done yet") is last, answered with "No
+  rush — your bill's here when you're ready." A tablemate's ask lands as a view flip, said once
+  ("Your table asked to pay at the counter."), focus moving to the heading only if it was lost; this
+  phone's own ask lands focus there and plays the one RISE. The pass paper is post-pay's
+  `CounterPass` primitive (PATH_DESIGN "ONE PASS", #327), rendered at the `counter` tier with `--pass-hole` set to the page ground; the unsent mark is
+  `KitchenTrack stage="unsent"` in its head; a numberless table prints its code at the holder tier.
+- **create-intent:** the parked refusal (410, like the other parked doors) sits AFTER
+  `supersedeCartIntent` and its captured / unknown exits (#257's CRITICAL, M151) and before the
+  shipped unsent refusal, freeing the lock under its era. New `scripts/check-phone-pay-door.mjs`
+  parses the route (`typescript`, like its two siblings) and pins that order — red-first against seven
+  evasions — in CI's fast lane and `verify:slice`'s pre-checks; the route gains its first suite
+  (`route.test.ts`: the refusal, the call order on spies, the kept lock on a captured predecessor, the
+  flip, a pickup cart passing through).
+- **Two reads, one derivation (PATH_DESIGN moment 2):** `lib/totals.test.ts` pins `getCartTotals(id)`
+  equal to `getCartTotals(id, 0)` over a promo'd cart — the guest's pass and Dad's pane — with the
+  `totals/default-tip-not-zero` mutant.
+- **D3 · P2y, the Send's Undo on the guest's phone** (the same control m1 and m2 share): the one Undo
+  form — `--sf` with a 1.5px dashed accent edge, the name "Undo" with the seconds as an aria-hidden
+  leaf and the Burmese `table.send.undo` (ပြန်ယူ) verbatim; busy reads `table.send.undoing`; and the
+  350 ms same-gesture hold on both relabels (`undoTapHeld`), so a double-tap's second half never
+  un-sends the round (`send-button/undo-tap-not-held`).
+- **Plumbing both PRs need (Codex correction 10):** `getSplitContext` carries the session's `qr_code`
+  (`SplitContext.qrCode`) so a table with no number yet can print its code on a pass.
+- **Mutants:** `surfaces/dine-in-phone-pay-reopened`, `surfaces/create-intent-route-answers-open`,
+  `checkout-stage/parked-door-admits-a-table`, `checkout-stage/parked-door-refuses-pickup`,
+  `checkout-verb/door-promises-pay-while-parked`, `checkout/door-ignores-the-parked-door`,
+  `counter/settling-sentence-names-a-parked-split`, `counter/reader-ignored-by-the-tender-sentence`,
+  `totals/default-tip-not-zero`, `send-button/undo-tap-not-held`; five existing anchors re-anchored on
+  the shipped bytes. Every new Burmese string is a K15 draft (OPEN-ITEMS `K15 · diner-cart`). What
+  waits: Dad's pane twin and Take cash → the till tray are counter-floor's PD6; the ask over unsent
+  dishes stays refused until counter-floor's P2do (m2 decision 12).
+- **Codex rounds 1–2 on #331:** the ask's ownership follows the confirmed view (a tablemate's
+  withdrawal ends it); the pass replaces the Bill whole (no split chooser under its withdraw, one
+  "Not sent yet", which also covers a to-go dish added after the ask); the parked door reads the cart
+  view's fail-closed mode (`doorMode`), never the best-effort split context alone; everything on the
+  constant-paper pass reads the pass's inks (new `scripts/check-pass-inks.mjs`, CI fast lane); and
+  create-intent releases the predecessor's promo pin directly under the supersede, before ANY
+  pre-mint refusal — a refusal used to return between the two and leave an old basket's discount
+  pinned for the counter's settle.
+- **The blind pass on #331:** a refused or failed withdraw on a phone that did not ask restores the
+  ask silently (a stamp naming the same instant is the same ask) and keeps its real error; the
+  promo field's focus cannot outlive its form, so the docked door is never stranded hidden; one
+  binding (`dockShown`) draws the dock and the padding that clears it; a group under the register's
+  freeze keeps the Bill while the self-serve split is parked (never the split board — the same split
+  door the register's sentence reads, `splitBoardShown`); the pass rings focus in
+  `--pass-ac` (pinned in contrast-audit; `check-pass-inks` refuses a universal ring with no in-pass
+  override); `check-phone-pay-door` orders the lock release before the return; the register's
+  number is pinned on the pass and the slip's foot.
+- **The last blind pass on #331:** the promo focus clears on the INPUT's own unmount (a stable
+  callback ref), so a tablemate emptying and refilling the cart cannot strand the door either; the
+  split board reads the split door through one lib rule (`splitBoardShown`), whatever PD10 does to
+  the phone door; `check-pass-inks` requires the override to be exactly `--pass-ac`, on screen, and
+  to out-specify every theme ring that can reach the pass; `check-phone-pay-door` refuses a return on
+  any path before the release; `sameAsk` (lib) never treats an unreadable stamp as a new ask; the
+  register's sentence is pinned equal across its two homes; the stale-pin residual is **M268**.
+
 ### PD5 — round two lands on a ticket that's still cooking: one Send, one kitchen card (2026-10-08, `claude/feat/pd5-kitchen-round-two`)
 
 - **The path design** (`docs/path-design-2026-10-07/m5-kitchen-round-two.md`, PATH_DESIGN moment 5,
