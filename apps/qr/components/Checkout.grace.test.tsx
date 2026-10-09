@@ -50,7 +50,9 @@ vi.mock("@/lib/counter-pay", () => ({
 vi.mock("@/lib/diner-sound", () => ({ chime: () => {} }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
 // PD1 — "Let {host} know" is a Server Action (`"use server"` → the service client, server-only).
-vi.mock("@/lib/send-nudge", () => ({ nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }) }));
+vi.mock("@/lib/send-nudge", () => ({
+  nudgeHost: () => Promise.resolve({ ok: false, reason: "error", error: "unused" }),
+}));
 vi.mock("@mms/ui", async (orig) => ({
   ...(await orig<typeof import("@mms/ui")>()),
   NumberFlow: ({ value }: { value: number }) => <span>{value}</span>,
