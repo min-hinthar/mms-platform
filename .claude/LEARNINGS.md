@@ -3829,7 +3829,7 @@ live file says where the history went. And keep a measured number in exactly one
 cell, so one 23k-character cell (K15) inflated OPEN-ITEMS to 9 MB. Long-form text belongs below the
 table, with a one-line cell pointing to it.
 
-## #250
+## #252
 
 **jsdom answers `:focus-visible` for ANY focus, and `window.setInterval` escapes vitest's fake clock
 (2026-10-08, PD3).** A component suite for a window that HOLDS while a keyboard user sits on Undo

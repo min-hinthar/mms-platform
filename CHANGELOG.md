@@ -38,6 +38,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   as the figure (spelt for assistive tech), the countdown in the status slot, the ✓ only at Ready, the
   stub's For · Code, the TURN as the primitive's split-flap on the figure. Nothing in the app draws a
   perforation, a notch or a pass ink.
+- **Codex round 1 on #330, all fixed** (the spec's §H2): a resolved `failed` no longer retires the
+  pending arrival (`actionOutcome`); `pagehide` beacons while a hidden-commit's send is out; a live row
+  that goes dark falls back to the `earned_by` snapshot (`useOrderStatus.stale`), and the B7 re-read is
+  keyed on the clock, not the callback; the arrival write accepts the tracker's payer and seat proofs,
+  answers an auth outage `failed`, and refuses a non-paid order in its statement; the late sub shows only
+  while live; the ticket keeps one footprint across the TURN; "Tomorrow" comes from the calendar.
 
 - **post-pay's primitives, the second step of PATH_DESIGN's Sequencing** (round 3's vocabulary
   additions; the prop surface and every decision made under delegation are recorded in

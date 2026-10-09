@@ -1183,3 +1183,38 @@ what did not and why; the decisions taken under the owner's delegation.
 - The spec's `@vitest`-free claim that a programmatic focus on Undo is never `:focus-visible` holds
   in browsers after a touch, but not in jsdom — the component suite models touch and keyboard
   explicitly (`matchesFocusVisible` mocked), and the hold is pinned both ways.
+
+### H2 · Codex round 1 on #330 (2026-10-08, reviewed `55293cf`) — every finding fixed
+
+Each was verified against the source first; all ten threads were real.
+
+- **The pending record (P1).** The action RESOLVES `failed` for a failed UPDATE, and the first draft
+  read every resolved refusal as an answer — so a transient failure retired the one repair for a
+  committed arrival. `actionOutcome` (`lib/arrival-pending.ts`, mutated) names the rule once:
+  `failed` and `rate` are not answers (the route's own 5xx / 429), every other refusal is.
+- **The beacon (P1).** A tab close fires `visibilitychange(hidden)` — which commits and empties the
+  window — and then `pagehide`, which found no window and sent nothing. `pagehide` now also beacons
+  while that in-page send is unanswered (the route is idempotent, so a beacon beside a landing
+  action records one arrival).
+- **The stale live row (P1).** A row the live read delivered and then lost (the session lapsed) kept
+  `live` true for ever. `useOrderStatus` now reports `stale` — from a ref scoped to the order key,
+  because a Supabase token refresh re-runs the subscription and a per-run flag forgot the row — and
+  OrderTracker reads `live` as "still readable", refreshing the `earned_by` snapshot on every wake.
+- **The wake loop (P1).** The B7 re-read was keyed on the host's `wake`, which is rebuilt whenever its
+  snapshot changes: one request per answer. It is read through a ref and keyed on the clock and the
+  live transition only.
+- **The server's proofs (P2).** The write accepts the durable proofs the tracker's own fallback read
+  accepts — `earned_by`, a split payer, a seat in the order's session — and a proof that cannot be
+  READ is `failed`, never a decided `unauthorized`. The guarded UPDATE carries `status = 'paid'`, so a
+  late commit cannot put a false "Here now" on a refunded bag (`closed`).
+- **The late sub (P2)** renders only while live; on the snapshot the foot's sentence is the true one.
+- **The footprint (P2).** The Ready face's seam and body grew the ticket during the TURN. The live
+  face and the other face share one grid cell, the other as `CounterPass`'s inert guide picture in a
+  hidden, aria-hidden sizer — the ticket is the taller face's height by construction, at any font
+  size, and no `min-height` literal is guessed.
+- **"Tomorrow" (P3)** reads the next calendar day's bounds (`pickupDayBoundsAhead`), never +24 h.
+- Six mutants added (`arrival/refunded-order-stamped`, `/payer-arm-dropped`, `/seat-arm-dropped`,
+  `/auth-outage-reads-as-refusal`, `arrival-pending/failed-action-clears-the-record`,
+  `pickup-promise/tomorrow-by-24-hours`); `arrival/earned-by-arm-dropped` re-anchored (its old line
+  was deleted by the proof-chain rewrite). The component-level fixes (beacon, wake, stale row, late
+  sub, footprint) were each watched red by reverting the fix, then restored.
