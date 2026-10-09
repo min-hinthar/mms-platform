@@ -71,7 +71,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
     when the stamp read succeeds (`nudgeReady`), and `/cart` now passes the first view's stamp and
     clock to `Checkout` (there is no mount-time read, so the host's waiting line waited for one).
   - **Replayable, not prose:** `pd1_send_nudge_test.sql`'s eighteen named cases are chained into
-    `scripts/verify-mode-authority.mjs` (suite `pd1`, 22 mutants, one documented survivor — the
+    `scripts/verify-mode-authority.mjs` (suite `pd1`, 23 mutants, one documented survivor — the
     lock's ORDER, killed by the race harness); the decorative `NUDGE_COOLDOWN_MS` and its
     literal-against-literal test are deleted.
 

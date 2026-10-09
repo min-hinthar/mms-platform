@@ -453,7 +453,7 @@ jobs:
         run: node scripts/verify-merge-race.mjs --mutants
       # M100 · M107 · M17 — can each case in the SQL suites actually FAIL? plpgsql ASSERT stops at the
       # FIRST one, so running either file red-then-green proves ONE case and silently skips the rest.
-      # 219 `id:` rows (measured below; was "20" while the file held 27) across twenty-three LIVE functions
+      # 220 `id:` rows (measured below; was "20" while the file held 27) across twenty-three LIVE functions
       # (mms_set_line_fulfillment, mms_fire_line, mms_cart_item_insert_if_open,
       # mms_merge_table_orders, — P2dd · P2cy — mms_cart_item_inc_qty and
       # mms_cart_item_set_qty_if_open, — Phase 2f · P2v — mms_fire_counter_cart,
@@ -477,7 +477,7 @@ jobs:
       # (137 after the 3c-ii fix rounds, 140 since M261 · J37; re-measure the time when it next moves materially.)
       # (191 since M263 · J41 · J40 — 54 m263 rows; the full 191 ran in 193 s against a throwaway
       # PG16 with the seven-file chain — 291 s on an earlier, busier run. 12 minutes, for headroom.)
-      # (219 since PD1 — 22 pd1 rows; the full 219 ran green against a throwaway PG16 with the
+      # (220 since PD1 — 23 pd1 rows; the full 220 ran green against a throwaway PG16 with the
       # nine-file chain, 2026-10-09.)
       - name: Mode-authority mutants (can the guards fail?)
         timeout-minutes: 12

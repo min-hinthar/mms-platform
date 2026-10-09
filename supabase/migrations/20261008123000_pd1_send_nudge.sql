@@ -90,9 +90,11 @@
 -- `authenticated`; `mms_fire_cart(uuid)`'s body md5 against this file's. Never `db push`, never the
 -- SQL editor.
 --
--- Pinned by supabase/tests/pd1_send_nudge_test.sql, whose every case is falsified by a named mutant
--- in scripts/verify-mode-authority.mjs (suite `pd1`); the locks — which no single session can
--- interleave — by scripts/verify-fire-cart-race.mjs --mutants.
+-- Pinned by supabase/tests/pd1_send_nudge_test.sql, whose every behaviour case (PD1.2–PD1.17) is
+-- falsified by a named mutant in scripts/verify-mode-authority.mjs (suite `pd1`) — PD1.1's columns
+-- and PD1.18's grants are shape checks that runner cannot mutate (a grant leaves `prosrc` alone);
+-- the locks' ORDER, which no single session can interleave, by scripts/verify-fire-cart-race.mjs
+-- --mutants.
 --
 -- Guarded + idempotent: every statement re-applies cleanly.
 

@@ -2415,6 +2415,13 @@ const MUTANTS = [
       replace: "",
     },
     {
+      id: "pd1/nudge-minute-made-ten",
+      expect: "PD1.5",
+      why: "the over-tight cadence: a guest still waiting two minutes on is refused a second nudge — the legitimate re-stamp PD1.5 pins beside PD1.3's refusal",
+      find: "c.send_nudge_at < now() - interval '1 minute')\n    returning",
+      replace: "c.send_nudge_at < now() - interval '10 minutes')\n    returning",
+    },
+    {
       id: "pd1/nudge-taken-read-as-recent",
       expect: "PD1.4",
       why: "another seat's standing stamp answered `recent` — the app shows Mya 'Aye can see you're waiting' for Thiri's nudge (the blind pass on #335)",

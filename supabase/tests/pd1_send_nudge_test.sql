@@ -4,8 +4,10 @@
 -- EVERY rule in the statement's WHERE (20261008123000_pd1_send_nudge.sql), and `mms_fire_cart`
 -- clears it in the same transaction as the fire. Each case pins a refusal AND the legitimate write
 -- beside it (an over-tight guard would block a real nudge, and a refusal-only test would never
--- notice). Every case is falsified by a named mutant in scripts/verify-mode-authority.mjs (suite
--- `pd1`), which matches the `PD1.<n> ·` prefix of the failing assert — so each message carries it:
+-- notice). Every behaviour case (PD1.2–PD1.17) is falsified by a named mutant in
+-- scripts/verify-mode-authority.mjs (suite `pd1`), which matches the `PD1.<n> ·` prefix of the
+-- failing assert — so each message carries it. PD1.1 (the columns) and PD1.18 (the grants) are
+-- shape checks that runner cannot mutate: a grant leaves `prosrc` unchanged, so it reads NO-OP.
 --
 --   PD1.1   the two columns exist, nullable, with the shapes the view reads;
 --   PD1.2   a GUEST of a host table may nudge: the stamp lands with THEIR seat and `now()`, and the
