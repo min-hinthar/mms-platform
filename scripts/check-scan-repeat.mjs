@@ -755,51 +755,57 @@ if (!problems.length) {
   });
 }
 
-// ── (5) A sheet's COVER outlasts its `open`: only its exit end lifts the camera's hold (PD4) ──────
+// ── (5) A sheet's COVER outlasts its `open`: only its exit end (or the fail-safe) lifts the hold ──
 // Codex round 2 on #329 (4226434718): a sheet's `open` turns false at the START of its exit, while
 // Radix keeps the sheet and its scrim mounted for the whole `--dur-sheet` exit. Proposition (3) tells
 // the stage each sheet's `open` — so the hold lifted as the exit began, `BarcodeScanner` announced
 // the next FRESH sighting (`sightBarcode` emits on any new barcode) and `add()` charged a jar behind
 // a scrim the shopper was still looking at. `lib/hooks/useStageCover.ts` keeps a cover up from open
-// until the exit end (the Sheet fires `onCloseAutoFocus` at unmount, after the exit — M76), and
-// its suite pins the hook. This proposition pins the WIRING, for every page-owned sheet (a JSX
-// `…Sheet` with `open={…}`):
-//   a. exactly ONE `const { covering: C, exitEnd: E } = useStageCover(<that open expression>)`;
+// until the exit end (the Sheet fires `onCloseAutoFocus` at unmount, after the exit — M76) or, with
+// no exit end, until its fail-safe (above `--dur-sheet`, its suite reads the token). Its suite pins
+// the hook; this pins the WIRING, for EVERY sheet the page renders:
+//   a. exactly ONE `const { covering: C[, exitEnd: E] } = useStageCover(<that sheet's open>)` — for
+//      a sheet that reports through `onOpenChange={setX}`, its open is the state X writes;
 //   b. `C` is a disjunct of every live `<ScanStage sheetOpen>` (the stage is told the cover);
-//   c. `E()` is called LIVE inside the handler passed as that sheet's `onCloseAutoFocus` — an
-//      inline function, or an identifier bound to `useCallback(fn)` / a function — and NOWHERE
-//      else: a call at the close's START lifts the cover exactly when the hole opens;
-//   d. the sheet's component forwards `onCloseAutoFocus` to its one live `<Sheet>` (or the exit end
-//      never arrives and only the fail-safe lifts the cover);
-//   and every `useStageCover(…)` covers a sheet the page renders.
-// A sheet that reports only through `onOpenChange` owns its Sheet and exposes no exit end; it must
-// be EXEMPT with a reason that fires. Red-first, each induced against the real files and watched
-// fail, then restored: the cover dropped from `sheetOpen`; `nameExitEnd()` moved into the close's
-// START (`closeNameSheet`); the exit-end call deleted from the handler; the call parked under
-// `if (false)`; the Name sheet's component no longer forwarding `onCloseAutoFocus`; the basket's
-// cover deleted.
+//   c. a PAGE-OWNED sheet (`open={…}`) destructures `E`, and `E()` is a top-level statement of the
+//      handler passed as its `onCloseAutoFocus` — reachable: no earlier top-level statement can
+//      leave the handler — and `E` is referenced NOWHERE else (no other call, no alias, no value
+//      passed on; hook dep arrays aside): a call at the close's START lifts the cover exactly when
+//      the hole opens. The handler is an inline function or the ONE `const` bound to a function or
+//      `useCallback(fn)` — a name declared twice is refused, never picked by position;
+//   d. that sheet's component forwards `onCloseAutoFocus` to its one live `<Sheet>`;
+//   e. a REPORTED sheet (the DoorSheet owns its Sheet and exposes no exit end) destructures NO `E` —
+//      its cover is lifted by the fail-safe alone (blind pass 2 on #329: the exemption that stood
+//      here left its ~340 ms exit uncovered);
+//   and every `useStageCover(…)` covers a sheet the page renders, and is only ever called in that
+//   destructuring shape (`useStageCover(x).covering`, an alias of the hook, are refused).
+// Red-first: the committed fixtures in `apps/qr/lib/check-scan-repeat.test.ts`, run in CI.
 const COVER = "useStageCover";
-const EXEMPT_COVER = {
-  DoorSheet:
-    "owns its Sheet and reports only `onOpenChange`, at the START of its close — it exposes no " +
-    "exit end, so its exit window cannot be covered from this page without changing the shared " +
-    "component (OPEN-ITEMS row `PD4 · door`).",
-};
 {
   const covers = [];
   walk(src, (n) => {
-    if (!ts.isVariableDeclaration(n) || !n.initializer || !ts.isCallExpression(n.initializer))
-      return;
-    const call = n.initializer;
-    if (!ts.isIdentifier(call.expression) || call.expression.text !== COVER) return;
-    if (!ts.isObjectBindingPattern(n.name) || call.arguments.length !== 1) {
+    if (!ts.isIdentifier(n) || n.text !== COVER) return;
+    const p = n.parent;
+    if (ts.isImportSpecifier(p)) return;
+    const call = ts.isCallExpression(p) && p.expression === n ? p : null;
+    const decl = call?.parent;
+    if (
+      !call ||
+      !decl ||
+      !ts.isVariableDeclaration(decl) ||
+      decl.initializer !== call ||
+      !ts.isObjectBindingPattern(decl.name) ||
+      call.arguments.length !== 1
+    ) {
       fail(
-        `a ${COVER}() result must be destructured as { covering, exitEnd } from ONE open expression.`,
+        `proposition 5: \`${(call ?? p).getText(src).slice(0, 60)}\` — a ${COVER}() result must be ONE\n` +
+          "  `const { covering, exitEnd } = useStageCover(<one open expression>)`; any other use hides\n" +
+          "  which cover reaches the stage.",
       );
       return;
     }
     const pick = (key) => {
-      const el = n.name.elements.find((e) => (e.propertyName ?? e.name).getText(src) === key);
+      const el = decl.name.elements.find((e) => (e.propertyName ?? e.name).getText(src) === key);
       return el && ts.isIdentifier(el.name) ? el.name.text : null;
     };
     covers.push({
@@ -824,50 +830,72 @@ const EXEMPT_COVER = {
     const init = a?.initializer;
     return init && ts.isJsxExpression(init) ? init.expression : null;
   };
+  // The population: every <…Sheet> the page renders, page-owned (`open=`) or reported (the state
+  // its `onOpenChange` setter writes — proposition 3's resolution).
   const pageSheets = [];
-  const reported = [];
   walk(src, (n) => {
     if (!(ts.isJsxOpeningElement(n) || ts.isJsxSelfClosingElement(n))) return;
     const tag = n.tagName.getText(src);
     if (!/Sheet$/.test(tag)) return;
     const open = attrOf(n, "open");
-    if (open) pageSheets.push({ tag, el: n, open: printed(open) });
-    else reported.push(tag);
+    if (open) {
+      pageSheets.push({ tag, el: n, open: printed(open), owned: true });
+      return;
+    }
+    const report = attrOf(n, "onOpenChange");
+    const states = new Set();
+    if (report)
+      walk(report, (m) => {
+        if (ts.isIdentifier(m) && statePairs.has(m.text)) states.add(statePairs.get(m.text));
+      });
+    if (states.size === 1) pageSheets.push({ tag, el: n, open: [...states][0], owned: false });
+    // anything else is already refused by proposition 3
   });
-  for (const tag of reported)
-    if (!(tag in EXEMPT_COVER))
-      fail(
-        `<${tag}> reports its open state only through onOpenChange, so its exit cannot be covered.\n` +
-          "  Give it `open={…}` and an `onCloseAutoFocus` exit end, or exempt it here with a reason.",
-      );
-  for (const name of Object.keys(EXEMPT_COVER))
-    if (!reported.includes(name))
-      fail(
-        `EXEMPT_COVER names <${name}>, but no such sheet reports through onOpenChange — delete the exemption.`,
-      );
-  /** The function a JSX handler attribute resolves to: an inline function, or an identifier bound
-   *  (in this file) to `useCallback(fn, …)` or to a function. */
-  const resolveHandler = (expr) => {
+  /** Every declaration of `name` in the page: const, function, parameter, binding element. */
+  const declarationsOf = (name) => {
+    const out = [];
+    walk(src, (n) => {
+      if (
+        (ts.isVariableDeclaration(n) ||
+          ts.isBindingElement(n) ||
+          ts.isParameter(n) ||
+          ts.isFunctionDeclaration(n)) &&
+        n.name &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === name
+      )
+        out.push(n);
+    });
+    return out;
+  };
+  /** The function a JSX handler attribute resolves to: an inline function, or the ONE declaration of
+   *  the identifier bound to a function or to `useCallback(fn, …)`. Ambiguity is refused. */
+  const resolveHandler = (expr, tag) => {
     if (!expr) return null;
     if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) return expr;
     if (!ts.isIdentifier(expr)) return null;
-    let found = null;
-    walk(src, (n) => {
-      if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || n.name.text !== expr.text)
-        return;
-      const init = n.initializer;
-      if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) found = init;
-      else if (
-        init &&
-        ts.isCallExpression(init) &&
-        ts.isIdentifier(init.expression) &&
-        init.expression.text === "useCallback" &&
-        init.arguments[0] &&
-        (ts.isArrowFunction(init.arguments[0]) || ts.isFunctionExpression(init.arguments[0]))
-      )
-        found = init.arguments[0];
-    });
-    return found;
+    const ds = declarationsOf(expr.text);
+    if (ds.length !== 1) {
+      fail(
+        `proposition 5: <${tag}>'s onCloseAutoFocus names \`${expr.text}\`, declared ${ds.length} times —\n` +
+          "  a shadowed or duplicated handler is ambiguous, and ambiguity is refused.",
+      );
+      return null;
+    }
+    const d = ds[0];
+    if (ts.isFunctionDeclaration(d)) return d;
+    const init = ts.isVariableDeclaration(d) ? d.initializer : null;
+    if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) return init;
+    if (
+      init &&
+      ts.isCallExpression(init) &&
+      ts.isIdentifier(init.expression) &&
+      init.expression.text === "useCallback" &&
+      init.arguments[0] &&
+      (ts.isArrowFunction(init.arguments[0]) || ts.isFunctionExpression(init.arguments[0]))
+    )
+      return init.arguments[0];
+    return null;
   };
   /** Does `tag`'s own component forward `onCloseAutoFocus` to its one live `<Sheet>`? */
   const forwardsExit = (tag) => {
@@ -915,11 +943,43 @@ const EXEMPT_COVER = {
       ? null
       : `${rel}'s <Sheet> does not take \`onCloseAutoFocus={onCloseAutoFocus}\` — the exit end never arrives`;
   };
+  /** Can a top-level statement leave the handler before the one that follows it? */
+  const mayLeave = (st) => {
+    if (ts.isReturnStatement(st) || ts.isThrowStatement(st)) return true;
+    let leaves = false;
+    walk(st, (n) => {
+      if (n !== st && ts.isFunctionLike(n)) return;
+      if (ts.isReturnStatement(n) || ts.isThrowStatement(n)) leaves = true;
+    });
+    return leaves;
+  };
+  /** Every reference to `name` that is not its declaration, a property name, or a hook dep. */
+  const usesOf = (name) => {
+    const out = [];
+    walk(src, (n) => {
+      if (!ts.isIdentifier(n) || n.text !== name) return;
+      const p = n.parent;
+      if ((ts.isBindingElement(p) || ts.isVariableDeclaration(p)) && p.name === n) return;
+      if (ts.isBindingElement(p) && p.propertyName === n) return;
+      if (ts.isPropertyAccessExpression(p) && p.name === n) return;
+      if ((ts.isPropertyAssignment(p) || ts.isJsxAttribute(p)) && p.name === n) return;
+      if (
+        ts.isArrayLiteralExpression(p) &&
+        ts.isCallExpression(p.parent) &&
+        p.parent.arguments[1] === p &&
+        ts.isIdentifier(p.parent.expression) &&
+        /^use(Callback|Effect|LayoutEffect|Memo)$/.test(p.parent.expression.text)
+      )
+        return;
+      out.push(n);
+    });
+    return out;
+  };
   for (const sh of pageSheets) {
     const mine = covers.filter((c) => c.open === sh.open);
     if (mine.length !== 1) {
       fail(
-        `<${sh.tag} open={${sh.open}}> needs exactly ONE \`${COVER}(${sh.open})\`; found ${mine.length}.\n` +
+        `<${sh.tag}> (open: ${sh.open}) needs exactly ONE \`${COVER}(${sh.open})\`; found ${mine.length}.\n` +
           "  Without it the camera's hold lifts as the sheet's exit STARTS, while it is still on screen.",
       );
       continue;
@@ -930,25 +990,49 @@ const EXEMPT_COVER = {
         `the stage is not told <${sh.tag}>'s cover: \`${c.covering}\` is not a <ScanStage sheetOpen> disjunct.\n` +
           "  A sighting during the sheet's exit is then announced — and charged — behind its scrim.",
       );
-    const handler = resolveHandler(attrOf(sh.el, "onCloseAutoFocus"));
+    if (!sh.owned) {
+      if (c.exitEnd)
+        fail(
+          `proposition 5: <${sh.tag}> reports only its open state and exposes no exit end, yet its cover\n` +
+            `  destructures \`${c.exitEnd}\` — anything that calls it lifts the cover before the exit ends.\n` +
+            "  Its cover is lifted by the hook's fail-safe alone.",
+        );
+      continue;
+    }
+    if (!c.exitEnd) {
+      fail(`proposition 5: <${sh.tag}>'s cover takes no exitEnd — its exit end has no way in.`);
+      continue;
+    }
+    const handler = resolveHandler(attrOf(sh.el, "onCloseAutoFocus"), sh.tag);
     if (!handler) {
       fail(`<${sh.tag}> takes no resolvable onCloseAutoFocus — its exit end has no way in.`);
       continue;
     }
-    const calls = c.exitEnd ? callsTo(c.exitEnd) : [];
-    const inside = calls.filter(
-      (x) => x.pos >= handler.pos && x.end <= handler.end && !isLiterallyDead(x),
-    );
-    if (!inside.length)
+    const uses = usesOf(c.exitEnd);
+    const isLift = (u) => {
+      const call = u.parent;
+      if (!ts.isCallExpression(call) || call.expression !== u || call.arguments.length)
+        return false;
+      const stmt = call.parent;
+      if (ts.isArrowFunction(handler) && handler.body === call) return true;
+      if (!ts.isExpressionStatement(stmt) || !handler.body || !ts.isBlock(handler.body))
+        return false;
+      const top = handler.body.statements;
+      const i = top.indexOf(stmt);
+      return i >= 0 && !top.slice(0, i).some(mayLeave);
+    };
+    const lifts = uses.filter(isLift);
+    if (lifts.length !== 1)
       fail(
-        `\`${c.exitEnd}()\` is not called (live) in <${sh.tag}>'s onCloseAutoFocus handler.\n` +
-          "  That handler is the exit end (the Sheet fires it at unmount, after the exit).",
+        `\`${c.exitEnd}()\` is not ONE reachable top-level statement of <${sh.tag}>'s onCloseAutoFocus\n` +
+          "  handler. That handler is the exit end (the Sheet fires it at unmount, after the exit); a\n" +
+          "  call nested in a branch, a callback or after an early return may never run.",
       );
-    const outside = calls.filter((x) => !(x.pos >= handler.pos && x.end <= handler.end));
-    if (outside.length)
+    const elsewhere = uses.filter((u) => !isLift(u));
+    if (elsewhere.length)
       fail(
-        `\`${c.exitEnd}()\` is called OUTSIDE <${sh.tag}>'s onCloseAutoFocus handler.\n` +
-          "  Anywhere else — a close handler above all — lifts the cover at the START of the exit.",
+        `\`${c.exitEnd}\` is referenced OUTSIDE <${sh.tag}>'s exit end (\`${elsewhere[0].parent.getText(src).slice(0, 60)}\`).\n` +
+          "  Anywhere else — a close handler, an alias — lifts the cover at the START of the exit.",
       );
     const fwd = forwardsExit(sh.tag);
     if (fwd) fail(fwd);
@@ -1182,6 +1266,6 @@ console.log(
     ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired)` +
     ` and charges the decoded code; "Add another" only behind the chip's chipAction();` +
     ` ${liveStages.length} <ScanStage> holds on ${READY}() and on ${sheets.length} sheet${sheets.length === 1 ? "" : "s"} (${sheets.map((sh) => sh.tag).join(", ")}),` +
-    ` each page-owned sheet's cover lifted only by its exit end (${Object.keys(EXEMPT_COVER).length} exempt, reason fired);` +
+    ` each sheet's cover lifted only by its exit end or the fail-safe;` +
     ` the add-Undo writes undoTargetQty(<its record>) and speaks undoOutcome(<the follow-up read>)\x1b[0m`,
 );

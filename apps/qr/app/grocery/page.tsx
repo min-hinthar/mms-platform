@@ -412,12 +412,14 @@ export default function Grocery() {
   // the sheet and its scrim are still on screen, and a camera told "no sheet" then would announce —
   // and `add()` charge — a different jar in frame behind them. Each exit end arrives through that
   // sheet's `onCloseAutoFocus` (the primitive fires it at unmount, after the exit). The DoorSheet
-  // owns its Sheet and reports only its open state: check:scan-repeat proposition 5 names it as the
-  // one exempt sheet (OPEN-ITEMS row `PD4 · door`).
+  // owns its Sheet and reports only its open state, so it has no exit end: its cover is lifted by
+  // the hook's fail-safe, which outlasts the exit (blind pass 2 on #329 — the exemption that stood
+  // here left its exit uncovered; check:scan-repeat proposition 5).
   const { covering: nameCovering, exitEnd: nameExitEnd } = useStageCover(nameSheet !== null);
   const { covering: basketCovering, exitEnd: basketExitEnd } = useStageCover(
     basketOpen && !cartGone,
   );
+  const { covering: doorCovering } = useStageCover(doorSheetOpen);
 
   // ONE toast timer, cancelled before each re-arm — scanning is rapid-fire, so racing independent timers
   // could blank a fresh notice (incl. an error like "Weighed item — see staff") ~100 ms after it appears.
@@ -1590,7 +1592,8 @@ export default function Grocery() {
                 doorSheetOpen ||
                 nameSheet !== null ||
                 basketCovering ||
-                nameCovering
+                nameCovering ||
+                doorCovering
               }
               onSearch={() => openNameSheet(null)}
               result={

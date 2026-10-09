@@ -217,7 +217,83 @@ const SIGHTED: Fixture[] = [
   },
 ];
 
-const FIXTURES: Fixture[] = [...SIGHTED, ...UNDO];
+// ── (5) every sheet's cover outlasts its exit: lifted only by its exit end, or the fail-safe ──
+const COVERED: Fixture[] = [
+  {
+    name: "the DoorSheet's cover dropped (the exemption the blind pass refused)",
+    find: "  const { covering: doorCovering } = useStageCover(doorSheetOpen);",
+    replace: "",
+    expect:
+      /<DoorSheet> \(open: doorSheetOpen\) needs exactly ONE `useStageCover\(doorSheetOpen\)`/,
+  },
+  {
+    name: "a cover the stage is never told",
+    find: "                nameCovering ||\n",
+    replace: "",
+    expect: /the stage is not told <GroceryNameSheet>'s cover/,
+  },
+  {
+    name: "the DoorSheet's cover given an exit end it has no way to receive",
+    find: "  const { covering: doorCovering } = useStageCover(doorSheetOpen);",
+    replace:
+      "  const { covering: doorCovering, exitEnd: doorExitEnd } = useStageCover(doorSheetOpen);",
+    expect: /<DoorSheet> reports only its open state and exposes no exit end/,
+  },
+  {
+    name: "a cover read off the hook without the destructuring",
+    find: "  const { covering: doorCovering } = useStageCover(doorSheetOpen);",
+    replace: "  const doorCovering = useStageCover(doorSheetOpen).covering;",
+    expect:
+      /proposition 5: `useStageCover\(doorSheetOpen\)` — a useStageCover\(\) result must be ONE/,
+  },
+  {
+    name: "the exit end called at the close's START",
+    find: "  const closeNameSheet = useCallback(() => {",
+    replace: "  const closeNameSheet = useCallback(() => {\n    nameExitEnd();",
+    expect: /`nameExitEnd` is referenced OUTSIDE <GroceryNameSheet>'s exit end/,
+  },
+  {
+    name: "the exit end aliased and called early",
+    find: "  const closeNameSheet = useCallback(() => {",
+    replace:
+      "  const lift = nameExitEnd;\n  const closeNameSheet = useCallback(() => {\n    lift();",
+    expect: /`nameExitEnd` is referenced OUTSIDE <GroceryNameSheet>'s exit end/,
+  },
+  {
+    name: "the exit end inside a callback that never runs",
+    find: "      nameExitEnd();",
+    replace: "      const later = () => nameExitEnd();",
+    expect: /`nameExitEnd\(\)` is not ONE reachable top-level statement/,
+  },
+  {
+    name: "the exit end after an early return",
+    find: "      nameExitEnd();",
+    replace: "      if (!closedByAddRef.current) return;\n      nameExitEnd();",
+    expect: /`nameExitEnd\(\)` is not ONE reachable top-level statement/,
+  },
+  {
+    name: "the exit end parked under `if (false)`",
+    find: "      nameExitEnd();",
+    replace: "      if (false) nameExitEnd();",
+    expect: /`nameExitEnd\(\)` is not ONE reachable top-level statement/,
+  },
+  {
+    name: "the handler's name declared twice (picked by position before)",
+    find: "  const closeNameSheet = useCallback(() => {",
+    replace:
+      "  const closeNameSheet = useCallback(() => {\n    const nameSheetCloseFocus = () => {};\n    void nameSheetCloseFocus;",
+    expect: /onCloseAutoFocus names `nameSheetCloseFocus`, declared 2 times/,
+  },
+  {
+    name: "the Name sheet no longer forwards its exit end to the Sheet",
+    file: "apps/qr/components/grocery/GroceryNameSheet.tsx",
+    find: "      onCloseAutoFocus={onCloseAutoFocus}\n",
+    replace: "",
+    expect: /GroceryNameSheet.tsx's <Sheet> does not take `onCloseAutoFocus=\{onCloseAutoFocus\}`/,
+  },
+];
+
+const FIXTURES: Fixture[] = [...SIGHTED, ...COVERED, ...UNDO];
 
 // Each row spawns node and parses the page with TypeScript (~1–2 s measured; more under a loaded
 // machine), so the rows run concurrently and carry a spawn-sized timeout.

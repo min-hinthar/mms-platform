@@ -88,10 +88,18 @@ describe("useStageCover — the cover lasts until the exit has finished", () => 
     const { result, rerender } = renderHook(({ open }) => useStageCover(open), {
       initialProps: { open: true },
     });
-    rerender({ open: false });
-    rerender({ open: true });
-    act(() => result.current.exitEnd());
+    rerender({ open: false }); // the first close starts its exit
+    rerender({ open: true }); // re-opened mid-exit
+    act(() => result.current.exitEnd()); // the FIRST exit's end, arriving late — stale
+    rerender({ open: false }); // the re-opened sheet's OWN close starts its exit
+    // Asserted HERE (blind pass 2 on #329): after the re-opened sheet's own close and before its
+    // exit end, `open` is false and only the cover holds the stage — while the sheet was open the
+    // old assertion read `open` and could not fail. MUTATION: the cover raised only on the open
+    // EDGE (an effect on `open`) → the stale end lowered it under the open sheet and nothing raised
+    // it again; red.
     expect(result.current.covering).toBe(true);
+    act(() => result.current.exitEnd()); // its own exit end
+    expect(result.current.covering).toBe(false);
   });
 
   it("with no exit signal, the cover outlasts the exit (--dur-sheet) and the fail-safe lifts it", () => {

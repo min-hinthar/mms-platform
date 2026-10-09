@@ -7054,6 +7054,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "stage-cover/raised-only-on-the-open-edge",
+    file: "apps/qr/lib/hooks/useStageCover.ts",
+    suite: "lib/hooks/useStageCover.test.tsx",
+    why: "Blind pass 2 on #329 — a sheet re-opened mid-exit receives the FIRST exit's end late; a cover raised only on the open edge is lowered by it under the open sheet and never raised again, so the re-opened sheet's own exit runs uncovered. The render-time raise self-heals it; the suite asserts after that sheet's own close, where only the cover holds the stage",
+    find: "  if (open && !cover) setCover(true);\n",
+    replace: "  useEffect(() => {\n    if (open) setCover(true);\n  }, [open]);\n",
+  },
+  {
     id: "stage-cover/the-exit-end-lifts-nothing",
     file: "apps/qr/lib/hooks/useStageCover.ts",
     suite: "lib/hooks/useStageCover.test.tsx",
