@@ -6546,6 +6546,9 @@ html[data-seen-surface] .mms-stagger {
 .pickup-door-number {
   font-variant-numeric: tabular-nums;
 }
+.pickup-door-alone {
+  margin: 16px 0 0;
+}
 
 /* ── K5 · Grocery grown up (docs/JOURNEY2_PLAN.md) ─────────────────────────────────────────────────── */
 .grocery-thumb {

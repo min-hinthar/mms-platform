@@ -3,6 +3,7 @@ import { serviceClient } from "@mms/db/server";
 import { announceArrivalInput } from "@mms/db/schemas";
 import { assertSessionMember, AuthzError, getCallerUid } from "./authz";
 import { assertMutationRate } from "./rate";
+import { COUNTER_TENDERS } from "./counter-tender";
 import { pickupDayBounds } from "./pickup-promise";
 
 /**
@@ -19,8 +20,9 @@ import { pickupDayBounds } from "./pickup-promise";
  * gate the order read rides via RLS) — or, once that session has lapsed (a pickup booked more than
  * four hours ahead, session-ttl.ts), one of the DURABLE proofs the tracker's own fallback read
  * accepts (`getMyOrderFallback`, lib/orders.ts; Codex r1 on #330): the diner the order was EARNED BY
- * (`earned_by`, stamped at fulfilment), a split PAYER of it (`qr_order_payers`), or a seat in its
- * session whatever that session's status now (`session_members`, the counter arm). Without these
+ * (`earned_by`, stamped at fulfilment), a split PAYER of it (`qr_order_payers`), or — for a
+ * COUNTER-paid order only (`COUNTER_TENDERS`, the one shared list; Codex r2) — a seat in its session
+ * whatever that session's status now (`session_members`, the counter arm). Without these
  * "I’m here" refused every tap on exactly the far-booked pickup M65 is about. A transport failure
  * on any proof is `failed` — never a decided refusal that would retire the guest's pending record.
  *
@@ -52,11 +54,18 @@ export async function stampArrival(raw: { orderId: string }, nowMs: number): Pro
   const { orderId } = parsed.data;
 
   const db = serviceClient();
-  const { data: order } = await db
+  const { data: order, error: lookupErr } = await db
     .from("qr_orders")
-    .select("id,session_id,earned_by,arrived_at")
+    .select("id,session_id,earned_by,arrived_at,tender")
     .eq("id", orderId)
     .maybeSingle();
+  // A read that FAILED is not a read that found nothing (Codex r2 on #330): `unauthorized` is a
+  // decided answer the client retires its pending record on, so a transient error must stay
+  // `failed` and the arrival is retried on the next visit.
+  if (lookupErr) {
+    console.error("[arrival] order lookup failed", { orderId, message: lookupErr.message });
+    return { ok: false, reason: "failed" };
+  }
   // One generic answer for unknown/not-yours — authorization is decided BEFORE the already-stamped
   // success short-circuit, so a non-member replaying a leaked order id can't tell a stamped order
   // from an unknown one.
@@ -118,7 +127,7 @@ function unavailable(e: unknown): boolean {
  *  read accepts: `earned_by`, a split payer row, a seat in the order's session whatever its status. */
 async function authorizedUid(
   db: ReturnType<typeof serviceClient>,
-  order: { id: string; session_id: string | null; earned_by: string | null },
+  order: { id: string; session_id: string | null; earned_by: string | null; tender: string | null },
 ): Promise<Authz> {
   if (order.session_id) {
     try {
@@ -145,7 +154,11 @@ async function authorizedUid(
     .maybeSingle();
   if (payerErr) return { refused: "failed" };
   if (payer) return { uid };
-  if (order.session_id) {
+  // A seat is the COUNTER arm's proof, and only for a counter-paid order — the same gate
+  // `getMyOrderFallback` applies before it reads `session_members` (Codex r2 on #330). A card-paid
+  // pickup's former tablemate kept a seat in the session, not a claim on someone else's bag.
+  const counterPaid = (COUNTER_TENDERS as readonly string[]).includes(order.tender ?? "");
+  if (order.session_id && counterPaid) {
     const { data: seat, error: seatErr } = await db
       .from("session_members")
       .select("seat_id")

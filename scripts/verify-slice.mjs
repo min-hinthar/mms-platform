@@ -27342,6 +27342,22 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "arrival/seat-proves-a-card-paid-order",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r2 on #330 (P2) — a seat in the session is the COUNTER arm's proof, gated on a counter tender exactly as getMyOrderFallback gates it; without the gate a former tablemate holding another member's card-paid pickup id stamps a false 'Here now' once the session lapses",
+    find: "  if (order.session_id && counterPaid) {",
+    replace: "  if (order.session_id) {",
+  },
+  {
+    id: "arrival/failed-lookup-reads-as-refusal",
+    file: "apps/qr/lib/arrival.ts",
+    suite: "lib/arrival.test.ts",
+    why: "Codex r2 on #330 (P2) — a FAILED first lookup is `failed`, not a decided `unauthorized`: the client retires its pending record on a decided refusal, so a transient PostgREST error would lose a committed arrival for good",
+    find: "  if (lookupErr) {",
+    replace: "  if (false) {",
+  },
+  {
     id: "arrival/auth-outage-reads-as-refusal",
     file: "apps/qr/lib/arrival.ts",
     suite: "lib/arrival.test.ts",

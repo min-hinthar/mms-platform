@@ -28,6 +28,7 @@ type Row = {
   pickup_slot: string | null;
   togo_status: string | null;
   status: string;
+  tender: string;
 };
 let row: Row;
 let member: { ok: true; uid: string } | { ok: false; code: string };
@@ -36,6 +37,8 @@ let callerUid: string | null | { unavailable: true };
 /** The durable proofs beside `earned_by` (Codex r1 on #330): split payers and seats. */
 let payers: { order_id: string; payer_uid: string }[];
 let seats: { session_id: string; seat_id: string }[];
+/** A transport failure on the FIRST lookup (the read that decides whether the order exists). */
+let lookupErr: { message: string } | null;
 let updateErr: { message: string } | null;
 let selectedAfterUpdate: string | null;
 
@@ -102,10 +105,12 @@ vi.mock("@mms/db/server", () => ({
       if (table !== "qr_orders") throw new Error(`unexpected table ${table}`);
       const filters: Filter[] = [];
       let patch: Partial<Row> | null = null;
+      let cols = "";
       const chain: Record<string, unknown> = {
-        select: (cols: string) => {
+        select: (c: string) => {
+          cols = c;
           if (patch) {
-            selectedAfterUpdate = cols;
+            selectedAfterUpdate = c;
             if (updateErr) return Promise.resolve({ data: null, error: updateErr });
             const hit = filters.every((f) => f(row));
             if (hit) Object.assign(row, patch);
@@ -138,7 +143,12 @@ vi.mock("@mms/db/server", () => ({
           return chain;
         },
         maybeSingle: () =>
-          Promise.resolve({ data: filters.every((f) => f(row)) ? { ...row } : null, error: null }),
+          lookupErr && cols.includes("earned_by")
+            ? Promise.resolve({ data: null, error: lookupErr })
+            : Promise.resolve({
+                data: filters.every((f) => f(row)) ? { ...row } : null,
+                error: null,
+              }),
       };
       return chain;
     },
@@ -156,11 +166,13 @@ beforeEach(() => {
     pickup_slot: SLOT,
     togo_status: "preparing",
     status: "paid",
+    tender: "card",
   };
   member = { ok: true, uid: UID };
   callerUid = UID;
   payers = [];
   seats = [];
+  lookupErr = null;
   updateErr = null;
   selectedAfterUpdate = null;
 });
@@ -257,6 +269,7 @@ describe("stampArrival — who may write (the session arm, then the durable earn
     row.arrived_at = null;
     callerUid = "u-seat";
     seats = [{ session_id: SESSION, seat_id: "u-seat" }];
+    row.tender = "cash"; // a counter-paid order: the seat is the counter arm's own proof
     await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
     // A payer row for ANOTHER order proves nothing.
     row.arrived_at = null;
@@ -267,6 +280,36 @@ describe("stampArrival — who may write (the session arm, then the durable earn
       ok: false,
       reason: "unauthorized",
     });
+  });
+
+  it("a former seat proves nothing on a CARD-paid order — the counter arm's tender gate (Codex r2 on #330)", async () => {
+    // getMyOrderFallback accepts a seat only after proving a counter tender; a tablemate who kept
+    // another member's card-paid pickup id must not stamp a false "Here now" once the session
+    // lapses. MUTATION: drop the COUNTER_TENDERS check on the seat arm.
+    member = { ok: false, code: "session_expired" };
+    row.earned_by = "u-host";
+    row.tender = "card";
+    callerUid = "u-tablemate";
+    seats = [{ session_id: SESSION, seat_id: "u-tablemate" }];
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "unauthorized",
+    });
+    expect(row.arrived_at).toBeNull();
+    // The same seat on a terminal-paid order is the counter arm, and stamps.
+    row.tender = "terminal";
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({ ok: true });
+  });
+
+  it("a failed FIRST lookup is `failed`, not a decided `unauthorized` (Codex r2 on #330)", async () => {
+    // `unauthorized` is a 200 the client clears its pending record on — a transient PostgREST
+    // failure must keep it. MUTATION: ignore the lookup's error.
+    lookupErr = { message: "connection reset" };
+    await expect(stampArrival({ orderId: ORDER }, NOW)).resolves.toEqual({
+      ok: false,
+      reason: "failed",
+    });
+    expect(row.arrived_at).toBeNull();
   });
 
   it("an auth-transport failure is `failed`, never a decided refusal (Codex r1 on #330)", async () => {

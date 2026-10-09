@@ -381,6 +381,18 @@ describe("Ready and late", () => {
     expect(container.textContent).not.toContain("It shows here the moment it is.");
   });
 
+  it("past the restaurant's midnight an overdue pickup keeps its phone door, with no arrival offered (Codex r2 on #330)", () => {
+    // 12:30 AM on Oct 9 in Covina (07:30Z), the 6:20 PM slot of Oct 8 still unbagged: the stage is
+    // late, the arrival is not offered (another day), and the stuck state's one way out must not
+    // depend on the card the arrival keeps open. RED when the door lives only inside that card.
+    vi.setSystemTime(Date.parse("2026-10-09T07:30:00.000Z"));
+    const { container } = mount();
+    expect(container.querySelector("h1")?.textContent).toContain("isn’t bagged yet");
+    expect(button(container, "I’m here")).toBeNull();
+    const door = container.querySelector('a[href="tel:+16266655317"]');
+    expect(door?.getAttribute("aria-label")).toBe("Call (626) 665-5317");
+  });
+
   it("never offers the arrival on another day", () => {
     vi.setSystemTime(Date.parse("2026-10-08T06:00:00.000Z")); // 11 PM PDT the night before
     const { container } = mount();

@@ -44,6 +44,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   keyed on the clock, not the callback; the arrival write accepts the tracker's payer and seat proofs,
   answers an auth outage `failed`, and refuses a non-paid order in its statement; the late sub shows only
   while live; the ticket keeps one footprint across the TURN; "Tomorrow" comes from the calendar.
+- **Codex round 2 on #330, all fixed** (§H3): the seat proof is gated on a counter tender, as the
+  tracker's own fallback read gates it; a failed first lookup answers `failed`, never a decided
+  refusal; the late phone door stands on its own once the arrival is no longer offered.
 
 - **post-pay's primitives, the second step of PATH_DESIGN's Sequencing** (round 3's vocabulary
   additions; the prop surface and every decision made under delegation are recorded in

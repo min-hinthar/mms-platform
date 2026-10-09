@@ -1218,3 +1218,19 @@ Each was verified against the source first; all ten threads were real.
   `pickup-promise/tomorrow-by-24-hours`); `arrival/earned-by-arm-dropped` re-anchored (its old line
   was deleted by the proof-chain rewrite). The component-level fixes (beacon, wake, stale row, late
   sub, footprint) were each watched red by reverting the fix, then restored.
+
+### H3 · Codex round 2 on #330 (2026-10-09, reviewed `d2a3d76`) — every finding fixed
+
+The second of the two triaged rounds; each was verified against the source first.
+
+- **The seat proof was broader than the read it mirrors (P2).** `getMyOrderFallback` reaches
+  `session_members` only after proving a counter tender; the write accepted any former seat. The
+  lookup now reads `tender`, and the seat arm runs only for `COUNTER_TENDERS` (`lib/counter-tender.ts`,
+  the one shared list). A card-paid pickup's former tablemate is `unauthorized`. Mutant
+  `arrival/seat-proves-a-card-paid-order`.
+- **A failed first lookup read as a decided refusal (P2).** The read's `{ error }` was dropped, so a
+  transient PostgREST failure answered `unauthorized` and the client retired its pending record. It
+  answers `failed` now. Mutant `arrival/failed-lookup-reads-as-refusal`.
+- **The late door vanished after the restaurant's midnight (P2).** An unbagged order stays late
+  while the arrival is no longer offered, and the door lived inside the arrival card. The door is the
+  card's last line when the card is open and stands on its own when it is not; a test pins 12:30 AM.

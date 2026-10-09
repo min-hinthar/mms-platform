@@ -386,6 +386,20 @@ export function PickupPromise({
     ? false
     : announced || offered || phase === "window" || phase === "committing";
   const lateDoor = stage === "late";
+  // B10 — the quiet human fallback comes LAST: once a pickup runs late, the restaurant's phone as a
+  // 44px paper door, labelled by the language-neutral number. It is the stuck state's ONE way out,
+  // so it never depends on the arrival card being open (Codex r2 on #330): past the restaurant's
+  // midnight an unbagged order is still late while the arrival is no longer offered.
+  const door = (
+    <a
+      href={`tel:${BRAND_PHONE_TEL}`}
+      className="ui-btn ui-btn-secondary ui-btn-sm pickup-door"
+      aria-label={`Call ${BRAND_PHONE_DISPLAY}`}
+    >
+      <Icon name="phone" size={16} aria-hidden />
+      <span className="pickup-door-number">{BRAND_PHONE_DISPLAY}</span>
+    </a>
+  );
 
   return (
     <>
@@ -529,20 +543,12 @@ export function PickupPromise({
               )}
             </>
           )}
-          {/* B10 — the quiet human fallback comes LAST: once a pickup runs late, the restaurant's
-              phone as a 44px paper door under the hero, labelled by the language-neutral number. */}
-          {lateDoor && (
-            <a
-              href={`tel:${BRAND_PHONE_TEL}`}
-              className="ui-btn ui-btn-secondary ui-btn-sm pickup-door"
-              aria-label={`Call ${BRAND_PHONE_DISPLAY}`}
-            >
-              <Icon name="phone" size={16} aria-hidden />
-              <span className="pickup-door-number">{BRAND_PHONE_DISPLAY}</span>
-            </a>
-          )}
+          {/* The door is the card's LAST line when the card is open (B10). */}
+          {lateDoor && door}
         </section>
       )}
+      {/* …and stands on its own when the card is not (no arrival offered or announced). */}
+      {lateDoor && !showCard && <p className="pickup-door-alone">{door}</p>}
     </>
   );
 }
