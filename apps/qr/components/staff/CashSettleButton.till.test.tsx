@@ -457,7 +457,9 @@ describe("the till's doubt is sticky — 'Nothing was taken' never over a settle
 
   it("the doubt crosses openings: no answer at the bound → a late throw → reopen → refused says nothing", async () => {
     vi.useFakeTimers();
-    const h = host();
+    // A host that remembers NOTHING (a remount lost its unknown): only the till's own ledger can
+    // stand between the late throw and the reassurance — the host guard would mask its reset.
+    const h = host({ remembers: false });
     let reject: (e: unknown) => void = () => {};
     settleCash
       .mockReturnValueOnce(
