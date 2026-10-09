@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  alreadyNudgedCopy,
   confirmCopy,
   dollars,
   hostSendsCopy,
@@ -162,5 +163,19 @@ describe("PD1 — the guest's two ways forward, named from the table's own names
     expect(c.button).toEqual({ en: "Let Aye know", my: "Aye ကို ပြောလိုက်မယ်" });
     expect(c.seen.en).toBe("Aye can see you’re waiting.");
     expect(/\p{Script=Myanmar}/u.test(c.seen.my)).toBe(true);
+  });
+  it("a tablemate's standing nudge is named as THEIRS — never 'Aye can see you're waiting'", () => {
+    const c = alreadyNudgedCopy("Thiri", " Aye ");
+    expect(c.en).toBe("Thiri already let Aye know — they can see the table’s waiting.");
+    expect(c.my).toContain("Thiri");
+    expect(c.my).toContain("Aye");
+    expect(c.en).not.toContain("you’re waiting");
+    for (const nameless of [null, "  "]) {
+      // MUTATION (confirm-copy/already-nudged-names-nobody): the blank name printed — " already let
+      // Aye know"; red.
+      expect(alreadyNudgedCopy(nameless, "Aye").en).toBe(
+        "Someone at your table already let Aye know — they can see the table’s waiting.",
+      );
+    }
   });
 });

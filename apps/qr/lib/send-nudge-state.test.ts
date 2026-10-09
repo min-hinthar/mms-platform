@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   chosenName,
   DEFAULT_SEAT_NAME,
-  NUDGE_COOLDOWN_MS,
   nudgeOffered,
   nudgeStands,
   waitingLine,
@@ -17,11 +16,17 @@ const guest = {
   hostName: "Aye",
   kitchenDraftUnits: 2,
   frozen: false,
+  ready: true,
 };
 
 describe("nudgeOffered — who may nudge", () => {
   it("a guest with waiting dishes at a table that can name its host", () => {
     expect(nudgeOffered(guest)).toBe(true);
+  });
+  it("never while the stamp is unreadable — an unmigrated project would fail every tap", () => {
+    // MUTATION (send-nudge/offered-over-an-unreadable-stamp): the read gate dropped — "Let Aye
+    // know" is offered on a project whose stamp read answers 42703, and every tap fails; red.
+    expect(nudgeOffered({ ...guest, ready: false })).toBe(false);
   });
   it("never the host — only the host sends, so only a guest waits on one", () => {
     // MUTATION (send-nudge/host-offered-the-nudge): the role check dropped — the host is offered
@@ -96,11 +101,5 @@ describe("chosenName — the default seat name is a role word, never a person", 
     expect(chosenName("   ")).toBeNull();
     expect(chosenName(null)).toBeNull();
     expect(chosenName(undefined)).toBeNull();
-  });
-});
-
-describe("the cooldown is one minute", () => {
-  it("matches the SQL's interval", () => {
-    expect(NUDGE_COOLDOWN_MS).toBe(60_000);
   });
 });

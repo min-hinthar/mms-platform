@@ -6,6 +6,7 @@ import { STAFF } from "@/lib/i18n/staff";
 import { t as kioskT } from "@/lib/kiosk/strings";
 import { qtyStands } from "@/lib/kds-line";
 import { DINER_STATE_COPY } from "@/lib/line-state-copy";
+import { passIdentity } from "@/lib/pass-identity";
 import type { ShowServerStatus } from "@/lib/show-server";
 
 /** The pass's one status word per stage — every string shipped (the console's own pairs). */
@@ -34,7 +35,10 @@ const STATUS: Record<
  * THE PASS IS POST-PAY'S `CounterPass`, RENDERED (round 3, ONE PASS): the identity figure printed
  * ONCE under "Table · စားပွဲ" at the `counter` tier (`--fs-pass`), the dotted seam and its notches
  * showing the page ground, constant paper in both themes. A table with no number yet (bound at Send,
- * §33) prints its session code at the `holder` tier (the 40px code face), spelt for a screen reader.
+ * §33) prints a NON-SECRET identity in the figure's place — the host's first name ("Aye’s table") or
+ * "Your table" — and never the session's join code, which is its bearer secret (`lib/pass-identity`;
+ * the change from reconciliation 6, 2026-10-09): Dad finds the table on the console by its open
+ * cart, not by a code read off a phone held up in the room.
  * The status is the kitchen track in the pass's head: the hollow ring and "Not sent yet · မပို့ရသေး",
  * the dashed segment and "Sending…" inside the grace, and — THE ONE DELIGHT, honest (m1 B3 · D3) —
  * segment 1 FILLs with "Sent to kitchen · ပို့ပြီး" only once an applied server view shows the dishes
@@ -53,7 +57,7 @@ export function ShowServerPass({
   onOpenChange,
   onCloseAutoFocus,
   tableNumber,
-  tableCode,
+  hostName,
   dishes,
   status,
 }: {
@@ -62,17 +66,14 @@ export function ShowServerPass({
   /** Where focus lands when the pass closes (the opener, or the page's <h1> once it is gone). */
   onCloseAutoFocus: (e: Event) => void;
   tableNumber: number | null;
-  /** The session's join code (`SplitContext.qrCode`) for a table with no number yet. */
-  tableCode: string | null;
+  /** The host's display name, for a table with no number yet — never the join code. */
+  hostName: string | null;
   /** `passDishes(view, listed)` — the rows the pass prints. */
   dishes: CartItem[];
   /** `showServerStatus(dishes, serverNow)`; "none" never reaches here (the pass closes itself). */
   status: Exclude<ShowServerStatus, "none">;
 }) {
-  const figure =
-    tableNumber != null
-      ? { kind: "table" as const, text: String(tableNumber) }
-      : { kind: "code" as const, text: tableCode ?? "—" };
+  const identity = passIdentity(tableNumber, hostName);
   const now = STATUS[status];
   return (
     <Sheet
@@ -91,10 +92,8 @@ export function ShowServerPass({
     >
       <div className="show-server-body">
         <CounterPass
-          tier={figure.kind === "table" ? "counter" : "holder"}
-          figure={figure.text}
-          figureKind={figure.kind}
-          figureSpoken={figure.kind === "code" ? figure.text.split("").join(" ") : undefined}
+          tier="counter"
+          {...identity}
           label={{ en: "Table", my: STAFF["floor.table"].my.replace(" {id}", "") }}
           lang="en"
           head={

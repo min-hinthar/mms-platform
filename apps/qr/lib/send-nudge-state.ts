@@ -15,15 +15,16 @@ import type { SplitContext } from "./split";
 /** The stamp as the cart view carries it. */
 export type SendNudge = { seat: string; at: string };
 
-/** A second nudge inside this window is refused (`recent`) and the first stamp stands. */
-export const NUDGE_COOLDOWN_MS = 60_000;
-
 /**
  * Who is OFFERED "Let {host} know": a guest (only the host sends, so only a guest waits on one)
  * at a table that can NAME its host (`chosenName` — the default "Guest" is never read as a person),
  * with dishes the host has not sent, and nobody's payment holding the cart (staff cannot send
  * under a pay lock either, so both ways forward hide — m1 decision 18). The host's PRESENCE is
  * never a condition (m1 A6): a face-down phone is the common case, and the stamp waits for it.
+ *
+ * And only while the stamp itself is READABLE (`nudgeReady`, `getCartView`): the blind pass on
+ * #335 — a project without the PD1 migration answers the stamp read 42703, and a button offered
+ * there fails on every tap. An unreadable stamp hides the offer; it never offers a dead control.
  */
 export function nudgeOffered(s: {
   role: "host" | "guest" | null;
@@ -31,8 +32,12 @@ export function nudgeOffered(s: {
   hostName: string | null;
   kitchenDraftUnits: number;
   frozen: boolean;
+  /** The view's stamp read succeeded (`getCartView.nudgeReady`). */
+  ready: boolean;
 }): boolean {
-  return s.role === "guest" && s.hostName !== null && s.kitchenDraftUnits > 0 && !s.frozen;
+  return (
+    s.ready && s.role === "guest" && s.hostName !== null && s.kitchenDraftUnits > 0 && !s.frozen
+  );
 }
 
 /** The guest's confirmation shows while the stamp standing on the cart is THIS seat's. */

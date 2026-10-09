@@ -53,9 +53,15 @@ vi.mock("./rate", () => ({
   withinMutationRate: () => Promise.resolve(rateOk),
 }));
 
-type Row = { ok: boolean; reason: string; nudged_at: string | null };
+type Row = { ok: boolean; reason: string; nudged_at: string | null; nudge_seat: string | null };
+const LANDED: Row = {
+  ok: true,
+  reason: "ok",
+  nudged_at: "2026-10-08T10:00:00.000Z",
+  nudge_seat: "s-thiri",
+};
 let rpcAnswer: { data: Row[] | null; error: { message: string } | null } = {
-  data: [{ ok: true, reason: "ok", nudged_at: "2026-10-08T10:00:00.000Z" }],
+  data: [LANDED],
   error: null,
 };
 const rpc = vi.fn(() => Promise.resolve(rpcAnswer));
@@ -67,17 +73,14 @@ beforeEach(() => {
   authz = GUEST;
   rateOk = true;
   rpc.mockClear();
-  rpcAnswer = {
-    data: [{ ok: true, reason: "ok", nudged_at: "2026-10-08T10:00:00.000Z" }],
-    error: null,
-  };
+  rpcAnswer = { data: [LANDED], error: null };
 });
 
 describe("nudgeHost", () => {
   it("a guest's nudge lands: the RPC is called with the caller's SEAT, never a client value", async () => {
     expect(await nudgeHost({ cartId: "c-1" })).toEqual({
       ok: true,
-      nudgedAt: "2026-10-08T10:00:00.000Z",
+      nudge: { seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" },
     });
     expect(rpc).toHaveBeenCalledWith("mms_nudge_host", {
       p_cart_id: "c-1",
@@ -109,20 +112,108 @@ describe("nudgeHost", () => {
   });
   it("`recent` is a SUCCESS carrying the standing stamp — the guest's line keeps showing", async () => {
     rpcAnswer = {
-      data: [{ ok: false, reason: "recent", nudged_at: "2026-10-08T09:59:30.000Z" }],
+      data: [
+        {
+          ok: false,
+          reason: "recent",
+          nudged_at: "2026-10-08T09:59:30.000Z",
+          nudge_seat: "s-thiri",
+        },
+      ],
       error: null,
     };
     // MUTATION (send-nudge/recent-read-as-a-failure): a second tap inside the minute says "That
     // didn't go through" over a nudge that stands; red.
     expect(await nudgeHost({ cartId: "c-1" })).toEqual({
       ok: true,
-      nudgedAt: "2026-10-08T09:59:30.000Z",
+      nudge: { seat: "s-thiri", at: "2026-10-08T09:59:30.000Z" },
     });
+  });
+  it("ANOTHER seat's standing stamp is `taken`, carrying THAT seat — never a success for the caller", async () => {
+    // The blind pass on #335: Thiri nudged; Mya taps inside the minute. The answer names Thiri's
+    // stamp, and Mya is never told "Aye can see you're waiting" for a nudge that is not hers.
+    authz = { ...GUEST, uid: "s-mya" };
+    rpcAnswer = {
+      data: [
+        {
+          ok: false,
+          reason: "taken",
+          nudged_at: "2026-10-08T09:59:30.000Z",
+          nudge_seat: "s-thiri",
+        },
+      ],
+      error: null,
+    };
+    // MUTATION (send-nudge/taken-read-as-a-success): `taken` mapped to ok — Mya's phone settles over
+    // Thiri's nudge; red.
+    expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({
+      ok: false,
+      reason: "taken",
+      nudge: { seat: "s-thiri", at: "2026-10-08T09:59:30.000Z" },
+    });
+  });
+  it("a success carries the SERVER's seat — a `recent` naming another seat is refused, never relabelled", async () => {
+    // The action trusts the stamp it reads, not the phone that asked: a `recent` row whose seat is
+    // not the caller's is not a shape `mms_nudge_host` writes, so it is never read as theirs.
+    authz = { ...GUEST, uid: "s-mya" };
+    rpcAnswer = {
+      data: [
+        {
+          ok: false,
+          reason: "recent",
+          nudged_at: "2026-10-08T09:59:30.000Z",
+          nudge_seat: "s-thiri",
+        },
+      ],
+      error: null,
+    };
+    // MUTATION (send-nudge/recent-trusts-any-seat): the seat check dropped — Mya reads Thiri's
+    // stamp as her own; red.
+    expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({ ok: false, reason: "error" });
+    // …and a landed nudge reports the seat the SQL stamped, whatever the caller's uid reads.
+    rpcAnswer = { data: [LANDED], error: null };
+    // MUTATION (send-nudge/success-reports-the-callers-seat): the stamp's seat taken from the caller
+    // instead of the row; red.
+    expect(await nudgeHost({ cartId: "c-1" })).toEqual({
+      ok: true,
+      nudge: { seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" },
+    });
+  });
+  it("a fresh freeze the SQL saw (`paying`) and nothing left to send are refusals with their own words", async () => {
+    rpcAnswer = {
+      data: [{ ok: false, reason: "paying", nudged_at: null, nudge_seat: null }],
+      error: null,
+    };
+    expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({ ok: false, reason: "locked" });
+    rpcAnswer = {
+      data: [{ ok: false, reason: "nothing_to_send", nudged_at: null, nudge_seat: null }],
+      error: null,
+    };
+    // MUTATION (send-nudge/nothing-to-send-read-as-a-failure): the reason dropped to the generic
+    // failure — "try again" over a cart with nothing to send; red.
+    expect(await nudgeHost({ cartId: "c-1" })).toEqual({
+      ok: false,
+      reason: "nothing_to_send",
+      error: "There’s nothing waiting to send right now.",
+    });
+  });
+  it("a closed cart is never called PAID — a merge cancels one, a sweep closes its table", async () => {
+    rpcAnswer = {
+      data: [{ ok: false, reason: "closed", nudged_at: null, nudge_seat: null }],
+      error: null,
+    };
+    const r = await nudgeHost({ cartId: "c-1" });
+    // MUTATION (send-nudge/closed-said-as-paid): the old "already paid" sentence restored; red.
+    expect(r).toMatchObject({ ok: false, reason: "closed" });
+    expect(r.ok === false && r.error).toBe(
+      "This order has moved or closed — there’s nothing to send.",
+    );
+    expect(r.ok === false && r.error).not.toMatch(/paid/i);
   });
   it("every SQL refusal is a refusal with its reason, and never claims a nudge", async () => {
     for (const reason of ["is_host", "no_host", "not_member"] as const) {
       rpcAnswer = {
-        data: [{ ok: false, reason, nudged_at: null }],
+        data: [{ ok: false, reason, nudged_at: null, nudge_seat: null }],
         error: null,
       };
       expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({
@@ -131,7 +222,7 @@ describe("nudgeHost", () => {
       });
     }
     rpcAnswer = {
-      data: [{ ok: false, reason: "closed", nudged_at: null }],
+      data: [{ ok: false, reason: "closed", nudged_at: null, nudge_seat: null }],
       error: null,
     };
     expect(await nudgeHost({ cartId: "c-1" })).toMatchObject({

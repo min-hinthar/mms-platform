@@ -125,7 +125,13 @@ import { bindRefusalCopy, sendNeedsTable } from "@/lib/table-pick";
 import type { DineInTable } from "@/lib/tables";
 import { checkoutSteps } from "@/lib/checkout-steps";
 import { orderNoun } from "@/lib/order-noun";
-import { hostSendsCopy, nudgeCopy, staffCanSendCopy, TABLE_STARTER } from "@/lib/confirm-copy";
+import {
+  alreadyNudgedCopy,
+  hostSendsCopy,
+  nudgeCopy,
+  staffCanSendCopy,
+  TABLE_STARTER,
+} from "@/lib/confirm-copy";
 import {
   chosenName,
   nudgeOffered,
@@ -273,6 +279,7 @@ export function Checkout({
   initialTabType = "none",
   initialCounterRequestedAt = null,
   initialSendNudge = null,
+  initialNudgeReady = false,
   initialServerNow = null,
   initialViewMode = null,
   initialTableNumber = null,
@@ -304,6 +311,8 @@ export function Checkout({
   initialCounterRequestedAt?: string | null;
   /** PD1 — a guest's "Let {host} know" stamp standing on the cart (`getCartView.sendNudge`). */
   initialSendNudge?: SendNudge | null;
+  /** PD1 — the stamp read itself succeeded (`getCartView.nudgeReady`); false hides the offer. */
+  initialNudgeReady?: boolean;
   /** PD1 — the server's clock (ISO) as the first view was made (`getCartView.serverNow`); null =
    *  unknown, which the pass reads conservatively (a line in its grace stays "Sending…"). */
   initialServerNow?: string | null;
@@ -576,6 +585,7 @@ export function Checkout({
   const [ownAsk, setOwnAsk] = useState(false);
   // PD1 — the nudge stamp and the server's clock, both from every applied view.
   const [sendNudge, setSendNudge] = useState<SendNudge | null>(initialSendNudge);
+  const [nudgeReady, setNudgeReady] = useState(initialNudgeReady);
   const [serverNowMs, setServerNowMs] = useState<number | null>(() =>
     initialServerNow ? Date.parse(initialServerNow) : null,
   );
@@ -707,8 +717,10 @@ export function Checkout({
     setMySeat(v.mySeat);
     setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
     setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-    // PD1 — the nudge stamp (cleared by the fire, in the same statement) and the server's clock.
+    // PD1 — the nudge stamp (cleared by the fire, in the same transaction), whether it was
+    // readable, and the server's clock.
     setSendNudge(v.sendNudge);
+    setNudgeReady(v.nudgeReady);
     setServerNowMs(Date.parse(v.serverNow));
     setViewMode(v.mode); // Codex round 2 on #331 — the door's authoritative mode
     // PD2 (Codex round 1 on #331, comment 4222692016) — the ask's OWNERSHIP follows the confirmed
@@ -2182,9 +2194,12 @@ export function Checkout({
   /**
    * PD1 (owner answer 3; m1 B7) — "Let {host} know": ONE write through the member-authorized action
    * (`nudgeHost` → `mms_nudge_host`, every rule in its WHERE). The confirmed stamp is recorded as the
-   * value the server returned, after the M225 barrier (a read issued before the tap must not land
-   * after it and erase the stamp); the confirmation is said once through the view's region. A
-   * refusal says the action's own sentence and records nothing.
+   * value the server returned — ITS seat, never this phone's (the blind pass on #335) — after the
+   * M225 barrier (a read issued before the tap must not land after it and erase the stamp); the
+   * confirmation is said once through the view's region. A tablemate's standing stamp (`taken`) is
+   * recorded too and named as theirs: never "{host} can see you're waiting" for a nudge that is not
+   * this guest's. A refusal says the action's own sentence; one that means this view is stale (the
+   * dishes went, the cart closed, a payment holds it) re-reads, so the wait block follows the truth.
    */
   async function nudge() {
     if (nudgeBusy || !hostName) return;
@@ -2197,12 +2212,23 @@ export function Checkout({
     setNudgeBusy(true);
     try {
       const r = await nudgeHost({ cartId });
+      if (!r.ok && r.reason === "taken") {
+        // A tablemate's nudge stands: the host already knows. Recorded as THEIRS, said as theirs.
+        confirmedWrite(viewSeqRef.current);
+        setSendNudge(r.nudge);
+        const nudger = splitContext?.members.find((m) => m.seat === r.nudge.seat)?.name ?? null;
+        const taken = alreadyNudgedCopy(chosenName(nudger), hostName);
+        sayOutcome(taken.en, taken.my);
+        return;
+      }
       if (!r.ok) {
         sayRefusal(r.error);
+        if (r.reason === "nothing_to_send" || r.reason === "closed" || r.reason === "locked")
+          void refresh();
         return;
       }
       confirmedWrite(viewSeqRef.current);
-      if (mySeat) setSendNudge({ seat: mySeat, at: r.nudgedAt });
+      setSendNudge(r.nudge);
       sayOutcome(copy.seen.en, copy.seen.my);
     } catch {
       // The action returns every refusal; a throw is transport (Next redacts its message in prod).
@@ -2733,6 +2759,7 @@ export function Checkout({
     hostName,
     kitchenDraftUnits: kitchenDraftQty,
     frozen: editsFrozen,
+    ready: nudgeReady,
   });
   // The guest's confirmation follows the STAMP, and only this seat's.
   const nudgeMine = nudgeStands(sendNudge, mySeat);
@@ -3716,7 +3743,7 @@ export function Checkout({
             {passShowing && (
               <PayAtCounterPass
                 tableNumber={tableNumber}
-                tableCode={splitContext?.qrCode ?? null}
+                hostName={hostName}
                 totalCents={totals.totalCents}
                 sentenceKey={counterCard ? "counterBody" : "counterShowCash"}
                 settling={settling}
@@ -4522,7 +4549,7 @@ export function Checkout({
                 onOpenChange={setPassOpen}
                 onCloseAutoFocus={onPassClosed}
                 tableNumber={tableNumber}
-                tableCode={splitContext.qrCode}
+                hostName={hostName}
                 dishes={passRows}
                 status={passStatus === "none" ? "waiting" : passStatus}
               />

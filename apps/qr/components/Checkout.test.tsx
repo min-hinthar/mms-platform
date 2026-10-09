@@ -202,6 +202,7 @@ function view(over: Partial<View> = {}): View {
     counterRequestedAt: null,
     tableNumber: 7,
     sendNudge: null,
+    nudgeReady: true,
     serverNow: "2026-10-08T10:00:00.000Z",
     mode: "dinein",
     ...over,
@@ -2489,6 +2490,35 @@ describe("PD2 — the counter-only Bill: one docked door, no card hero, and the 
     );
   });
 
+  it("a table with no number yet holds up a NON-SECRET identity on the counter pass — never the join code", () => {
+    // Owner-delegated decision (2026-10-09), widened from #335's blind pass: PATH_DESIGN
+    // reconciliation 6 printed `qrCode` at the 40px holder tier here — the session's bearer join
+    // secret, on a pass held up in the dining room.
+    mount({
+      splitContext: {
+        ...GUEST,
+        tableNumber: null,
+        qrCode: "7C2E9A",
+        members: [
+          { seat: PEER_SEAT, name: "Aye Aye", role: "host" as const },
+          { seat: MY_SEAT, name: "Me", role: "guest" as const },
+        ],
+      },
+      initialItems: [FIRED],
+      initialCounterRequestedAt: "2026-10-08T06:00:00.000Z",
+    });
+    const pass = document.querySelector("[data-counter-ask]")!;
+    expect(pass).not.toBeNull();
+    // The host's FIRST name, the figure's place taken by words.
+    expect(within(pass as HTMLElement).getByRole("heading", { name: "Aye’s table" })).toBeTruthy();
+    // MUTATION (checkout/counter-pass-prints-the-join-code): the code routed back onto the pass as
+    // its identity; red.
+    expect(pass.textContent).not.toMatch(/7\s*C\s*2\s*E\s*9\s*A/);
+    expect(document.body.textContent).not.toContain("7C2E9A");
+    for (const el of pass.querySelectorAll("[aria-label]"))
+      expect(el.getAttribute("aria-label")).not.toMatch(/7\s*C\s*2\s*E\s*9\s*A/);
+  });
+
   it("the withdraw says 'No rush' — never the parked tip-and-Pay sentence", async () => {
     mount({
       splitContext: HOST,
@@ -2792,9 +2822,14 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     myRole: "host" as const,
   };
   const DRAFT: CartItem = { ...ITEM, qty: 2 };
+  /** A third seat at the table: the tablemate whose nudge may already stand. */
+  const MYA_SEAT = "seat-mya";
+  // The stamp read SUCCEEDED by default here (`getCartView.nudgeReady`); one case turns it off.
+  const mountPD1 = (p: Partial<Parameters<typeof Checkout>[0]> = {}) =>
+    mount({ initialNudgeReady: true, ...p });
   beforeEach(() => {
     flags.phonePayOpen = false;
-    h.nudgeHost.mockResolvedValue({ ok: true, nudgedAt: STAMP_AT });
+    h.nudgeHost.mockResolvedValue({ ok: true, nudge: { seat: MY_SEAT, at: STAMP_AT } });
   });
   afterEach(() => {
     flags.phonePayOpen = true;
@@ -2803,7 +2838,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   const showServer = () => screen.queryByRole("button", { name: /^Show a server/ });
 
   it("the guest WAITS: the next step and who takes it, two ways forward, one filled verb, no count", () => {
-    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
     const block = wait();
     expect(block).not.toBeNull();
     // Phase 1b's sentence, verbatim, named from the table's own names.
@@ -2828,7 +2863,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   });
 
   it("'Let Aye know' writes once, settles in place, and says the confirmation through the one region", async () => {
-    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
     await press(/^Let Aye know/);
     expect(h.nudgeHost).toHaveBeenCalledWith({ cartId: CART });
     await settle();
@@ -2850,7 +2885,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
       reason: "error",
       error: "That didn’t go through — please try again.",
     });
-    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
     await press(/^Let Aye know/);
     await settle();
     expect(regionText()).toContain("That didn’t go through — please try again.");
@@ -2861,7 +2896,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   });
 
   it("an unnamed host ('Guest') is never read as a person: the role sentence, and no nudge", () => {
-    mount({
+    mountPD1({
       splitContext: {
         ...GUEST,
         members: [
@@ -2881,7 +2916,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   });
 
   it("under a tablemate's pay lock both ways forward hide — nobody, staff included, can send", () => {
-    mount({
+    mountPD1({
       splitContext: GUEST,
       initialItems: [DRAFT],
       initialLocked: true,
@@ -2894,7 +2929,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   });
 
   it("a HOSTLESS table does not wait: nobody at the table sends, and the bill door stays the hero", () => {
-    mount({
+    mountPD1({
       splitContext: {
         ...GUEST,
         members: [{ seat: MY_SEAT, name: "Thiri", role: "guest" as const }],
@@ -2911,7 +2946,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
   });
 
   it("'Show a server' is the table's pass: the figure once, the dishes, 'Not sent yet' — and it flips only past the grace", async () => {
-    mount({
+    mountPD1({
       splitContext: GUEST,
       initialItems: [DRAFT],
       initialTableNumber: 7,
@@ -2955,21 +2990,45 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     expect(within(dialog).getByRole("list").textContent).toContain("Mohinga");
   });
 
-  it("a table with no number yet (bound at Send) holds up its CODE at the holder tier, spelt", async () => {
-    mount({
+  it("a table with no number yet (bound at Send) holds up the HOST'S name — never the session's join code", async () => {
+    // Owner-delegated decision (2026-10-09; the blind pass on #335): the code is the session's
+    // bearer join secret and its RLS key, and a pass is held up in the dining room.
+    mountPD1({
       splitContext: { ...GUEST, tableNumber: null, qrCode: "7C2E9A" },
       initialItems: [DRAFT],
     });
     await press(/^Show a server/);
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.querySelector('.ui-pass[data-tier="holder"]')).not.toBeNull();
-    expect(
-      within(dialog).getByRole("heading", { level: 2, name: "Table 7 C 2 E 9 A" }),
-    ).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { level: 2, name: "Aye’s table" })).toBeTruthy();
+    // MUTATION (checkout/show-server-pass-prints-the-join-code): the code routed back onto the
+    // pass as its identity; red.
+    expect(dialog.textContent).not.toMatch(/7\s*C\s*2\s*E\s*9\s*A/);
+    expect(document.body.textContent).not.toContain("7C2E9A");
+    for (const el of dialog.querySelectorAll("[aria-label]"))
+      expect(el.getAttribute("aria-label")).not.toMatch(/7\s*C\s*2\s*E\s*9\s*A/);
+  });
+
+  it("a numberless table whose host has no chosen name holds up 'Your table'", async () => {
+    mountPD1({
+      splitContext: {
+        ...GUEST,
+        tableNumber: null,
+        qrCode: "7C2E9A",
+        members: [
+          { seat: PEER_SEAT, name: "Guest", role: "host" as const },
+          { seat: MY_SEAT, name: "Thiri", role: "guest" as const },
+        ],
+      },
+      initialItems: [DRAFT],
+    });
+    await press(/^Show a server/);
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { level: 2, name: "Your table" })).toBeTruthy();
+    expect(dialog.textContent).not.toContain("7C2E9A");
   });
 
   it("every listed dish REMOVED closes the pass — a removal never reads as a send", async () => {
-    mount({ splitContext: GUEST, initialItems: [DRAFT] });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
     await press(/^Show a server/);
     await screen.findByRole("dialog");
     h.getCartView.mockResolvedValue(view({ items: [] }));
@@ -2979,7 +3038,7 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
 
   it("the HOST finds the guest's wait above Send, with the caption; a guest's phone never draws it", () => {
     const stamp = { seat: MY_SEAT, at: STAMP_AT };
-    mount({
+    mountPD1({
       splitContext: HOST,
       initialMySeat: PEER_SEAT,
       initialItems: [DRAFT],
@@ -2994,11 +3053,68 @@ describe("PD1 — a tablemate's dish waits on the host's Send (m1 'Next Stop: Ki
     // The host never waits on themselves.
     expect(wait()).toBeNull();
     cleanup();
-    mount({ splitContext: GUEST, initialItems: [DRAFT], initialSendNudge: stamp });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT], initialSendNudge: stamp });
     expect(document.getElementById("nudge-line")).toBeNull();
     // …but the nudger's own confirmation follows the stamp.
     expect(document.getElementById("nudge-seen")!.textContent).toContain(
       "Aye can see you’re waiting.",
     );
+  });
+  it("a TABLEMATE's standing nudge is named as theirs — this phone never claims it ('taken')", async () => {
+    // The blind pass on #335: Thiri taps inside the minute after Mya's nudge. The server answers
+    // `taken` with MYA's seat; the Bill records that stamp and says whose it is — never "Aye can
+    // see you're waiting" over a nudge that is not Thiri's.
+    h.nudgeHost.mockResolvedValue({
+      ok: false,
+      reason: "taken",
+      nudge: { seat: MYA_SEAT, at: STAMP_AT },
+      error: "Someone at your table already let them know — they can see the table’s waiting.",
+    });
+    mountPD1({
+      splitContext: {
+        ...GUEST,
+        members: [...GUEST.members, { seat: MYA_SEAT, name: "Mya", role: "guest" as const }],
+      },
+      initialItems: [DRAFT],
+    });
+    await press(/^Let Aye know/);
+    await settle();
+    // MUTATION (checkout/taken-said-as-a-refusal): the `taken` branch dropped — the generic
+    // sentence instead of the tablemate's name; red.
+    expect(regionText()).toContain("Mya already let Aye know — they can see the table’s waiting.");
+    // MUTATION (checkout/taken-recorded-as-this-phones-seat): the stamp recorded in this phone's
+    // seat — the control settles over Mya's nudge with Thiri's confirmation; red.
+    expect(document.getElementById("nudge-seen")).toBeNull();
+    expect(regionText()).not.toContain("Aye can see you’re waiting.");
+    expect(
+      screen.getByRole("button", { name: /^Let Aye know/ }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
+  it("a refusal that means the view is stale ('nothing to send') re-reads, so the wait block follows the truth", async () => {
+    h.nudgeHost.mockResolvedValue({
+      ok: false,
+      reason: "nothing_to_send",
+      error: "There’s nothing waiting to send right now.",
+    });
+    mountPD1({ splitContext: GUEST, initialItems: [DRAFT] });
+    h.getCartView.mockClear();
+    await press(/^Let Aye know/);
+    await settle();
+    expect(regionText()).toContain("There’s nothing waiting to send right now.");
+    // MUTATION (checkout/stale-nudge-refusal-never-rereads): the re-read dropped — the block keeps
+    // offering a nudge the server refuses every time; red.
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+  });
+
+  it("an UNREADABLE stamp (the migration not applied: 42703) never offers 'Let Aye know'", () => {
+    // The blind pass on #335: on a project without the PD1 migration every tap would fail.
+    mount({ splitContext: GUEST, initialItems: [DRAFT], initialNudgeReady: false });
+    // MUTATION (checkout/nudge-offered-over-an-unreadable-stamp): the read gate not passed through;
+    // red.
+    expect(screen.queryByRole("button", { name: /^Let Aye know/ })).toBeNull();
+    // The rest of the wait block still stands: the staff fallback and "Show a server".
+    expect(wait()).not.toBeNull();
+    expect(showServer()).not.toBeNull();
   });
 });

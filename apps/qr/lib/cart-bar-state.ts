@@ -16,9 +16,14 @@ export function cartBarCountShown(mode: string): boolean {
 export type CartBarLine2 = "unsent" | "waiting" | null;
 
 /**
- * The bar's second line: the HOST's "Someone's waiting" outranks "Not sent yet" (a standing nudge
- * implies a dish the host owes); a guest never reads the waiting line (the nudge is theirs to the
- * host, not news to them); nothing off the table.
+ * The bar's second line: the HOST's "Someone's waiting" outranks "Not sent yet"; a guest never
+ * reads the waiting line (the nudge is theirs to the host, not news to them); nothing off the table.
+ *
+ * ⚠️ "WAITING" NEEDS A DISH TO SEND (the blind pass on #335). A stamp does not imply a dish the host
+ * owes: the only writer that clears it is the fire, so it outlives a dish that was taken off,
+ * voided or moved on by the kitchen — and the bar then said "Someone's waiting" with nothing a Send
+ * would move. The waiting line shows only while a dine-in draft is on the cart (the same predicate
+ * as "Not sent yet", the one `mms_fire_cart` fires); `mms_nudge_host` refuses a stamp without one.
  */
 export function cartBarLine2(s: {
   mode: string;
@@ -28,11 +33,12 @@ export function cartBarLine2(s: {
   nudgeStanding: boolean;
 }): CartBarLine2 {
   if (cartBarCountShown(s.mode)) return null;
-  if (s.role === "host" && s.nudgeStanding) return "waiting";
   // What the Send would move (`mms_fire_cart`: dine-in drafts) — never a to-go draft, which fires
   // at pay, and never a grocery line.
-  if (s.items.some((i) => i.lineState === "draft" && i.fulfillment === "dinein")) return "unsent";
-  return null;
+  const sendable = s.items.some((i) => i.lineState === "draft" && i.fulfillment === "dinein");
+  if (!sendable) return null;
+  if (s.role === "host" && s.nudgeStanding) return "waiting";
+  return "unsent";
 }
 
 /** The bar's STATIC accessible name (read on focus; never a live region). */

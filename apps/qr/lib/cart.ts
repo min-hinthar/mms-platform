@@ -666,6 +666,10 @@ export async function getCartView(cartId: string): Promise<{
   /** PD1 — a guest's "Let {host} know" stamp standing on the cart (`qr_carts.send_nudge_*`), or
    *  null: nobody waiting, or the advisory read failed. Cleared by `mms_fire_cart` with the fire. */
   sendNudge: SendNudge | null;
+  /** PD1 — the stamp read itself SUCCEEDED (the blind pass on #335): false on a project without
+   *  the PD1 migration (42703) or a failed read, and the Bill then never offers "Let {host} know" —
+   *  a button whose every tap would fail. */
+  nudgeReady: boolean;
   /** PD1 — the app server's clock (ISO) as this view was made. */
   serverNow: string;
   /** The session's mode (`table_sessions.mode`), from the fail-closed authorization read. */
@@ -815,6 +819,8 @@ export async function getCartView(cartId: string): Promise<{
       nudgeRes.error || !nudgeRes.data?.send_nudge_seat || !nudgeRes.data.send_nudge_at
         ? null
         : { seat: nudgeRes.data.send_nudge_seat, at: nudgeRes.data.send_nudge_at },
+    // PD1 — whether that read answered at all: an unreadable stamp hides the nudge's offer.
+    nudgeReady: !nudgeRes.error,
     // PD1 — the app server's clock as this view was made, so a phone compares the lines' `fire_at`
     // against the SERVER's now (the "Show a server" pass flips past the grace, never by its own
     // clock — lib/show-server.ts). The same clock `sendToKitchen` returns beside its deadline.

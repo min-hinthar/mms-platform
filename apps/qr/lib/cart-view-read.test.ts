@@ -149,6 +149,7 @@ describe("getCartView — PD1's nudge stamp is advisory: read when it stands, ne
     };
     const v = await getCartView("c-1");
     expect(v.sendNudge).toEqual({ seat: "s-thiri", at: "2026-10-08T10:00:00.000Z" });
+    expect(v.nudgeReady).toBe(true);
     expect(Number.isNaN(Date.parse(v.serverNow))).toBe(false);
   });
   it("an unreadable stamp (the columns not migrated yet: 42703) is null, and the order still renders", async () => {
@@ -158,6 +159,15 @@ describe("getCartView — PD1's nudge stamp is advisory: read when it stands, ne
     const v = await getCartView("c-1");
     expect(v.sendNudge).toBeNull();
     expect(v.items).toEqual([]);
+    // MUTATION (cart/nudge-ready-ignores-the-read-error): the read's error not carried — the Bill
+    // offers "Let {host} know" on a project where every tap fails (the blind pass on #335); red.
+    expect(v.nudgeReady).toBe(false);
+  });
+  it("a readable cart with no stamp is READY — nobody waiting is an answer, not an outage", async () => {
+    nudgeRes = { data: { send_nudge_seat: null, send_nudge_at: null }, error: null };
+    const v = await getCartView("c-1");
+    expect(v.sendNudge).toBeNull();
+    expect(v.nudgeReady).toBe(true);
   });
   it("half a stamp is no stamp — nothing would ever clear the line it drew", async () => {
     // MUTATION (cart/nudge-half-stamp-read-as-a-wait): the time half dropped from the check — a seat

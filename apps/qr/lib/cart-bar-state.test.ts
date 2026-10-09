@@ -54,6 +54,21 @@ describe("cartBarLine2 — the console's own words under 'View order'", () => {
       cartBarLine2({ mode: "dinein", role: "guest", items: [draft], nudgeStanding: true }),
     ).toBe("unsent");
   });
+  it("a stamp with NO dish left to send says nothing — the waiting line needs a dine-in draft", () => {
+    // The blind pass on #335: Thiri nudged, then took her dish off (or staff voided it, or the
+    // kitchen moved it on). Only the fire clears the stamp, so it stands — but nothing waits.
+    // MUTATION (cart-bar/waiting-without-a-dish-to-send): the draft gate after the waiting check —
+    // "Someone's waiting" over nothing a Send would move; red.
+    expect(
+      cartBarLine2({ mode: "dinein", role: "host", items: [sent], nudgeStanding: true }),
+    ).toBeNull();
+    expect(
+      cartBarLine2({ mode: "dinein", role: "host", items: [togoDraft], nudgeStanding: true }),
+    ).toBeNull();
+    expect(
+      cartBarLine2({ mode: "dinein", role: "host", items: [], nudgeStanding: true }),
+    ).toBeNull();
+  });
   it("never on a cart that is one phone's — pickup and the market have no send step", () => {
     expect(
       cartBarLine2({ mode: "pickup", role: null, items: [draft], nudgeStanding: false }),

@@ -160,3 +160,27 @@ export function nudgeCopy(hostName: string): {
     seen: { en: `${who} can see you’re waiting.`, my: `စောင့်နေတာ ${who} မြင်ရပါပြီ` },
   };
 }
+
+/**
+ * PD1 (the blind pass on #335) — a tablemate's nudge already stands: `mms_nudge_host` answered
+ * `taken` with THEIR seat. The guest is told whose nudge it was — never "{host} can see you're
+ * waiting", which would claim a stamp that is not theirs. The tablemate is named only by a name the
+ * table CHOSE (`chosenName`); otherwise "Someone at your table". Both MY lines are K15 drafts (m1,
+ * quiet).
+ */
+export function alreadyNudgedCopy(
+  nudgerName: string | null,
+  hostName: string,
+): { en: string; my: string } {
+  const who = nudgerName?.trim() || null;
+  const host = hostName.trim();
+  return who
+    ? {
+        en: `${who} already let ${host} know — they can see the table’s waiting.`,
+        my: `${who} က ${host} ကို ပြောပြီးသားပါ — စားပွဲက စောင့်နေတာ မြင်ရပါတယ်`,
+      }
+    : {
+        en: `Someone at your table already let ${host} know — they can see the table’s waiting.`,
+        my: `စားပွဲက တစ်ယောက်က ${host} ကို ပြောပြီးသားပါ — စောင့်နေတာ မြင်ရပါတယ်`,
+      };
+}

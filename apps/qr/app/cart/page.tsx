@@ -196,6 +196,11 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialCounterRequestedAt={view.counterRequestedAt}
       // Codex round 2 on #331 — the authoritative mode for the parked phone-pay door.
       initialViewMode={view.mode}
+      // PD1 — the nudge stamp, whether it was readable at all (an unreadable stamp hides the
+      // offer), and the server's clock the "Show a server" pass reads the grace against.
+      initialSendNudge={view.sendNudge}
+      initialNudgeReady={view.nudgeReady}
+      initialServerNow={view.serverNow}
       // 3c-ii (D30): a SEED — the number is live state in Checkout from here (every applied view,
       // the bind's confirmed answer).
       initialTableNumber={view.tableNumber}
