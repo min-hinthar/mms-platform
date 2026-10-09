@@ -1,0 +1,692 @@
+/* @mms/ui — the ONE PASS and the ONE KITCHEN TRACK (PATH_DESIGN 2026-10-07, round 3).
+ *
+ * `.ui-pass` is the CounterPass: every pass the family reads — the guest's "Show a server" card, the
+ * counter ask, the walk-up seal's #CODE stub, the live Bill, the pickup claim ticket, the TV's table
+ * pass — is this one primitive RENDERED, never redrawn. It is constant paper in both themes, like a
+ * boarding pass in a wallet: every colour here is a `--pass-*` token (tokens.css declares them once
+ * and never in `.dark`), the notches' cut-outs are `--pass-hole` (the HOST's ground), and the one
+ * theme token this sheet may read is `--sh-paper`, the shadow the paper casts on the host's ground.
+ * `pass-css.test.ts` parses this file and refuses any other theme token or colour literal.
+ *
+ * `.ui-track` is the KitchenTrack: three pill segments, length is progress and colour is the stage
+ * (Sent ink-2 · Cooking ink · Served ok); the hollow ring is "unsent" and never a track; gold and
+ * accent are never a progress colour. On a THEMED surface (`data-surface="theme"`) the same shape
+ * takes `--t2` / `--tx` / `--ok` — that block is the ONLY place a theme colour appears.
+ *
+ * Motion: TURN (a stage completes), FILL (a segment lands), STAMP then PRINT (Paid only). Each is a
+ * host-triggered hook (`data-turning`, `data-filling`, `data-stamping`); every base style is the
+ * final frame, and the reduced-motion block at the foot names each animated selector exactly.
+ *
+ * Tokens only. The two figure tiers that are not `--fs-pass` — the shipped `.exit-pass-code` 40px
+ * holder face and the TV board's 54px code row (`.orb-card`'s clamp ceiling) — are declared here as
+ * component-scoped properties, the way the KDS declares `--kfs-*` on `.kds-root`: three tiers, one
+ * place each, never a fourth. `scripts/check-style-literals.mjs` counts this file.
+ */
+
+/* ── CounterPass ──────────────────────────────────────────────────────────────────────────────── */
+.ui-pass {
+  --pass-fs-holder: 2.5rem; /* 40 — the holder's own tier (= .exit-pass-code) */
+  --pass-fs-tv: 3.375rem; /* 54 — the TV board's code row (= .orb-card's ceiling) */
+  --pass-seam-w: 2px;
+  --pass-edge: color-mix(in srgb, var(--pass-ink) 18%, transparent);
+  --pass-stub-ground: color-mix(in srgb, var(--pass-ink) 6%, var(--pass-paper));
+  --pass-print-dur: 1.05s;
+  --pass-print-delay: 640ms;
+  /* The tail's and the tear's clip AT REST: the PRINT keyframes end here, so the base IS the final
+     frame, and -8px admits the notches' overhang (7px at most) that an `inset(0)` would shave. */
+  --pass-print-rest: inset(-8px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--pass-ink);
+  font-family: var(--font-body);
+  text-align: center;
+}
+.ui-pass[data-seam="4px"] {
+  --pass-seam-w: 4px;
+}
+/* A guide picture: the real pass, inert — the host scales it with one uniform transform. */
+.ui-pass[data-inert] {
+  pointer-events: none;
+  user-select: none;
+}
+/* A pass NEVER nests. The guard is on the paper, where it shows: a pass rendered inside another
+   draws no ground, no edge and no shadow (`:where()` keeps the specificity at one class). */
+.ui-pass:where(:not(.ui-pass .ui-pass)) > .ui-pass-paper {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--pass-paper);
+  border: 1px solid var(--pass-edge);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-paper);
+}
+/* A torn foot: the tear strip takes over the bottom edge (the shipped .receipt-slip-body rule). */
+.ui-pass[data-tear] .ui-pass-paper {
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* The head: the main (status + ONE identity figure) and, in portrait, a side stub behind a vertical
+   perforation that runs through the head only — its foot meets the seam (a T). */
+.ui-pass-head {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  perspective: 600px;
+}
+.ui-pass[data-tier="holder"] .ui-pass-head {
+  min-height: 96px;
+}
+.ui-pass-main {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s1);
+  padding: var(--s3);
+  transform-origin: 50% 0;
+  backface-visibility: hidden;
+}
+.ui-pass-stub {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 28%;
+  max-width: 40%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s2);
+  border-left: var(--pass-seam-w) dotted var(--pass-seam);
+  border-top-right-radius: calc(var(--r-card) - 1px);
+  background: var(--pass-stub-ground);
+  color: var(--pass-ink-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+/* The status row: the host's stage glyph + word (a KitchenTrack at the glyph size). On the pass
+   head the English stage word runs as the kicker — uppercase, spaced — and the Burmese beside it. */
+.ui-pass-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-width: 0;
+  color: var(--pass-ink-2);
+}
+.ui-pass-status .ui-track-word-en {
+  text-transform: uppercase;
+  letter-spacing: var(--track-eyebrow);
+  font-size: var(--fs-xs);
+}
+.ui-pass-status .ui-track-word-my {
+  font-size: var(--fs-sm);
+}
+.ui-pass-status .ui-track-word-dot {
+  color: var(--pass-ink-3);
+}
+
+/* ONE identity figure under the two-tongue label "စားပွဲ · Table" (the order flips with lang). */
+.ui-pass-identity {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  /* The figure's TURN (Y axis) needs its perspective on its own parent; the head's serves the main. */
+  perspective: 600px;
+}
+.ui-pass-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s1);
+  white-space: nowrap;
+}
+.ui-pass-label-my {
+  font-family: var(--font-my);
+  color: var(--pass-ink);
+  line-height: var(--lh-my);
+}
+.ui-pass-label-en {
+  color: var(--pass-ink-2);
+}
+.ui-pass-label-dot {
+  color: var(--pass-ink-3);
+}
+.ui-pass-figure {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+  line-height: 1;
+  color: var(--pass-ink);
+  font-variant-numeric: tabular-nums;
+  transform-origin: 50% 50%;
+  backface-visibility: hidden;
+}
+/* The figureless identity (m11: "Your table" where no number is bound yet): the host's words at
+   the label tier — the lead tongue at full ink names the pass, a second tongue beneath it in
+   ink-2 — with no figure, no label and no dot. */
+.ui-pass-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+}
+.ui-pass-fallback-lead {
+  color: var(--pass-ink);
+  font-size: var(--fs-h3);
+}
+.ui-pass-fallback-echo {
+  color: var(--pass-ink-2);
+  font-size: var(--fs-lead);
+}
+.ui-pass-fallback [lang="my"] {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+.ui-pass[data-tier="counter"] .ui-pass-fallback-lead,
+.ui-pass[data-tier="tv"] .ui-pass-fallback-lead {
+  font-size: var(--fs-h1);
+}
+.ui-pass[data-tier="counter"] .ui-pass-fallback-echo,
+.ui-pass[data-tier="tv"] .ui-pass-fallback-echo {
+  font-size: var(--fs-h2);
+}
+/* A table number is Fraunces 600 tabular; a code or a time is the Hanken 800 code face. */
+.ui-pass-figure-table {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-display);
+}
+.ui-pass-figure-code {
+  font-family: var(--font-body);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-wide);
+}
+/* The three tiers — the holder's 40px, `--fs-pass` across the counter or the room, the TV's 54px
+   code row. The TV's TABLE figure is `--fs-pass` pinned, never a clamp (m9 D1). */
+.ui-pass[data-tier="holder"] .ui-pass-figure {
+  font-size: var(--pass-fs-holder);
+}
+.ui-pass[data-tier="holder"] .ui-pass-label-my {
+  font-size: var(--fs-lead);
+}
+.ui-pass[data-tier="holder"] .ui-pass-label-en {
+  font-size: var(--fs-label);
+}
+.ui-pass[data-tier="counter"] .ui-pass-figure,
+.ui-pass[data-tier="tv"] .ui-pass-figure-table {
+  font-size: var(--fs-pass);
+}
+.ui-pass[data-tier="tv"] .ui-pass-figure-code {
+  font-size: var(--pass-fs-tv);
+}
+.ui-pass[data-tier="counter"] .ui-pass-label-my,
+.ui-pass[data-tier="counter"] .ui-pass-label-en,
+.ui-pass[data-tier="tv"] .ui-pass-label-my,
+.ui-pass[data-tier="tv"] .ui-pass-label-en {
+  font-size: var(--fs-h2);
+}
+/* A three-digit table (either orientation), or a code of five or more glyphs on a portrait paper,
+   steps down to `--fs-display` with no wrap (m2 appendix C) — after the tier rules on purpose:
+   same specificity, so source order decides. */
+.ui-pass[data-figure-long] .ui-pass-figure-table,
+.ui-pass[data-figure-long] .ui-pass-figure-code {
+  font-size: var(--fs-display);
+}
+
+/* The stamp — the ONLY ✓ a pass draws: Paid in the stub of a dine-in pass, Ready in the head of a
+   pickup ticket. The base state is fully drawn; `data-stamping` plays STAMP once. */
+.ui-pass-stamp {
+  display: block;
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+.ui-pass-status .ui-pass-stamp {
+  width: 20px;
+  height: 20px;
+}
+.ui-pass-stamp-ring {
+  fill: var(--pass-paper);
+  stroke: var(--pass-ok);
+  stroke-width: 2.5;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.ui-pass-stamp-mark {
+  fill: none;
+  stroke: var(--pass-ok);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 40;
+  stroke-dashoffset: 0;
+}
+/* The stamped stub is green only where the payment just landed (portrait: the dine-in pass). */
+.ui-pass[data-orientation="portrait"][data-terminal="paid"] .ui-pass-stub {
+  background: var(--pass-okb);
+  color: var(--pass-ink);
+}
+
+/* The tail: the seam (a dotted perforation with 12px bites on the paper's edges) and the body. */
+.ui-pass-tail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  clip-path: var(--pass-print-rest);
+}
+.ui-pass-seam {
+  position: relative;
+  flex: none;
+  height: 16px;
+}
+.ui-pass-seam-rule {
+  position: absolute;
+  left: var(--s4);
+  right: var(--s4);
+  top: 7px;
+  border-top: var(--pass-seam-w) dotted var(--pass-seam);
+}
+.ui-pass-body {
+  min-width: 0;
+  padding: var(--s1) var(--s4) var(--s3);
+  text-align: start;
+}
+/* The notches: the host's ground showing through, bordered only on the arc inside the paper, so a
+   bite reads as a cut and the half outside the paper vanishes into the ground. */
+.ui-pass-notch {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--pass-hole);
+  border: 0 solid var(--pass-edge);
+  pointer-events: none;
+}
+.ui-pass-notch-start {
+  left: -1px;
+  top: 2px;
+  width: 7px;
+  height: 12px;
+  border-width: 1px 1px 1px 0;
+  border-radius: 0 6px 6px 0;
+}
+.ui-pass-notch-end {
+  right: -1px;
+  top: 2px;
+  width: 7px;
+  height: 12px;
+  border-width: 1px 0 1px 1px;
+  border-radius: 6px 0 0 6px;
+}
+.ui-pass-notch-top,
+.ui-pass-notch-bottom {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--r-full);
+}
+.ui-pass-notch-top {
+  top: -7px;
+  border-bottom-width: 1px;
+}
+.ui-pass-notch-bottom {
+  bottom: -7px;
+  border-top-width: 1px;
+}
+/* A stub-only pass (no body, no tear) keeps the stub inside the paper's bottom corner too. */
+.ui-pass:not([data-tear]) .ui-pass-paper > .ui-pass-head:last-child > .ui-pass-stub {
+  border-bottom-right-radius: calc(var(--r-card) - 1px);
+}
+/* Portrait: the head's one notch sits on the top edge, centred on the stub's perforation. */
+.ui-pass-stub > .ui-pass-notch-top {
+  left: calc(-6px - var(--pass-seam-w) / 2);
+}
+/* The torn foot (the shipped .receipt-tear recipe on the pass's own paper): borderless, because
+   torn paper has no rule; the mask is alpha, so currentColor is any opaque ink. */
+.ui-pass-tear {
+  flex: none;
+  height: 11px;
+  clip-path: var(--pass-print-rest);
+  background: var(--pass-paper);
+  -webkit-mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, currentColor 6.5px);
+  mask-image: radial-gradient(circle 6px at 10px -1px, transparent 6px, currentColor 6.5px);
+  -webkit-mask-size: 20px 11px;
+  mask-size: 20px 11px;
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+}
+
+/* Landscape (the TV's table pass, the seal's #CODE stub): the whole head is the stub, on the LEFT,
+   behind a vertical perforation with a bite at the top and the bottom edge. */
+.ui-pass[data-orientation="landscape"] .ui-pass-paper {
+  flex-direction: row;
+  align-items: stretch;
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-head {
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  min-width: 136px;
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-main {
+  padding: var(--s4) var(--s3);
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-stub {
+  min-width: 0;
+  max-width: none;
+  padding: 0 var(--s3) var(--s3);
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-tail {
+  flex: 1 1 0;
+  flex-direction: row;
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-seam {
+  height: auto;
+  width: 16px;
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-seam-rule {
+  left: 7px;
+  right: auto;
+  top: var(--s4);
+  bottom: var(--s4);
+  border-top: 0;
+  border-left: var(--pass-seam-w) dotted var(--pass-seam);
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-seam > .ui-pass-notch {
+  left: calc(1px + var(--pass-seam-w) / 2);
+}
+.ui-pass[data-orientation="landscape"] .ui-pass-body {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--s3) var(--s5) var(--s3) var(--s2);
+}
+
+/* The visually-hidden name — `.sr-only` lives only in the app's stylesheet, and this primitive
+   ships in the package (the same reason the quiet toast carries its own recipe). */
+.ui-pass-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── The motion hooks — TURN · STAMP then PRINT. Base = the final frame. ───────────────────────── */
+/* TURN: a split-flap in two `--dur-base` halves — ease-in to edge-on, then the new face falls from
+   its hinge with `--ease-out`. X on the head (a stage completes: m9, m10); Y on the figure (m3's
+   time→code). ONE element: the host keys the turning part on the stage so the flap plays once. */
+.ui-pass[data-turning="head"] .ui-pass-main {
+  animation: uiPassTurnX calc(var(--dur-base) * 2) both;
+}
+.ui-pass[data-turning="figure"] .ui-pass-figure {
+  animation: uiPassTurnY calc(var(--dur-base) * 2) both;
+}
+@keyframes uiPassTurnX {
+  0% {
+    transform: rotateX(0);
+    animation-timing-function: ease-in;
+  }
+  50% {
+    transform: rotateX(90deg);
+  }
+  50.01% {
+    transform: rotateX(-90deg);
+    animation-timing-function: var(--ease-out);
+  }
+  100% {
+    transform: none;
+  }
+}
+@keyframes uiPassTurnY {
+  0% {
+    transform: rotateY(0);
+    animation-timing-function: ease-in;
+  }
+  50% {
+    transform: rotateY(90deg);
+  }
+  50.01% {
+    transform: rotateY(-90deg);
+    animation-timing-function: var(--ease-out);
+  }
+  100% {
+    transform: none;
+  }
+}
+/* STAMP (the PaySuccess keyframes moved onto the stub), then PRINT from 640ms: the tail reveals
+   top→bottom, and the torn foot follows once the body is out, so the print head reaches it last. */
+.ui-pass[data-stamping] .ui-pass-stamp-ring {
+  animation: uiPassStampRing var(--dur-slow) var(--spring) both;
+}
+.ui-pass[data-stamping] .ui-pass-stamp-mark {
+  animation: uiPassStampDraw var(--dur-slow) var(--ease-out) 150ms both;
+}
+.ui-pass[data-stamping] .ui-pass-tail {
+  animation: uiPassPrint var(--pass-print-dur) cubic-bezier(0.22, 1, 0.36, 1)
+    var(--pass-print-delay) both;
+}
+.ui-pass[data-stamping] .ui-pass-tear {
+  animation: uiPassPrintTear var(--dur-fast) var(--ease-out)
+    calc(var(--pass-print-delay) + var(--pass-print-dur)) both;
+}
+@keyframes uiPassStampRing {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes uiPassStampDraw {
+  from {
+    stroke-dashoffset: 40;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes uiPassPrint {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(8px);
+  }
+  to {
+    clip-path: var(--pass-print-rest);
+    transform: none;
+  }
+}
+@keyframes uiPassPrintTear {
+  from {
+    clip-path: inset(0 0 100% 0);
+  }
+  to {
+    clip-path: var(--pass-print-rest);
+  }
+}
+
+/* ── KitchenTrack ─────────────────────────────────────────────────────────────────────────────── */
+.ui-track {
+  --seg-w: 28px;
+  --seg-h: 6px;
+  --seg-gap: 3px;
+  --ring: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+/* The four sizes: the 14×5 glyph beside a stage word, the 28×6 row on phones and in guide
+   pictures, the TV's 36×8 row, 16×6 inside a pickup stub. Never a fifth. */
+.ui-track[data-size="glyph"] {
+  --seg-w: 14px;
+  --seg-h: 5px;
+  --seg-gap: 2px;
+  --ring: 12px;
+}
+.ui-track[data-size="row"] {
+  --seg-w: 28px;
+  --seg-h: 6px;
+  --seg-gap: 3px;
+  --ring: 14px;
+}
+.ui-track[data-size="tv"] {
+  --seg-w: 36px;
+  --seg-h: 8px;
+  --seg-gap: 4px;
+  --ring: 20px;
+}
+.ui-track[data-size="stub"] {
+  --seg-w: 16px;
+  --seg-h: 6px;
+  --seg-gap: 3px;
+  --ring: 14px;
+}
+/* The surface decides the palette: constant pass inks on the paper; the theme's own on a themed
+   surface (Dad's pane, the KDS key) — this `theme` block is the ONLY theme colour in this file. */
+.ui-track[data-surface="pass"] {
+  --trk-0: var(--pass-unlit);
+  --trk-1: var(--pass-ink-2);
+  --trk-2: var(--pass-ink);
+  --trk-3: var(--pass-ok);
+}
+.ui-track[data-surface="theme"] {
+  --trk-0: var(--bd);
+  --trk-1: var(--t2);
+  --trk-2: var(--tx);
+  --trk-3: var(--ok);
+}
+/* Colour is the stage: the ring, the dashed grace and Sent take ink-2; Cooking ink; Served ok. The
+   stage word takes its segments' ink. Gold and accent are never a progress colour. */
+.ui-track[data-stage="unsent"],
+.ui-track[data-stage="sending"],
+.ui-track[data-stage="sent"] {
+  --trk-ink: var(--trk-1);
+}
+.ui-track[data-stage="cooking"] {
+  --trk-ink: var(--trk-2);
+}
+.ui-track[data-stage="served"] {
+  --trk-ink: var(--trk-3);
+}
+.ui-track-segs {
+  display: inline-flex;
+  flex: none;
+  gap: var(--seg-gap);
+}
+.ui-track-seg {
+  box-sizing: border-box;
+  width: var(--seg-w);
+  height: var(--seg-h);
+  border-radius: var(--r-full);
+  background: var(--trk-0);
+  transform-origin: 0 50%;
+}
+.ui-track-seg[data-lit] {
+  background: var(--trk-ink);
+}
+.ui-track-seg[data-dashed] {
+  background: transparent;
+  border: 1.5px dashed var(--trk-ink);
+}
+/* Unsent: the hollow ring, never a track. */
+.ui-track-ring {
+  box-sizing: border-box;
+  flex: none;
+  width: var(--ring);
+  height: var(--ring);
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--trk-ink);
+}
+.ui-track-word {
+  color: var(--trk-ink);
+  font-weight: var(--fw-bold);
+}
+.ui-track-word-my {
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+/* FILL: the segment that just landed scales in from its inline start (480ms). An un-fill is
+   instant — the host simply renders the earlier stage with no `filling`. */
+.ui-track[data-filling] .ui-track-seg[data-landing] {
+  animation: uiTrackFill var(--dur-slow) var(--ease-out) both;
+}
+@keyframes uiTrackFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ── Escorts ──────────────────────────────────────────────────────────────────────────────────── */
+/* Reduced motion: every animated selector above, by name — the base style is the final frame, so
+   turning off the animation IS the escort (the stamp drawn, the print at rest, the segment lit). */
+@media (prefers-reduced-motion: reduce) {
+  .ui-pass[data-turning="head"] .ui-pass-main,
+  .ui-pass[data-turning="figure"] .ui-pass-figure,
+  .ui-pass[data-stamping] .ui-pass-stamp-ring,
+  .ui-pass[data-stamping] .ui-pass-stamp-mark,
+  .ui-pass[data-stamping] .ui-pass-tail,
+  .ui-pass[data-stamping] .ui-pass-tear,
+  .ui-track[data-filling] .ui-track-seg[data-landing] {
+    animation: none;
+  }
+}
+/* Forced colours: the notches hide, the perforations stay dotted, the segments flatten to outlines
+   (the words carry the state). System colours only in this block. */
+@media (forced-colors: active) {
+  .ui-pass-notch {
+    display: none;
+  }
+  .ui-pass-paper,
+  .ui-pass-stub,
+  .ui-pass-seam-rule {
+    border-color: CanvasText;
+  }
+  .ui-pass-stamp-ring {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+  .ui-pass-stamp-mark {
+    stroke: CanvasText;
+  }
+  .ui-track-seg {
+    border: 1px solid CanvasText;
+    background: Canvas;
+  }
+  .ui-track-seg[data-lit] {
+    background: CanvasText;
+  }
+  .ui-track-seg[data-dashed] {
+    border-style: dashed;
+  }
+  .ui-track-ring {
+    border-color: CanvasText;
+  }
+}
